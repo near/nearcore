@@ -1,3 +1,4 @@
+use near_primitives::time::Clock;
 use std::collections::{hash_map::Entry, HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -69,9 +70,8 @@ pub enum EdgeType {
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "test_features", derive(Serialize, Deserialize))]
 pub struct Edge {
-    /// Since edges are not directed `peer0 < peer1` should hold.
-    pub peer0: PeerId,
-    pub peer1: PeerId,
+    /// Since edges are not directed `key.0 < peer1` should hold.
+    pub key: (PeerId, PeerId),
     /// Nonce to keep tracking of the last update on this edge.
     /// It must be even
     pub nonce: u64,
@@ -99,17 +99,16 @@ impl Edge {
             (peer1, signature1, peer0, signature0)
         };
 
-        Self { peer0, peer1, nonce, signature0, signature1, removal_info: None }
+        Self { key: (peer0, peer1), nonce, signature0, signature1, removal_info: None }
     }
 
     pub fn to_simple_edge(&self) -> SimpleEdge {
-        SimpleEdge::new(self.peer0.clone(), self.peer1.clone(), self.nonce)
+        SimpleEdge::new(self.key.0.clone(), self.key.1.clone(), self.nonce)
     }
 
     pub fn make_fake_edge(peer0: PeerId, peer1: PeerId, nonce: u64) -> Self {
         Self {
-            peer0,
-            peer1,
+            key: (peer0, peer1),
             nonce,
             signature0: Signature::empty(KeyType::ED25519),
             signature1: Signature::empty(KeyType::ED25519),
@@ -139,7 +138,7 @@ impl Edge {
         assert_eq!(self.edge_type(), EdgeType::Added);
         let mut edge = self.clone();
         edge.nonce += 1;
-        let me = edge.peer0 == my_peer_id;
+        let me = edge.key.0 == my_peer_id;
         let hash = edge.hash();
         let signature = sk.sign(hash.as_ref());
         edge.removal_info = Some((me, signature));
@@ -159,15 +158,15 @@ impl Edge {
     }
 
     fn hash(&self) -> CryptoHash {
-        Edge::build_hash(&self.peer0, &self.peer1, self.nonce)
+        Edge::build_hash(&self.key.0, &self.key.1, self.nonce)
     }
 
     fn prev_hash(&self) -> CryptoHash {
-        Edge::build_hash(&self.peer0, &self.peer1, self.nonce - 1)
+        Edge::build_hash(&self.key.0, &self.key.1, self.nonce - 1)
     }
 
     pub fn verify(&self) -> bool {
-        if self.peer0 > self.peer1 {
+        if self.key.0 > self.key.1 {
             return false;
         }
 
@@ -176,8 +175,8 @@ impl Edge {
                 let data = self.hash();
 
                 self.removal_info.is_none()
-                    && self.signature0.verify(data.as_ref(), &self.peer0.public_key())
-                    && self.signature1.verify(data.as_ref(), &self.peer1.public_key())
+                    && self.signature0.verify(data.as_ref(), &self.key.0.public_key())
+                    && self.signature1.verify(data.as_ref(), &self.key.1.public_key())
             }
             EdgeType::Removed => {
                 // nonce should be an even positive number
@@ -187,14 +186,14 @@ impl Edge {
 
                 // Check referring added edge is valid.
                 let add_hash = self.prev_hash();
-                if !self.signature0.verify(add_hash.as_ref(), &self.peer0.public_key())
-                    || !self.signature1.verify(add_hash.as_ref(), &self.peer1.public_key())
+                if !self.signature0.verify(add_hash.as_ref(), &self.key.0.public_key())
+                    || !self.signature1.verify(add_hash.as_ref(), &self.key.1.public_key())
                 {
                     return false;
                 }
 
                 if let Some((party, signature)) = &self.removal_info {
-                    let peer = if *party { &self.peer0 } else { &self.peer1 };
+                    let peer = if *party { &self.key.0 } else { &self.key.1 };
                     let del_hash = self.hash();
                     signature.verify(del_hash.as_ref(), &peer.public_key())
                 } else {
@@ -221,8 +220,8 @@ impl Edge {
         edge_info.signature.verify(data.as_ref(), &pk)
     }
 
-    pub fn get_pair(&self) -> (PeerId, PeerId) {
-        (self.peer0.clone(), self.peer1.clone())
+    pub fn get_pair(&self) -> &(PeerId, PeerId) {
+        &self.key
     }
 
     /// It will be considered as a new edge if the nonce is odd, otherwise it is canceling the
@@ -250,15 +249,15 @@ impl Edge {
     }
 
     pub fn contains_peer(&self, peer_id: &PeerId) -> bool {
-        self.peer0 == *peer_id || self.peer1 == *peer_id
+        self.key.0 == *peer_id || self.key.1 == *peer_id
     }
 
     /// Find a peer id in this edge different from `me`.
-    pub fn other(&self, me: &PeerId) -> Option<PeerId> {
-        if self.peer0 == *me {
-            Some(self.peer1.clone())
-        } else if self.peer1 == *me {
-            Some(self.peer0.clone())
+    pub fn other(&self, me: &PeerId) -> Option<&PeerId> {
+        if self.key.0 == *me {
+            Some(&self.key.1)
+        } else if self.key.1 == *me {
+            Some(&self.key.0)
         } else {
             None
         }
@@ -508,8 +507,8 @@ impl RoutingTableView {
 
     pub fn remove_edges(&mut self, edges: &Vec<Edge>) {
         for edge in edges.iter() {
-            assert!(edge.peer0 == self.my_peer_id || edge.peer1 == self.my_peer_id);
-            let key = (edge.peer0.clone(), edge.peer1.clone());
+            assert!(edge.key.0 == self.my_peer_id || edge.key.1 == self.my_peer_id);
+            let key = (edge.key.0.clone(), edge.key.1.clone());
             self.local_edges_info.remove(&key);
         }
     }
@@ -538,9 +537,9 @@ impl RoutingTableView {
         let mut res = None;
 
         if let Some(nonces) = self.waiting_pong.cache_get_mut(&pong.source) {
-            res = nonces
-                .cache_remove(&(pong.nonce as usize))
-                .and_then(|sent| Some(Instant::now().duration_since(sent).as_secs_f64() * 1000f64));
+            res = nonces.cache_remove(&(pong.nonce as usize)).and_then(|sent| {
+                Some(Clock::instant().duration_since(sent).as_secs_f64() * 1000f64)
+            });
         }
 
         let cnt = self.pong_info.cache_get(&(pong.nonce as usize)).map(|v| v.1).unwrap_or(0);
@@ -559,7 +558,7 @@ impl RoutingTableView {
             self.waiting_pong.cache_get_mut(&target).unwrap()
         };
 
-        entry.cache_set(nonce, Instant::now());
+        entry.cache_set(nonce, Clock::instant());
     }
 
     pub fn get_ping(&mut self, peer_id: PeerId) -> usize {

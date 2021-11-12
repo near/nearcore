@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use borsh::de::BorshDeserialize;
+use near_primitives::time::Clock;
 
 use near_crypto::Signature;
 use near_network::routing::routing::{
@@ -37,7 +38,7 @@ impl RoutingTableTest {
     fn new() -> Self {
         let me = random_peer_id();
         let store = create_test_store();
-        let now = Instant::now();
+        let now = Clock::instant();
 
         Self {
             routing_table: RoutingTableActor::new(me.clone(), store.clone()),
@@ -70,8 +71,8 @@ impl RoutingTableTest {
     }
 
     fn get_edge_description(&self, edge: &Edge) -> EdgeDescription {
-        let peer0 = self.rev_peers.get(&edge.peer0).unwrap();
-        let peer1 = self.rev_peers.get(&edge.peer1).unwrap();
+        let peer0 = self.rev_peers.get(&edge.key.0).unwrap();
+        let peer1 = self.rev_peers.get(&edge.key.1).unwrap();
         let edge_type = edge.edge_type();
         EdgeDescription(*peer0, *peer1, edge_type)
     }
@@ -166,10 +167,8 @@ impl RoutingTableTest {
     }
 
     fn update_routing_table(&mut self) {
-        self.routing_table.recalculate_routing_table_and_maybe_prune_edges(
-            Prune::PruneOncePerHour,
-            DELETE_PEERS_AFTER_TIME,
-        );
+        self.routing_table.recalculate_routing_table();
+        self.routing_table.prune_edges(Prune::PruneOncePerHour, DELETE_PEERS_AFTER_TIME);
     }
 }
 

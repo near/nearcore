@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chrono::Utc;
+use near_primitives::time::Clock;
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::types::RuntimeAdapter;
@@ -67,7 +67,7 @@ impl Default for SealsManagerTestFixture {
             Default::default(),
             Default::default(),
             Default::default(),
-            Utc::now(),
+            Clock::utc(),
             Default::default(),
             Default::default(),
             Default::default(),

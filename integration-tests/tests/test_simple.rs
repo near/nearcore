@@ -5,8 +5,9 @@ mod test {
     use integration_tests::node::{create_nodes, sample_two_nodes, Node};
     use integration_tests::test_helpers::{heavy_test, wait};
     use near_logger_utils::init_integration_logger;
+    use near_primitives::time::Clock;
     use near_primitives::transaction::SignedTransaction;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str) {
         init_integration_logger();
@@ -21,7 +22,7 @@ mod test {
         }
 
         // waiting for nodes to be synced
-        let started = Instant::now();
+        let started = Clock::instant();
         loop {
             if started.elapsed() > Duration::from_secs(10) {
                 panic!("nodes are not synced in 10s");

@@ -1,7 +1,7 @@
+use near_primitives::time::Instant;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use std::time::Instant;
 
 use actix::{Addr, System};
 use futures::{future, FutureExt};

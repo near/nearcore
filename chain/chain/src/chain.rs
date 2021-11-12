@@ -4,8 +4,8 @@ use std::time::{Duration as TimeDuration, Instant};
 
 use borsh::BorshSerialize;
 use chrono::Duration;
-use chrono::Utc;
 use itertools::Itertools;
+use near_primitives::time::{Clock, Utc};
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -476,7 +476,7 @@ impl Chain {
         self.orphans.add(Orphan {
             block: block.clone(),
             provenance: Provenance::NONE,
-            added: Instant::now(),
+            added: Clock::instant(),
         });
         Ok(())
     }
@@ -1088,6 +1088,7 @@ impl Chain {
         F3: FnMut(ChallengeBody) -> (),
     {
         near_metrics::inc_counter(&metrics::BLOCK_PROCESSED_TOTAL);
+        near_metrics::set_gauge(&metrics::NUM_ORPHANS, self.orphans.len() as i64);
 
         let prev_head = self.store.head()?;
         let mut chain_update = self.chain_update();
@@ -1145,7 +1146,7 @@ impl Chain {
                         // we only add blocks that couldn't have been gc'ed to the orphan pool.
                         if block_height >= tail_height {
                             let block_hash = *block.hash();
-                            let orphan = Orphan { block, provenance, added: Instant::now() };
+                            let orphan = Orphan { block, provenance, added: Clock::instant() };
 
                             self.orphans.add(orphan);
 
@@ -1165,7 +1166,7 @@ impl Chain {
                     ErrorKind::ChunksMissing(missing_chunks) => {
                         let block_hash = *block.hash();
                         block_misses_chunks(missing_chunks.clone());
-                        let orphan = Orphan { block, provenance, added: Instant::now() };
+                        let orphan = Orphan { block, provenance, added: Clock::instant() };
 
                         self.blocks_with_missing_chunks.add_block_with_missing_chunks(
                             orphan,

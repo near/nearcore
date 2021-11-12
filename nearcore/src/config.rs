@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use actix;
-use chrono::Utc;
+use near_primitives::time::Clock;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -535,7 +535,7 @@ impl Genesis {
         add_protocol_account(&mut records);
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
-            genesis_time: Utc::now(),
+            genesis_time: Clock::utc(),
             chain_id: random_chain_id(),
             num_block_producer_seats: num_validator_seats,
             num_block_producer_seats_per_shard: num_validator_seats_per_shard.clone(),
@@ -945,7 +945,7 @@ pub fn init_configs(
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
-                genesis_time: Utc::now(),
+                genesis_time: Clock::utc(),
                 chain_id,
                 genesis_height: 0,
                 num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,

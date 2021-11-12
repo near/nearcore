@@ -13,9 +13,9 @@ use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, SyncArbiter, WrapFuture,
 };
-use chrono::Utc;
 use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
+use near_primitives::time::Clock;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::FramedRead;
 use tracing::{debug, error, info, trace, warn};
@@ -298,7 +298,7 @@ impl PeerManagerActor {
             }
             self.routing_table_view
                 .local_edges_info
-                .insert((edge.peer0.clone(), edge.peer1.clone()), edge.clone());
+                .insert((edge.key.0.clone(), edge.key.1.clone()), edge.clone());
         }
 
         self.routing_table_addr
@@ -372,7 +372,7 @@ impl PeerManagerActor {
     /// Receives list of edges that were verified, in a trigger every 20ms, and adds them to
     /// the routing table.
     fn broadcast_edges_trigger(&mut self, ctx: &mut Context<PeerManagerActor>) {
-        let start = Instant::now();
+        let start = Clock::instant();
         let mut new_edges = Vec::new();
         while let Some(edge) = self.routing_table_exchange_helper.edges_to_add_receiver.pop() {
             new_edges.push(edge);
@@ -535,9 +535,9 @@ impl PeerManagerActor {
                 full_peer_info,
                 sent_bytes_per_sec: 0,
                 received_bytes_per_sec: 0,
-                last_time_peer_requested: Instant::now(),
-                last_time_received_message: Instant::now(),
-                connection_established_time: Instant::now(),
+                last_time_peer_requested: Clock::instant(),
+                last_time_received_message: Clock::instant(),
+                connection_established_time: Clock::instant(),
                 peer_type,
             },
         );
@@ -602,7 +602,7 @@ impl PeerManagerActor {
             // Ask for peers list on connection.
             let _ = addr.do_send(SendMessage { message: PeerMessage::PeersRequest });
             if let Some(active_peer) = act.active_peers.get_mut(&target_peer_id) {
-                active_peer.last_time_peer_requested = Instant::now();
+                active_peer.last_time_peer_requested = Clock::instant();
             }
 
             if peer_type == PeerType::Outbound {
@@ -874,7 +874,7 @@ impl PeerManagerActor {
         let msg = SendMessage { message: PeerMessage::PeersRequest };
         for (_, active_peer) in self.active_peers.iter_mut() {
             if active_peer.last_time_peer_requested.elapsed() > REQUEST_PEERS_INTERVAL {
-                active_peer.last_time_peer_requested = Instant::now();
+                active_peer.last_time_peer_requested = Clock::instant();
                 requests.push(active_peer.addr.send(msg.clone()));
             }
         }
@@ -941,10 +941,10 @@ impl PeerManagerActor {
     // We will broadcast that edge to that peer, and if that peer doesn't reply within specific time,
     // that peer will be removed. However, the connected peer may gives us a new edge indicating
     // that we should in fact be connected to it.
-    fn maybe_remove_connected_peer(&mut self, ctx: &mut Context<Self>, edge: Edge, other: PeerId) {
+    fn maybe_remove_connected_peer(&mut self, ctx: &mut Context<Self>, edge: Edge, other: &PeerId) {
         let nonce = edge.next();
 
-        if let Some(last_nonce) = self.local_peer_pending_update_nonce_request.get(&other) {
+        if let Some(last_nonce) = self.local_peer_pending_update_nonce_request.get(other) {
             if *last_nonce >= nonce {
                 // We already tried to update an edge with equal or higher nonce.
                 return;
@@ -964,6 +964,7 @@ impl PeerManagerActor {
 
         self.local_peer_pending_update_nonce_request.insert(other.clone(), nonce);
 
+        let other = other.clone();
         near_performance_metrics::actix::run_later(
             ctx,
             WAIT_ON_TRY_UPDATE_NONCE,
@@ -1115,7 +1116,7 @@ impl PeerManagerActor {
         for (peer_id, peer_state) in self.peer_store.iter() {
             if let KnownPeerStatus::Banned(_, last_banned) = peer_state.status {
                 let interval = unwrap_or_error!(
-                    (Utc::now() - from_timestamp(last_banned)).to_std(),
+                    (Clock::utc() - from_timestamp(last_banned)).to_std(),
                     "Failed to convert time"
                 );
                 if interval > self.config.ban_window {

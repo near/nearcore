@@ -37,7 +37,7 @@ pub enum Prune {
     PruneOncePerHour,
     /// Prune right now - for testing purposes.
     PruneNow,
-    /// Don't prune at all.
+    /// Don't prune at all - this happens in case we are in the middle of adding new edges.
     Disable,
 }
 
@@ -112,9 +112,9 @@ impl RoutingTableActor {
         #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
         self.peer_ibf_set.remove_edge(&edge.to_simple_edge());
 
-        let key = (edge.peer0.clone(), edge.peer1.clone());
+        let key = &edge.key;
         if self.edges_info.remove(&key).is_some() {
-            self.raw_graph.remove_edge(&edge.peer0, &edge.peer1);
+            self.raw_graph.remove_edge(&edge.key.0, &edge.key.1);
             self.needs_routing_table_recalculation = true;
         }
     }
@@ -138,7 +138,7 @@ impl RoutingTableActor {
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             self.peer_ibf_set.add_edge(&edge.to_simple_edge());
-            self.edges_info.insert(key, edge);
+            self.edges_info.insert(key.clone(), edge);
             true
         }
     }
@@ -190,7 +190,7 @@ impl RoutingTableActor {
             // Load all edges that were persisted in database in the cell - and add them to the current graph.
             if let Ok(edges) = self.get_and_remove_component_edges(component_nonce, &mut update) {
                 for edge in edges {
-                    for &peer_id in vec![&edge.peer0, &edge.peer1].iter() {
+                    for &peer_id in vec![&edge.key.0, &edge.key.1].iter() {
                         if peer_id == &my_peer_id
                             || self.peer_last_time_reachable.contains_key(peer_id)
                         {
@@ -232,15 +232,7 @@ impl RoutingTableActor {
     }
 
     /// Recalculate routing table and update list of reachable peers.
-    /// If pruning is enabled we will remove unused edges and store them to disk.
-    ///
-    /// # Returns
-    /// List of edges removed.
-    pub fn recalculate_routing_table_and_maybe_prune_edges(
-        &mut self,
-        prune: Prune,
-        prune_edges_not_reachable_for: Duration,
-    ) -> Vec<Edge> {
+    pub fn recalculate_routing_table(&mut self) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("routing table update".into());
         let _routing_table_recalculation =
@@ -255,18 +247,31 @@ impl RoutingTableActor {
             self.peer_last_time_reachable.insert(peer.clone(), now);
         }
 
-        let edges_to_remove = if prune != Prune::Disable {
-            self.prune_unreachable_edges_and_save_to_db(
-                prune == Prune::PruneNow,
-                prune_edges_not_reachable_for,
-            )
-        } else {
-            Vec::new()
-        };
-        self.remove_edges(&edges_to_remove);
-
         near_metrics::inc_counter_by(&metrics::ROUTING_TABLE_RECALCULATIONS, 1);
         near_metrics::set_gauge(&metrics::PEER_REACHABLE, self.peer_forwarding.len() as i64);
+    }
+
+    /// If pruning is enabled we will remove unused edges and store them to disk.
+    ///
+    /// # Returns
+    /// List of edges removed.
+    pub fn prune_edges(
+        &mut self,
+        prune: Prune,
+        prune_edges_not_reachable_for: Duration,
+    ) -> Vec<Edge> {
+        if prune == Prune::Disable {
+            return Vec::new();
+        }
+
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("pruning edges".into());
+
+        let edges_to_remove = self.prune_unreachable_edges_and_save_to_db(
+            prune == Prune::PruneNow,
+            prune_edges_not_reachable_for,
+        );
+        self.remove_edges(&edges_to_remove);
         edges_to_remove
     }
 
@@ -343,16 +348,6 @@ impl RoutingTableActor {
     /// Checks whenever given edge is newer than the one we already have.
     pub fn is_edge_newer(&self, key: &(PeerId, PeerId), nonce: u64) -> bool {
         self.edges_info.get(&key).map_or(0, |x| x.nonce) < nonce
-    }
-
-    pub fn get_edge(&self, peer0: PeerId, peer1: PeerId) -> Option<Edge> {
-        let key = Edge::key(peer0, peer1);
-        self.edges_info.get(&key).cloned()
-    }
-
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    pub fn convert_simple_edges_to_edges(&self, edges: Vec<SimpleEdge>) -> Vec<Edge> {
-        edges.iter().filter_map(|k| self.edges_info.get(&k.key()).cloned()).collect()
     }
 
     /// Get edges stored in DB under `ColPeerComponent` column at `peer_id` key.
@@ -511,23 +506,21 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                 )
             }
             RoutingTableMessages::RoutingTableUpdate { prune, prune_edges_not_reachable_for } => {
-                let edges_removed = if self.needs_routing_table_recalculation {
-                    self.recalculate_routing_table_and_maybe_prune_edges(
-                        prune,
-                        prune_edges_not_reachable_for,
-                    )
-                } else {
-                    Vec::new()
-                };
-                self.needs_routing_table_recalculation = false;
+                let mut edges_removed =
+                    if self.needs_routing_table_recalculation || prune == Prune::PruneNow {
+                        self.needs_routing_table_recalculation = false;
+                        self.recalculate_routing_table();
+                        self.prune_edges(prune, prune_edges_not_reachable_for)
+                    } else {
+                        Vec::new()
+                    };
+                // Only keep local edges
+                edges_removed.retain(|p| p.contains_peer(&self.my_peer_id()));
+
                 RoutingTableMessagesResponse::RoutingTableUpdateResponse {
                     // PeerManager maintains list of local edges. We will notify `PeerManager`
                     // to remove those edges.
-                    edges_to_remove: edges_removed
-                        .iter()
-                        .filter(|p| p.contains_peer(&self.my_peer_id()))
-                        .cloned()
-                        .collect(),
+                    edges_to_remove: edges_removed,
                     peer_forwarding: self.peer_forwarding.clone(),
                 }
             }

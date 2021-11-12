@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
-use chrono::Utc;
+use near_primitives::time::Utc;
 
 use near_chain_primitives::error::{Error, ErrorKind};
 use near_primitives::block::{Approval, Tip};

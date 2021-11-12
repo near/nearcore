@@ -28,6 +28,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::logging;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::PartialEncodedChunk;
+use near_primitives::time::Clock;
 use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
@@ -241,11 +242,11 @@ impl PeerActor {
             genesis_id: Default::default(),
             chain_info: Default::default(),
             edge_info,
-            last_time_received_message_update: Instant::now(),
+            last_time_received_message_update: Clock::instant(),
             network_metrics,
             txns_since_last_block,
             peer_counter,
-            last_time_received_epoch_sync_request: Instant::now()
+            last_time_received_epoch_sync_request: Clock::instant()
                 - Duration::from_millis(EPOCH_SYNC_PEER_TIMEOUT_MS),
             routed_message_cache: SizedCache::with_size(ROUTED_MESSAGE_CACHE_SIZE),
         }
@@ -416,7 +417,7 @@ impl PeerActor {
                 NetworkViewClientMessages::BlockHeadersRequest(hashes)
             }
             PeerMessage::EpochSyncRequest(epoch_id) => {
-                self.last_time_received_epoch_sync_request = Instant::now();
+                self.last_time_received_epoch_sync_request = Clock::instant();
                 NetworkViewClientMessages::EpochSyncRequest { epoch_id }
             }
             PeerMessage::EpochSyncFinalizationRequest(epoch_id) => {
@@ -628,7 +629,7 @@ impl PeerActor {
             if self.last_time_received_message_update.elapsed()
                 > UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE
             {
-                self.last_time_received_message_update = Instant::now();
+                self.last_time_received_message_update = Clock::instant();
                 self.peer_manager_addr.do_send(PeerManagerMessageRequest::PeerRequest(
                     PeerRequest::ReceivedMessage(peer_id, self.last_time_received_message_update),
                 ));
@@ -750,7 +751,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
         // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
         if let PeerMessage::Routed(msg) = &peer_msg {
             let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
-            let now = Instant::now();
+            let now = Clock::instant();
             if let Some(time) = self.routed_message_cache.cache_get(&key) {
                 if now.duration_since(*time) <= DROP_DUPLICATED_MESSAGES_PERIOD {
                     debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);

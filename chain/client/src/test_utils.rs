@@ -5,12 +5,12 @@ use std::mem::swap;
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use std::time::Instant;
 
 use actix::actors::mocker::Mocker;
 use actix::{Actor, Addr, AsyncContext, Context};
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use futures::{future, FutureExt};
+use near_primitives::time::Utc;
 use num_rational::Rational;
 use rand::{thread_rng, Rng};
 
@@ -55,6 +55,7 @@ use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest}
 use near_chain::types::AcceptedBlock;
 use near_client_primitives::types::Error;
 use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::time::{Clock, Instant};
 use near_primitives::utils::MaybeValidated;
 
 pub type PeerManagerMock = Mocker<PeerManagerActor>;
@@ -282,7 +283,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
             false,
             network_adapter.clone(),
             transaction_validity_period,
-            Utc::now(),
+            Clock::utc(),
             ctx,
         );
         vca = Some(view_client_addr);
@@ -322,7 +323,7 @@ impl BlockStats {
             hash2depth: HashMap::new(),
             num_blocks: 0,
             max_chain_length: 0,
-            last_check: Instant::now(),
+            last_check: Clock::instant(),
             max_divergence: 0,
             last_hash: None,
             parent: HashMap::new(),
@@ -371,7 +372,7 @@ impl BlockStats {
     }
 
     pub fn check_stats(&mut self, force: bool) {
-        let now = Instant::now();
+        let now = Clock::instant();
         let diff = now.duration_since(self.last_check);
         if !force && diff.lt(&Duration::from_secs(60)) {
             return;
@@ -485,7 +486,7 @@ pub fn setup_mock_all_validators(
     let key_pairs = key_pairs;
 
     let addresses: Vec<_> = (0..key_pairs.len()).map(|i| hash(vec![i as u8].as_ref())).collect();
-    let genesis_time = Utc::now();
+    let genesis_time = Clock::utc();
     let mut ret = vec![];
 
     let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
