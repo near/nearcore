@@ -9,7 +9,7 @@ use crate::types::{BlockedPorts, PatternAddr};
 ///
 /// Arguments:
 /// - `blacklist`- list of strings in following formats:
-///    - "IP" - for example 127.0.0.1
+///    - "IP" - for example 127.0.0.1 - if only IP is provided we will block all ports
 ///    - "IP:PORT - for example 127.0.0.1:2134
 pub fn blacklist_from_iter<T>(blacklist: T) -> HashMap<IpAddr, BlockedPorts>
 where
