@@ -338,7 +338,7 @@ pub fn make_peer_manager_routing_table_addr_pair(
 // Returns:
 //    PeerManagerActor
 //    PeerId - PeerId associated with given actor
-//    Arc<AtomicUsize> - shared pointer for couting the number of receiver
+//    Arc<AtomicUsize> - shared pointer for counting the number of received
 //                       `NetworkViewClientMessages::AnnounceAccount` messages
 #[cfg(feature = "test_features")]
 pub fn make_peer_manager(
