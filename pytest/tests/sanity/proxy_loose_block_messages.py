@@ -21,7 +21,7 @@ class Handler(ProxyHandler):
 
     async def handle(self, msg, fr, to):
         if msg.enum == 'Block':
-            h = msg.Block.BlockV1.header.BlockHeaderV2.inner_lite.height
+            h = msg.Block.BlockV2.header.inner_lite().height
             if h > max_height.value:
                 max_height.value = h
             print(h, fr, to, msg, msg.Block.enum)
