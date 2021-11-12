@@ -1,8 +1,6 @@
 #[macro_use]
 extern crate bencher;
 
-const TEST_COEF: f64 = 2.5;
-
 use bencher::black_box;
 use bencher::Bencher;
 use std::collections::HashMap;
