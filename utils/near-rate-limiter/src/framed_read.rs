@@ -36,38 +36,6 @@ pin_project! {
     }
 }
 
-// Wrapper around Actix messages, used to track size of all messages sent to PeerManager.
-// TODO(#5155) Finish implementation of this.
-
-#[allow(unused)]
-/// TODO - Once we start using this `ActixMessageWrapper` we will need to make following changes
-/// to get this struct to work
-/// - Add needed decorators. Probably `Debug`, `Message` from Actix, etc.
-/// - Add two rate limiters (local per peer, global one)
-/// - Any other metadata we need debugging, etc.
-pub struct ActixMessageWrapper<T> {
-    msg: T,
-    throttle_controller: ThrottleController,
-    msg_len: usize,
-}
-
-impl<T> ActixMessageWrapper<T> {
-    #[allow(unused)]
-    pub fn new(msg: T, rate_limiter: ThrottleController) -> Self {
-        // TODO(#5155) Add decorator like SizeOf
-        let msg_len = 0; // TODO msg.sizeof()
-        rate_limiter.add_msg(msg_len);
-        Self { msg, throttle_controller: rate_limiter, msg_len }
-    }
-
-    #[allow(unused)]
-    pub fn take(mut self) -> (T, ThrottleController) {
-        self.throttle_controller.remove_msg(self.msg_len);
-
-        return (self.msg, self.throttle_controller);
-    }
-}
-
 /// Each RateLimiterHelper is associated with exactly one `Peer`. It keeps track total size of all
 /// messages / their count that were received from given peer. We are going to keep tracking them
 /// as long as their exist in transit in inside `Actix` queues. For example from `Peer` to
