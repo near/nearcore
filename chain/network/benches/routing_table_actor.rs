@@ -7,7 +7,7 @@ use near_crypto::Signature;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use near_network::routing::routing::Edge;
+use near_network::routing::routing::{Edge, EdgeInner};
 use near_network::test_utils::random_peer_id;
 use near_network::RoutingTableActor;
 use near_primitives::network::PeerId;
@@ -22,7 +22,7 @@ fn build_graph(depth: usize, size: usize) -> RoutingTableActor {
 
     let mut edges: Vec<Edge> = Vec::new();
     for i in 0..size {
-        edges.push(Edge::make_fake_edge(source.clone(), nodes[i].clone(), 1));
+        edges.push(EdgeInner::make_fake_edge(source.clone(), nodes[i].clone(), 1));
     }
 
     for layer in 0..depth - 1 {
@@ -30,7 +30,7 @@ fn build_graph(depth: usize, size: usize) -> RoutingTableActor {
             for v in 0..size {
                 let peer0 = nodes[layer * size + u].clone();
                 let peer1 = nodes[(layer + 1) * size + v].clone();
-                edges.push(Edge::make_fake_edge(peer0, peer1, (layer + u + v) as u64));
+                edges.push(EdgeInner::make_fake_edge(peer0, peer1, (layer + u + v) as u64));
             }
         }
     }
@@ -77,11 +77,11 @@ fn get_all_edges_bench_new2(bench: &mut Bencher) {
     let mut new_edges_info = HashMap::new();
     for edge in all_edges {
         let edge = EdgeNew {
-            key: Arc::new((edge.peer0, edge.peer1)),
+            key: Arc::new((edge.peer0.clone(), edge.peer1.clone())),
             nonce: edge.nonce,
-            signature0: edge.signature0,
-            signature1: edge.signature1,
-            removal_info: edge.removal_info,
+            signature0: edge.signature0.clone(),
+            signature1: edge.signature1.clone(),
+            removal_info: edge.removal_info.clone(),
         };
 
         new_edges_info.insert(edge.key.clone(), Arc::new(edge));
