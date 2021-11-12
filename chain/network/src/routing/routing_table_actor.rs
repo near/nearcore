@@ -375,6 +375,10 @@ impl RoutingTableActor {
 
         res
     }
+
+    pub fn get_all_edges(&self) -> Vec<Edge> {
+        self.edges_info.iter().map(|x| x.1.clone()).collect()
+    }
 }
 
 impl Actor for RoutingTableActor {
@@ -491,10 +495,6 @@ impl RoutingTableActor {
         let (known, unknown_edges) = self.split_edges_for_peer(&peer_id, &edge_hashes);
 
         (known, unknown_edges, unknown_edges_count)
-    }
-
-    pub fn get_all_edges(&self) -> Vec<Edge> {
-        self.edges_info.iter().map(|x| x.1.clone()).collect()
     }
 }
 
