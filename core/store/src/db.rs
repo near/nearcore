@@ -670,6 +670,7 @@ fn rocksdb_block_based_options(cache_size: usize) -> BlockBasedOptions {
     block_opts
 }
 
+// TODO(#5213) Use ByteSize package to represent sizes.
 fn choose_cache_size_mb(col: DBCol) -> usize {
     match col {
         DBCol::ColState => 128 * 1024 * 1024,
