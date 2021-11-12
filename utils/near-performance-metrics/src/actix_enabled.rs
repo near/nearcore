@@ -34,8 +34,8 @@ where
 
         f(a, b);
 
-        let ended = Instant::now();
-        let took = ended - now;
+        let now = Instant::now();
+        let ended = now.saturating_duration_since(ended);
         stat.lock().unwrap().log("run_later", loc.file(), loc.line(), took, ended, "");
         if took > SLOW_CALL_THRESHOLD {
             warn!(
