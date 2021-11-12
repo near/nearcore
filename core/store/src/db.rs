@@ -83,8 +83,8 @@ pub enum DBCol {
     /// `LightClientBlock`s corresponding to the last final block of each completed epoch
     ColEpochLightClientBlocks = 26,
     ColReceiptIdToShardId = 27,
-    ColNextBlockWithNewChunk = 28,
-    ColLastBlockWithNewChunk = 29,
+    _ColNextBlockWithNewChunk = 28,
+    _ColLastBlockWithNewChunk = 29,
     /// Map each saved peer on disk with its component id.
     ColPeerComponent = 30,
     /// Map component id with all edges in this component.
@@ -157,8 +157,8 @@ impl std::fmt::Display for DBCol {
             Self::ColNextBlockHashes => "next block hash",
             Self::ColEpochLightClientBlocks => "epoch light client block",
             Self::ColReceiptIdToShardId => "receipt id to shard id",
-            Self::ColNextBlockWithNewChunk => "next block with new chunk",
-            Self::ColLastBlockWithNewChunk => "last block with new chunk",
+            Self::_ColNextBlockWithNewChunk => "next block with new chunk (deprecated)",
+            Self::_ColLastBlockWithNewChunk => "last block with new chunk (deprecated)",
             Self::ColPeerComponent => "peer components",
             Self::ColComponentEdges => "component edges",
             Self::ColLastComponentNonce => "last component nonce",
@@ -223,7 +223,6 @@ lazy_static! {
     pub static ref SKIP_COL_GC: Vec<bool> = {
         let mut col_gc = vec![false; NUM_COLS];
         // A node may never restarted
-        col_gc[DBCol::ColLastBlockWithNewChunk as usize] = true;
         col_gc[DBCol::ColStateHeaders as usize] = true;
         // True until #2515
         col_gc[DBCol::ColStateParts as usize] = true;
