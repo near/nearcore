@@ -50,7 +50,7 @@ fn get_all_edges_bench(bench: &mut Bencher) {
 fn get_all_edges_bench2(bench: &mut Bencher) {
     // this is how we efficient we could make get_all_edges by using Arc
 
-    let routing_table_actor = build_graph(100, 100);
+    let routing_table_actor = build_graph(10, 100);
     let all_edges = routing_table_actor.get_all_edges();
     let mut new_edges_info = HashMap::new();
     for edge in all_edges {
