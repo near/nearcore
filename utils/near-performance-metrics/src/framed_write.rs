@@ -336,7 +336,7 @@ impl<I, T: AsyncWrite + Unpin, U: Encoder<I>, K: 'static + EncoderCallBack>
                 high: HIGH_WATERMARK,
                 handle: SpawnHandle::default(),
                 task: None,
-                callback: callback,
+                callback,
             })),
             Rc::new(RefCell::new(io)),
         );
