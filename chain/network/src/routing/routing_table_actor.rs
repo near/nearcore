@@ -492,6 +492,10 @@ impl RoutingTableActor {
 
         (known, unknown_edges, unknown_edges_count)
     }
+
+    pub fn get_all_edges(&self) -> Vec<Edge> {
+        self.edges_info.iter().map(|x| x.1.clone()).collect()
+    }
 }
 
 impl Handler<RoutingTableMessages> for RoutingTableActor {
@@ -679,7 +683,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                             ibf_msg: Some(RoutingVersion2 {
                                 known_edges: self.edges_info.len() as u64,
                                 seed: ibf_msg.seed,
-                                edges: self.edges_info.iter().map(|x| x.1.clone()).collect(),
+                                edges: self.get_all_edges(),
                                 routing_state: RoutingState::Done,
                             }),
                         }

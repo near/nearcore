@@ -60,3 +60,7 @@ harness = false
 [[bench]]
 name = "ibf"
 harness = false
+
+[[bench]]
+name = "routing_table_actor"
+harness = false
