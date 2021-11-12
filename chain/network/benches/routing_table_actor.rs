@@ -50,24 +50,6 @@ fn get_all_edges_bench_old(bench: &mut Bencher) {
 }
 
 #[allow(dead_code)]
-fn get_all_edges_bench_new(bench: &mut Bencher) {
-    // this is how we efficient we could make get_all_edges by using Arc
-
-    // 1000 nodes, 10m edges
-    let routing_table_actor = build_graph(10, 100);
-    let all_edges = routing_table_actor.get_all_edges();
-    let mut new_edges_info = HashMap::new();
-    for edge in all_edges {
-        new_edges_info.insert((edge.key().0.clone(), edge.key().1.clone()), edge.clone());
-    }
-
-    bench.iter(|| {
-        let result: Vec<Edge> = new_edges_info.iter().map(|x| x.1.clone()).collect();
-        black_box(result);
-    });
-}
-
-#[allow(dead_code)]
 fn get_all_edges_bench_new2(bench: &mut Bencher) {
     // this is how we efficient we could make get_all_edges by using Arc
 
@@ -93,12 +75,7 @@ fn get_all_edges_bench_new2(bench: &mut Bencher) {
     });
 }
 
-benchmark_group!(
-    benches,
-    get_all_edges_bench_old,
-    get_all_edges_bench_new,
-    get_all_edges_bench_new2
-);
+benchmark_group!(benches, get_all_edges_bench_old, get_all_edges_bench_new2);
 
 benchmark_main!(benches);
 
