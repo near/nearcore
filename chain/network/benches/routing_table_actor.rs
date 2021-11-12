@@ -110,11 +110,10 @@ benchmark_group!(
 
 benchmark_main!(benches);
 
-// running 2 tests
-// test get_all_edges_bench_old ... bench:   5,045,404 ns/iter (+/- 168,446)
-// test get_all_edges_bench_new ...bench:   1,231,155 ns/iter (+/- 95,776)
-// using new Edge Representation - EdgeNew
-// test get_all_edges_bench_new2 ... bench:     943,015 ns/iter (+/- 15,679)
+// running 3 tests
+// test get_all_edges_bench_new2 ... bench:   1,001,090 ns/iter (+/- 25,434)
+// test get_all_edges_bench_new3 ... bench:   1,017,563 ns/iter (+/- 37,675)
+// test get_all_edges_bench_old  ... bench:   1,296,045 ns/iter (+/- 601,626)
 
 pub struct EdgeNew {
     /// Since edges are not directed `peer0 < peer1` should hold.
