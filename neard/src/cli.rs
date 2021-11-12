@@ -12,8 +12,8 @@ use tracing::metadata::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 use near_primitives::types::{Gas, NumSeats, NumShards};
-use nearcore::get_store_path;
 use near_state_viewer::StateViewerSubCommand;
+use nearcore::get_store_path;
 
 use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION};
 
