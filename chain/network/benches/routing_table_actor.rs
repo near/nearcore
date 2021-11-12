@@ -38,8 +38,8 @@ fn build_graph(depth: usize, size: usize) -> RoutingTableActor {
 }
 
 #[allow(dead_code)]
-fn get_all_edges_bench(bench: &mut Bencher) {
-    let routing_table_actor = build_graph(100, 100);
+fn get_all_edges_bench_old(bench: &mut Bencher) {
+    let routing_table_actor = build_graph(10, 100);
     bench.iter(|| {
         let result = routing_table_actor.get_all_edges();
         black_box(result);
@@ -47,7 +47,7 @@ fn get_all_edges_bench(bench: &mut Bencher) {
 }
 
 #[allow(dead_code)]
-fn get_all_edges_bench2(bench: &mut Bencher) {
+fn get_all_edges_bench_new(bench: &mut Bencher) {
     // this is how we efficient we could make get_all_edges by using Arc
 
     let routing_table_actor = build_graph(10, 100);
@@ -63,9 +63,10 @@ fn get_all_edges_bench2(bench: &mut Bencher) {
     });
 }
 
-benchmark_group!(benches, get_all_edges_bench,);
+benchmark_group!(benches, get_all_edges_bench_old, get_all_edges_bench_new);
 
 benchmark_main!(benches);
 
-// running 3 tests
-// test get_all_edges_bench  ... bench:   1,503,222 ns/iter (+/- 126,811)
+// running 2 tests
+// test get_all_edges_bench_new ...bench:   1,231,155 ns/iter (+/- 95,776)
+// test get_all_edges_bench_old ... bench:   5,045,404 ns/iter (+/- 168,446)
