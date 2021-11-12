@@ -670,7 +670,7 @@ fn rocksdb_block_based_options(cache_size: usize) -> BlockBasedOptions {
 }
 
 // TODO(#5213) Use ByteSize package to represent sizes.
-fn choose_cache_size_mb(col: DBCol) -> usize {
+fn choose_cache_size(col: DBCol) -> usize {
     match col {
         DBCol::ColState => 128 * 1024 * 1024,
         _ => 32 * 1024 * 1024,
@@ -680,7 +680,7 @@ fn choose_cache_size_mb(col: DBCol) -> usize {
 fn rocksdb_column_options(col: DBCol) -> Options {
     let mut opts = Options::default();
     opts.set_level_compaction_dynamic_level_bytes(true);
-    let cache_size = choose_cache_size_mb(col);
+    let cache_size = choose_cache_size(col);
     opts.set_block_based_table_factory(&rocksdb_block_based_options(cache_size));
     opts.optimize_level_style_compaction(1024 * 1024 * 128);
     opts.set_target_file_size_base(1024 * 1024 * 64);
