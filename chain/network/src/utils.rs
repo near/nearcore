@@ -5,6 +5,12 @@ use cached::SizedCache;
 
 use crate::types::{BlockedPorts, PatternAddr};
 
+// `blacklist_from_iter` - converts list of addresses represented by strings to <IpAddr, BlockedPorts> HashMap
+//
+// Arguments:
+// - `blacklist`- list of strings in following formats:
+//    - "IP" - for example 127.0.0.1
+//    - "IP:PORT - for example 127.0.0.1:2134
 pub fn blacklist_from_iter<T>(blacklist: T) -> HashMap<IpAddr, BlockedPorts>
 where
     T: IntoIterator<Item = String>,
@@ -38,6 +44,7 @@ where
     blacklist_map
 }
 
+// `cache_to_hashmap` - converts SizedCache<K, V> to HashMap<K, V>
 pub fn cache_to_hashmap<K: Hash + Eq + Clone, V: Clone>(cache: &SizedCache<K, V>) -> HashMap<K, V> {
     let keys: Vec<_> = cache.key_order().cloned().collect();
     keys.into_iter().zip(cache.value_order().cloned()).collect()
