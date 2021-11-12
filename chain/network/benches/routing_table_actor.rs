@@ -47,9 +47,6 @@ fn get_all_edges_bench_old(bench: &mut Bencher) {
         let result = routing_table_actor.get_all_edges();
         black_box(result);
     });
-    // println!("took {}ns", bench.ns_per_iter());
-    // This code gets executed multiple tests, so assert will not work.
-    // assert!(((bench.ns_per_iter() as f64) < (5_045_404.0 * TEST_COEF)));
 }
 
 #[allow(dead_code)]
@@ -68,9 +65,6 @@ fn get_all_edges_bench_new(bench: &mut Bencher) {
         let result: Vec<Arc<Edge>> = new_edges_info.iter().map(|x| x.1.clone()).collect();
         black_box(result);
     });
-    // println!("took {}ns", bench.ns_per_iter());
-    // This code gets executed multiple tests, so assert will not work.
-    // assert!(((bench.ns_per_iter() as f64) < (1_231_155.0 * TEST_COEF)));
 }
 
 benchmark_group!(benches, get_all_edges_bench_old, get_all_edges_bench_new);
