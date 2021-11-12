@@ -112,9 +112,9 @@ impl RoutingTableActor {
         #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
         self.peer_ibf_set.remove_edge(&edge.to_simple_edge());
 
-        let key = (edge.peer0.clone(), edge.peer1.clone());
+        let key = &edge.key;
         if self.edges_info.remove(&key).is_some() {
-            self.raw_graph.remove_edge(&edge.peer0, &edge.peer1);
+            self.raw_graph.remove_edge(&edge.key.0, &edge.key.1);
             self.needs_routing_table_recalculation = true;
         }
     }
@@ -138,7 +138,7 @@ impl RoutingTableActor {
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             self.peer_ibf_set.add_edge(&edge.to_simple_edge());
-            self.edges_info.insert(key, edge);
+            self.edges_info.insert(key.clone(), edge);
             true
         }
     }
@@ -190,7 +190,7 @@ impl RoutingTableActor {
             // Load all edges that were persisted in database in the cell - and add them to the current graph.
             if let Ok(edges) = self.get_and_remove_component_edges(component_nonce, &mut update) {
                 for edge in edges {
-                    for &peer_id in vec![&edge.peer0, &edge.peer1].iter() {
+                    for &peer_id in vec![&edge.key.0, &edge.key.1].iter() {
                         if peer_id == &my_peer_id
                             || self.peer_last_time_reachable.contains_key(peer_id)
                         {
