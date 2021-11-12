@@ -629,13 +629,13 @@ fn rocksdb_options() -> Options {
     opts.set_use_fsync(false);
     opts.set_max_open_files(512);
     opts.set_keep_log_file_num(1);
-    opts.set_bytes_per_sync(1048576);
-    opts.set_write_buffer_size(1024 * 1024 * 512 / 2);
-    opts.set_max_bytes_for_level_base(1024 * 1024 * 512 / 2);
+    opts.set_bytes_per_sync(bytesize::MIB);
+    opts.set_write_buffer_size(256 * bytesize::MIB as usize);
+    opts.set_max_bytes_for_level_base(256 * bytesize::MIB);
     #[cfg(not(feature = "single_thread_rocksdb"))]
     {
         opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
-        opts.set_max_total_wal_size(1 * 1024 * 1024 * 1024);
+        opts.set_max_total_wal_size(bytesize::GIB);
     }
     #[cfg(feature = "single_thread_rocksdb")]
     {
@@ -659,7 +659,7 @@ fn rocksdb_read_options() -> ReadOptions {
 
 fn rocksdb_block_based_options(cache_size: usize) -> BlockBasedOptions {
     let mut block_opts = BlockBasedOptions::default();
-    block_opts.set_block_size(1024 * 16);
+    block_opts.set_block_size(16 * bytesize::KIB as usize);
     // We create block_cache for each of 47 columns, so the total cache size is 32 * 47 = 1504mb
     block_opts.set_block_cache(&Cache::new_lru_cache(cache_size).unwrap());
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
@@ -681,8 +681,8 @@ fn rocksdb_column_options(col: DBCol) -> Options {
     opts.set_level_compaction_dynamic_level_bytes(true);
     let cache_size = choose_cache_size(col);
     opts.set_block_based_table_factory(&rocksdb_block_based_options(cache_size));
-    opts.optimize_level_style_compaction(1024 * 1024 * 128);
-    opts.set_target_file_size_base(1024 * 1024 * 64);
+    opts.optimize_level_style_compaction(128 * bytesize::MIB as usize);
+    opts.set_target_file_size_base(64 * bytesize::MIB);
     opts.set_compression_per_level(&[]);
     if col.is_rc() {
         opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
