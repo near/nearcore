@@ -76,12 +76,12 @@ pub struct Edge {
     /// It must be even
     pub nonce: u64,
     /// Signature from parties validating the edge. These are signature of the added edge.
-    signature0: Signature,
-    signature1: Signature,
+    pub signature0: Signature,
+    pub signature1: Signature,
     /// Info necessary to declare an edge as removed.
     /// The bool says which party is removing the edge: false for Peer0, true for Peer1
     /// The signature from the party removing the edge.
-    removal_info: Option<(bool, Signature)>,
+    pub removal_info: Option<(bool, Signature)>,
 }
 
 impl Edge {
