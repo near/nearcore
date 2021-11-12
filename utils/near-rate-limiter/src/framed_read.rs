@@ -275,7 +275,7 @@ mod tests {
         assert_eq!(throttle_controller.num_messages_in_progress.load(SeqCst), 0);
         assert_eq!(throttle_controller.total_sizeof_messages_in_progress.load(SeqCst), 0);
 
-        assert_eq!(semaphore.available_permits(), 40);
+        assert_eq!(semaphore.available_permits(), 1);
     }
 
     #[tokio::test]
@@ -316,6 +316,6 @@ mod tests {
         assert_eq!(throttle_controller.num_messages_in_progress.load(SeqCst), 0);
         assert_eq!(throttle_controller.total_sizeof_messages_in_progress.load(SeqCst), 0);
 
-        assert_eq!(semaphore.available_permits(), 16);
+        assert_eq!(semaphore.available_permits(), 1);
     }
 }
