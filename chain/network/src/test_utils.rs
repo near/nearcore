@@ -34,7 +34,9 @@ use crate::{
     PeerManagerActor, PeerManagerAdapter, RoutingTableActor,
 };
 
+/// Mock for `ClientActor`
 type ClientMock = Mocker<NetworkClientMessages>;
+/// Mock for `ViewClientActor`
 type ViewClientMock = Mocker<NetworkViewClientMessages>;
 
 lazy_static! {
@@ -43,10 +45,9 @@ lazy_static! {
 
 /// Returns available port.
 pub fn open_port() -> u16 {
-    // use port 0 to allow the OS to assign an open port
-    // TcpListener's Drop impl will unbind the port as soon as
-    // listener goes out of scope. We retry multiple times and store
-    // selected port in OPENED_PORTS to avoid port collision among
+    // Use port 0 to allow the OS to assign an open port.
+    // TcpListener's Drop impl will unbind the port as soon as listener goes out of scope.
+    // We retry multiple times and store selected port in OPENED_PORTS to avoid port collision among
     // multiple tests.
     let max_attempts = 100;
 
@@ -65,10 +66,12 @@ pub fn open_port() -> u16 {
     panic!("Failed to find an open port after {} attempts.", max_attempts);
 }
 
+// `peer_id_from_seed` generate `PeerId` from seed for unit tests
 pub fn peer_id_from_seed(seed: &str) -> PeerId {
     SecretKey::from_seed(KeyType::ED25519, seed).public_key().into()
 }
 
+// `convert_boot_nodes` generate list of `PeerInfos` for unit tests
 pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
     let mut result = vec![];
     for (peer_seed, port) in boot_nodes {
@@ -95,12 +98,12 @@ pub fn wait_or_panic(max_wait_ms: u64) {
 ///
 /// ```
 /// use actix::{System, Actor};
-/// use near_network::test_utils::WaitOrTimeout;
+/// use near_network::test_utils::WaitOrTimeoutActor;
 /// use std::time::{Instant, Duration};
 ///
 /// near_actix_test_utils::run_actix(async {
 ///     let start = Instant::now();
-///     WaitOrTimeout::new(
+///     WaitOrTimeoutActor::new(
 ///         Box::new(move |ctx| {
 ///             if start.elapsed() > Duration::from_millis(10) {
 ///                 System::current().stop()
@@ -111,20 +114,20 @@ pub fn wait_or_panic(max_wait_ms: u64) {
 ///     ).start();
 /// });
 /// ```
-pub struct WaitOrTimeout {
-    f: Box<dyn FnMut(&mut Context<WaitOrTimeout>)>,
+pub struct WaitOrTimeoutActor {
+    f: Box<dyn FnMut(&mut Context<WaitOrTimeoutActor>)>,
     check_interval_ms: u64,
     max_wait_ms: u64,
     ms_slept: u64,
 }
 
-impl WaitOrTimeout {
+impl WaitOrTimeoutActor {
     pub fn new(
-        f: Box<dyn FnMut(&mut Context<WaitOrTimeout>)>,
+        f: Box<dyn FnMut(&mut Context<WaitOrTimeoutActor>)>,
         check_interval_ms: u64,
         max_wait_ms: u64,
     ) -> Self {
-        WaitOrTimeout { f, check_interval_ms, max_wait_ms, ms_slept: 0 }
+        WaitOrTimeoutActor { f, check_interval_ms, max_wait_ms, ms_slept: 0 }
     }
 
     fn wait_or_timeout(&mut self, ctx: &mut Context<Self>) {
@@ -145,7 +148,7 @@ impl WaitOrTimeout {
     }
 }
 
-impl Actor for WaitOrTimeout {
+impl Actor for WaitOrTimeoutActor {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Context<Self>) {
@@ -153,19 +156,23 @@ impl Actor for WaitOrTimeout {
     }
 }
 
+// Converts Vec<&str> to Vec<String>
 pub fn vec_ref_to_str(values: Vec<&str>) -> Vec<String> {
     values.into_iter().map(|x| x.to_string()).collect()
 }
 
+// Gets random PeerId
 pub fn random_peer_id() -> PeerId {
     let sk = SecretKey::from_random(KeyType::ED25519);
     sk.public_key().into()
 }
 
+// Gets random EpochId
 pub fn random_epoch_id() -> EpochId {
     EpochId(hash(index_to_bytes(thread_rng().next_u64()).as_ref()))
 }
 
+// Compare whenever routing table match.
 pub fn expected_routing_tables(
     current: HashMap<PeerId, Vec<PeerId>>,
     expected: Vec<(PeerId, Vec<PeerId>)>,
@@ -193,6 +200,7 @@ pub fn expected_routing_tables(
     true
 }
 
+/// `GetInfo` gets `NetworkInfo` from `PeerManager`.
 pub struct GetInfo {}
 
 impl Message for GetInfo {
@@ -207,6 +215,7 @@ impl Handler<GetInfo> for PeerManagerActor {
     }
 }
 
+// `StopSignal is used to stop PeerManagerActor for unit tests
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct StopSignal {
@@ -237,6 +246,8 @@ impl Handler<StopSignal> for PeerManagerActor {
     }
 }
 
+/// Ban peer for unit tests.
+/// Calls `try_ban_peer` in `PeerManagerActor`.
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct BanPeerSignal {
@@ -259,6 +270,7 @@ impl Handler<BanPeerSignal> for PeerManagerActor {
     }
 }
 
+// Mocked `PeerManager` adapter, has a queue of `PeerManagerMessageRequest` messages.
 #[derive(Default)]
 pub struct MockPeerManagerAdapter {
     pub requests: Arc<RwLock<VecDeque<PeerManagerMessageRequest>>>,
@@ -288,7 +300,6 @@ impl MockPeerManagerAdapter {
 // Start PeerManagerActor, and RoutingTableActor together and returns pairs of addresses
 // for each of them.
 #[cfg(feature = "test_features")]
-#[allow(dead_code)]
 pub fn make_peer_manager_routing_table_addr_pair(
 ) -> (Addr<PeerManagerActor>, Addr<RoutingTableActor>) {
     let seed = "test2";
@@ -310,7 +321,14 @@ pub fn make_peer_manager_routing_table_addr_pair(
     (peer_manager_addr, routing_table_addr)
 }
 
-#[allow(dead_code)]
+// Make peer manager for unit tests
+//
+// Returns:
+//    PeerManagerActor
+//    PeerId - PeerId associated with given actor
+//    Arc<AtomicUsize> - shared pointer for couting the number of receiver
+//                       `NetworkViewClientMessages::AnnounceAccount` messages
+#[cfg(feature = "test_features")]
 pub fn make_peer_manager(
     store: Arc<Store>,
     mut config: NetworkConfig,

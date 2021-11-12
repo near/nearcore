@@ -8,7 +8,7 @@ use near_actix_test_utils::run_actix;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_logger_utils::{init_integration_logger, init_test_logger};
-use near_network::test_utils::WaitOrTimeout;
+use near_network::test_utils::WaitOrTimeoutActor;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
@@ -53,7 +53,7 @@ fn test_send_tx_async() {
                 .map(drop)
         }));
         let client1 = new_client(&format!("http://{}", addr));
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_| {
                 let signer_account_id = "test1".parse().unwrap();
                 if let Some(tx_hash) = *tx_hash2_2.lock().unwrap() {
@@ -111,7 +111,7 @@ fn test_expired_tx() {
         let block_hash = Arc::new(Mutex::new(None));
         let block_height = Arc::new(Mutex::new(None));
 
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_| {
                 let block_hash = block_hash.clone();
                 let block_height = block_height.clone();
