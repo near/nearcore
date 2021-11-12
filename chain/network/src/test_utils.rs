@@ -1,11 +1,15 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpListener;
+#[cfg(feature = "test_features")]
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
+#[cfg(feature = "test_features")]
 use actix::actors::mocker::Mocker;
-use actix::{Actor, ActorContext, Addr, Context, Handler, MailboxError, Message};
+#[cfg(feature = "test_features")]
+use actix::Addr;
+use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::future::BoxFuture;
 use futures::{future, FutureExt};
 use lazy_static::lazy_static;
@@ -13,7 +17,9 @@ use rand::{thread_rng, RngCore};
 use tracing::debug;
 
 use near_crypto::{KeyType, SecretKey};
+#[cfg(feature = "test_features")]
 use near_primitives::block::GenesisId;
+#[cfg(feature = "test_features")]
 use near_primitives::borsh::maybestd::sync::atomic::AtomicUsize;
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
@@ -21,22 +27,28 @@ use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
 #[cfg(feature = "test_features")]
 use near_store::test_utils::create_test_store;
+#[cfg(feature = "test_features")]
 use near_store::Store;
 
 #[cfg(feature = "test_features")]
 use crate::routing::routing_table_actor::start_routing_table_actor;
+#[cfg(feature = "test_features")]
 use crate::types::{
-    NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, ReasonForBan,
+    NetworkClientMessages, NetworkClientResponses, NetworkViewClientMessages,
+    NetworkViewClientResponses,
 };
-use crate::{
-    NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkResponses,
-    PeerManagerActor, PeerManagerAdapter, RoutingTableActor,
+use crate::types::{
+    NetworkInfo, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, ReasonForBan,
 };
+#[cfg(feature = "test_features")]
+use crate::{NetworkConfig, RoutingTableActor};
+use crate::{NetworkResponses, PeerManagerActor, PeerManagerAdapter};
 
 /// Mock for `ClientActor`
+#[cfg(feature = "test_features")]
 type ClientMock = Mocker<NetworkClientMessages>;
 /// Mock for `ViewClientActor`
+#[cfg(feature = "test_features")]
 type ViewClientMock = Mocker<NetworkViewClientMessages>;
 
 lazy_static! {
