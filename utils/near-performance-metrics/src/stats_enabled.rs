@@ -86,6 +86,7 @@ impl ThreadStats {
         self.write_buf_added = self.write_buf_added + ByteSize::b(bytes as u64);
         self.write_buf_len = ByteSize::b(buf_len as u64);
         self.write_buf_capacity = ByteSize::b(buf_capacity as u64);
+        self.write_buf_capacity = ByteSize::b(buf_capacity as u64);
     }
 
     pub fn log_drain_write_buffer(&mut self, bytes: usize, buf_len: usize, buf_capacity: usize) {

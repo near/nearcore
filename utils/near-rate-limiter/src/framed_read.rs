@@ -98,7 +98,9 @@ impl ThrottleController {
         self.total_sizeof_messages_in_progress.fetch_sub(msg_size, Ordering::SeqCst);
 
         // Notify throttled framed reader
-        self.semaphore.add_permits(1);
+        if self.semaphore.available_permits() == 0 {
+            self.semaphore.add_permits(1);
+        }
     }
 }
 
