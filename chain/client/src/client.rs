@@ -45,6 +45,7 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::{to_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 
+use crate::chunks_delay_tracker::ChunksDelayTracker;
 use crate::metrics;
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::SyncStatus;
@@ -96,6 +97,8 @@ pub struct Client {
     /// Last time the head was updated, or our head was rebroadcasted. Used to re-broadcast the head
     /// again to prevent network from stalling if a large percentage of the network missed a block
     last_time_head_progress_made: Instant,
+    /// Keeps track of when the latest blocks and chunks were received.
+    chunks_delay_tracker: ChunksDelayTracker,
 }
 
 impl Client {
@@ -182,6 +185,7 @@ impl Client {
             rs: ReedSolomonWrapper::new(data_parts, parity_parts),
             rebroadcasted_blocks: SizedCache::with_size(NUM_REBROADCAST_BLOCKS),
             last_time_head_progress_made: Instant::now(),
+            chunks_delay_tracker: Default::default(),
         })
     }
 
@@ -380,7 +384,7 @@ impl Client {
         }
 
         let new_chunks = self.shards_mgr.prepare_chunks(&prev_hash);
-        debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}, {} new chunks", validator_signer.validator_id(), 
+        debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}, {} new chunks", validator_signer.validator_id(),
                next_height, prev.height(), format_hash(head.last_block_hash), new_chunks.len());
 
         // If we are producing empty blocks and there are no transactions.
@@ -683,6 +687,7 @@ impl Client {
         block: Block,
         provenance: Provenance,
     ) -> (Vec<AcceptedBlock>, Result<Option<Tip>, near_chain::Error>) {
+        self.record_receive_block_timestamp(block.header().height());
         let is_requested = match provenance {
             Provenance::PRODUCED | Provenance::SYNC => true,
             Provenance::NONE => false,
@@ -872,6 +877,10 @@ impl Client {
                 match process_result {
                     ProcessPartialEncodedChunkResult::Known => Ok(vec![]),
                     ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(_) => {
+                        self.record_receive_chunk_timestamp(
+                            pec_v2.header.height_created(),
+                            pec_v2.header.shard_id(),
+                        );
                         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_hash);
                         Ok(self.process_blocks_with_missing_chunks(protocol_version))
                     }
@@ -1749,5 +1758,21 @@ impl Client {
         //            self.challenges.insert(challenge.hash, challenge);
         //        }
         Ok(())
+    }
+
+    fn record_receive_block_timestamp(&mut self, height: BlockHeight) {
+        if let Ok(tip) = self.chain.head() {
+            self.chunks_delay_tracker.add_block_timestamp(height, tip.height, Instant::now());
+        }
+    }
+    fn record_receive_chunk_timestamp(&mut self, height: BlockHeight, shard_id: ShardId) {
+        if let Ok(tip) = self.chain.head() {
+            self.chunks_delay_tracker.add_chunk_timestamp(
+                height,
+                shard_id,
+                tip.height,
+                Instant::now(),
+            );
+        }
     }
 }

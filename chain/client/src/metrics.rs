@@ -34,4 +34,12 @@ lazy_static! {
         "near_chunk_tgas_used",
         "Number of Tgas (10^12 of gas) used by the last processed chunk"
     );
+    pub static ref CHUNKS_RECEIVING_DELAY_US: near_metrics::Result<IntGauge> = try_create_int_gauge(
+        "near_chunks_receiving_delay_us",
+        "Max delay between receiving a block and its chunks for several most recent blocks"
+    );
+    pub static ref BLOCKS_AHEAD_OF_HEAD: near_metrics::Result<IntGauge> = try_create_int_gauge(
+        "near_blocks_ahead_of_head",
+        "Height difference between the current head and the newest block or chunk received"
+    );
 }
