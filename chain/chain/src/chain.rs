@@ -1088,6 +1088,7 @@ impl Chain {
         F3: FnMut(ChallengeBody) -> (),
     {
         near_metrics::inc_counter(&metrics::BLOCK_PROCESSED_TOTAL);
+        near_metrics::set_gauge(&metrics::NUM_ORPHANS, self.orphans.len() as i64);
 
         let prev_head = self.store.head()?;
         let mut chain_update = self.chain_update();
