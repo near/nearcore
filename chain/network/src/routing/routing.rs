@@ -51,8 +51,8 @@ pub struct EdgeInfo {
 
 impl EdgeInfo {
     pub fn new(peer0: PeerId, peer1: PeerId, nonce: u64, secret_key: &SecretKey) -> Self {
-        let (peer0, peer1) = Edge::key(peer0, peer1);
-        let data = Edge::build_hash(&peer0, &peer1, nonce);
+        let (peer0, peer1) = EdgeInner::make_key(peer0, peer1);
+        let data = EdgeInner::build_hash(&peer0, &peer1, nonce);
         let signature = secret_key.sign(data.as_ref());
         Self { nonce, signature }
     }
@@ -65,11 +65,13 @@ pub enum EdgeType {
     Removed,
 }
 
+pub type Edge = Arc<EdgeInner>;
+
 /// Edge object. Contains information relative to a new edge that is being added or removed
 /// from the network. This is the information that is required.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "test_features", derive(Serialize, Deserialize))]
-pub struct Edge {
+pub struct EdgeInner {
     /// Since edges are not directed `key.0 < peer1` should hold.
     pub key: (PeerId, PeerId),
     /// Nonce to keep tracking of the last update on this edge.
@@ -84,7 +86,7 @@ pub struct Edge {
     pub removal_info: Option<(bool, Signature)>,
 }
 
-impl Edge {
+impl EdgeInner {
     /// Create an addition edge.
     pub fn new(
         peer0: PeerId,
@@ -102,18 +104,22 @@ impl Edge {
         Self { key: (peer0, peer1), nonce, signature0, signature1, removal_info: None }
     }
 
+    pub fn key(&self) -> &(PeerId, PeerId) {
+        &self.key
+    }
+
     pub fn to_simple_edge(&self) -> SimpleEdge {
         SimpleEdge::new(self.key.0.clone(), self.key.1.clone(), self.nonce)
     }
 
-    pub fn make_fake_edge(peer0: PeerId, peer1: PeerId, nonce: u64) -> Self {
-        Self {
+    pub fn make_fake_edge(peer0: PeerId, peer1: PeerId, nonce: u64) -> Arc<Self> {
+        Arc::new(Self {
             key: (peer0, peer1),
             nonce,
             signature0: Signature::empty(KeyType::ED25519),
             signature1: Signature::empty(KeyType::ED25519),
             removal_info: None,
-        }
+        })
     }
 
     /// Build a new edge with given information from the other party.
@@ -125,16 +131,16 @@ impl Edge {
         signature1: Signature,
     ) -> Self {
         let hash = if peer0 < peer1 {
-            Edge::build_hash(&peer0, &peer1, nonce)
+            Self::build_hash(&peer0, &peer1, nonce)
         } else {
-            Edge::build_hash(&peer1, &peer0, nonce)
+            Self::build_hash(&peer1, &peer0, nonce)
         };
         let signature0 = secret_key.sign(hash.as_ref());
-        Edge::new(peer0, peer1, nonce, signature0, signature1)
+        Self::new(peer0, peer1, nonce, signature0, signature1)
     }
 
     /// Create the remove edge change from an added edge change.
-    pub fn remove_edge(&self, my_peer_id: PeerId, sk: &SecretKey) -> Self {
+    pub fn remove_edge(&self, my_peer_id: PeerId, sk: &SecretKey) -> Arc<Self> {
         assert_eq!(self.edge_type(), EdgeType::Added);
         let mut edge = self.clone();
         edge.nonce += 1;
@@ -142,7 +148,7 @@ impl Edge {
         let hash = edge.hash();
         let signature = sk.sign(hash.as_ref());
         edge.removal_info = Some((me, signature));
-        edge
+        Arc::new(edge)
     }
 
     /// Build the hash of the edge given its content.
@@ -158,11 +164,11 @@ impl Edge {
     }
 
     fn hash(&self) -> CryptoHash {
-        Edge::build_hash(&self.key.0, &self.key.1, self.nonce)
+        Self::build_hash(&self.key.0, &self.key.1, self.nonce)
     }
 
     fn prev_hash(&self) -> CryptoHash {
-        Edge::build_hash(&self.key.0, &self.key.1, self.nonce - 1)
+        Self::build_hash(&self.key.0, &self.key.1, self.nonce - 1)
     }
 
     pub fn verify(&self) -> bool {
@@ -203,7 +209,7 @@ impl Edge {
         }
     }
 
-    pub fn key(peer0: PeerId, peer1: PeerId) -> (PeerId, PeerId) {
+    pub fn make_key(peer0: PeerId, peer1: PeerId) -> (PeerId, PeerId) {
         if peer0 < peer1 {
             (peer0, peer1)
         } else {
@@ -215,8 +221,8 @@ impl Edge {
     /// to verify the signature.
     pub fn partial_verify(peer0: PeerId, peer1: PeerId, edge_info: &EdgeInfo) -> bool {
         let pk = peer1.public_key();
-        let (peer0, peer1) = Edge::key(peer0, peer1);
-        let data = Edge::build_hash(&peer0, &peer1, edge_info.nonce);
+        let (peer0, peer1) = EdgeInner::make_key(peer0, peer1);
+        let data = EdgeInner::build_hash(&peer0, &peer1, edge_info.nonce);
         edge_info.signature.verify(data.as_ref(), &pk)
     }
 
@@ -245,7 +251,7 @@ impl Edge {
 
     /// Next nonce of valid addition edge.
     pub fn next(&self) -> u64 {
-        Edge::next_nonce(self.nonce)
+        EdgeInner::next_nonce(self.nonce)
     }
 
     pub fn contains_peer(&self, peer_id: &PeerId) -> bool {
@@ -274,7 +280,7 @@ pub struct SimpleEdge {
 
 impl SimpleEdge {
     pub fn new(peer0: PeerId, peer1: PeerId, nonce: u64) -> SimpleEdge {
-        let (peer0, peer1) = Edge::key(peer0, peer1);
+        let (peer0, peer1) = EdgeInner::make_key(peer0, peer1);
         SimpleEdge { key: (peer0, peer1), nonce }
     }
 
@@ -629,7 +635,7 @@ impl RoutingTableView {
     pub fn get_edge(&self, peer0: PeerId, peer1: PeerId) -> Option<&Edge> {
         assert!(peer0 == self.my_peer_id || peer1 == self.my_peer_id);
 
-        let key = Edge::key(peer0, peer1);
+        let key = EdgeInner::make_key(peer0, peer1);
         self.local_edges_info.get(&key)
     }
 }

@@ -58,7 +58,7 @@ fn get_all_edges_bench_new(bench: &mut Bencher) {
     let all_edges = routing_table_actor.get_all_edges();
     let mut new_edges_info = HashMap::new();
     for edge in all_edges {
-        new_edges_info.insert((edge.peer0.clone(), edge.peer1.clone()), Arc::new(edge.clone()));
+        new_edges_info.insert((edge.key().0.clone(), edge.key().1.clone()), Arc::new(edge.clone()));
     }
 
     bench.iter(|| {
@@ -77,7 +77,7 @@ fn get_all_edges_bench_new2(bench: &mut Bencher) {
     let mut new_edges_info = HashMap::new();
     for edge in all_edges {
         let edge = EdgeNew {
-            key: Arc::new((edge.peer0.clone(), edge.peer1.clone())),
+            key: Arc::new((edge.key.0.clone(), edge.key.1.clone())),
             nonce: edge.nonce,
             signature0: edge.signature0.clone(),
             signature1: edge.signature1.clone(),
