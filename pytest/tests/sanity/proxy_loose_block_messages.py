@@ -16,6 +16,7 @@ max_height = Value('i', 0)
 
 
 class Handler(ProxyHandler):
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -27,7 +28,8 @@ class Handler(ProxyHandler):
             print(h, fr, to, msg, msg.Block.enum)
             tpl = (h, fr, to)
 
-            if h == NODES - 1 and to < (NODES - 1) / 2 and tpl not in ignored_messages:
+            if h == NODES - 1 and to < (NODES -
+                                        1) / 2 and tpl not in ignored_messages:
                 ignored_messages.add(tpl)
                 print("skipping msg from %d to %d" % (fr, to))
                 return False
