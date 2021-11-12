@@ -151,9 +151,9 @@ impl Edge {
     /// It is important that peer0 < peer1 at this point.
     fn build_hash(peer0: &PeerId, peer1: &PeerId, nonce: u64) -> CryptoHash {
         let mut buffer = Vec::<u8>::new();
-        let peer0: Vec<u8> = peer0.clone().into();
+        let peer0: Vec<u8> = peer0.into();
         buffer.extend_from_slice(peer0.as_slice());
-        let peer1: Vec<u8> = peer1.clone().into();
+        let peer1: Vec<u8> = peer1.into();
         buffer.extend_from_slice(peer1.as_slice());
         buffer.write_u64::<LittleEndian>(nonce).unwrap();
         hash(buffer.as_slice())
