@@ -1,17 +1,21 @@
-use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION};
-use clap::{AppSettings, Clap};
-use futures::future::FutureExt;
-use near_primitives::types::{Gas, NumSeats, NumShards};
-use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
+
+use clap::{AppSettings, Clap};
+use futures::future::FutureExt;
 use tracing::debug;
 #[cfg(feature = "test_features")]
 use tracing::error;
 use tracing::info;
 use tracing::metadata::LevelFilter;
 use tracing_subscriber::EnvFilter;
+
+use near_primitives::types::{Gas, NumSeats, NumShards};
+use nearcore::get_store_path;
+use near_state_viewer::StateViewerSubCommand;
+
+use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION};
 
 /// NEAR Protocol Node
 #[derive(Clap)]
@@ -57,6 +61,10 @@ impl NeardCmd {
                 info!(target: "neard", "Removing all data and config from {}", home_dir.to_string_lossy());
                 fs::remove_dir_all(home_dir).expect("Removing data and config failed.");
             }
+            NeardSubCommand::StateViewer(cmd) => {
+                info!(target: "neard", "Invoking state-viewer");
+                cmd.run(&home_dir);
+            }
         }
     }
 }
@@ -98,6 +106,9 @@ pub(super) enum NeardSubCommand {
     /// config)
     #[clap(name = "unsafe_reset_data")]
     UnsafeResetData,
+    /// Invoke one of the state-viewer commands.
+    #[clap(name = "state_viewer")]
+    StateViewer(StateViewerSubCommand),
 }
 
 #[derive(Clap)]

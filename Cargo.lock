@@ -3146,6 +3146,7 @@ dependencies = [
  "near-rust-allocator-proxy",
  "nearcore",
  "openssl-probe",
+ "state-viewer",
  "tikv-jemallocator",
  "tokio",
  "tracing",
@@ -4471,7 +4472,8 @@ version = "0.1.0"
 dependencies = [
  "ansi_term 0.12.1",
  "borsh 0.9.1",
- "clap 2.33.3",
+ "clap 3.0.0-beta.2",
+ "lazy_static",
  "near-chain",
  "near-chain-configs",
  "near-client",
