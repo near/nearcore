@@ -85,11 +85,11 @@ tests = [
     # Only second node has new edges
     [0, 3, 0, 5],
     # check edge case, where full sync is required
-    [50000, 50000, 0, 15],
+    [25000, 25000, 0, 15],
     # Both nodes have new edges
     [1, 11, 0, 5],
     # Both nodes have 1 each other doesn't know about, and there are bunch of common edges
-    [1, 1, 200000, 5],
+    [1, 1, 50000, 5],
     # medium test, both nodes have some edges
     [10000, 10000, 0, 15],
 ]
@@ -188,7 +188,7 @@ for (left, right, common, TIMEOUT) in tests:
     started = time.time()
     while True:
         assert time.time() - started < TIMEOUT
-        status = nodes[0].get_status()
+        status = nodes[0].get_status(timeout=30)
         height = status['sync_info']['latest_block_height']
         if success.value == 1:
             break
