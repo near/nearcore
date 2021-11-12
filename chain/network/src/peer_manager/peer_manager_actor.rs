@@ -298,7 +298,7 @@ impl PeerManagerActor {
             }
             self.routing_table_view
                 .local_edges_info
-                .insert((edge.peer0.clone(), edge.peer1.clone()), edge.clone());
+                .insert((edge.key.0.clone(), edge.key.1.clone()), edge.clone());
         }
 
         self.routing_table_addr
@@ -941,10 +941,10 @@ impl PeerManagerActor {
     // We will broadcast that edge to that peer, and if that peer doesn't reply within specific time,
     // that peer will be removed. However, the connected peer may gives us a new edge indicating
     // that we should in fact be connected to it.
-    fn maybe_remove_connected_peer(&mut self, ctx: &mut Context<Self>, edge: Edge, other: PeerId) {
+    fn maybe_remove_connected_peer(&mut self, ctx: &mut Context<Self>, edge: Edge, other: &PeerId) {
         let nonce = edge.next();
 
-        if let Some(last_nonce) = self.local_peer_pending_update_nonce_request.get(&other) {
+        if let Some(last_nonce) = self.local_peer_pending_update_nonce_request.get(other) {
             if *last_nonce >= nonce {
                 // We already tried to update an edge with equal or higher nonce.
                 return;
@@ -964,6 +964,7 @@ impl PeerManagerActor {
 
         self.local_peer_pending_update_nonce_request.insert(other.clone(), nonce);
 
+        let other = other.clone();
         near_performance_metrics::actix::run_later(
             ctx,
             WAIT_ON_TRY_UPDATE_NONCE,
