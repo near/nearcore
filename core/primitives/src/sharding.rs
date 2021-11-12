@@ -683,6 +683,19 @@ impl PartialEncodedChunk {
             }
         }
     }
+
+    pub fn height_created(&self) -> BlockHeight {
+        match self {
+            Self::V1(chunk) => chunk.header.inner.height_created,
+            Self::V2(chunk) => chunk.header.height_created(),
+        }
+    }
+    pub fn shard_id(&self) -> ShardId {
+        match self {
+            Self::V1(chunk) => chunk.header.inner.shard_id,
+            Self::V2(chunk) => chunk.header.shard_id(),
+        }
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]

@@ -25,4 +25,6 @@ lazy_static! {
         "near_validator_active_total",
         "The total number of validators active after last block"
     );
+    pub static ref NUM_ORPHANS: near_metrics::Result<IntGauge> =
+        try_create_int_gauge("near_num_orphans", "Number of orphan blocks.");
 }
