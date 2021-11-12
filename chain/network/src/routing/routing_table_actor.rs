@@ -130,7 +130,7 @@ impl RoutingTableActor {
             self.needs_routing_table_recalculation = true;
             match edge.edge_type() {
                 EdgeType::Added => {
-                    self.raw_graph.add_edge(key.0.clone(), key.1.clone());
+                    self.raw_graph.add_edge(&key.0, &key.1);
                 }
                 EdgeType::Removed => {
                     self.raw_graph.remove_edge(&key.0, &key.1);

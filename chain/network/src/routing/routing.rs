@@ -745,11 +745,11 @@ impl Graph {
         }
     }
 
-    pub fn add_edge(&mut self, peer0: PeerId, peer1: PeerId) {
+    pub fn add_edge(&mut self, peer0: &PeerId, peer1: &PeerId) {
         assert_ne!(peer0, peer1);
-        if !self.contains_edge(&peer0, &peer1) {
-            let id0 = self.get_id(&peer0);
-            let id1 = self.get_id(&peer1);
+        if !self.contains_edge(peer0, peer1) {
+            let id0 = self.get_id(peer0);
+            let id1 = self.get_id(peer1);
 
             self.adjacency[id0 as usize].push(id1);
             self.adjacency[id1 as usize].push(id0);
@@ -868,7 +868,7 @@ mod test {
         assert_eq!(graph.contains_edge(&node0, &node1), false);
         assert_eq!(graph.contains_edge(&node1, &node0), false);
 
-        graph.add_edge(node0.clone(), node1.clone());
+        graph.add_edge(&node0, &node1);
 
         assert_eq!(graph.contains_edge(&source, &node0), false);
         assert_eq!(graph.contains_edge(&source, &node1), false);
@@ -890,9 +890,9 @@ mod test {
         let node0 = random_peer_id();
 
         let mut graph = Graph::new(source.clone());
-        graph.add_edge(source.clone(), node0.clone());
+        graph.add_edge(&source, &node0);
         graph.remove_edge(&source, &node0);
-        graph.add_edge(source.clone(), node0.clone());
+        graph.add_edge(&source, &node0);
 
         assert!(expected_routing_tables(
             graph.calculate_distance(),
@@ -910,9 +910,9 @@ mod test {
 
         let mut graph = Graph::new(source.clone());
 
-        graph.add_edge(nodes[0].clone(), nodes[1].clone());
-        graph.add_edge(nodes[2].clone(), nodes[1].clone());
-        graph.add_edge(nodes[1].clone(), nodes[2].clone());
+        graph.add_edge(&nodes[0], &nodes[1]);
+        graph.add_edge(&nodes[2], &nodes[1]);
+        graph.add_edge(&nodes[1], &nodes[2]);
 
         assert!(expected_routing_tables(graph.calculate_distance(), vec![]));
 
@@ -927,10 +927,10 @@ mod test {
 
         let mut graph = Graph::new(source.clone());
 
-        graph.add_edge(nodes[0].clone(), nodes[1].clone());
-        graph.add_edge(nodes[2].clone(), nodes[1].clone());
-        graph.add_edge(nodes[1].clone(), nodes[2].clone());
-        graph.add_edge(source.clone(), nodes[0].clone());
+        graph.add_edge(&nodes[0], &nodes[1]);
+        graph.add_edge(&nodes[2], &nodes[1]);
+        graph.add_edge(&nodes[1], &nodes[2]);
+        graph.add_edge(&source, &nodes[0]);
 
         assert!(expected_routing_tables(
             graph.calculate_distance(),
@@ -952,11 +952,11 @@ mod test {
 
         let mut graph = Graph::new(source.clone());
 
-        graph.add_edge(nodes[0].clone(), nodes[1].clone());
-        graph.add_edge(nodes[2].clone(), nodes[1].clone());
-        graph.add_edge(nodes[0].clone(), nodes[2].clone());
-        graph.add_edge(source.clone(), nodes[0].clone());
-        graph.add_edge(source.clone(), nodes[1].clone());
+        graph.add_edge(&nodes[0], &nodes[1]);
+        graph.add_edge(&nodes[2], &nodes[1]);
+        graph.add_edge(&nodes[0], &nodes[2]);
+        graph.add_edge(&source, &nodes[0]);
+        graph.add_edge(&source, &nodes[1]);
 
         assert!(expected_routing_tables(
             graph.calculate_distance(),
@@ -989,19 +989,19 @@ mod test {
         let mut graph = Graph::new(source.clone());
 
         for i in 0..3 {
-            graph.add_edge(source.clone(), nodes[i].clone());
+            graph.add_edge(&source, &nodes[i]);
         }
 
         for level in 0..2 {
             for i in 0..3 {
                 for j in 0..3 {
-                    graph.add_edge(nodes[level * 3 + i].clone(), nodes[level * 3 + 3 + j].clone());
+                    graph.add_edge(&nodes[level * 3 + i], &nodes[level * 3 + 3 + j]);
                 }
             }
         }
 
         // Dummy edge.
-        graph.add_edge(nodes[9].clone(), nodes[10].clone());
+        graph.add_edge(&nodes[9], &nodes[10]);
 
         let mut next_hops: Vec<_> =
             (0..3).map(|i| (nodes[i].clone(), vec![nodes[i].clone()])).collect();
