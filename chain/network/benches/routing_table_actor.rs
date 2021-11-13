@@ -111,9 +111,11 @@ benchmark_group!(
 benchmark_main!(benches);
 
 // running 3 tests
-// test get_all_edges_bench_new2 ... bench:   1,001,090 ns/iter (+/- 25,434)
-// test get_all_edges_bench_new3 ... bench:   1,017,563 ns/iter (+/- 37,675)
 // test get_all_edges_bench_old  ... bench:   1,296,045 ns/iter (+/- 601,626)
+// replace key with Arc
+// test get_all_edges_bench_new2 ... bench:   1,001,090 ns/iter (+/- 25,434)
+// replace PeerId with Arc (Preferred)
+// test get_all_edges_bench_new3 ... bench:   1,017,563 ns/iter (+/- 37,675)
 
 pub struct EdgeNew {
     /// Since edges are not directed `peer0 < peer1` should hold.
