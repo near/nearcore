@@ -166,7 +166,7 @@ fn test_infinite_loop() {
                 } else if state_value == 4 {
                     assert_eq!(counter1.load(Ordering::SeqCst), 1);
                     assert_eq!(counter2.load(Ordering::SeqCst), 1);
-                    if Instant::now().duration_since(start).as_millis() > 800 {
+                    if Instant::now().saturating_duration_since(start).as_millis() > 800 {
                         System::current().stop();
                     }
                 }
