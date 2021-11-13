@@ -20,8 +20,8 @@ impl PeerId {
         Self(key)
     }
 
-    pub fn public_key(&self) -> PublicKey {
-        self.0.clone()
+    pub fn public_key(&self) -> &PublicKey {
+        &self.0
     }
 }
 
