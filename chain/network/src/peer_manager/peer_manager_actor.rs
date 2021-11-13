@@ -911,13 +911,13 @@ impl PeerManagerActor {
         let edges: Vec<Edge> = edges
             .iter()
             .map(|se| {
-                Edge::new(
+                Arc::new(EdgeInner::new(
                     se.key().0.clone(),
                     se.key().1.clone(),
                     se.nonce(),
                     near_crypto::Signature::default(),
                     near_crypto::Signature::default(),
-                )
+                ))
             })
             .collect();
         self.routing_table_view.remove_edges(&edges);
