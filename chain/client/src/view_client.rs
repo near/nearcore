@@ -27,13 +27,14 @@ use near_client_primitives::types::{
     GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, QueryError, TxStatus,
     TxStatusError,
 };
-#[cfg(feature = "test_features")]
-use near_network::types::NetworkAdversarialMessage;
-use near_network::types::{
-    NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerMessageRequest, ReasonForBan,
-    StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
-};
+use near_network::types::PeerManagerMessageRequest;
 use near_network::{NetworkRequests, PeerManagerAdapter};
+#[cfg(feature = "test_features")]
+use near_network_primitives::types::NetworkAdversarialMessage;
+use near_network_primitives::types::{
+    NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
+    StateResponseInfoV1, StateResponseInfoV2,
+};
 use near_performance_metrics_macros::perf;
 use near_performance_metrics_macros::perf_with_debug;
 use near_primitives::block::{Block, BlockHeader, GenesisId, Tip};

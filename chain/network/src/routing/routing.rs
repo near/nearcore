@@ -9,10 +9,12 @@ use actix::{Actor, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 use conqueue::{QueueReceiver, QueueSender};
+use near_network_primitives::types::{PeerIdOrHash, Ping, Pong};
 #[cfg(feature = "test_features")]
 use serde::Serialize;
 use tracing::warn;
 
+use crate::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
@@ -20,11 +22,7 @@ use near_store::{ColAccountAnnouncements, Store};
 
 use crate::routing::edge::{Edge, SimpleEdge};
 use crate::routing::route_back_cache::RouteBackCache;
-use crate::PeerInfo;
-use crate::{
-    types::{PeerIdOrHash, Ping, Pong},
-    utils::cache_to_hashmap,
-};
+use crate::utils::cache_to_hashmap;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const ROUTE_BACK_CACHE_SIZE: u64 = 100_000;

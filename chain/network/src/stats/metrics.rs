@@ -8,7 +8,8 @@ use near_metrics::{
     try_create_int_gauge, Histogram, IntCounter, IntGauge,
 };
 
-use crate::types::{PeerMessage, RoutedMessageBody};
+use crate::types::PeerMessage;
+use near_network_primitives::types::RoutedMessageBody;
 
 pub static PEER_CONNECTIONS_TOTAL: Lazy<near_metrics::Result<IntGauge>> =
     Lazy::new(|| try_create_int_gauge("near_peer_connections_total", "Number of connected peers"));

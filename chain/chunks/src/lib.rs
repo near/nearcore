@@ -14,11 +14,8 @@ use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
     byzantine_assert, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind, RuntimeAdapter,
 };
-use near_network::types::{
-    AccountIdOrPeerTrackingShard, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
-    PeerManagerAdapter,
-};
-use near_network::types::{PartialEncodedChunkForwardMsg, PeerManagerMessageRequest};
+use near_network::types::PeerManagerAdapter;
+use near_network::types::PeerManagerMessageRequest;
 use near_network::NetworkRequests;
 use near_pool::{PoolIteratorWrapper, TransactionPool};
 use near_primitives::block::{BlockHeader, Tip};
@@ -43,6 +40,10 @@ use near_primitives::{checked_feature, unwrap_or_return};
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use near_chunks_primitives::Error;
+use near_network_primitives::types::{
+    AccountIdOrPeerTrackingShard, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
+    PartialEncodedChunkResponseMsg,
+};
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use rand::Rng;
 
@@ -1719,7 +1720,6 @@ mod test {
     use crate::test_utils::*;
     use near_chain::test_utils::KeyValueRuntime;
     use near_network::test_utils::MockPeerManagerAdapter;
-    use near_network::types::PartialEncodedChunkForwardMsg;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
