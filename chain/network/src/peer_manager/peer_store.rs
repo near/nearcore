@@ -3,8 +3,7 @@ use near_network_primitives::types::{
     KnownPeerState, KnownPeerStatus, NetworkConfig, PeerInfo, ReasonForBan,
 };
 use near_primitives::network::PeerId;
-use near_primitives::time::Utc;
-use near_primitives::utils::to_timestamp;
+use near_primitives::time::Time;
 use near_store::{ColPeers, Store};
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
@@ -79,7 +78,7 @@ impl PeerStore {
             }
         }
 
-        let now = to_timestamp(Utc::now());
+        let now = Time::now();
         for (key, value) in store.iter(ColPeers) {
             let peer_id: PeerId = PeerId::try_from_slice(key.as_ref())?;
             let mut peer_state: KnownPeerState = KnownPeerState::try_from_slice(value.as_ref())?;
@@ -124,7 +123,7 @@ impl PeerStore {
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.add_trusted_peer(peer_info.clone(), TrustLevel::Signed)?;
         let entry = self.peer_states.get_mut(&peer_info.id).unwrap();
-        entry.last_seen = to_timestamp(Utc::now());
+        entry.last_seen = Time::now();
         entry.status = KnownPeerStatus::Connected;
         Self::save_to_db(&self.store, peer_info.id.try_to_vec()?.as_slice(), entry)
     }
@@ -134,7 +133,7 @@ impl PeerStore {
         peer_id: &PeerId,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
-            peer_state.last_seen = to_timestamp(Utc::now());
+            peer_state.last_seen = Time::now();
             peer_state.status = KnownPeerStatus::NotConnected;
             Self::save_to_db(&self.store, peer_id.try_to_vec()?.as_slice(), peer_state)
         } else {
@@ -148,8 +147,8 @@ impl PeerStore {
         ban_reason: ReasonForBan,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
-            peer_state.last_seen = to_timestamp(Utc::now());
-            peer_state.status = KnownPeerStatus::Banned(ban_reason, to_timestamp(Utc::now()));
+            let now = Time::now();
+            peer_state.banned_at(ban_reason, now);
             Self::save_to_db(&self.store, peer_id.try_to_vec()?.as_slice(), peer_state)
         } else {
             Err(format!("Peer {} is missing in the peer store", peer_id).into())
@@ -224,10 +223,10 @@ impl PeerStore {
         &mut self,
         config: &NetworkConfig,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let now = Utc::now();
+        let now = Time::now();
         let mut to_remove = vec![];
         for (peer_id, peer_status) in self.peer_states.iter() {
-            let diff = (now - peer_status.last_seen()).to_std()?;
+            let diff = now - peer_status.last_seen;
             if peer_status.status != KnownPeerStatus::Connected
                 && diff > config.peer_expiration_duration
             {

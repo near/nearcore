@@ -10,16 +10,14 @@
 /// - We also export publicly types from `crate::network_protocol`
 use actix::Message;
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::DateTime;
 use near_crypto::SecretKey;
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
-use near_primitives::time::{Clock, Utc};
+use near_primitives::time::Time;
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
-use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -141,7 +139,7 @@ pub enum KnownPeerStatus {
     Unknown,
     NotConnected,
     Connected,
-    Banned(ReasonForBan, u64),
+    Banned(ReasonForBan, Time),
 }
 
 impl KnownPeerStatus {
@@ -157,22 +155,24 @@ pub struct KnownPeerState {
     pub peer_info: PeerInfo,
     pub status: KnownPeerStatus,
     /// Unused
-    first_seen: u64,
-    pub last_seen: u64,
+    first_seen: Time,
+    pub last_seen: Time,
 }
 
 impl KnownPeerState {
     pub fn new(peer_info: PeerInfo) -> Self {
+        let now = Time::now();
         KnownPeerState {
             peer_info,
             status: KnownPeerStatus::Unknown,
-            first_seen: to_timestamp(Clock::utc()),
-            last_seen: to_timestamp(Clock::utc()),
+            first_seen: now,
+            last_seen: now,
         }
     }
 
-    pub fn last_seen(&self) -> DateTime<Utc> {
-        from_timestamp(self.last_seen)
+    pub fn banned_at(&mut self, ban_reason: ReasonForBan, now: Time) {
+        self.last_seen = now;
+        self.status = KnownPeerStatus::Banned(ban_reason, now);
     }
 }
 
@@ -447,5 +447,21 @@ mod tests {
                 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 0, 0,
             ],
         );
+    }
+
+    #[test]
+    fn test_known_peer_state() {
+        let pi = PeerInfo::random();
+        let mut kps = KnownPeerState::new(pi);
+
+        let now = Time::now();
+        kps.last_seen = now;
+
+        assert_eq!(kps.last_seen, now);
+
+        let now = now + Duration::from_nanos(123);
+        kps.banned_at(ReasonForBan::Abusive, now);
+        assert_eq!(kps.status, KnownPeerStatus::Banned(ReasonForBan::Abusive, now));
+        assert_eq!(kps.last_seen, now);
     }
 }

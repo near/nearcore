@@ -32,7 +32,7 @@ use near_primitives::borsh::maybestd::io::Error;
 use near_primitives::logging;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::PartialEncodedChunk;
-use near_primitives::time::Clock;
+use near_primitives::time::Time;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
@@ -44,7 +44,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tracing::{debug, error, info, trace, warn};
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
@@ -94,7 +94,7 @@ pub struct PeerActor {
     /// Edge information needed to build the real edge. This is relevant for handshake.
     partial_edge_info: Option<PartialEdgeInfo>,
     /// Last time an update of received message was sent to PeerManager
-    last_time_received_message_update: Instant,
+    last_time_received_message_update: Time,
     /// Dynamic Prometheus metrics
     network_metrics: NetworkMetrics,
     /// How many transactions we have received since the last block message
@@ -103,7 +103,7 @@ pub struct PeerActor {
     /// How many peer actors are created
     peer_counter: Arc<AtomicUsize>,
     /// Cache of recently routed messages, this allows us to drop duplicates
-    routed_message_cache: LruCache<(PeerId, PeerIdOrHash, Signature), Instant>,
+    routed_message_cache: LruCache<(PeerId, PeerIdOrHash, Signature), Time>,
     /// A helper data structure for limiting reading
     throttle_controller: ThrottleController,
 }
@@ -148,7 +148,7 @@ impl PeerActor {
             genesis_id: Default::default(),
             chain_info: Default::default(),
             partial_edge_info,
-            last_time_received_message_update: Clock::instant(),
+            last_time_received_message_update: Time::now(),
             network_metrics,
             txns_since_last_block,
             peer_counter,
@@ -527,7 +527,7 @@ impl PeerActor {
             if self.last_time_received_message_update.elapsed()
                 > UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE
             {
-                self.last_time_received_message_update = Clock::instant();
+                self.last_time_received_message_update = Time::now();
                 self.peer_manager_addr.do_send(PeerManagerMessageRequest::PeerRequest(
                     PeerRequest::ReceivedMessage(peer_id, self.last_time_received_message_update),
                 ));
@@ -670,9 +670,9 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
         // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
         if let PeerMessage::Routed(msg) = &peer_msg {
             let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
-            let now = Clock::instant();
+            let now = Time::now();
             if let Some(time) = self.routed_message_cache.get(&key) {
-                if now.saturating_duration_since(*time) <= DROP_DUPLICATED_MESSAGES_PERIOD {
+                if now.duration_since(*time) <= DROP_DUPLICATED_MESSAGES_PERIOD {
                     debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
                     return;
                 }
@@ -1037,7 +1037,7 @@ impl Handler<QueryPeerStats> for PeerActor {
         let _d = delay_detector::DelayDetector::new("query peer stats".into());
 
         // TODO(#5218) Refactor this code to use `SystemTime`
-        let now = Instant::now();
+        let now = Time::now();
         let sent = self.tracker.sent_bytes.minute_stats(now);
         let received = self.tracker.received_bytes.minute_stats(now);
 

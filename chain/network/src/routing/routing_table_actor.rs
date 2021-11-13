@@ -11,13 +11,14 @@ use near_network_primitives::types::{Edge, EdgeState};
 use near_performance_metrics_macros::perf;
 use near_primitives::borsh::BorshSerialize;
 use near_primitives::network::PeerId;
+use near_primitives::time::Time;
 use near_primitives::utils::index_to_bytes;
 use near_rate_limiter::{ActixMessageResponse, ActixMessageWrapper, ThrottleToken};
 use near_store::db::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
 use near_store::{Store, StoreUpdate};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tracing::{debug, trace, warn};
 
 /// `Prune` enum is to specify how often should we prune edges.
@@ -54,7 +55,7 @@ pub struct RoutingTableActor {
     /// Active PeerId that are part of the shortest path to each PeerId.
     pub peer_forwarding: Arc<HashMap<PeerId, Vec<PeerId>>>,
     /// Last time a peer was reachable through active edges.
-    pub peer_last_time_reachable: HashMap<PeerId, Instant>,
+    pub peer_last_time_reachable: HashMap<PeerId, Time>,
     /// Everytime a group of peers becomes unreachable at the same time; We store edges belonging to
     /// them in components. We remove all of those edges from memory, and save them to database,
     /// If any of them become reachable again, we re-add whole component.
@@ -212,6 +213,7 @@ impl RoutingTableActor {
         let my_peer_id = self.my_peer_id().clone();
 
         // Get the "row" (a.k.a nonce) at which we've stored a given peer in the past (when we pruned it).
+        let now = Time::now();
         if let Ok(component_nonce) = self.component_nonce_from_peer(other_peer_id) {
             let mut update = self.store.store_update();
 
@@ -231,7 +233,7 @@ impl RoutingTableActor {
                             if cur_nonce == component_nonce {
                                 // Mark it as reachable and delete from database.
                                 self.peer_last_time_reachable
-                                    .insert(peer_id.clone(), Instant::now() - SAVE_PEERS_MAX_TIME);
+                                    .insert(peer_id.clone(), now - SAVE_PEERS_MAX_TIME);
                                 update.delete(
                                     ColPeerComponent,
                                     peer_id.try_to_vec().unwrap().as_ref(),
@@ -247,7 +249,7 @@ impl RoutingTableActor {
                 warn!(target: "network", "Error removing network component from store. {:?}", e);
             }
         } else {
-            self.peer_last_time_reachable.insert(other_peer_id.clone(), Instant::now());
+            self.peer_last_time_reachable.insert(other_peer_id.clone(), now);
         }
     }
 
@@ -266,7 +268,7 @@ impl RoutingTableActor {
 
         self.peer_forwarding = Arc::new(self.raw_graph.calculate_distance());
 
-        let now = Instant::now();
+        let now = Time::now();
         for peer in self.peer_forwarding.keys() {
             self.peer_last_time_reachable.insert(peer.clone(), now);
         }
@@ -304,12 +306,12 @@ impl RoutingTableActor {
         force_pruning: bool,
         prune_edges_not_reachable_for: Duration,
     ) -> Vec<Edge> {
-        let now = Instant::now();
+        let now = Time::now();
         // Save nodes on disk and remove from memory only if elapsed time from oldest peer
         // is greater than `SAVE_PEERS_MAX_TIME`
         if !(force_pruning
             || (self.peer_last_time_reachable.values())
-                .any(|&last_time| now.saturating_duration_since(last_time) >= SAVE_PEERS_MAX_TIME))
+                .any(|&last_time| now.duration_since(last_time) >= SAVE_PEERS_MAX_TIME))
         {
             return Vec::new();
         }
@@ -318,7 +320,7 @@ impl RoutingTableActor {
         // All nodes not reachable for at last 1 hour(SAVE_PEERS_AFTER_TIME) will be moved to disk.
         let peers_to_remove = (self.peer_last_time_reachable.iter())
             .filter(|(_, &last_time)| {
-                now.saturating_duration_since(last_time) >= prune_edges_not_reachable_for
+                now.duration_since(last_time) >= prune_edges_not_reachable_for
             })
             .map(|(peer_id, _)| peer_id.clone())
             .collect::<HashSet<_>>();

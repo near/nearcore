@@ -7,11 +7,10 @@ use borsh::de::BorshDeserialize;
 use near_crypto::Signature;
 use near_network_primitives::types::{Edge, EdgeState};
 use near_primitives::network::PeerId;
-use near_primitives::time::Clock;
+use near_primitives::time::Time;
 use near_store::test_utils::create_test_store;
 use near_store::{ColComponentEdges, ColPeerComponent, Store};
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
 
 type SimpleEdgeDescription = (usize, usize, bool);
 
@@ -30,14 +29,14 @@ struct RoutingTableTest {
     store: Store,
     peers: Vec<PeerId>,
     rev_peers: HashMap<PeerId, usize>,
-    times: Vec<Instant>,
+    times: Vec<Time>,
 }
 
 impl RoutingTableTest {
     fn new() -> Self {
         let me = random_peer_id();
         let store = create_test_store();
-        let now = Clock::instant();
+        let now = Time::now();
 
         Self {
             routing_table: RoutingTableActor::new(me.clone(), store.clone()),
@@ -46,7 +45,7 @@ impl RoutingTableTest {
             rev_peers: vec![(me, 0)].into_iter().collect(),
             times: vec![
                 now - (DELETE_PEERS_AFTER_TIME / 2),
-                now - (DELETE_PEERS_AFTER_TIME + SAVE_PEERS_MAX_TIME) / 2,
+                now - ((DELETE_PEERS_AFTER_TIME + SAVE_PEERS_MAX_TIME) / 2),
                 now - (SAVE_PEERS_MAX_TIME * 3 / 2 - DELETE_PEERS_AFTER_TIME / 2),
             ],
         }
