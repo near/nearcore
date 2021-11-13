@@ -18,9 +18,9 @@ use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
-use near_network::types::ROUTED_MESSAGE_TTL;
-use near_network::utils::blacklist_from_iter;
-use near_network::NetworkConfig;
+use near_network_primitives::types::NetworkConfig;
+use near_network_primitives::types::ROUTED_MESSAGE_TTL;
+use near_network_primitives::utils::blacklist_from_iter;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;

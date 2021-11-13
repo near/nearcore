@@ -3,8 +3,8 @@ pub use routing::routing_table_actor::{
     RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
 };
 pub use types::{
-    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRecipient,
-    NetworkRequests, NetworkResponses, PeerInfo, PeerManagerAdapter,
+    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRecipient, NetworkRequests,
+    NetworkResponses, PeerManagerAdapter,
 };
 
 mod peer;
@@ -13,4 +13,6 @@ pub mod routing;
 pub mod stats;
 pub mod test_utils;
 pub mod types;
-pub mod utils;
+pub(crate) mod utils;
+
+pub use types::GetPeerId;

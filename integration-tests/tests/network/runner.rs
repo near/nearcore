@@ -25,13 +25,12 @@ use near_network::test_utils::{
 use near_network::routing::routing_table_actor::start_routing_table_actor;
 #[cfg(feature = "test_features")]
 use near_network::types::SetAdvOptions;
-use near_network::types::{
-    OutboundTcpConnect, PeerManagerMessageRequest, PeerManagerMessageResponse, ROUTED_MESSAGE_TTL,
+use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
+use near_network::{NetworkRecipient, NetworkRequests, NetworkResponses, PeerManagerActor};
+use near_network_primitives::types::{
+    NetworkConfig, OutboundTcpConnect, PeerInfo, ROUTED_MESSAGE_TTL,
 };
-use near_network::utils::blacklist_from_iter;
-use near_network::{
-    NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
-};
+use near_network_primitives::utils::blacklist_from_iter;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;

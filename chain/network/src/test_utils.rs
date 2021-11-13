@@ -18,6 +18,8 @@ use tracing::debug;
 
 use near_crypto::{KeyType, SecretKey};
 #[cfg(feature = "test_features")]
+use near_network_primitives::types::NetworkConfig;
+#[cfg(feature = "test_features")]
 use near_primitives::block::GenesisId;
 #[cfg(feature = "test_features")]
 use near_primitives::borsh::maybestd::sync::atomic::AtomicUsize;
@@ -34,15 +36,15 @@ use near_store::Store;
 use crate::routing::routing_table_actor::start_routing_table_actor;
 #[cfg(feature = "test_features")]
 use crate::types::{
-    NetworkClientMessages, NetworkClientResponses, NetworkViewClientMessages,
-    NetworkViewClientResponses,
-};
-use crate::types::{
-    NetworkInfo, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, ReasonForBan,
+    NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, ReasonForBan,
 };
 #[cfg(feature = "test_features")]
-use crate::{NetworkConfig, RoutingTableActor};
-use crate::{NetworkResponses, PeerManagerActor, PeerManagerAdapter};
+use crate::RoutingTableActor;
+use crate::{
+    NetworkClientMessages, NetworkClientResponses, NetworkResponses, PeerManagerActor,
+    PeerManagerAdapter,
+};
 
 /// Mock for `ClientActor`
 #[cfg(feature = "test_features")]

@@ -14,7 +14,7 @@ use serde::Serialize;
 use strum::AsStaticStr;
 
 use conqueue::QueueSender;
-pub use near_network_primitives::types::*;
+pub(crate) use near_network_primitives::types::*;
 
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;

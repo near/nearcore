@@ -16,7 +16,7 @@ use near_primitives::types::AccountId;
 use near_store::{ColAccountAnnouncements, Store};
 
 use crate::routing::route_back_cache::RouteBackCache;
-use crate::PeerInfo;
+use crate::types::PeerInfo;
 use crate::{
     types::{PeerIdOrHash, Ping, Pong},
     utils::cache_to_hashmap,

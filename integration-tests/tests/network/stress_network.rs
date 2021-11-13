@@ -15,8 +15,10 @@ use near_network::routing::routing_table_actor::start_routing_table_actor;
 use near_network::test_utils::{
     convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeoutActor,
 };
-use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
-use near_network::{NetworkClientResponses, NetworkConfig, PeerManagerActor};
+use near_network::{NetworkClientResponses, PeerManagerActor};
+use near_network_primitives::types::{
+    NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
+};
 use near_store::test_utils::create_test_store;
 
 type ClientMock = Mocker<ClientActor>;
