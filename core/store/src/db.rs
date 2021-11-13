@@ -657,11 +657,10 @@ fn rocksdb_read_options() -> ReadOptions {
     read_options
 }
 
-fn rocksdb_block_based_options() -> BlockBasedOptions {
+fn rocksdb_block_based_options(cache_size: usize) -> BlockBasedOptions {
     let mut block_opts = BlockBasedOptions::default();
     block_opts.set_block_size(1024 * 16);
     // We create block_cache for each of 47 columns, so the total cache size is 32 * 47 = 1504mb
-    let cache_size = 1024 * 1024 * 32;
     block_opts.set_block_cache(&Cache::new_lru_cache(cache_size).unwrap());
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
     block_opts.set_cache_index_and_filter_blocks(true);
@@ -669,10 +668,19 @@ fn rocksdb_block_based_options() -> BlockBasedOptions {
     block_opts
 }
 
+// TODO(#5213) Use ByteSize package to represent sizes.
+fn choose_cache_size(col: DBCol) -> usize {
+    match col {
+        DBCol::ColState => 512 * 1024 * 1024,
+        _ => 32 * 1024 * 1024,
+    }
+}
+
 fn rocksdb_column_options(col: DBCol) -> Options {
     let mut opts = Options::default();
     opts.set_level_compaction_dynamic_level_bytes(true);
-    opts.set_block_based_table_factory(&rocksdb_block_based_options());
+    let cache_size = choose_cache_size(col);
+    opts.set_block_based_table_factory(&rocksdb_block_based_options(cache_size));
     opts.optimize_level_style_compaction(1024 * 1024 * 128);
     opts.set_target_file_size_base(1024 * 1024 * 64);
     opts.set_compression_per_level(&[]);
