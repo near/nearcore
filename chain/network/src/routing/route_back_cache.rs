@@ -199,9 +199,9 @@ impl RouteBackCache {
         }
     }
 
-    pub fn insert(&mut self, hash: CryptoHash, target: PeerId) {
+    pub fn insert(&mut self, hash: CryptoHash, target: PeerId) -> bool {
         if self.main.contains_key(&hash) {
-            return;
+            return false;
         }
 
         self.remove_evicted();
@@ -220,6 +220,7 @@ impl RouteBackCache {
 
         size += 1;
         self.size_per_target.insert((self.capacity - size, target));
+        true
     }
 }
 
