@@ -23,7 +23,7 @@ bytesize = "1.0.1"
 conqueue = "0.4.0"
 serde = { version = "1", features = ["derive"], optional=true }
 
-borsh = "0.9"
+borsh = { version = "0.9", features = ["rc"]}
 cached = "0.23"
 
 near-network-primitives = { path = "../network-primitives" }
@@ -59,4 +59,8 @@ harness = false
 
 [[bench]]
 name = "ibf"
+harness = false
+
+[[bench]]
+name = "routing_table_actor"
 harness = false
