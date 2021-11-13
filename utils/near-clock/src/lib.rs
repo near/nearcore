@@ -61,7 +61,7 @@ impl NearClock {
     }
 
     pub fn duration_since(&self, rhs: &NearClock) -> Duration {
-        self.time.duration_since(rhs.time).unwrap_or(Duration::from_millis(0))
+        self.time.duration_since(rhs.time).unwrap_or_default()
     }
 
     pub fn elapsed(&self) -> Duration {
