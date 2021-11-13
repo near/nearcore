@@ -17,7 +17,7 @@ use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
 use near_primitives::time::Clock;
 use tokio::net::{TcpListener, TcpStream};
-use tokio_util::codec::FramedRead;
+use tokio::sync::Semaphore;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::stats::metrics;
@@ -33,6 +33,7 @@ use near_primitives::types::{AccountId, ProtocolVersion};
 use near_primitives::utils::from_timestamp;
 use near_store::Store;
 use rand::thread_rng;
+use tokio_util::sync::PollSemaphore;
 
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
@@ -68,6 +69,7 @@ use crate::types::{
 use crate::types::{GetPeerId, GetPeerIdResult};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{RoutingSyncV2, RoutingVersion2};
+use near_rate_limiter::{ThrottleController, ThrottledFrameRead};
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: Duration = Duration::from_millis(60_000);
@@ -100,6 +102,11 @@ const BROAD_CAST_EDGES_MAX_WORK_ALLOWED: Duration = Duration::from_millis(50);
 const WAIT_FOR_SYNC_DELAY: Duration = Duration::from_millis(1_000);
 /// How often should we update the routing table
 const UPDATE_ROUTING_TABLE_INTERVAL: Duration = Duration::from_millis(1_000);
+
+/// Max number of messages we received from peer, and they are in progress, before we start throttling.
+const MAX_MESSAGES_COUNT: usize = 20;
+/// Max total size of all messages that are in progress, before we start throttling.
+const MAX_MESSAGES_TOTAL_SIZE: usize = 500_000_000;
 
 macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
     Ok(result) => result,
@@ -298,7 +305,7 @@ impl PeerManagerActor {
             }
             self.routing_table_view
                 .local_edges_info
-                .insert((edge.peer0.clone(), edge.peer1.clone()), edge.clone());
+                .insert((edge.key.0.clone(), edge.key.1.clone()), edge.clone());
         }
 
         self.routing_table_addr
@@ -764,8 +771,14 @@ impl PeerManagerActor {
             let (read, write) = tokio::io::split(stream);
 
             // TODO: check if peer is banned or known based on IP address and port.
+            let semaphore = PollSemaphore::new(Arc::new(Semaphore::new(0)));
+            let rate_limiter = ThrottleController::new(
+                semaphore.clone(),
+                MAX_MESSAGES_COUNT,
+                MAX_MESSAGES_TOTAL_SIZE,
+            );
             PeerActor::add_stream(
-                FramedRead::new(read, Codec::new())
+                ThrottledFrameRead::new(read, Codec::new(), rate_limiter.clone(), semaphore)
                     .take_while(|x| match x {
                         Ok(_) => future::ready(true),
                         Err(e) => {
@@ -791,6 +804,7 @@ impl PeerManagerActor {
                 network_metrics,
                 txns_since_last_block,
                 peer_counter,
+                rate_limiter,
             )
         });
     }
@@ -941,10 +955,10 @@ impl PeerManagerActor {
     // We will broadcast that edge to that peer, and if that peer doesn't reply within specific time,
     // that peer will be removed. However, the connected peer may gives us a new edge indicating
     // that we should in fact be connected to it.
-    fn maybe_remove_connected_peer(&mut self, ctx: &mut Context<Self>, edge: Edge, other: PeerId) {
+    fn maybe_remove_connected_peer(&mut self, ctx: &mut Context<Self>, edge: Edge, other: &PeerId) {
         let nonce = edge.next();
 
-        if let Some(last_nonce) = self.local_peer_pending_update_nonce_request.get(&other) {
+        if let Some(last_nonce) = self.local_peer_pending_update_nonce_request.get(other) {
             if *last_nonce >= nonce {
                 // We already tried to update an edge with equal or higher nonce.
                 return;
@@ -964,6 +978,7 @@ impl PeerManagerActor {
 
         self.local_peer_pending_update_nonce_request.insert(other.clone(), nonce);
 
+        let other = other.clone();
         near_performance_metrics::actix::run_later(
             ctx,
             WAIT_ON_TRY_UPDATE_NONCE,
