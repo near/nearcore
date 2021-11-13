@@ -1,5 +1,17 @@
+<<<<<<< HEAD
 use crate::network_protocol::Edge;
 use crate::routing::{EdgeState, Prune, DELETE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME};
+=======
+use actix::System;
+use std::collections::{HashMap, HashSet};
+use std::ops::Sub;
+use std::sync::Arc;
+
+use borsh::de::BorshDeserialize;
+use near_primitives::time::Time;
+
+use crate::routing::{Edge, EdgeType, Prune, DELETE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME};
+>>>>>>> Reorganize imports in near-network
 use crate::test_utils::random_peer_id;
 use crate::RoutingTableActor;
 use actix::System;
@@ -28,14 +40,14 @@ struct RoutingTableTest {
     store: Arc<Store>,
     peers: Vec<PeerId>,
     rev_peers: HashMap<PeerId, usize>,
-    times: Vec<Instant>,
+    times: Vec<Time>,
 }
 
 impl RoutingTableTest {
     fn new() -> Self {
         let me = random_peer_id();
         let store = create_test_store();
-        let now = Clock::instant();
+        let now = Time::now();
 
         Self {
             routing_table: RoutingTableActor::new(me.clone(), store.clone()),
@@ -43,9 +55,9 @@ impl RoutingTableTest {
             peers: vec![me.clone()],
             rev_peers: vec![(me, 0)].into_iter().collect(),
             times: vec![
-                now - (DELETE_PEERS_AFTER_TIME / 2),
-                now - (DELETE_PEERS_AFTER_TIME + SAVE_PEERS_MAX_TIME) / 2,
-                now - (SAVE_PEERS_MAX_TIME * 3 / 2 - DELETE_PEERS_AFTER_TIME / 2),
+                now.sub(DELETE_PEERS_AFTER_TIME / 2),
+                now.sub((DELETE_PEERS_AFTER_TIME + SAVE_PEERS_MAX_TIME) / 2),
+                now.sub(SAVE_PEERS_MAX_TIME * 3 / 2 - DELETE_PEERS_AFTER_TIME / 2),
             ],
         }
     }

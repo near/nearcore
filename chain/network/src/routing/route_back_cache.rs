@@ -1,8 +1,8 @@
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::time::Clock;
+use near_primitives::time::Time;
 use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// default value for `capacity`
 const DEFAULT_CAPACITY: usize = 100_000;
@@ -55,7 +55,7 @@ pub struct RouteBackCache {
     remove_frequent_min_size: usize,
     /// Main map from message hash to time where it was created + target peer
     /// Size: O(capacity)
-    main: HashMap<CryptoHash, (Instant, PeerId)>,
+    main: HashMap<CryptoHash, (Time, PeerId)>,
     /// Number of records allocated by each PeerId.
     /// The size is stored with negative sign, to order in PeerId in decreasing order.
     /// To avoid handling with negative number all sizes are added by capacity.
@@ -64,7 +64,7 @@ pub struct RouteBackCache {
     /// List of all hashes associated with each PeerId. Hashes within each PeerId
     /// are sorted by the time they arrived from older to newer.
     /// Size: O(capacity)
-    record_per_target: BTreeMap<PeerId, BTreeSet<(Instant, CryptoHash)>>,
+    record_per_target: BTreeMap<PeerId, BTreeSet<(Time, CryptoHash)>>,
 }
 
 impl Default for RouteBackCache {
@@ -138,7 +138,7 @@ impl RouteBackCache {
         if self.is_full() {
             self.remove_frequent();
 
-            let now = Clock::instant();
+            let now = Time::now();
             let remove_until = now - self.evict_timeout;
             let mut remove_empty = vec![];
 
@@ -215,7 +215,7 @@ impl RouteBackCache {
 
         self.remove_evicted();
 
-        let now = Clock::instant();
+        let now = Time::now();
 
         self.main.insert(hash, (now, target.clone()));
 

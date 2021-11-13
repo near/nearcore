@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use near_primitives::time::Time;
 use std::collections::VecDeque;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 const MINUTE: Duration = Duration::from_secs(60);
 
@@ -22,7 +23,7 @@ struct Entry {
     /// bytes since last reset
     bytes: u64,
     /// Time we created the entry.
-    recorded: SystemTime,
+    recorded: Time,
 }
 
 /// A rate counter tracks number of transfers, the amount of data exchanged and the rate of transfer
@@ -39,7 +40,7 @@ impl RateCounter {
 
     /// Increment number of bytes transferred, updating counts and rates.
     pub fn increment(&mut self, bytes: u64) {
-        let now = SystemTime::now();
+        let now = Time::now();
         self.entries.push_back(Entry { bytes, recorded: now });
         self.bytes_sum += bytes;
         self.truncate(now);
@@ -53,7 +54,7 @@ impl RateCounter {
         self.entries.len() as u64
     }
 
-    fn truncate(&mut self, now: SystemTime) {
+    fn truncate(&mut self, now: Time) {
         // Remove entries older than 1m.
         while !self.entries.is_empty() && self.entries.front().unwrap().recorded < now - MINUTE {
             self.bytes_sum -= self.entries.pop_front().unwrap().bytes;
@@ -78,7 +79,7 @@ mod tests {
         assert_eq!(rc.bytes_per_min(), 1123);
         assert_eq!(rc.count_per_min(), 2);
 
-        rc.truncate(SystemTime::now() + MINUTE + Duration::from_millis(1));
+        rc.truncate(Time::now() + MINUTE + Duration::from_millis(1));
 
         assert_eq!(rc.bytes_per_min(), 0);
         assert_eq!(rc.count_per_min(), 0);

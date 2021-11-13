@@ -11,13 +11,19 @@ use actix::{
 use near_performance_metrics_macros::perf;
 use near_primitives::borsh::BorshSerialize;
 use near_primitives::network::PeerId;
+use near_primitives::time::Time;
 use near_primitives::utils::index_to_bytes;
 use near_rate_limiter::{ActixMessageResponse, ActixMessageWrapper, ThrottleToken};
 use near_store::db::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
 use near_store::{Store, StoreUpdate};
 use std::collections::{HashMap, HashSet};
+<<<<<<< HEAD
+=======
+use std::mem::swap;
+use std::ops::Sub;
+>>>>>>> Reorganize imports in near-network
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tracing::{debug, trace, warn};
 
 /// `Prune` enum is to specify how often should we prune edges.
@@ -54,7 +60,7 @@ pub struct RoutingTableActor {
     /// Active PeerId that are part of the shortest path to each PeerId.
     pub peer_forwarding: Arc<HashMap<PeerId, Vec<PeerId>>>,
     /// Last time a peer was reachable through active edges.
-    pub peer_last_time_reachable: HashMap<PeerId, Instant>,
+    pub peer_last_time_reachable: HashMap<PeerId, Time>,
     /// Everytime a group of peers becomes unreachable at the same time; We store edges belonging to
     /// them in components. We remove all of those edges from memory, and save them to database,
     /// If any of them become reachable again, we re-add whole component.
@@ -204,7 +210,7 @@ impl RoutingTableActor {
                             if cur_nonce == component_nonce {
                                 // Mark it as reachable and delete from database.
                                 self.peer_last_time_reachable
-                                    .insert(peer_id.clone(), Instant::now() - SAVE_PEERS_MAX_TIME);
+                                    .insert(peer_id.clone(), Time::now().sub(SAVE_PEERS_MAX_TIME));
                                 update.delete(
                                     ColPeerComponent,
                                     peer_id.try_to_vec().unwrap().as_ref(),
@@ -220,7 +226,7 @@ impl RoutingTableActor {
                 warn!(target: "network", "Error removing network component from store. {:?}", e);
             }
         } else {
-            self.peer_last_time_reachable.insert(other_peer_id.clone(), Instant::now());
+            self.peer_last_time_reachable.insert(other_peer_id.clone(), Time::now());
         }
     }
 
@@ -239,7 +245,7 @@ impl RoutingTableActor {
 
         self.peer_forwarding = Arc::new(self.raw_graph.calculate_distance());
 
-        let now = Instant::now();
+        let now = Time::now();
         for peer in self.peer_forwarding.keys() {
             self.peer_last_time_reachable.insert(peer.clone(), now);
         }
@@ -277,7 +283,7 @@ impl RoutingTableActor {
         force_pruning: bool,
         prune_edges_not_reachable_for: Duration,
     ) -> Vec<Edge> {
-        let now = Instant::now();
+        let now = Time::now();
         let mut oldest_time = now;
 
         // We compute routing graph every one second; we mark every node that was reachable during that time.
@@ -287,7 +293,7 @@ impl RoutingTableActor {
             .iter()
             .filter_map(|(peer_id, last_time)| {
                 oldest_time = std::cmp::min(oldest_time, *last_time);
-                if now.saturating_duration_since(*last_time) >= prune_edges_not_reachable_for {
+                if now.saturating_duration_since(last_time) >= prune_edges_not_reachable_for {
                     Some(peer_id.clone())
                 } else {
                     None
@@ -297,7 +303,7 @@ impl RoutingTableActor {
 
         // Save nodes on disk and remove from memory only if elapsed time from oldest peer
         // is greater than `SAVE_PEERS_MAX_TIME`
-        if !force_pruning && now.saturating_duration_since(oldest_time) < SAVE_PEERS_MAX_TIME {
+        if !force_pruning && now.saturating_duration_since(&oldest_time) < SAVE_PEERS_MAX_TIME {
             return Vec::new();
         }
         debug!(target: "network", "try_save_edges: We are going to remove {} peers", peers_to_remove.len());
