@@ -398,7 +398,7 @@ impl PeerManagerActor {
                 if !edge.contains_peer(&self.my_peer_id) {
                     continue;
                 }
-                let key = edge.get_pair();
+                let key = edge.key();
                 if !self.routing_table_view.is_local_edge_newer(&key, edge.nonce()) {
                     continue;
                 }
@@ -1927,7 +1927,7 @@ impl PeerManagerActor {
             }
             NetworkRequests::ResponseUpdateNonce(edge) => {
                 if edge.contains_peer(&self.my_peer_id) && edge.verify() {
-                    let key = edge.get_pair();
+                    let key = edge.key();
                     if self.routing_table_view.is_local_edge_newer(&key, edge.nonce()) {
                         let other = edge.other(&self.my_peer_id).unwrap();
                         if let Some(nonce) =
