@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 
-use crate::hash::{hash, CryptoHash};
+use crate::hash::CryptoHash;
 use crate::types::{AccountId, EpochId};
 
 /// Peer id is the public key.
@@ -88,12 +88,9 @@ impl AnnounceAccount {
         peer_id: &PeerId,
         epoch_id: &EpochId,
     ) -> CryptoHash {
-        let header = AnnounceAccountRouteHeader {
-            account_id: account_id.clone(),
-            peer_id: peer_id.clone(),
-            epoch_id: epoch_id.clone(),
-        };
-        hash(&header.try_to_vec().unwrap())
+        let header = AnnounceAccountRouteHeader { account_id, peer_id, epoch_id };
+
+        CryptoHash::hash_borsh(&header)
     }
 
     pub fn hash(&self) -> CryptoHash {
@@ -102,8 +99,8 @@ impl AnnounceAccount {
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]
-struct AnnounceAccountRouteHeader {
-    pub account_id: AccountId,
-    pub peer_id: PeerId,
-    pub epoch_id: EpochId,
+struct AnnounceAccountRouteHeader<'a> {
+    pub account_id: &'a AccountId,
+    pub peer_id: &'a PeerId,
+    pub epoch_id: &'a EpochId,
 }

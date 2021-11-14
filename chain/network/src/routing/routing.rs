@@ -1,5 +1,6 @@
 use near_primitives::time::Clock;
 use std::collections::{hash_map::Entry, HashMap, VecDeque};
+use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -9,7 +10,7 @@ use conqueue::{QueueReceiver, QueueSender};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use near_store::{ColAccountAnnouncements, Store};
@@ -23,7 +24,6 @@ use crate::{
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
-use byteorder::{LittleEndian, WriteBytesExt};
 use near_crypto::{KeyType, SecretKey, Signature};
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
@@ -50,9 +50,13 @@ pub struct EdgeInfo {
 }
 
 impl EdgeInfo {
-    pub fn new(peer0: PeerId, peer1: PeerId, nonce: u64, secret_key: &SecretKey) -> Self {
-        let (peer0, peer1) = Edge::make_key(peer0, peer1);
-        let data = Edge::build_hash(&peer0, &peer1, nonce);
+    pub fn new(peer0: &PeerId, peer1: &PeerId, nonce: u64, secret_key: &SecretKey) -> Self {
+        let data = if peer0 < peer1 {
+            EdgeInner::build_hash(&peer0, &peer1, nonce)
+        } else {
+            EdgeInner::build_hash(&peer1, &peer0, nonce)
+        };
+
         let signature = secret_key.sign(data.as_ref());
         Self { nonce, signature }
     }
@@ -213,6 +217,13 @@ impl EdgeInner {
         let signature = sk.sign(hash.as_ref());
         edge.removal_info = Some((me, signature));
         Edge(Arc::new(edge))
+    }
+
+    /// Build the hash of the edge given its content.
+    /// It is important that peer0 < peer1 at this point.
+    pub fn build_hash(peer0: &PeerId, peer1: &PeerId, nonce: u64) -> CryptoHash {
+        debug_assert!(peer0 < peer1);
+        CryptoHash::hash_borsh(&(peer0, peer1, &nonce))
     }
 
     fn hash(&self) -> CryptoHash {
