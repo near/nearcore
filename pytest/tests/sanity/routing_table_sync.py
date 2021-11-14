@@ -139,10 +139,7 @@ for (left, right, common, TIMEOUT) in tests:
     to_node1 = right_nodes + common_nodes
 
     def simplify(edges):
-        return [{
-            'key': edge['key'],
-            'nonce': edge['nonce']
-        } for edge in edges]
+        return [{'key': edge['key'], 'nonce': edge['nonce']} for edge in edges]
 
     all_edges = simplify(left_nodes + to_node1)
 
