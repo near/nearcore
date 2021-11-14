@@ -59,10 +59,10 @@ def new_edge(peer_a, peer_b, nonce):
     return {
         'nonce':
             nonce,
-        'peer0':
+        'key': [
             'ed25519:' + min(s1, s2),
-        'peer1':
             'ed25519:' + max(s1, s2),
+        ],
         'removal_info':
             None,
         'signature0':
@@ -140,7 +140,7 @@ for (left, right, common, TIMEOUT) in tests:
 
     def simplify(edges):
         return [{
-            'key': (edge['peer0'], edge['peer1']),
+            'key': edge['key'],
             'nonce': edge['nonce']
         } for edge in edges]
 
