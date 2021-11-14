@@ -7,7 +7,7 @@ use clap::{App, Arg};
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_store::create_store;
+use near_store::create_store_with_extra_cache;
 use nearcore::migrations::load_migration_data;
 use nearcore::{get_default_home, get_store_path, load_config, NightshadeRuntime, TrackedConfig};
 
@@ -45,7 +45,10 @@ fn main() -> Result<()> {
     let shard_id = 0u64;
     let home_dir = matches.value_of("home").map(Path::new).unwrap();
     let near_config = load_config(home_dir);
-    let store = create_store(&get_store_path(home_dir));
+    let store = create_store_with_extra_cache(
+        &get_store_path(home_dir),
+        near_config.config.extra_db_memory_bytes,
+    );
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime = NightshadeRuntime::new(
         home_dir,

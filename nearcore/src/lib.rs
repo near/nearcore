@@ -26,7 +26,7 @@ use near_store::migrations::{
     migrate_21_to_22, migrate_25_to_26, migrate_26_to_27, migrate_28_to_29, migrate_29_to_30,
     migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
 };
-use near_store::{create_store, Store};
+use near_store::{create_store, create_store_with_extra_cache, Store};
 use near_telemetry::TelemetryActor;
 
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
@@ -281,7 +281,7 @@ pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Arc<
     if store_exists {
         apply_store_migrations(&path, near_config);
     }
-    let store = create_store(&path);
+    let store = create_store_with_extra_cache(&path, near_config.config.extra_db_memory_bytes);
     if !store_exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);
     }

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use clap::{App, Arg};
 
-use near_store::create_store;
+use near_store::create_store_with_extra_cache;
 use nearcore::{get_default_home, get_store_path, load_config};
 
 use genesis_populate::GenesisBuilder;
@@ -28,7 +28,10 @@ fn main() {
         .unwrap();
     let near_config = load_config(home_dir);
 
-    let store = create_store(&get_store_path(home_dir));
+    let store = create_store_with_extra_cache(
+        &get_store_path(home_dir),
+        near_config.config.extra_db_memory_bytes,
+    );
     GenesisBuilder::from_config_and_store(home_dir, Arc::new(near_config.genesis), store)
         .add_additional_accounts(additional_accounts_num)
         .add_additional_accounts_contract(near_test_contracts::trivial_contract().to_vec())

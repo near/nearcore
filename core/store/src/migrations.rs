@@ -137,7 +137,7 @@ fn recompute_block_ordinal(store: &Store) {
 }
 
 pub fn migrate_6_to_7(path: &Path) {
-    let db = Arc::pin(RocksDB::new_v6(path).expect("Failed to open the database"));
+    let db = Arc::pin(RocksDB::new_v6(path, 0).expect("Failed to open the database"));
     let store = Store::new(db);
     let mut store_update = store.store_update();
     col_state_refcount_8byte(&store, &mut store_update);

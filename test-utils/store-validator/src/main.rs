@@ -8,7 +8,7 @@ use clap::{App, Arg, SubCommand};
 use near_chain::store_validator::StoreValidator;
 use near_chain::RuntimeAdapter;
 use near_logger_utils::init_integration_logger;
-use near_store::create_store;
+use near_store::create_store_with_extra_cache;
 use nearcore::{get_default_home, get_store_path, load_config, TrackedConfig};
 
 fn main() {
@@ -29,7 +29,10 @@ fn main() {
     let home_dir = matches.value_of("home").map(Path::new).unwrap();
     let near_config = load_config(home_dir);
 
-    let store = create_store(&get_store_path(home_dir));
+    let store = create_store_with_extra_cache(
+        &get_store_path(home_dir),
+        near_config.config.extra_db_memory_bytes,
+    );
 
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(nearcore::NightshadeRuntime::new(
         home_dir,
