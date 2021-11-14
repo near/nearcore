@@ -13,7 +13,7 @@ use cached::{Cached, SizedCache};
 pub use db::DBCol::{self, *};
 pub use db::{
     CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, NUM_COLS, SHOULD_COL_GC, SKIP_COL_GC, TAIL_KEY,
+    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, NUM_DB_COLS, SHOULD_COL_GC, SKIP_COL_GC, TAIL_KEY,
 };
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
@@ -296,7 +296,12 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
 }
 
 pub fn create_store(path: &Path) -> Arc<Store> {
-    let db = Arc::pin(RocksDB::new(path).expect("Failed to open the database"));
+    let db = Arc::pin(RocksDB::new(path, 0).expect("Failed to open the database"));
+    Arc::new(Store::new(db))
+}
+
+pub fn create_store_with_extra_cache(path: &Path, extra_db_memory: usize) -> Arc<Store> {
+    let db = Arc::pin(RocksDB::new(path, extra_db_memory).expect("Failed to open the database"));
     Arc::new(Store::new(db))
 }
 

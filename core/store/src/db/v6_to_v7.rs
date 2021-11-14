@@ -46,8 +46,8 @@ fn merge_refcounted_records_v6(result: &mut Vec<u8>, val: &[u8]) {
     }
 }
 
-fn rocksdb_column_options_v6(col: DBCol) -> Options {
-    let mut opts = rocksdb_column_options(DBCol::ColDbVersion);
+fn rocksdb_column_options_v6(col: DBCol, extra_db_memory: usize) -> Options {
+    let mut opts = rocksdb_column_options(DBCol::ColDbVersion, extra_db_memory);
 
     if col == DBCol::ColState {
         opts.set_merge_operator("refcount merge", refcount_merge_v6, refcount_merge_v6);
@@ -57,7 +57,10 @@ fn rocksdb_column_options_v6(col: DBCol) -> Options {
 }
 
 impl RocksDB {
-    pub(crate) fn new_v6<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
+    pub(crate) fn new_v6<P: AsRef<std::path::Path>>(
+        path: P,
+        extra_db_memory: usize,
+    ) -> Result<Self, DBError> {
         RocksDBOptions::default()
             .cf_names(DBCol::iter().map(|col| format!("col{}", col as usize)).collect())
             .cf_descriptors(
@@ -65,11 +68,11 @@ impl RocksDB {
                     .map(|col| {
                         ColumnFamilyDescriptor::new(
                             format!("col{}", col as usize),
-                            rocksdb_column_options_v6(col),
+                            rocksdb_column_options_v6(col, extra_db_memory),
                         )
                     })
                     .collect(),
             )
-            .read_write(path)
+            .read_write(path, extra_db_memory)
     }
 }
