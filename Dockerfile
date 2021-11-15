@@ -13,14 +13,14 @@ RUN apt-get update -qq && apt-get install -y \
     clang \
     && rm -rf /var/lib/apt/lists/*
 
-COPY ./rust-toolchain /tmp/rust-toolchain
+COPY ./rust-toolchain.toml /tmp/rust-toolchain.toml
 
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH
 
 RUN curl https://sh.rustup.rs -sSf | \
-    sh -s -- -y --no-modify-path --default-toolchain "$(cat /tmp/rust-toolchain)"
+    sh -s -- -y --no-modify-path --default-toolchain none
 
 VOLUME [ /near ]
 WORKDIR /near
@@ -29,7 +29,7 @@ COPY . .
 ENV CARGO_TARGET_DIR=/tmp/target
 ENV RUSTC_FLAGS='-C target-cpu=x86-64'
 ENV PORTABLE=ON
-RUN cargo +"$(cat /tmp/rust-toolchain)" build -p neard --release && \
+RUN cargo build -p neard --release && \
     mkdir /tmp/build && \
     cd /tmp/target/release && \
     mv ./neard /tmp/build

@@ -3,7 +3,7 @@ use futures::{future, FutureExt};
 
 use near_actix_test_utils::spawn_interruptible;
 use near_client::GetBlock;
-use near_network::test_utils::WaitOrTimeout;
+use near_network::test_utils::WaitOrTimeoutActor;
 use near_primitives::types::{BlockHeightDelta, NumSeats, NumShards};
 use rand::{thread_rng, Rng};
 
@@ -31,7 +31,7 @@ fn run_heavy_nodes(
     cluster.exec_until_stop(|_, _, clients| async move {
         let view_client = clients.last().unwrap().1.clone();
 
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_ctx| {
                 spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
                     match &res {
