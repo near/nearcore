@@ -1107,12 +1107,10 @@ pub enum FileDownloadError {
     #[error("Invalid URI: {0}")]
     UriError(#[from] hyper::http::uri::InvalidUri),
     #[error("Failed to remove the temporary file after failure: {0}, {1}")]
-    RemoveTemporaryFileError(std::io::Error, Box<FileDownloadError>),
-    #[error("The remote file's size exceeds the limit")]
-    LimitExceeded(),
+    RemoveTemporaryFileError(std::io::Error, Box<FileDownloadError>)
 }
 
-pub fn download_file(url: &String, path: &Path, limit: usize) -> Result<(), FileDownloadError> {
+pub fn download_file(url: &String, path: &Path) -> Result<(), FileDownloadError> {
     return actix::System::new().block_on(async move {
         let https_connector = hyper_tls::HttpsConnector::new();
         let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
@@ -1120,27 +1118,15 @@ pub fn download_file(url: &String, path: &Path, limit: usize) -> Result<(), File
         let uri = url.parse()?;
         let mut resp = client.get(uri).await?;
 
-        // If the lower bound of response's body size exceeds the specified limit, then there is no
-        // point in even trying to download the file
-        if resp.size_hint().lower() > limit as u64 {
-            return Err(FileDownloadError::LimitExceeded());
-        }
-
         // To avoid partially downloaded files, we first download the file to a temporary *.swp file
         // and rename it once the download is finished.
         let tmp_path = path.with_extension("swp");
         let mut tmp_file = File::create(&tmp_path)?;
 
         let process_tmp_file = async {
-            let mut downloaded_bytes = 0usize;
             while let Some(next_chunk_result) = resp.data().await {
                 let next_chunk = next_chunk_result?;
                 tmp_file.write_all(next_chunk.as_ref())?;
-
-                downloaded_bytes += next_chunk.len();
-                if downloaded_bytes > limit {
-                    return Err(FileDownloadError::LimitExceeded());
-                }
             }
             std::fs::rename(&tmp_path, path)?;
             Ok(())
@@ -1160,13 +1146,13 @@ pub fn download_file(url: &String, path: &Path, limit: usize) -> Result<(), File
 
 pub fn download_genesis(url: &String, path: &Path) {
     info!(target: "near", "Downloading genesis file from: {} ...", url);
-    download_file(&url, &path, 10_000_000_000).expect("Failed to download the genesis file");
+    download_file(&url, &path).expect("Failed to download the genesis file");
     info!(target: "near", "Saved the genesis file to: {} ...", path.display());
 }
 
 pub fn download_config(url: &String, path: &Path) {
     info!(target: "near", "Downloading config file from: {} ...", url);
-    download_file(&url, &path, 10_000).expect("Failed to download the configuration file");
+    download_file(&url, &path).expect("Failed to download the configuration file");
     info!(target: "near", "Saved the config file to: {} ...", path.display());
 }
 
