@@ -1102,8 +1102,12 @@ pub fn get_config_url(chain_id: &String) -> String {
 pub enum FileDownloadError {
     #[error("Failed to download the file: {0}")]
     HttpError(#[from] hyper::Error),
-    #[error("Failed to create/write to file: {0}")]
-    IoError(#[from] std::io::Error),
+    #[error("Failed to open file: {0}")]
+    OpenError(std::io::Error),
+    #[error("Failed to write to file: {0}")]
+    WriteError(std::io::Error),
+    #[error("Failed to rename file: {0}")]
+    RenameError(std::io::Error),
     #[error("Invalid URI: {0}")]
     UriError(#[from] hyper::http::uri::InvalidUri),
     #[error("Failed to remove the temporary file after failure: {0}, {1}")]
@@ -1121,14 +1125,20 @@ pub fn download_file(url: &String, path: &Path) -> Result<(), FileDownloadError>
         // To avoid partially downloaded files, we first download the file to a temporary *.swp file
         // and rename it once the download is finished.
         let tmp_path = path.with_extension("swp");
-        let mut tmp_file = File::create(&tmp_path)?;
+        let mut tmp_file = File::create(&tmp_path).map_err(|e| {
+            FileDownloadError::OpenError(e)
+        })?;
 
         let process_tmp_file = async {
             while let Some(next_chunk_result) = resp.data().await {
                 let next_chunk = next_chunk_result?;
-                tmp_file.write_all(next_chunk.as_ref())?;
+                tmp_file.write_all(next_chunk.as_ref()).map_err(|e| {
+                    FileDownloadError::WriteError(e)
+                })?;
             }
-            std::fs::rename(&tmp_path, path)?;
+            std::fs::rename(&tmp_path, path).map_err(|e| {
+                FileDownloadError::RenameError(e)
+            })?;
             Ok(())
         };
 
