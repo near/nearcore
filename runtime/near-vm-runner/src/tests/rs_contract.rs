@@ -56,7 +56,7 @@ pub fn test_read_write() {
         let mut fake_external = MockedExternal::new();
 
         let context = create_context(arr_u64_to_u8(&[10u64, 20u64]));
-        let config = VMConfig::default();
+        let config = VMConfig::test();
         let fees = RuntimeFeesConfig::test();
 
         let promise_results = vec![];
@@ -98,7 +98,7 @@ pub fn test_stablized_host_function() {
         let mut fake_external = MockedExternal::new();
 
         let context = create_context(vec![]);
-        let config = VMConfig::default();
+        let config = VMConfig::test();
         let fees = RuntimeFeesConfig::test();
 
         let promise_results = vec![];
@@ -173,7 +173,7 @@ fn run_test_ext(
     let mut fake_external = MockedExternal::new();
     fake_external.validators =
         validators.into_iter().map(|(s, b)| (s.parse().unwrap(), b)).collect();
-    let config = VMConfig::default();
+    let config = VMConfig::test();
     let fees = RuntimeFeesConfig::test();
     let context = create_context(input.to_vec());
 

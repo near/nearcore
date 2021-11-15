@@ -11,7 +11,7 @@ use near_client::ClientActor;
 use near_logger_utils::init_integration_logger;
 
 use near_network::routing::routing_table_actor::start_routing_table_actor;
-use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeout};
+use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeoutActor};
 use near_network::types::{
     NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerMessageRequest, SyncData,
 };
@@ -116,7 +116,7 @@ fn test_infinite_loop() {
         let state = Arc::new(AtomicUsize::new(0));
         let start = Instant::now();
 
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_| {
                 let state_value = state.load(Ordering::SeqCst);
 

@@ -11,10 +11,6 @@ fn main() {
 }
 
 fn try_main() -> io::Result<()> {
-    let mut cmd = Command::new("rustup");
-    cmd.args(&["target", "add", "wasm32-unknown-unknown"]);
-    check_status(cmd)?;
-
     build_contract("./test-contract-rs", &[], "test_contract_rs")?;
     build_contract(
         "./test-contract-rs",
