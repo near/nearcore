@@ -827,12 +827,12 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                 let epoch_id = self.chain.get_block(&outcome_proof.block_hash)?.header().epoch_id();
                 let target_shard_id =
                     self.runtime_adapter.account_id_to_shard_id(&account_id, epoch_id)?;
-                let next_block_hash = self
-                    .chain
-                    .get_next_block_hash_with_new_chunk(&outcome_proof.block_hash, target_shard_id)?
-                    .cloned();
-                match next_block_hash {
-                    Some(h) => {
+                let res = self.chain.get_next_block_hash_with_new_chunk(
+                    &outcome_proof.block_hash,
+                    target_shard_id,
+                )?;
+                match res {
+                    Some((h, target_shard_id)) => {
                         outcome_proof.block_hash = h;
                         // Here we assume the number of shards is small so this reconstruction
                         // should be fast

@@ -11,7 +11,7 @@ use near_client::GetBlock;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_logger_utils::init_integration_logger;
-use near_network::test_utils::WaitOrTimeout;
+use near_network::test_utils::WaitOrTimeoutActor;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
@@ -33,7 +33,7 @@ fn test_block_unknown_block_error() {
     cluster.exec_until_stop(|_genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_ctx| {
                 let rpc_addrs_copy = rpc_addrs.clone();
 
@@ -90,7 +90,7 @@ fn test_chunk_unknown_chunk_error() {
     cluster.exec_until_stop(|_genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_ctx| {
                 let rpc_addrs_copy = rpc_addrs.clone();
 
@@ -157,7 +157,7 @@ fn test_protocol_config_unknown_block_error() {
     cluster.exec_until_stop(|_genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_ctx| {
                 let rpc_addrs_copy = rpc_addrs.clone();
 
@@ -218,7 +218,7 @@ fn test_gas_price_unknown_block_error() {
     cluster.exec_until_stop(|_genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_ctx| {
                 let rpc_addrs_copy = rpc_addrs.clone();
 
@@ -275,7 +275,7 @@ fn test_receipt_id_unknown_receipt_error() {
     cluster.exec_until_stop(|_genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_ctx| {
                 let rpc_addrs_copy = rpc_addrs.clone();
 
@@ -357,7 +357,7 @@ fn test_tx_invalid_tx_error() {
             genesis_hash,
         );
 
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_ctx| {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let transaction_copy = transaction.clone();

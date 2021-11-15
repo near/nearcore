@@ -112,9 +112,9 @@ impl RoutingTableActor {
         #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
         self.peer_ibf_set.remove_edge(&edge.to_simple_edge());
 
-        let key = (edge.peer0.clone(), edge.peer1.clone());
+        let key = &edge.key;
         if self.edges_info.remove(&key).is_some() {
-            self.raw_graph.remove_edge(&edge.peer0, &edge.peer1);
+            self.raw_graph.remove_edge(&edge.key.0, &edge.key.1);
             self.needs_routing_table_recalculation = true;
         }
     }
@@ -130,7 +130,7 @@ impl RoutingTableActor {
             self.needs_routing_table_recalculation = true;
             match edge.edge_type() {
                 EdgeType::Added => {
-                    self.raw_graph.add_edge(key.0.clone(), key.1.clone());
+                    self.raw_graph.add_edge(&key.0, &key.1);
                 }
                 EdgeType::Removed => {
                     self.raw_graph.remove_edge(&key.0, &key.1);
@@ -138,7 +138,7 @@ impl RoutingTableActor {
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             self.peer_ibf_set.add_edge(&edge.to_simple_edge());
-            self.edges_info.insert(key, edge);
+            self.edges_info.insert(key.clone(), edge);
             true
         }
     }
@@ -184,13 +184,13 @@ impl RoutingTableActor {
         let my_peer_id = self.my_peer_id().clone();
 
         // Get the "row" (a.k.a nonce) at which we've stored a given peer in the past (when we pruned it).
-        if let Ok(component_nonce) = self.component_nonce_from_peer(other_peer_id.clone()) {
+        if let Ok(component_nonce) = self.component_nonce_from_peer(other_peer_id) {
             let mut update = self.store.store_update();
 
             // Load all edges that were persisted in database in the cell - and add them to the current graph.
             if let Ok(edges) = self.get_and_remove_component_edges(component_nonce, &mut update) {
                 for edge in edges {
-                    for &peer_id in vec![&edge.peer0, &edge.peer1].iter() {
+                    for &peer_id in vec![&edge.key.0, &edge.key.1].iter() {
                         if peer_id == &my_peer_id
                             || self.peer_last_time_reachable.contains_key(peer_id)
                         {
@@ -198,14 +198,13 @@ impl RoutingTableActor {
                         }
 
                         // `edge = (peer_id, other_peer_id)` belongs to component that we loaded from database.
-                        if let Ok(cur_nonce) = self.component_nonce_from_peer(peer_id.clone()) {
+                        if let Ok(cur_nonce) = self.component_nonce_from_peer(peer_id) {
                             // If `peer_id` belongs to current component
                             if cur_nonce == component_nonce {
                                 // Mark it as reachable and delete from database.
                                 self.peer_last_time_reachable
                                     .insert(peer_id.clone(), Instant::now() - SAVE_PEERS_MAX_TIME);
-                                update
-                                    .delete(ColPeerComponent, Vec::from(peer_id.clone()).as_ref());
+                                update.delete(ColPeerComponent, Vec::from(peer_id).as_ref());
                             } else {
                                 warn!("We expected `peer_id` to belong to component {}, but it belongs to {}",
                                        component_nonce, cur_nonce);
@@ -317,7 +316,7 @@ impl RoutingTableActor {
         for peer_id in peers_to_remove.iter() {
             let _ = update.set_ser(
                 ColPeerComponent,
-                Vec::from(peer_id.clone()).as_ref(),
+                Vec::from(peer_id).as_ref(),
                 &current_component_nonce,
             );
 
@@ -350,18 +349,8 @@ impl RoutingTableActor {
         self.edges_info.get(&key).map_or(0, |x| x.nonce) < nonce
     }
 
-    pub fn get_edge(&self, peer0: PeerId, peer1: PeerId) -> Option<Edge> {
-        let key = Edge::key(peer0, peer1);
-        self.edges_info.get(&key).cloned()
-    }
-
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    pub fn convert_simple_edges_to_edges(&self, edges: Vec<SimpleEdge>) -> Vec<Edge> {
-        edges.iter().filter_map(|k| self.edges_info.get(&k.key()).cloned()).collect()
-    }
-
     /// Get edges stored in DB under `ColPeerComponent` column at `peer_id` key.
-    fn component_nonce_from_peer(&mut self, peer_id: PeerId) -> Result<u64, ()> {
+    fn component_nonce_from_peer(&mut self, peer_id: &PeerId) -> Result<u64, ()> {
         match self.store.get_ser::<u64>(ColPeerComponent, Vec::from(peer_id).as_ref()) {
             Ok(Some(nonce)) => Ok(nonce),
             _ => Err(()),
@@ -384,6 +373,10 @@ impl RoutingTableActor {
         update.delete(ColComponentEdges, enc_nonce.as_ref());
 
         res
+    }
+
+    pub fn get_all_edges(&self) -> Vec<Edge> {
+        self.edges_info.iter().map(|x| x.1.clone()).collect()
     }
 }
 
@@ -689,7 +682,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                             ibf_msg: Some(RoutingVersion2 {
                                 known_edges: self.edges_info.len() as u64,
                                 seed: ibf_msg.seed,
-                                edges: self.edges_info.iter().map(|x| x.1.clone()).collect(),
+                                edges: self.get_all_edges(),
                                 routing_state: RoutingState::Done,
                             }),
                         }

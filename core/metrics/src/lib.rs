@@ -230,3 +230,10 @@ pub fn dec_gauge(gauge: &Result<IntGauge>) {
         error!(target: "metrics", "Failed to fetch gauge");
     }
 }
+pub fn get_gauge(gauge: &Result<IntGauge>) -> std::result::Result<i64, String> {
+    if let Ok(gauge) = gauge {
+        Ok(gauge.get())
+    } else {
+        Err("Failed to fetch gauge".to_string())
+    }
+}
