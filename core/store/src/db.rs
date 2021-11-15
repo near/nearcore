@@ -83,8 +83,8 @@ pub enum DBCol {
     /// `LightClientBlock`s corresponding to the last final block of each completed epoch
     ColEpochLightClientBlocks = 26,
     ColReceiptIdToShardId = 27,
-    ColNextBlockWithNewChunk = 28,
-    ColLastBlockWithNewChunk = 29,
+    _ColNextBlockWithNewChunk = 28,
+    _ColLastBlockWithNewChunk = 29,
     /// Map each saved peer on disk with its component id.
     ColPeerComponent = 30,
     /// Map component id with all edges in this component.
@@ -157,8 +157,8 @@ impl std::fmt::Display for DBCol {
             Self::ColNextBlockHashes => "next block hash",
             Self::ColEpochLightClientBlocks => "epoch light client block",
             Self::ColReceiptIdToShardId => "receipt id to shard id",
-            Self::ColNextBlockWithNewChunk => "next block with new chunk",
-            Self::ColLastBlockWithNewChunk => "last block with new chunk",
+            Self::_ColNextBlockWithNewChunk => "next block with new chunk (deprecated)",
+            Self::_ColLastBlockWithNewChunk => "last block with new chunk (deprecated)",
             Self::ColPeerComponent => "peer components",
             Self::ColComponentEdges => "component edges",
             Self::ColLastComponentNonce => "last component nonce",
@@ -223,7 +223,6 @@ lazy_static! {
     pub static ref SKIP_COL_GC: Vec<bool> = {
         let mut col_gc = vec![false; NUM_COLS];
         // A node may never restarted
-        col_gc[DBCol::ColLastBlockWithNewChunk as usize] = true;
         col_gc[DBCol::ColStateHeaders as usize] = true;
         // True until #2515
         col_gc[DBCol::ColStateParts as usize] = true;
@@ -630,13 +629,13 @@ fn rocksdb_options() -> Options {
     opts.set_use_fsync(false);
     opts.set_max_open_files(512);
     opts.set_keep_log_file_num(1);
-    opts.set_bytes_per_sync(1048576);
-    opts.set_write_buffer_size(1024 * 1024 * 512 / 2);
-    opts.set_max_bytes_for_level_base(1024 * 1024 * 512 / 2);
+    opts.set_bytes_per_sync(bytesize::MIB);
+    opts.set_write_buffer_size(256 * bytesize::MIB as usize);
+    opts.set_max_bytes_for_level_base(256 * bytesize::MIB);
     #[cfg(not(feature = "single_thread_rocksdb"))]
     {
         opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
-        opts.set_max_total_wal_size(1 * 1024 * 1024 * 1024);
+        opts.set_max_total_wal_size(bytesize::GIB);
     }
     #[cfg(feature = "single_thread_rocksdb")]
     {
@@ -658,11 +657,10 @@ fn rocksdb_read_options() -> ReadOptions {
     read_options
 }
 
-fn rocksdb_block_based_options() -> BlockBasedOptions {
+fn rocksdb_block_based_options(cache_size: usize) -> BlockBasedOptions {
     let mut block_opts = BlockBasedOptions::default();
-    block_opts.set_block_size(1024 * 16);
+    block_opts.set_block_size(16 * bytesize::KIB as usize);
     // We create block_cache for each of 47 columns, so the total cache size is 32 * 47 = 1504mb
-    let cache_size = 1024 * 1024 * 32;
     block_opts.set_block_cache(&Cache::new_lru_cache(cache_size).unwrap());
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
     block_opts.set_cache_index_and_filter_blocks(true);
@@ -670,12 +668,21 @@ fn rocksdb_block_based_options() -> BlockBasedOptions {
     block_opts
 }
 
+// TODO(#5213) Use ByteSize package to represent sizes.
+fn choose_cache_size(col: DBCol) -> usize {
+    match col {
+        DBCol::ColState => 512 * 1024 * 1024,
+        _ => 32 * 1024 * 1024,
+    }
+}
+
 fn rocksdb_column_options(col: DBCol) -> Options {
     let mut opts = Options::default();
     opts.set_level_compaction_dynamic_level_bytes(true);
-    opts.set_block_based_table_factory(&rocksdb_block_based_options());
-    opts.optimize_level_style_compaction(1024 * 1024 * 128);
-    opts.set_target_file_size_base(1024 * 1024 * 64);
+    let cache_size = choose_cache_size(col);
+    opts.set_block_based_table_factory(&rocksdb_block_based_options(cache_size));
+    opts.optimize_level_style_compaction(128 * bytesize::MIB as usize);
+    opts.set_target_file_size_base(64 * bytesize::MIB);
     opts.set_compression_per_level(&[]);
     if col.is_rc() {
         opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
