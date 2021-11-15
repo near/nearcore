@@ -47,6 +47,7 @@ members = [
     "tools/restored-receipts-verifier",
     "integration-tests",
     "utils/near-rate-limiter",
+    "utils/near-cache",
 ]
 
 [workspace.metadata.workspaces]
