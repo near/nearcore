@@ -30,7 +30,6 @@ use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, TrieIterator};
 use nearcore::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
-use tracing::info;
 
 use crate::apply_chain_range::apply_chain_range;
 use crate::state_dump::state_dump;
@@ -52,7 +51,7 @@ impl StateViewerCmd {
     pub fn parse_and_run() {
         let state_viewer_cmd = Self::parse();
         state_viewer_cmd.opts.init();
-        info!(target: "state_viewer", "Latest Protocol: {}, DB Version: {}", PROTOCOL_VERSION, DB_VERSION);
+        println!("state_viewer: Latest Protocol: {}, DB Version: {}", PROTOCOL_VERSION, DB_VERSION);
 
         let home_dir = state_viewer_cmd.opts.home;
         state_viewer_cmd.subcmd.run(&home_dir);

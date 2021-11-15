@@ -106,8 +106,8 @@ pub(super) enum NeardSubCommand {
     /// config)
     #[clap(name = "unsafe_reset_data")]
     UnsafeResetData,
-    /// Invoke one of the state-viewer commands.
-    #[clap(name = "state_viewer")]
+    /// View DB state by invoking `state-viewer`.
+    #[clap(name = "view_state")]
     StateViewer(StateViewerSubCommand),
 }
 

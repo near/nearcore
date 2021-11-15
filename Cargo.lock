@@ -4504,7 +4504,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "testlib",
- "tracing",
 ]
 
 [[package]]
