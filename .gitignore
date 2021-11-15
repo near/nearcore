@@ -23,6 +23,8 @@ core/wasm/**/Cargo.lock
 
 # Editor config files
 .vscode
+# Intellij
+# Reference: https://intellij-support.jetbrains.com/hc/en-us/articles/206544839
 .idea
 
 # Python env
