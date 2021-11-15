@@ -23,7 +23,7 @@ bytesize = "1.0.1"
 conqueue = "0.4.0"
 serde = { version = "1", features = ["derive"], optional=true }
 
-borsh = "0.9"
+borsh = { version = "0.9", features = ["rc"]}
 cached = "0.23"
 
 near-network-primitives = { path = "../network-primitives" }
@@ -35,6 +35,7 @@ near-metrics = { path = "../../core/metrics" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
 near-stable-hasher = { path = "../../utils/near-stable-hasher" }
+near-rate-limiter = {path = "../../utils/near-rate-limiter" }
 
 delay-detector = { path = "../../tools/delay_detector", optional = true}
 
@@ -58,4 +59,8 @@ harness = false
 
 [[bench]]
 name = "ibf"
+harness = false
+
+[[bench]]
+name = "routing_table_actor"
 harness = false

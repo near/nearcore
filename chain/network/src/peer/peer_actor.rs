@@ -34,10 +34,11 @@ use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
+use near_rate_limiter::ThrottleController;
 use near_rust_allocator_proxy::allocator::get_tid;
 
 use crate::routing::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
-use crate::routing::routing::{Edge, EdgeInfo};
+use crate::routing::routing::{EdgeInfo, EdgeInner};
 use crate::stats::metrics::{self, NetworkMetrics};
 use crate::stats::rate_counter::RateCounter;
 use crate::types::{
@@ -202,6 +203,9 @@ pub struct PeerActor {
     last_time_received_epoch_sync_request: Instant,
     /// Cache of recently routed messages, this allows us to drop duplicates
     routed_message_cache: SizedCache<(PeerId, PeerIdOrHash, Signature), Instant>,
+    /// A helper data structure for limiting reading
+    #[allow(unused)]
+    throttle_controller: ThrottleController,
 }
 
 impl Debug for PeerActor {
@@ -225,6 +229,7 @@ impl PeerActor {
         network_metrics: NetworkMetrics,
         txns_since_last_block: Arc<AtomicUsize>,
         peer_counter: Arc<AtomicUsize>,
+        throttle_controller: ThrottleController,
     ) -> Self {
         PeerActor {
             node_info,
@@ -249,6 +254,7 @@ impl PeerActor {
             last_time_received_epoch_sync_request: Clock::instant()
                 - Duration::from_millis(EPOCH_SYNC_PEER_TIMEOUT_MS),
             routed_message_cache: SizedCache::with_size(ROUTED_MESSAGE_CACHE_SIZE),
+            throttle_controller,
         }
     }
 
@@ -706,6 +712,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 return;
             }
         };
+        // TODO(#5155) We should change our code to track size of messages received from Peer
+        // as long as it travels to PeerManager, etc.
 
         near_metrics::inc_counter_by(&metrics::PEER_DATA_RECEIVED_BYTES, msg.len() as u64);
         near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
@@ -861,7 +869,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 }
 
                 // Verify signature of the new edge in handshake.
-                if !Edge::partial_verify(
+                if !EdgeInner::partial_verify(
                     self.node_id(),
                     handshake.peer_id.clone(),
                     &handshake.edge_info,
@@ -1026,6 +1034,11 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             (_, _state, PeerMessage::RoutingTableSyncV2(ibf_message)) => {
+                // TODO(#5155) Add wrapper to be something like this for all messages.
+                // self.peer_manager_addr.do_send(ActixMessageWrapper<NetworkRequests>::new(
+                //        self.rate_limiter.clone, NetworkRequests::IbfMessage {
+                //         ...
+
                 self.peer_manager_addr.do_send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::IbfMessage {
                         peer_id: self.peer_id().unwrap(),

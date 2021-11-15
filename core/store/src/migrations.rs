@@ -739,6 +739,16 @@ pub fn migrate_26_to_27(path: &Path, is_archival: bool) {
     set_store_version(&store, 27);
 }
 
+pub fn migrate_28_to_29(path: &Path) {
+    let store = create_store(path);
+    let mut store_update = store.store_update();
+    store_update.delete_all(DBCol::_ColNextBlockWithNewChunk);
+    store_update.delete_all(DBCol::_ColLastBlockWithNewChunk);
+    store_update.commit().unwrap();
+
+    set_store_version(&store, 29);
+}
+
 #[cfg(feature = "protocol_feature_block_header_v3")]
 pub fn migrate_18_to_new_validator_stake(store: &Store) {
     use near_primitives::epoch_manager::block_info::{BlockInfo, BlockInfoV1};
