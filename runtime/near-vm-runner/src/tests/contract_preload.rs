@@ -100,7 +100,7 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
     let mut fake_external = MockedExternal::new();
 
     let context = default_vm_context();
-    let vm_config = VMConfig::default();
+    let vm_config = VMConfig::test();
     let cache: Option<Arc<dyn CompiledContractCache>> =
         Some(Arc::new(MockCompiledContractCache::new(0)));
     let fees = RuntimeFeesConfig::test();
@@ -194,7 +194,7 @@ pub fn test_run_preloaded() {
 fn test_precompile_vm(vm_kind: VMKind) {
     let mock_cache = MockCompiledContractCache::new(0);
     let cache: Option<&dyn CompiledContractCache> = Some(&mock_cache);
-    let vm_config = VMConfig::default();
+    let vm_config = VMConfig::test();
     let code1 = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
     let code2 = ContractCode::new(near_test_contracts::ts_contract().to_vec(), None);
 
