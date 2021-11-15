@@ -57,7 +57,9 @@ const CHUNK_REQUEST_RETRY_MAX_MS: u64 = 1_000_000;
 const CHUNK_FORWARD_CACHE_SIZE: usize = 1000;
 const ACCEPTING_SEAL_PERIOD_MS: i64 = 30_000;
 const NUM_PARTS_REQUESTED_IN_SEAL: usize = 3;
-pub const MAX_STORED_PARTIAL_CHUNK_SIZE: usize = 100;
+/// Max number of PartialEncodedChunks per height per shard to store in
+/// `stored_partial_encoded_chunks` before processing
+const MAX_STORED_PARTIAL_CHUNK_SIZE: usize = 100;
 // TODO(#3180): seals are disabled in single shard setting
 // const NUM_PARTS_LEFT_IN_SEAL: usize = 1;
 const PAST_SEAL_HEIGHT_HORIZON: BlockHeightDelta = 1024;
@@ -386,6 +388,9 @@ pub struct ShardsManager {
 
     encoded_chunks: EncodedChunksCache,
     requested_partial_encoded_chunks: RequestPool,
+    // Temporary place to store PartialEncodedChunks if they can't be processed yet at the time
+    // when they are received
+    // A partial chunk is removed here if it is processed or it is too old
     stored_partial_encoded_chunks:
         HashMap<BlockHeight, HashMap<ShardId, Vec<PartialEncodedChunkV2>>>,
     chunk_forwards_cache: SizedCache<ChunkHash, HashMap<u64, PartialEncodedChunkPart>>,

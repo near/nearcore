@@ -348,6 +348,12 @@ pub trait RuntimeAdapter: Send + Sync {
     fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error>;
 
     /// Verify chunk header signature.
+    /// return false if the header signature does not match the key for the assigned chunk producer
+    /// for this chunk, or if the chunk producer has been slashed
+    /// return `Error::NotAValidator` if cannot find chunk producer info for this chunk
+    /// `header`: chunk header
+    /// `epoch_id`: epoch_id that the chunk header belongs to
+    /// `last_known_hash`: used to determine the list of chunk producers that are slashed
     fn verify_chunk_header_signature(
         &self,
         header: &ShardChunkHeader,
