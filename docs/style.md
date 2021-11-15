@@ -53,19 +53,19 @@ Group import by module, but not deeper:
 
 ```rust
 // GOOD
-use near_network::test_utils::{convert_boot_nodes, open_port};
-use near_network::types::NetworkViewClientMessages;
+use std::collections::{hash_map, BTreeSet};
+use std::sync::Arc;
 
 // BAD
-use near_network::{
-    test_utils::{convert_boot_nodes, open_port},
-    types::NetworkViewClientMessages,
+use std::{
+    collections::{hash_map, BTreeSet},
+    sync::Arc,
 };
 
 // BAD
-use near_network::test_utils::convert_boot_nodes;
-use near_network::test_utils::open_port;
-use near_network::types::NetworkViewClientMessages;
+use std::collections::BTreeSet;
+use std::collections::hash_map;
+use std::sync::Arc;
 ```
 
 This corresponds to `"rust-analyzer.assist.importGranularity": "module"` setting
