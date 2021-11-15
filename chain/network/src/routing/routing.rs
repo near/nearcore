@@ -132,8 +132,11 @@ impl Edge {
     /// to verify the signature.
     pub fn partial_verify(peer0: PeerId, peer1: PeerId, edge_info: &EdgeInfo) -> bool {
         let pk = peer1.public_key();
-        let (peer0, peer1) = Edge::make_key(peer0, peer1);
-        let data = Edge::build_hash(&peer0, &peer1, edge_info.nonce);
+        let data = if peer0 < peer1 {
+            Edge::build_hash(&peer0, &peer1, edge_info.nonce)
+        } else {
+            Edge::build_hash(&peer1, &peer0, edge_info.nonce)
+        };
         edge_info.signature.verify(data.as_ref(), &pk)
     }
 
