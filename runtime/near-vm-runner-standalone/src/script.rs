@@ -43,10 +43,12 @@ pub struct ScriptResults {
 impl Default for Script {
     fn default() -> Self {
         let protocol_version = PROTOCOL_VERSION;
+        let config_store = RuntimeConfigStore::new(None);
+        let runtime_config = config_store.get_config(protocol_version).as_ref();
         Script {
             contracts: Vec::new(),
             vm_kind: VMKind::for_protocol_version(protocol_version),
-            vm_config: VMConfig::default(),
+            vm_config: runtime_config.wasm_config.clone(),
             protocol_version,
             contract_cache: None,
             initial_state: None,

@@ -9,7 +9,7 @@ use near_actix_test_utils::run_actix;
 use near_chain_configs::Genesis;
 use near_client::GetBlock;
 use near_logger_utils::init_integration_logger;
-use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
+use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
 use nearcore::{config::GenesisExt, load_test_config, start_with_config};
 
 /// One client is in front, another must sync to it using state (fast) sync.
@@ -34,7 +34,7 @@ fn sync_state_nodes() {
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
             let arbiters_holder2 = arbiters_holder.clone();
 
-            WaitOrTimeout::new(
+            WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     if view_client2_holder.read().unwrap().is_none() {
                         let view_client2_holder2 = view_client2_holder.clone();
@@ -169,7 +169,7 @@ fn sync_state_nodes_multishard() {
             let arbiter_holder = Arc::new(RwLock::new(vec![]));
             let arbiter_holder2 = arbiter_holder.clone();
 
-            WaitOrTimeout::new(
+            WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     if view_client2_holder.read().unwrap().is_none() {
                         let view_client2_holder2 = view_client2_holder.clone();
@@ -287,7 +287,7 @@ fn sync_empty_state() {
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
             let arbiters_holder2 = arbiters_holder.clone();
 
-            WaitOrTimeout::new(
+            WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     if view_client2_holder.read().unwrap().is_none() {
                         let view_client2_holder2 = view_client2_holder.clone();

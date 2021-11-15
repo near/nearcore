@@ -21,7 +21,7 @@ pub struct VMLogicBuilder {
 impl Default for VMLogicBuilder {
     fn default() -> Self {
         VMLogicBuilder {
-            config: VMConfig::default(),
+            config: VMConfig::test(),
             fees_config: RuntimeFeesConfig::test(),
             ext: MockedExternal::default(),
             memory: MockedMemory::default(),
