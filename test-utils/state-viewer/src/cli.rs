@@ -112,7 +112,7 @@ pub struct DumpStateCmd {
 
 impl DumpStateCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
-        dump_state(self.height,home_dir,near_config,store);
+        dump_state(self.height, home_dir, near_config, store);
     }
 }
 
@@ -126,7 +126,7 @@ pub struct ChainCmd {
 
 impl ChainCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
-        print_chain( self.start_index, self.end_index, home_dir, near_config, store);
+        print_chain(self.start_index, self.end_index, home_dir, near_config, store);
     }
 }
 
@@ -140,7 +140,7 @@ pub struct ReplayCmd {
 
 impl ReplayCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
-        replay_chain(self.start_index,self.end_index,home_dir,near_config,store);
+        replay_chain(self.start_index, self.end_index, home_dir, near_config, store);
     }
 }
 
@@ -160,7 +160,16 @@ pub struct ApplyRangeCmd {
 
 impl ApplyRangeCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
-        apply_range(self.start_index,self.end_index,self.shard_id,self.verbose_output,self.csv_file,home_dir,near_config,store);
+        apply_range(
+            self.start_index,
+            self.end_index,
+            self.shard_id,
+            self.verbose_output,
+            self.csv_file,
+            home_dir,
+            near_config,
+            store,
+        );
     }
 }
 
@@ -174,7 +183,7 @@ pub struct ApplyCmd {
 
 impl ApplyCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
-        apply_block_at_height(self.height,self.shard_id, home_dir,near_config, store);
+        apply_block_at_height(self.height, self.shard_id, home_dir, near_config, store);
     }
 }
 
@@ -190,7 +199,7 @@ pub struct ViewChainCmd {
 
 impl ViewChainCmd {
     pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
-        view_chain(self.height, self.block,self.chunk,near_config,store);
+        view_chain(self.height, self.block, self.chunk, near_config, store);
     }
 }
 
@@ -198,13 +207,13 @@ impl ViewChainCmd {
 pub struct DumpCodeCmd {
     #[clap(long)]
     account_id: String,
-    #[clap(long,parse(from_os_str))]
+    #[clap(long, parse(from_os_str))]
     output: PathBuf,
 }
 
 impl DumpCodeCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
-        dump_code(self.account_id,&self.output,home_dir,near_config,store);
+        dump_code(self.account_id, &self.output, home_dir, near_config, store);
     }
 }
 
@@ -222,6 +231,14 @@ pub struct DumpAccountStorageCmd {
 
 impl DumpAccountStorageCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
-        dump_account_storage(self.account_id, self.storage_key, &self.output, self.block_height,home_dir,near_config,store);
+        dump_account_storage(
+            self.account_id,
+            self.storage_key,
+            &self.output,
+            self.block_height,
+            home_dir,
+            near_config,
+            store,
+        );
     }
 }

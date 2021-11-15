@@ -85,9 +85,7 @@ pub(crate) fn apply_range(
     near_config: NearConfig,
     store: Arc<Store>,
 ) {
-    let mut csv_file = csv_file.map(|filename|{
-        std::fs::File::create(filename).unwrap()
-    });
+    let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
     let runtime = NightshadeRuntime::with_config(
         &home_dir,
