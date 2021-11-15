@@ -168,7 +168,7 @@ pub fn compute_gas_metering_cost(
     let cache_store = Arc::new(StoreCompiledContractCache { store });
     let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
     let config_store = RuntimeConfigStore::new(None);
-    let runtime_config = config_store.get_config(protocol_version).as_ref();
+    let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
     let vm_config_gas = runtime_config.wasm_config.clone();
     let fees = runtime_config.transaction_costs.clone();
     let mut fake_external = MockedExternal::new();
