@@ -13,5 +13,12 @@ serde_json = "1.0.55"
 tokio = { version = "1.1", features = ["sync"] }
 tracing = "0.1.13"
 tracing-subscriber = "0.2.4"
-
 near-indexer = { path = "../../../chain/indexer" }
+near-performance-metrics = { path = "../../../utils/near-performance-metrics" }
+near-rust-allocator-proxy = "0.3.0"
+tikv-jemallocator = { version = "0.4.0", optional = true }
+
+[features]
+performance_stats = ["near-performance-metrics/performance_stats"]
+memory_stats = ["near-performance-metrics/memory_stats"]
+c_memory_stats = ["near-performance-metrics/c_memory_stats"]
