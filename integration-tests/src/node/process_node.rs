@@ -18,7 +18,7 @@ use crate::user::User;
 use actix::{Actor, System};
 use futures::{FutureExt, TryFutureExt};
 use near_jsonrpc_client::new_client;
-use near_network::test_utils::WaitOrTimeout;
+use near_network::test_utils::WaitOrTimeoutActor;
 
 pub enum ProcessNodeState {
     Stopped,
@@ -54,7 +54,7 @@ impl Node for ProcessNode {
                 let client_addr = format!("http://{}", self.config.rpc_addr().unwrap());
                 thread::sleep(Duration::from_secs(3));
                 near_actix_test_utils::run_actix(async move {
-                    WaitOrTimeout::new(
+                    WaitOrTimeoutActor::new(
                         Box::new(move |_| {
                             actix::spawn(
                                 new_client(&client_addr)
