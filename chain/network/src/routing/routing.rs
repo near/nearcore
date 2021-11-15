@@ -220,7 +220,7 @@ impl EdgeInner {
     /// Helper function when adding a new edge and we receive information from new potential peer
     /// to verify the signature.
     pub fn partial_verify(peer0: PeerId, peer1: PeerId, edge_info: &EdgeInfo) -> bool {
-        let pk = peer1.public_key();
+        let pk = peer1.public_key().clone();
         let (peer0, peer1) = EdgeInner::make_key(peer0, peer1);
         let data = EdgeInner::build_hash(&peer0, &peer1, edge_info.nonce);
         edge_info.signature.verify(data.as_ref(), &pk)
