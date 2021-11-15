@@ -544,7 +544,7 @@ impl RoutingTableView {
 
         if let Some(nonces) = self.waiting_pong.cache_get_mut(&pong.source) {
             res = nonces.cache_remove(&(pong.nonce as usize)).and_then(|sent| {
-                Some(Clock::instant().duration_since(sent).as_secs_f64() * 1000f64)
+                Some(Clock::instant().saturating_duration_since(sent).as_secs_f64() * 1000f64)
             });
         }
 
