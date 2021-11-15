@@ -19,7 +19,7 @@ use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{
     convert_boot_nodes, expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal,
-    GetInfo, StopSignal, WaitOrTimeout,
+    GetInfo, StopSignal, WaitOrTimeoutActor,
 };
 
 use near_network::routing::routing_table_actor::start_routing_table_actor;
@@ -39,8 +39,9 @@ use near_telemetry::{TelemetryActor, TelemetryConfig};
 
 pub type SharedRunningInfo = Arc<RwLock<RunningInfo>>;
 
-pub type ActionFn =
-    Box<dyn FnMut(SharedRunningInfo, Arc<AtomicBool>, &mut Context<WaitOrTimeout>, Addr<Runner>)>;
+pub type ActionFn = Box<
+    dyn FnMut(SharedRunningInfo, Arc<AtomicBool>, &mut Context<WaitOrTimeoutActor>, Addr<Runner>),
+>;
 
 /// Sets up a node with a valid Client, Peer
 pub fn setup_network_node(
@@ -163,7 +164,7 @@ impl StateMachine {
                 self.actions.push(Box::new(
                     move |info: SharedRunningInfo,
                           flag: Arc<AtomicBool>,
-                          _ctx: &mut Context<WaitOrTimeout>,
+                          _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
                         let addr = info.read().unwrap().pm_addr[target].clone();
                         actix::spawn(
@@ -190,7 +191,7 @@ impl StateMachine {
                 self.actions.push(Box::new(
                     move |info: SharedRunningInfo,
                           flag: Arc<AtomicBool>,
-                          _ctx: &mut Context<WaitOrTimeout>,
+                          _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
                         let addr = info.read().unwrap().pm_addr[u].clone();
                         let peer_info = info.read().unwrap().peers_info[v].clone();
@@ -216,7 +217,7 @@ impl StateMachine {
                 self.actions.push(Box::new(
                     move |info: SharedRunningInfo,
                           flag: Arc<AtomicBool>,
-                          _ctx: &mut Context<WaitOrTimeout>,
+                          _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
                         let expected = expected
                             .clone()
@@ -264,7 +265,7 @@ impl StateMachine {
                 self.actions.push(Box::new(
                     move |info: SharedRunningInfo,
                           flag: Arc<AtomicBool>,
-                          _ctx: &mut Context<WaitOrTimeout>,
+                          _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
                         let expected_known: Vec<_> = known_validators
                             .clone()
@@ -303,7 +304,7 @@ impl StateMachine {
                 self.actions.push(Box::new(
                     move |info: SharedRunningInfo,
                           flag: Arc<AtomicBool>,
-                          _ctx: &mut Context<WaitOrTimeout>,
+                          _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
                         let target = info.read().unwrap().peers_info[target].id.clone();
                         let _ = info.read().unwrap().pm_addr[source].do_send(
@@ -319,7 +320,7 @@ impl StateMachine {
                 self.actions.push(Box::new(
                     move |info: SharedRunningInfo,
                           flag: Arc<AtomicBool>,
-                          _ctx: &mut Context<WaitOrTimeout>,
+                          _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
                         actix::spawn(
                             info.read()
@@ -342,7 +343,7 @@ impl StateMachine {
                 self.actions.push(Box::new(
                     move |_info: SharedRunningInfo,
                           flag: Arc<AtomicBool>,
-                          ctx: &mut Context<WaitOrTimeout>,
+                          ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
                         ctx.run_later(Duration::from_millis(time as u64), move |_, _| {
                             flag.store(true, Ordering::Relaxed);
@@ -354,7 +355,7 @@ impl StateMachine {
                 self.actions.push(Box::new(
                     move |info: SharedRunningInfo,
                           flag: Arc<AtomicBool>,
-                          _ctx: &mut Context<WaitOrTimeout>,
+                          _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
                         let pings_expected: Vec<_> = pings
                             .clone()
@@ -699,7 +700,7 @@ impl Actor for Runner {
 
         let info = self.info.as_ref().cloned().unwrap();
 
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |ctx| {
                 if flag.load(Ordering::Relaxed) {
                     pointer = Some(pointer.map_or(0, |x| x + 1));
@@ -762,7 +763,7 @@ pub fn check_expected_connections(
     Box::new(
         move |info: SharedRunningInfo,
               flag: Arc<AtomicBool>,
-              _ctx: &mut Context<WaitOrTimeout>,
+              _ctx: &mut Context<WaitOrTimeoutActor>,
               _runner| {
             actix::spawn(
                 info.read()
@@ -801,7 +802,7 @@ pub fn check_direct_connection(node_id: usize, target_id: usize) -> ActionFn {
     Box::new(
         move |info: SharedRunningInfo,
               flag: Arc<AtomicBool>,
-              _ctx: &mut Context<WaitOrTimeout>,
+              _ctx: &mut Context<WaitOrTimeoutActor>,
               _runner| {
             let info = info.read().unwrap();
             let target_peer_id = info.peers_info[target_id].id.clone();
@@ -838,7 +839,7 @@ pub fn restart(node_id: usize) -> ActionFn {
     Box::new(
         move |_info: SharedRunningInfo,
               flag: Arc<AtomicBool>,
-              _ctx: &mut Context<WaitOrTimeout>,
+              _ctx: &mut Context<WaitOrTimeoutActor>,
               runner: Addr<Runner>| {
             actix::spawn(
                 runner
@@ -859,7 +860,7 @@ pub fn ban_peer(target_peer: usize, banned_peer: usize) -> ActionFn {
     Box::new(
         move |info: SharedRunningInfo,
               flag: Arc<AtomicBool>,
-              _ctx: &mut Context<WaitOrTimeout>,
+              _ctx: &mut Context<WaitOrTimeoutActor>,
               _runner| {
             let info = info.read().unwrap();
             let banned_peer_id = info.peers_info[banned_peer].id.clone();
@@ -885,7 +886,7 @@ pub fn change_account_id(node_id: usize, account_id: AccountId) -> ActionFn {
     Box::new(
         move |_info: SharedRunningInfo,
               flag: Arc<AtomicBool>,
-              _ctx: &mut Context<WaitOrTimeout>,
+              _ctx: &mut Context<WaitOrTimeoutActor>,
               runner: Addr<Runner>| {
             actix::spawn(
                 runner
@@ -909,7 +910,7 @@ where
     Box::new(
         move |_info: SharedRunningInfo,
               flag: Arc<AtomicBool>,
-              _ctx: &mut Context<WaitOrTimeout>,
+              _ctx: &mut Context<WaitOrTimeoutActor>,
               _runner: Addr<Runner>| {
             if predicate() {
                 flag.store(true, Ordering::Relaxed);
