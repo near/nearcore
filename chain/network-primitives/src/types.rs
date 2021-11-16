@@ -18,7 +18,7 @@ use tracing::{error, warn};
 
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_primitives::block::{Approval, Block, BlockHeader, GenesisId};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{
@@ -418,11 +418,7 @@ impl RoutedMessage {
         source: &PeerId,
         body: &RoutedMessageBody,
     ) -> CryptoHash {
-        hash(
-            &RoutedMessageNoSignature { target, author: source, body }
-                .try_to_vec()
-                .expect("Failed to serialize"),
-        )
+        CryptoHash::hash_borsh(&RoutedMessageNoSignature { target, author: source, body })
     }
 
     pub fn hash(&self) -> CryptoHash {

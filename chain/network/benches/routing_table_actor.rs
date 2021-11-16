@@ -3,7 +3,7 @@ extern crate bencher;
 
 use bencher::black_box;
 use bencher::Bencher;
-use near_crypto::Signature;
+use near_crypto::{KeyType, SecretKey, Signature};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -101,11 +101,25 @@ fn get_all_edges_bench_new3(bench: &mut Bencher) {
     });
 }
 
+#[allow(dead_code)]
+fn benchmark_sign_edge(bench: &mut Bencher) {
+    let sk = SecretKey::from_seed(KeyType::ED25519, "1234");
+
+    let p0 = PeerId::from(sk.public_key());
+    let p1 = PeerId::random();
+
+    bench.iter(|| {
+        let ei = Edge::build_hash(&p0, &p1, 123);
+        black_box(ei);
+    });
+}
+
 benchmark_group!(
     benches,
     get_all_edges_bench_old,
     get_all_edges_bench_new2,
-    get_all_edges_bench_new3
+    get_all_edges_bench_new3,
+    benchmark_sign_edge
 );
 
 benchmark_main!(benches);

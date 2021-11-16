@@ -2,7 +2,9 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use sha2::Digest;
 
+use crate::borsh::BorshSerialize;
 use crate::logging::pretty_hash;
 use crate::serialize::{from_base, to_base, BaseDecode};
 
@@ -10,6 +12,18 @@ use crate::serialize::{from_base, to_base, BaseDecode};
 #[as_ref(forward)]
 #[as_mut(forward)]
 pub struct CryptoHash(pub [u8; 32]);
+
+impl CryptoHash {
+    pub fn hash_bytes(bytes: &[u8]) -> CryptoHash {
+        CryptoHash(sha2::Sha256::digest(bytes).into())
+    }
+
+    pub fn hash_borsh<T: BorshSerialize>(value: &T) -> CryptoHash {
+        let mut hasher = sha2::Sha256::default();
+        BorshSerialize::serialize(value, &mut hasher).unwrap();
+        CryptoHash(hasher.finalize().into())
+    }
+}
 
 impl Default for CryptoHash {
     fn default() -> Self {
@@ -135,8 +149,7 @@ impl Hash for CryptoHash {
 /// let hash = near_primitives_core::hash::hash(&data);
 /// ```
 pub fn hash(data: &[u8]) -> CryptoHash {
-    use sha2::Digest;
-    CryptoHash(sha2::Sha256::digest(data).into())
+    CryptoHash::hash_bytes(data)
 }
 
 #[cfg(test)]
