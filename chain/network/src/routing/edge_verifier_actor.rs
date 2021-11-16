@@ -25,8 +25,9 @@ impl Handler<EdgeList> for EdgeVerifierActor {
     #[perf]
     fn handle(&mut self, msg: EdgeList, _ctx: &mut Self::Context) -> Self::Result {
         for edge in msg.edges {
-            let key = &edge.key;
-            if msg.edges_info_shared.lock().unwrap().get(key).cloned().unwrap_or(0u64) >= edge.nonce
+            let key = edge.key();
+            if msg.edges_info_shared.lock().unwrap().get(key).cloned().unwrap_or(0u64)
+                >= edge.nonce()
             {
                 continue;
             }
@@ -44,8 +45,8 @@ impl Handler<EdgeList> for EdgeVerifierActor {
                 let mut guard = msg.edges_info_shared.lock().unwrap();
                 let entry = guard.entry(key.clone());
 
-                let cur_nonce = entry.or_insert(edge.nonce);
-                *cur_nonce = max(*cur_nonce, edge.nonce);
+                let cur_nonce = entry.or_insert(edge.nonce());
+                *cur_nonce = max(*cur_nonce, edge.nonce());
             }
             msg.sender.push(edge);
         }
