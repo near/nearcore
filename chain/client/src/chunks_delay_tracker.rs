@@ -46,7 +46,7 @@ impl ChunksDelayTracker {
 
     // Computes the delay between receiving a block and receiving the latest of its chunks.
     // Updates the metric to the max delay across the most recently processed blocks.
-    fn update_chunks_metric(&mut self, head_height: BlockHeight) {
+    fn get_max_delay_us(&mut self, head_height: BlockHeight) -> u128 {
         let mut max_delay = 0;
         for (_, v) in self.heights.range(..=head_height) {
             if let Some(block_received) = v.block_received {
@@ -58,17 +58,30 @@ impl ChunksDelayTracker {
                 }
             }
         }
-        near_metrics::set_gauge(&metrics::CHUNKS_RECEIVING_DELAY_US, max_delay as i64);
+        max_delay
+    }
+
+    fn update_chunks_metric(&mut self, head_height: BlockHeight) {
+        near_metrics::set_gauge(
+            &metrics::CHUNKS_RECEIVING_DELAY_US,
+            self.get_max_delay_us(head_height) as i64,
+        );
     }
 
     // Computes the difference between the latest block we are aware of and the current head.
-    fn update_blocks_ahead_metric(&mut self, head_height: BlockHeight) {
-        let value = if let Some((&latest, _)) = self.heights.iter().next_back() {
+    fn get_blocks_ahead(&mut self, head_height: BlockHeight) -> u64 {
+        if let Some((&latest, _)) = self.heights.iter().next_back() {
             latest.saturating_sub(head_height)
         } else {
             0
-        };
-        near_metrics::set_gauge(&metrics::BLOCKS_AHEAD_OF_HEAD, value as i64);
+        }
+    }
+
+    fn update_blocks_ahead_metric(&mut self, head_height: BlockHeight) {
+        near_metrics::set_gauge(
+            &metrics::BLOCKS_AHEAD_OF_HEAD,
+            self.get_blocks_ahead(head_height) as i64,
+        );
     }
 
     fn update_metrics(&mut self, head_height: BlockHeight) {
@@ -114,77 +127,72 @@ mod test {
     use std::time::Duration;
 
     #[test]
-    #[ignore]
-    // Ignoring flunky test. Testing global variables is not going to work.
     fn test_blocks_ahead_of_head() {
         let mut tracker = ChunksDelayTracker::default();
         let now = Instant::now();
-        tracker.add_block_timestamp(3, 1, now);
-        assert_eq!(near_metrics::get_gauge(&metrics::BLOCKS_AHEAD_OF_HEAD), Ok(2));
-        tracker.add_block_timestamp(4, 1, now);
-        assert_eq!(near_metrics::get_gauge(&metrics::BLOCKS_AHEAD_OF_HEAD), Ok(3));
-        tracker.add_block_timestamp(4, 3, now);
-        assert_eq!(near_metrics::get_gauge(&metrics::BLOCKS_AHEAD_OF_HEAD), Ok(1));
-        tracker.add_block_timestamp(4, 5, now);
-        assert_eq!(near_metrics::get_gauge(&metrics::BLOCKS_AHEAD_OF_HEAD), Ok(0));
-        tracker.add_block_timestamp(4, 999, now);
-        assert_eq!(near_metrics::get_gauge(&metrics::BLOCKS_AHEAD_OF_HEAD), Ok(0));
+
+        let mut head_height = 1;
+        tracker.add_block_timestamp(3, head_height, now);
+        assert_eq!(tracker.get_blocks_ahead(head_height), 2);
+        tracker.add_block_timestamp(4, head_height, now);
+        assert_eq!(tracker.get_blocks_ahead(head_height), 3);
+
+        head_height = 3;
+        tracker.add_block_timestamp(4, head_height, now);
+        assert_eq!(tracker.get_blocks_ahead(head_height), 1);
+
+        head_height = 5;
+        tracker.add_block_timestamp(4, head_height, now);
+        assert_eq!(tracker.get_blocks_ahead(head_height), 0);
+
+        head_height = 999;
+        tracker.add_block_timestamp(4, head_height, now);
+        assert_eq!(tracker.get_blocks_ahead(head_height), 0);
     }
 
     #[test]
-    #[ignore]
-    // Ignoring flunky test. Testing global variables is not going to work.
     fn test_timestamps() {
         let start = Instant::now();
         let mut tracker = ChunksDelayTracker::default();
 
         // Multiple chunks.
-        tracker.add_block_timestamp(3, 1, start);
-        tracker.add_chunk_timestamp(3, 0, 1, start + Duration::from_secs(1));
-        tracker.add_chunk_timestamp(3, 1, 1, start + Duration::from_secs(2));
+        let mut head_height = 1;
+        tracker.add_block_timestamp(3, head_height, start);
+        tracker.add_chunk_timestamp(3, 0, head_height, start + Duration::from_secs(1));
+        tracker.add_chunk_timestamp(3, 1, head_height, start + Duration::from_secs(2));
 
         // No chunks.
-        tracker.add_block_timestamp(4, 3, start + Duration::from_secs(5));
+        head_height = 3;
+        tracker.add_block_timestamp(4, head_height, start + Duration::from_secs(5));
 
         // Block and chunk from the past.
-        tracker.add_block_timestamp(1, 4, start + Duration::from_secs(7));
-        tracker.add_chunk_timestamp(1, 0, 4, start + Duration::from_secs(7));
+        head_height = 4;
+        tracker.add_block_timestamp(1, head_height, start + Duration::from_secs(7));
+        tracker.add_chunk_timestamp(1, 0, head_height, start + Duration::from_secs(7));
 
-        assert_eq!(
-            near_metrics::get_gauge(&metrics::CHUNKS_RECEIVING_DELAY_US),
-            Ok(Duration::from_secs(2).as_micros() as i64)
-        );
+        assert_eq!(tracker.get_max_delay_us(head_height), Duration::from_secs(2).as_micros());
 
         // New block with a smaller delay between receiving chunks.
-        tracker.add_block_timestamp(5, 4, start + Duration::from_secs(10));
-        tracker.add_chunk_timestamp(5, 0, 5, start + Duration::from_secs(11));
-        assert_eq!(
-            near_metrics::get_gauge(&metrics::CHUNKS_RECEIVING_DELAY_US),
-            Ok(Duration::from_secs(2).as_micros() as i64)
-        );
+        tracker.add_block_timestamp(5, head_height, start + Duration::from_secs(10));
+        head_height = 5;
+        tracker.add_chunk_timestamp(5, 0, head_height, start + Duration::from_secs(11));
+        assert_eq!(tracker.get_max_delay_us(head_height), Duration::from_secs(2).as_micros());
 
         // New block with a smaller delay between receiving chunks but far in the future, the old block should be forgotten.
-        tracker.add_block_timestamp(105, 5, start + Duration::from_secs(20));
-        tracker.add_chunk_timestamp(105, 0, 105, start + Duration::from_secs(21));
-        assert_eq!(
-            near_metrics::get_gauge(&metrics::CHUNKS_RECEIVING_DELAY_US),
-            Ok(Duration::from_secs(1).as_micros() as i64)
-        );
+        tracker.add_block_timestamp(105, head_height, start + Duration::from_secs(20));
+        head_height = 105;
+        tracker.add_chunk_timestamp(105, 0, head_height, start + Duration::from_secs(21));
+        assert_eq!(tracker.get_max_delay_us(head_height), Duration::from_secs(1).as_micros());
 
         // New block with a larger delay between receiving chunks.
-        tracker.add_block_timestamp(106, 105, start + Duration::from_secs(23));
-        tracker.add_chunk_timestamp(106, 0, 106, start + Duration::from_secs(28));
-        assert_eq!(
-            near_metrics::get_gauge(&metrics::CHUNKS_RECEIVING_DELAY_US),
-            Ok(Duration::from_secs(5).as_micros() as i64)
-        );
+        tracker.add_block_timestamp(106, head_height, start + Duration::from_secs(23));
+        head_height = 106;
+        tracker.add_chunk_timestamp(106, 0, head_height, start + Duration::from_secs(28));
+        assert_eq!(tracker.get_max_delay_us(head_height), Duration::from_secs(5).as_micros());
 
         // A block in the future doesn't matter for the metric.
-        tracker.add_block_timestamp(206, 106, start + Duration::from_secs(100));
-        tracker.add_chunk_timestamp(206, 0, 106, start + Duration::from_secs(999));
-        assert_eq!(
-            near_metrics::get_gauge(&metrics::CHUNKS_RECEIVING_DELAY_US),
-            Ok(Duration::from_secs(5).as_micros() as i64)
-        );
+        tracker.add_block_timestamp(206, head_height, start + Duration::from_secs(100));
+        tracker.add_chunk_timestamp(206, 0, head_height, start + Duration::from_secs(999));
+        assert_eq!(tracker.get_max_delay_us(head_height), Duration::from_secs(5).as_micros());
     }
 }
