@@ -48,12 +48,6 @@ impl PeerId {
     }
 }
 
-impl From<&PeerId> for Vec<u8> {
-    fn from(peer_id: &PeerId) -> Vec<u8> {
-        peer_id.0.try_to_vec().unwrap()
-    }
-}
-
 impl From<PublicKey> for PeerId {
     fn from(public_key: PublicKey) -> PeerId {
         PeerId::new(public_key)
