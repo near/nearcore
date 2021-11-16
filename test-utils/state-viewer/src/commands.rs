@@ -12,7 +12,7 @@ use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_epoch_manager::EpochManager;
-use near_network::peer_manager::peer_store::PeerStore;
+use near_network::iter_peers_from_store;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
@@ -30,10 +30,9 @@ use crate::apply_chain_range::apply_chain_range;
 use crate::state_dump::state_dump;
 
 pub(crate) fn peers(store: Arc<Store>) {
-    let peer_store = PeerStore::new(store, &[]).unwrap();
-    for (peer_id, peer_info) in peer_store.iter() {
+    iter_peers_from_store(store, |(peer_id, peer_info)| {
         println!("{} {:?}", peer_id, peer_info);
-    }
+    })
 }
 
 pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
