@@ -44,6 +44,10 @@ impl Edge {
         Edge(Arc::new(EdgeInner::new(peer0, peer1, nonce, signature0, signature1)))
     }
 
+    pub fn key(&self) -> &(PeerId, PeerId) {
+        &self.0.key
+    }
+
     pub fn nonce(&self) -> u64 {
         self.0.nonce
     }
@@ -121,11 +125,6 @@ impl Edge {
             nonce + 1
         }
     }
-
-    pub fn key(&self) -> &(PeerId, PeerId) {
-        &self.0.key
-    }
-
     pub fn to_simple_edge(&self) -> SimpleEdge {
         SimpleEdge::new(self.key().0.clone(), self.key().1.clone(), self.nonce())
     }
