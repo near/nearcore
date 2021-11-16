@@ -17,13 +17,14 @@ use near_primitives::utils::index_to_bytes;
 use near_store::db::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
 use near_store::{Store, StoreUpdate};
 
+use crate::routing::edge::{Edge, SimpleEdge};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::ibf::{Ibf, IbfBox};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::ibf_peer_set::IbfPeerSet;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::ibf_set::IbfSet;
-use crate::routing::routing::{Edge, EdgeType, Graph, SAVE_PEERS_MAX_TIME};
+use crate::routing::routing::{EdgeType, Graph, SAVE_PEERS_MAX_TIME};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::routing::{SimpleEdge, ValidIBFLevel, MIN_IBF_LEVEL};
 use crate::stats::metrics;
