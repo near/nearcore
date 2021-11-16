@@ -2755,6 +2755,7 @@ dependencies = [
  "conqueue",
  "delay-detector",
  "futures",
+ "lazy_static",
  "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
