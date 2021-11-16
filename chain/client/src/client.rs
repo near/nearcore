@@ -59,7 +59,7 @@ const NUM_REBROADCAST_BLOCKS: usize = 30;
 pub const EPOCH_SYNC_REQUEST_TIMEOUT: Duration = Duration::from_millis(1_000);
 /// How frequently a Epoch Sync response can be sent to a particular peer
 // TODO #3488 set 60_000
-pub const EPOCH_SYNC_PEER_TIMEOUT: Duration = Duration::from_millis(10_000);
+pub const EPOCH_SYNC_PEER_TIMEOUT: Duration = Duration::from_millis(10);
 
 pub struct Client {
     /// Adversarial controls
