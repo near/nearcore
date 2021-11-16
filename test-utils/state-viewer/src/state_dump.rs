@@ -102,6 +102,52 @@ pub fn state_dump(
     near_config
 }
 
+pub fn state_dump_redis(
+    runtime: NightshadeRuntime,
+    state_roots: Vec<StateRoot>,
+    last_block_header: BlockHeader,
+    near_config: &NearConfig
+) {
+    let genesis_height = last_block_header.height() + 1;
+    let block_producers = runtime
+        .get_epoch_block_producers_ordered(&last_block_header.epoch_id(), last_block_header.hash())
+        .unwrap();
+    let validators = block_producers
+        .into_iter()
+        .filter_map(|(info, is_slashed)| {
+            if !is_slashed {
+                let (account_id, public_key, stake) = info.destructure();
+                Some((account_id, (public_key, stake)))
+            } else {
+                None
+            }
+        })
+        .collect::<HashMap<_, _>>();
+
+    for (shard_id, state_root) in state_roots.iter().enumerate() {
+        let trie =
+            runtime.get_trie_for_shard(shard_id as u64, last_block_header.prev_hash()).unwrap();
+        let trie = TrieIterator::new(&trie, &state_root).unwrap();
+        for item in trie {
+            let (key, value) = item.unwrap();
+            if let Some(mut sr) = StateRecord::from_raw_key_value(key, value) {
+                if let StateRecord::Account { account_id, account } = &mut sr {
+                    if account.locked() > 0 {
+                        let stake = *validators.get(account_id).map(|(_, s)| s).unwrap_or(&0);
+                        account.set_amount(account.amount() + account.locked() - stake);
+                        account.set_locked(stake);
+                    }
+
+                    println!("Account: {}", account_id);
+                }
+
+                // TODO: Write to Redis
+            }
+        }
+    }
+}
+
+
 #[cfg(test)]
 mod test {
     use std::collections::HashSet;
