@@ -141,12 +141,6 @@ pub fn state_dump_redis(
             let (key, value) = item.unwrap();
             if let Some(mut sr) = StateRecord::from_raw_key_value(key, value) {
                 if let StateRecord::Account { account_id, account } = &mut sr {
-                    if account.locked() > 0 {
-                        let stake = *validators.get(account_id).map(|(_, s)| s).unwrap_or(&0);
-                        account.set_amount(account.amount() + account.locked() - stake);
-                        account.set_locked(stake);
-                    }
-
                     println!("Account: {}", account_id);
                     let redis_key = account_id.as_ref().as_bytes();
                     redis_connection.zadd([b"account:", redis_key].concat(), block_hash.as_ref(), block_height)?;
