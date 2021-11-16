@@ -1111,7 +1111,7 @@ pub enum FileDownloadError {
     #[error("Invalid URI: {0}")]
     UriError(#[from] hyper::http::uri::InvalidUri),
     #[error("Failed to remove the temporary file after failure: {0}, {1}")]
-    RemoveTemporaryFileError(std::io::Error, Box<FileDownloadError>)
+    RemoveTemporaryFileError(std::io::Error, Box<FileDownloadError>),
 }
 
 pub fn download_file(url: &String, path: &Path) -> Result<(), FileDownloadError> {
@@ -1125,20 +1125,14 @@ pub fn download_file(url: &String, path: &Path) -> Result<(), FileDownloadError>
         // To avoid partially downloaded files, we first download the file to a temporary *.swp file
         // and rename it once the download is finished.
         let tmp_path = path.with_extension("swp");
-        let mut tmp_file = File::create(&tmp_path).map_err(|e| {
-            FileDownloadError::OpenError(e)
-        })?;
+        let mut tmp_file = File::create(&tmp_path).map_err(FileDownloadError::OpenError)?;
 
         let process_tmp_file = async {
             while let Some(next_chunk_result) = resp.data().await {
                 let next_chunk = next_chunk_result?;
-                tmp_file.write_all(next_chunk.as_ref()).map_err(|e| {
-                    FileDownloadError::WriteError(e)
-                })?;
+                tmp_file.write_all(next_chunk.as_ref()).map_err(FileDownloadError::WriteError)?;
             }
-            std::fs::rename(&tmp_path, path).map_err(|e| {
-                FileDownloadError::RenameError(e)
-            })?;
+            std::fs::rename(&tmp_path, path).map_err(FileDownloadError::RenameError)?;
             Ok(())
         };
 
@@ -1149,8 +1143,7 @@ pub fn download_file(url: &String, path: &Path) -> Result<(), FileDownloadError>
             Err(remove_file_error) => {
                 FileDownloadError::RemoveTemporaryFileError(remove_file_error, Box::new(e))
             }
-        })?;
-        Ok(())
+        })
     });
 }
 
