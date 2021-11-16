@@ -511,10 +511,6 @@ impl Scope {
             new_id_vec.push(*u.choose(&chars)?);
         }
         let new_id = String::from_utf8(new_id_vec).unwrap();
-        assert!(
-            new_id.len() == 64
-                && new_id.as_bytes().iter().all(|b| matches!(b, b'a'..=b'f' | b'0'..=b'9'))
-        );
         self.alive_accounts.insert(self.accounts.len());
         self.accounts.push(Account::from_id(new_id));
         Ok(self.accounts[self.accounts.len() - 1].clone())
