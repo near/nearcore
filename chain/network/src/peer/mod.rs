@@ -1,2 +1,2 @@
-pub mod peer_actor;
+pub(crate) mod peer_actor;
 mod rate_counter;
