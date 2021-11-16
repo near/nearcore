@@ -41,6 +41,7 @@ impl RuntimeTestbed {
         let mut runtime_config =
             RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).as_ref().clone();
 
+        // Override vm limits config to simplify block processing.
         runtime_config.wasm_config.limit_config = VMLimitConfig {
             max_total_log_length: u64::MAX,
             max_number_registers: u64::MAX,
