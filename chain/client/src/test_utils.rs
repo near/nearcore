@@ -54,6 +54,7 @@ use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor}
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_chain::types::AcceptedBlock;
 use near_client_primitives::types::Error;
+use near_primitives::network::PeerId;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::time::{Clock, Instant};
 use near_primitives::utils::MaybeValidated;
@@ -140,7 +141,7 @@ pub fn setup(
         config,
         chain_genesis,
         runtime,
-        PublicKey::empty(KeyType::ED25519).into(),
+        PeerId::new(PublicKey::empty(KeyType::ED25519)),
         network_adapter,
         Some(signer),
         telemetry,
