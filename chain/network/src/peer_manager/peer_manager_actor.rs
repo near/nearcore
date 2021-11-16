@@ -15,13 +15,10 @@ use actix::{
 };
 use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
-use near_primitives::time::Clock;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::stats::metrics;
-use crate::stats::metrics::NetworkMetrics;
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use near_performance_metrics::framed_write::FramedWrite;
@@ -29,6 +26,7 @@ use near_performance_metrics_macros::perf;
 use near_primitives::checked_feature;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::time::Clock;
 use near_primitives::types::{AccountId, ProtocolVersion};
 use near_primitives::utils::from_timestamp;
 use near_store::Store;
@@ -38,6 +36,8 @@ use tokio_util::sync::PollSemaphore;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
 use crate::routing::codec::Codec;
+use crate::stats::metrics;
+use crate::stats::metrics::NetworkMetrics;
 use crate::{RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse};
 
 #[cfg(all(

@@ -1,9 +1,10 @@
-use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
-use near_primitives::time::Clock;
 use std::collections::btree_map;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::{Duration, Instant};
+
+use near_primitives::hash::CryptoHash;
+use near_primitives::network::PeerId;
+use near_primitives::time::Clock;
 
 type Size = u64;
 
