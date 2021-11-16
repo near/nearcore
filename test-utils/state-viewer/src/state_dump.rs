@@ -139,8 +139,8 @@ pub fn state_dump_redis(
         let trie = TrieIterator::new(&trie, &state_root).unwrap();
         for item in trie {
             let (key, value) = item.unwrap();
-            if let Some(mut sr) = StateRecord::from_raw_key_value(key, value) {
-                if let StateRecord::Account { account_id, account } = &mut sr {
+            if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
+                if let StateRecord::Account { account_id, account } = &sr {
                     println!("Account: {}", account_id);
                     let redis_key = account_id.as_ref().as_bytes();
                     redis_connection.zadd([b"account:", redis_key].concat(), block_hash.as_ref(), block_height)?;
@@ -148,7 +148,7 @@ pub fn state_dump_redis(
                     redis_connection.set([b"account-data:", redis_key, b":", block_hash.as_ref()].concat(), value)?;
                 }
 
-                if let StateRecord::Data { account_id, data_key, value } = &mut sr {
+                if let StateRecord::Data { account_id, data_key, value } = &sr {
                     println!("Data: {}", account_id);
                     let redis_key = [b"data:", account_id.as_ref().as_bytes(), b":", data_key.as_ref()].concat();
                     redis_connection.zadd(redis_key.clone(), block_hash.as_ref(), block_height)?;
@@ -156,7 +156,7 @@ pub fn state_dump_redis(
                     redis_connection.set([redis_key.clone(), b":".to_vec(), block_hash.0.to_vec()].concat(), value_vec)?;
                 }
 
-                if let StateRecord::Contract { account_id, code } = &mut sr {
+                if let StateRecord::Contract { account_id, code } = &sr {
                     println!("Contract: {}", account_id);
                     let redis_key = [b"code:", account_id.as_ref().as_bytes()].concat();
                     redis_connection.zadd(redis_key.clone(), block_hash.as_ref(), block_height)?;
