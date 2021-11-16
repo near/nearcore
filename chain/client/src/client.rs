@@ -23,10 +23,7 @@ use near_chain::{
 use near_chain_configs::ClientConfig;
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
 use near_network::types::{PartialEncodedChunkResponseMsg, PeerManagerMessageRequest};
-use near_network::{
-    FullPeerInfo, NetworkClientResponses, NetworkRequests, PeerManagerAdapter,
-    EPOCH_SYNC_PEER_TIMEOUT_MS, EPOCH_SYNC_REQUEST_TIMEOUT_MS,
-};
+use near_network::{FullPeerInfo, NetworkClientResponses, NetworkRequests, PeerManagerAdapter};
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
@@ -56,6 +53,13 @@ use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_network::types::PartialEncodedChunkForwardMsg;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
+
+/// The time we wait for the response to a Epoch Sync request before retrying
+// TODO #3488 set 30_000
+pub const EPOCH_SYNC_REQUEST_TIMEOUT_MS: u64 = 1_000;
+/// How frequently a Epoch Sync response can be sent to a particular peer
+// TODO #3488 set 60_000
+pub const EPOCH_SYNC_PEER_TIMEOUT_MS: u64 = 10;
 
 pub struct Client {
     /// Adversarial controls

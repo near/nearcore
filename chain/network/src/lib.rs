@@ -1,4 +1,3 @@
-pub use peer::peer_actor::{EPOCH_SYNC_PEER_TIMEOUT_MS, EPOCH_SYNC_REQUEST_TIMEOUT_MS};
 pub use peer_manager::peer_manager_actor::PeerManagerActor;
 pub use routing::routing_table_actor::{
     RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
