@@ -64,9 +64,9 @@ pub fn make_peer_manager(
 
     let net_config = NetworkConfig::from_seed(seed, port);
     let routing_table_addr =
-        start_routing_table_actor(net_config.public_key.clone().into(), store.clone());
+        start_routing_table_actor(PeerId::new(net_config.public_key.clone()), store.clone());
 
-    let peer_id = config.public_key.clone().into();
+    let peer_id = PeerId::new(config.public_key.clone());
     (
         PeerManagerActor::new(
             store,
