@@ -1166,7 +1166,7 @@ fn test_invalid_height_too_large() {
     let _ = env.clients[0].process_block(b1.clone(), Provenance::PRODUCED);
     let signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let b2 = Block::empty_with_height(&b1, std::u64::MAX, &signer);
+    let b2 = Block::empty_with_height(&b1, u64::MAX, &signer);
     let (_, res) = env.clients[0].process_block(b2, Provenance::NONE);
     assert!(matches!(res.unwrap_err().kind(), ErrorKind::InvalidBlockHeight(_)));
 }
