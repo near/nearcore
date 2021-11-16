@@ -49,8 +49,7 @@ use crate::types::{
     ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage,
     StateResponseInfo, Unregister, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
-use crate::NetworkResponses;
-use crate::PeerManagerActor;
+use crate::{NetworkResponses, PeerManagerActor};
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
