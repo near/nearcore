@@ -116,9 +116,9 @@ impl RoutingTableActor {
         #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
         self.peer_ibf_set.remove_edge(&edge.to_simple_edge());
 
-        let key = &edge.key;
+        let key = &edge.key();
         if self.edges_info.remove(&key).is_some() {
-            self.raw_graph.remove_edge(&edge.key.0, &edge.key.1);
+            self.raw_graph.remove_edge(&edge.key().0, &edge.key().1);
             self.needs_routing_table_recalculation = true;
         }
     }
@@ -127,7 +127,7 @@ impl RoutingTableActor {
     /// are valid (`signature0`, `signature`).
     fn add_verified_edge(&mut self, edge: Edge) -> bool {
         let key = edge.get_pair();
-        if !self.is_edge_newer(&key, edge.nonce) {
+        if !self.is_edge_newer(&key, edge.nonce()) {
             // We already have a newer information about this edge. Discard this information.
             false
         } else {
@@ -194,7 +194,7 @@ impl RoutingTableActor {
             // Load all edges that were persisted in database in the cell - and add them to the current graph.
             if let Ok(edges) = self.get_and_remove_component_edges(component_nonce, &mut update) {
                 for edge in edges {
-                    for &peer_id in vec![&edge.key.0, &edge.key.1].iter() {
+                    for &peer_id in vec![&edge.key().0, &edge.key().1].iter() {
                         if peer_id == &my_peer_id
                             || self.peer_last_time_reachable.contains_key(peer_id)
                         {
@@ -353,7 +353,7 @@ impl RoutingTableActor {
 
     /// Checks whenever given edge is newer than the one we already have.
     pub fn is_edge_newer(&self, key: &(PeerId, PeerId), nonce: u64) -> bool {
-        self.edges_info.get(&key).map_or(0, |x| x.nonce) < nonce
+        self.edges_info.get(&key).map_or(0, |x| x.nonce()) < nonce
     }
 
     /// Get edges stored in DB under `ColPeerComponent` column at `peer_id` key.
