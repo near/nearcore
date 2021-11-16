@@ -261,8 +261,7 @@ impl RoutingTableView {
     pub fn remove_edges(&mut self, edges: &Vec<Edge>) {
         for edge in edges.iter() {
             assert!(edge.key().0 == self.my_peer_id || edge.key().1 == self.my_peer_id);
-            let key = (edge.key().0.clone(), edge.key().1.clone());
-            self.local_edges_info.remove(&key);
+            self.local_edges_info.remove(&edge.key());
         }
     }
 

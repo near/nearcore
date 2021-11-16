@@ -59,7 +59,7 @@ fn get_all_edges_bench_new2(bench: &mut Bencher) {
     let mut new_edges_info = HashMap::new();
     for edge in all_edges {
         let edge = EdgeNew {
-            key: Arc::new((edge.key().0.clone(), edge.key().1.clone())),
+            key: Arc::new(edge.key().clone()),
             nonce: edge.nonce(),
             signature0: edge.signature0().clone(),
             signature1: edge.signature1().clone(),

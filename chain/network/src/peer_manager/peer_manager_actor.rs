@@ -304,9 +304,7 @@ impl PeerManagerActor {
             if !self.routing_table_view.is_local_edge_newer(&key, edge.nonce()) {
                 continue;
             }
-            self.routing_table_view
-                .local_edges_info
-                .insert((edge.key().0.clone(), edge.key().1.clone()), edge.clone());
+            self.routing_table_view.local_edges_info.insert(edge.key().clone(), edge.clone());
         }
 
         self.routing_table_addr
