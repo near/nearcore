@@ -7,7 +7,7 @@ use near_crypto::Signature;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use near_network::routing::routing::{Edge, EdgeInner};
+use near_network::routing::routing::Edge;
 use near_network::test_utils::random_peer_id;
 use near_network::RoutingTableActor;
 use near_primitives::network::PeerId;
@@ -22,7 +22,7 @@ fn build_graph(depth: usize, size: usize) -> RoutingTableActor {
 
     let mut edges: Vec<Edge> = Vec::new();
     for i in 0..size {
-        edges.push(EdgeInner::make_fake_edge(source.clone(), nodes[i].clone(), 1));
+        edges.push(Edge::make_fake_edge(source.clone(), nodes[i].clone(), 1));
     }
 
     for layer in 0..depth - 1 {
@@ -30,7 +30,7 @@ fn build_graph(depth: usize, size: usize) -> RoutingTableActor {
             for v in 0..size {
                 let peer0 = nodes[layer * size + u].clone();
                 let peer1 = nodes[(layer + 1) * size + v].clone();
-                edges.push(EdgeInner::make_fake_edge(peer0, peer1, (layer + u + v) as u64));
+                edges.push(Edge::make_fake_edge(peer0, peer1, (layer + u + v) as u64));
             }
         }
     }

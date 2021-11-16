@@ -38,7 +38,7 @@ use near_rate_limiter::ThrottleController;
 use near_rust_allocator_proxy::allocator::get_tid;
 
 use crate::routing::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
-use crate::routing::routing::{EdgeInfo, EdgeInner};
+use crate::routing::routing::{Edge, EdgeInfo};
 use crate::stats::metrics::{self, NetworkMetrics};
 use crate::stats::rate_counter::RateCounter;
 use crate::types::{
@@ -761,7 +761,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
             let now = Clock::instant();
             if let Some(time) = self.routed_message_cache.cache_get(&key) {
-                if now.duration_since(*time) <= DROP_DUPLICATED_MESSAGES_PERIOD {
+                if now.saturating_duration_since(*time) <= DROP_DUPLICATED_MESSAGES_PERIOD {
                     debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
                     return;
                 }
@@ -869,7 +869,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 }
 
                 // Verify signature of the new edge in handshake.
-                if !EdgeInner::partial_verify(
+                if !Edge::partial_verify(
                     self.node_id(),
                     handshake.peer_id.clone(),
                     &handshake.edge_info,
