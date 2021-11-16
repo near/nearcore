@@ -241,10 +241,6 @@ impl EdgeInner {
         }
     }
 
-    pub fn get_pair(&self) -> &(PeerId, PeerId) {
-        &self.key
-    }
-
     /// It will be considered as a new edge if the nonce is odd, otherwise it is canceling the
     /// previous edge.
     pub fn edge_type(&self) -> EdgeType {
