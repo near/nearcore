@@ -14,3 +14,5 @@ mod stats;
 pub mod test_utils;
 pub mod types;
 pub mod utils;
+
+pub use peer_manager::peer_store::iter_peers_from_store;

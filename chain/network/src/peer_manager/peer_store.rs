@@ -577,3 +577,11 @@ mod test {
         assert!(check_integrity(&peer_store_2));
     }
 }
+
+pub fn iter_peers_from_store<F>(store: Arc<Store>, f: F)
+where
+    F: Fn((&PeerId, &KnownPeerState)),
+{
+    let peer_store = PeerStore::new(store, &[]).unwrap();
+    peer_store.iter().for_each(|x| f(x));
+}
