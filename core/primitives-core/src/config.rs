@@ -71,6 +71,7 @@ pub struct VMLimitConfig {
     /// Max contract size
     pub max_contract_size: u64,
     /// Max transaction size
+    #[serde(default = "4_194_304")] // 4 Mib
     pub max_transaction_size: u64,
     /// Max storage key size
     pub max_length_storage_key: u64,
