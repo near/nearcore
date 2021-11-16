@@ -1,15 +1,18 @@
 # CODEOWNERS: https://help.github.com/articles/about-codeowners/
 
+# Chain Team owns /chain
 /chain/ @bowenwang1996 @mzhangmzz @mm-near @yordanmadzhunkov
 /chain/client/src/view_client.rs @frol @khorolets @chefsale
 /chain/client-primitives/ @frol @khorolets @chefsale
 /chain/network/ @mm-near @bowenwang1996 @pmnoxx
 /chain/network-primitives/ @mm-near @pmnoxx
+# Vlad's team owns /chain/jsonrpc
 /chain/jsonrpc/ @frol @khorolets @chefsale
 /chain/jsonrpc-primitives/ @frol @khorolets @chefsale
 /chain/indexer/ @khorolets @frol
 /chain/rosetta-rpc/ @frol
 
+# Runtime Team owns /runtime
 /runtime/ @bowenwang1996 @EgorKulikov @mzhangmzz @mm-near
 /runtime/runtime-params-estimator/ @olonho @matklad
 /runtime/near-test-contracts/ @olonho @ailisp @matklad
@@ -20,6 +23,7 @@
 /tools/rpctypegen/ @frol
 /tools/indexer/ @khorolets @frol
 
+# Core team owns /core
 /core/  @bowenwang1996 @frol @matklad
 /core/store/src/trie @mzhangmzz @longarithm
 /neard/ @bowenwang1996 @frol
