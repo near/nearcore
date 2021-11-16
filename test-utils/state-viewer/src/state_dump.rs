@@ -146,6 +146,7 @@ pub fn state_dump_redis(
                     redis_connection.zadd([b"account:", redis_key].concat(), block_hash.as_ref(), block_height)?;
                     let value = account.try_to_vec().unwrap();
                     redis_connection.set([b"account-data:", redis_key, b":", block_hash.as_ref()].concat(), value)?;
+                    println!("Account written: {}", account_id);
                 }
 
                 if let StateRecord::Data { account_id, data_key, value } = &sr {
@@ -154,6 +155,7 @@ pub fn state_dump_redis(
                     redis_connection.zadd(redis_key.clone(), block_hash.as_ref(), block_height)?;
                     let value_vec: &[u8] = value.as_ref();
                     redis_connection.set([redis_key.clone(), b":".to_vec(), block_hash.0.to_vec()].concat(), value_vec)?;
+                    println!("Data written: {}", account_id);
                 }
 
                 if let StateRecord::Contract { account_id, code } = &sr {
@@ -162,6 +164,7 @@ pub fn state_dump_redis(
                     redis_connection.zadd(redis_key.clone(), block_hash.as_ref(), block_height)?;
                     let value_vec: &[u8] = code.as_ref();
                     redis_connection.set([redis_key.clone(), b":".to_vec(), block_hash.0.to_vec()].concat(), value_vec)?;
+                    println!("Contract written: {}", account_id);
                 }
             }
         }
