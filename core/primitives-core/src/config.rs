@@ -22,7 +22,6 @@ pub struct VMConfig {
 /// Describes limits for VM and Runtime.
 /// TODO #4139: consider switching to strongly-typed wrappers instead of raw quantities
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
-#[serde(default)]
 pub struct VMLimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
     pub max_gas_burnt: Gas,
@@ -177,7 +176,6 @@ pub struct ViewConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
-#[serde(default)]
 pub struct ExtCostsConfig {
     /// Base cost for calling a host function.
     pub base: Gas,
