@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -18,7 +17,7 @@ use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
 use near_primitives::syncing::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, GCCount, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, GCCount};
 use near_primitives::utils::get_block_shard_id_rev;
 use near_store::{
     decode_value_with_rc, DBCol, Store, TrieChanges, NUM_COLS, SHOULD_COL_GC, SKIP_COL_GC,
@@ -27,6 +26,7 @@ use validate::StoreValidatorError;
 
 use crate::RuntimeAdapter;
 use near_primitives::shard_layout::get_block_shard_uid_rev;
+use near_primitives::time::Clock;
 
 mod validate;
 
@@ -99,7 +99,7 @@ impl StoreValidator {
             store: store.clone(),
             inner: StoreValidatorCache::new(),
             timeout: None,
-            start_time: Instant::now(),
+            start_time: Clock::instant(),
             errors: vec![],
             tests: 0,
         }
@@ -299,12 +299,6 @@ impl StoreValidator {
                         self.check(&validate::epoch_validity, &epoch_id, &epoch_info, col);
                     }
                 }
-                DBCol::ColLastBlockWithNewChunk => {
-                    let shard_id = ShardId::try_from_slice(key_ref)?;
-                    let block_hash = CryptoHash::try_from(value_ref)?;
-                    // Block which is stored in ColLastBlockWithNewChunk exists and its ShardChunk is included
-                    self.check(&validate::last_block_chunk_included, &shard_id, &block_hash, col);
-                }
                 DBCol::ColGCCount => {
                     let col = DBCol::try_from_slice(key_ref)?;
                     let count = GCCount::try_from_slice(value_ref)?;
@@ -346,7 +340,7 @@ impl StoreValidator {
         Ok(())
     }
     pub fn validate(&mut self) {
-        self.start_time = Instant::now();
+        self.start_time = Clock::instant();
 
         // Init checks
         // Check Head-Tail validity and fill cache with their values

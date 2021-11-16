@@ -3,7 +3,7 @@ use near_vm_logic::VMLogic;
 
 use std::ffi::c_void;
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct ImportReference(pub *mut c_void);
 unsafe impl Send for ImportReference {}
 unsafe impl Sync for ImportReference {}
@@ -16,6 +16,22 @@ use wasmer::{Memory, WasmerEnv};
 pub struct NearWasmerEnv {
     pub memory: Memory,
     pub logic: ImportReference,
+}
+
+const fn str_eq(s1: &str, s2: &str) -> bool {
+    let s1 = s1.as_bytes();
+    let s2 = s2.as_bytes();
+    if s1.len() != s2.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < s1.len() {
+        if s1[i] != s2[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
 }
 
 // Wasm has only i32/i64 types, so Wasmtime 0.17 only accepts
@@ -41,11 +57,18 @@ macro_rules! wrapped_imports {
             pub mod wasmer_ext {
                 use near_vm_logic::VMLogic;
                 use wasmer_runtime::Ctx;
+                use crate::imports::str_eq;
                 type VMResult<T> = ::std::result::Result<T, near_vm_logic::VMLogicError>;
                 $(
                     #[allow(unused_parens)]
                     $(#[cfg(feature = $feature_name)])*
                     pub fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> VMResult<($( $returns ),*)> {
+                        const IS_GAS: bool = str_eq(stringify!($func), "gas");
+                        let _span = if IS_GAS {
+                            None
+                        } else {
+                            Some(tracing::debug_span!(target: "host-function", stringify!($func)).entered())
+                        };
                         let logic: &mut VMLogic<'_> = unsafe { &mut *(ctx.data as *mut VMLogic<'_>) };
                         logic.$func( $( $arg_name, )* )
                     }
@@ -56,12 +79,19 @@ macro_rules! wrapped_imports {
             pub mod wasmer2_ext {
             use near_vm_logic::VMLogic;
             use crate::imports::NearWasmerEnv;
+            use crate::imports::str_eq;
 
             type VMResult<T> = ::std::result::Result<T, near_vm_logic::VMLogicError>;
             $(
                 #[allow(unused_parens)]
                 $(#[cfg(feature = $feature_name)])*
                 pub fn $func(env: &NearWasmerEnv, $( $arg_name: $arg_type ),* ) -> VMResult<($( $returns ),*)> {
+                    const IS_GAS: bool = str_eq(stringify!($func), "gas");
+                    let _span = if IS_GAS {
+                        None
+                    } else {
+                        Some(tracing::debug_span!(target: "host-function", stringify!($func)).entered())
+                    };
                     let logic: &mut VMLogic = unsafe { &mut *(env.logic.0 as *mut VMLogic<'_>) };
                     logic.$func( $( $arg_name, )* )
                 }
@@ -74,6 +104,7 @@ macro_rules! wrapped_imports {
                 use std::ffi::c_void;
                 use std::cell::{RefCell, UnsafeCell};
                 use wasmtime::Trap;
+                use crate::imports::str_eq;
 
                 thread_local! {
                     pub static CALLER_CONTEXT: UnsafeCell<*mut c_void> = UnsafeCell::new(0 as *mut c_void);
@@ -85,6 +116,12 @@ macro_rules! wrapped_imports {
                     #[allow(unused_parens)]
                     #[cfg(all(feature = "wasmtime_vm" $(, feature = $feature_name)*))]
                     pub fn $func( $( $arg_name: rust2wasm!($arg_type) ),* ) -> VMResult<($( rust2wasm!($returns)),*)> {
+                        const IS_GAS: bool = str_eq(stringify!($func), "gas");
+                        let _span =if IS_GAS {
+                            None
+                        } else {
+                            Some(tracing::debug_span!(target: "host-function", stringify!($func)).entered())
+                        };
                         let data = CALLER_CONTEXT.with(|caller_context| {
                             unsafe {
                                 *caller_context.get()
@@ -116,6 +153,7 @@ macro_rules! wrapped_imports {
                 let raw_ptr = logic as *mut _ as *mut c_void;
                 let import_reference = ImportReference(raw_ptr);
                 let mut import_object = wasmer_runtime::ImportObject::new_with_data(move || {
+                    let import_reference = import_reference;
                     let dtor = (|_: *mut c_void| {}) as fn(*mut c_void);
                     (import_reference.0, dtor)
                 });

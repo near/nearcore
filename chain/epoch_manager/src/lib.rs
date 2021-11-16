@@ -44,8 +44,8 @@ mod types;
 #[cfg(feature = "protocol_feature_chunk_only_producers")]
 mod validator_selection;
 
-const EPOCH_CACHE_SIZE: usize = 50;
-const BLOCK_CACHE_SIZE: usize = 1000;
+const EPOCH_CACHE_SIZE: usize = if cfg!(feature = "no_cache") { 1 } else { 50 };
+const BLOCK_CACHE_SIZE: usize = if cfg!(feature = "no_cache") { 5 } else { 1000 }; // TODO(#5080): fix this
 const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
 
 /// Tracks epoch information across different forks, such as validators.
@@ -794,13 +794,13 @@ impl EpochManager {
         if self.will_shard_layout_change(parent_hash)? {
             let shard_layout = self.get_shard_layout(&next_epoch_id)?;
             let split_shards = shard_layout
-                .get_split_shards(shard_id)
+                .get_split_shard_ids(shard_id)
                 .expect("all shard layouts expect the first one must have a split map");
             for next_shard_id in split_shards {
                 if self.cares_about_shard_in_epoch(
                     next_epoch_id.clone(),
                     account_id,
-                    next_shard_id.shard_id(),
+                    next_shard_id,
                 )? {
                     return Ok(true);
                 }

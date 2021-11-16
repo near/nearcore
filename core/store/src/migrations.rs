@@ -570,8 +570,6 @@ pub fn migrate_14_to_15(path: &Path) {
 }
 
 pub fn migrate_17_to_18(path: &Path) {
-    use std::convert::TryFrom;
-
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::types::validator_stake::ValidatorStakeV1;
     use near_primitives::types::{BlockHeight, EpochId};
@@ -739,6 +737,16 @@ pub fn migrate_26_to_27(path: &Path, is_archival: bool) {
         store_update.finish().unwrap();
     }
     set_store_version(&store, 27);
+}
+
+pub fn migrate_28_to_29(path: &Path) {
+    let store = create_store(path);
+    let mut store_update = store.store_update();
+    store_update.delete_all(DBCol::_ColNextBlockWithNewChunk);
+    store_update.delete_all(DBCol::_ColLastBlockWithNewChunk);
+    store_update.commit().unwrap();
+
+    set_store_version(&store, 29);
 }
 
 #[cfg(feature = "protocol_feature_block_header_v3")]

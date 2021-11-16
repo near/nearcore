@@ -1,5 +1,4 @@
 //! Settings of the parameters of the runtime.
-use std::convert::TryFrom;
 
 use num_bigint::BigUint;
 use num_traits::cast::ToPrimitive;
@@ -63,7 +62,7 @@ pub fn safe_add_balance(a: Balance, b: Balance) -> Result<Balance, IntegerOverfl
 macro_rules! safe_add_balance_apply {
     ($x: expr) => {$x};
     ($x: expr, $($rest: expr),+) => {
-        safe_add_balance($x, safe_add_balance_apply!($($rest),+))?;
+        safe_add_balance($x, safe_add_balance_apply!($($rest),+))?
     }
 }
 

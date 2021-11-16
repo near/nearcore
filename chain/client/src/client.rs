@@ -7,8 +7,8 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use cached::{Cached, SizedCache};
-use chrono::Utc;
 use log::{debug, error, info, warn};
+use near_primitives::time::Clock;
 
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlocksCatchUpState, StateSplitRequest,
@@ -22,11 +22,8 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
-use near_network::types::PartialEncodedChunkResponseMsg;
-use near_network::{
-    FullPeerInfo, NetworkAdapter, NetworkClientResponses, NetworkRequests,
-    EPOCH_SYNC_PEER_TIMEOUT_MS, EPOCH_SYNC_REQUEST_TIMEOUT_MS,
-};
+use near_network::types::{PartialEncodedChunkResponseMsg, PeerManagerMessageRequest};
+use near_network::{FullPeerInfo, NetworkClientResponses, NetworkRequests, PeerManagerAdapter};
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
@@ -45,6 +42,7 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::{to_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 
+use crate::chunks_delay_tracker::ChunksDelayTracker;
 use crate::metrics;
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::SyncStatus;
@@ -55,6 +53,13 @@ use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_network::types::PartialEncodedChunkForwardMsg;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
+
+/// The time we wait for the response to a Epoch Sync request before retrying
+// TODO #3488 set 30_000
+pub const EPOCH_SYNC_REQUEST_TIMEOUT: Duration = Duration::from_millis(1_000);
+/// How frequently a Epoch Sync response can be sent to a particular peer
+// TODO #3488 set 60_000
+pub const EPOCH_SYNC_PEER_TIMEOUT: Duration = Duration::from_millis(10);
 
 pub struct Client {
     /// Adversarial controls
@@ -70,7 +75,7 @@ pub struct Client {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub shards_mgr: ShardsManager,
     /// Network adapter.
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
     /// Signer for block producer (if present).
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
     /// Approvals for which we do not have the block yet
@@ -96,6 +101,8 @@ pub struct Client {
     /// Last time the head was updated, or our head was rebroadcasted. Used to re-broadcast the head
     /// again to prevent network from stalling if a large percentage of the network missed a block
     last_time_head_progress_made: Instant,
+    /// Keeps track of when the latest blocks and chunks were received.
+    chunks_delay_tracker: ChunksDelayTracker,
 }
 
 impl Client {
@@ -103,7 +110,7 @@ impl Client {
         config: ClientConfig,
         chain_genesis: ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-        network_adapter: Arc<dyn NetworkAdapter>,
+        network_adapter: Arc<dyn PeerManagerAdapter>,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         enable_doomslug: bool,
     ) -> Result<Self, Error> {
@@ -132,8 +139,8 @@ impl Client {
                 .iter()
                 .map(|x| x.0.clone().into())
                 .collect(),
-            Duration::from_millis(EPOCH_SYNC_REQUEST_TIMEOUT_MS),
-            Duration::from_millis(EPOCH_SYNC_PEER_TIMEOUT_MS),
+            EPOCH_SYNC_REQUEST_TIMEOUT,
+            EPOCH_SYNC_PEER_TIMEOUT,
         );
         let header_sync = HeaderSync::new(
             network_adapter.clone(),
@@ -158,7 +165,6 @@ impl Client {
             validator_signer.clone(),
             doomslug_threshold_mode,
         );
-
         Ok(Self {
             #[cfg(feature = "test_features")]
             adv_produce_blocks: false,
@@ -181,19 +187,22 @@ impl Client {
             challenges: Default::default(),
             rs: ReedSolomonWrapper::new(data_parts, parity_parts),
             rebroadcasted_blocks: SizedCache::with_size(NUM_REBROADCAST_BLOCKS),
-            last_time_head_progress_made: Instant::now(),
+            last_time_head_progress_made: Clock::instant(),
+            chunks_delay_tracker: Default::default(),
         })
     }
 
     // Checks if it's been at least `stall_timeout` since the last time the head was updated, or
     // this method was called. If yes, rebroadcasts the current head.
     pub fn check_head_progress_stalled(&mut self, stall_timeout: Duration) -> Result<(), Error> {
-        if Instant::now() > self.last_time_head_progress_made + stall_timeout
+        if Clock::instant() > self.last_time_head_progress_made + stall_timeout
             && !self.sync_status.is_syncing()
         {
             let block = self.chain.get_block(&self.chain.head()?.last_block_hash)?;
-            self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
-            self.last_time_head_progress_made = Instant::now();
+            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::Block { block: block.clone() },
+            ));
+            self.last_time_head_progress_made = Clock::instant();
         }
         Ok(())
     }
@@ -380,7 +389,7 @@ impl Client {
         }
 
         let new_chunks = self.shards_mgr.prepare_chunks(&prev_hash);
-        debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}, {} new chunks", validator_signer.validator_id(), 
+        debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}, {} new chunks", validator_signer.validator_id(),
                next_height, prev.height(), format_hash(head.last_block_hash), new_chunks.len());
 
         // If we are producing empty blocks and there are no transactions.
@@ -503,7 +512,7 @@ impl Client {
         // Update latest known even before returning block out, to prevent race conditions.
         self.chain.mut_store().save_latest_known(LatestKnown {
             height: next_height,
-            seen: to_timestamp(Utc::now()),
+            seen: to_timestamp(Clock::utc()),
         })?;
 
         near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
@@ -673,7 +682,9 @@ impl Client {
             for body in challenges.write().unwrap().drain(..) {
                 let challenge = Challenge::produce(body, &**validator_signer);
                 self.challenges.insert(challenge.hash, challenge.clone());
-                self.network_adapter.do_send(NetworkRequests::Challenge(challenge));
+                self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::Challenge(challenge),
+                ));
             }
         }
     }
@@ -683,6 +694,7 @@ impl Client {
         block: Block,
         provenance: Provenance,
     ) -> (Vec<AcceptedBlock>, Result<Option<Tip>, near_chain::Error>) {
+        self.record_receive_block_timestamp(block.header().height());
         let is_requested = match provenance {
             Provenance::PRODUCED | Provenance::SYNC => true,
             Provenance::NONE => false,
@@ -733,19 +745,19 @@ impl Client {
             match &result {
                 Err(e) => match e.kind() {
                     near_chain::ErrorKind::InvalidChunkProofs(chunk_proofs) => {
-                        self.network_adapter.do_send(NetworkRequests::Challenge(
-                            Challenge::produce(
+                        self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::Challenge(Challenge::produce(
                                 ChallengeBody::ChunkProofs(*chunk_proofs),
                                 &**validator_signer,
-                            ),
+                            )),
                         ));
                     }
                     near_chain::ErrorKind::InvalidChunkState(chunk_state) => {
-                        self.network_adapter.do_send(NetworkRequests::Challenge(
-                            Challenge::produce(
+                        self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::Challenge(Challenge::produce(
                                 ChallengeBody::ChunkState(*chunk_state),
                                 &**validator_signer,
-                            ),
+                            )),
                         ));
                     }
                     _ => {}
@@ -755,7 +767,7 @@ impl Client {
         }
 
         if let Ok(Some(_)) = result {
-            self.last_time_head_progress_made = Instant::now();
+            self.last_time_head_progress_made = Clock::instant();
         }
 
         let protocol_version = self
@@ -779,7 +791,9 @@ impl Client {
 
     pub fn rebroadcast_block(&mut self, block: Block) {
         if self.rebroadcasted_blocks.cache_get(&block.hash()).is_none() {
-            self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
+            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::Block { block: block.clone() },
+            ));
             self.rebroadcasted_blocks.cache_set(*block.hash(), ());
         }
     }
@@ -872,6 +886,10 @@ impl Client {
                 match process_result {
                     ProcessPartialEncodedChunkResult::Known => Ok(vec![]),
                     ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(_) => {
+                        self.record_receive_chunk_timestamp(
+                            pec_v2.header.height_created(),
+                            pec_v2.header.shard_id(),
+                        );
                         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_hash);
                         Ok(self.process_blocks_with_missing_chunks(protocol_version))
                     }
@@ -920,9 +938,8 @@ impl Client {
             } else {
                 self.chain.get_block_header(&last_final_hash)?.height()
             };
-
             self.doomslug.set_tip(
-                Instant::now(),
+                Clock::instant(),
                 tip.last_block_hash,
                 tip.height,
                 last_final_height,
@@ -945,7 +962,9 @@ impl Client {
         } else {
             debug!(target: "client", "Sending an approval {:?} from {} to {} for {}", approval.inner, approval.account_id, next_block_producer.clone(), approval.target_height);
             let approval_message = ApprovalMessage::new(approval, next_block_producer);
-            self.network_adapter.do_send(NetworkRequests::Approval { approval_message });
+            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::Approval { approval_message },
+            ));
         }
 
         Ok(())
@@ -1366,8 +1385,7 @@ impl Client {
                     return;
                 }
             };
-
-        self.doomslug.on_approval_message(Instant::now(), &approval, &block_producer_stakes);
+        self.doomslug.on_approval_message(Clock::instant(), &approval, &block_producer_stakes);
     }
 
     /// Forwards given transaction to upcoming validators.
@@ -1410,7 +1428,9 @@ impl Client {
             );
 
             // Send message to network to actually forward transaction.
-            self.network_adapter.do_send(NetworkRequests::ForwardTx(validator, tx.clone()));
+            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::ForwardTx(validator, tx.clone()),
+            ));
         }
 
         Ok(())
@@ -1749,5 +1769,21 @@ impl Client {
         //            self.challenges.insert(challenge.hash, challenge);
         //        }
         Ok(())
+    }
+
+    fn record_receive_block_timestamp(&mut self, height: BlockHeight) {
+        if let Ok(tip) = self.chain.head() {
+            self.chunks_delay_tracker.add_block_timestamp(height, tip.height, Instant::now());
+        }
+    }
+    fn record_receive_chunk_timestamp(&mut self, height: BlockHeight, shard_id: ShardId) {
+        if let Ok(tip) = self.chain.head() {
+            self.chunks_delay_tracker.add_chunk_timestamp(
+                height,
+                shard_id,
+                tip.height,
+                Instant::now(),
+            );
+        }
     }
 }

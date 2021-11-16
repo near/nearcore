@@ -103,6 +103,8 @@ fn ping_jump() {
     runner.push(Action::AddEdge(0, 1));
     runner.push(Action::AddEdge(1, 2));
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
+    // We update routing table with 1s delay in PeerManager
+    runner.push(Action::Wait(1500));
     runner.push(Action::PingTo(0, 0, 2));
     runner.push(Action::CheckPingPong(2, vec![(0, 0, None)], vec![]));
     runner.push(Action::CheckPingPong(0, vec![], vec![(0, 2, None)]));

@@ -3,12 +3,11 @@
 //! These types should only change when we cannot avoid this. Thus, when the counterpart internal
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
-use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
@@ -238,7 +237,7 @@ pub struct AccessKeyList {
     pub keys: Vec<AccessKeyInfoView>,
 }
 
-impl std::iter::FromIterator<AccessKeyInfoView> for AccessKeyList {
+impl FromIterator<AccessKeyInfoView> for AccessKeyList {
     fn from_iter<I: IntoIterator<Item = AccessKeyInfoView>>(iter: I) -> Self {
         Self { keys: iter.into_iter().collect() }
     }
@@ -295,11 +294,11 @@ pub struct StatusSyncInfo {
     pub latest_block_hash: CryptoHash,
     pub latest_block_height: BlockHeight,
     pub latest_state_root: CryptoHash,
-    pub latest_block_time: DateTime<Utc>,
+    pub latest_block_time: DateTime<chrono::Utc>,
     pub syncing: bool,
     pub earliest_block_hash: Option<CryptoHash>,
     pub earliest_block_height: Option<BlockHeight>,
-    pub earliest_block_time: Option<DateTime<Utc>>,
+    pub earliest_block_time: Option<DateTime<chrono::Utc>>,
 }
 
 // TODO: add more information to ValidatorInfo

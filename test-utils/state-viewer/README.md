@@ -15,19 +15,24 @@ Basic example:
 ```bash
 make release
 ./target/release/state-viewer --home ~/.near/ apply_range \
-        --shard_id=0 --start_index=42376889 --end_index=423770101
+        --shard-id=0 --start-index=42376889 --end_index=423770101 \
+         --verbose-output --csv-file=./apply_range.csv
 ```
 
 This command will:
 * build a release version of `state-viewer` with link-time optimizations
 * open the blockchain state at the location provided by `--home`
-* for each block with height between `--start_index` and `--end_index`
+* for each block with height between `--start-index` and `--end-index`
   * Run `apply_transactions` function
-* Compute statistics of the gas used and balance burnt for each block and for each receipt within the block
+* Print individual outcomes if `--verbose-output` is provided. Useful for finding and debugging differences in replaying
+the history.
+* Print a csv file if `--csv-file` is provided. The csv file contains per-block statistics such as, timestamp of the
+block, gas per block, delayed receipts per block. Useful for debugging performance issues. Don't forget to sort your
+data before making charts using this data.
 
-If you want to re-apply all the blocks in the available blockchain then omit both the `--start_index` and `--end_index`
-flags. Omitting `--start_index` makes `state-viewer` use blockchain state starting from the genesis. Omitting
-`--end_index` makes `state-viewer` use all blocks up to the latest block available in the blockchain.
+If you want to re-apply all the blocks in the available blockchain then omit both the `--start-index` and `--end-index`
+flags. Omitting `--start-index` makes `state-viewer` use blockchain state starting from the genesis. Omitting
+`--end-index` makes `state-viewer` use all blocks up to the latest block available in the blockchain.
 
 Enable debug output to print extra details such as individual outcomes:
 
@@ -74,3 +79,11 @@ Flags:
 * `--height` gets the block header and chunk extras for a block at a certain height.
 * `--block` displays contents of the block itself, such as timestamp, outcome_root, challenges, and many more.
 * `--chunk` displays contents of the chunk, such as transactions and receipts.
+
+### `dump_state`
+
+Saves the current state of the network in a new genesis file.
+
+Flags:
+
+* `--height` takes state from the genesis up to and including the given height. By default, dumps all available state.

@@ -426,7 +426,7 @@ pub unsafe fn benchmark_storage_8b() {
 #[inline]
 fn generate_data(data: &mut [u8]) {
     for i in 0..data.len() {
-        data[i] = (i % std::u8::MAX as usize) as u8;
+        data[i] = (i % u8::MAX as usize) as u8;
     }
 }
 

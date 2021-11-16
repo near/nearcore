@@ -1,5 +1,6 @@
+use crate::time::Utc;
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use serde::Serialize;
 
 use near_crypto::{KeyType, PublicKey, Signature};
