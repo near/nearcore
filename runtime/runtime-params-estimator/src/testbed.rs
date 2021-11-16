@@ -55,7 +55,7 @@ impl RuntimeTestbed {
             max_total_prepaid_gas: u64::MAX,
             max_number_bytes_method_names: u64::MAX,
 
-            ..Default::default()
+            ..VMLimitConfig::test()
         };
         runtime_config.account_creation_config.min_allowed_top_level_account_length = 0;
 

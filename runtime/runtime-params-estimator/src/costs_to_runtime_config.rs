@@ -7,7 +7,7 @@ use near_primitives::runtime::fees::{
 };
 use near_primitives::types::Gas;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_vm_logic::{ExtCostsConfig, VMConfig, VMLimitConfig};
+use near_vm_logic::{ExtCostsConfig, VMConfig};
 use node_runtime::config::RuntimeConfig;
 
 use crate::cost::Cost;
