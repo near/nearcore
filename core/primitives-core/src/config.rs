@@ -118,7 +118,6 @@ impl VMConfig {
     }
 }
 
-// TODO #4649: remove default impl and create impls with explicitly stated purposes
 impl VMLimitConfig {
     pub fn test() -> Self {
         Self {
