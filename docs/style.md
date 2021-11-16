@@ -56,13 +56,13 @@ Group import by module, but not deeper:
 use std::collections::{hash_map, BTreeSet};
 use std::sync::Arc;
 
-// BAD
+// BAD - nested groups.
 use std::{
     collections::{hash_map, BTreeSet},
     sync::Arc,
 };
 
-// BAD
+// BAD - not grouped together.
 use std::collections::BTreeSet;
 use std::collections::hash_map;
 use std::sync::Arc;
