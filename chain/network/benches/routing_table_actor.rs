@@ -7,7 +7,7 @@ use near_crypto::{KeyType, SecretKey, Signature};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use near_network::routing::routing::Edge;
+use near_network::routing::edge::Edge;
 use near_network::test_utils::random_peer_id;
 use near_network::RoutingTableActor;
 use near_primitives::network::PeerId;

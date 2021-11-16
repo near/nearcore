@@ -1,4 +1,5 @@
 pub(crate) mod codec;
+pub mod edge;
 pub(crate) mod edge_verifier_actor;
 pub(crate) mod ibf;
 pub mod ibf_peer_set;

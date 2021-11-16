@@ -179,7 +179,7 @@ mod test {
     };
 
     use super::*;
-    use crate::routing::routing::EdgeInfo;
+    use crate::routing::edge::EdgeInfo;
 
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();
