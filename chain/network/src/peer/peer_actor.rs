@@ -24,7 +24,6 @@ use near_performance_metrics;
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
-use near_primitives::hash::CryptoHash;
 use near_primitives::logging;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::PartialEncodedChunk;
@@ -34,12 +33,13 @@ use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
+use near_rate_limiter::ThrottleController;
 use near_rust_allocator_proxy::allocator::get_tid;
 
+use crate::peer::tracker::Tracker;
 use crate::routing::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
-use crate::routing::routing::{Edge, EdgeInfo};
+use crate::routing::edge::{Edge, EdgeInfo};
 use crate::stats::metrics::{self, NetworkMetrics};
-use crate::stats::rate_counter::RateCounter;
 use crate::types::{
     Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
@@ -54,110 +54,18 @@ use crate::PeerManagerActor;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
-/// Maximum number of requests and responses to track.
-const MAX_TRACK_SIZE: usize = 30;
 /// Maximum number of messages per minute from single peer.
 // TODO: current limit is way to high due to us sending lots of messages during sync.
-const MAX_PEER_MSG_PER_MIN: u64 = std::u64::MAX;
+const MAX_PEER_MSG_PER_MIN: u64 = u64::MAX;
 
 /// Maximum number of transaction messages we will accept between block messages.
 /// The purpose of this constant is to ensure we do not spend too much time deserializing and
 /// dispatching transactions when we should be focusing on consensus-related messages.
 const MAX_TXNS_PER_BLOCK_MESSAGE: usize = 1000;
-
-/// The time we wait for the response to a Epoch Sync request before retrying
-// TODO #3488 set 30_000
-pub const EPOCH_SYNC_REQUEST_TIMEOUT_MS: u64 = 1_000;
-/// How frequently a Epoch Sync response can be sent to a particular peer
-// TODO #3488 set 60_000
-pub const EPOCH_SYNC_PEER_TIMEOUT_MS: u64 = 10;
 /// Limit cache size of 1000 messages
 pub const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
 pub const DROP_DUPLICATED_MESSAGES_PERIOD: Duration = Duration::from_millis(50);
-
-/// Internal structure to keep a circular queue within a tracker with unique hashes.
-struct CircularUniqueQueue {
-    v: Vec<CryptoHash>,
-    index: usize,
-    limit: usize,
-}
-
-impl CircularUniqueQueue {
-    pub fn new(limit: usize) -> Self {
-        assert!(limit > 0);
-        Self { v: Vec::with_capacity(limit), index: 0, limit }
-    }
-
-    pub fn contains(&self, hash: &CryptoHash) -> bool {
-        self.v.contains(hash)
-    }
-
-    /// Pushes an element if it's not in the queue already. The queue will pop the oldest element.
-    pub fn push(&mut self, hash: CryptoHash) {
-        if !self.contains(&hash) {
-            if self.v.len() < self.limit {
-                self.v.push(hash);
-            } else {
-                self.v[self.index] = hash;
-                self.index += 1;
-                if self.index == self.limit {
-                    self.index = 0;
-                }
-            }
-        }
-    }
-}
-
-/// Keeps track of requests and received hashes of transactions and blocks.
-/// Also keeps track of number of bytes sent and received from this peer to prevent abuse.
-pub struct Tracker {
-    /// Bytes we've sent.
-    sent_bytes: RateCounter,
-    /// Bytes we've received.
-    received_bytes: RateCounter,
-    /// Sent requests.
-    requested: CircularUniqueQueue,
-    /// Received elements.
-    received: CircularUniqueQueue,
-}
-
-impl Default for Tracker {
-    fn default() -> Self {
-        Tracker {
-            sent_bytes: RateCounter::new(),
-            received_bytes: RateCounter::new(),
-            requested: CircularUniqueQueue::new(MAX_TRACK_SIZE),
-            received: CircularUniqueQueue::new(MAX_TRACK_SIZE),
-        }
-    }
-}
-
-impl Tracker {
-    fn increment_received(&mut self, size: u64) {
-        self.received_bytes.increment(size);
-    }
-
-    fn increment_sent(&mut self, size: u64) {
-        self.sent_bytes.increment(size);
-    }
-
-    fn has_received(&self, hash: &CryptoHash) -> bool {
-        self.received.contains(hash)
-    }
-
-    fn push_received(&mut self, hash: CryptoHash) {
-        self.received.push(hash);
-    }
-
-    fn has_request(&self, hash: &CryptoHash) -> bool {
-        self.requested.contains(hash)
-    }
-
-    fn push_request(&mut self, hash: CryptoHash) {
-        self.requested.push(hash);
-    }
-}
 
 pub struct PeerActor {
     /// This node's id and address (either listening or socket address).
@@ -198,10 +106,11 @@ pub struct PeerActor {
     txns_since_last_block: Arc<AtomicUsize>,
     /// How many peer actors are created
     peer_counter: Arc<AtomicUsize>,
-    /// The last time a Epoch Sync request was received from this peer
-    last_time_received_epoch_sync_request: Instant,
     /// Cache of recently routed messages, this allows us to drop duplicates
     routed_message_cache: SizedCache<(PeerId, PeerIdOrHash, Signature), Instant>,
+    /// A helper data structure for limiting reading
+    #[allow(unused)]
+    throttle_controller: ThrottleController,
 }
 
 impl Debug for PeerActor {
@@ -225,6 +134,7 @@ impl PeerActor {
         network_metrics: NetworkMetrics,
         txns_since_last_block: Arc<AtomicUsize>,
         peer_counter: Arc<AtomicUsize>,
+        throttle_controller: ThrottleController,
     ) -> Self {
         PeerActor {
             node_info,
@@ -246,9 +156,8 @@ impl PeerActor {
             network_metrics,
             txns_since_last_block,
             peer_counter,
-            last_time_received_epoch_sync_request: Clock::instant()
-                - Duration::from_millis(EPOCH_SYNC_PEER_TIMEOUT_MS),
             routed_message_cache: SizedCache::with_size(ROUTED_MESSAGE_CACHE_SIZE),
+            throttle_controller,
         }
     }
 
@@ -417,7 +326,6 @@ impl PeerActor {
                 NetworkViewClientMessages::BlockHeadersRequest(hashes)
             }
             PeerMessage::EpochSyncRequest(epoch_id) => {
-                self.last_time_received_epoch_sync_request = Clock::instant();
                 NetworkViewClientMessages::EpochSyncRequest { epoch_id }
             }
             PeerMessage::EpochSyncFinalizationRequest(epoch_id) => {
@@ -706,6 +614,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 return;
             }
         };
+        // TODO(#5155) We should change our code to track size of messages received from Peer
+        // as long as it travels to PeerManager, etc.
 
         near_metrics::inc_counter_by(&metrics::PEER_DATA_RECEIVED_BYTES, msg.len() as u64);
         near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
@@ -753,7 +663,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
             let now = Clock::instant();
             if let Some(time) = self.routed_message_cache.cache_get(&key) {
-                if now.duration_since(*time) <= DROP_DUPLICATED_MESSAGES_PERIOD {
+                if now.saturating_duration_since(*time) <= DROP_DUPLICATED_MESSAGES_PERIOD {
                     debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
                     return;
                 }
@@ -1026,6 +936,11 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             (_, _state, PeerMessage::RoutingTableSyncV2(ibf_message)) => {
+                // TODO(#5155) Add wrapper to be something like this for all messages.
+                // self.peer_manager_addr.do_send(ActixMessageWrapper<NetworkRequests>::new(
+                //        self.rate_limiter.clone, NetworkRequests::IbfMessage {
+                //         ...
+
                 self.peer_manager_addr.do_send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::IbfMessage {
                         peer_id: self.peer_id().unwrap(),
@@ -1122,81 +1037,5 @@ impl Handler<PeerManagerRequest> for PeerActor {
                 ctx.stop();
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use near_primitives::hash::hash;
-
-    use super::*;
-
-    #[test]
-    #[should_panic]
-    fn test_circular_queue_zero_capacity() {
-        let _ = CircularUniqueQueue::new(0);
-    }
-
-    #[test]
-    fn test_circular_queue_empty_queue() {
-        let q = CircularUniqueQueue::new(5);
-
-        assert!(!q.contains(&hash(&[0])));
-    }
-
-    #[test]
-    fn test_circular_queue_partially_full_queue() {
-        let mut q = CircularUniqueQueue::new(5);
-        for i in 1..=3 {
-            q.push(hash(&[i]));
-        }
-
-        for i in 1..=3 {
-            assert!(q.contains(&hash(&[i])));
-        }
-    }
-
-    #[test]
-    fn test_circular_queue_full_queue() {
-        let mut q = CircularUniqueQueue::new(5);
-        for i in 1..=5 {
-            q.push(hash(&[i]));
-        }
-
-        for i in 1..=5 {
-            assert!(q.contains(&hash(&[i])));
-        }
-    }
-
-    #[test]
-    fn test_circular_queue_over_full_queue() {
-        let mut q = CircularUniqueQueue::new(5);
-        for i in 1..=7 {
-            q.push(hash(&[i]));
-        }
-
-        for i in 1..=2 {
-            assert!(!q.contains(&hash(&[i])));
-        }
-        for i in 3..=7 {
-            assert!(q.contains(&hash(&[i])));
-        }
-    }
-
-    #[test]
-    fn test_circular_queue_similar_inputs() {
-        let mut q = CircularUniqueQueue::new(5);
-        q.push(hash(&[5]));
-        for _ in 0..3 {
-            for i in 1..=3 {
-                for _ in 0..5 {
-                    q.push(hash(&[i]));
-                }
-            }
-        }
-        for i in 1..=3 {
-            assert!(q.contains(&hash(&[i])));
-        }
-        assert!(q.contains(&hash(&[5])));
     }
 }

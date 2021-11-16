@@ -179,7 +179,7 @@ mod test {
     };
 
     use super::*;
-    use crate::routing::routing::EdgeInfo;
+    use crate::routing::edge::EdgeInfo;
 
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();
@@ -207,14 +207,14 @@ mod test {
             ForwardTxTargetType::Hash => PeerIdOrHash::Hash(hash::hash(b"peer_id_hash")),
             ForwardTxTargetType::PublicKey(key_type) => {
                 let secret_key = SecretKey::from_seed(key_type, "target_secret_key");
-                PeerIdOrHash::PeerId(PeerId(secret_key.public_key()))
+                PeerIdOrHash::PeerId(PeerId::new(secret_key.public_key()))
             }
         };
 
         let (author, signature) = {
             let secret_key = SecretKey::from_seed(schema.author, "author_secret_key");
             let public_key = secret_key.public_key();
-            let author = PeerId(public_key);
+            let author = PeerId::new(public_key);
             let msg_data = hash::hash(b"msg_data");
             let signature = secret_key.sign(msg_data.as_ref());
 

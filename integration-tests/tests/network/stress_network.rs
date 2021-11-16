@@ -12,7 +12,9 @@ use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_test_logger_allow_panic;
 
 use near_network::routing::routing_table_actor::start_routing_table_actor;
-use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeout};
+use near_network::test_utils::{
+    convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeoutActor,
+};
 use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
 use near_network::{NetworkClientResponses, NetworkConfig, PeerManagerActor};
 use near_store::test_utils::create_test_store;
@@ -110,7 +112,7 @@ fn stress_test() {
         let flags: Vec<_> = (0..num_nodes).map(|_| Arc::new(AtomicBool::new(false))).collect();
         let round = Arc::new(AtomicUsize::new(0));
 
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |ctx| {
                 let s = state.load(Ordering::Relaxed);
                 if s == 0 {

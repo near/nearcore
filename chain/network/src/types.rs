@@ -31,10 +31,10 @@ use near_primitives::version::{
 use near_primitives::views::QueryRequest;
 
 use crate::peer::peer_actor::PeerActor;
+use crate::routing::edge::{Edge, EdgeInfo, SimpleEdge};
 use crate::routing::ibf::IbfBox;
 use crate::routing::routing::{
-    Edge, EdgeInfo, GetRoutingTableResult, PeerRequestResult, RoutingTableInfo, SimpleEdge,
-    ValidIBFLevel,
+    GetRoutingTableResult, PeerRequestResult, RoutingTableInfo, ValidIBFLevel,
 };
 
 const ERROR_UNEXPECTED_LENGTH_OF_INPUT: &str = "Unexpected length of input";
