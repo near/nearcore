@@ -2,10 +2,10 @@ use std::collections::HashMap;
 
 use rand::Rng;
 
+use crate::routing::edge::{Edge, SimpleEdge};
 use near_primitives::network::PeerId;
 
 use crate::routing::ibf_set::IbfSet;
-use crate::routing::routing::{Edge, SimpleEdge};
 
 pub type SlotMapId = u64;
 
@@ -145,9 +145,10 @@ impl IbfPeerSet {
 
 #[cfg(test)]
 mod test {
-    use crate::routing::ibf_peer_set::{IbfPeerSet, SimpleEdge, SlotMap, SlotMapId};
+    use crate::routing::edge::{Edge, SimpleEdge};
+    use crate::routing::ibf_peer_set::{IbfPeerSet, SlotMap, SlotMapId};
     use crate::routing::ibf_set::IbfSet;
-    use crate::routing::routing::{Edge, ValidIBFLevel};
+    use crate::routing::routing::ValidIBFLevel;
     use crate::test_utils::random_peer_id;
     use near_primitives::network::PeerId;
     use std::collections::HashMap;
