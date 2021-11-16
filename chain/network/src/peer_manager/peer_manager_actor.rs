@@ -986,8 +986,8 @@ impl PeerManagerActor {
             ctx,
             other.clone(),
             PeerMessage::RequestUpdateNonce(EdgeInfo::new(
-                self.my_peer_id.clone(),
-                other.clone(),
+                &self.my_peer_id,
+                other,
                 nonce,
                 &self.config.secret_key,
             )),
@@ -1432,7 +1432,7 @@ impl PeerManagerActor {
                 .map_or(1, |edge| edge.next())
         });
 
-        EdgeInfo::new(key.0, key.1, nonce, &self.config.secret_key)
+        EdgeInfo::new(&key.0, &key.1, nonce, &self.config.secret_key)
     }
 
     // Ping pong useful functions.
