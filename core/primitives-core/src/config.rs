@@ -19,10 +19,6 @@ pub struct VMConfig {
     pub limit_config: VMLimitConfig,
 }
 
-fn default_max_transaction_size() -> u64 {
-    4 * 2u64.pow(20) // 4 MiB
-}
-
 /// Describes limits for VM and Runtime.
 /// TODO #4139: consider switching to strongly-typed wrappers instead of raw quantities
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
@@ -75,7 +71,6 @@ pub struct VMLimitConfig {
     /// Max contract size
     pub max_contract_size: u64,
     /// Max transaction size
-    #[serde(default = "default_max_transaction_size")]
     pub max_transaction_size: u64,
     /// Max storage key size
     pub max_length_storage_key: u64,
