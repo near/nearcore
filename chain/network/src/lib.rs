@@ -12,6 +12,8 @@ pub mod peer_manager;
 pub mod routing;
 pub mod stats;
 pub mod test_utils;
+#[cfg(feature = "test_features")]
+pub mod test_utils_with_test_features;
 pub mod types;
 pub(crate) mod utils;
 
