@@ -6,7 +6,7 @@ use futures::{future, FutureExt};
 use near_actix_test_utils::spawn_interruptible;
 use near_client::{GetBlock, GetChunk};
 use near_logger_utils::init_integration_logger;
-use near_network::test_utils::WaitOrTimeout;
+use near_network::test_utils::WaitOrTimeoutActor;
 use near_primitives::hash::CryptoHash;
 
 use crate::node_cluster::NodeCluster;
@@ -25,7 +25,7 @@ fn track_shards() {
     cluster.exec_until_stop(|_, _, clients| async move {
         let view_client = clients[clients.len() - 1].1.clone();
         let last_block_hash: Arc<RwLock<Option<CryptoHash>>> = Arc::new(RwLock::new(None));
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_ctx| {
                 let bh = last_block_hash.read().unwrap().map(|h| h.clone());
                 if let Some(block_hash) = bh {

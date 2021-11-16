@@ -13,15 +13,15 @@ use crate::types::{AccountId, EpochId};
 #[derive(
     BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash,
 )]
-pub struct PeerId(pub PublicKey);
+pub struct PeerId(PublicKey);
 
 impl PeerId {
     pub fn new(key: PublicKey) -> Self {
         Self(key)
     }
 
-    pub fn public_key(&self) -> PublicKey {
-        self.0.clone()
+    pub fn public_key(&self) -> &PublicKey {
+        &self.0
     }
 }
 
