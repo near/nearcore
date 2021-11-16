@@ -8,7 +8,7 @@ pub use types::{
     NetworkRequests, NetworkResponses, PeerInfo, PeerManagerAdapter,
 };
 mod peer;
-pub mod peer_manager;
+mod peer_manager;
 pub mod routing;
 mod stats;
 pub mod test_utils;
