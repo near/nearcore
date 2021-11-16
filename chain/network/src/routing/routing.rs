@@ -1,5 +1,6 @@
 use near_primitives::time::Clock;
 use std::collections::{hash_map::Entry, HashMap, VecDeque};
+use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -9,7 +10,7 @@ use conqueue::{QueueReceiver, QueueSender};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use near_store::{ColAccountAnnouncements, Store};
@@ -23,7 +24,6 @@ use crate::{
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
-use byteorder::{LittleEndian, WriteBytesExt};
 use near_crypto::{KeyType, SecretKey, Signature};
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
@@ -50,9 +50,13 @@ pub struct EdgeInfo {
 }
 
 impl EdgeInfo {
-    pub fn new(peer0: PeerId, peer1: PeerId, nonce: u64, secret_key: &SecretKey) -> Self {
-        let (peer0, peer1) = EdgeInner::make_key(peer0, peer1);
-        let data = EdgeInner::build_hash(&peer0, &peer1, nonce);
+    pub fn new(peer0: &PeerId, peer1: &PeerId, nonce: u64, secret_key: &SecretKey) -> Self {
+        let data = if peer0 < peer1 {
+            EdgeInner::build_hash(&peer0, &peer1, nonce)
+        } else {
+            EdgeInner::build_hash(&peer1, &peer0, nonce)
+        };
+
         let signature = secret_key.sign(data.as_ref());
         Self { nonce, signature }
     }
@@ -65,7 +69,92 @@ pub enum EdgeType {
     Removed,
 }
 
-pub type Edge = Arc<EdgeInner>;
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "test_features", derive(Serialize, Deserialize))]
+pub struct Edge(pub Arc<EdgeInner>);
+
+impl Edge {
+    /// Create an addition edge.
+    pub fn new(
+        peer0: PeerId,
+        peer1: PeerId,
+        nonce: u64,
+        signature0: Signature,
+        signature1: Signature,
+    ) -> Self {
+        Edge(Arc::new(EdgeInner::new(peer0, peer1, nonce, signature0, signature1)))
+    }
+
+    pub fn make_fake_edge(peer0: PeerId, peer1: PeerId, nonce: u64) -> Self {
+        Self(Arc::new(EdgeInner {
+            key: (peer0, peer1),
+            nonce,
+            signature0: Signature::empty(KeyType::ED25519),
+            signature1: Signature::empty(KeyType::ED25519),
+            removal_info: None,
+        }))
+    }
+
+    /// Build a new edge with given information from the other party.
+    pub fn build_with_secret_key(
+        peer0: PeerId,
+        peer1: PeerId,
+        nonce: u64,
+        secret_key: &SecretKey,
+        signature1: Signature,
+    ) -> Self {
+        let hash = if peer0 < peer1 {
+            Self::build_hash(&peer0, &peer1, nonce)
+        } else {
+            Self::build_hash(&peer1, &peer0, nonce)
+        };
+        let signature0 = secret_key.sign(hash.as_ref());
+        Self::new(peer0, peer1, nonce, signature0, signature1)
+    }
+
+    /// Build the hash of the edge given its content.
+    /// It is important that peer0 < peer1 at this point.
+    pub fn build_hash(peer0: &PeerId, peer1: &PeerId, nonce: u64) -> CryptoHash {
+        CryptoHash::hash_borsh(&(peer0, peer1, nonce))
+    }
+
+    pub fn make_key(peer0: PeerId, peer1: PeerId) -> (PeerId, PeerId) {
+        if peer0 < peer1 {
+            (peer0, peer1)
+        } else {
+            (peer1, peer0)
+        }
+    }
+
+    /// Helper function when adding a new edge and we receive information from new potential peer
+    /// to verify the signature.
+    pub fn partial_verify(peer0: PeerId, peer1: PeerId, edge_info: &EdgeInfo) -> bool {
+        let pk = peer1.public_key();
+        let data = if peer0 < peer1 {
+            Edge::build_hash(&peer0, &peer1, edge_info.nonce)
+        } else {
+            Edge::build_hash(&peer1, &peer0, edge_info.nonce)
+        };
+        edge_info.signature.verify(data.as_ref(), &pk)
+    }
+
+    /// Next nonce of valid addition edge.
+    pub fn next_nonce(nonce: u64) -> u64 {
+        if nonce % 2 == 1 {
+            nonce + 2
+        } else {
+            nonce + 1
+        }
+    }
+}
+
+impl std::ops::Deref for Edge {
+    type Target = EdgeInner;
+
+    fn deref(&self) -> &EdgeInner {
+        &self.0
+    }
+}
 
 /// Edge object. Contains information relative to a new edge that is being added or removed
 /// from the network. This is the information that is required.
@@ -112,35 +201,8 @@ impl EdgeInner {
         SimpleEdge::new(self.key.0.clone(), self.key.1.clone(), self.nonce)
     }
 
-    pub fn make_fake_edge(peer0: PeerId, peer1: PeerId, nonce: u64) -> Arc<Self> {
-        Arc::new(Self {
-            key: (peer0, peer1),
-            nonce,
-            signature0: Signature::empty(KeyType::ED25519),
-            signature1: Signature::empty(KeyType::ED25519),
-            removal_info: None,
-        })
-    }
-
-    /// Build a new edge with given information from the other party.
-    pub fn build_with_secret_key(
-        peer0: PeerId,
-        peer1: PeerId,
-        nonce: u64,
-        secret_key: &SecretKey,
-        signature1: Signature,
-    ) -> Self {
-        let hash = if peer0 < peer1 {
-            Self::build_hash(&peer0, &peer1, nonce)
-        } else {
-            Self::build_hash(&peer1, &peer0, nonce)
-        };
-        let signature0 = secret_key.sign(hash.as_ref());
-        Self::new(peer0, peer1, nonce, signature0, signature1)
-    }
-
     /// Create the remove edge change from an added edge change.
-    pub fn remove_edge(&self, my_peer_id: PeerId, sk: &SecretKey) -> Arc<Self> {
+    pub fn remove_edge(&self, my_peer_id: PeerId, sk: &SecretKey) -> Edge {
         assert_eq!(self.edge_type(), EdgeType::Added);
         let mut edge = self.clone();
         edge.nonce += 1;
@@ -148,27 +210,22 @@ impl EdgeInner {
         let hash = edge.hash();
         let signature = sk.sign(hash.as_ref());
         edge.removal_info = Some((me, signature));
-        Arc::new(edge)
+        Edge(Arc::new(edge))
     }
 
     /// Build the hash of the edge given its content.
     /// It is important that peer0 < peer1 at this point.
-    fn build_hash(peer0: &PeerId, peer1: &PeerId, nonce: u64) -> CryptoHash {
-        let mut buffer = Vec::<u8>::new();
-        let peer0: Vec<u8> = peer0.into();
-        buffer.extend_from_slice(peer0.as_slice());
-        let peer1: Vec<u8> = peer1.into();
-        buffer.extend_from_slice(peer1.as_slice());
-        buffer.write_u64::<LittleEndian>(nonce).unwrap();
-        hash(buffer.as_slice())
+    pub fn build_hash(peer0: &PeerId, peer1: &PeerId, nonce: u64) -> CryptoHash {
+        debug_assert!(peer0 < peer1);
+        CryptoHash::hash_borsh(&(peer0, peer1, &nonce))
     }
 
     fn hash(&self) -> CryptoHash {
-        Self::build_hash(&self.key.0, &self.key.1, self.nonce)
+        Edge::build_hash(&self.key.0, &self.key.1, self.nonce)
     }
 
     fn prev_hash(&self) -> CryptoHash {
-        Self::build_hash(&self.key.0, &self.key.1, self.nonce - 1)
+        Edge::build_hash(&self.key.0, &self.key.1, self.nonce - 1)
     }
 
     pub fn verify(&self) -> bool {
@@ -209,23 +266,6 @@ impl EdgeInner {
         }
     }
 
-    pub fn make_key(peer0: PeerId, peer1: PeerId) -> (PeerId, PeerId) {
-        if peer0 < peer1 {
-            (peer0, peer1)
-        } else {
-            (peer1, peer0)
-        }
-    }
-
-    /// Helper function when adding a new edge and we receive information from new potential peer
-    /// to verify the signature.
-    pub fn partial_verify(peer0: PeerId, peer1: PeerId, edge_info: &EdgeInfo) -> bool {
-        let pk = peer1.public_key().clone();
-        let (peer0, peer1) = EdgeInner::make_key(peer0, peer1);
-        let data = EdgeInner::build_hash(&peer0, &peer1, edge_info.nonce);
-        edge_info.signature.verify(data.as_ref(), &pk)
-    }
-
     pub fn get_pair(&self) -> &(PeerId, PeerId) {
         &self.key
     }
@@ -239,19 +279,9 @@ impl EdgeInner {
             EdgeType::Removed
         }
     }
-
-    /// Next nonce of valid addition edge.
-    pub fn next_nonce(nonce: u64) -> u64 {
-        if nonce % 2 == 1 {
-            nonce + 2
-        } else {
-            nonce + 1
-        }
-    }
-
     /// Next nonce of valid addition edge.
     pub fn next(&self) -> u64 {
-        EdgeInner::next_nonce(self.nonce)
+        Edge::next_nonce(self.nonce)
     }
 
     pub fn contains_peer(&self, peer_id: &PeerId) -> bool {
@@ -280,7 +310,7 @@ pub struct SimpleEdge {
 
 impl SimpleEdge {
     pub fn new(peer0: PeerId, peer1: PeerId, nonce: u64) -> SimpleEdge {
-        let (peer0, peer1) = EdgeInner::make_key(peer0, peer1);
+        let (peer0, peer1) = Edge::make_key(peer0, peer1);
         SimpleEdge { key: (peer0, peer1), nonce }
     }
 
@@ -635,7 +665,7 @@ impl RoutingTableView {
     pub fn get_edge(&self, peer0: PeerId, peer1: PeerId) -> Option<&Edge> {
         assert!(peer0 == self.my_peer_id || peer1 == self.my_peer_id);
 
-        let key = EdgeInner::make_key(peer0, peer1);
+        let key = Edge::make_key(peer0, peer1);
         self.local_edges_info.get(&key)
     }
 }

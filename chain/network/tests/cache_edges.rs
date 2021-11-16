@@ -7,7 +7,7 @@ use near_primitives::time::Clock;
 
 use near_crypto::Signature;
 use near_network::routing::routing::{
-    Edge, EdgeInner, EdgeType, DELETE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME,
+    Edge, EdgeType, DELETE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME,
 };
 use near_network::routing::routing_table_actor::Prune;
 use near_network::test_utils::random_peer_id;
@@ -107,7 +107,7 @@ impl RoutingTableTest {
         for EdgeDescription(peer0, peer1, edge_type) in on_memory.iter() {
             let peer0 = self.get_peer(*peer0).clone();
             let peer1 = self.get_peer(*peer1).clone();
-            let (peer0, peer1) = EdgeInner::make_key(peer0, peer1);
+            let (peer0, peer1) = Edge::make_key(peer0, peer1);
 
             let res = self.routing_table.edges_info.get(&(peer0, peer1));
             assert!(res.is_some());
@@ -162,13 +162,7 @@ impl RoutingTableTest {
     fn add_edge(&mut self, peer0: usize, peer1: usize, nonce: u64) {
         let peer0 = self.get_peer(peer0).clone();
         let peer1 = self.get_peer(peer1).clone();
-        let edge = Arc::new(EdgeInner::new(
-            peer0,
-            peer1,
-            nonce,
-            Signature::default(),
-            Signature::default(),
-        ));
+        let edge = Edge::new(peer0, peer1, nonce, Signature::default(), Signature::default());
         self.routing_table.add_verified_edges_to_routing_table(vec![edge]);
     }
 

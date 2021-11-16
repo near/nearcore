@@ -12,7 +12,7 @@ use actix::Addr;
 use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::future::BoxFuture;
 use futures::{future, FutureExt};
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use rand::{thread_rng, RngCore};
 use tracing::debug;
 
@@ -51,9 +51,7 @@ type ClientMock = Mocker<NetworkClientMessages>;
 #[cfg(feature = "test_features")]
 type ViewClientMock = Mocker<NetworkViewClientMessages>;
 
-lazy_static! {
-    static ref OPENED_PORTS: Mutex<HashSet<u16>> = Mutex::new(HashSet::new());
-}
+static OPENED_PORTS: Lazy<Mutex<HashSet<u16>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 
 /// Returns available port.
 pub fn open_port() -> u16 {
