@@ -8,6 +8,8 @@ use actix::{Actor, Addr, Context, Handler, Message, System};
 use tracing::error;
 use tracing::{debug, trace, warn};
 
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use crate::routing::edge::SimpleEdge;
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use near_performance_metrics_macros::perf;
@@ -17,7 +19,7 @@ use near_primitives::utils::index_to_bytes;
 use near_store::db::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
 use near_store::{Store, StoreUpdate};
 
-use crate::routing::edge::{Edge, SimpleEdge};
+use crate::routing::edge::Edge;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::ibf::{Ibf, IbfBox};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]

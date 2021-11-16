@@ -4,6 +4,7 @@ use near_crypto::{KeyType, SecretKey, Signature};
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+#[cfg(feature = "test_features")]
 use serde::{Deserialize, Serialize};
 
 /// Information that will be ultimately used to create a new edge.
