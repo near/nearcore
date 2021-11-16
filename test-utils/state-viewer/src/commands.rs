@@ -28,6 +28,7 @@ use node_runtime::adapter::ViewRuntimeAdapter;
 
 use crate::apply_chain_range::apply_chain_range;
 use crate::state_dump::state_dump;
+use crate::state_dump::state_dump_redis;
 
 pub(crate) fn peers(store: Arc<Store>) {
     let peer_store = PeerStore::new(store, &[]).unwrap();
@@ -73,6 +74,24 @@ pub(crate) fn dump_state(
 
     println!("Saving state at {:?} @ {} into {}", state_roots, height, output_dir.display(),);
     new_near_config.save_to_dir(&output_dir);
+}
+
+pub(crate) fn dump_state_redis(
+    height: Option<BlockHeight>,
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Arc<Store>,
+) {
+    let mode = match height {
+        Some(h) => LoadTrieMode::LastFinalFromHeight(h),
+        None => LoadTrieMode::Latest,
+    };
+    let (runtime, state_roots, header) =
+        load_trie_stop_at_height(store, home_dir, &near_config, mode);
+    let height = header.height();
+
+    println!("Saving state at {:?} @ {} into Redis", state_roots, height,);
+    state_dump_redis(runtime, state_roots.clone(), header, &near_config);
 }
 
 pub(crate) fn apply_range(

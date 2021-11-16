@@ -58,6 +58,9 @@ pub enum StateViewerSubCommand {
     /// Generate a genesis file from the current state of the DB.
     #[clap(name = "dump_state")]
     DumpState(DumpStateCmd),
+    /// Dumps current state into Redis (usable by fast-near)
+    #[clap(name = "dump_state_redis")]
+    DumpStateRedis(DumpStateRedisCmd),
     /// Print chain from start_index to end_index.
     #[clap(name = "chain")]
     Chain(ChainCmd),
@@ -92,6 +95,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::Peers => peers(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
             StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyRange(cmd) => cmd.run(home_dir, near_config, store),
@@ -113,6 +117,18 @@ pub struct DumpStateCmd {
 impl DumpStateCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
         dump_state(self.height, home_dir, near_config, store);
+    }
+}
+
+#[derive(Clap)]
+pub struct DumpStateRedisCmd {
+    #[clap(long)]
+    height: Option<BlockHeight>,
+}
+
+impl DumpStateRedisCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
+        dump_state_redis(self.height, home_dir, near_config, store);
     }
 }
 
