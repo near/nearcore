@@ -1958,29 +1958,8 @@ impl PeerManagerActor {
             }
         }
     }
-}
 
-impl PeerManagerActor {
-    #[perf]
-    fn handle_msg_inbound_tcp_connect(&mut self, msg: InboundTcpConnect, ctx: &mut Context<Self>) {
-        {
-            #[cfg(feature = "delay_detector")]
-            let _d = DelayDetector::new("inbound tcp connect".into());
-        }
-
-        if self.is_inbound_allowed() {
-            self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
-        } else {
-            // TODO(1896): Gracefully drop inbound connection for other peer.
-            debug!(target: "network", "Inbound connection dropped (network at max capacity).");
-        }
-        self.pending_incoming_connections_counter.fetch_sub(1, Ordering::SeqCst);
-    }
-}
-
-#[cfg(feature = "test_features")]
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-impl PeerManagerActor {
+    #[cfg(all(feature = "test_features", feature = "protocol_feature_routing_exchange_algorithm"))]
     #[perf]
     fn handle_msg_start_routing_table_sync(
         &mut self,
@@ -1992,10 +1971,8 @@ impl PeerManagerActor {
             self.initialize_routing_table_exchange(msg.peer_id, PeerType::Inbound, addr, ctx);
         }
     }
-}
 
-#[cfg(feature = "test_features")]
-impl PeerManagerActor {
+    #[cfg(feature = "test_features")]
     #[perf]
     fn handle_msg_set_adv_options(&mut self, msg: SetAdvOptions, _ctx: &mut Context<Self>) {
         if let Some(disable_edge_propagation) = msg.disable_edge_propagation {
@@ -2012,11 +1989,8 @@ impl PeerManagerActor {
             self.config.max_num_peers = set_max_peers as u32;
         }
     }
-}
 
-#[cfg(feature = "test_features")]
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-impl PeerManagerActor {
+    #[cfg(all(feature = "test_features", feature = "protocol_feature_routing_exchange_algorithm"))]
     #[perf]
     fn handle_msg_set_routing_table(
         &mut self,
@@ -2036,9 +2010,23 @@ impl PeerManagerActor {
             self.update_routing_table_and_prune_edges(ctx, Prune::PruneNow, Duration::from_secs(2));
         }
     }
-}
 
-impl PeerManagerActor {
+    #[perf]
+    fn handle_msg_inbound_tcp_connect(&mut self, msg: InboundTcpConnect, ctx: &mut Context<Self>) {
+        {
+            #[cfg(feature = "delay_detector")]
+            let _d = DelayDetector::new("inbound tcp connect".into());
+        }
+
+        if self.is_inbound_allowed() {
+            self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
+        } else {
+            // TODO(1896): Gracefully drop inbound connection for other peer.
+            debug!(target: "network", "Inbound connection dropped (network at max capacity).");
+        }
+        self.pending_incoming_connections_counter.fetch_sub(1, Ordering::SeqCst);
+    }
+
     #[perf]
     fn handle_msg_get_peer_id(
         &mut self,
@@ -2047,9 +2035,7 @@ impl PeerManagerActor {
     ) -> GetPeerIdResult {
         GetPeerIdResult { peer_id: self.my_peer_id.clone() }
     }
-}
 
-impl PeerManagerActor {
     #[perf]
     fn handle_msg_outbound_tcp_connect(
         &mut self,
@@ -2102,9 +2088,7 @@ impl PeerManagerActor {
             warn!(target: "network", "Trying to connect to peer with no public address: {:?}", msg.peer_info);
         }
     }
-}
 
-impl PeerManagerActor {
     #[perf]
     fn handle_msg_consolidate(
         &mut self,
@@ -2192,27 +2176,21 @@ impl PeerManagerActor {
 
         return ConsolidateResponse::Accept(edge_info_response);
     }
-}
 
-impl PeerManagerActor {
     #[perf]
     fn handle_msg_unregister(&mut self, msg: Unregister, ctx: &mut Context<Self>) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("unregister".into());
         self.unregister_peer(ctx, msg.peer_id, msg.peer_type, msg.remove_from_peer_store);
     }
-}
 
-impl PeerManagerActor {
     #[perf]
     fn handle_msg_ban(&mut self, msg: Ban, ctx: &mut Context<Self>) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("ban".into());
         self.ban_peer(ctx, &msg.peer_id, msg.ban_reason);
     }
-}
 
-impl PeerManagerActor {
     #[perf]
     fn handle_msg_peers_request(
         &mut self,
@@ -2223,9 +2201,7 @@ impl PeerManagerActor {
         let _d = DelayDetector::new("peers request".into());
         PeerRequestResult { peers: self.peer_store.healthy_peers(self.config.max_send_peers) }
     }
-}
 
-impl PeerManagerActor {
     fn handle_msg_peers_response(&mut self, msg: PeersResponse, _ctx: &mut Context<Self>) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("peers response".into());
