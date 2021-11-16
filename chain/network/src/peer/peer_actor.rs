@@ -38,7 +38,7 @@ use near_rust_allocator_proxy::allocator::get_tid;
 
 use crate::peer::tracker::Tracker;
 use crate::routing::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
-use crate::routing::routing::{Edge, EdgeInfo};
+use crate::routing::edge::{Edge, EdgeInfo};
 use crate::stats::metrics::{self, NetworkMetrics};
 use crate::types::{
     Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
