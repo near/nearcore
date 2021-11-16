@@ -228,8 +228,7 @@ fn check_connection_with_new_identity() {
 
     // Check the no node tried to connect to itself in this process.
     runner.push_action(wait_for(|| {
-        near_metrics::get_counter(&near_network::stats::metrics::RECEIVED_INFO_ABOUT_ITSELF)
-            == Ok(0)
+        near_metrics::get_counter(&near_network::metrics::RECEIVED_INFO_ABOUT_ITSELF) == Ok(0)
     }));
 
     start_test(runner);
