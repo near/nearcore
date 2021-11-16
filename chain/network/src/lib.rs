@@ -1,4 +1,5 @@
 pub use peer_manager::peer_manager_actor::PeerManagerActor;
+pub use peer_manager::peer_store::iter_peers_from_store;
 pub use routing::routing_table_actor::{
     RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
 };
@@ -14,5 +15,3 @@ mod stats;
 pub mod test_utils;
 pub mod types;
 pub mod utils;
-
-pub use peer_manager::peer_store::iter_peers_from_store;
