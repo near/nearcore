@@ -2769,6 +2769,7 @@ dependencies = [
  "near-rust-allocator-proxy",
  "near-stable-hasher",
  "near-store",
+ "once_cell",
  "rand 0.7.3",
  "serde",
  "strum",
