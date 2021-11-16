@@ -300,7 +300,7 @@ impl PeerManagerActor {
             if !edge.contains_peer(&self.my_peer_id) {
                 continue;
             }
-            let key = edge.get_pair();
+            let key = edge.key();
             if !self.routing_table_view.is_local_edge_newer(&key, edge.nonce()) {
                 continue;
             }
