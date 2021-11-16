@@ -35,7 +35,7 @@ pub struct TrieViewer {
 
 impl Default for TrieViewer {
     fn default() -> Self {
-        Self { state_size_limit: None, max_gas_burnt_view: VMLimitConfig::default().max_gas_burnt }
+        Self { state_size_limit: None, max_gas_burnt_view: VMLimitConfig::test().max_gas_burnt }
     }
 }
 

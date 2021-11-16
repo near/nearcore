@@ -92,7 +92,7 @@ impl VMConfig {
             ext_costs: ExtCostsConfig::default(),
             grow_mem_cost: 1,
             regular_op_cost: (SAFETY_MULTIPLIER as u32) * 1285457,
-            limit_config: VMLimitConfig::default(),
+            limit_config: VMLimitConfig::test(),
         }
     }
 
@@ -113,15 +113,15 @@ impl VMConfig {
             limit_config: VMLimitConfig {
                 max_gas_burnt: u64::MAX,
                 max_gas_burnt_view: u64::MAX,
-                ..Default::default()
+                ..VMLimitConfig::test()
             },
         }
     }
 }
 
 // TODO #4649: remove default impl and create impls with explicitly stated purposes
-impl Default for VMLimitConfig {
-    fn default() -> Self {
+impl VMLimitConfig {
+    pub fn test() -> Self {
         Self {
             max_gas_burnt: 2 * 10u64.pow(14), // with 10**15 block gas limit this will allow 5 calls.
             max_gas_burnt_view: 2 * 10u64.pow(14), // same as `max_gas_burnt` for now
@@ -346,9 +346,8 @@ pub struct ExtCostsConfig {
 // have certain reserve for further gas price variation.
 const SAFETY_MULTIPLIER: u64 = 3;
 
-/// TODO #4649: remove default implementation when LowerEcrecoverBaseCost will be released
-impl Default for ExtCostsConfig {
-    fn default() -> ExtCostsConfig {
+impl ExtCostsConfig {
+    pub fn test() -> ExtCostsConfig {
         ExtCostsConfig {
             base: SAFETY_MULTIPLIER * 88256037,
             contract_compile_base: SAFETY_MULTIPLIER * 11815321,
@@ -419,9 +418,7 @@ impl Default for ExtCostsConfig {
             alt_bn128_g1_sum_byte: SAFETY_MULTIPLIER * 25406181,
         }
     }
-}
 
-impl ExtCostsConfig {
     fn free() -> ExtCostsConfig {
         ExtCostsConfig {
             base: 0,
