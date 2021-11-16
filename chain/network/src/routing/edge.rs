@@ -56,8 +56,8 @@ impl Edge {
         &self.0.signature1
     }
 
-    pub fn removal_info(&self) -> &Option<(bool, Signature)> {
-        &self.0.removal_info
+    pub fn removal_info(&self) -> Option<&(bool, Signature)> {
+        self.0.removal_info.as_ref()
     }
 
     pub fn make_fake_edge(peer0: PeerId, peer1: PeerId, nonce: u64) -> Self {

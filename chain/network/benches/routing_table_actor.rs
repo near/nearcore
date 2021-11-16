@@ -63,7 +63,7 @@ fn get_all_edges_bench_new2(bench: &mut Bencher) {
             nonce: edge.nonce(),
             signature0: edge.signature0().clone(),
             signature1: edge.signature1().clone(),
-            removal_info: edge.removal_info().clone(),
+            removal_info: edge.removal_info().cloned(),
         };
 
         new_edges_info.insert(edge.key.clone(), Arc::new(edge));
@@ -89,7 +89,7 @@ fn get_all_edges_bench_new3(bench: &mut Bencher) {
             nonce: edge.nonce(),
             signature0: edge.signature0().clone(),
             signature1: edge.signature1().clone(),
-            removal_info: edge.removal_info().clone(),
+            removal_info: edge.removal_info().cloned(),
         };
 
         new_edges_info.insert(edge.key.clone(), Arc::new(edge));
