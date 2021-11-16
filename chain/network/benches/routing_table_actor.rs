@@ -109,7 +109,7 @@ fn benchmark_sign_edge(bench: &mut Bencher) {
     let p1 = PeerId::random();
 
     bench.iter(|| {
-        let ei = EdgeInner::build_hash(&p0, &p1, 123);
+        let ei = Edge::build_hash(&p0, &p1, 123);
         black_box(ei);
     });
 }

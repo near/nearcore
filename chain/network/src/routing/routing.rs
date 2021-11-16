@@ -114,7 +114,7 @@ impl Edge {
 
     /// Build the hash of the edge given its content.
     /// It is important that peer0 < peer1 at this point.
-    fn build_hash(peer0: &PeerId, peer1: &PeerId, nonce: u64) -> CryptoHash {
+    pub fn build_hash(peer0: &PeerId, peer1: &PeerId, nonce: u64) -> CryptoHash {
         CryptoHash::hash_borsh(&(peer0, peer1, nonce))
     }
 
