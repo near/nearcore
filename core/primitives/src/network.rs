@@ -44,13 +44,7 @@ impl PeerIdInner {
 
 impl PeerId {
     pub fn random() -> Self {
-        SecretKey::from_random(KeyType::ED25519).public_key().into()
-    }
-}
-
-impl From<PublicKey> for PeerId {
-    fn from(public_key: PublicKey) -> PeerId {
-        PeerId::new(public_key)
+        PeerId::new(SecretKey::from_random(KeyType::ED25519).public_key())
     }
 }
 

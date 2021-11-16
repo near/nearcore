@@ -70,8 +70,8 @@ impl RoutingTableTest {
     }
 
     fn get_edge_description(&self, edge: &Edge) -> EdgeDescription {
-        let peer0 = self.rev_peers.get(&edge.key.0).unwrap();
-        let peer1 = self.rev_peers.get(&edge.key.1).unwrap();
+        let peer0 = self.rev_peers.get(&edge.key().0).unwrap();
+        let peer1 = self.rev_peers.get(&edge.key().1).unwrap();
         let edge_type = edge.edge_type();
         EdgeDescription(*peer0, *peer1, edge_type)
     }
