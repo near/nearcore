@@ -1128,7 +1128,7 @@ dependencies = [
  "cfg-if 1.0.0",
  "crossbeam-utils",
  "lazy_static",
- "memoffset 0.6.4",
+ "memoffset",
  "scopeguard",
 ]
 
@@ -2199,7 +2199,7 @@ dependencies = [
  "dynasmrt",
  "iter-enum",
  "itertools",
- "memoffset 0.6.4",
+ "memoffset",
  "more-asserts",
  "smallvec",
  "thiserror",
@@ -2339,15 +2339,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "723e3ebdcdc5c023db1df315364573789f8857c11b631a2fdfad7c00f5c046b4"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "memoffset"
-version = "0.5.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "043175f069eda7b85febe4a74abbaeff828d9f8b448515d3151a14a3542811aa"
-dependencies = [
- "autocfg 1.0.1",
 ]
 
 [[package]]
@@ -3064,7 +3055,7 @@ dependencies = [
  "base64 0.13.0",
  "borsh 0.9.1",
  "cached",
- "memoffset 0.5.6",
+ "memoffset",
  "near-primitives",
  "near-stable-hasher",
  "near-test-contracts",
@@ -4126,7 +4117,7 @@ version = "0.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb135b3e5e3311f0a254bfb00333f4bac9ef1d89888b84242a89eb8722b09a07"
 dependencies = [
- "memoffset 0.6.4",
+ "memoffset",
  "ptr_meta",
  "rkyv_derive",
  "seahash",
@@ -5354,7 +5345,7 @@ dependencies = [
  "dynasmrt",
  "lazy_static",
  "loupe",
- "memoffset 0.6.4",
+ "memoffset",
  "more-asserts",
  "rayon",
  "smallvec",
@@ -5596,7 +5587,7 @@ dependencies = [
  "indexmap",
  "libc",
  "loupe",
- "memoffset 0.6.4",
+ "memoffset",
  "more-asserts",
  "region 2.2.0",
  "rkyv",
@@ -5618,7 +5609,7 @@ dependencies = [
  "indexmap",
  "libc",
  "loupe",
- "memoffset 0.6.4",
+ "memoffset",
  "more-asserts",
  "region 3.0.0",
  "rkyv",
@@ -5820,7 +5811,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "log",
- "memoffset 0.6.4",
+ "memoffset",
  "more-asserts",
  "psm",
  "rand 0.7.3",
