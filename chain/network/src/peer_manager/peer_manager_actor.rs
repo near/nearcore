@@ -1394,7 +1394,7 @@ impl PeerManagerActor {
             Ok(peer_id) => peer_id,
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                near_metrics::inc_counter(&metrics::DROP_MESSAGE_UNKNOWN_ACCOUNT);
+                metrics::DROP_MESSAGE_UNKNOWN_ACCOUNT.inc();
                 debug!(target: "network", "{:?} Drop message to {} Reason {:?}. Message {:?}",
                        self.config.account_id,
                        account_id,
