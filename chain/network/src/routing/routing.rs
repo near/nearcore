@@ -175,7 +175,7 @@ impl RoutingTableView {
     /// Works only for local edges.
     pub fn is_local_edge_newer(&self, key: &(PeerId, PeerId), nonce: u64) -> bool {
         assert!(key.0 == self.my_peer_id || key.1 == self.my_peer_id);
-        self.local_edges_info.get(&key).map_or(0, |x| x.nonce) < nonce
+        self.local_edges_info.get(&key).map_or(0, |x| x.nonce()) < nonce
     }
 
     pub fn reachable_peers(&self) -> impl Iterator<Item = &PeerId> {
@@ -260,8 +260,8 @@ impl RoutingTableView {
 
     pub fn remove_edges(&mut self, edges: &Vec<Edge>) {
         for edge in edges.iter() {
-            assert!(edge.key.0 == self.my_peer_id || edge.key.1 == self.my_peer_id);
-            let key = (edge.key.0.clone(), edge.key.1.clone());
+            assert!(edge.key().0 == self.my_peer_id || edge.key().1 == self.my_peer_id);
+            let key = (edge.key().0.clone(), edge.key().1.clone());
             self.local_edges_info.remove(&key);
         }
     }

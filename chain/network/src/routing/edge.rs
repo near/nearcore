@@ -44,6 +44,22 @@ impl Edge {
         Edge(Arc::new(EdgeInner::new(peer0, peer1, nonce, signature0, signature1)))
     }
 
+    pub fn nonce(&self) -> u64 {
+        self.0.nonce
+    }
+
+    pub fn signature0(&self) -> &Signature {
+        &self.0.signature0
+    }
+
+    pub fn signature1(&self) -> &Signature {
+        &self.0.signature1
+    }
+
+    pub fn removal_info(&self) -> &Option<(bool, Signature)> {
+        &self.0.removal_info
+    }
+
     pub fn make_fake_edge(peer0: PeerId, peer1: PeerId, nonce: u64) -> Self {
         Self(Arc::new(EdgeInner {
             key: (peer0, peer1),
@@ -121,17 +137,17 @@ impl std::ops::Deref for Edge {
 #[cfg_attr(feature = "test_features", derive(Serialize, Deserialize))]
 pub struct EdgeInner {
     /// Since edges are not directed `key.0 < peer1` should hold.
-    pub key: (PeerId, PeerId),
+    key: (PeerId, PeerId),
     /// Nonce to keep tracking of the last update on this edge.
     /// It must be even
-    pub nonce: u64,
+    nonce: u64,
     /// Signature from parties validating the edge. These are signature of the added edge.
-    pub signature0: Signature,
-    pub signature1: Signature,
+    signature0: Signature,
+    signature1: Signature,
     /// Info necessary to declare an edge as removed.
     /// The bool says which party is removing the edge: false for Peer0, true for Peer1
     /// The signature from the party removing the edge.
-    pub removal_info: Option<(bool, Signature)>,
+    removal_info: Option<(bool, Signature)>,
 }
 
 impl EdgeInner {

@@ -301,12 +301,12 @@ impl PeerManagerActor {
                 continue;
             }
             let key = edge.get_pair();
-            if !self.routing_table_view.is_local_edge_newer(&key, edge.nonce) {
+            if !self.routing_table_view.is_local_edge_newer(&key, edge.nonce()) {
                 continue;
             }
             self.routing_table_view
                 .local_edges_info
-                .insert((edge.key.0.clone(), edge.key.1.clone()), edge.clone());
+                .insert((edge.key().0.clone(), edge.key().1.clone()), edge.clone());
         }
 
         self.routing_table_addr
@@ -401,7 +401,7 @@ impl PeerManagerActor {
                     continue;
                 }
                 let key = edge.get_pair();
-                if !self.routing_table_view.is_local_edge_newer(&key, edge.nonce) {
+                if !self.routing_table_view.is_local_edge_newer(&key, edge.nonce()) {
                     continue;
                 }
                 // Check whenever peer needs to be removed when edge is removed.
@@ -1907,7 +1907,7 @@ impl PeerManagerActor {
                         self.routing_table_view.get_edge(self.my_peer_id.clone(), peer_id.clone())
                     {
                         if cur_edge.edge_type() == EdgeType::Added
-                            && cur_edge.nonce >= edge_info.nonce
+                            && cur_edge.nonce() >= edge_info.nonce
                         {
                             return NetworkResponses::EdgeUpdate(Box::new(cur_edge.clone()));
                         }
@@ -1930,12 +1930,12 @@ impl PeerManagerActor {
             NetworkRequests::ResponseUpdateNonce(edge) => {
                 if edge.contains_peer(&self.my_peer_id) && edge.verify() {
                     let key = edge.get_pair();
-                    if self.routing_table_view.is_local_edge_newer(&key, edge.nonce) {
+                    if self.routing_table_view.is_local_edge_newer(&key, edge.nonce()) {
                         let other = edge.other(&self.my_peer_id).unwrap();
                         if let Some(nonce) =
                             self.local_peer_pending_update_nonce_request.get(&other)
                         {
-                            if edge.nonce >= *nonce {
+                            if edge.nonce() >= *nonce {
                                 self.local_peer_pending_update_nonce_request.remove(&other);
                             }
                         }
@@ -2138,7 +2138,7 @@ impl PeerManagerActor {
 
         let last_edge =
             self.routing_table_view.get_edge(self.my_peer_id.clone(), msg.peer_info.id.clone());
-        let last_nonce = last_edge.as_ref().map_or(0, |edge| edge.nonce);
+        let last_nonce = last_edge.as_ref().map_or(0, |edge| edge.nonce());
 
         // Check that the received nonce is greater than the current nonce of this connection.
         if last_nonce >= msg.other_edge_info.nonce {
