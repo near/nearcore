@@ -56,10 +56,10 @@ const NUM_REBROADCAST_BLOCKS: usize = 30;
 
 /// The time we wait for the response to a Epoch Sync request before retrying
 // TODO #3488 set 30_000
-pub const EPOCH_SYNC_REQUEST_TIMEOUT_MS: u64 = 1_000;
+pub const EPOCH_SYNC_REQUEST_TIMEOUT: Duration = Duration::from_millis(1_000);
 /// How frequently a Epoch Sync response can be sent to a particular peer
 // TODO #3488 set 60_000
-pub const EPOCH_SYNC_PEER_TIMEOUT_MS: u64 = 10;
+pub const EPOCH_SYNC_PEER_TIMEOUT: Duration = Duration::from_millis(10);
 
 pub struct Client {
     /// Adversarial controls
@@ -139,8 +139,8 @@ impl Client {
                 .iter()
                 .map(|x| x.0.clone().into())
                 .collect(),
-            Duration::from_millis(EPOCH_SYNC_REQUEST_TIMEOUT_MS),
-            Duration::from_millis(EPOCH_SYNC_PEER_TIMEOUT_MS),
+            EPOCH_SYNC_REQUEST_TIMEOUT,
+            EPOCH_SYNC_PEER_TIMEOUT,
         );
         let header_sync = HeaderSync::new(
             network_adapter.clone(),
