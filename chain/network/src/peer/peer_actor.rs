@@ -37,10 +37,10 @@ use near_primitives::version::{
 use near_rate_limiter::ThrottleController;
 use near_rust_allocator_proxy::allocator::get_tid;
 
+use crate::peer::rate_counter::RateCounter;
 use crate::routing::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::routing::routing::{Edge, EdgeInfo};
 use crate::stats::metrics::{self, NetworkMetrics};
-use crate::stats::rate_counter::RateCounter;
 use crate::types::{
     Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
