@@ -1,6 +1,5 @@
+use crate::peer::rate_counter::RateCounter;
 use near_primitives::hash::CryptoHash;
-
-use crate::stats::rate_counter::RateCounter;
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
