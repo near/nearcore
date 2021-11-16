@@ -404,7 +404,7 @@ mod tests {
         let deposit = 1000;
 
         let mut initial_state = tries.new_trie_update(ShardUId::default(), root);
-        let alice = account_new(std::u128::MAX, hash(&[]));
+        let alice = account_new(u128::MAX, hash(&[]));
         let bob = account_new(1u128, hash(&[]));
 
         set_account(&mut initial_state, alice_id.clone(), &alice);

@@ -1,4 +1,6 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use actix::dev::MessageResponse;
 use actix::{Actor, Addr, Context, Handler, Message, System};
@@ -6,9 +8,14 @@ use actix::{Actor, Addr, Context, Handler, Message, System};
 use tracing::error;
 use tracing::{debug, trace, warn};
 
-use crate::stats::metrics;
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 use near_performance_metrics_macros::perf;
+use near_primitives::borsh::BorshSerialize;
 use near_primitives::network::PeerId;
+use near_primitives::utils::index_to_bytes;
+use near_store::db::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
+use near_store::{Store, StoreUpdate};
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::ibf::{Ibf, IbfBox};
@@ -19,16 +26,10 @@ use crate::routing::ibf_set::IbfSet;
 use crate::routing::routing::{Edge, EdgeType, Graph, SAVE_PEERS_MAX_TIME};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::routing::{SimpleEdge, ValidIBFLevel, MIN_IBF_LEVEL};
+use crate::stats::metrics;
 use crate::types::StopMsg;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{PartialSync, PeerMessage, RoutingState, RoutingSyncV2, RoutingVersion2};
-#[cfg(feature = "delay_detector")]
-use delay_detector::DelayDetector;
-use near_primitives::utils::index_to_bytes;
-use near_store::db::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
-use near_store::{Store, StoreUpdate};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 /// `Prune` enum is to specify how often should we prune edges.
 #[derive(Debug, Eq, PartialEq)]
@@ -204,7 +205,10 @@ impl RoutingTableActor {
                                 // Mark it as reachable and delete from database.
                                 self.peer_last_time_reachable
                                     .insert(peer_id.clone(), Instant::now() - SAVE_PEERS_MAX_TIME);
-                                update.delete(ColPeerComponent, Vec::from(peer_id).as_ref());
+                                update.delete(
+                                    ColPeerComponent,
+                                    peer_id.try_to_vec().unwrap().as_ref(),
+                                );
                             } else {
                                 warn!("We expected `peer_id` to belong to component {}, but it belongs to {}",
                                        component_nonce, cur_nonce);
@@ -289,7 +293,7 @@ impl RoutingTableActor {
             .iter()
             .filter_map(|(peer_id, last_time)| {
                 oldest_time = std::cmp::min(oldest_time, *last_time);
-                if now.duration_since(*last_time) >= prune_edges_not_reachable_for {
+                if now.saturating_duration_since(*last_time) >= prune_edges_not_reachable_for {
                     Some(peer_id.clone())
                 } else {
                     None
@@ -299,7 +303,7 @@ impl RoutingTableActor {
 
         // Save nodes on disk and remove from memory only if elapsed time from oldest peer
         // is greater than `SAVE_PEERS_MAX_TIME`
-        if !force_pruning && now.duration_since(oldest_time) < SAVE_PEERS_MAX_TIME {
+        if !force_pruning && now.saturating_duration_since(oldest_time) < SAVE_PEERS_MAX_TIME {
             return Vec::new();
         }
         debug!(target: "network", "try_save_edges: We are going to remove {} peers", peers_to_remove.len());
@@ -316,7 +320,7 @@ impl RoutingTableActor {
         for peer_id in peers_to_remove.iter() {
             let _ = update.set_ser(
                 ColPeerComponent,
-                Vec::from(peer_id).as_ref(),
+                peer_id.try_to_vec().unwrap().as_ref(),
                 &current_component_nonce,
             );
 
@@ -351,7 +355,7 @@ impl RoutingTableActor {
 
     /// Get edges stored in DB under `ColPeerComponent` column at `peer_id` key.
     fn component_nonce_from_peer(&mut self, peer_id: &PeerId) -> Result<u64, ()> {
-        match self.store.get_ser::<u64>(ColPeerComponent, Vec::from(peer_id).as_ref()) {
+        match self.store.get_ser::<u64>(ColPeerComponent, peer_id.try_to_vec().unwrap().as_ref()) {
             Ok(Some(nonce)) => Ok(nonce),
             _ => Err(()),
         }
