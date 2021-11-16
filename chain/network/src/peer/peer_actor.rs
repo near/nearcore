@@ -24,7 +24,6 @@ use near_performance_metrics;
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
-use near_primitives::hash::CryptoHash;
 use near_primitives::logging;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::PartialEncodedChunk;
@@ -37,7 +36,7 @@ use near_primitives::version::{
 use near_rate_limiter::ThrottleController;
 use near_rust_allocator_proxy::allocator::get_tid;
 
-use crate::peer::rate_counter::RateCounter;
+use crate::peer::tracker::Tracker;
 use crate::routing::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::routing::routing::{Edge, EdgeInfo};
 use crate::stats::metrics::{self, NetworkMetrics};
@@ -55,8 +54,6 @@ use crate::PeerManagerActor;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
-/// Maximum number of requests and responses to track.
-const MAX_TRACK_SIZE: usize = 30;
 /// Maximum number of messages per minute from single peer.
 // TODO: current limit is way to high due to us sending lots of messages during sync.
 const MAX_PEER_MSG_PER_MIN: u64 = u64::MAX;
@@ -69,89 +66,6 @@ const MAX_TXNS_PER_BLOCK_MESSAGE: usize = 1000;
 pub const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
 pub const DROP_DUPLICATED_MESSAGES_PERIOD: Duration = Duration::from_millis(50);
-
-/// Internal structure to keep a circular queue within a tracker with unique hashes.
-struct CircularUniqueQueue {
-    v: Vec<CryptoHash>,
-    index: usize,
-    limit: usize,
-}
-
-impl CircularUniqueQueue {
-    pub fn new(limit: usize) -> Self {
-        assert!(limit > 0);
-        Self { v: Vec::with_capacity(limit), index: 0, limit }
-    }
-
-    pub fn contains(&self, hash: &CryptoHash) -> bool {
-        self.v.contains(hash)
-    }
-
-    /// Pushes an element if it's not in the queue already. The queue will pop the oldest element.
-    pub fn push(&mut self, hash: CryptoHash) {
-        if !self.contains(&hash) {
-            if self.v.len() < self.limit {
-                self.v.push(hash);
-            } else {
-                self.v[self.index] = hash;
-                self.index += 1;
-                if self.index == self.limit {
-                    self.index = 0;
-                }
-            }
-        }
-    }
-}
-
-/// Keeps track of requests and received hashes of transactions and blocks.
-/// Also keeps track of number of bytes sent and received from this peer to prevent abuse.
-pub struct Tracker {
-    /// Bytes we've sent.
-    sent_bytes: RateCounter,
-    /// Bytes we've received.
-    received_bytes: RateCounter,
-    /// Sent requests.
-    requested: CircularUniqueQueue,
-    /// Received elements.
-    received: CircularUniqueQueue,
-}
-
-impl Default for Tracker {
-    fn default() -> Self {
-        Tracker {
-            sent_bytes: RateCounter::new(),
-            received_bytes: RateCounter::new(),
-            requested: CircularUniqueQueue::new(MAX_TRACK_SIZE),
-            received: CircularUniqueQueue::new(MAX_TRACK_SIZE),
-        }
-    }
-}
-
-impl Tracker {
-    fn increment_received(&mut self, size: u64) {
-        self.received_bytes.increment(size);
-    }
-
-    fn increment_sent(&mut self, size: u64) {
-        self.sent_bytes.increment(size);
-    }
-
-    fn has_received(&self, hash: &CryptoHash) -> bool {
-        self.received.contains(hash)
-    }
-
-    fn push_received(&mut self, hash: CryptoHash) {
-        self.received.push(hash);
-    }
-
-    fn has_request(&self, hash: &CryptoHash) -> bool {
-        self.requested.contains(hash)
-    }
-
-    fn push_request(&mut self, hash: CryptoHash) {
-        self.requested.push(hash);
-    }
-}
 
 pub struct PeerActor {
     /// This node's id and address (either listening or socket address).
@@ -1123,81 +1037,5 @@ impl Handler<PeerManagerRequest> for PeerActor {
                 ctx.stop();
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use near_primitives::hash::hash;
-
-    use super::*;
-
-    #[test]
-    #[should_panic]
-    fn test_circular_queue_zero_capacity() {
-        let _ = CircularUniqueQueue::new(0);
-    }
-
-    #[test]
-    fn test_circular_queue_empty_queue() {
-        let q = CircularUniqueQueue::new(5);
-
-        assert!(!q.contains(&hash(&[0])));
-    }
-
-    #[test]
-    fn test_circular_queue_partially_full_queue() {
-        let mut q = CircularUniqueQueue::new(5);
-        for i in 1..=3 {
-            q.push(hash(&[i]));
-        }
-
-        for i in 1..=3 {
-            assert!(q.contains(&hash(&[i])));
-        }
-    }
-
-    #[test]
-    fn test_circular_queue_full_queue() {
-        let mut q = CircularUniqueQueue::new(5);
-        for i in 1..=5 {
-            q.push(hash(&[i]));
-        }
-
-        for i in 1..=5 {
-            assert!(q.contains(&hash(&[i])));
-        }
-    }
-
-    #[test]
-    fn test_circular_queue_over_full_queue() {
-        let mut q = CircularUniqueQueue::new(5);
-        for i in 1..=7 {
-            q.push(hash(&[i]));
-        }
-
-        for i in 1..=2 {
-            assert!(!q.contains(&hash(&[i])));
-        }
-        for i in 3..=7 {
-            assert!(q.contains(&hash(&[i])));
-        }
-    }
-
-    #[test]
-    fn test_circular_queue_similar_inputs() {
-        let mut q = CircularUniqueQueue::new(5);
-        q.push(hash(&[5]));
-        for _ in 0..3 {
-            for i in 1..=3 {
-                for _ in 0..5 {
-                    q.push(hash(&[i]));
-                }
-            }
-        }
-        for i in 1..=3 {
-            assert!(q.contains(&hash(&[i])));
-        }
-        assert!(q.contains(&hash(&[5])));
     }
 }
