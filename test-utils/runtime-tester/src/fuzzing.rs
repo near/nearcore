@@ -404,13 +404,11 @@ pub enum Function {
 impl Scope {
     fn from_seeds(seeds: &[String]) -> Self {
         let accounts: Vec<Account> = seeds.iter().map(|id| Account::from_id(id.clone())).collect();
-        let account_id_to_idx = {
-            let mut result = HashMap::new();
-            for i in 0..accounts.len() {
-                result.insert(accounts[i].id.clone(), i);
-            }
-            result
-        };
+        let account_id_to_idx = accounts
+            .iter()
+            .enumerate()
+            .map(|(i, account)| (account.id.clone(), i))
+            .collect::<HashMap<_, _>>();
         Scope {
             accounts,
             alive_accounts: HashSet::from_iter(0..seeds.len()),
