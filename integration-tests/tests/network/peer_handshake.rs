@@ -19,6 +19,7 @@ use near_network::test_utils::{
 };
 use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
 use near_network::{NetworkClientResponses, NetworkConfig, PeerManagerActor};
+use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
 
 type ClientMock = Mocker<ClientActor>;
@@ -55,7 +56,7 @@ fn make_peer_manager(
     }))
     .start();
     let routing_table_addr =
-        start_routing_table_actor(config.public_key.clone().into(), store.clone());
+        start_routing_table_actor(PeerId::new(config.public_key.clone()), store.clone());
 
     PeerManagerActor::new(
         store,

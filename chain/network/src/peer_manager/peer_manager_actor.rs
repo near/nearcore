@@ -235,7 +235,7 @@ impl PeerManagerActor {
 
         let edge_verifier_pool = SyncArbiter::start(4, || EdgeVerifierActor {});
 
-        let my_peer_id: PeerId = config.public_key.clone().into();
+        let my_peer_id: PeerId = PeerId::new(config.public_key.clone());
         let routing_table = RoutingTableView::new(my_peer_id.clone(), store);
 
         let txns_since_last_block = Arc::new(AtomicUsize::new(0));
