@@ -400,7 +400,7 @@ mod test {
 
     fn gen_peer_info(port: u8) -> PeerInfo {
         PeerInfo {
-            id: PeerId::from(PeerId::new(SecretKey::from_random(KeyType::ED25519).public_key())),
+            id: PeerId::new(SecretKey::from_random(KeyType::ED25519).public_key()),
             addr: Some(get_addr(port)),
             account_id: None,
         }
