@@ -78,7 +78,7 @@ pub fn open_port() -> u16 {
 
 // `peer_id_from_seed` generate `PeerId` from seed for unit tests
 pub fn peer_id_from_seed(seed: &str) -> PeerId {
-    SecretKey::from_seed(KeyType::ED25519, seed).public_key().into()
+    PeerId::new(SecretKey::from_seed(KeyType::ED25519, seed).public_key())
 }
 
 // `convert_boot_nodes` generate list of `PeerInfos` for unit tests
@@ -174,7 +174,7 @@ pub fn vec_ref_to_str(values: Vec<&str>) -> Vec<String> {
 // Gets random PeerId
 pub fn random_peer_id() -> PeerId {
     let sk = SecretKey::from_random(KeyType::ED25519);
-    sk.public_key().into()
+    PeerId::new(sk.public_key())
 }
 
 // Gets random EpochId

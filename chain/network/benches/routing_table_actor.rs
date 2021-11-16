@@ -105,7 +105,7 @@ fn get_all_edges_bench_new3(bench: &mut Bencher) {
 fn benchmark_sign_edge(bench: &mut Bencher) {
     let sk = SecretKey::from_seed(KeyType::ED25519, "1234");
 
-    let p0 = PeerId::from(sk.public_key());
+    let p0 = PeerId::new(sk.public_key());
     let p1 = PeerId::random();
 
     bench.iter(|| {

@@ -366,7 +366,7 @@ mod test {
             edges: Vec::new(),
             accounts: vec![AnnounceAccount {
                 account_id: "test1".parse().unwrap(),
-                peer_id: network_sk.public_key().into(),
+                peer_id: PeerId::new(network_sk.public_key()),
                 epoch_id: EpochId::default(),
                 signature,
             }],
@@ -381,8 +381,8 @@ mod test {
         let signature = sk.sign(hash.as_ref());
 
         let msg = PeerMessage::Routed(RoutedMessage {
-            target: PeerIdOrHash::PeerId(sk.public_key().into()),
-            author: sk.public_key().into(),
+            target: PeerIdOrHash::PeerId(PeerId::new(sk.public_key())),
+            author: PeerId::new(sk.public_key()),
             signature: signature.clone(),
             ttl: 100,
             body: RoutedMessageBody::BlockApproval(Approval {

@@ -387,7 +387,7 @@ mod test {
     use super::*;
 
     fn get_peer_id(seed: String) -> PeerId {
-        SecretKey::from_seed(KeyType::ED25519, seed.as_str()).public_key().into()
+        PeerId::new(SecretKey::from_seed(KeyType::ED25519, seed.as_str()).public_key())
     }
 
     fn get_addr(port: u8) -> SocketAddr {
@@ -400,7 +400,7 @@ mod test {
 
     fn gen_peer_info(port: u8) -> PeerInfo {
         PeerInfo {
-            id: PeerId::from(SecretKey::from_random(KeyType::ED25519).public_key()),
+            id: PeerId::from(PeerId::new(SecretKey::from_random(KeyType::ED25519).public_key())),
             addr: Some(get_addr(port)),
             account_id: None,
         }
