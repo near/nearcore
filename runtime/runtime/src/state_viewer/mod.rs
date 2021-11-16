@@ -6,7 +6,6 @@ use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::{
     account::{AccessKey, Account},
     borsh::BorshDeserialize,
-    config::VMLimitConfig,
     contract::ContractCode,
     hash::CryptoHash,
     receipt::ActionReceipt,
