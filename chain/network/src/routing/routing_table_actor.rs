@@ -116,7 +116,7 @@ impl RoutingTableActor {
         #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
         self.peer_ibf_set.remove_edge(&edge.to_simple_edge());
 
-        let key = &edge.key();
+        let key = edge.key();
         if self.edges_info.remove(&key).is_some() {
             self.raw_graph.remove_edge(&edge.key().0, &edge.key().1);
             self.needs_routing_table_recalculation = true;
@@ -126,7 +126,7 @@ impl RoutingTableActor {
     /// `add_verified_edge` adds edges, for which we already that theirs signatures
     /// are valid (`signature0`, `signature`).
     fn add_verified_edge(&mut self, edge: Edge) -> bool {
-        let key = edge.get_pair();
+        let key = edge.key();
         if !self.is_edge_newer(&key, edge.nonce()) {
             // We already have a newer information about this edge. Discard this information.
             false
@@ -161,7 +161,7 @@ impl RoutingTableActor {
 
         let total = edges.len();
         edges.retain(|edge| {
-            let key = edge.get_pair();
+            let key = edge.key();
 
             self.fetch_edges_for_peer_from_disk(&key.0);
             self.fetch_edges_for_peer_from_disk(&key.1);
