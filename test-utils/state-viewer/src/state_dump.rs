@@ -151,10 +151,10 @@ pub fn state_dump_redis(
 
                 if let StateRecord::Data { account_id, data_key, value } = &sr {
                     println!("Data: {}", account_id);
-                    let redis_key = [b"data:", account_id.as_ref().as_bytes(), b":", data_key.as_ref()].concat();
-                    redis_connection.zadd(redis_key.clone(), block_hash.as_ref(), block_height)?;
+                    let redis_key = [account_id.as_ref().as_bytes(), b":", data_key.as_ref()].concat();
+                    redis_connection.zadd([b"data:", redis_key.as_slice()].concat(), block_hash.as_ref(), block_height)?;
                     let value_vec: &[u8] = value.as_ref();
-                    redis_connection.set([redis_key.clone(), b":".to_vec(), block_hash.0.to_vec()].concat(), value_vec)?;
+                    redis_connection.set([b"data-value:", redis_key.as_slice(), b":", block_hash.as_ref()].concat(), value_vec)?;
                     println!("Data written: {}", account_id);
                 }
 
