@@ -1,9 +1,12 @@
 use std::collections::HashMap;
+use std::env;
 use std::fs;
 use std::fs::File;
 use std::path::Path;
 
+use borsh::BorshSerialize;
 use serde::ser::{SerializeSeq, Serializer};
+use redis::Commands;
 
 use near_chain::RuntimeAdapter;
 use near_chain_configs::Genesis;
@@ -107,8 +110,14 @@ pub fn state_dump_redis(
     state_roots: Vec<StateRoot>,
     last_block_header: BlockHeader,
     near_config: &NearConfig
-) {
-    let genesis_height = last_block_header.height() + 1;
+) -> redis::RedisResult<()> {
+
+    let redis_client = redis::Client::open(env::var("REDIS_HOST").unwrap_or("redis://127.0.0.1/".to_string()))?;
+    let mut redis_connection = redis_client.get_connection()?;
+
+    let block_height = last_block_header.height();
+    let block_hash = last_block_header.hash();
+
     let block_producers = runtime
         .get_epoch_block_producers_ordered(&last_block_header.epoch_id(), last_block_header.hash())
         .unwrap();
@@ -139,12 +148,32 @@ pub fn state_dump_redis(
                     }
 
                     println!("Account: {}", account_id);
+                    let redis_key = account_id.as_ref().as_bytes();
+                    redis_connection.zadd([b"account:", redis_key].concat(), block_hash.as_ref(), block_height)?;
+                    let value = account.try_to_vec().unwrap();
+                    redis_connection.set([b"account-data:", redis_key, b":", block_hash.as_ref()].concat(), value)?;
                 }
 
-                // TODO: Write to Redis
+                if let StateRecord::Data { account_id, data_key, value } = &mut sr {
+                    println!("Data: {}", account_id);
+                    let redis_key = [b"data:", account_id.as_ref().as_bytes(), b":", data_key.as_ref()].concat();
+                    redis_connection.zadd(redis_key.clone(), block_hash.as_ref(), block_height)?;
+                    let value_vec: &[u8] = value.as_ref();
+                    redis_connection.set([redis_key.clone(), b":".to_vec(), block_hash.0.to_vec()].concat(), value_vec)?;
+                }
+
+                if let StateRecord::Contract { account_id, code } = &mut sr {
+                    println!("Contract: {}", account_id);
+                    let redis_key = [b"code:", account_id.as_ref().as_bytes()].concat();
+                    redis_connection.zadd(redis_key.clone(), block_hash.as_ref(), block_height)?;
+                    let value_vec: &[u8] = code.as_ref();
+                    redis_connection.set([redis_key.clone(), b":".to_vec(), block_hash.0.to_vec()].concat(), value_vec)?;
+                }
             }
         }
     }
+
+    Ok(())
 }
 
 
