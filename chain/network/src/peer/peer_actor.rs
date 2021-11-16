@@ -65,13 +65,6 @@ const MAX_PEER_MSG_PER_MIN: u64 = u64::MAX;
 /// The purpose of this constant is to ensure we do not spend too much time deserializing and
 /// dispatching transactions when we should be focusing on consensus-related messages.
 const MAX_TXNS_PER_BLOCK_MESSAGE: usize = 1000;
-
-/// The time we wait for the response to a Epoch Sync request before retrying
-// TODO #3488 set 30_000
-pub const EPOCH_SYNC_REQUEST_TIMEOUT_MS: u64 = 1_000;
-/// How frequently a Epoch Sync response can be sent to a particular peer
-// TODO #3488 set 60_000
-pub const EPOCH_SYNC_PEER_TIMEOUT_MS: u64 = 10;
 /// Limit cache size of 1000 messages
 pub const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
