@@ -61,7 +61,7 @@ fn test_valid_null_terminated_utf8() {
     logic_builder.config.limit_config.max_total_log_length = string_bytes.len() as u64;
     let mut logic = logic_builder.build(get_context(vec![], false));
     logic
-        .log_utf8(std::u64::MAX, string_bytes.as_ptr() as _)
+        .log_utf8(u64::MAX, string_bytes.as_ptr() as _)
         .expect("Valid null-terminated utf-8 string_bytes");
     string_bytes.pop();
     let outcome = logic.outcome();
@@ -249,7 +249,7 @@ fn test_log_utf8_max_limit_null_terminated() {
 
     string_bytes.push(0u8);
     assert_eq!(
-        logic.log_utf8(std::u64::MAX, string_bytes.as_ptr() as _),
+        logic.log_utf8(u64::MAX, string_bytes.as_ptr() as _),
         Err(HostError::TotalLogLengthExceeded { length: limit + 1, limit }.into())
     );
 
@@ -305,7 +305,7 @@ fn test_valid_log_utf16_max_log_len_not_even() {
         utf16_bytes.push((u16_ >> 8) as u8);
     }
     utf16_bytes.extend_from_slice(&[0, 0]);
-    logic.log_utf16(std::u64::MAX, utf16_bytes.as_ptr() as _).expect("Valid utf-16 string_bytes");
+    logic.log_utf16(u64::MAX, utf16_bytes.as_ptr() as _).expect("Valid utf-16 string_bytes");
 
     let len = utf16_bytes.len() as u64;
     assert_costs(map! {
@@ -326,7 +326,7 @@ fn test_valid_log_utf16_max_log_len_not_even() {
     }
     utf16_bytes.extend_from_slice(&[0, 0]);
     assert_eq!(
-        logic.log_utf16(std::u64::MAX, utf16_bytes.as_ptr() as _),
+        logic.log_utf16(u64::MAX, utf16_bytes.as_ptr() as _),
         Err(HostError::TotalLogLengthExceeded {
             length: 6,
             limit: logic_builder.config.limit_config.max_total_log_length,
@@ -349,7 +349,7 @@ fn test_log_utf8_max_limit_null_terminated_fail() {
     string_bytes.push(0u8);
     logic_builder.config.limit_config.max_total_log_length = 3;
     let mut logic = logic_builder.build(get_context(vec![], false));
-    let res = logic.log_utf8(std::u64::MAX, string_bytes.as_ptr() as _);
+    let res = logic.log_utf8(u64::MAX, string_bytes.as_ptr() as _);
     assert_eq!(res, Err(HostError::TotalLogLengthExceeded { length: 4, limit: 3 }.into()));
     assert_costs(map! {
         ExtCosts::base: 1,
@@ -371,7 +371,7 @@ fn test_valid_log_utf16_null_terminated() {
     }
     utf16_bytes.push(0);
     utf16_bytes.push(0);
-    logic.log_utf16(std::u64::MAX, utf16_bytes.as_ptr() as _).expect("Valid utf-16 string_bytes");
+    logic.log_utf16(u64::MAX, utf16_bytes.as_ptr() as _).expect("Valid utf-16 string_bytes");
 
     let len = utf16_bytes.len() as u64;
     let outcome = logic.outcome();
@@ -423,7 +423,7 @@ fn test_valid_log_utf16_null_terminated_fail() {
     utf16_bytes.push(0xD8u8); // Bad utf-16
     utf16_bytes.push(0);
     utf16_bytes.push(0);
-    let res = logic.log_utf16(std::u64::MAX, utf16_bytes.as_ptr() as _);
+    let res = logic.log_utf16(u64::MAX, utf16_bytes.as_ptr() as _);
     let len = utf16_bytes.len() as u64;
     assert_eq!(res, Err(HostError::BadUTF16.into()));
     assert_costs(map! {
@@ -630,7 +630,7 @@ fn test_hash256_register() {
     let data = b"tesdsst";
     logic.wrapped_internal_write_register(1, data).unwrap();
 
-    logic.sha256(std::u64::MAX, 1, 0).unwrap();
+    logic.sha256(u64::MAX, 1, 0).unwrap();
     let res = &vec![0u8; 32];
     logic.read_register(0, res.as_ptr() as _).unwrap();
     assert_eq!(
