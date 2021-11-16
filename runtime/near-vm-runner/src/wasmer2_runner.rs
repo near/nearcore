@@ -1,6 +1,7 @@
 use crate::cache::into_vm_result;
 use crate::errors::IntoVMError;
 use crate::{cache, imports};
+use memoffset::offset_of;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
