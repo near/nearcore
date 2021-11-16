@@ -19,15 +19,15 @@ serde_json = "1"
 validator = "0.12"
 tracing = "0.1.13"
 
-near-chain-configs = { path = "../../core/chain-configs", version = "0.5.0" }
-near-primitives = { path = "../../core/primitives", version = "0.5.0" }
-near-metrics = { path = "../../core/metrics", version = "0.5.0" }
-near-client = { path = "../client", version = "0.5.0" }
-near-network = { path = "../network", version = "0.5.0" }
-near-jsonrpc-client = { path = "client", version = "0.5.0" }
-near-jsonrpc-primitives = { path = "../jsonrpc-primitives", version = "0.5.0" }
-near-jsonrpc-adversarial-primitives = { path = "../jsonrpc-adversarial-primitives", optional = true, version = "0.5.0" }
-near-rpc-error-macro = { path = "../../tools/rpctypegen/macro", version = "0.5.0" }
+near-chain-configs = { path = "../../core/chain-configs" }
+near-primitives = { path = "../../core/primitives" }
+near-metrics = { path = "../../core/metrics" }
+near-client = { path = "../client" }
+near-network = { path = "../network" }
+near-jsonrpc-client = { path = "client" }
+near-jsonrpc-primitives = { path = "../jsonrpc-primitives" }
+near-jsonrpc-adversarial-primitives = { path = "../jsonrpc-adversarial-primitives", optional = true }
+near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]

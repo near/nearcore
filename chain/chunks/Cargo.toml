@@ -16,13 +16,13 @@ serde = { version = "1", features = [ "derive" ] }
 cached = "0.23"
 reed-solomon-erasure = "4"
 
-near-crypto = { path = "../../core/crypto", version = "0.5.0" }
-near-primitives = { path = "../../core/primitives", version = "0.5.0" }
-near-chunks-primitives = { path = "../chunks-primitives", version = "0.5.0" }
-near-store = { path = "../../core/store", version = "0.5.0" }
-near-network = { path = "../network", version = "0.5.0" }
-near-chain = { path = "../chain", version = "0.5.0" }
-near-pool = { path = "../pool", version = "0.5.0" }
+near-crypto = { path = "../../core/crypto" }
+near-primitives = { path = "../../core/primitives" }
+near-chunks-primitives = { path = "../chunks-primitives" }
+near-store = { path = "../../core/store" }
+near-network = { path = "../network" }
+near-chain = { path = "../chain" }
+near-pool = { path = "../pool" }
 
 [dev-dependencies]
 near-logger-utils = { path = "../../test-utils/logger" }

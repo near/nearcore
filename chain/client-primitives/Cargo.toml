@@ -17,10 +17,10 @@ serde = { version = "1", features = ["derive"] }
 strum = { version = "0.20", features = ["derive"] }
 thiserror = "1.0"
 
-near-chain-primitives = { path = "../chain-primitives", version = "0.5.0" }
-near-chain-configs = { path = "../../core/chain-configs", version = "0.5.0" }
+near-chain-primitives = { path = "../chain-primitives" }
+near-chain-configs = { path = "../../core/chain-configs" }
 
-near-chunks-primitives = { path = "../chunks-primitives", version = "0.5.0" }
-near-crypto = { path = "../../core/crypto", version = "0.5.0" }
-near-network-primitives = { path = "../network-primitives", version = "0.5.0" }
-near-primitives = { path = "../../core/primitives", version = "0.5.0" }
+near-chunks-primitives = { path = "../chunks-primitives" }
+near-crypto = { path = "../../core/crypto" }
+near-network-primitives = { path = "../network-primitives" }
+near-primitives = { path = "../../core/primitives" }

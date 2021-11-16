@@ -23,18 +23,18 @@ num-rational = "0.3"
 anyhow = "1"
 chrono = "0.4"
 
-genesis-populate = { path = "../../genesis-tools/genesis-populate", version = "0.5.0"}
-near-chain-configs = { path = "../../core/chain-configs", version = "0.5.0" }
-near-crypto = { path = "../../core/crypto", version = "0.5.0" }
-near-vm-logic = {path = "../../runtime/near-vm-logic", version = "3.1.0"  }
-near-vm-runner = {path = "../../runtime/near-vm-runner", version = "3.1.0" }
-node-runtime = { path = "../../runtime/runtime", version = "3.1.0" }
-near-store = { path = "../../core/store", version = "0.5.0" }
-near-primitives = { path = "../../core/primitives", version = "0.5.0" }
+genesis-populate = { path = "../../genesis-tools/genesis-populate"}
+near-chain-configs = { path = "../../core/chain-configs" }
+near-crypto = { path = "../../core/crypto" }
+near-vm-logic = {path = "../../runtime/near-vm-logic"  }
+near-vm-runner = {path = "../../runtime/near-vm-runner" }
+node-runtime = { path = "../../runtime/runtime" }
+near-store = { path = "../../core/store" }
+near-primitives = { path = "../../core/primitives" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
 
-testlib = { path = "../../test-utils/testlib", version = "0.5.0" }
-state-viewer = { path = "../../test-utils/state-viewer", version = "0.5.0" }
+testlib = { path = "../../test-utils/testlib" }
+state-viewer = { path = "../../test-utils/state-viewer" }
 nearcore = { path = "../../nearcore" }
 rocksdb = "0.16.0"
 glob = "0.3.0"

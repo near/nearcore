@@ -9,4 +9,4 @@ homepage = "https://github.com/near/nearcore"
 description = "This crate hosts NEAR chunks-related error types"
 
 [dependencies]
-near-chain-primitives = { path = "../chain-primitives", version = "0.5.0" }
+near-chain-primitives = { path = "../chain-primitives" }

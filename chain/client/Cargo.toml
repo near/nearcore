@@ -26,21 +26,21 @@ num-rational = "0.3"
 linked-hash-map = "0.5.3"
 thiserror = "1.0"
 
-near-crypto = { path = "../../core/crypto", version = "0.5.0" }
-near-primitives = { path = "../../core/primitives", version = "0.5.0" }
-near-store = { path = "../../core/store", version = "0.5.0" }
-near-metrics = { path = "../../core/metrics", version = "0.5.0" }
-near-chain-configs = { path = "../../core/chain-configs", version = "0.5.0" }
-near-chain = { path = "../chain", version = "0.5.0" }
-near-client-primitives = { path = "../client-primitives", version = "0.5.0" }
-near-network = { path = "../network", version = "0.5.0" }
-near-pool = { path = "../pool", version = "0.5.0" }
-near-chunks = { path = "../chunks", version = "0.5.0" }
-near-telemetry = { path = "../telemetry", version = "0.5.0" }
-near-performance-metrics = { path = "../../utils/near-performance-metrics", version = "0.5.0" }
-near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros", version = "0.5.0" }
-near-vm-runner = { path = "../../runtime/near-vm-runner", version = "3.1.0" }
-delay-detector = { path = "../../tools/delay_detector", optional = true, version = "0.5.0" }
+near-crypto = { path = "../../core/crypto" }
+near-primitives = { path = "../../core/primitives" }
+near-store = { path = "../../core/store" }
+near-metrics = { path = "../../core/metrics" }
+near-chain-configs = { path = "../../core/chain-configs" }
+near-chain = { path = "../chain" }
+near-client-primitives = { path = "../client-primitives" }
+near-network = { path = "../network" }
+near-pool = { path = "../pool" }
+near-chunks = { path = "../chunks" }
+near-telemetry = { path = "../telemetry" }
+near-performance-metrics = { path = "../../utils/near-performance-metrics" }
+near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
+near-vm-runner = { path = "../../runtime/near-vm-runner" }
+delay-detector = { path = "../../tools/delay_detector", optional = true }
 
 [dev-dependencies]
 near-logger-utils = { path = "../../test-utils/logger" }

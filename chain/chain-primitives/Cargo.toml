@@ -17,5 +17,5 @@ failure_derive = "0.1"
 log = "0.4"
 thiserror = "1.0"
 
-near-primitives = { path = "../../core/primitives", version = "0.5.0" }
-near-crypto = { path = "../../core/crypto", version = "0.5.0" }
+near-primitives = { path = "../../core/primitives" }
+near-crypto = { path = "../../core/crypto" }

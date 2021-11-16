@@ -23,14 +23,14 @@ thiserror = "1.0"
 
 borsh = "0.9"
 
-near-chain-configs = { path = "../../core/chain-configs", version = "0.5.0" }
-near-crypto = { path = "../../core/crypto", version = "0.5.0" }
-near-primitives = { path = "../../core/primitives", version = "0.5.0" }
-near-store = { path = "../../core/store", version = "0.5.0" }
-near-metrics = { path = "../../core/metrics", version = "0.5.0" }
-near-vm-logic = { path = "../../runtime/near-vm-logic", version = "3.1.0" }
-near-vm-runner = { path = "../../runtime/near-vm-runner", version = "3.1.0" }
-near-vm-errors = { path = "../../runtime/near-vm-errors", version = "3.1.0" }
+near-chain-configs = { path = "../../core/chain-configs" }
+near-crypto = { path = "../../core/crypto" }
+near-primitives = { path = "../../core/primitives" }
+near-store = { path = "../../core/store" }
+near-metrics = { path = "../../core/metrics" }
+near-vm-logic = { path = "../../runtime/near-vm-logic" }
+near-vm-runner = { path = "../../runtime/near-vm-runner" }
+near-vm-errors = { path = "../../runtime/near-vm-errors" }
 
 [features]
 default = []

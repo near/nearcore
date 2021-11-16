@@ -18,8 +18,8 @@ sha2 = "0.9"
 smart-default = "0.6"
 tracing = "0.1.13"
 
-near-crypto = { path = "../crypto", version = "0.5.0" }
-near-primitives = { path = "../primitives", version = "0.5.0" }
+near-crypto = { path = "../crypto" }
+near-primitives = { path = "../primitives" }
 
 [features]
 default = []

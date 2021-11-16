@@ -15,16 +15,16 @@ tempfile = "3"
 tracing = "0.1"
 rayon = "1.5"
 
-near-chain-configs = { path = "../../core/chain-configs", version = "0.5.0" }
-near-crypto = { path = "../../core/crypto", version = "0.5.0" }
-near-logger-utils = {path = "../../test-utils/logger", version = "0.5.0"}
-near-primitives = { path = "../../core/primitives", version = "0.5.0" }
-near-store = { path = "../../core/store", version = "0.5.0" }
-node-runtime = { path = "../../runtime/runtime", version = "3.1.0" }
-near-chain = { path = "../../chain/chain", version = "0.5.0" }
-near-network = { path = "../../chain/network", version = "0.5.0" }
+near-chain-configs = { path = "../../core/chain-configs" }
+near-crypto = { path = "../../core/crypto" }
+near-logger-utils = {path = "../../test-utils/logger"}
+near-primitives = { path = "../../core/primitives" }
+near-store = { path = "../../core/store" }
+node-runtime = { path = "../../runtime/runtime" }
+near-chain = { path = "../../chain/chain" }
+near-network = { path = "../../chain/network" }
 nearcore = { path = "../../nearcore" }
-near-epoch-manager = { path = "../../chain/epoch_manager", version = "0.5.0" }
+near-epoch-manager = { path = "../../chain/epoch_manager" }
 
 
 [dev-dependencies]

@@ -25,8 +25,8 @@ borsh = "0.9"
 thiserror = "1"
 smart-default = "0.6"
 
-near-crypto = { path = "../crypto", version = "0.5.0" }
-near-primitives = { path = "../primitives", version = "0.5.0" }
+near-crypto = { path = "../crypto" }
+near-primitives = { path = "../primitives" }
 
 [dev-dependencies]
 tempfile = "3"

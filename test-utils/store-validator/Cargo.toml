@@ -9,11 +9,11 @@ edition = "2021"
 ansi_term = "0.12"
 clap = "2.33"
 
-near-chain-configs = { path = "../../core/chain-configs", version = "0.5.0" }
-near-logger-utils = { path = "../../test-utils/logger", version = "0.5.0" }
-near-primitives = { path = "../../core/primitives", version = "0.5.0" }
-near-store = { path = "../../core/store", version = "0.5.0" }
-near-chain = { path = "../../chain/chain", version = "0.5.0" }
+near-chain-configs = { path = "../../core/chain-configs" }
+near-logger-utils = { path = "../../test-utils/logger" }
+near-primitives = { path = "../../core/primitives" }
+near-store = { path = "../../core/store" }
+near-chain = { path = "../../chain/chain" }
 nearcore = { path = "../../nearcore" }
 
 [dev-dependencies]

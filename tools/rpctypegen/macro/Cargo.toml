@@ -20,7 +20,7 @@ syn = { version = "1.0", features = ["full", "extra-traits"]}
 quote = "1.0"
 proc-macro2 = "1.0"
 
-near-rpc-error-core = { path = "../core", version = "0.5.0" }
+near-rpc-error-core = { path = "../core" }
 
 [features]
 test = []

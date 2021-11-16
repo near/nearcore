@@ -26,17 +26,17 @@ serde = { version = "1", features = ["derive"], optional=true }
 borsh = "0.9"
 cached = "0.23"
 
-near-network-primitives = { path = "../network-primitives", version = "0.5.0" }
-near-chain-configs = { path = "../../core/chain-configs", version = "0.5.0" }
-near-crypto = { path = "../../core/crypto", version = "0.5.0" }
-near-primitives = { path = "../../core/primitives", version = "0.5.0" }
-near-store = { path = "../../core/store", version = "0.5.0" }
-near-metrics = { path = "../../core/metrics", version = "0.5.0" }
-near-performance-metrics = { path = "../../utils/near-performance-metrics", version = "0.5.0" }
-near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros", version = "0.5.0" }
-near-stable-hasher = { path = "../../utils/near-stable-hasher", version = "0.5.0" }
+near-network-primitives = { path = "../network-primitives" }
+near-chain-configs = { path = "../../core/chain-configs" }
+near-crypto = { path = "../../core/crypto" }
+near-primitives = { path = "../../core/primitives" }
+near-store = { path = "../../core/store" }
+near-metrics = { path = "../../core/metrics" }
+near-performance-metrics = { path = "../../utils/near-performance-metrics" }
+near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
+near-stable-hasher = { path = "../../utils/near-stable-hasher" }
 
-delay-detector = { path = "../../tools/delay_detector", optional = true, version = "0.5.0"}
+delay-detector = { path = "../../tools/delay_detector", optional = true}
 
 [dev-dependencies]
 near-chain = { path = "../chain" }

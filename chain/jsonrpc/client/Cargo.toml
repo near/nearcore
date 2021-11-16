@@ -14,5 +14,5 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "~0.8", features = ["v4"] }
 
-near-jsonrpc-primitives = { path = "../../jsonrpc-primitives", version = "0.5.0" }
-near-primitives = { path = "../../../core/primitives", version = "0.5.0" }
+near-jsonrpc-primitives = { path = "../../jsonrpc-primitives" }
+near-primitives = { path = "../../../core/primitives" }

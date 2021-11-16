@@ -9,4 +9,4 @@ edition = "2021"
 clap = "2.33.0"
 
 nearcore = { path = "../../nearcore" }
-near-crypto = { path = "../../core/crypto", version = "0.5.0" }
+near-crypto = { path = "../../core/crypto" }
