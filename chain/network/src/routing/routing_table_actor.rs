@@ -1,4 +1,6 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use actix::dev::MessageResponse;
 use actix::{Actor, Addr, Context, Handler, Message, System};
@@ -6,9 +8,14 @@ use actix::{Actor, Addr, Context, Handler, Message, System};
 use tracing::error;
 use tracing::{debug, trace, warn};
 
-use crate::stats::metrics;
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 use near_performance_metrics_macros::perf;
+use near_primitives::borsh::BorshSerialize;
 use near_primitives::network::PeerId;
+use near_primitives::utils::index_to_bytes;
+use near_store::db::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
+use near_store::{Store, StoreUpdate};
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::ibf::{Ibf, IbfBox};
@@ -19,17 +26,10 @@ use crate::routing::ibf_set::IbfSet;
 use crate::routing::routing::{Edge, EdgeType, Graph, SAVE_PEERS_MAX_TIME};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::routing::{SimpleEdge, ValidIBFLevel, MIN_IBF_LEVEL};
+use crate::stats::metrics;
 use crate::types::StopMsg;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{PartialSync, PeerMessage, RoutingState, RoutingSyncV2, RoutingVersion2};
-use borsh::BorshSerialize;
-#[cfg(feature = "delay_detector")]
-use delay_detector::DelayDetector;
-use near_primitives::utils::index_to_bytes;
-use near_store::db::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
-use near_store::{Store, StoreUpdate};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 /// `Prune` enum is to specify how often should we prune edges.
 #[derive(Debug, Eq, PartialEq)]
