@@ -85,7 +85,7 @@ impl IbfPeerSet {
         let mut ibf_set = IbfSet::new(seed);
         // Initialize IbfSet with edges
         for (key, e) in edges_info.iter() {
-            let se = SimpleEdge::new(key.0.clone(), key.1.clone(), e.nonce);
+            let se = SimpleEdge::new(key.0.clone(), key.1.clone(), e.nonce());
             if let Some(id) = self.slot_map.get(&se) {
                 ibf_set.add_edge(&se, id);
             }
