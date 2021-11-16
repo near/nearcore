@@ -271,11 +271,11 @@ impl GasCounter {
 
 #[cfg(test)]
 mod tests {
-    use crate::HostError;
+    use crate::{ExtCostsConfig, HostError};
     use near_primitives_core::types::Gas;
 
     fn make_test_counter(max_burnt: Gas, prepaid: Gas, is_view: bool) -> super::GasCounter {
-        super::GasCounter::new(Default::default(), max_burnt, 1, prepaid, is_view)
+        super::GasCounter::new(ExtCostsConfig::test(), max_burnt, 1, prepaid, is_view)
     }
 
     #[test]
