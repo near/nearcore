@@ -176,7 +176,7 @@ impl Edge {
                     return false;
                 }
 
-                if let Some((party, signature)) = &self.removal_info() {
+                if let Some((party, signature)) = self.removal_info() {
                     let peer = if *party { &self.key().0 } else { &self.key().1 };
                     let del_hash = self.hash();
                     signature.verify(del_hash.as_ref(), &peer.public_key())
@@ -238,7 +238,7 @@ pub struct EdgeInner {
 
 impl EdgeInner {
     /// Create an addition edge.
-    pub fn new(
+    fn new(
         peer0: PeerId,
         peer1: PeerId,
         nonce: u64,
