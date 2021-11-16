@@ -366,6 +366,15 @@ impl PeerStore {
     }
 }
 
+/// Public method used to iterate through all peers stored in the database.
+pub fn iter_peers_from_store<F>(store: Arc<Store>, f: F)
+where
+    F: Fn((&PeerId, &KnownPeerState)),
+{
+    let peer_store = PeerStore::new(store, &[]).unwrap();
+    peer_store.iter().for_each(|x| f(x));
+}
+
 #[cfg(test)]
 mod test {
     use near_crypto::{KeyType, SecretKey};
