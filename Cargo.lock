@@ -3373,9 +3373,9 @@ dependencies = [
 
 [[package]]
 name = "object"
-version = "0.26.2"
+version = "0.25.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39f37e50073ccad23b6d09bcb5b263f4e76d3bb6038e4a3c08e52162ffa8abc2"
+checksum = "a38f2be3697a57b4060074ff41b44c16870d916ad7877c17696e063257482bc7"
 dependencies = [
  "crc32fast",
  "indexmap",
@@ -5103,7 +5103,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "375a639232caf30edfc78e8d89b2d4c375515393e7af7e16f01cd96917fb2105"
 dependencies = [
  "cfg-if 1.0.0",
- "log",
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
@@ -5423,9 +5422,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0237232789cf037d5480773fe568aac745bfe2afbc11a863e97901780a6b47cc"
 
 [[package]]
+name = "wasmer-compiler"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc86dda6f715f03104800be575a38382b35c3962953af9e9d8722dcf0bd2458f"
+dependencies = [
+ "enumset",
+ "loupe",
+ "rkyv",
+ "serde",
+ "serde_bytes",
+ "smallvec",
+ "target-lexicon 0.12.2",
+ "thiserror",
+ "wasmer-types",
+ "wasmer-vm",
+ "wasmparser 0.78.2",
+]
+
+[[package]]
 name = "wasmer-compiler-near"
-version = "2.0.2"
-source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#72f36ec0cb21b9fe99c68fcae6d77aa7566e68e5"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7337099b0683652e52606b5630917a10f836dc210d4ee253bf3f83facff83b1a"
 dependencies = [
  "enumset",
  "loupe",
@@ -5442,8 +5461,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-compiler-singlepass-near"
-version = "2.0.2"
-source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#72f36ec0cb21b9fe99c68fcae6d77aa7566e68e5"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b878963f500ee97bb86b4c7cef3d55b536f5b14d1b49d9ab36f38be2158f4c0d"
 dependencies = [
  "byteorder",
  "dynasm",
@@ -5461,8 +5481,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-derive-near"
-version = "2.0.2"
-source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#72f36ec0cb21b9fe99c68fcae6d77aa7566e68e5"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5be5e7432ff6a7357c8a8c52d8d9af94e11e6dfe6b85026f7839556a1666e1b7"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -5471,9 +5492,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasmer-engine"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8454ead320a4017ba36ddd9ab4fbf7776fceea6ab0b79b5e53664a1682569fc3"
+dependencies = [
+ "backtrace",
+ "lazy_static",
+ "loupe",
+ "memmap2",
+ "more-asserts",
+ "rustc-demangle",
+ "serde",
+ "serde_bytes",
+ "target-lexicon 0.12.2",
+ "thiserror",
+ "wasmer-compiler",
+ "wasmer-types",
+ "wasmer-vm",
+]
+
+[[package]]
 name = "wasmer-engine-dylib"
 version = "2.0.0"
-source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#72f36ec0cb21b9fe99c68fcae6d77aa7566e68e5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6aa390d123ebe23d5315c39f6063fcc18319661d03c8000f23d0fe1c011e8135"
 dependencies = [
  "cfg-if 1.0.0",
  "leb128",
@@ -5483,18 +5526,19 @@ dependencies = [
  "serde",
  "tempfile",
  "tracing",
- "wasmer-compiler-near",
- "wasmer-engine-near",
+ "wasmer-compiler",
+ "wasmer-engine",
  "wasmer-object",
- "wasmer-types-near",
- "wasmer-vm-near",
+ "wasmer-types",
+ "wasmer-vm",
  "which",
 ]
 
 [[package]]
 name = "wasmer-engine-near"
-version = "2.0.2"
-source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#72f36ec0cb21b9fe99c68fcae6d77aa7566e68e5"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a44104129ff924c906c59adc4b12b4caa1867bbdb819cb0c1993597ec06db35"
 dependencies = [
  "backtrace",
  "lazy_static",
@@ -5513,8 +5557,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-engine-universal-near"
-version = "2.0.2"
-source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#72f36ec0cb21b9fe99c68fcae6d77aa7566e68e5"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94ef683f2e7236f91e20297d7dab6c82f3d1c09c45c95576af4bc4454be48f75"
 dependencies = [
  "cfg-if 1.0.0",
  "leb128",
@@ -5530,8 +5575,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-near"
-version = "2.0.2"
-source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#72f36ec0cb21b9fe99c68fcae6d77aa7566e68e5"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e92829f083cc2e319695ef1172cc114a13d45c8ef714f9cb3a7f9aabc4b10bd"
 dependencies = [
  "cfg-if 1.0.0",
  "indexmap",
@@ -5555,12 +5601,13 @@ dependencies = [
 [[package]]
 name = "wasmer-object"
 version = "2.0.0"
-source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#72f36ec0cb21b9fe99c68fcae6d77aa7566e68e5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c541c985799fc1444702501c15d41becfb066c92d9673defc1c7417fd8739e15"
 dependencies = [
- "object 0.26.2",
+ "object 0.25.3",
  "thiserror",
- "wasmer-compiler-near",
- "wasmer-types-near",
+ "wasmer-compiler",
+ "wasmer-types",
 ]
 
 [[package]]
@@ -5628,9 +5675,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasmer-types-near"
-version = "2.0.2"
-source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#72f36ec0cb21b9fe99c68fcae6d77aa7566e68e5"
+name = "wasmer-types"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c91f75d3c31f8b1f8d818ff49624fc974220243cbc07a2252f408192e97c6b51"
 dependencies = [
  "indexmap",
  "loupe",
@@ -5640,9 +5688,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasmer-types-near"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de952d66292b33d02350b89fcb434aba0fefd01da6507905d42ca1eb6759dc6a"
+dependencies = [
+ "indexmap",
+ "loupe",
+ "rkyv",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "wasmer-vm"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "469a12346a4831e7dac639b9646d8c9b24c7d2cf0cf458b77f489edb35060c1f"
+dependencies = [
+ "backtrace",
+ "cc",
+ "cfg-if 1.0.0",
+ "indexmap",
+ "libc",
+ "loupe",
+ "memoffset 0.6.4",
+ "more-asserts",
+ "region 2.2.0",
+ "rkyv",
+ "serde",
+ "thiserror",
+ "wasmer-types",
+ "winapi",
+]
+
+[[package]]
 name = "wasmer-vm-near"
-version = "2.0.2"
-source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#72f36ec0cb21b9fe99c68fcae6d77aa7566e68e5"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d55b8cf3d69904542534adf18370351b75fdc9bc451b7eb2dbe031d9e176c42"
 dependencies = [
  "backtrace",
  "cc",
