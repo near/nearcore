@@ -185,7 +185,7 @@ mod tests {
 
     fn parse_and_prepare_wat(wat: &str) -> Result<Vec<u8>, PrepareError> {
         let wasm = wat::parse_str(wat).unwrap();
-        let config = VMConfig::default();
+        let config = VMConfig::test();
         prepare_contract(wasm.as_ref(), &config)
     }
 
@@ -198,7 +198,7 @@ mod tests {
     #[test]
     fn memory() {
         // This test assumes that maximum page number is configured to a certain number.
-        assert_eq!(VMConfig::default().limit_config.max_memory_pages, 2048);
+        assert_eq!(VMConfig::test().limit_config.max_memory_pages, 2048);
 
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 1)))"#);
         assert_matches!(r, Ok(_));

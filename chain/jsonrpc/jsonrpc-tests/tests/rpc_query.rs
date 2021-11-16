@@ -10,7 +10,7 @@ use near_jsonrpc::client::{new_client, ChunkId};
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_logger_utils::init_test_logger;
-use near_network::test_utils::WaitOrTimeout;
+use near_network::test_utils::WaitOrTimeoutActor;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockId, BlockReference, ShardId, SyncCheckpoint};
@@ -385,7 +385,7 @@ fn test_status_fail() {
         let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
 
         let client = new_client(&format!("http://{}", addr));
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_| {
                 actix::spawn(client.health().then(|res| {
                     if res.is_err() {
@@ -425,7 +425,7 @@ fn test_health_fail_no_blocks() {
         let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
 
         let client = new_client(&format!("http://{}", addr));
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_| {
                 actix::spawn(client.health().then(|res| {
                     if res.is_err() {
