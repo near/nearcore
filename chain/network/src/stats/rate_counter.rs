@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::collections::VecDeque;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 const MINUTE_IN_MILLIS: u128 = 60_000;
 
@@ -59,9 +59,7 @@ impl RateCounter {
 
 /// Returns timestamp in milliseconds.
 fn millis_since_epoch() -> u128 {
-    let since_epoch = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::new(0, 0));
+    let since_epoch = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default();
     since_epoch.as_millis()
 }
 

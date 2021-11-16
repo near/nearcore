@@ -15,7 +15,7 @@ pub fn test_ts_contract() {
         let mut fake_external = MockedExternal::new();
 
         let context = create_context(Vec::new());
-        let config = VMConfig::default();
+        let config = VMConfig::test();
         let fees = RuntimeFeesConfig::test();
 
         // Call method that panics.

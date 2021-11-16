@@ -147,7 +147,7 @@ impl IbfPeerSet {
 mod test {
     use crate::routing::ibf_peer_set::{IbfPeerSet, SimpleEdge, SlotMap, SlotMapId};
     use crate::routing::ibf_set::IbfSet;
-    use crate::routing::routing::{Edge, EdgeInner, ValidIBFLevel};
+    use crate::routing::routing::{Edge, ValidIBFLevel};
     use crate::test_utils::random_peer_id;
     use near_primitives::network::PeerId;
     use std::collections::HashMap;
@@ -199,7 +199,7 @@ mod test {
 
         let mut ibf_set = IbfSet::<SimpleEdge>::new(1111);
 
-        let edge = EdgeInner::make_fake_edge(peer_id.clone(), peer_id2.clone(), 111);
+        let edge = Edge::make_fake_edge(peer_id.clone(), peer_id2.clone(), 111);
         let mut edges_info: HashMap<(PeerId, PeerId), Edge> = Default::default();
         edges_info.insert((peer_id.clone(), peer_id2.clone()), edge.clone());
 
