@@ -7,9 +7,9 @@ use near_client::test_utils::setup_no_network_with_validity_period_and_no_epoch_
 use near_client::ViewClientActor;
 use near_jsonrpc::{start_http, RpcConfig};
 use near_jsonrpc_primitives::message::{from_slice, Message};
-use near_network::test_utils::open_port;
 #[cfg(feature = "test_features")]
-use near_network::test_utils_with_test_features::make_peer_manager_routing_table_addr_pair;
+use near_network::make_peer_manager_routing_table_addr_pair;
+use near_network::test_utils::open_port;
 use near_primitives::types::NumBlocks;
 
 lazy_static::lazy_static! {
