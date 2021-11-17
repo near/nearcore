@@ -173,10 +173,8 @@ mod test {
     use near_primitives::hash::{self, CryptoHash};
     use near_primitives::network::{AnnounceAccount, PeerId};
     use near_primitives::transaction::{SignedTransaction, Transaction};
-    use near_primitives::{
-        types::EpochId,
-        version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION},
-    };
+    use near_primitives::types::EpochId;
+    use near_primitives::version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION};
 
     use super::*;
     use crate::routing::edge::EdgeInfo;

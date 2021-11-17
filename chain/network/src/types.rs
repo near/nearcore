@@ -1,14 +1,14 @@
 use near_primitives::time::Instant;
 use std::collections::HashMap;
-use std::fmt;
 use std::fmt::{Debug, Formatter};
-use std::io;
 use std::sync::{Arc, Mutex, RwLock};
+use std::{fmt, io};
 
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, MailboxError, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
-use futures::{future::BoxFuture, FutureExt};
+use futures::future::BoxFuture;
+use futures::FutureExt;
 #[cfg(feature = "test_features")]
 use serde::Serialize;
 use strum::AsStaticStr;
