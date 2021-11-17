@@ -1,5 +1,6 @@
 use near_primitives::time::Clock;
-use std::collections::{hash_map::Entry, HashMap, VecDeque};
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -14,7 +15,6 @@ use near_network_primitives::types::{PeerIdOrHash, Ping, Pong};
 use serde::Serialize;
 use tracing::warn;
 
-use crate::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
@@ -22,7 +22,8 @@ use near_store::{ColAccountAnnouncements, Store};
 
 use crate::routing::edge::{Edge, SimpleEdge};
 use crate::routing::route_back_cache::RouteBackCache;
-use crate::utils::cache_to_hashmap;
+use crate::routing::utils::cache_to_hashmap;
+use crate::PeerInfo;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const ROUTE_BACK_CACHE_SIZE: usize = 100_000;

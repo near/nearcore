@@ -61,7 +61,7 @@ impl Encoder<Vec<u8>> for Codec {
             {
                 error!(target: "network", "{} throwing away message, because buffer is full item.len(): {} buf.capacity: {}", get_tid(), item.len(), buf.capacity());
 
-                near_metrics::inc_counter_by(&metrics::DROPPED_MESSAGES_COUNT, 1);
+                metrics::DROPPED_MESSAGES_COUNT.inc_by(1);
                 return Err(Error::new(ErrorKind::Other, "Buf max capacity exceeded"));
             }
             // First four bytes is the length of the buffer.
@@ -173,10 +173,8 @@ mod test {
     use near_primitives::hash::{self, CryptoHash};
     use near_primitives::network::{AnnounceAccount, PeerId};
     use near_primitives::transaction::{SignedTransaction, Transaction};
-    use near_primitives::{
-        types::EpochId,
-        version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION},
-    };
+    use near_primitives::types::EpochId;
+    use near_primitives::version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION};
 
     use super::*;
     use crate::routing::edge::EdgeInfo;
