@@ -287,8 +287,6 @@ fn archival_node() {
 /// Spawn 3 nodes, add edges to form 0---1---2 line. Then send 2 pings from 0 to 2, one should be dropped.
 #[test]
 #[cfg(feature = "test_features")]
-// TODO(#5322): This test is currently broken.
-#[ignore]
 fn test_dropping_routing_messages() {
     let mut runner = Runner::new(3, 3).max_num_peers(2).enable_outbound();
 
