@@ -499,7 +499,7 @@ impl Scope {
         self.accounts[self.accounts.len() - 1].clone()
     }
 
-    fn new_64_account(&mut self, u: &mut Unstructured) -> Result<Account> {
+    fn new_implicit_account(&mut self, u: &mut Unstructured) -> Result<Account> {
         let mut new_id_vec = vec![];
         let mut chars = vec![];
         for x in b'a'..=b'f' {
@@ -519,7 +519,7 @@ impl Scope {
 
     pub fn new_account(&mut self, u: &mut Unstructured) -> Result<Account> {
         let account =
-            if u.arbitrary::<bool>()? { self.new_64_account(u)? } else { self.new_test_account() };
+            if u.arbitrary::<bool>()? { self.new_implicit_account(u)? } else { self.new_test_account() };
         self.account_id_to_idx.insert(account.id.clone(), self.accounts.len() - 1);
         Ok(account)
     }
