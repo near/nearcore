@@ -57,6 +57,9 @@ const CHUNK_REQUEST_RETRY_MAX_MS: u64 = 1_000_000;
 const CHUNK_FORWARD_CACHE_SIZE: usize = 1000;
 const ACCEPTING_SEAL_PERIOD_MS: i64 = 30_000;
 const NUM_PARTS_REQUESTED_IN_SEAL: usize = 3;
+/// Max number of PartialEncodedChunks per height per shard to store in
+/// `stored_partial_encoded_chunks` before processing
+const MAX_STORED_PARTIAL_CHUNK_SIZE: usize = 100;
 // TODO(#3180): seals are disabled in single shard setting
 // const NUM_PARTS_LEFT_IN_SEAL: usize = 1;
 const PAST_SEAL_HEIGHT_HORIZON: BlockHeightDelta = 1024;
@@ -385,7 +388,11 @@ pub struct ShardsManager {
 
     encoded_chunks: EncodedChunksCache,
     requested_partial_encoded_chunks: RequestPool,
-    stored_partial_encoded_chunks: HashMap<BlockHeight, HashMap<ShardId, PartialEncodedChunkV2>>,
+    // Temporary place to store PartialEncodedChunks if they can't be processed yet at the time
+    // when they are received
+    // A partial chunk is removed here if it is processed or it is too old
+    stored_partial_encoded_chunks:
+        HashMap<BlockHeight, HashMap<ShardId, Vec<PartialEncodedChunkV2>>>,
     chunk_forwards_cache: SizedCache<ChunkHash, HashMap<u64, PartialEncodedChunkPart>>,
 
     seals_mgr: SealsManager,
@@ -730,34 +737,28 @@ impl ShardsManager {
                     let epoch_id = unwrap_or_return!(
                         runtime_adapter.get_epoch_id_from_prev_block(known_header.prev_hash())
                     );
-                    let block_producer =
-                        unwrap_or_return!(runtime_adapter.get_block_producer(&epoch_id, height));
-                    if runtime_adapter
-                        .verify_validator_signature(
-                            &epoch_id,
-                            &known_header.prev_hash(),
-                            &block_producer,
-                            header.chunk_hash().as_ref(),
-                            header.signature(),
-                        )
-                        .unwrap_or(false)
-                    {
+                    if runtime_adapter.verify_chunk_header_signature(&header, &epoch_id, known_header.prev_hash()).unwrap_or(false) {
                         // We prove that this one is valid for `epoch_id`.
                         // We won't store it by design if epoch is changed.
-                        *stored_chunk = partial_encoded_chunk.clone();
+                        if stored_chunk.len() < MAX_STORED_PARTIAL_CHUNK_SIZE {
+                            stored_chunk.push(partial_encoded_chunk.clone());
+                        } else {
+                            warn!(target:"shards_manager", "Drop partial encoded chunk because stored partial encoded chunks already exceed limit, height: {} shard: {}", 
+                                  height, shard_id);
+                        }
                     }
                 })
                 // This is the first partial encoded chunk received for current height / shard_id.
                 // Store it because there are no other candidates.
-                .or_insert_with(|| partial_encoded_chunk.clone());
+                .or_insert_with(|| vec![partial_encoded_chunk.clone()]);
         }
     }
 
-    pub fn get_stored_partial_encoded_chunks(
-        &self,
+    pub fn pop_stored_partial_encoded_chunks(
+        &mut self,
         height: BlockHeight,
-    ) -> HashMap<ShardId, PartialEncodedChunkV2> {
-        self.stored_partial_encoded_chunks.get(&height).unwrap_or(&HashMap::new()).clone()
+    ) -> HashMap<ShardId, Vec<PartialEncodedChunkV2>> {
+        self.stored_partial_encoded_chunks.remove(&height).unwrap_or(HashMap::new())
     }
 
     pub fn num_chunks_for_block(&mut self, prev_block_hash: &CryptoHash) -> ShardId {
@@ -1012,9 +1013,12 @@ impl ShardsManager {
         }
 
         // check signature
+        let epoch_id =
+            self.runtime_adapter.get_epoch_id_from_prev_block(&forward.prev_block_hash)?;
         let valid_signature = self.runtime_adapter.verify_chunk_signature_with_header_parts(
             &forward.chunk_hash,
             &forward.signature,
+            &epoch_id,
             &forward.prev_block_hash,
             forward.height_created,
             forward.shard_id,
@@ -1092,8 +1096,15 @@ impl ShardsManager {
         // Check validity first
 
         // 1. Checking signature validity (if needed)
-        let signature_check = partial_encoded_chunk
-            .validate_with(|pec| self.runtime_adapter.verify_chunk_header_signature(&pec.header));
+        let signature_check = partial_encoded_chunk.validate_with(|pec| {
+            let epoch_id =
+                self.runtime_adapter.get_epoch_id_from_prev_block(&pec.header.prev_block_hash())?;
+            self.runtime_adapter.verify_chunk_header_signature(
+                &pec.header,
+                &epoch_id,
+                &pec.header.prev_block_hash(),
+            )
+        });
         match signature_check {
             Ok(false) => {
                 byzantine_assert!(false);
