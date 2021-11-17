@@ -1,6 +1,6 @@
 [package]
 name = "near-store"
-version = "0.5.0"
+version = "0.0.0"
 license = "MIT OR Apache-2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
