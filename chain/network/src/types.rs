@@ -68,19 +68,19 @@ impl std::error::Error for HandshakeFailureReason {}
 
 #[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
-    pub version: u32,
+    pub(crate) version: u32,
     /// Oldest supported protocol version.
-    pub oldest_supported_version: u32,
+    pub(crate) oldest_supported_version: u32,
     /// Sender's peer id.
-    pub peer_id: PeerId,
+    pub(crate) peer_id: PeerId,
     /// Receiver's peer id.
-    pub target_peer_id: PeerId,
+    pub(crate) target_peer_id: PeerId,
     /// Sender's listening addr.
-    pub listen_port: Option<u16>,
+    pub(crate) listen_port: Option<u16>,
     /// Peer's chain information.
-    pub chain_info: PeerChainInfoV2,
+    pub(crate) chain_info: PeerChainInfoV2,
     /// Info for new edge.
-    pub edge_info: EdgeInfo,
+    pub(crate) edge_info: EdgeInfo,
 }
 
 /// Struct describing the layout for Handshake.
@@ -90,19 +90,19 @@ pub struct Handshake {
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub(crate) struct HandshakeAutoDes {
     /// Protocol version.
-    pub version: u32,
+    pub(crate) version: u32,
     /// Oldest supported protocol version.
-    pub oldest_supported_version: u32,
+    pub(crate) oldest_supported_version: u32,
     /// Sender's peer id.
-    pub peer_id: PeerId,
+    pub(crate) peer_id: PeerId,
     /// Receiver's peer id.
-    pub target_peer_id: PeerId,
+    pub(crate) target_peer_id: PeerId,
     /// Sender's listening addr.
-    pub listen_port: Option<u16>,
+    pub(crate) listen_port: Option<u16>,
     /// Peer's chain information.
-    pub chain_info: PeerChainInfoV2,
+    pub(crate) chain_info: PeerChainInfoV2,
     /// Info for new edge.
-    pub edge_info: EdgeInfo,
+    pub(crate) edge_info: EdgeInfo,
 }
 
 impl Handshake {
