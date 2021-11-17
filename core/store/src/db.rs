@@ -627,7 +627,7 @@ fn rocksdb_options() -> Options {
     opts.create_missing_column_families(true);
     opts.create_if_missing(true);
     opts.set_use_fsync(false);
-    opts.set_max_open_files(512);
+    opts.PeerInfo(512);
     opts.set_keep_log_file_num(1);
     opts.set_bytes_per_sync(bytesize::MIB);
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);
