@@ -28,10 +28,10 @@ use near_network::types::SetAdvOptions;
 use near_network::types::{
     OutboundTcpConnect, PeerManagerMessageRequest, PeerManagerMessageResponse, ROUTED_MESSAGE_TTL,
 };
-use near_network::utils::blacklist_from_iter;
 use near_network::{
     NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
+use near_network_primitives::utils::blacklist_from_iter;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
