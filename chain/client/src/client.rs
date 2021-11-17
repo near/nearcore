@@ -22,7 +22,6 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
-use near_network::types::{PartialEncodedChunkResponseMsg, PeerManagerMessageRequest};
 use near_network::{FullPeerInfo, NetworkClientResponses, NetworkRequests, PeerManagerAdapter};
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
@@ -47,10 +46,12 @@ use crate::metrics;
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::SyncStatus;
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
+use near_network::types::PeerManagerMessageRequest;
+use near_network_primitives::types::{
+    PartialEncodedChunkForwardMsg, PartialEncodedChunkResponseMsg,
+};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
-
-use near_network::types::PartialEncodedChunkForwardMsg;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -1171,21 +1172,23 @@ impl Client {
         // Process stored partial encoded chunks
         let next_height = block.header().height() + 1;
         let mut partial_encoded_chunks =
-            self.shards_mgr.get_stored_partial_encoded_chunks(next_height);
-        for (_shard_id, partial_encoded_chunk) in partial_encoded_chunks.drain() {
-            let chunk =
-                MaybeValidated::NotValidated(PartialEncodedChunk::V2(partial_encoded_chunk));
-            if let Ok(accepted_blocks) = self.process_partial_encoded_chunk(chunk) {
-                // Executing process_partial_encoded_chunk can unlock some blocks.
-                // Any block that is in the blocks_with_missing_chunks which doesn't have any chunks
-                // for which we track shards will be unblocked here.
-                for accepted_block in accepted_blocks {
-                    self.on_block_accepted_with_optional_chunk_produce(
-                        accepted_block.hash,
-                        accepted_block.status,
-                        accepted_block.provenance,
-                        skip_produce_chunk,
-                    );
+            self.shards_mgr.pop_stored_partial_encoded_chunks(next_height);
+        for (_shard_id, partial_encoded_chunks) in partial_encoded_chunks.drain() {
+            for partial_encoded_chunk in partial_encoded_chunks {
+                let chunk =
+                    MaybeValidated::NotValidated(PartialEncodedChunk::V2(partial_encoded_chunk));
+                if let Ok(accepted_blocks) = self.process_partial_encoded_chunk(chunk) {
+                    // Executing process_partial_encoded_chunk can unlock some blocks.
+                    // Any block that is in the blocks_with_missing_chunks which doesn't have any chunks
+                    // for which we track shards will be unblocked here.
+                    for accepted_block in accepted_blocks {
+                        self.on_block_accepted_with_optional_chunk_produce(
+                            accepted_block.hash,
+                            accepted_block.status,
+                            accepted_block.provenance,
+                            skip_produce_chunk,
+                        );
+                    }
                 }
             }
         }

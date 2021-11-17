@@ -181,6 +181,7 @@ pub mod wasmtime_runner {
             &mut memory,
             current_protocol_version,
         );
+
         // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
         if logic.add_contract_compile_fee(code.code().len() as u64).is_err() {
             return (
@@ -190,6 +191,7 @@ pub mod wasmtime_runner {
                 ))),
             );
         }
+
         // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
         // lifetimes of the logic instance and pass raw pointers here.
         let raw_logic = &mut logic as *mut _ as *mut c_void;

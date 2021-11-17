@@ -28,14 +28,16 @@ use near_chain_configs::ClientConfig;
 #[cfg(feature = "test_features")]
 use near_chain_configs::GenesisConfig;
 use near_crypto::Signature;
-#[cfg(feature = "test_features")]
-use near_network::types::NetworkAdversarialMessage;
-use near_network::types::{NetworkInfo, PeerManagerMessageRequest, ReasonForBan};
 #[cfg(feature = "sandbox")]
-use near_network::types::{NetworkSandboxMessage, SandboxResponse};
+use near_network::types::SandboxResponse;
+use near_network::types::{NetworkInfo, PeerManagerMessageRequest};
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, PeerManagerAdapter,
 };
+#[cfg(feature = "test_features")]
+use near_network_primitives::types::NetworkAdversarialMessage;
+#[cfg(feature = "sandbox")]
+use near_network_primitives::types::NetworkSandboxMessage;
 use near_performance_metrics;
 use near_performance_metrics_macros::{perf, perf_with_debug};
 use near_primitives::hash::CryptoHash;
@@ -65,6 +67,7 @@ use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
     StatusError, StatusSyncInfo, SyncStatus,
 };
+use near_network_primitives::types::ReasonForBan;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::syncing::StatePartKey;
 use near_store::db::DBCol::ColStateParts;
