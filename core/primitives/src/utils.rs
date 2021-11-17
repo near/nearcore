@@ -107,7 +107,7 @@ impl<T> MaybeValidated<T> {
     }
 
     /// Extracts the payload whether or not it’s been validated.
-    pub fn extract(self) -> T {
+    pub fn into_inner(self) -> T {
         self.payload
     }
 }

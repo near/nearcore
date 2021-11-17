@@ -895,7 +895,7 @@ impl Client {
                         Ok(self.process_blocks_with_missing_chunks(protocol_version))
                     }
                     ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts => {
-                        let chunk_header = pec_v2.extract().header;
+                        let chunk_header = pec_v2.into_inner().header;
                         self.shards_mgr.request_chunks(
                             iter::once(chunk_header),
                             &self.chain.header_head()?,
@@ -904,14 +904,14 @@ impl Client {
                         Ok(vec![])
                     }
                     ProcessPartialEncodedChunkResult::NeedBlock => {
-                        missing_block_handler(self, pec_v2.extract())
+                        missing_block_handler(self, pec_v2.into_inner())
                     }
                 }
             }
 
             // If the epoch_id cannot be looked up then we have not processed
             // `partial_encoded_chunk.prev_block()` yet.
-            Err(_) => missing_block_handler(self, partial_encoded_chunk.extract().into()),
+            Err(_) => missing_block_handler(self, partial_encoded_chunk.into_inner().into()),
         }
     }
 
