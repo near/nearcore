@@ -488,7 +488,6 @@ impl PeerActor {
             | PeerMessage::PeersRequest
             | PeerMessage::PeersResponse(_)
             | PeerMessage::RoutingTableSync(_)
-            | PeerMessage::RoutingTableSyncV2(_)
             | PeerMessage::LastEdge(_)
             | PeerMessage::Disconnect
             | PeerMessage::RequestUpdateNonce(_)
@@ -497,6 +496,11 @@ impl PeerActor {
             | PeerMessage::BlockHeadersRequest(_)
             | PeerMessage::EpochSyncRequest(_)
             | PeerMessage::EpochSyncFinalizationRequest(_) => {
+                error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", msg);
+                return;
+            }
+            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+            PeerMessage::RoutingTableSyncV2(_) => {
                 error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", msg);
                 return;
             }

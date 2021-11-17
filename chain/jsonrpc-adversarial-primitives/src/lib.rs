@@ -1,6 +1,5 @@
 #[cfg(feature = "ser_de")]
 use near_jsonrpc_primitives::errors::RpcError;
-use near_network::routing::edge::{Edge, SimpleEdge};
 use near_primitives::network::PeerId;
 #[cfg(feature = "ser_de")]
 use serde::Deserialize;

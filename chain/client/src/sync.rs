@@ -1289,7 +1289,7 @@ mod test {
 
     use super::*;
     use crate::test_utils::TestEnv;
-    use near_network::routing::edge::EdgeInfo;
+    use near_network::routing::EdgeInfo;
     use near_network::PeerInfo;
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
