@@ -22,6 +22,7 @@ use near_network_primitives::types::{
     ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
     UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
+use near_performance_metrics;
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
@@ -35,7 +36,6 @@ use near_primitives::version::{
 use near_primitives::{logging, unwrap_option_or_return};
 use near_rate_limiter::ThrottleController;
 use near_rust_allocator_proxy::allocator::get_tid;
-use {near_metrics, near_performance_metrics};
 
 use crate::peer::tracker::Tracker;
 use crate::routing::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
