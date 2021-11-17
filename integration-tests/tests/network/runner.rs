@@ -374,8 +374,6 @@ impl StateMachine {
                             })
                             .collect();
 
-                        let time = Mutex::new(Instant::now());
-
                         actix::spawn(
                             info.read()
                                 .unwrap()
