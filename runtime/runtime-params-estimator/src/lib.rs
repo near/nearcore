@@ -68,6 +68,7 @@ use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{ExtCosts, VMConfig};
+use near_vm_runner::MockCompiledContractCache;
 use num_rational::Ratio;
 use rand::Rng;
 use vm_estimator::compute_compile_cost_vm;
@@ -595,6 +596,7 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
     let config = VMConfig::test();
     let fees = RuntimeFeesConfig::test();
     let promise_results = vec![];
+    let cache = MockCompiledContractCache::default();
 
     let mut run = || {
         let context = create_context(vec![]);
@@ -608,7 +610,7 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
             &promise_results,
             vm_kind,
             PROTOCOL_VERSION,
-            None,
+            Some(&cache),
         );
         match (outcome, err) {
             (Some(it), Some(_)) => it,
