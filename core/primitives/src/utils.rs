@@ -25,39 +25,97 @@ pub mod min_heap;
 /// Number of nano seconds in a second.
 const NS_IN_SECOND: u64 = 1_000_000_000;
 
-/// A data structure for tagging data as already being validated to prevent redundant work.
-pub enum MaybeValidated<T> {
-    Validated(T),
-    NotValidated(T),
+/// A data structure for tagging data as already being validated to prevent
+/// redundant work.
+///
+/// # Examples
+///
+/// ```
+/// struct Foo;
+/// struct Error;
+///
+/// fn validate_foo(foo: &Foo) -> Result<bool, Error>;
+///
+/// fn do_stuff(foo: Foo) {
+///     let foo = MaybeValidated::from(foo);
+///     do_stuff_with_foo(&foo);
+///     if foo.validate_with(validate_foo) {
+///         println!("^_^");
+///     }
+/// }
+///
+/// fn do_stuff_with_foo(foo: &MaybeValidated<Foo) {
+///     // …
+///     if maybe_do_something && foo.validate_with(validate_foo) {
+///         do_some_stuff;
+///     }
+///     // …
+/// }
+/// ```
+#[derive(Clone)]
+pub struct MaybeValidated<T> {
+    validated: std::cell::Cell<bool>,
+    payload: T,
 }
 
 impl<T> MaybeValidated<T> {
-    pub fn validate_with<E, F: FnOnce(&T) -> Result<bool, E>>(&self, f: F) -> Result<bool, E> {
-        match &self {
-            Self::Validated(_) => Ok(true),
-            Self::NotValidated(t) => f(t),
+    /// Creates new MaybeValidated object marking payload as validated.  No
+    /// verification is performed; it’s caller’s responsibility to make sure the
+    /// payload was indeed validated.
+    pub fn from_validated(payload: T) -> Self {
+        Self { validated: std::cell::Cell::new(true), payload }
+    }
+
+    /// Validates payload with given `validator` function and returns result of
+    /// the validation.  If payload has already been validated returns
+    /// `Ok(true)`.  Note that this method changes the internal validated flag
+    /// so it’s probably incorrect to call it with different `validator`
+    /// functions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let value = MaybeValidated::from(42);
+    /// assert_eq!(Ok(true), value.validate_with::<()>(|v| Ok(*v == 42)));
+    /// assert_eq!(Ok(true), value.validate_with::<()>(|_| panic!()));
+    /// ```
+    pub fn validate_with<E, F: FnOnce(&T) -> Result<bool, E>>(
+        &self,
+        validator: F,
+    ) -> Result<bool, E> {
+        if self.validated.get() {
+            Ok(true)
+        } else {
+            let res = validator(&self.payload);
+            self.validated.set(*res.as_ref().unwrap_or(&false));
+            res
         }
     }
 
-    pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> MaybeValidated<U> {
-        match self {
-            Self::Validated(t) => MaybeValidated::Validated(f(t)),
-            Self::NotValidated(t) => MaybeValidated::NotValidated(f(t)),
-        }
+    /// Applies function to the payload (whether it’s been validated or not) and
+    /// returns new object with result of the function as payload.  Validated
+    /// state is not changed.
+    pub fn map<U, F: FnOnce(T) -> U>(self, validator: F) -> MaybeValidated<U> {
+        MaybeValidated { validated: self.validated, payload: validator(self.payload) }
     }
 
+    /// Returns a new object storing reference to this object’s payload.  Note
+    /// that the two objects do not share the validated state so calling
+    /// `validate_with` on one of them does not affect the other.
     pub fn as_ref(&self) -> MaybeValidated<&T> {
-        match &self {
-            Self::Validated(ref t) => MaybeValidated::Validated(t),
-            Self::NotValidated(ref t) => MaybeValidated::NotValidated(t),
-        }
+        MaybeValidated { validated: self.validated.clone(), payload: &self.payload }
     }
 
+    /// Extracts the payload whether or not it’s been validated.
     pub fn extract(self) -> T {
-        match self {
-            Self::Validated(t) => t,
-            Self::NotValidated(t) => t,
-        }
+        self.payload
+    }
+}
+
+impl<T> From<T> for MaybeValidated<T> {
+    /// Creates new MaybeValidated object marking payload as not validated.
+    fn from(payload: T) -> Self {
+        Self { validated: std::cell::Cell::new(false), payload }
     }
 }
 
@@ -65,10 +123,7 @@ impl<T: Sized> Deref for MaybeValidated<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        match &self {
-            Self::Validated(t) => t,
-            Self::NotValidated(t) => t,
-        }
+        &self.payload
     }
 }
 
