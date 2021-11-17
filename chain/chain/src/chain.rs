@@ -774,7 +774,7 @@ impl Chain {
         F3: Copy + FnMut(ChallengeBody) -> (),
     {
         let block_hash = *block.hash();
-        let timer = near_metrics::start_timer(&metrics::BLOCK_PROCESSING_TIME);
+        let timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
         let res = self.process_block_single(
             me,
             block,
@@ -783,9 +783,9 @@ impl Chain {
             block_misses_chunks,
             on_challenge,
         );
-        near_metrics::stop_timer(timer);
+        timer.observe_duration();
         if res.is_ok() {
-            near_metrics::inc_counter(&metrics::BLOCK_PROCESSED_SUCCESSFULLY_TOTAL);
+            metrics::BLOCK_PROCESSED_SUCCESSFULLY_TOTAL.inc();
 
             if let Some(new_res) = self.check_orphans(
                 me,
@@ -1091,8 +1091,8 @@ impl Chain {
         F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
         F3: FnMut(ChallengeBody) -> (),
     {
-        near_metrics::inc_counter(&metrics::BLOCK_PROCESSED_TOTAL);
-        near_metrics::set_gauge(&metrics::NUM_ORPHANS, self.orphans.len() as i64);
+        metrics::BLOCK_PROCESSED_TOTAL.inc();
+        metrics::NUM_ORPHANS.set(self.orphans.len() as i64);
 
         let prev_head = self.store.head()?;
         let mut chain_update = self.chain_update();
@@ -1126,11 +1126,9 @@ impl Chain {
                                 }
                             }
                             stake /= NEAR_BASE;
-                            near_metrics::set_gauge(
-                                &metrics::VALIDATOR_AMOUNT_STAKED,
-                                i64::try_from(stake).unwrap_or(i64::MAX),
-                            );
-                            near_metrics::set_gauge(&metrics::VALIDATOR_ACTIVE_TOTAL, count);
+                            metrics::VALIDATOR_AMOUNT_STAKED
+                                .set(i64::try_from(stake).unwrap_or(i64::MAX));
+                            metrics::VALIDATOR_ACTIVE_TOTAL.set(count);
                         }
                     }
                     None => {}
@@ -1324,7 +1322,7 @@ impl Chain {
                 debug!(target: "chain", "Check orphans: found {} orphans", orphans.len());
                 for orphan in orphans.into_iter() {
                     let block_hash = *orphan.block.hash();
-                    let timer = near_metrics::start_timer(&metrics::BLOCK_PROCESSING_TIME);
+                    let timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
                     let res = self.process_block_single(
                         me,
                         orphan.block,
@@ -1333,10 +1331,10 @@ impl Chain {
                         block_misses_chunks,
                         on_challenge,
                     );
-                    near_metrics::stop_timer(timer);
+                    timer.observe_duration();
                     match res {
                         Ok(maybe_tip) => {
-                            near_metrics::inc_counter(&metrics::BLOCK_PROCESSED_SUCCESSFULLY_TOTAL);
+                            metrics::BLOCK_PROCESSED_SUCCESSFULLY_TOTAL.inc();
                             maybe_new_head = maybe_tip;
                             queue.push(block_hash);
                         }
@@ -4177,7 +4175,7 @@ impl<'a> ChainUpdate<'a> {
             let tip = Tip::from_header(header);
 
             self.chain_store_update.save_body_head(&tip)?;
-            near_metrics::set_gauge(&metrics::BLOCK_HEIGHT_HEAD, tip.height as i64);
+            metrics::BLOCK_HEIGHT_HEAD.set(tip.height as i64);
             debug!(target: "chain", "Head updated to {} at {}", tip.last_block_hash, tip.height);
             Ok(Some(tip))
         } else {

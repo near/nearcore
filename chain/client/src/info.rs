@@ -8,7 +8,6 @@ use log::info;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
 
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
-use near_metrics::set_gauge;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
@@ -152,14 +151,14 @@ impl InfoHelper {
         };
 
         let is_validator = validator_info.map(|v| v.is_validator).unwrap_or_default();
-        set_gauge(&metrics::IS_VALIDATOR, is_validator as i64);
-        set_gauge(&metrics::RECEIVED_BYTES_PER_SECOND, network_info.received_bytes_per_sec as i64);
-        set_gauge(&metrics::SENT_BYTES_PER_SECOND, network_info.sent_bytes_per_sec as i64);
-        set_gauge(&metrics::BLOCKS_PER_MINUTE, (avg_bls * (60 as f64)) as i64);
-        set_gauge(&metrics::CPU_USAGE, cpu_usage as i64);
-        set_gauge(&metrics::MEMORY_USAGE, (memory_usage * 1024) as i64);
+        (metrics::IS_VALIDATOR.set(is_validator as i64));
+        (metrics::RECEIVED_BYTES_PER_SECOND.set(network_info.received_bytes_per_sec as i64));
+        (metrics::SENT_BYTES_PER_SECOND.set(network_info.sent_bytes_per_sec as i64));
+        (metrics::BLOCKS_PER_MINUTE.set((avg_bls * (60 as f64)) as i64));
+        (metrics::CPU_USAGE.set(cpu_usage as i64));
+        (metrics::MEMORY_USAGE.set((memory_usage * 1024) as i64));
         let teragas = 1_000_000_000_000u64;
-        set_gauge(&metrics::AVG_TGAS_USAGE, (avg_gas_used as f64 / teragas as f64).round() as i64);
+        (metrics::AVG_TGAS_USAGE.set((avg_gas_used as f64 / teragas as f64).round() as i64));
 
         self.started = Clock::instant();
         self.num_blocks_processed = 0;
