@@ -22,13 +22,9 @@ use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::routing::edge::EdgeInfo;
 use near_network::test_utils::MockPeerManagerAdapter;
-use near_network::types::{
-    AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
-    PeerChainInfoV2, PeerManagerMessageRequest, PeerManagerMessageResponse,
-};
 use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRecipient, NetworkRequests,
-    NetworkResponses, PeerInfo, PeerManagerActor, PeerManagerAdapter,
+    NetworkResponses, PeerManagerActor, PeerManagerAdapter,
 };
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
@@ -54,6 +50,12 @@ use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor}
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_chain::types::AcceptedBlock;
 use near_client_primitives::types::Error;
+use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
+use near_network_primitives::types::{
+    AccountOrPeerIdOrHash, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfoV2,
+    PeerInfo,
+};
+use near_primitives::network::PeerId;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::time::{Clock, Instant};
 use near_primitives::utils::MaybeValidated;
@@ -140,7 +142,7 @@ pub fn setup(
         config,
         chain_genesis,
         runtime,
-        PublicKey::empty(KeyType::ED25519).into(),
+        PeerId::new(PublicKey::empty(KeyType::ED25519)),
         network_adapter,
         Some(signer),
         telemetry,

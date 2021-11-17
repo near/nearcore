@@ -59,11 +59,11 @@ fn get_all_edges_bench_new2(bench: &mut Bencher) {
     let mut new_edges_info = HashMap::new();
     for edge in all_edges {
         let edge = EdgeNew {
-            key: Arc::new((edge.key.0.clone(), edge.key.1.clone())),
-            nonce: edge.nonce,
-            signature0: edge.signature0.clone(),
-            signature1: edge.signature1.clone(),
-            removal_info: edge.removal_info.clone(),
+            key: Arc::new(edge.key().clone()),
+            nonce: edge.nonce(),
+            signature0: edge.signature0().clone(),
+            signature1: edge.signature1().clone(),
+            removal_info: edge.removal_info().cloned(),
         };
 
         new_edges_info.insert(edge.key.clone(), Arc::new(edge));
@@ -85,11 +85,11 @@ fn get_all_edges_bench_new3(bench: &mut Bencher) {
     let mut new_edges_info = HashMap::new();
     for edge in all_edges {
         let edge = EdgeNew2 {
-            key: (Arc::new(edge.key.0.clone()), Arc::new(edge.key.1.clone())),
-            nonce: edge.nonce,
-            signature0: edge.signature0.clone(),
-            signature1: edge.signature1.clone(),
-            removal_info: edge.removal_info.clone(),
+            key: (Arc::new(edge.key().0.clone()), Arc::new(edge.key().1.clone())),
+            nonce: edge.nonce(),
+            signature0: edge.signature0().clone(),
+            signature1: edge.signature1().clone(),
+            removal_info: edge.removal_info().cloned(),
         };
 
         new_edges_info.insert(edge.key.clone(), Arc::new(edge));
@@ -105,7 +105,7 @@ fn get_all_edges_bench_new3(bench: &mut Bencher) {
 fn benchmark_sign_edge(bench: &mut Bencher) {
     let sk = SecretKey::from_seed(KeyType::ED25519, "1234");
 
-    let p0 = PeerId::from(sk.public_key());
+    let p0 = PeerId::new(sk.public_key());
     let p1 = PeerId::random();
 
     bench.iter(|| {

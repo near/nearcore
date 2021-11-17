@@ -18,8 +18,12 @@ use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use near_crypto::Signature;
-use near_metrics;
-use near_network_primitives::types::PeerIdOrHash;
+use near_network_primitives::types::{
+    Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2,
+    PeerIdOrHash, PeerManagerRequest, PeerStatsResult, PeerStatus, PeerType, QueryPeerStats,
+    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+};
 use near_performance_metrics;
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
@@ -41,16 +45,14 @@ use crate::routing::codec::{self, bytes_to_peer_message, peer_message_to_bytes, 
 use crate::routing::edge::{Edge, EdgeInfo};
 use crate::stats::metrics::{self, NetworkMetrics};
 use crate::types::{
-    Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
-    NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2, PeerInfo,
-    PeerManagerMessageRequest, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse,
-    PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
-    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage,
-    StateResponseInfo, Unregister, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+    Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
+    PeerManagerMessageRequest, PeerMessage, PeerRequest, PeerResponse, PeersRequest, PeersResponse,
+    SendMessage, Unregister,
 };
-use crate::NetworkResponses;
-use crate::PeerManagerActor;
+use crate::{
+    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
+    PeerManagerActor,
+};
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
@@ -399,20 +401,20 @@ impl PeerActor {
 
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
-        near_metrics::inc_counter(&metrics::PEER_CLIENT_MESSAGE_RECEIVED_TOTAL);
+        metrics::PEER_CLIENT_MESSAGE_RECEIVED_TOTAL.inc();
         let peer_id = unwrap_option_or_return!(self.peer_id());
 
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
-                near_metrics::inc_counter(&metrics::PEER_BLOCK_RECEIVED_TOTAL);
+                metrics::PEER_BLOCK_RECEIVED_TOTAL.inc();
                 let block_hash = *block.hash();
                 self.tracker.push_received(block_hash);
                 self.chain_info.height = max(self.chain_info.height, block.header().height());
                 NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(&block_hash))
             }
             PeerMessage::Transaction(transaction) => {
-                near_metrics::inc_counter(&metrics::PEER_TRANSACTION_RECEIVED_TOTAL);
+                metrics::PEER_TRANSACTION_RECEIVED_TOTAL.inc();
                 NetworkClientMessages::Transaction {
                     transaction,
                     is_forwarded: false,
@@ -550,7 +552,7 @@ impl Actor for PeerActor {
     type Context = Context<PeerActor>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        near_metrics::inc_gauge(&metrics::PEER_CONNECTIONS_TOTAL);
+        metrics::PEER_CONNECTIONS_TOTAL.inc();
         // Fetch genesis hash from the client.
         self.fetch_client_chain_info(ctx);
 
@@ -572,7 +574,7 @@ impl Actor for PeerActor {
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
         self.peer_counter.fetch_sub(1, Ordering::SeqCst);
-        near_metrics::dec_gauge(&metrics::PEER_CONNECTIONS_TOTAL);
+        metrics::PEER_CONNECTIONS_TOTAL.dec();
         debug!(target: "network", "{:?}: Peer {} disconnected. {:?}", self.node_info.id, self.peer_info, self.peer_status);
         if let Some(peer_info) = self.peer_info.as_ref() {
             if let PeerStatus::Banned(ban_reason) = self.peer_status {
@@ -617,8 +619,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
         // TODO(#5155) We should change our code to track size of messages received from Peer
         // as long as it travels to PeerManager, etc.
 
-        near_metrics::inc_counter_by(&metrics::PEER_DATA_RECEIVED_BYTES, msg.len() as u64);
-        near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
+        metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg.len() as u64);
+        metrics::PEER_MESSAGE_RECEIVED_TOTAL.inc();
 
         self.tracker.increment_received(msg.len() as u64);
         if codec::is_forward_tx(&msg).unwrap_or(false) {
@@ -754,7 +756,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 }
 
                 if handshake.peer_id == self.node_info.id {
-                    near_metrics::inc_counter(&metrics::RECEIVED_INFO_ABOUT_ITSELF);
+                    metrics::RECEIVED_INFO_ABOUT_ITSELF.inc();
                     debug!(target: "network", "Received info about itself. Disconnecting this peer.");
                     ctx.stop();
                     return;

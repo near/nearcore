@@ -9,10 +9,12 @@ use actix::{Actor, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 use conqueue::{QueueReceiver, QueueSender};
+use near_network_primitives::types::{PeerIdOrHash, Ping, Pong};
 #[cfg(feature = "test_features")]
 use serde::Serialize;
 use tracing::warn;
 
+use crate::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
@@ -20,11 +22,7 @@ use near_store::{ColAccountAnnouncements, Store};
 
 use crate::routing::edge::{Edge, SimpleEdge};
 use crate::routing::route_back_cache::RouteBackCache;
-use crate::PeerInfo;
-use crate::{
-    types::{PeerIdOrHash, Ping, Pong},
-    utils::cache_to_hashmap,
-};
+use crate::utils::cache_to_hashmap;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const ROUTE_BACK_CACHE_SIZE: u64 = 100_000;
@@ -175,7 +173,7 @@ impl RoutingTableView {
     /// Works only for local edges.
     pub fn is_local_edge_newer(&self, key: &(PeerId, PeerId), nonce: u64) -> bool {
         assert!(key.0 == self.my_peer_id || key.1 == self.my_peer_id);
-        self.local_edges_info.get(&key).map_or(0, |x| x.nonce) < nonce
+        self.local_edges_info.get(&key).map_or(0, |x| x.nonce()) < nonce
     }
 
     pub fn reachable_peers(&self) -> impl Iterator<Item = &PeerId> {
@@ -260,9 +258,8 @@ impl RoutingTableView {
 
     pub fn remove_edges(&mut self, edges: &Vec<Edge>) {
         for edge in edges.iter() {
-            assert!(edge.key.0 == self.my_peer_id || edge.key.1 == self.my_peer_id);
-            let key = (edge.key.0.clone(), edge.key.1.clone());
-            self.local_edges_info.remove(&key);
+            assert!(edge.key().0 == self.my_peer_id || edge.key().1 == self.my_peer_id);
+            self.local_edges_info.remove(&edge.key());
         }
     }
 
