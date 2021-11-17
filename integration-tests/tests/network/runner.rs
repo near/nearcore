@@ -416,15 +416,6 @@ impl StateMachine {
                                             num_prev_actions, source, pings, pongs, pings_expected, pongs_expected);
                                         if ping_ok && pong_ok {
                                             flag.store(true, Ordering::Relaxed);
-                                        } else {
-                                            if time.lock().unwrap().elapsed()
-                                                > Duration::from_secs(10)
-                                            {
-                                                panic!(
-                                                    "ping, pong check failed got: {:?} {:?}",
-                                                    pings, pongs
-                                                );
-                                            }
                                         }
                                     }
 
