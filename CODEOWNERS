@@ -4,6 +4,7 @@
 /chain/client/src/view_client.rs @frol @khorolets @chefsale
 /chain/client-primitives/ @frol @khorolets @chefsale
 /chain/network/ @mm-near @bowenwang1996 @pmnoxx
+/chain/network-primitives/ @mm-near @pmnoxx
 /chain/jsonrpc/ @frol @khorolets @chefsale
 /chain/jsonrpc-primitives/ @frol @khorolets @chefsale
 /chain/indexer/ @khorolets @frol
@@ -19,10 +20,10 @@
 /tools/rpctypegen/ @frol
 /tools/indexer/ @khorolets @frol
 
-/core/  @bowenwang1996 @frol @matklad
+/core/  @bowenwang1996 @frol @matklad @mm-near
 /core/store/src/trie @mzhangmzz @longarithm
-/neard/ @bowenwang1996 @frol
-/nearcore/ @bowenwang1996 @frol
+/neard/ @bowenwang1996 @frol @mm-near
+/nearcore/ @bowenwang1996 @frol @mm-near
 /test-utils/state-viewer @nikurt
 /test-utils/runtime-tester @posvyatokum @matklad
 

@@ -22,11 +22,7 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
-use near_network::types::{PartialEncodedChunkResponseMsg, PeerManagerMessageRequest};
-use near_network::{
-    FullPeerInfo, NetworkClientResponses, NetworkRequests, PeerManagerAdapter,
-    EPOCH_SYNC_PEER_TIMEOUT_MS, EPOCH_SYNC_REQUEST_TIMEOUT_MS,
-};
+use near_network::{FullPeerInfo, NetworkClientResponses, NetworkRequests, PeerManagerAdapter};
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
@@ -50,12 +46,21 @@ use crate::metrics;
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::SyncStatus;
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
+use near_network::types::PeerManagerMessageRequest;
+use near_network_primitives::types::{
+    PartialEncodedChunkForwardMsg, PartialEncodedChunkResponseMsg,
+};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 
-use near_network::types::PartialEncodedChunkForwardMsg;
-
 const NUM_REBROADCAST_BLOCKS: usize = 30;
+
+/// The time we wait for the response to a Epoch Sync request before retrying
+// TODO #3488 set 30_000
+pub const EPOCH_SYNC_REQUEST_TIMEOUT: Duration = Duration::from_millis(1_000);
+/// How frequently a Epoch Sync response can be sent to a particular peer
+// TODO #3488 set 60_000
+pub const EPOCH_SYNC_PEER_TIMEOUT: Duration = Duration::from_millis(10);
 
 pub struct Client {
     /// Adversarial controls
@@ -135,8 +140,8 @@ impl Client {
                 .iter()
                 .map(|x| x.0.clone().into())
                 .collect(),
-            Duration::from_millis(EPOCH_SYNC_REQUEST_TIMEOUT_MS),
-            Duration::from_millis(EPOCH_SYNC_PEER_TIMEOUT_MS),
+            EPOCH_SYNC_REQUEST_TIMEOUT,
+            EPOCH_SYNC_PEER_TIMEOUT,
         );
         let header_sync = HeaderSync::new(
             network_adapter.clone(),
@@ -1167,21 +1172,23 @@ impl Client {
         // Process stored partial encoded chunks
         let next_height = block.header().height() + 1;
         let mut partial_encoded_chunks =
-            self.shards_mgr.get_stored_partial_encoded_chunks(next_height);
-        for (_shard_id, partial_encoded_chunk) in partial_encoded_chunks.drain() {
-            let chunk =
-                MaybeValidated::NotValidated(PartialEncodedChunk::V2(partial_encoded_chunk));
-            if let Ok(accepted_blocks) = self.process_partial_encoded_chunk(chunk) {
-                // Executing process_partial_encoded_chunk can unlock some blocks.
-                // Any block that is in the blocks_with_missing_chunks which doesn't have any chunks
-                // for which we track shards will be unblocked here.
-                for accepted_block in accepted_blocks {
-                    self.on_block_accepted_with_optional_chunk_produce(
-                        accepted_block.hash,
-                        accepted_block.status,
-                        accepted_block.provenance,
-                        skip_produce_chunk,
-                    );
+            self.shards_mgr.pop_stored_partial_encoded_chunks(next_height);
+        for (_shard_id, partial_encoded_chunks) in partial_encoded_chunks.drain() {
+            for partial_encoded_chunk in partial_encoded_chunks {
+                let chunk =
+                    MaybeValidated::NotValidated(PartialEncodedChunk::V2(partial_encoded_chunk));
+                if let Ok(accepted_blocks) = self.process_partial_encoded_chunk(chunk) {
+                    // Executing process_partial_encoded_chunk can unlock some blocks.
+                    // Any block that is in the blocks_with_missing_chunks which doesn't have any chunks
+                    // for which we track shards will be unblocked here.
+                    for accepted_block in accepted_blocks {
+                        self.on_block_accepted_with_optional_chunk_produce(
+                            accepted_block.hash,
+                            accepted_block.status,
+                            accepted_block.provenance,
+                            skip_produce_chunk,
+                        );
+                    }
                 }
             }
         }

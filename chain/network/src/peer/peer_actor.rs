@@ -2,10 +2,8 @@ use std::cmp::max;
 use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
-};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use actix::{
@@ -18,147 +16,55 @@ use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use near_crypto::Signature;
-use near_metrics;
-use near_network_primitives::types::PeerIdOrHash;
+use near_network_primitives::types::{
+    Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2,
+    PeerIdOrHash, PeerManagerRequest, PeerStatsResult, PeerStatus, PeerType, QueryPeerStats,
+    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+};
 use near_performance_metrics;
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
-use near_primitives::hash::CryptoHash;
-use near_primitives::logging;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::time::Clock;
-use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
+use near_primitives::{logging, unwrap_option_or_return};
 use near_rate_limiter::ThrottleController;
 use near_rust_allocator_proxy::allocator::get_tid;
 
+use crate::peer::tracker::Tracker;
 use crate::routing::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
-use crate::routing::routing::{EdgeInfo, EdgeInner};
+use crate::routing::edge::{Edge, EdgeInfo};
 use crate::stats::metrics::{self, NetworkMetrics};
-use crate::stats::rate_counter::RateCounter;
 use crate::types::{
-    Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
-    NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2, PeerInfo,
-    PeerManagerMessageRequest, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse,
-    PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
-    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage,
-    StateResponseInfo, Unregister, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+    Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
+    PeerManagerMessageRequest, PeerMessage, PeerRequest, PeerResponse, PeersRequest, PeersResponse,
+    SendMessage, Unregister,
 };
-use crate::NetworkResponses;
-use crate::PeerManagerActor;
+use crate::{
+    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
+    PeerManagerActor,
+};
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
-/// Maximum number of requests and responses to track.
-const MAX_TRACK_SIZE: usize = 30;
 /// Maximum number of messages per minute from single peer.
 // TODO: current limit is way to high due to us sending lots of messages during sync.
-const MAX_PEER_MSG_PER_MIN: u64 = std::u64::MAX;
+const MAX_PEER_MSG_PER_MIN: u64 = u64::MAX;
 
 /// Maximum number of transaction messages we will accept between block messages.
 /// The purpose of this constant is to ensure we do not spend too much time deserializing and
 /// dispatching transactions when we should be focusing on consensus-related messages.
 const MAX_TXNS_PER_BLOCK_MESSAGE: usize = 1000;
-
-/// The time we wait for the response to a Epoch Sync request before retrying
-// TODO #3488 set 30_000
-pub const EPOCH_SYNC_REQUEST_TIMEOUT_MS: u64 = 1_000;
-/// How frequently a Epoch Sync response can be sent to a particular peer
-// TODO #3488 set 60_000
-pub const EPOCH_SYNC_PEER_TIMEOUT_MS: u64 = 10;
 /// Limit cache size of 1000 messages
 pub const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
 pub const DROP_DUPLICATED_MESSAGES_PERIOD: Duration = Duration::from_millis(50);
-
-/// Internal structure to keep a circular queue within a tracker with unique hashes.
-struct CircularUniqueQueue {
-    v: Vec<CryptoHash>,
-    index: usize,
-    limit: usize,
-}
-
-impl CircularUniqueQueue {
-    pub fn new(limit: usize) -> Self {
-        assert!(limit > 0);
-        Self { v: Vec::with_capacity(limit), index: 0, limit }
-    }
-
-    pub fn contains(&self, hash: &CryptoHash) -> bool {
-        self.v.contains(hash)
-    }
-
-    /// Pushes an element if it's not in the queue already. The queue will pop the oldest element.
-    pub fn push(&mut self, hash: CryptoHash) {
-        if !self.contains(&hash) {
-            if self.v.len() < self.limit {
-                self.v.push(hash);
-            } else {
-                self.v[self.index] = hash;
-                self.index += 1;
-                if self.index == self.limit {
-                    self.index = 0;
-                }
-            }
-        }
-    }
-}
-
-/// Keeps track of requests and received hashes of transactions and blocks.
-/// Also keeps track of number of bytes sent and received from this peer to prevent abuse.
-pub struct Tracker {
-    /// Bytes we've sent.
-    sent_bytes: RateCounter,
-    /// Bytes we've received.
-    received_bytes: RateCounter,
-    /// Sent requests.
-    requested: CircularUniqueQueue,
-    /// Received elements.
-    received: CircularUniqueQueue,
-}
-
-impl Default for Tracker {
-    fn default() -> Self {
-        Tracker {
-            sent_bytes: RateCounter::new(),
-            received_bytes: RateCounter::new(),
-            requested: CircularUniqueQueue::new(MAX_TRACK_SIZE),
-            received: CircularUniqueQueue::new(MAX_TRACK_SIZE),
-        }
-    }
-}
-
-impl Tracker {
-    fn increment_received(&mut self, size: u64) {
-        self.received_bytes.increment(size);
-    }
-
-    fn increment_sent(&mut self, size: u64) {
-        self.sent_bytes.increment(size);
-    }
-
-    fn has_received(&self, hash: &CryptoHash) -> bool {
-        self.received.contains(hash)
-    }
-
-    fn push_received(&mut self, hash: CryptoHash) {
-        self.received.push(hash);
-    }
-
-    fn has_request(&self, hash: &CryptoHash) -> bool {
-        self.requested.contains(hash)
-    }
-
-    fn push_request(&mut self, hash: CryptoHash) {
-        self.requested.push(hash);
-    }
-}
 
 pub struct PeerActor {
     /// This node's id and address (either listening or socket address).
@@ -199,8 +105,6 @@ pub struct PeerActor {
     txns_since_last_block: Arc<AtomicUsize>,
     /// How many peer actors are created
     peer_counter: Arc<AtomicUsize>,
-    /// The last time a Epoch Sync request was received from this peer
-    last_time_received_epoch_sync_request: Instant,
     /// Cache of recently routed messages, this allows us to drop duplicates
     routed_message_cache: SizedCache<(PeerId, PeerIdOrHash, Signature), Instant>,
     /// A helper data structure for limiting reading
@@ -251,8 +155,6 @@ impl PeerActor {
             network_metrics,
             txns_since_last_block,
             peer_counter,
-            last_time_received_epoch_sync_request: Clock::instant()
-                - Duration::from_millis(EPOCH_SYNC_PEER_TIMEOUT_MS),
             routed_message_cache: SizedCache::with_size(ROUTED_MESSAGE_CACHE_SIZE),
             throttle_controller,
         }
@@ -423,7 +325,6 @@ impl PeerActor {
                 NetworkViewClientMessages::BlockHeadersRequest(hashes)
             }
             PeerMessage::EpochSyncRequest(epoch_id) => {
-                self.last_time_received_epoch_sync_request = Clock::instant();
                 NetworkViewClientMessages::EpochSyncRequest { epoch_id }
             }
             PeerMessage::EpochSyncFinalizationRequest(epoch_id) => {
@@ -497,20 +398,20 @@ impl PeerActor {
 
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
-        near_metrics::inc_counter(&metrics::PEER_CLIENT_MESSAGE_RECEIVED_TOTAL);
+        metrics::PEER_CLIENT_MESSAGE_RECEIVED_TOTAL.inc();
         let peer_id = unwrap_option_or_return!(self.peer_id());
 
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
-                near_metrics::inc_counter(&metrics::PEER_BLOCK_RECEIVED_TOTAL);
+                metrics::PEER_BLOCK_RECEIVED_TOTAL.inc();
                 let block_hash = *block.hash();
                 self.tracker.push_received(block_hash);
                 self.chain_info.height = max(self.chain_info.height, block.header().height());
                 NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(&block_hash))
             }
             PeerMessage::Transaction(transaction) => {
-                near_metrics::inc_counter(&metrics::PEER_TRANSACTION_RECEIVED_TOTAL);
+                metrics::PEER_TRANSACTION_RECEIVED_TOTAL.inc();
                 NetworkClientMessages::Transaction {
                     transaction,
                     is_forwarded: false,
@@ -648,7 +549,7 @@ impl Actor for PeerActor {
     type Context = Context<PeerActor>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        near_metrics::inc_gauge(&metrics::PEER_CONNECTIONS_TOTAL);
+        metrics::PEER_CONNECTIONS_TOTAL.inc();
         // Fetch genesis hash from the client.
         self.fetch_client_chain_info(ctx);
 
@@ -670,7 +571,7 @@ impl Actor for PeerActor {
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
         self.peer_counter.fetch_sub(1, Ordering::SeqCst);
-        near_metrics::dec_gauge(&metrics::PEER_CONNECTIONS_TOTAL);
+        metrics::PEER_CONNECTIONS_TOTAL.dec();
         debug!(target: "network", "{:?}: Peer {} disconnected. {:?}", self.node_info.id, self.peer_info, self.peer_status);
         if let Some(peer_info) = self.peer_info.as_ref() {
             if let PeerStatus::Banned(ban_reason) = self.peer_status {
@@ -715,8 +616,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
         // TODO(#5155) We should change our code to track size of messages received from Peer
         // as long as it travels to PeerManager, etc.
 
-        near_metrics::inc_counter_by(&metrics::PEER_DATA_RECEIVED_BYTES, msg.len() as u64);
-        near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
+        metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg.len() as u64);
+        metrics::PEER_MESSAGE_RECEIVED_TOTAL.inc();
 
         self.tracker.increment_received(msg.len() as u64);
         if codec::is_forward_tx(&msg).unwrap_or(false) {
@@ -761,7 +662,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
             let now = Clock::instant();
             if let Some(time) = self.routed_message_cache.cache_get(&key) {
-                if now.duration_since(*time) <= DROP_DUPLICATED_MESSAGES_PERIOD {
+                if now.saturating_duration_since(*time) <= DROP_DUPLICATED_MESSAGES_PERIOD {
                     debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
                     return;
                 }
@@ -852,7 +753,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 }
 
                 if handshake.peer_id == self.node_info.id {
-                    near_metrics::inc_counter(&metrics::RECEIVED_INFO_ABOUT_ITSELF);
+                    metrics::RECEIVED_INFO_ABOUT_ITSELF.inc();
                     debug!(target: "network", "Received info about itself. Disconnecting this peer.");
                     ctx.stop();
                     return;
@@ -869,7 +770,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 }
 
                 // Verify signature of the new edge in handshake.
-                if !EdgeInner::partial_verify(
+                if !Edge::partial_verify(
                     self.node_id(),
                     handshake.peer_id.clone(),
                     &handshake.edge_info,
@@ -1135,81 +1036,5 @@ impl Handler<PeerManagerRequest> for PeerActor {
                 ctx.stop();
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use near_primitives::hash::hash;
-
-    use super::*;
-
-    #[test]
-    #[should_panic]
-    fn test_circular_queue_zero_capacity() {
-        let _ = CircularUniqueQueue::new(0);
-    }
-
-    #[test]
-    fn test_circular_queue_empty_queue() {
-        let q = CircularUniqueQueue::new(5);
-
-        assert!(!q.contains(&hash(&[0])));
-    }
-
-    #[test]
-    fn test_circular_queue_partially_full_queue() {
-        let mut q = CircularUniqueQueue::new(5);
-        for i in 1..=3 {
-            q.push(hash(&[i]));
-        }
-
-        for i in 1..=3 {
-            assert!(q.contains(&hash(&[i])));
-        }
-    }
-
-    #[test]
-    fn test_circular_queue_full_queue() {
-        let mut q = CircularUniqueQueue::new(5);
-        for i in 1..=5 {
-            q.push(hash(&[i]));
-        }
-
-        for i in 1..=5 {
-            assert!(q.contains(&hash(&[i])));
-        }
-    }
-
-    #[test]
-    fn test_circular_queue_over_full_queue() {
-        let mut q = CircularUniqueQueue::new(5);
-        for i in 1..=7 {
-            q.push(hash(&[i]));
-        }
-
-        for i in 1..=2 {
-            assert!(!q.contains(&hash(&[i])));
-        }
-        for i in 3..=7 {
-            assert!(q.contains(&hash(&[i])));
-        }
-    }
-
-    #[test]
-    fn test_circular_queue_similar_inputs() {
-        let mut q = CircularUniqueQueue::new(5);
-        q.push(hash(&[5]));
-        for _ in 0..3 {
-            for i in 1..=3 {
-                for _ in 0..5 {
-                    q.push(hash(&[i]));
-                }
-            }
-        }
-        for i in 1..=3 {
-            assert!(q.contains(&hash(&[i])));
-        }
-        assert!(q.contains(&hash(&[5])));
     }
 }

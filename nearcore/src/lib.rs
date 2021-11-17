@@ -15,6 +15,7 @@ use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_network::routing::routing_table_actor::start_routing_table_actor;
 use near_network::{NetworkRecipient, PeerManagerActor};
+use near_primitives::network::PeerId;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -316,7 +317,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::from(&config.genesis);
 
-    let node_id = config.network_config.public_key.clone().into();
+    let node_id = PeerId::new(config.network_config.public_key.clone().into());
     let network_adapter = Arc::new(NetworkRecipient::new());
     #[cfg(feature = "test_features")]
     let adv = Arc::new(std::sync::RwLock::new(AdversarialControls::default()));
@@ -350,7 +351,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     config.network_config.verify();
     let network_config = config.network_config;
     let routing_table_addr =
-        start_routing_table_actor(network_config.public_key.clone().into(), store.clone());
+        start_routing_table_actor(PeerId::new(network_config.public_key.clone()), store.clone());
     #[cfg(all(feature = "json_rpc", feature = "test_features"))]
     let routing_table_addr2 = routing_table_addr.clone();
     let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {

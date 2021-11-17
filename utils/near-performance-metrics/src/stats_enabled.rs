@@ -12,8 +12,7 @@ use std::pin::Pin;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use bytesize::ByteSize;
 use strum::AsStaticRef;

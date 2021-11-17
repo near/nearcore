@@ -1,13 +1,12 @@
 #[macro_use]
 extern crate bencher;
 
-use bencher::black_box;
-use bencher::Bencher;
-use near_crypto::Signature;
+use bencher::{black_box, Bencher};
+use near_crypto::{KeyType, SecretKey, Signature};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use near_network::routing::routing::{Edge, EdgeInner};
+use near_network::routing::edge::Edge;
 use near_network::test_utils::random_peer_id;
 use near_network::RoutingTableActor;
 use near_primitives::network::PeerId;
@@ -22,7 +21,7 @@ fn build_graph(depth: usize, size: usize) -> RoutingTableActor {
 
     let mut edges: Vec<Edge> = Vec::new();
     for i in 0..size {
-        edges.push(EdgeInner::make_fake_edge(source.clone(), nodes[i].clone(), 1));
+        edges.push(Edge::make_fake_edge(source.clone(), nodes[i].clone(), 1));
     }
 
     for layer in 0..depth - 1 {
@@ -30,7 +29,7 @@ fn build_graph(depth: usize, size: usize) -> RoutingTableActor {
             for v in 0..size {
                 let peer0 = nodes[layer * size + u].clone();
                 let peer1 = nodes[(layer + 1) * size + v].clone();
-                edges.push(EdgeInner::make_fake_edge(peer0, peer1, (layer + u + v) as u64));
+                edges.push(Edge::make_fake_edge(peer0, peer1, (layer + u + v) as u64));
             }
         }
     }
@@ -59,11 +58,11 @@ fn get_all_edges_bench_new2(bench: &mut Bencher) {
     let mut new_edges_info = HashMap::new();
     for edge in all_edges {
         let edge = EdgeNew {
-            key: Arc::new((edge.key.0.clone(), edge.key.1.clone())),
-            nonce: edge.nonce,
-            signature0: edge.signature0.clone(),
-            signature1: edge.signature1.clone(),
-            removal_info: edge.removal_info.clone(),
+            key: Arc::new(edge.key().clone()),
+            nonce: edge.nonce(),
+            signature0: edge.signature0().clone(),
+            signature1: edge.signature1().clone(),
+            removal_info: edge.removal_info().cloned(),
         };
 
         new_edges_info.insert(edge.key.clone(), Arc::new(edge));
@@ -85,11 +84,11 @@ fn get_all_edges_bench_new3(bench: &mut Bencher) {
     let mut new_edges_info = HashMap::new();
     for edge in all_edges {
         let edge = EdgeNew2 {
-            key: (Arc::new(edge.key.0.clone()), Arc::new(edge.key.1.clone())),
-            nonce: edge.nonce,
-            signature0: edge.signature0.clone(),
-            signature1: edge.signature1.clone(),
-            removal_info: edge.removal_info.clone(),
+            key: (Arc::new(edge.key().0.clone()), Arc::new(edge.key().1.clone())),
+            nonce: edge.nonce(),
+            signature0: edge.signature0().clone(),
+            signature1: edge.signature1().clone(),
+            removal_info: edge.removal_info().cloned(),
         };
 
         new_edges_info.insert(edge.key.clone(), Arc::new(edge));
@@ -101,11 +100,25 @@ fn get_all_edges_bench_new3(bench: &mut Bencher) {
     });
 }
 
+#[allow(dead_code)]
+fn benchmark_sign_edge(bench: &mut Bencher) {
+    let sk = SecretKey::from_seed(KeyType::ED25519, "1234");
+
+    let p0 = PeerId::new(sk.public_key());
+    let p1 = PeerId::random();
+
+    bench.iter(|| {
+        let ei = Edge::build_hash(&p0, &p1, 123);
+        black_box(ei);
+    });
+}
+
 benchmark_group!(
     benches,
     get_all_edges_bench_old,
     get_all_edges_bench_new2,
-    get_all_edges_bench_new3
+    get_all_edges_bench_new3,
+    benchmark_sign_edge
 );
 
 benchmark_main!(benches);
