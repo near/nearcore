@@ -12,10 +12,11 @@ use near_logger_utils::init_integration_logger;
 
 use near_network::routing::routing_table_actor::start_routing_table_actor;
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeoutActor};
-use near_network::types::{
-    NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerMessageRequest, SyncData,
+use near_network::types::{PeerManagerMessageRequest, SyncData};
+use near_network::{NetworkClientResponses, NetworkRequests, PeerManagerActor};
+use near_network_primitives::types::{
+    NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
 };
-use near_network::{NetworkClientResponses, NetworkConfig, NetworkRequests, PeerManagerActor};
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_store::test_utils::create_test_store;
@@ -64,9 +65,9 @@ pub fn make_peer_manager(
 
     let net_config = NetworkConfig::from_seed(seed, port);
     let routing_table_addr =
-        start_routing_table_actor(net_config.public_key.clone().into(), store.clone());
+        start_routing_table_actor(PeerId::new(net_config.public_key.clone()), store.clone());
 
-    let peer_id = config.public_key.clone().into();
+    let peer_id = PeerId::new(config.public_key.clone());
     (
         PeerManagerActor::new(
             store,

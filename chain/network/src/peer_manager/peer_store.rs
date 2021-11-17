@@ -6,16 +6,18 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use borsh::BorshSerialize;
+use near_network_primitives::types::{
+    KnownPeerState, KnownPeerStatus, NetworkConfig, ReasonForBan,
+};
 use near_primitives::time::Utc;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use tracing::{debug, error};
 
+use crate::PeerInfo;
 use near_primitives::network::PeerId;
 use near_primitives::utils::to_timestamp;
 use near_store::{ColPeers, Store};
-
-use crate::types::{KnownPeerState, KnownPeerStatus, NetworkConfig, PeerInfo, ReasonForBan};
 
 /// Level of trust we have about a new (PeerId, Addr) pair.
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -366,6 +368,15 @@ impl PeerStore {
     }
 }
 
+/// Public method used to iterate through all peers stored in the database.
+pub fn iter_peers_from_store<F>(store: Arc<Store>, f: F)
+where
+    F: Fn((&PeerId, &KnownPeerState)),
+{
+    let peer_store = PeerStore::new(store, &[]).unwrap();
+    peer_store.iter().for_each(|x| f(x));
+}
+
 #[cfg(test)]
 mod test {
     use near_crypto::{KeyType, SecretKey};
@@ -375,7 +386,7 @@ mod test {
     use super::*;
 
     fn get_peer_id(seed: String) -> PeerId {
-        SecretKey::from_seed(KeyType::ED25519, seed.as_str()).public_key().into()
+        PeerId::new(SecretKey::from_seed(KeyType::ED25519, seed.as_str()).public_key())
     }
 
     fn get_addr(port: u8) -> SocketAddr {
@@ -388,7 +399,7 @@ mod test {
 
     fn gen_peer_info(port: u8) -> PeerInfo {
         PeerInfo {
-            id: PeerId::from(SecretKey::from_random(KeyType::ED25519).public_key()),
+            id: PeerId::new(SecretKey::from_random(KeyType::ED25519).public_key()),
             addr: Some(get_addr(port)),
             account_id: None,
         }

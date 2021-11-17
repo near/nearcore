@@ -1,2 +1,2 @@
-pub mod peer_manager_actor;
-pub mod peer_store;
+pub(crate) mod peer_manager_actor;
+pub(crate) mod peer_store;
