@@ -93,25 +93,6 @@ pub struct GetRoutingTableResult {
     pub edges_info: Vec<SimpleEdge>,
 }
 
-pub struct EdgeVerifierHelper {
-    /// Shared version of edges_info used by multiple threads
-    pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
-    /// Queue of edges verified, but not added yes
-    pub edges_to_add_receiver: QueueReceiver<Edge>,
-    pub edges_to_add_sender: QueueSender<Edge>,
-}
-
-impl Default for EdgeVerifierHelper {
-    fn default() -> Self {
-        let (tx, rx) = conqueue::Queue::unbounded::<Edge>();
-        Self {
-            edges_info_shared: Default::default(),
-            edges_to_add_sender: tx,
-            edges_to_add_receiver: rx,
-        }
-    }
-}
-
 pub struct RoutingTableView {
     /// PeerId associated with this instance.
     my_peer_id: PeerId,

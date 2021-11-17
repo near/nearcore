@@ -57,11 +57,10 @@ use crate::{
 use crate::routing::edge::SimpleEdge;
 
 use crate::routing::routing::{
-    EdgeType, EdgeVerifierHelper, PeerRequestResult, RoutingTableView, DELETE_PEERS_AFTER_TIME,
-    MAX_NUM_PEERS,
+    EdgeType, PeerRequestResult, RoutingTableView, DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS,
 };
 
-use crate::routing::edge_verifier_actor::EdgeVerifierActor;
+use crate::routing::edge_verifier_actor::{EdgeVerifierActor, EdgeVerifierHelper};
 use crate::routing::routing_table_actor::Prune;
 
 use crate::routing::edge::{Edge, EdgeInfo};

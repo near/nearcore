@@ -1,8 +1,13 @@
 use std::cmp::max;
 
 use actix::{Actor, Handler, SyncContext, System};
+use conqueue::{QueueReceiver, QueueSender};
 
+use crate::routing::edge::Edge;
 use near_performance_metrics_macros::perf;
+use near_primitives::borsh::maybestd::collections::HashMap;
+use near_primitives::borsh::maybestd::sync::{Arc, Mutex};
+use near_primitives::network::PeerId;
 
 use crate::types::{EdgeList, StopMsg};
 
@@ -51,5 +56,24 @@ impl Handler<EdgeList> for EdgeVerifierActor {
             msg.sender.push(edge);
         }
         true
+    }
+}
+
+pub struct EdgeVerifierHelper {
+    /// Shared version of edges_info used by multiple threads
+    pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
+    /// Queue of edges verified, but not added yes
+    pub edges_to_add_receiver: QueueReceiver<Edge>,
+    pub edges_to_add_sender: QueueSender<Edge>,
+}
+
+impl Default for EdgeVerifierHelper {
+    fn default() -> Self {
+        let (tx, rx) = conqueue::Queue::unbounded::<Edge>();
+        Self {
+            edges_info_shared: Default::default(),
+            edges_to_add_sender: tx,
+            edges_to_add_receiver: rx,
+        }
     }
 }
