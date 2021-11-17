@@ -1,7 +1,5 @@
-use std::collections::{
-    hash_map::{Entry, Iter},
-    HashMap,
-};
+use std::collections::hash_map::{Entry, Iter};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
