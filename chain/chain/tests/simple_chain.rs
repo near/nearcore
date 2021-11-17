@@ -57,7 +57,7 @@ fn build_chain() {
         let prev = chain.get_block(&prev_hash).unwrap();
         let block = Block::empty(&prev, &*signer);
         let tip = chain
-            .process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+            .process_block(&None, block.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
             .unwrap();
         assert_eq!(tip.unwrap().height, i + 1);
     }
@@ -112,7 +112,7 @@ fn build_chain_with_orhpans() {
     );
     assert_eq!(
         chain
-            .process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+            .process_block(&None, block.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
             .unwrap_err()
             .kind(),
         ErrorKind::Orphan
@@ -121,7 +121,7 @@ fn build_chain_with_orhpans() {
         chain
             .process_block(
                 &None,
-                blocks.pop().unwrap(),
+                blocks.pop().unwrap().into(),
                 Provenance::PRODUCED,
                 |_| {},
                 |_| {},
@@ -135,7 +135,7 @@ fn build_chain_with_orhpans() {
         chain
             .process_block(
                 &None,
-                blocks.pop().unwrap(),
+                blocks.pop().unwrap().into(),
                 Provenance::PRODUCED,
                 |_| {},
                 |_| {},
@@ -147,7 +147,7 @@ fn build_chain_with_orhpans() {
     );
     let res = chain.process_block(
         &None,
-        blocks.pop().unwrap(),
+        blocks.pop().unwrap().into(),
         Provenance::PRODUCED,
         |_| {},
         |_| {},
@@ -158,7 +158,7 @@ fn build_chain_with_orhpans() {
         chain
             .process_block(
                 &None,
-                blocks.pop().unwrap(),
+                blocks.pop().unwrap().into(),
                 Provenance::PRODUCED,
                 |_| {},
                 |_| {},
@@ -180,11 +180,21 @@ fn build_chain_with_skips_and_forks() {
     let b3 = Block::empty_with_height(&b1, 3, &*signer);
     let b4 = Block::empty_with_height(&b2, 4, &*signer);
     let b5 = Block::empty(&b4, &*signer);
-    assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
-    assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
-    assert!(chain.process_block(&None, b3, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
-    assert!(chain.process_block(&None, b4, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
-    assert!(chain.process_block(&None, b5, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
+    assert!(chain
+        .process_block(&None, b1.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+        .is_ok());
+    assert!(chain
+        .process_block(&None, b2.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+        .is_ok());
+    assert!(chain
+        .process_block(&None, b3.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+        .is_ok());
+    assert!(chain
+        .process_block(&None, b4.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+        .is_ok());
+    assert!(chain
+        .process_block(&None, b5.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+        .is_ok());
     assert!(chain.get_header_by_height(1).is_err());
     assert_eq!(chain.get_header_by_height(5).unwrap().height(), 5);
 }
@@ -228,19 +238,19 @@ fn blocks_at_height() {
 
     assert_ne!(d_3_hash, b_3_hash);
 
-    chain.process_block(&None, b_1, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
-    chain.process_block(&None, b_2, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
-    chain.process_block(&None, b_3, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
+    chain.process_block(&None, b_1.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
+    chain.process_block(&None, b_2.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
+    chain.process_block(&None, b_3.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
     assert_eq!(chain.header_head().unwrap().height, 3);
 
     assert_eq!(chain.get_header_by_height(1).unwrap().hash(), &b_1_hash);
     assert_eq!(chain.get_header_by_height(2).unwrap().hash(), &b_2_hash);
     assert_eq!(chain.get_header_by_height(3).unwrap().hash(), &b_3_hash);
 
-    chain.process_block(&None, c_1, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
-    chain.process_block(&None, c_3, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
-    chain.process_block(&None, c_4, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
-    chain.process_block(&None, c_5, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
+    chain.process_block(&None, c_1.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
+    chain.process_block(&None, c_3.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
+    chain.process_block(&None, c_4.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
+    chain.process_block(&None, c_5.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
     assert_eq!(chain.header_head().unwrap().height, 5);
 
     assert_eq!(chain.get_header_by_height(1).unwrap().hash(), &c_1_hash);
@@ -249,9 +259,9 @@ fn blocks_at_height() {
     assert_eq!(chain.get_header_by_height(4).unwrap().hash(), &c_4_hash);
     assert_eq!(chain.get_header_by_height(5).unwrap().hash(), &c_5_hash);
 
-    chain.process_block(&None, d_3, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
-    chain.process_block(&None, d_4, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
-    chain.process_block(&None, d_6, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
+    chain.process_block(&None, d_3.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
+    chain.process_block(&None, d_4.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
+    chain.process_block(&None, d_6.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
     assert_eq!(chain.header_head().unwrap().height, 6);
 
     assert_eq!(chain.get_header_by_height(1).unwrap().hash(), &b_1_hash);
@@ -261,7 +271,7 @@ fn blocks_at_height() {
     assert!(chain.get_header_by_height(5).is_err());
     assert_eq!(chain.get_header_by_height(6).unwrap().hash(), &d_6_hash);
 
-    chain.process_block(&None, e_7, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
+    chain.process_block(&None, e_7.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
 
     assert_eq!(chain.get_header_by_height(1).unwrap().hash(), &b_1_hash);
     for h in 2..=5 {
@@ -283,11 +293,19 @@ fn next_blocks() {
     let b2_hash = *b2.hash();
     let b3_hash = *b3.hash();
     let b4_hash = *b4.hash();
-    assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
-    assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
+    assert!(chain
+        .process_block(&None, b1.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+        .is_ok());
+    assert!(chain
+        .process_block(&None, b2.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+        .is_ok());
     assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), &b2_hash);
-    assert!(chain.process_block(&None, b3, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
-    assert!(chain.process_block(&None, b4, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
+    assert!(chain
+        .process_block(&None, b3.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+        .is_ok());
+    assert!(chain
+        .process_block(&None, b4.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+        .is_ok());
     assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), &b3_hash);
     assert_eq!(chain.mut_store().get_next_block_hash(&b3_hash).unwrap(), &b4_hash);
 }

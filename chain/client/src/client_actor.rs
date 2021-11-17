@@ -295,7 +295,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 ),
                             );
                             let (accepted_blocks, _) =
-                                self.client.process_block(block, Provenance::PRODUCED);
+                                self.client.process_block(block.into(), Provenance::PRODUCED);
                             for accepted_block in accepted_blocks {
                                 self.client.on_block_accepted(
                                     accepted_block.hash,
@@ -379,6 +379,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     .mut_store()
                     .get_all_block_hashes_by_height(block.header().height());
                 if was_requested || !blocks_at_height.is_ok() {
+                    let block = MaybeValidated::from(block);
                     if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
                         if let Ok(header) = self.client.chain.get_block_header(sync_hash) {
                             if block.hash() == header.prev_hash() {
@@ -949,6 +950,8 @@ impl ClientActor {
                 let peer_id = self.node_id.clone();
                 let prev_hash = *block.header().prev_hash();
                 let block_protocol_version = block.header().latest_protocol_version();
+                // We’ve produced the block so that counts as validated block.
+                let block = MaybeValidated::from_validated(block);
                 let res = self.process_block(block, Provenance::PRODUCED, &peer_id);
                 match &res {
                     Ok(_) => Ok(()),
@@ -1010,7 +1013,7 @@ impl ClientActor {
     /// Process block and execute callbacks.
     fn process_block(
         &mut self,
-        block: Block,
+        mut block: MaybeValidated<Block>,
         provenance: Provenance,
         peer_id: &PeerId,
     ) -> Result<(), near_chain::Error> {
@@ -1019,10 +1022,15 @@ impl ClientActor {
         // before sending it out.
         if provenance == Provenance::PRODUCED {
             self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::Block { block: block.clone() },
+                NetworkRequests::Block { block: block.as_ref().into_inner().clone() },
             ));
+            // If we produced it, we don’t need to validate it.
+            block = MaybeValidated::from_validated(block.into_inner());
         } else {
-            match self.client.chain.validate_block(&block) {
+            let chain = &mut self.client.chain;
+            let res = chain.process_block_header(&block.header(), |_| {});
+            let res = res.and_then(|_| chain.validate_block(&mut block));
+            match res {
                 Ok(_) => {
                     let head = self.client.chain.head()?;
                     // do not broadcast blocks that are too far back.
@@ -1031,7 +1039,7 @@ impl ClientActor {
                         && provenance == Provenance::NONE
                         && !self.client.sync_status.is_syncing()
                     {
-                        self.client.rebroadcast_block(block.clone());
+                        self.client.rebroadcast_block(block.as_ref().into_inner());
                     }
                 }
                 Err(e) => {
@@ -1053,7 +1061,12 @@ impl ClientActor {
     }
 
     /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
-    fn receive_block(&mut self, block: Block, peer_id: PeerId, was_requested: bool) {
+    fn receive_block(
+        &mut self,
+        block: MaybeValidated<Block>,
+        peer_id: PeerId,
+        was_requested: bool,
+    ) {
         let hash = *block.hash();
         debug!(target: "client", "{:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header().prev_hash(), block.header().height(), peer_id, was_requested);
         let head = unwrap_or_return!(self.client.chain.head());

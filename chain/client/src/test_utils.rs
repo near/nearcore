@@ -1281,7 +1281,8 @@ impl TestEnv {
         should_run_catchup: bool,
         should_produce_chunk: bool,
     ) {
-        let (mut accepted_blocks, result) = self.clients[id].process_block(block, provenance);
+        let (mut accepted_blocks, result) =
+            self.clients[id].process_block(MaybeValidated::from(block), provenance);
         assert!(result.is_ok(), "{:?}", result);
         if should_run_catchup {
             let more_accepted_blocks = run_catchup(&mut self.clients[id], &vec![]).unwrap();
