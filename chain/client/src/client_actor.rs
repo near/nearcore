@@ -12,6 +12,7 @@ use borsh::BorshSerialize;
 use chrono::DateTime;
 use log::{debug, error, info, trace, warn};
 use near_primitives::time::{Clock, Utc};
+use rand::Rng;
 
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
@@ -39,6 +40,7 @@ use near_network_primitives::types::NetworkAdversarialMessage;
 use near_network_primitives::types::NetworkSandboxMessage;
 use near_performance_metrics;
 use near_performance_metrics_macros::{perf, perf_with_debug};
+use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{BlockHeight, EpochId};
@@ -137,6 +139,7 @@ impl ClientActor {
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         telemetry_actor: Addr<TelemetryActor>,
         enable_doomslug: bool,
+        rng_seed: RngSeed,
         ctx: &Context<ClientActor>,
         #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,
     ) -> Result<Self, Error> {
@@ -162,6 +165,7 @@ impl ClientActor {
             network_adapter.clone(),
             validator_signer,
             enable_doomslug,
+            rng_seed,
         )?;
 
         let now = Utc::now();
@@ -1642,6 +1646,13 @@ impl Handler<StateSplitResponse> for ClientActor {
     }
 }
 
+/// Returns random seed sampled from the current thread
+pub fn random_seed_from_thread() -> RngSeed {
+    let mut rng_seed: RngSeed = [0; 32];
+    rand::thread_rng().fill(&mut rng_seed);
+    rng_seed
+}
+
 /// Starts client in a separate Arbiter (thread).
 pub fn start_client(
     client_config: ClientConfig,
@@ -1664,6 +1675,7 @@ pub fn start_client(
             validator_signer,
             telemetry_actor,
             true,
+            random_seed_from_thread(),
             ctx,
             #[cfg(feature = "test_features")]
             adv,
