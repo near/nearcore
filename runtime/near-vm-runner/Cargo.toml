@@ -18,7 +18,7 @@ borsh = "0.9"
 serde = { version = "1", features = ["derive"] }
 wasmer-runtime = { version = "0.18.0", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near", optional = true }
 wasmer-runtime-core = { version = "0.18.2", package = "wasmer-runtime-core-near", optional = true}
-wasmparser = "0.51"
+wasmparser = "0.78"
 memoffset = "0.6"
 
 # Use the following for development versions of Wasmer.
