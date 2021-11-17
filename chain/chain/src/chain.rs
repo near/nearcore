@@ -126,8 +126,8 @@ impl BlockLike for Orphan {
 }
 
 impl Orphan {
-    fn prev_hash(&self) -> CryptoHash {
-        *self.block.header().prev_hash()
+    fn prev_hash(&self) -> &CryptoHash {
+        self.block.header().prev_hash()
     }
 }
 
@@ -222,7 +222,9 @@ impl OrphanBlockPool {
         prev_hash: CryptoHash,
         target_depth: u64,
     ) -> Vec<CryptoHash> {
+        #[cfg(debug_assertions)]
         let mut visited = HashSet::new();
+
         let mut res = vec![];
         let mut queue = vec![(prev_hash, 0)];
         while let Some((prev_hash, depth)) = queue.pop() {
@@ -231,13 +233,19 @@ impl OrphanBlockPool {
             }
             if let Some(block_hashes) = self.prev_hash_idx.get(&prev_hash) {
                 for hash in block_hashes {
-                    // there should be no loop, but just in case
-                    if visited.insert(*hash) {
-                        queue.push((*hash, depth + 1));
-                        res.push(*hash);
-                    }
+                    queue.push((*hash, depth + 1));
+                    res.push(*hash);
+                    // there should be no loop
+                    debug_assert!(visited.insert(*hash));
                 }
             }
+
+            // probably something serious went wrong here because there shouldn't be so many forks
+            assert!(
+                res.len() <= 100 * target_depth as usize,
+                "found too many orphans {:?}, probably something is wrong with the chain",
+                res
+            );
         }
         res
     }
@@ -1282,33 +1290,50 @@ impl Chain {
     }
 
     /// Check if we can request chunks for this orphan. Conditions are
-    /// 1) Among the `NUM_ORPHAN_ANCESTORS_CHECK` immediate parents of the block at least one is
+    /// 1) Orphans that with outstanding missing chunks request has not exceed `MAX_ORPHAN_MISSING_CHUNKS`
+    /// 2) we haven't already requested missing chunks for the orphan
+    /// 3) All the `NUM_ORPHAN_ANCESTORS_CHECK` immediate parents of the block are either accepted,
+    ///    or orphans or in `blocks_with_missing_chunks`
+    /// 4) Among the `NUM_ORPHAN_ANCESTORS_CHECK` immediate parents of the block at least one is
     ///    accepted(is in store), call it `ancestor`
-    /// 2) The next block of `ancestor` has the same epoch_id as the orphan block
+    /// 5) The next block of `ancestor` has the same epoch_id as the orphan block
     ///    (This is because when requesting chunks, we will use `ancestor` hash instead of the
     ///     previous block hash of the orphan to decide epoch id
-    /// 3) All the immediate parents of the block after `ancestor` are either orphans or in
-    ///     `blocks_with_missing_chunks`
-    /// 4) Orphans that with outstanding missing chunks request has not exceed `MAX_ORPHAN_MISSING_CHUNKS`
-    /// 5) Orphans have missing chunks
+    /// 6) The orphan have missing chunks
     pub fn should_request_chunks_for_orphan(
         &mut self,
         me: &Option<AccountId>,
         orphan: &Block,
     ) -> Option<OrphanMissingChunksInfo> {
+        // 1) Orphans that with outstanding missing chunks request has not exceed `MAX_ORPHAN_MISSING_CHUNKS`
         if self.orphans_requested_missing_chunks.len() >= MAX_ORPHAN_MISSING_CHUNKS {
             return None;
         }
+        // 2) we haven't already requested missing chunks for the orphan
         if self.orphans_requested_missing_chunks.contains(orphan.hash()) {
             return None;
         }
         let mut block_hash = *orphan.header().prev_hash();
         for _ in 0..NUM_ORPHAN_ANCESTORS_CHECK {
+            // 3) All the `NUM_ORPHAN_ANCESTORS_CHECK` immediate parents of the block are either accepted,
+            //    or orphans or in `blocks_with_missing_chunks`
+            if let Some(block) = self.blocks_with_missing_chunks.get(&block_hash) {
+                block_hash = *block.prev_hash();
+                continue;
+            }
+            if let Some(orphan) = self.orphans.get(&block_hash) {
+                block_hash = *orphan.prev_hash();
+                continue;
+            }
+            // 4) Among the `NUM_ORPHAN_ANCESTORS_CHECK` immediate parents of the block at least one is
+            //    accepted(is in store), call it `ancestor`
             if self.get_block(&block_hash).is_ok() {
                 if let Ok(epoch_id) = self.runtime_adapter.get_epoch_id_from_prev_block(&block_hash)
                 {
+                    // 5) The next block of `ancestor` has the same epoch_id as the orphan block
                     if &epoch_id == orphan.header().epoch_id() {
                         let mut chain_update = self.chain_update();
+                        // 6) The orphan have missing chunks
                         if let Err(e) = chain_update.ping_missing_chunks(me, block_hash, &orphan) {
                             return match e.kind() {
                                 ErrorKind::ChunksMissing(missing_chunks) => {
@@ -1324,14 +1349,6 @@ impl Chain {
                     }
                 }
                 return None;
-            }
-            if let Some(block) = self.blocks_with_missing_chunks.get(&block_hash) {
-                block_hash = block.prev_hash();
-                continue;
-            }
-            if let Some(orphan) = self.orphans.get(&block_hash) {
-                block_hash = orphan.prev_hash();
-                continue;
             }
             return None;
         }
