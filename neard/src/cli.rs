@@ -1,21 +1,18 @@
+use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION};
+use clap::{AppSettings, Clap};
+use futures::future::FutureExt;
+use near_primitives::types::{Gas, NumSeats, NumShards};
+use near_state_viewer::StateViewerSubCommand;
+use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
-
-use clap::{AppSettings, Clap};
-use futures::future::FutureExt;
 use tracing::debug;
 #[cfg(feature = "test_features")]
 use tracing::error;
 use tracing::info;
 use tracing::metadata::LevelFilter;
 use tracing_subscriber::EnvFilter;
-
-use near_primitives::types::{Gas, NumSeats, NumShards};
-use near_state_viewer::StateViewerSubCommand;
-use nearcore::get_store_path;
-
-use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION};
 
 /// NEAR Protocol Node
 #[derive(Clap)]
