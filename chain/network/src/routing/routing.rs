@@ -26,9 +26,6 @@ use crate::routing::utils::cache_to_hashmap;
 use crate::PeerInfo;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
-const ROUTE_BACK_CACHE_SIZE: usize = 100_000;
-const ROUTE_BACK_CACHE_EVICT_TIMEOUT: Duration = Duration::from_millis(120_000);
-const ROUTE_BACK_CACHE_REMOVE_BATCH: usize = 100;
 const PING_PONG_CACHE_SIZE: usize = 1_000;
 const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
 const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
@@ -45,28 +42,6 @@ pub const MAX_NUM_PEERS: usize = 128;
 pub enum EdgeType {
     Added,
     Removed,
-}
-
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Copy)]
-pub struct ValidIBFLevel(pub u64);
-
-/// We create IbfSets of various sizes from 2^10+2 up to 2^17+2. Those constants specify valid ranges.
-pub const MIN_IBF_LEVEL: ValidIBFLevel = ValidIBFLevel(10);
-pub const MAX_IBF_LEVEL: ValidIBFLevel = ValidIBFLevel(17);
-
-/// Represents IbfLevel from 10 to 17.
-impl ValidIBFLevel {
-    pub fn inc(&self) -> Option<ValidIBFLevel> {
-        if self.0 + 1 >= MIN_IBF_LEVEL.0 && self.0 + 1 <= MAX_IBF_LEVEL.0 {
-            Some(ValidIBFLevel(self.0 + 1))
-        } else {
-            None
-        }
-    }
-
-    pub fn is_valid(&self) -> bool {
-        return self.0 >= MIN_IBF_LEVEL.0 && self.0 <= MAX_IBF_LEVEL.0;
-    }
 }
 
 #[derive(Debug)]
@@ -156,11 +131,7 @@ impl RoutingTableView {
             account_peers: SizedCache::with_size(ANNOUNCE_ACCOUNT_CACHE_SIZE),
             peer_forwarding: Default::default(),
             local_edges_info: Default::default(),
-            route_back: RouteBackCache::new(
-                ROUTE_BACK_CACHE_SIZE,
-                ROUTE_BACK_CACHE_EVICT_TIMEOUT,
-                ROUTE_BACK_CACHE_REMOVE_BATCH,
-            ),
+            route_back: RouteBackCache::default(),
             store,
             route_nonce: SizedCache::with_size(ROUND_ROBIN_NONCE_CACHE_SIZE),
             ping_info: SizedCache::with_size(PING_PONG_CACHE_SIZE),

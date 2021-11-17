@@ -5,6 +5,13 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::time::Clock;
 
+/// default value for `capacity`
+const DEFAULT_CAPACITY: usize = 100_000;
+/// default value for `evict_timeout`
+const DEFAULT_CACHE_EVICT_TIMEOUT: Duration = Duration::from_millis(120_000);
+/// default value for `remove_frequent_min_size`
+const DEFAULT_REMOVE_BATCH_SIZE: usize = 100;
+
 /// Cache to store route back messages.
 ///
 /// The interface of the cache is similar to a regular HashMap:
@@ -59,6 +66,12 @@ pub struct RouteBackCache {
     /// are sorted by the time they arrived from older to newer.
     /// Size: O(capacity)
     record_per_target: BTreeMap<PeerId, BTreeSet<(Instant, CryptoHash)>>,
+}
+
+impl Default for RouteBackCache {
+    fn default() -> Self {
+        Self::new(DEFAULT_CAPACITY, DEFAULT_CACHE_EVICT_TIMEOUT, DEFAULT_REMOVE_BATCH_SIZE)
+    }
 }
 
 impl RouteBackCache {
