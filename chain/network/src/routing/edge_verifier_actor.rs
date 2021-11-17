@@ -1,5 +1,3 @@
-use std::cmp::max;
-
 use crate::routing::edge::Edge;
 use crate::types::{EdgeList, StopMsg};
 use actix::{Actor, Handler, SyncContext, System};
@@ -8,6 +6,8 @@ use near_performance_metrics_macros::perf;
 use near_primitives::borsh::maybestd::collections::HashMap;
 use near_primitives::borsh::maybestd::sync::{Arc, Mutex};
 use near_primitives::network::PeerId;
+use std::cmp::max;
+
 pub(crate) struct EdgeVerifierActor {}
 
 impl Actor for EdgeVerifierActor {
