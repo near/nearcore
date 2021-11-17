@@ -1,13 +1,13 @@
 use std::collections::HashSet;
 use std::iter::Iterator;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use actix::{Actor, Addr, AsyncContext, Context, Handler, Message, System};
 use chrono::DateTime;
 use futures::{future, FutureExt, TryFutureExt};
-use near_primitives::time::{Instant, Utc};
+use near_primitives::time::Utc;
 use tracing::debug;
 
 use near_actix_test_utils::run_actix;
