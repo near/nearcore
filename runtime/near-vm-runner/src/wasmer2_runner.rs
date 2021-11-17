@@ -1,19 +1,27 @@
 use crate::cache::into_vm_result;
 use crate::errors::IntoVMError;
 use crate::{cache, imports};
+use memoffset::offset_of;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_vm_errors::{
-    CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMError, WasmTrap,
+    CompilationError, FunctionCallError, HostError, MethodResolveError, PrepareError, VMError,
+    WasmTrap,
 };
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
 use std::hash::{Hash, Hasher};
-use wasmer::{Bytes, ImportObject, Instance, Memory, MemoryType, Module, Pages, Store};
+use std::mem::size_of;
+use wasmer::{
+    Bytes, ImportObject, Instance, InstantiationError, Memory, MemoryType, Module, Pages,
+    RuntimeError, Store,
+};
 
 use near_stable_hasher::StableHasher;
+use near_vm_logic::gas_counter::FastGasCounter;
 use wasmer_compiler_singlepass::Singlepass;
+use wasmer_types::InstanceConfig;
 use wasmer_vm::TrapCode;
 
 pub struct Wasmer2Memory(Memory);
@@ -122,6 +130,7 @@ impl IntoVMError for wasmer::RuntimeError {
             TrapCode::UnalignedAtomic => {
                 FunctionCallError::WasmTrap(WasmTrap::MisalignedAtomicAccess)
             }
+            TrapCode::GasExceeded => FunctionCallError::HostError(HostError::GasExceeded),
         };
         VMError::FunctionCallError(error)
     }
@@ -235,23 +244,68 @@ pub fn run_wasmer2(
         return (None, Some(e));
     }
 
-    let err = run_method(&module, &import_object, method_name).err();
+    let err = run_method(&module, &import_object, method_name, &mut logic).err();
     (Some(logic.outcome()), err)
 }
 
-fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Result<(), VMError> {
+fn translate_instantiation_error(err: InstantiationError, logic: &mut VMLogic) -> VMError {
+    match err {
+        InstantiationError::Start(err) => translate_runtime_error(err, logic),
+        _ => err.into_vm_error(),
+    }
+}
+
+fn translate_runtime_error(err: RuntimeError, logic: &mut VMLogic) -> VMError {
+    match err.clone().to_trap() {
+        Some(TrapCode::GasExceeded) => {
+            VMError::FunctionCallError(FunctionCallError::HostError(logic.process_gas_limit()))
+        }
+        _ => err.into_vm_error(),
+    }
+}
+
+fn run_method(
+    module: &Module,
+    import: &ImportObject,
+    method_name: &str,
+    logic: &mut VMLogic,
+) -> Result<(), VMError> {
     let _span = tracing::debug_span!(target: "vm", "run_method").entered();
+
+    // FastGasCounter in Nearcore and Wasmer must match in layout.
+    assert_eq!(size_of::<FastGasCounter>(), size_of::<wasmer_types::FastGasCounter>());
+    assert_eq!(
+        offset_of!(FastGasCounter, burnt_gas),
+        offset_of!(wasmer_types::FastGasCounter, burnt_gas)
+    );
+    assert_eq!(
+        offset_of!(FastGasCounter, gas_limit),
+        offset_of!(wasmer_types::FastGasCounter, gas_limit)
+    );
+    assert_eq!(
+        offset_of!(FastGasCounter, opcode_cost),
+        offset_of!(wasmer_types::FastGasCounter, opcode_cost)
+    );
 
     let instance = {
         let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
-        Instance::new(&module, &import).map_err(|err| err.into_vm_error())?
+        Instance::new_with_config(
+            &module,
+            unsafe {
+                InstanceConfig::new_with_counter(
+                    logic.gas_counter_pointer() as *mut wasmer_types::FastGasCounter
+                )
+            },
+            &import,
+        )
+        .map_err(|err| translate_instantiation_error(err, logic))?
     };
     let f = instance.exports.get_function(method_name).map_err(|err| err.into_vm_error())?;
     let f = f.native::<(), ()>().map_err(|err| err.into_vm_error())?;
 
     {
         let _span = tracing::debug_span!(target: "vm", "run_method/call").entered();
-        f.call().map_err(|err| err.into_vm_error())?
+        f.call().map_err(|err| translate_runtime_error(err, logic))?
     }
 
     {
@@ -363,6 +417,6 @@ pub(crate) fn run_wasmer2_module<'a>(
         return (None, Some(e));
     }
 
-    let err = run_method(module, &import, method_name).err();
+    let err = run_method(module, &import, method_name, &mut logic).err();
     (Some(logic.outcome()), err)
 }
