@@ -20,7 +20,7 @@ chrono = { version = "0.4.4", features = ["serde"] }
 derive_more = "0.99.3"
 easy-ext = "0.2"
 sha2 = "0.9"
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 smart-default = "0.6"
 validator = "0.12"
@@ -30,7 +30,7 @@ hex = "0.4"
 num-rational = { version = "0.3", features = ["serde"] }
 primitive-types = "0.10"
 
-borsh = "0.9"
+borsh = { version = "0.9", features = ["rc"] }
 
 near-primitives-core = { path = "../primitives-core" }
 near-crypto = { path = "../crypto" }

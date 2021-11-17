@@ -2,7 +2,7 @@ steps:
   - label: "cargo test"
     command: |
       source ~/.cargo/env && set -eux
-      RUSTFLAGS='-D warnings' cargo test --locked --workspace
+      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --locked --workspace
 
     timeout: 60
     agents:
@@ -12,7 +12,7 @@ steps:
   - label: "cargo test nightly"
     command: |
       source ~/.cargo/env && set -eux
-      RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features
+      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features
 
     timeout: 60
     agents:
@@ -47,6 +47,7 @@ steps:
       # TODO(near-ops#645): Remove pip install once yapf is bundled in the image.
       python3 -m pip install --user yapf
       if ! python3 -m yapf -pdr pytest scripts; then
+          set +x
           echo 'Some of the Python files are not correctly formatted; please run'
           echo '    python3 -m pip install -U yapf'
           echo '    python3 -m yapf -pir pytest scripts'
@@ -55,6 +56,7 @@ steps:
       rm target/rpc_errors_schema.json
       RUSTFLAGS='-D warnings' cargo check -p near-jsonrpc --features dump_errors_schema
       if ! git --no-pager diff --no-index chain/jsonrpc/res/rpc_errors_schema.json target/rpc_errors_schema.json; then
+          set +x
           echo 'The RPC errors schema reflects outdated typing structure; please run'
           echo '    ./chain/jsonrpc/build_errors_schema.sh'
           exit 1
@@ -117,7 +119,6 @@ steps:
     command: |
       source ~/.cargo/env && set -eux
       cd runtime/runtime-params-estimator/test-contract
-      rustup target add wasm32-unknown-unknown
       ./build.sh
       cd ..
       RUSTFLAGS='-D warnings' cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 --metric time

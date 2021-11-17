@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
+use near_primitives::time::Utc;
 use num_rational::Rational;
 use serde::Serialize;
 
@@ -347,11 +348,23 @@ pub trait RuntimeAdapter: Send + Sync {
     fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error>;
 
     /// Verify chunk header signature.
-    fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error> {
+    /// return false if the header signature does not match the key for the assigned chunk producer
+    /// for this chunk, or if the chunk producer has been slashed
+    /// return `Error::NotAValidator` if cannot find chunk producer info for this chunk
+    /// `header`: chunk header
+    /// `epoch_id`: epoch_id that the chunk header belongs to
+    /// `last_known_hash`: used to determine the list of chunk producers that are slashed
+    fn verify_chunk_header_signature(
+        &self,
+        header: &ShardChunkHeader,
+        epoch_id: &EpochId,
+        last_known_hash: &CryptoHash,
+    ) -> Result<bool, Error> {
         self.verify_chunk_signature_with_header_parts(
             &header.chunk_hash(),
             header.signature(),
-            &header.prev_block_hash(),
+            epoch_id,
+            last_known_hash,
             header.height_created(),
             header.shard_id(),
         )
@@ -361,7 +374,8 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         chunk_hash: &ChunkHash,
         signature: &Signature,
-        prev_block_hash: &CryptoHash,
+        epoch_id: &EpochId,
+        last_known_hash: &CryptoHash,
         height_created: BlockHeight,
         shard_id: ShardId,
     ) -> Result<bool, Error>;
@@ -800,7 +814,7 @@ pub enum ValidatorInfoIdentifier {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use near_primitives::time::Utc;
 
     use near_crypto::KeyType;
     use near_primitives::block::{genesis_chunks, Approval};

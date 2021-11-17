@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::time::Clock;
 
 type Size = u64;
 
@@ -115,9 +116,8 @@ impl RouteBackCache {
         if self.is_full() {
             self.remove_frequent();
 
-            let now = Instant::now();
+            let now = Clock::instant();
             let remove_until = now - self.evict_timeout;
-
             let mut remove_empty = vec![];
 
             for (key, value) in self.record_per_target.iter_mut() {
@@ -200,14 +200,14 @@ impl RouteBackCache {
         }
     }
 
-    pub fn insert(&mut self, hash: CryptoHash, target: PeerId) {
+    pub fn insert(&mut self, hash: CryptoHash, target: PeerId) -> bool {
         if self.main.contains_key(&hash) {
-            return;
+            return false;
         }
 
         self.remove_evicted();
 
-        let now = Instant::now();
+        let now = Clock::instant();
 
         self.main.insert(hash, (now, target.clone()));
 
@@ -221,6 +221,7 @@ impl RouteBackCache {
 
         size += 1;
         self.size_per_target.insert((self.capacity - size, target));
+        true
     }
 }
 

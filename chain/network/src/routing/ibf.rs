@@ -231,7 +231,7 @@ impl Ibf {
 
 #[cfg(test)]
 mod tests {
-    use crate::ibf::Ibf;
+    use crate::routing::ibf::Ibf;
 
     fn create_blt(elements: impl IntoIterator<Item = u64>, capacity: usize) -> Ibf {
         let mut sketch = Ibf::new(capacity, 0);

@@ -6,28 +6,28 @@ use near_performance_metrics_macros::perf;
 
 use crate::types::{EdgeList, StopMsg};
 
-pub(crate) struct EdgeVerifier {}
+pub(crate) struct EdgeVerifierActor {}
 
-impl Actor for EdgeVerifier {
+impl Actor for EdgeVerifierActor {
     type Context = SyncContext<Self>;
 }
 
-impl Handler<StopMsg> for EdgeVerifier {
+impl Handler<StopMsg> for EdgeVerifierActor {
     type Result = ();
     fn handle(&mut self, _: StopMsg, _ctx: &mut Self::Context) -> Self::Result {
         System::current().stop();
     }
 }
 
-impl Handler<EdgeList> for EdgeVerifier {
+impl Handler<EdgeList> for EdgeVerifierActor {
     type Result = bool;
 
     #[perf]
     fn handle(&mut self, msg: EdgeList, _ctx: &mut Self::Context) -> Self::Result {
         for edge in msg.edges {
-            let key = (edge.peer0.clone(), edge.peer1.clone());
-            if msg.edges_info_shared.lock().unwrap().get(&key).cloned().unwrap_or(0u64)
-                >= edge.nonce
+            let key = edge.key();
+            if msg.edges_info_shared.lock().unwrap().get(key).cloned().unwrap_or(0u64)
+                >= edge.nonce()
             {
                 continue;
             }
@@ -43,10 +43,10 @@ impl Handler<EdgeList> for EdgeVerifier {
             }
             {
                 let mut guard = msg.edges_info_shared.lock().unwrap();
-                let entry = guard.entry(key);
+                let entry = guard.entry(key.clone());
 
-                let cur_nonce = entry.or_insert(edge.nonce);
-                *cur_nonce = max(*cur_nonce, edge.nonce);
+                let cur_nonce = entry.or_insert(edge.nonce());
+                *cur_nonce = max(*cur_nonce, edge.nonce());
             }
             msg.sender.push(edge);
         }

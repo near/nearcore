@@ -1,7 +1,6 @@
 use actix::System;
 use futures::{future, FutureExt};
 
-use chrono::Utc;
 use near_actix_test_utils::run_actix;
 use near_client::test_utils::{setup_no_network, setup_only_view};
 use near_client::{
@@ -9,10 +8,12 @@ use near_client::{
 };
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
-use near_network::test_utils::MockNetworkAdapter;
-use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
-use near_network::{NetworkClientMessages, NetworkClientResponses, PeerInfo};
+use near_network::test_utils::MockPeerManagerAdapter;
+use near_network::{NetworkClientMessages, NetworkClientResponses};
+use near_network_primitives::types::NetworkViewClientResponses;
+use near_network_primitives::types::{NetworkViewClientMessages, PeerInfo};
 use near_primitives::block::{Block, BlockHeader};
+use near_primitives::time::Utc;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockId, BlockReference, EpochId};
 use near_primitives::utils::to_timestamp;
@@ -139,7 +140,6 @@ fn test_execution_outcome_for_chunk() {
             assert!(matches!(res, NetworkClientResponses::ValidTx));
 
             actix::clock::sleep(Duration::from_millis(500)).await;
-
             let execution_outcome = view_client
                 .send(TxStatus {
                     tx_hash,
@@ -188,7 +188,7 @@ fn test_state_request() {
             false,
             true,
             false,
-            Arc::new(MockNetworkAdapter::default()),
+            Arc::new(MockPeerManagerAdapter::default()),
             100,
             Utc::now(),
         );

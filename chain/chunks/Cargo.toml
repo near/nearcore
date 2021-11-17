@@ -23,6 +23,7 @@ near-store = { path = "../../core/store" }
 near-network = { path = "../network" }
 near-chain = { path = "../chain" }
 near-pool = { path = "../pool" }
+near-network-primitives = { path = "../network-primitives" }
 
 [dev-dependencies]
 near-logger-utils = { path = "../../test-utils/logger" }

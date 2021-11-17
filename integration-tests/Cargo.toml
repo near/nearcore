@@ -38,6 +38,7 @@ near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
 near-logger-utils = { path = "../test-utils/logger" }
 near-metrics = { path = "../core/metrics" }
 near-network = { path = "../chain/network" }
+near-network-primitives = { path = "../chain/network-primitives" }
 near-primitives = { path = "../core/primitives" }
 near-store = { path = "../core/store" }
 near-telemetry = { path = "../chain/telemetry" }

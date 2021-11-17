@@ -35,9 +35,23 @@ config = load_config()
 near_root, node_dirs = init_cluster(
     2, 3, 1, config,
     [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
-     ["block_producer_kickout_threshold", 80]], {4: {
-         "tracked_shards": [0]
-     }})
+     ["block_producer_kickout_threshold", 80]], {
+         0: {
+             "tracked_shards": [0]
+         },
+         1: {
+             "tracked_shards": [0]
+         },
+         2: {
+             "tracked_shards": [0]
+         },
+         3: {
+             "tracked_shards": [0]
+         },
+         4: {
+             "tracked_shards": [0]
+         },
+     })
 
 started = time.time()
 

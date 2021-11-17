@@ -3,8 +3,9 @@ use crate::testbed_runners::{end_count, start_count, GasMetric};
 use crate::vm_estimator::{create_context, least_squares_method};
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::types::{CompiledContractCache, ProtocolVersion};
+use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_primitives::types::CompiledContractCache;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{create_store, StoreCompiledContractCache};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::{run_vm, VMKind};
@@ -76,15 +77,6 @@ fn test_gas_metering_cost_icount() {
     // -cpu Westmere-v1 -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so $@
     test_gas_metering_cost(GasMetric::ICount)
 }
-
-/*
-fn dump_prepared(code: &String) {
-    let config = VMConfig::default();
-    let result = prepare_contract(wabt::wat2wasm(code.as_bytes()).unwrap().as_slice(), &config);
-    let prepared = result.unwrap();
-    println!("original {}", code);
-    println!("prepared {}", wabt::wasm2wat(prepared.as_slice()).unwrap());
-}*/
 
 fn make_deeply_nested_blocks_contact(depth: i32) -> ContractCode {
     // Build nested blocks structure.
@@ -175,10 +167,12 @@ pub fn compute_gas_metering_cost(
     let store = create_store(&get_store_path(workdir.path()));
     let cache_store = Arc::new(StoreCompiledContractCache { store });
     let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
-    let vm_config_gas = VMConfig::default();
+    let config_store = RuntimeConfigStore::new(None);
+    let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
+    let vm_config_gas = runtime_config.wasm_config.clone();
+    let fees = runtime_config.transaction_costs.clone();
     let mut fake_external = MockedExternal::new();
     let fake_context = create_context(vec![]);
-    let fees = RuntimeFeesConfig::test();
     let promise_results = vec![];
 
     // Warmup.
@@ -191,7 +185,7 @@ pub fn compute_gas_metering_cost(
         &fees,
         &promise_results,
         vm_kind,
-        ProtocolVersion::MAX,
+        PROTOCOL_VERSION,
         cache,
     );
     assert!(result.1.is_none());
@@ -208,7 +202,7 @@ pub fn compute_gas_metering_cost(
             &fees,
             &promise_results,
             vm_kind,
-            ProtocolVersion::MAX,
+            PROTOCOL_VERSION,
             cache,
         );
         assert!(result.1.is_none());
@@ -225,7 +219,7 @@ pub fn compute_gas_metering_cost(
         &fees,
         &promise_results,
         vm_kind,
-        ProtocolVersion::MAX,
+        PROTOCOL_VERSION,
         cache,
     );
     assert!(result.1.is_none());
@@ -240,7 +234,7 @@ pub fn compute_gas_metering_cost(
             &fees,
             &promise_results,
             vm_kind,
-            ProtocolVersion::MAX,
+            PROTOCOL_VERSION,
             cache,
         );
         assert!(result.1.is_none());
