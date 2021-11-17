@@ -1,4 +1,3 @@
-pub(crate) mod codec;
 pub(crate) mod edge;
 pub(crate) mod edge_verifier_actor;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
