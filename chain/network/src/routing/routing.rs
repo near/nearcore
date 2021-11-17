@@ -1,5 +1,6 @@
 use near_primitives::time::Clock;
-use std::collections::{hash_map::Entry, HashMap, VecDeque};
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};

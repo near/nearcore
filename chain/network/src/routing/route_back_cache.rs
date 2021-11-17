@@ -1,5 +1,4 @@
-use std::collections::btree_map;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
 use std::time::{Duration, Instant};
 
 use near_primitives::hash::CryptoHash;
@@ -229,7 +228,8 @@ impl RouteBackCache {
 mod test {
     use super::*;
     use near_primitives::hash::hash;
-    use std::{thread, time::Duration};
+    use std::thread;
+    use std::time::Duration;
 
     /// Check internal state of the cache is ok
     fn check_consistency(cache: &RouteBackCache) {
