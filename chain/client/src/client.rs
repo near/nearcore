@@ -920,6 +920,7 @@ impl Client {
                             pec_v2.header.height_created(),
                             pec_v2.header.shard_id(),
                         );
+                        debug!("accept chunk");
                         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_hash);
                         Ok(self.process_blocks_with_missing_chunks(protocol_version))
                     }

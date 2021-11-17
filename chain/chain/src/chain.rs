@@ -223,21 +223,23 @@ impl OrphanBlockPool {
         target_depth: u64,
     ) -> Vec<CryptoHash> {
         let mut visited = HashSet::new();
+        let mut res = vec![];
         let mut queue = vec![(prev_hash, 0)];
         while let Some((prev_hash, depth)) = queue.pop() {
             if depth == target_depth {
-                continue;
+                break;
             }
             if let Some(block_hashes) = self.prev_hash_idx.get(&prev_hash) {
                 for hash in block_hashes {
                     // there should be no loop, but just in case
                     if visited.insert(*hash) {
                         queue.push((*hash, depth + 1));
+                        res.push(*hash);
                     }
                 }
             }
         }
-        visited.into_iter().collect()
+        res
     }
 }
 
@@ -1218,6 +1220,7 @@ impl Chain {
                             if let Some(orphan_missing_chunks) =
                                 self.should_request_chunks_for_orphan(me, &block)
                             {
+                                debug!(target:"chain", "request missing chunks for orphan {:?}", block_hash);
                                 orphan_misses_chunks(orphan_missing_chunks);
                                 self.orphans_requested_missing_chunks.insert(block_hash);
                             }
@@ -1300,7 +1303,7 @@ impl Chain {
             return None;
         }
         let mut block_hash = *orphan.header().prev_hash();
-        for _ in 1..NUM_ORPHAN_ANCESTORS_CHECK {
+        for _ in 0..NUM_ORPHAN_ANCESTORS_CHECK {
             if self.get_block(&block_hash).is_ok() {
                 if let Ok(epoch_id) = self.runtime_adapter.get_epoch_id_from_prev_block(&block_hash)
                 {
@@ -1333,6 +1336,10 @@ impl Chain {
             return None;
         }
         None
+    }
+
+    pub fn check_orphan_partial_chunks_requested(&self, block_hash: &CryptoHash) -> bool {
+        self.orphans_requested_missing_chunks.contains(block_hash)
     }
 
     pub fn prev_block_is_caught_up(
@@ -1464,6 +1471,7 @@ impl Chain {
                 if let Some(orphan_missing_chunks) =
                     self.should_request_chunks_for_orphan(me, &orphan)
                 {
+                    debug!(target:"chain", "request missing chunks for orphan {:?}", orphan_hash);
                     orphan_misses_chunks(orphan_missing_chunks);
                     self.orphans_requested_missing_chunks.insert(orphan_hash);
                 }
@@ -1473,21 +1481,20 @@ impl Chain {
                 for orphan in orphans.into_iter() {
                     let block_hash = orphan.hash();
                     let timer = near_metrics::start_timer(&metrics::BLOCK_PROCESSING_TIME);
+                    self.orphans_requested_missing_chunks.remove(&block_hash);
                     let res = self.process_block_single(
                         me,
                         orphan.block,
                         orphan.provenance,
                         block_accepted,
                         block_misses_chunks,
-                        // don't trigger the block_orphaned callback because this block is already orphaned
-                        |_| {},
+                        orphan_misses_chunks,
                         on_challenge,
                     );
                     near_metrics::stop_timer(timer);
                     match res {
                         Ok(maybe_tip) => {
                             near_metrics::inc_counter(&metrics::BLOCK_PROCESSED_SUCCESSFULLY_TOTAL);
-                            self.orphans_requested_missing_chunks.remove(&block_hash);
                             maybe_new_head = maybe_tip;
                             queue.push(block_hash);
                         }
@@ -3988,6 +3995,7 @@ impl<'a> ChainUpdate<'a> {
         let apply_chunk_work = if is_caught_up {
             self.apply_chunks_preprocessing(me, block, &prev_block, ApplyChunksMode::IsCaughtUp)?
         } else {
+            debug!("add block to catch up {:?} {:?}", prev_hash, *block.hash());
             self.chain_store_update.add_block_to_catchup(prev_hash, *block.hash());
             self.apply_chunks_preprocessing(me, block, &prev_block, ApplyChunksMode::NotCaughtUp)?
         };

@@ -224,7 +224,7 @@ impl NightshadeRuntime {
             home_dir,
             store,
             genesis,
-            TrackedConfig::new_empty(),
+            TrackedConfig::AllShards,
             None,
             None,
             Some(runtime_config_store),

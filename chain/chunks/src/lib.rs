@@ -657,6 +657,7 @@ impl ShardsManager {
             // before we send requests.
             let is_chunk_forwarding_enabled =
                 checked_feature!("stable", ForwardChunkParts, protocol_version);
+            let is_chunk_forwarding_enabled = false;
             if !is_chunk_forwarding_enabled || fetch_from_archival || old_block {
                 let request_result = self.request_partial_encoded_chunk(
                     height,
