@@ -592,7 +592,7 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
 
     let code = ContractCode::new(code.to_vec(), None);
     let mut fake_external = MockedExternal::new();
-    let config = VMConfig::default();
+    let config = VMConfig::test();
     let fees = RuntimeFeesConfig::test();
     let promise_results = vec![];
 
