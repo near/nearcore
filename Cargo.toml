@@ -47,6 +47,7 @@ members = [
 ]
 
 [workspace.metadata.workspaces]
+version = "0.10.0"
 exclude = [
   # v0.0.0 {
     "neard",
@@ -55,17 +56,6 @@ exclude = [
     "chain/jsonrpc/jsonrpc-tests",
     "runtime/near-test-contracts",
   # }
-]
-
-[[workspace.metadata.workspaces.group]]
-name = "runtime"
-members = [
-    "runtime/near-vm-logic",
-    "runtime/near-vm-errors",
-    "runtime/near-vm-runner",
-    "runtime/near-vm-runner-standalone",
-    "runtime/runtime",
-    "runtime/runtime-params-estimator",
 ]
 
 [patch.crates-io]
