@@ -1,8 +1,7 @@
 #[macro_use]
 extern crate bencher;
 
-use bencher::black_box;
-use bencher::Bencher;
+use bencher::{black_box, Bencher};
 use near_crypto::{KeyType, SecretKey, Signature};
 use std::collections::HashMap;
 use std::sync::Arc;
