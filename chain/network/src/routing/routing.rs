@@ -44,28 +44,6 @@ pub enum EdgeType {
     Removed,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Copy)]
-pub struct ValidIBFLevel(pub u64);
-
-/// We create IbfSets of various sizes from 2^10+2 up to 2^17+2. Those constants specify valid ranges.
-pub const MIN_IBF_LEVEL: ValidIBFLevel = ValidIBFLevel(10);
-pub const MAX_IBF_LEVEL: ValidIBFLevel = ValidIBFLevel(17);
-
-/// Represents IbfLevel from 10 to 17.
-impl ValidIBFLevel {
-    pub fn inc(&self) -> Option<ValidIBFLevel> {
-        if self.0 + 1 >= MIN_IBF_LEVEL.0 && self.0 + 1 <= MAX_IBF_LEVEL.0 {
-            Some(ValidIBFLevel(self.0 + 1))
-        } else {
-            None
-        }
-    }
-
-    pub fn is_valid(&self) -> bool {
-        return self.0 >= MIN_IBF_LEVEL.0 && self.0 <= MAX_IBF_LEVEL.0;
-    }
-}
-
 #[derive(Debug)]
 #[cfg_attr(feature = "test_features", derive(Serialize))]
 pub struct PeerRequestResult {
