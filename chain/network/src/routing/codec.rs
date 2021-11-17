@@ -6,13 +6,14 @@ use bytesize::{GIB, MIB};
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::error;
 
+use near_network_primitives::types::ReasonForBan;
 use near_performance_metrics::framed_write::EncoderCallBack;
 #[cfg(feature = "performance_stats")]
 use near_performance_metrics::stats_enabled::get_thread_stats_logger;
 use near_rust_allocator_proxy::allocator::get_tid;
 
 use crate::stats::metrics;
-use crate::types::{PeerMessage, ReasonForBan};
+use crate::types::PeerMessage;
 
 const NETWORK_MESSAGE_MAX_SIZE: u32 = 512 * MIB as u32;
 const MAX_CAPACITY: u64 = GIB;
@@ -163,7 +164,11 @@ pub fn is_forward_tx(bytes: &[u8]) -> Option<bool> {
 
 #[cfg(test)]
 mod test {
+    use crate::PeerInfo;
     use near_crypto::{KeyType, PublicKey, SecretKey};
+    use near_network_primitives::types::{
+        PeerChainInfo, PeerChainInfoV2, PeerIdOrHash, RoutedMessage, RoutedMessageBody,
+    };
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::{self, CryptoHash};
     use near_primitives::network::{AnnounceAccount, PeerId};
@@ -173,13 +178,9 @@ mod test {
         version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION},
     };
 
-    use crate::types::{
-        Handshake, HandshakeFailureReason, HandshakeV2, PeerChainInfo, PeerChainInfoV2,
-        PeerIdOrHash, PeerInfo, RoutedMessage, RoutedMessageBody, SyncData,
-    };
-
     use super::*;
     use crate::routing::edge::EdgeInfo;
+    use crate::types::{Handshake, HandshakeFailureReason, HandshakeV2, SyncData};
 
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();

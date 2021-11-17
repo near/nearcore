@@ -4,8 +4,8 @@ use near_chain::ChainGenesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::KeyType;
 use near_logger_utils::{init_integration_logger, init_test_logger};
-use near_network::types::PartialEncodedChunkRequestMsg;
 use near_network::NetworkRequests;
+use near_network_primitives::types::PartialEncodedChunkRequestMsg;
 use near_primitives::hash::{hash, CryptoHash};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::sharding::ShardChunkHeaderInner;

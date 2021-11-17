@@ -21,6 +21,13 @@ use tracing::{debug, error, info, trace, warn};
 
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
+use near_network_primitives::types::{
+    AccountOrPeerIdOrHash, Ban, BlockedPorts, InboundTcpConnect, KnownPeerState, KnownPeerStatus,
+    KnownProducer, NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
+    OutboundTcpConnect, PeerIdOrHash, PeerManagerRequest, PeerType, Ping, Pong, QueryPeerStats,
+    RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom,
+    StateResponseInfo,
+};
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::checked_feature;
@@ -38,7 +45,10 @@ use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
 use crate::routing::codec::Codec;
 use crate::stats::metrics;
 use crate::stats::metrics::NetworkMetrics;
-use crate::{RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse};
+use crate::{
+    FullPeerInfo, NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo,
+    RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
+};
 
 #[cfg(all(
     feature = "test_features",
@@ -58,16 +68,10 @@ use crate::routing::edge::{Edge, EdgeInfo};
 #[cfg(feature = "test_features")]
 use crate::types::SetAdvOptions;
 use crate::types::{
-    AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, EdgeList,
-    FullPeerInfo, InboundTcpConnect, KnownPeerState, KnownPeerStatus, KnownProducer,
-    NetworkClientMessages, NetworkConfig, NetworkInfo, NetworkRequests, NetworkResponses,
-    NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash,
-    PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerManagerRequest,
-    PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong,
-    QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, SendMessage, StateResponseInfo, StopMsg, SyncData, Unregister,
+    Consolidate, ConsolidateResponse, EdgeList, GetPeerId, GetPeerIdResult, NetworkInfo,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerRequest, PeerResponse,
+    PeersRequest, PeersResponse, SendMessage, StopMsg, SyncData, Unregister,
 };
-use crate::types::{GetPeerId, GetPeerIdResult};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{RoutingSyncV2, RoutingVersion2};
 use near_rate_limiter::{ThrottleController, ThrottledFrameRead};
