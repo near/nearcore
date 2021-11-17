@@ -9,10 +9,10 @@ steps:
     - "distro=amazonlinux"
     branches: "!master"
 
-  - label: "cargo test nightly"
+  - label: "cargo test nightly + test_features"
     command: |
       source ~/.cargo/env && set -eux
-      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features
+      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features,test_features
 
     timeout: 60
     agents:
