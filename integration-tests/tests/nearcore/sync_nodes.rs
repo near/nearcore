@@ -13,8 +13,10 @@ use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock};
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_integration_logger;
+
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
-use near_network::{NetworkClientMessages, PeerInfo};
+use near_network::NetworkClientMessages;
+use near_network_primitives::types::PeerInfo;
 use near_primitives::block::Approval;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::num_rational::Rational;

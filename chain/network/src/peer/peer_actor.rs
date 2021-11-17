@@ -19,7 +19,12 @@ use tracing::{debug, error, info, trace, warn};
 use delay_detector::DelayDetector;
 use near_crypto::Signature;
 use near_metrics;
-use near_network_primitives::types::PeerIdOrHash;
+use near_network_primitives::types::{
+    Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2,
+    PeerIdOrHash, PeerManagerRequest, PeerStatsResult, PeerStatus, PeerType, QueryPeerStats,
+    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+};
 use near_performance_metrics;
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
@@ -41,15 +46,14 @@ use crate::routing::codec::{self, bytes_to_peer_message, peer_message_to_bytes, 
 use crate::routing::edge::{Edge, EdgeInfo};
 use crate::stats::metrics::{self, NetworkMetrics};
 use crate::types::{
-    Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
-    NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2, PeerInfo,
-    PeerManagerMessageRequest, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse,
-    PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
-    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage,
-    StateResponseInfo, Unregister, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+    Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
+    PeerManagerMessageRequest, PeerMessage, PeerRequest, PeerResponse, PeersRequest, PeersResponse,
+    SendMessage, Unregister,
 };
-use crate::{NetworkResponses, PeerManagerActor};
+use crate::{
+    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
+    PeerManagerActor,
+};
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 

@@ -18,6 +18,11 @@ use tracing::debug;
 
 use near_crypto::{KeyType, SecretKey};
 #[cfg(feature = "test_features")]
+use near_network_primitives::types::NetworkConfig;
+use near_network_primitives::types::ReasonForBan;
+#[cfg(feature = "test_features")]
+use near_network_primitives::types::{NetworkViewClientMessages, NetworkViewClientResponses};
+#[cfg(feature = "test_features")]
 use near_primitives::block::GenesisId;
 #[cfg(feature = "test_features")]
 use near_primitives::borsh::maybestd::sync::atomic::AtomicUsize;
@@ -32,17 +37,12 @@ use near_store::Store;
 
 #[cfg(feature = "test_features")]
 use crate::routing::routing_table_actor::start_routing_table_actor;
+use crate::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 #[cfg(feature = "test_features")]
-use crate::types::{
-    NetworkClientMessages, NetworkClientResponses, NetworkViewClientMessages,
-    NetworkViewClientResponses,
-};
-use crate::types::{
-    NetworkInfo, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, ReasonForBan,
-};
+use crate::NetworkClientResponses;
 #[cfg(feature = "test_features")]
-use crate::{NetworkConfig, RoutingTableActor};
-use crate::{NetworkResponses, PeerManagerActor, PeerManagerAdapter};
+use crate::{NetworkClientMessages, RoutingTableActor};
+use crate::{NetworkResponses, PeerInfo, PeerManagerActor, PeerManagerAdapter};
 
 /// Mock for `ClientActor`
 #[cfg(feature = "test_features")]
@@ -218,7 +218,7 @@ impl Message for GetInfo {
 }
 
 impl Handler<GetInfo> for PeerManagerActor {
-    type Result = NetworkInfo;
+    type Result = crate::types::NetworkInfo;
 
     fn handle(&mut self, _msg: GetInfo, _ctx: &mut Context<Self>) -> Self::Result {
         self.get_network_info()
