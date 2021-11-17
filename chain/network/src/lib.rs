@@ -17,6 +17,3 @@ pub mod routing;
 mod stats;
 pub mod test_utils;
 pub mod types;
-pub mod utils;
-
-pub use types::GetPeerId;
