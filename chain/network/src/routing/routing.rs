@@ -2,14 +2,13 @@ use near_primitives::time::Clock;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
-use conqueue::{QueueReceiver, QueueSender};
 use near_network_primitives::types::{PeerIdOrHash, Ping, Pong};
 #[cfg(feature = "test_features")]
 use serde::Serialize;
