@@ -3,6 +3,7 @@ extern crate bencher;
 
 use bencher::{black_box, Bencher};
 use near_crypto::{KeyType, SecretKey, Signature};
+use near_network::routing::Edge;
 use std::collections::HashMap;
 use std::sync::Arc;
 

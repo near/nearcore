@@ -6,8 +6,9 @@ use borsh::de::BorshDeserialize;
 use near_primitives::time::Clock;
 
 use near_crypto::Signature;
-use near_network::routing::{EdgeType, DELETE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME};
+use near_network::routing::{Edge, EdgeType, Prune, DELETE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME};
 use near_network::test_utils::random_peer_id;
+use near_network::RoutingTableActor;
 use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
 use near_store::{ColComponentEdges, ColPeerComponent, Store};

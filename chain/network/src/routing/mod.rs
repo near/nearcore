@@ -11,3 +11,15 @@ mod route_back_cache;
 pub(crate) mod routing;
 pub(crate) mod routing_table_actor;
 mod utils;
+
+pub use crate::routing::edge::{Edge, EdgeInfo, SimpleEdge};
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+pub use crate::routing::ibf_peer_set::SlotMapId;
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+pub use crate::routing::ibf_set::IbfSet;
+#[cfg(feature = "test_features")]
+pub use crate::routing::routing::GetRoutingTableResult;
+pub use crate::routing::routing::{
+    EdgeType, Graph, RoutingTableView, DELETE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME,
+};
+pub use crate::routing::routing_table_actor::{start_routing_table_actor, Prune};
