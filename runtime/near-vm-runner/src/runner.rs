@@ -197,3 +197,25 @@ pub fn compile_module(vm_kind: VMKind, code: &Vec<u8>) -> bool {
     };
     false
 }
+
+pub(crate) struct WasmFeatures(());
+
+impl Default for WasmFeatures {
+    fn default() -> Self {
+        WasmFeatures(())
+    }
+}
+
+impl From<WasmFeatures> for wasmparser::ValidatingParserConfig {
+    fn from(_: WasmFeatures) -> wasmparser::ValidatingParserConfig {
+        wasmparser::ValidatingParserConfig {
+            operator_config: wasmparser::OperatorValidatorConfig {
+                enable_threads: false,
+                enable_reference_types: false,
+                enable_simd: false,
+                enable_bulk_memory: false,
+                enable_multi_value: false,
+            },
+        }
+    }
+}

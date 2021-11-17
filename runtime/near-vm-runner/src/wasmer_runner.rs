@@ -339,10 +339,22 @@ pub(crate) fn run_wasmer0_module<'a>(
 }
 
 pub fn compile_wasmer0_module(code: &[u8]) -> bool {
-    wasmer_runtime::compile(code).is_ok()
+    wasmer_runtime::compile_with_config(code, wasmer_runtime::CompilerConfig {
+        features: crate::runner::WasmFeatures::default().into(),
+        ..Default::default()
+    }).is_ok()
 }
 
 pub(crate) fn wasmer0_vm_hash() -> u64 {
     // TODO: take into account compiler and engine used to compile the contract.
     42
+}
+
+impl From<crate::runner::WasmFeatures> for wasmer_runtime::Features {
+    fn from(_: crate::runner::WasmFeatures) -> wasmer_runtime::Features {
+        wasmer_runtime::Features {
+            threads: false,
+            simd: false,
+        }
+    }
 }

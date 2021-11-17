@@ -372,7 +372,9 @@ pub(crate) fn default_wasmer2_store() -> Store {
     let compiler = Singlepass::new();
     // We only support universal engine at the moment.
     assert_eq!(WASMER2_CONFIG.engine, WasmerEngine::Universal);
-    let engine = wasmer::Universal::new(compiler).engine();
+    let engine = wasmer::Universal::new(compiler)
+        .features(crate::runner::WasmFeatures::default().into())
+        .engine();
     Store::new(&engine)
 }
 
@@ -419,4 +421,24 @@ pub(crate) fn run_wasmer2_module<'a>(
 
     let err = run_method(module, &import, method_name, &mut logic).err();
     (Some(logic.outcome()), err)
+}
+
+impl From<crate::runner::WasmFeatures> for wasmer::Features {
+    fn from(_: crate::runner::WasmFeatures) -> wasmer::Features {
+        wasmer::Features {
+            threads: false,
+            reference_types: false,
+            simd: false,
+            bulk_memory: false,
+            // singlepass compiler requires multi_value return values to be disabled.
+            multi_value: false,
+            tail_call: false,
+            module_linking: false,
+            multi_memory: false,
+            memory64: false,
+            exceptions: false,
+            // singlepass does not support signals.
+            signal_less: true,
+        }
+    }
 }

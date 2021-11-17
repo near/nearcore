@@ -17,7 +17,7 @@ pub mod wasmtime_runner {
     use std::ffi::c_void;
     use std::str;
     use wasmtime::ExternType::Func;
-    use wasmtime::{Config, Engine, Limits, Linker, Memory, MemoryType, Module, Store, TrapCode};
+    use wasmtime::{Engine, Limits, Linker, Memory, MemoryType, Module, Store, TrapCode};
 
     pub struct WasmtimeMemory(Memory);
 
@@ -152,7 +152,7 @@ pub mod wasmtime_runner {
         current_protocol_version: ProtocolVersion,
         _cache: Option<&dyn CompiledContractCache>,
     ) -> (Option<VMOutcome>, Option<VMError>) {
-        let mut config = Config::default();
+        let mut config = super::default_config();
         let engine = get_engine(&mut config);
         let store = Store::new(&engine);
         let mut memory = WasmtimeMemory::new(
@@ -267,7 +267,7 @@ pub mod wasmtime_runner {
 }
 
 pub fn compile_module(code: &[u8]) -> bool {
-    let mut config = wasmtime::Config::default();
+    let mut config = default_config();
     let engine = wasmtime_runner::get_engine(&mut config);
     Module::new(&engine, code).is_ok()
 }
@@ -275,4 +275,16 @@ pub fn compile_module(code: &[u8]) -> bool {
 pub(crate) fn wasmtime_vm_hash() -> u64 {
     // TODO: take into account compiler and engine used to compile the contract.
     64
+}
+
+fn default_config() -> wasmtime::Config {
+    let mut config = wasmtime::Config::default();
+    config.wasm_threads(false);
+    config.wasm_reference_types(false);
+    config.wasm_simd(false);
+    config.wasm_bulk_memory(false);
+    config.wasm_multi_value(false);
+    config.wasm_multi_memory(false);
+    config.wasm_module_linking(false);
+    config
 }

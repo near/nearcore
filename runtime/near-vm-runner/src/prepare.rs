@@ -15,7 +15,8 @@ struct ContractModule<'a> {
 
 impl<'a> ContractModule<'a> {
     fn init(original_code: &[u8], config: &'a VMConfig) -> Result<Self, PrepareError> {
-        wasmparser::validate(original_code, None).map_err(|_| PrepareError::Deserialization)?;
+        wasmparser::validate(original_code, Some(crate::runner::WasmFeatures::default().into()))
+            .map_err(|_| PrepareError::Deserialization)?;
         let module = elements::deserialize_buffer(original_code)
             .map_err(|_| PrepareError::Deserialization)?;
         Ok(ContractModule { module, config })
