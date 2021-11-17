@@ -1,5 +1,6 @@
 use near_primitives::time::Clock;
-use std::collections::{hash_map::Entry, HashMap, VecDeque};
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -9,6 +10,7 @@ use actix::{Actor, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 use conqueue::{QueueReceiver, QueueSender};
+use near_network_primitives::types::{PeerIdOrHash, Ping, Pong};
 #[cfg(feature = "test_features")]
 use serde::Serialize;
 use tracing::warn;
@@ -20,16 +22,13 @@ use near_store::{ColAccountAnnouncements, Store};
 
 use crate::routing::edge::{Edge, SimpleEdge};
 use crate::routing::route_back_cache::RouteBackCache;
+use crate::routing::utils::cache_to_hashmap;
 use crate::PeerInfo;
-use crate::{
-    types::{PeerIdOrHash, Ping, Pong},
-    utils::cache_to_hashmap,
-};
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
-const ROUTE_BACK_CACHE_SIZE: u64 = 100_000;
+const ROUTE_BACK_CACHE_SIZE: usize = 100_000;
 const ROUTE_BACK_CACHE_EVICT_TIMEOUT: Duration = Duration::from_millis(120_000);
-const ROUTE_BACK_CACHE_REMOVE_BATCH: u64 = 100;
+const ROUTE_BACK_CACHE_REMOVE_BATCH: usize = 100;
 const PING_PONG_CACHE_SIZE: usize = 1_000;
 const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
 const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;

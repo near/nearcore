@@ -20,10 +20,10 @@
 /tools/rpctypegen/ @frol
 /tools/indexer/ @khorolets @frol
 
-/core/  @bowenwang1996 @frol @matklad
+/core/  @bowenwang1996 @frol @matklad @mm-near
 /core/store/src/trie @mzhangmzz @longarithm
-/neard/ @bowenwang1996 @frol
-/nearcore/ @bowenwang1996 @frol
+/neard/ @bowenwang1996 @frol @mm-near
+/nearcore/ @bowenwang1996 @frol @mm-near
 /test-utils/state-viewer @nikurt
 /test-utils/runtime-tester @posvyatokum @matklad
 

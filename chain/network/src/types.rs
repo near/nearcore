@@ -1,20 +1,30 @@
 use near_primitives::time::Instant;
 use std::collections::HashMap;
-use std::fmt;
 use std::fmt::{Debug, Formatter};
-use std::io;
 use std::sync::{Arc, Mutex, RwLock};
+use std::{fmt, io};
 
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, MailboxError, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
-use futures::{future::BoxFuture, FutureExt};
+use futures::future::BoxFuture;
+use futures::FutureExt;
 #[cfg(feature = "test_features")]
 use serde::Serialize;
 use strum::AsStaticStr;
 
 use conqueue::QueueSender;
-pub use near_network_primitives::types::*;
+#[cfg(feature = "test_features")]
+use near_network_primitives::types::NetworkAdversarialMessage;
+
+#[cfg(feature = "sandbox")]
+use near_network_primitives::types::NetworkSandboxMessage;
+use near_network_primitives::types::{
+    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, InboundTcpConnect, KnownProducer,
+    OutboundTcpConnect, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
+    PartialEncodedChunkResponseMsg, PeerChainInfo, PeerChainInfoV2, PeerType, Ping, Pong,
+    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+};
 
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
@@ -36,6 +46,7 @@ use crate::routing::ibf::IbfBox;
 use crate::routing::routing::{
     GetRoutingTableResult, PeerRequestResult, RoutingTableInfo, ValidIBFLevel,
 };
+use crate::PeerInfo;
 
 const ERROR_UNEXPECTED_LENGTH_OF_INPUT: &str = "Unexpected length of input";
 

@@ -18,6 +18,11 @@ use tracing::debug;
 
 use near_crypto::{KeyType, SecretKey};
 #[cfg(feature = "test_features")]
+use near_network_primitives::types::NetworkConfig;
+use near_network_primitives::types::ReasonForBan;
+#[cfg(feature = "test_features")]
+use near_network_primitives::types::{NetworkViewClientMessages, NetworkViewClientResponses};
+#[cfg(feature = "test_features")]
 use near_primitives::block::GenesisId;
 #[cfg(feature = "test_features")]
 use near_primitives::borsh::maybestd::sync::atomic::AtomicUsize;
@@ -32,17 +37,12 @@ use near_store::Store;
 
 #[cfg(feature = "test_features")]
 use crate::routing::routing_table_actor::start_routing_table_actor;
+use crate::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 #[cfg(feature = "test_features")]
-use crate::types::{
-    NetworkClientMessages, NetworkClientResponses, NetworkViewClientMessages,
-    NetworkViewClientResponses,
-};
-use crate::types::{
-    NetworkInfo, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, ReasonForBan,
-};
+use crate::NetworkClientResponses;
 #[cfg(feature = "test_features")]
-use crate::{NetworkConfig, RoutingTableActor};
-use crate::{NetworkResponses, PeerManagerActor, PeerManagerAdapter};
+use crate::{NetworkClientMessages, RoutingTableActor};
+use crate::{NetworkResponses, PeerInfo, PeerManagerActor, PeerManagerAdapter};
 
 /// Mock for `ClientActor`
 #[cfg(feature = "test_features")]
@@ -78,7 +78,7 @@ pub fn open_port() -> u16 {
 
 // `peer_id_from_seed` generate `PeerId` from seed for unit tests
 pub fn peer_id_from_seed(seed: &str) -> PeerId {
-    SecretKey::from_seed(KeyType::ED25519, seed).public_key().into()
+    PeerId::new(SecretKey::from_seed(KeyType::ED25519, seed).public_key())
 }
 
 // `convert_boot_nodes` generate list of `PeerInfos` for unit tests
@@ -174,7 +174,7 @@ pub fn vec_ref_to_str(values: Vec<&str>) -> Vec<String> {
 // Gets random PeerId
 pub fn random_peer_id() -> PeerId {
     let sk = SecretKey::from_random(KeyType::ED25519);
-    sk.public_key().into()
+    PeerId::new(sk.public_key())
 }
 
 // Gets random EpochId
@@ -218,7 +218,7 @@ impl Message for GetInfo {
 }
 
 impl Handler<GetInfo> for PeerManagerActor {
-    type Result = NetworkInfo;
+    type Result = crate::types::NetworkInfo;
 
     fn handle(&mut self, _msg: GetInfo, _ctx: &mut Context<Self>) -> Self::Result {
         self.get_network_info()
@@ -318,7 +318,7 @@ pub fn make_peer_manager_routing_table_addr_pair(
     let net_config = NetworkConfig::from_seed(seed, port);
     let store = create_test_store();
     let routing_table_addr =
-        start_routing_table_actor(net_config.public_key.clone().into(), store.clone());
+        start_routing_table_actor(PeerId::new(net_config.public_key.clone()), store.clone());
     let peer_manager_addr = make_peer_manager(
         store,
         net_config,
@@ -378,7 +378,7 @@ pub fn make_peer_manager(
         }
     }))
     .start();
-    let peer_id = config.public_key.clone().into();
+    let peer_id = PeerId::new(config.public_key.clone());
     (
         PeerManagerActor::new(
             store,
