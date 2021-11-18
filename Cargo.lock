@@ -2640,7 +2640,6 @@ dependencies = [
  "actix-web",
  "easy-ext",
  "futures",
- "lazy_static",
  "near-chain-configs",
  "near-client",
  "near-jsonrpc-adversarial-primitives",
@@ -2651,6 +2650,7 @@ dependencies = [
  "near-network-primitives",
  "near-primitives",
  "near-rpc-error-macro",
+ "once_cell",
  "prometheus",
  "serde",
  "serde_json",
@@ -2690,7 +2690,6 @@ name = "near-jsonrpc-primitives"
 version = "0.2.0"
 dependencies = [
  "actix",
- "lazy_static",
  "near-chain-configs",
  "near-client-primitives",
  "near-crypto",
@@ -2698,6 +2697,7 @@ dependencies = [
  "near-primitives",
  "near-primitives-core",
  "near-rpc-error-macro",
+ "once_cell",
  "serde",
  "serde_json",
  "thiserror",
@@ -2713,7 +2713,6 @@ dependencies = [
  "awc",
  "borsh 0.9.1",
  "futures",
- "lazy_static",
  "near-actix-test-utils",
  "near-chain-configs",
  "near-client",
@@ -2723,6 +2722,7 @@ dependencies = [
  "near-logger-utils",
  "near-network",
  "near-primitives",
+ "once_cell",
  "serde",
  "serde_json",
 ]
@@ -3077,7 +3077,7 @@ dependencies = [
  "wasmer-runtime-near",
  "wasmer-types-near",
  "wasmer-vm-near",
- "wasmparser 0.51.4",
+ "wasmparser 0.78.2",
  "wasmtime",
  "wat",
 ]
