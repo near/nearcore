@@ -63,7 +63,10 @@ impl ChunksDelayTracker {
     }
 
     fn update_chunks_metric(&mut self, head_height: BlockHeight) {
-        metrics::CHUNKS_RECEIVING_DELAY_US.set(self.get_max_delay(head_height).as_micros() as i64);
+        near_metrics::set_gauge(
+            &metrics::CHUNKS_RECEIVING_DELAY_US,
+            self.get_max_delay(head_height).as_micros() as i64,
+        );
     }
 
     // Computes the difference between the latest block we are aware of and the current head.
@@ -76,7 +79,10 @@ impl ChunksDelayTracker {
     }
 
     fn update_blocks_ahead_metric(&mut self, head_height: BlockHeight) {
-        metrics::BLOCKS_AHEAD_OF_HEAD.set(self.get_blocks_ahead(head_height) as i64);
+        near_metrics::set_gauge(
+            &metrics::BLOCKS_AHEAD_OF_HEAD,
+            self.get_blocks_ahead(head_height) as i64,
+        );
     }
 
     fn update_metrics(&mut self, head_height: BlockHeight) {
