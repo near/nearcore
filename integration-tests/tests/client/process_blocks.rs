@@ -57,7 +57,6 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
@@ -3196,11 +3195,7 @@ fn test_validator_stake_host_function() {
 fn test_limit_contract_functions_number_upgrade() {
     let functions_number_limit: u32 = 10_000;
 
-    #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
     let old_protocol_version = ProtocolFeature::LimitContractFunctionsNumber.protocol_version() - 1;
-    #[cfg(not(feature = "protocol_feature_limit_contract_functions_number"))]
-    let old_protocol_version = PROTOCOL_VERSION - 1;
-
     let new_protocol_version = old_protocol_version + 1;
 
     // Prepare TestEnv with a contract at the old protocol version.
@@ -3288,14 +3283,10 @@ fn test_limit_contract_functions_number_upgrade() {
     };
 
     assert!(matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_)));
-    if cfg!(feature = "protocol_feature_limit_contract_functions_number") {
-        assert!(matches!(
-            new_outcome.status,
-            FinalExecutionStatus::Failure(TxExecutionError::ActionError(_))
-        ));
-    } else {
-        assert!(matches!(new_outcome.status, FinalExecutionStatus::SuccessValue(_)));
-    }
+    assert!(matches!(
+        new_outcome.status,
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(_))
+    ));
 }
 
 mod access_key_nonce_range_tests {

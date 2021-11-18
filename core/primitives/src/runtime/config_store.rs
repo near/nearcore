@@ -18,8 +18,7 @@ static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (0, include_config!("29.json")),
     (42, include_config!("42.json")),
     (48, include_config!("48.json")),
-    #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
-    (123, include_config!("123.json")),
+    (49, include_config!("49.json")),
     #[cfg(feature = "protocol_feature_lower_regular_op_cost2")]
     (124, include_config!("124.json")),
 ];
@@ -119,7 +118,6 @@ mod tests {
             "3VBfW1GkXwKNiThPhrtjm2qGupYv5oEEZWapduXkd2gY",
             "BdCfuR4Gb5qgr2nhxUgGyDHesuhZg3Az5D3sEwQdQCvC",
             "2AUtULBkjrfzTepo6zFFMp4ShtiKgjpoUjoyRXLpcxiw",
-            #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
             "CmbWKajUaeK1U2owycf7tusLcVu26mrDSgJw3jz9jYie",
             #[cfg(feature = "protocol_feature_lower_regular_op_cost2")]
             "BPaPEymevcg8JiZ4Nz2c3apXMvUg7NXMS9HUE1jVKjGf",
