@@ -38,14 +38,11 @@ use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "test_features")]
-use near_network::routing::routing::GetRoutingTableResult;
-#[cfg(feature = "test_features")]
-use near_network::types::{
-    GetPeerId, NetworkAdversarialMessage, NetworkViewClientMessages, PeerManagerMessageRequest,
-    SetAdvOptions,
-};
+use near_network::routing::GetRoutingTableResult;
 #[cfg(feature = "sandbox")]
-use near_network::types::{NetworkSandboxMessage, SandboxResponse};
+use near_network::types::SandboxResponse;
+#[cfg(feature = "test_features")]
+use near_network::types::{GetPeerId, PeerManagerMessageRequest, SetAdvOptions};
 #[cfg(all(
     feature = "test_features",
     feature = "protocol_feature_routing_exchange_algorithm"
@@ -56,6 +53,12 @@ use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_network::{
     PeerManagerActor, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
 };
+#[cfg(feature = "test_features")]
+use near_network_primitives::types::NetworkAdversarialMessage;
+#[cfg(feature = "sandbox")]
+use near_network_primitives::types::NetworkSandboxMessage;
+#[cfg(feature = "test_features")]
+use near_network_primitives::types::NetworkViewClientMessages;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
 use near_primitives::transaction::SignedTransaction;

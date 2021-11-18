@@ -442,12 +442,12 @@ impl Chain {
         create_light_client_block_view(&final_block_header, chain_store, Some(next_block_producers))
     }
 
-    pub fn save_block(&mut self, block: &Block) -> Result<(), Error> {
+    pub fn save_block(&mut self, block: Block) -> Result<(), Error> {
         if self.store.get_block(block.hash()).is_ok() {
             return Ok(());
         }
         if let Err(e) =
-            Chain::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis, block)
+            Chain::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis, &block)
         {
             byzantine_assert!(false);
             return Err(e.into());
@@ -455,7 +455,7 @@ impl Chain {
 
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
 
-        chain_store_update.save_block(block.clone());
+        chain_store_update.save_block(block);
         // We don't need to increase refcount for `prev_hash` at this point
         // because this is the block before State Sync.
 
@@ -463,18 +463,18 @@ impl Chain {
         Ok(())
     }
 
-    pub fn save_orphan(&mut self, block: &Block) -> Result<(), Error> {
+    pub fn save_orphan(&mut self, block: Block) -> Result<(), Error> {
         if self.orphans.contains(block.hash()) {
             return Ok(());
         }
         if let Err(e) =
-            Chain::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis, block)
+            Chain::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis, &block)
         {
             byzantine_assert!(false);
             return Err(e.into());
         }
         self.orphans.add(Orphan {
-            block: block.clone(),
+            block: block,
             provenance: Provenance::NONE,
             added: Clock::instant(),
         });
@@ -717,8 +717,12 @@ impl Chain {
                 {
                     return Err(ErrorKind::InvalidChunk.into());
                 }
-            } else {
-                if !runtime_adapter.verify_chunk_header_signature(&chunk_header.clone())? {
+            } else if chunk_header.height_created() == block.header().height() {
+                if !runtime_adapter.verify_chunk_header_signature(
+                    &chunk_header.clone(),
+                    block.header().epoch_id(),
+                    block.header().prev_hash(),
+                )? {
                     byzantine_assert!(false);
                     return Err(ErrorKind::InvalidChunk.into());
                 }

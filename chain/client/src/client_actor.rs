@@ -28,14 +28,16 @@ use near_chain_configs::ClientConfig;
 #[cfg(feature = "test_features")]
 use near_chain_configs::GenesisConfig;
 use near_crypto::Signature;
-#[cfg(feature = "test_features")]
-use near_network::types::NetworkAdversarialMessage;
-use near_network::types::{NetworkInfo, PeerManagerMessageRequest, ReasonForBan};
 #[cfg(feature = "sandbox")]
-use near_network::types::{NetworkSandboxMessage, SandboxResponse};
+use near_network::types::SandboxResponse;
+use near_network::types::{NetworkInfo, PeerManagerMessageRequest};
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, PeerManagerAdapter,
 };
+#[cfg(feature = "test_features")]
+use near_network_primitives::types::NetworkAdversarialMessage;
+#[cfg(feature = "sandbox")]
+use near_network_primitives::types::NetworkSandboxMessage;
 use near_performance_metrics;
 use near_performance_metrics_macros::{perf, perf_with_debug};
 use near_primitives::hash::CryptoHash;
@@ -65,6 +67,7 @@ use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
     StatusError, StatusSyncInfo, SyncStatus,
 };
+use near_network_primitives::types::ReasonForBan;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::syncing::StatePartKey;
 use near_store::db::DBCol::ColStateParts;
@@ -379,12 +382,12 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
                         if let Ok(header) = self.client.chain.get_block_header(sync_hash) {
                             if block.hash() == header.prev_hash() {
-                                if let Err(e) = self.client.chain.save_block(&block) {
+                                if let Err(e) = self.client.chain.save_block(block) {
                                     error!(target: "client", "Failed to save a block during state sync: {}", e);
                                 }
                                 return NetworkClientResponses::NoResponse;
                             } else if block.hash() == sync_hash {
-                                if let Err(e) = self.client.chain.save_orphan(&block) {
+                                if let Err(e) = self.client.chain.save_orphan(block) {
                                     error!(target: "client", "Received an invalid block during state sync: {}", e);
                                 }
                                 return NetworkClientResponses::NoResponse;
@@ -567,9 +570,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk) => {
-                if let Ok(accepted_blocks) = self.client.process_partial_encoded_chunk(
-                    MaybeValidated::NotValidated(partial_encoded_chunk),
-                ) {
+                if let Ok(accepted_blocks) = self
+                    .client
+                    .process_partial_encoded_chunk(MaybeValidated::from(partial_encoded_chunk))
+                {
                     self.process_accepted_blocks(accepted_blocks);
                 }
                 NetworkClientResponses::NoResponse
