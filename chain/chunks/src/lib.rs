@@ -701,6 +701,11 @@ impl ShardsManager {
         }
     }
 
+    /// send chunk requests for some chunks in a block
+    /// `chunks_to_reqeust`: chunks to request
+    /// `prev_hash`: hash of prev block of the block we are requesting missing chunks for
+    ///              The function assumes the prev block is accepted
+    /// `header_head`: current head of the header chain
     pub fn request_chunks<T>(
         &mut self,
         chunks_to_request: T,
