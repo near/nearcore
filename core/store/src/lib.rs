@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate lazy_static;
+
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
 use std::ops::Deref;
