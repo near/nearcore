@@ -2,7 +2,7 @@ steps:
   - label: "cargo test"
     command: |
       source ~/.cargo/env && set -eux
-      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --locked --workspace --features test_features
+      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --locked --workspace
 
     timeout: 60
     agents:
