@@ -26,9 +26,6 @@ pub struct VMConfig {
 pub struct VMLimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
     pub max_gas_burnt: Gas,
-    /// Max burnt gas per view method.
-    /// TODO #4719: remove this field because it does not affect the protocol
-    pub max_gas_burnt_view: Gas,
 
     /// How tall the stack is allowed to grow?
     ///
@@ -110,11 +107,7 @@ impl VMConfig {
             grow_mem_cost: 0,
             regular_op_cost: 0,
             // We shouldn't have any costs in the limit config.
-            limit_config: VMLimitConfig {
-                max_gas_burnt: u64::MAX,
-                max_gas_burnt_view: u64::MAX,
-                ..Default::default()
-            },
+            limit_config: VMLimitConfig { max_gas_burnt: u64::MAX, ..Default::default() },
         }
     }
 }
@@ -124,7 +117,6 @@ impl Default for VMLimitConfig {
     fn default() -> Self {
         Self {
             max_gas_burnt: 2 * 10u64.pow(14), // with 10**15 block gas limit this will allow 5 calls.
-            max_gas_burnt_view: 2 * 10u64.pow(14), // same as `max_gas_burnt` for now
 
             // NOTE: Stack height has to be 16K, otherwise Wasmer produces non-deterministic results.
             // For experimentation try `test_stack_overflow`.
