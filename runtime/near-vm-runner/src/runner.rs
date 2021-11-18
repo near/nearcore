@@ -146,9 +146,7 @@ pub fn precompile<'a>(
         }
         #[cfg(feature = "wasmer2_vm")]
         VMKind::Wasmer2 => {
-            let compiler = wasmer_compiler_singlepass::Singlepass::new();
-            let engine = wasmer::Universal::new(compiler).engine();
-            let store = wasmer::Store::new(&engine);
+            let store = crate::wasmer2_runner::default_wasmer2_store();
             let result = crate::cache::wasmer2_cache::compile_and_serialize_wasmer2(
                 code,
                 code_hash,

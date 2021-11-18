@@ -43,13 +43,11 @@ use crate::routing::edge::{Edge, EdgeInfo};
 use crate::stats::metrics::{self, NetworkMetrics};
 use crate::types::{
     Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
+    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerManagerMessageRequest, PeerMessage, PeerRequest, PeerResponse, PeersRequest, PeersResponse,
     SendMessage, Unregister,
 };
-use crate::{
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
-    PeerManagerActor,
-};
+use crate::{PeerInfo, PeerManagerActor};
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 

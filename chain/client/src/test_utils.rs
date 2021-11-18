@@ -22,10 +22,11 @@ use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::routing::EdgeInfo;
 use near_network::test_utils::MockPeerManagerAdapter;
-use near_network::{
+use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRecipient, NetworkRequests,
-    NetworkResponses, PeerManagerActor, PeerManagerAdapter,
+    NetworkResponses, PeerManagerAdapter,
 };
+use near_network::PeerManagerActor;
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
