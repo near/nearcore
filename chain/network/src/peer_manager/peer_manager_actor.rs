@@ -45,10 +45,8 @@ use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
 use crate::routing::codec::Codec;
 use crate::stats::metrics;
 use crate::stats::metrics::NetworkMetrics;
-use crate::{
-    FullPeerInfo, NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo,
-    RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
-};
+use crate::types::{FullPeerInfo, NetworkClientMessages, NetworkRequests, NetworkResponses};
+use crate::{RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse};
 
 #[cfg(all(
     feature = "test_features",
@@ -74,6 +72,7 @@ use crate::types::{
 };
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{RoutingSyncV2, RoutingVersion2};
+use crate::PeerInfo;
 use near_rate_limiter::{ThrottleController, ThrottledFrameRead};
 
 /// How often to request peers from active peers.

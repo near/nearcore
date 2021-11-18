@@ -109,7 +109,7 @@ impl AnnounceAccount {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize)]
 struct AnnounceAccountRouteHeader<'a> {
     pub account_id: &'a AccountId,
     pub peer_id: &'a PeerId,

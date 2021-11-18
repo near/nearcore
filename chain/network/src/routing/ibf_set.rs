@@ -10,7 +10,7 @@ use near_stable_hasher::StableHasher;
 
 use crate::routing::ibf::{Ibf, IbfBox};
 use crate::routing::ibf_peer_set::SlotMapId;
-use crate::routing::routing::{ValidIBFLevel, MAX_IBF_LEVEL, MIN_IBF_LEVEL};
+use crate::routing::ibf_peer_set::{ValidIBFLevel, MAX_IBF_LEVEL, MIN_IBF_LEVEL};
 
 /// Stores list of `Ibf` data structures of various sizes.
 /// In the current implementation we use sizes from 2^10+  2 ... 2^17 + 2.
@@ -106,8 +106,8 @@ where
 #[cfg(test)]
 mod test {
     use crate::routing::ibf_peer_set::SlotMapId;
+    use crate::routing::ibf_peer_set::ValidIBFLevel;
     use crate::routing::ibf_set::IbfSet;
-    use crate::routing::routing::ValidIBFLevel;
 
     #[test]
     fn test_ibf_set() {

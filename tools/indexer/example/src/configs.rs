@@ -1,4 +1,4 @@
-use clap::Clap;
+use clap::{AppSettings, Clap};
 
 use near_indexer::near_primitives::types::Gas;
 
@@ -8,6 +8,7 @@ use tracing_subscriber::EnvFilter;
 /// Watches for stream of blocks from the chain
 #[derive(Clap, Debug)]
 #[clap(version = "0.1", author = "Near Inc. <hello@nearprotocol.com>")]
+#[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
 pub(crate) struct Opts {
     /// Sets a custom config dir. Defaults to ~/.near/
     #[clap(short, long)]
@@ -65,7 +66,7 @@ pub(crate) struct InitConfigArgs {
 
 pub(crate) fn init_logging() {
     let env_filter = EnvFilter::new(
-        "tokio_reactor=info,near=info,near=error,stats=info,telemetry=info,indexer_example=info,indexer=info,near-performance-metrics=info",
+        "indexer-example=info,tokio_reactor=info,near=info,near=error,stats=info,telemetry=info,indexer_example=info,indexer=info,near-performance-metrics=info",
     );
     tracing_subscriber::fmt::Subscriber::builder()
         .with_env_filter(env_filter)
