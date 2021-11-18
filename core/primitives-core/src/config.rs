@@ -310,72 +310,30 @@ pub struct ExtCostsConfig {
     // #############
     /// Base cost for multiexp
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    #[serde(default = "default_alt_bn128_g1_multiexp_base")]
     pub alt_bn128_g1_multiexp_base: Gas,
     /// byte cost for multiexp
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    #[serde(default = "default_alt_bn128_g1_multiexp_byte")]
     pub alt_bn128_g1_multiexp_byte: Gas,
     /// Base cost for sum
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    #[serde(default = "default_alt_bn128_g1_multiexp_sublinear")]
     pub alt_bn128_g1_sum_base: Gas,
     /// byte cost for sum
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    #[serde(default = "default_alt_bn128_pairing_check_base")]
     pub alt_bn128_g1_sum_byte: Gas,
     /// sublinear cost for items
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    #[serde(default = "default_alt_bn128_pairing_check_byte")]
     pub alt_bn128_g1_multiexp_sublinear: Gas,
     /// Base cost for pairing check
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    #[serde(default = "default_alt_bn128_g1_sum_base")]
     pub alt_bn128_pairing_check_base: Gas,
     /// Cost for pairing check per byte
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    #[serde(default = "default_alt_bn128_g1_sum_byte")]
     pub alt_bn128_pairing_check_byte: Gas,
 }
 
 // We multiply the actual computed costs by the fixed factor to ensure we
 // have certain reserve for further gas price variation.
 const SAFETY_MULTIPLIER: u64 = 3;
-
-#[cfg(feature = "protocol_feature_alt_bn128")]
-fn default_alt_bn128_g1_multiexp_base() -> Gas {
-    SAFETY_MULTIPLIER * 237668976500
-}
-
-#[cfg(feature = "protocol_feature_alt_bn128")]
-fn default_alt_bn128_g1_multiexp_byte() -> Gas {
-    SAFETY_MULTIPLIER * 1111697487
-}
-
-#[cfg(feature = "protocol_feature_alt_bn128")]
-fn default_alt_bn128_g1_multiexp_sublinear() -> Gas {
-    SAFETY_MULTIPLIER * 1441698
-}
-
-#[cfg(feature = "protocol_feature_alt_bn128")]
-fn default_alt_bn128_pairing_check_base() -> Gas {
-    SAFETY_MULTIPLIER * 3228502967000
-}
-
-#[cfg(feature = "protocol_feature_alt_bn128")]
-fn default_alt_bn128_pairing_check_byte() -> Gas {
-    SAFETY_MULTIPLIER * 8858396182
-}
-
-#[cfg(feature = "protocol_feature_alt_bn128")]
-fn default_alt_bn128_g1_sum_base() -> Gas {
-    SAFETY_MULTIPLIER * 1058438125
-}
-
-#[cfg(feature = "protocol_feature_alt_bn128")]
-fn default_alt_bn128_g1_sum_byte() -> Gas {
-    SAFETY_MULTIPLIER * 25406181
-}
 
 impl ExtCostsConfig {
     pub fn test() -> ExtCostsConfig {
@@ -434,19 +392,19 @@ impl ExtCostsConfig {
             validator_stake_base: SAFETY_MULTIPLIER * 303944908800,
             validator_total_stake_base: SAFETY_MULTIPLIER * 303944908800,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_base: default_alt_bn128_g1_multiexp_base(),
+            alt_bn128_g1_multiexp_base: SAFETY_MULTIPLIER * 237668976500,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_byte: default_alt_bn128_g1_multiexp_byte(),
+            alt_bn128_g1_multiexp_byte: SAFETY_MULTIPLIER * 1111697487,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_sublinear: default_alt_bn128_g1_multiexp_sublinear(),
+            alt_bn128_g1_multiexp_sublinear: SAFETY_MULTIPLIER * 1441698,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_pairing_check_base: default_alt_bn128_pairing_check_base(),
+            alt_bn128_pairing_check_base: SAFETY_MULTIPLIER * 3228502967000,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_pairing_check_byte: default_alt_bn128_pairing_check_byte(),
+            alt_bn128_pairing_check_byte: SAFETY_MULTIPLIER * 8858396182,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_sum_base: default_alt_bn128_g1_sum_base(),
+            alt_bn128_g1_sum_base: SAFETY_MULTIPLIER * 1058438125,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_sum_byte: default_alt_bn128_g1_sum_byte(),
+            alt_bn128_g1_sum_byte: SAFETY_MULTIPLIER * 25406181,
         }
     }
 

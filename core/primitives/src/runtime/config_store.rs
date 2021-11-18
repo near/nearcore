@@ -116,13 +116,13 @@ mod tests {
     #[test]
     fn test_runtime_config_data() {
         let expected_hashes = vec![
-            "3BJw81YmKnFRtDZmsWZa4trPrgRW1JYvfdEdF9XYPHb1",
-            "FBTPmACUgquZhJtycc3DoL8TdnVid2H7zcjRNkVjpZ61",
-            "3co4JPeYsMJJo95UdKTUFvmzpg7oj7SLzyVwgPAK2dSu",
+            "FF2Qg5qSM6iWQjD5ZyzEhdAV2g5MyQKXGYh4kyt8mMcE",
+            "97UzHtVFBc4235jdur3DgNSUGNfGQfzRDLmAkYdZ19Re",
+            "C6uw6BoeXr3KoKpVP34hBA7TqoywMbwMtJgqbTpPCiSB",
             #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
-            "GMtp2NWb9wnQ4d7nCiM6hVKYxdztSG1EoWHjRZzo7VKd",
+            "AFpppR4PmSe4YBWzcyyH8vzLCeDbzfTRjeCGPVrmpPJj",
             #[cfg(feature = "protocol_feature_lower_regular_op_cost2")]
-            "BRQfpvNdt5KHxfZmNpTA2UvPJrqBZ8K9miLH3i6ygKb7",
+            "2cuq2HvuHT7Z27LUbgEtMxP2ejqrHK34J2V1GL1joiMn",
         ];
         let actual_hashes = CONFIGS
             .iter()
