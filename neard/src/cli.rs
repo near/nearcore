@@ -59,7 +59,6 @@ impl NeardCmd {
                 fs::remove_dir_all(home_dir).expect("Removing data and config failed.");
             }
             NeardSubCommand::StateViewer(cmd) => {
-                info!(target: "neard", "Invoking state-viewer");
                 cmd.run(&home_dir);
             }
         }
@@ -103,7 +102,7 @@ pub(super) enum NeardSubCommand {
     /// config)
     #[clap(name = "unsafe_reset_data")]
     UnsafeResetData,
-    /// View DB state by invoking `state-viewer`.
+    /// View DB state.
     #[clap(name = "view_state")]
     StateViewer(StateViewerSubCommand),
 }
