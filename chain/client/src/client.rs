@@ -22,7 +22,9 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
-use near_network::{FullPeerInfo, NetworkClientResponses, NetworkRequests, PeerManagerAdapter};
+use near_network::types::{
+    FullPeerInfo, NetworkClientResponses, NetworkRequests, PeerManagerAdapter,
+};
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;

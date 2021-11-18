@@ -28,7 +28,7 @@ use near_client_primitives::types::{
     TxStatusError,
 };
 use near_network::types::PeerManagerMessageRequest;
-use near_network::{NetworkRequests, PeerManagerAdapter};
+use near_network::types::{NetworkRequests, PeerManagerAdapter};
 #[cfg(feature = "test_features")]
 use near_network_primitives::types::NetworkAdversarialMessage;
 use near_network_primitives::types::{
