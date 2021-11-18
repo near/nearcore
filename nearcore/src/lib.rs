@@ -13,7 +13,7 @@ use near_chain::ChainGenesis;
 #[cfg(feature = "test_features")]
 use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
-use near_network::routing::routing_table_actor::start_routing_table_actor;
+use near_network::routing::start_routing_table_actor;
 use near_network::{NetworkRecipient, PeerManagerActor};
 use near_primitives::network::PeerId;
 #[cfg(feature = "rosetta_rpc")]

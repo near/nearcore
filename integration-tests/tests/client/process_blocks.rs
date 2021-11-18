@@ -31,7 +31,7 @@ use near_network::{
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 
-use near_network::routing::edge::EdgeInfo;
+use near_network::routing::EdgeInfo;
 use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
 use near_primitives::errors::InvalidTxError;
