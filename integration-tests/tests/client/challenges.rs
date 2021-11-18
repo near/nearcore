@@ -495,7 +495,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
         &vec![merkle_paths[0].clone()],
     );
     assert!(env.clients[1]
-        .process_partial_encoded_chunk(MaybeValidated::NotValidated(partial_encoded_chunk))
+        .process_partial_encoded_chunk(MaybeValidated::from(partial_encoded_chunk))
         .is_ok());
     env.process_block(1, block.clone(), Provenance::NONE);
 

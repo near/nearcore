@@ -31,7 +31,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
+use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, NumShards,
@@ -1327,8 +1327,8 @@ impl TestEnv {
                 ) = request
                 {
                     self.client(&account_id)
-                        .process_partial_encoded_chunk(MaybeValidated::NotValidated(
-                            partial_encoded_chunk.into(),
+                        .process_partial_encoded_chunk(MaybeValidated::from(
+                            PartialEncodedChunk::from(partial_encoded_chunk),
                         ))
                         .unwrap();
                 }
