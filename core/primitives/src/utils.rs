@@ -28,12 +28,13 @@ const NS_IN_SECOND: u64 = 1_000_000_000;
 /// A data structure for tagging data as already being validated to prevent
 /// redundant work.
 ///
-/// # Examples
+/// # Example
 ///
-/// ```
+/// ```ignore
 /// struct Foo;
 /// struct Error;
 ///
+/// /// Performs expensive validation of `foo`.
 /// fn validate_foo(foo: &Foo) -> Result<bool, Error>;
 ///
 /// fn do_stuff(foo: Foo) {
@@ -47,7 +48,7 @@ const NS_IN_SECOND: u64 = 1_000_000_000;
 /// fn do_stuff_with_foo(foo: &MaybeValidated<Foo) {
 ///     // …
 ///     if maybe_do_something && foo.validate_with(validate_foo) {
-///         do_some_stuff;
+///         println!("@_@");
 ///     }
 ///     // …
 /// }
@@ -75,9 +76,11 @@ impl<T> MaybeValidated<T> {
     /// # Example
     ///
     /// ```
+    /// use near_primitives::utils::MaybeValidated;
+    ///
     /// let value = MaybeValidated::from(42);
-    /// assert_eq!(Ok(true), value.validate_with::<()>(|v| Ok(*v == 42)));
-    /// assert_eq!(Ok(true), value.validate_with::<()>(|_| panic!()));
+    /// assert_eq!(Ok(true), value.validate_with::<(), _>(|v| Ok(*v == 42)));
+    /// assert_eq!(Ok(true), value.validate_with::<(), _>(|_| panic!()));
     /// ```
     pub fn validate_with<E, F: FnOnce(&T) -> Result<bool, E>>(
         &self,
