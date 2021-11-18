@@ -9,18 +9,19 @@ use near_vm_logic::{External, VMContext, VMOutcome};
 use crate::cache::into_vm_result;
 use crate::VMKind;
 
-/// `run` does the following:
-/// - deserializes and validate the `code` binary (see `prepare::prepare_contract`)
-/// - injects gas counting into
-/// - adds fee to VMLogic's GasCounter for size of contract
-/// - instantiates (links) `VMLogic` externs with the imports of the binary
-/// - calls the `method_name` with `context.input`
-///   - updates `ext` with new receipts, created during the execution
-///   - counts burnt and used gas
-///   - counts how accounts storage usage increased by the call
-///   - collects logs
-///   - sets the return data
-///  returns result as `VMOutcome`
+/// Validate and run the specified contract.
+///
+/// This is the entry point for executing a NEAR protocol contract. Before the entry point (as
+/// specified by the `method_name` argument) of the contract code is executed, the contract will be
+/// validated (see [`prepare::prepare_contract`]), instrumented (e.g. for gas accounting), and
+/// linked with the externs specified via the `ext` argument.
+///
+/// [`VMContext::input`] will be passed to the contract entrypoint as an argument.
+///
+/// The contract will be executed with the default VM implementation for the current protocol
+/// version. In order to specify a different VM implementation call [`run_vm`] instead.
+///
+/// The gas cost for contract preparation will be subtracted by the VM implementation.
 pub fn run<'a>(
     code: &ContractCode,
     method_name: &str,
@@ -47,6 +48,21 @@ pub fn run<'a>(
     )
 }
 
+/// Validate and run the specified contract with a specific VM implementation.
+///
+/// This is the entry point for executing a NEAR protocol contract. Before the entry point (as
+/// specified by the `method_name` argument) of the contract code is executed, the contract will be
+/// validated (see [`prepare::prepare_contract`]), instrumented (e.g. for gas accounting), and
+/// linked with the externs specified via the `ext` argument.
+///
+/// [`VMContext::input`] will be passed to the contract entrypoint as an argument.
+///
+/// The gas cost for contract preparation will be subtracted by the VM implementation.
+///
+/// # Panics
+///
+/// Calling this function with a `VMKind` that has not been enabled at the compile time will cause
+/// this function to panic.
 pub fn run_vm(
     code: &ContractCode,
     method_name: &str,
@@ -119,14 +135,16 @@ pub fn run_vm(
     (outcome, error)
 }
 
-/// `precompile` compiles WASM contract to a VM specific format and stores result into the `cache`.
-/// Further execution with the same cache will result in compilation avoidance and reusing cached
-/// result. `wasm_config` is required as during compilation we decide if gas metering shall be
-/// embedded in the native code, and so we take that into account when computing database key.
+/// Precompile a WASM contract to a VM specific format and store the result into the `cache`.
+///
+/// Repeated execution of the `code` with the same cache will reuse the cached VM code.
 #[allow(dead_code)]
 pub fn precompile<'a>(
     code: &[u8],
     code_hash: &CryptoHash,
+    // This `VMConfig` is required because it influences the codegen decisions such as whether gas
+    // metering instrumentation is required. These influences will be accounted for when computing
+    // the cache key.
     wasm_config: &'a VMConfig,
     cache: &'a dyn CompiledContractCache,
     vm_kind: VMKind,
@@ -168,7 +186,9 @@ pub fn precompile<'a>(
     }
 }
 
-/// Used for testing cost of compiling a module
+/// Verify the `code` contract can be compiled with the specified `VMKind`.
+///
+/// This is intended primarily for testing purposes.
 pub fn compile_module(vm_kind: VMKind, code: &Vec<u8>) -> bool {
     match vm_kind {
         #[cfg(feature = "wasmer0_vm")]
