@@ -1,3 +1,4 @@
+use std::cmp::max;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -6,6 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use hyper::body::HttpBody;
+use near_chain::chain::MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_primitives::time::Clock;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
@@ -432,6 +434,8 @@ pub struct Config {
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gas_burnt_view: Option<Gas>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    num_epochs_to_keep_store_data: Option<u64>,
 }
 
 impl Default for Config {
@@ -458,11 +462,16 @@ impl Default for Config {
             view_client_throttle_period: default_view_client_throttle_period(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
+            num_epochs_to_keep_store_data: Some(MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA),
         }
     }
 }
 
 impl Config {
+    pub fn num_epochs_to_keep_store_data(&self) -> u64 {
+        max(MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA, self.num_epochs_to_keep_store_data.unwrap_or(0))
+    }
+
     pub fn from_file(path: &Path) -> Self {
         let mut file = File::open(path)
             .unwrap_or_else(|_| panic!("Could not open config file: `{}`", path.display()));

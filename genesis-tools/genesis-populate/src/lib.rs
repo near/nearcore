@@ -9,6 +9,7 @@ use std::sync::Arc;
 use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::state_dump::StateDump;
+use near_chain::chain::MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::BlockHeaderInfo;
 use near_chain::{Block, Chain, ChainStore, RuntimeAdapter};
 use near_chain_configs::Genesis;
@@ -69,6 +70,7 @@ impl GenesisBuilder {
             None,
             None,
             None,
+            MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA,
         );
         Self {
             home_dir: home_dir.to_path_buf(),

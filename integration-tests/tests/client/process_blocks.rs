@@ -9,7 +9,7 @@ use futures::{future, FutureExt};
 use near_primitives::num_rational::Rational;
 
 use near_actix_test_utils::run_actix;
-use near_chain::chain::{ApplyStatePartsRequest, NUM_EPOCHS_TO_KEEP_STORE_DATA};
+use near_chain::chain::{ApplyStatePartsRequest, MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use near_chain::types::LatestKnown;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{
@@ -1397,7 +1397,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
     let mut blocks = vec![];
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     blocks.push(genesis_block);
-    for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
+    for i in 1..=epoch_length * (MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         assert!(
@@ -1407,7 +1407,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
 
         blocks.push(block);
     }
-    for i in 0..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
+    for i in 0..=epoch_length * (MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
         println!("height = {}", i);
         if i < epoch_length {
             let block_hash = *blocks[i as usize].hash();
@@ -1624,7 +1624,7 @@ fn test_gc_fork_tail() {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(1, block, Provenance::NONE);
     }
-    for i in 102..epoch_length * NUM_EPOCHS_TO_KEEP_STORE_DATA + 5 {
+    for i in 102..epoch_length * MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA + 5 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         for j in 0..2 {
             env.process_block(j, block.clone(), Provenance::NONE);
@@ -1735,7 +1735,7 @@ fn test_not_resync_old_blocks() {
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
     let mut blocks = vec![];
-    for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
+    for i in 1..=epoch_length * (MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         blocks.push(block);
@@ -1761,7 +1761,7 @@ fn test_gc_tail_update() {
         .runtime_adapters(create_nightshade_runtimes(&genesis, 2))
         .build();
     let mut blocks = vec![];
-    for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
+    for i in 1..=epoch_length * (MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         blocks.push(block);
