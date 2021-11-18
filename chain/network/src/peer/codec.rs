@@ -86,7 +86,6 @@ impl Decoder for Codec {
         let mut len_bytes: [u8; 4] = [0; 4];
         len_bytes.copy_from_slice(&buf[0..4]);
         let len = u32::from_le_bytes(len_bytes);
-
         if len > self.max_length {
             // If this point is reached, abusive peer is banned.
             return Ok(Some(Err(ReasonForBan::Abusive)));
