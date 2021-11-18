@@ -19,6 +19,7 @@ pub mod missing_chunks;
 mod store;
 pub mod store_validator;
 pub mod test_utils;
+#[cfg(test)]
 mod tests;
 pub mod types;
 pub mod validate;
