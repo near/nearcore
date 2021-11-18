@@ -800,6 +800,16 @@ impl Chain {
         res
     }
 
+    /// A wrapper function around process_block that doesn't trigger all the callbacks
+    /// Only used in tests
+    pub fn process_block_test(
+        &mut self,
+        me: &Option<AccountId>,
+        block: Block,
+    ) -> Result<Option<Tip>, Error> {
+        self.process_block(me, block, Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+    }
+
     /// Process challenge to invalidate chain. This is done between blocks to unroll the chain as
     /// soon as possible and allow next block producer to skip invalid blocks.
     pub fn process_challenge(&mut self, challenge: &Challenge) {
