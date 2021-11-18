@@ -13,12 +13,13 @@ use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_test_logger;
 
-use near_network::routing::routing_table_actor::start_routing_table_actor;
+use near_network::routing::start_routing_table_actor;
 
 use near_network::test_utils::{
     convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeoutActor,
 };
-use near_network::{NetworkClientResponses, PeerManagerActor};
+use near_network::types::NetworkClientResponses;
+use near_network::PeerManagerActor;
 use near_network_primitives::types::{
     NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
 };
