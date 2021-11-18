@@ -1,7 +1,7 @@
 mod challenges;
 mod simple_chain;
 
-#[test]
+#[cfg(test)]
 mod tests {
     use crate::types::Tip;
     use crate::{Block, Chain, Error, Provenance};
