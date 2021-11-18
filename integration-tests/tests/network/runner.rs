@@ -22,16 +22,16 @@ use near_network::test_utils::{
     GetInfo, StopSignal, WaitOrTimeoutActor,
 };
 
-use near_network::routing::routing_table_actor::start_routing_table_actor;
+use near_network::routing::start_routing_table_actor;
 #[cfg(feature = "test_features")]
 use near_network::types::SetAdvOptions;
-use near_network::types::{
-    OutboundTcpConnect, PeerManagerMessageRequest, PeerManagerMessageResponse, ROUTED_MESSAGE_TTL,
+use near_network::types::{NetworkRecipient, NetworkRequests, NetworkResponses};
+use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
+use near_network::PeerManagerActor;
+use near_network_primitives::types::{
+    NetworkConfig, OutboundTcpConnect, PeerInfo, ROUTED_MESSAGE_TTL,
 };
-use near_network::utils::blacklist_from_iter;
-use near_network::{
-    NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
-};
+use near_network_primitives::utils::blacklist_from_iter;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -159,6 +159,7 @@ impl StateMachine {
     }
 
     pub fn push(&mut self, action: Action) {
+        let num_prev_actions = self.actions.len();
         match action {
             #[cfg(feature = "test_features")]
             Action::SetOptions { target, max_num_peers } => {
@@ -388,8 +389,9 @@ impl StateMachine {
                                     if let NetworkResponses::PingPongInfo { pings, pongs } =
                                         res.as_network_response()
                                     {
+
                                         let ping_ok = pings.len() == pings_expected.len()
-                                            && pings_expected.into_iter().all(
+                                            && pings_expected.clone().into_iter().all(
                                                 |(nonce, source, count)| {
                                                     pings.get(&nonce).map_or(false, |ping| {
                                                         ping.0.source == source
@@ -400,7 +402,7 @@ impl StateMachine {
                                             );
 
                                         let pong_ok = pongs.len() == pongs_expected.len()
-                                            && pongs_expected.into_iter().all(
+                                            && pongs_expected.clone().into_iter().all(
                                                 |(nonce, source, count)| {
                                                     pongs.get(&nonce).map_or(false, |pong| {
                                                         pong.0.source == source
@@ -409,14 +411,10 @@ impl StateMachine {
                                                     })
                                                 },
                                             );
-
+                                        debug!(target: "network", "{}: ping, pong check : {} {:?} {:?} expected {:?} {:?}",
+                                            num_prev_actions, source, pings, pongs, pings_expected, pongs_expected);
                                         if ping_ok && pong_ok {
                                             flag.store(true, Ordering::Relaxed);
-                                        } else {
-                                            panic!(
-                                                "ping, pong check failed got: {:?} {:?}",
-                                                pings, pongs
-                                            );
                                         }
                                     }
 
@@ -715,7 +713,7 @@ impl Actor for Runner {
                     action(info.clone(), flag.clone(), ctx, addr.clone());
                 }
             }),
-            50,
+            1,
             15000,
         )
         .start();

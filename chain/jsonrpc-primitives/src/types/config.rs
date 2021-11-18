@@ -47,10 +47,9 @@ impl From<near_client_primitives::types::GetProtocolConfigError> for RpcProtocol
                 ref error_message,
             ) => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                near_metrics::inc_counter_vec(
-                    &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
-                    &["RpcProtocolConfigError"],
-                );
+                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
+                    .with_label_values(&["RpcProtocolConfigError"])
+                    .inc();
                 Self::InternalError { error_message: error.to_string() }
             }
         }

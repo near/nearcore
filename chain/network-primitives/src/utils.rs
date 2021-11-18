@@ -1,11 +1,8 @@
-use std::collections::{HashMap, HashSet};
-use std::{hash::Hash, net::IpAddr};
-
-use cached::SizedCache;
-
 use crate::types::{BlockedPorts, PatternAddr};
+use std::collections::{HashMap, HashSet};
+use std::net::IpAddr;
 
-/// `blacklist_from_iter` - converts list of addresses represented by strings to <IpAddr, BlockedPorts> HashMap
+/// converts list of addresses represented by strings to <IpAddr, BlockedPorts> HashMap
 ///
 /// Arguments:
 /// - `blacklist`- list of strings in following formats:
@@ -42,10 +39,4 @@ where
     }
 
     blacklist_map
-}
-
-/// `cache_to_hashmap` - converts SizedCache<K, V> to HashMap<K, V>
-pub fn cache_to_hashmap<K: Hash + Eq + Clone, V: Clone>(cache: &SizedCache<K, V>) -> HashMap<K, V> {
-    let keys: Vec<_> = cache.key_order().cloned().collect();
-    keys.into_iter().zip(cache.value_order().cloned()).collect()
 }

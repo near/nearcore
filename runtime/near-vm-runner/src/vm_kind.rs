@@ -11,8 +11,6 @@ pub enum VMKind {
     Wasmer0,
     /// Wasmtime VM.
     Wasmtime,
-    /// Wasmer 1.x VM, no longer supported.
-    // Wasmer1,
     //  Wasmer 2.x VM,
     Wasmer2,
 }

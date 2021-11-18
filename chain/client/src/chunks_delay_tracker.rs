@@ -1,10 +1,11 @@
+use std::cmp::max;
 use std::collections::{BTreeMap, HashMap};
+use std::time::Duration;
 use std::time::Instant;
 
 use near_primitives::types::{BlockHeight, ShardId};
 
 use crate::metrics;
-use std::cmp::max;
 
 /// Provides monitoring information about the delays of receiving blocks and their corresponding chunks.
 /// Keeps timestamps of a limited number of blocks before the current head.
@@ -46,13 +47,13 @@ impl ChunksDelayTracker {
 
     // Computes the delay between receiving a block and receiving the latest of its chunks.
     // Updates the metric to the max delay across the most recently processed blocks.
-    fn get_max_delay_us(&mut self, head_height: BlockHeight) -> u128 {
-        let mut max_delay = 0;
+    fn get_max_delay(&mut self, head_height: BlockHeight) -> Duration {
+        let mut max_delay = Duration::ZERO;
         for (_, v) in self.heights.range(..=head_height) {
             if let Some(block_received) = v.block_received {
                 if let Some(latest_chunk) = v.chunks_received.values().max() {
                     if latest_chunk > &block_received {
-                        let delay = latest_chunk.duration_since(block_received).as_micros();
+                        let delay = latest_chunk.duration_since(block_received);
                         max_delay = max(max_delay, delay);
                     }
                 }
@@ -64,7 +65,7 @@ impl ChunksDelayTracker {
     fn update_chunks_metric(&mut self, head_height: BlockHeight) {
         near_metrics::set_gauge(
             &metrics::CHUNKS_RECEIVING_DELAY_US,
-            self.get_max_delay_us(head_height) as i64,
+            self.get_max_delay(head_height).as_micros() as i64,
         );
     }
 
@@ -170,29 +171,29 @@ mod test {
         tracker.add_block_timestamp(1, head_height, start + Duration::from_secs(7));
         tracker.add_chunk_timestamp(1, 0, head_height, start + Duration::from_secs(7));
 
-        assert_eq!(tracker.get_max_delay_us(head_height), Duration::from_secs(2).as_micros());
+        assert_eq!(tracker.get_max_delay(head_height), Duration::from_secs(2));
 
         // New block with a smaller delay between receiving chunks.
         tracker.add_block_timestamp(5, head_height, start + Duration::from_secs(10));
         head_height = 5;
         tracker.add_chunk_timestamp(5, 0, head_height, start + Duration::from_secs(11));
-        assert_eq!(tracker.get_max_delay_us(head_height), Duration::from_secs(2).as_micros());
+        assert_eq!(tracker.get_max_delay(head_height), Duration::from_secs(2));
 
         // New block with a smaller delay between receiving chunks but far in the future, the old block should be forgotten.
         tracker.add_block_timestamp(105, head_height, start + Duration::from_secs(20));
         head_height = 105;
         tracker.add_chunk_timestamp(105, 0, head_height, start + Duration::from_secs(21));
-        assert_eq!(tracker.get_max_delay_us(head_height), Duration::from_secs(1).as_micros());
+        assert_eq!(tracker.get_max_delay(head_height), Duration::from_secs(1));
 
         // New block with a larger delay between receiving chunks.
         tracker.add_block_timestamp(106, head_height, start + Duration::from_secs(23));
         head_height = 106;
         tracker.add_chunk_timestamp(106, 0, head_height, start + Duration::from_secs(28));
-        assert_eq!(tracker.get_max_delay_us(head_height), Duration::from_secs(5).as_micros());
+        assert_eq!(tracker.get_max_delay(head_height), Duration::from_secs(5));
 
         // A block in the future doesn't matter for the metric.
         tracker.add_block_timestamp(206, head_height, start + Duration::from_secs(100));
         tracker.add_chunk_timestamp(206, 0, head_height, start + Duration::from_secs(999));
-        assert_eq!(tracker.get_max_delay_us(head_height), Duration::from_secs(5).as_micros());
+        assert_eq!(tracker.get_max_delay(head_height), Duration::from_secs(5));
     }
 }

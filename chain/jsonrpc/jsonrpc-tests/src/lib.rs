@@ -1,5 +1,6 @@
 use actix::Addr;
 use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
+use once_cell::sync::Lazy;
 use serde_json::json;
 
 use near_chain_configs::GenesisConfig;
@@ -12,10 +13,9 @@ use near_network::test_utils::make_peer_manager_routing_table_addr_pair;
 use near_network::test_utils::open_port;
 use near_primitives::types::NumBlocks;
 
-lazy_static::lazy_static! {
-    pub static ref TEST_GENESIS_CONFIG: GenesisConfig =
-        GenesisConfig::from_json(include_str!("../../../../nearcore/res/genesis_config.json"));
-}
+pub static TEST_GENESIS_CONFIG: Lazy<GenesisConfig> = Lazy::new(|| {
+    GenesisConfig::from_json(include_str!("../../../../nearcore/res/genesis_config.json"))
+});
 
 pub enum NodeType {
     Validator,
