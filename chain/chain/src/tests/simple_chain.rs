@@ -1,7 +1,7 @@
+use crate::test_utils::setup;
+use crate::{Block, ChainStoreAccess, ErrorKind};
 use chrono;
 use chrono::TimeZone;
-use near_chain::test_utils::setup;
-use near_chain::{Block, ChainStoreAccess, ErrorKind};
 use near_logger_utils::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::time::{Clock, MockClockGuard};

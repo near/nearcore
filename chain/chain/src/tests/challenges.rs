@@ -1,5 +1,5 @@
-use near_chain::test_utils::setup;
-use near_chain::{Block, ErrorKind};
+use crate::test_utils::setup;
+use crate::{Block, ErrorKind};
 use near_logger_utils::init_test_logger;
 
 #[test]
