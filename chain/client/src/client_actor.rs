@@ -1025,8 +1025,8 @@ impl ClientActor {
                 NetworkRequests::Block { block: block.as_ref().into_inner().clone() },
             ));
             // If we produced it, we don’t need to validate it.  Mark the block
-            // as validated.
-            let _ = block.validate_with::<(), _>(|_| Ok(true));
+            // as valid.
+            block.mark_as_valid();
         } else {
             let chain = &mut self.client.chain;
             let res = chain.process_block_header(&block.header(), |_| {});
