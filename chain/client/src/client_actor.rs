@@ -30,10 +30,10 @@ use near_chain_configs::GenesisConfig;
 use near_crypto::Signature;
 #[cfg(feature = "sandbox")]
 use near_network::types::SandboxResponse;
-use near_network::types::{NetworkInfo, PeerManagerMessageRequest};
-use near_network::{
+use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, PeerManagerAdapter,
 };
+use near_network::types::{NetworkInfo, PeerManagerMessageRequest};
 #[cfg(feature = "test_features")]
 use near_network_primitives::types::NetworkAdversarialMessage;
 #[cfg(feature = "sandbox")]

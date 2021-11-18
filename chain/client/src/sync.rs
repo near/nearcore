@@ -13,7 +13,7 @@ use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{thread_rng, Rng};
 
 use near_chain::{Chain, RuntimeAdapter};
-use near_network::{FullPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter};
+use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;

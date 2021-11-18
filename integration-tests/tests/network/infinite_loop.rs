@@ -12,8 +12,10 @@ use near_logger_utils::init_integration_logger;
 
 use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeoutActor};
-use near_network::types::{PeerManagerMessageRequest, SyncData};
-use near_network::{NetworkClientResponses, NetworkRequests, PeerManagerActor};
+use near_network::types::{
+    NetworkClientResponses, NetworkRequests, PeerManagerMessageRequest, SyncData,
+};
+use near_network::PeerManagerActor;
 use near_network_primitives::types::{
     NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
 };
