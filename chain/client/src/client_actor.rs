@@ -941,15 +941,13 @@ impl ClientActor {
     fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
         match self.client.produce_block(next_height) {
             Ok(Some(block)) => {
-                let block_hash = *block.hash();
                 let peer_id = self.node_id.clone();
-                let prev_hash = *block.header().prev_hash();
-                let block_protocol_version = block.header().latest_protocol_version();
                 let res = self.process_block(block, Provenance::PRODUCED, &peer_id);
                 match &res {
                     Ok(_) => Ok(()),
                     Err(e) => match e.kind() {
-                        near_chain::ErrorKind::ChunksMissing(missing_chunks) => Ok(()),
+                        // missing chunks were already dealt with in client.process_block
+                        near_chain::ErrorKind::ChunksMissing(_) => Ok(()),
                         _ => {
                             error!(target: "client", "Failed to process freshly produced block: {:?}", res);
                             byzantine_assert!(false);
@@ -1042,7 +1040,6 @@ impl ClientActor {
             return;
         }
         let prev_hash = *block.header().prev_hash();
-        let block_protocol_version = block.header().latest_protocol_version();
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         match self.process_block(block, provenance, &peer_id) {

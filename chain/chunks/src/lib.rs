@@ -607,11 +607,9 @@ impl ShardsManager {
             .collect::<HashSet<_>>()
     }
 
-    /// Check if chunk forwarding is enabled
-    /// It is enabled if
-    /// 1) the node is a validator in the current epoch
-    /// 2) feature ForwardChunkParts is enabled
-    fn is_chunk_forwarding_enabled(&self, prev_hash: &CryptoHash) -> Result<bool, Error> {
+    /// Check whether the node should wait for chunk parts being forwarded to it
+    /// Chunks will be forwarded to validators if feature ForwardChunkParts is enabled
+    fn should_wait_for_chunk_forwarding(&self, prev_hash: &CryptoHash) -> Result<bool, Error> {
         // chunks will not be forwarded to non-validators
         if self.me.is_none() {
             return Ok(false);
@@ -635,18 +633,14 @@ impl ShardsManager {
 
     /// send partial chunk requests for one chunk
     /// `chunk_header`: the chunk being requested
-    /// `ancestor_hash`: hash of an ancestor block of the block the chunk belongs to. It must satisfy
-    ///                  a) it has been processed
-    ///                  b) get_epoch_id_from_prev_block(ancestor_hash) has the same epoch id as
-    ///                     the requested chunk
-    ///                  otherwise the partial chunk requests may fail and are dropped
     /// `header_head`: header head of the current chain. If it is None, the request will be only
     ///                added to he request pool, but not sent.
+    /// `should_wait_for_chunk_forwarding`: whether chunks will be forwarded to this node
     fn request_chunk_single(
         &mut self,
         chunk_header: &ShardChunkHeader,
         header_head: Option<&Tip>,
-        is_chunk_forwarding_enabled: bool,
+        should_wait_for_chunk_forwarding: bool,
     ) {
         let parent_hash = chunk_header.prev_block_hash();
         let height = chunk_header.height_created();
@@ -679,12 +673,12 @@ impl ShardsManager {
             let old_block = header_head.last_block_hash != parent_hash
                 && header_head.prev_block_hash != parent_hash;
 
-            // If the protocol version is later than the one where chunk forwarding was introduced,
+            // If chunks forwarding is enabled,
             // we purposely do not send chunk request messages right away for new blocks. Such requests
             // will eventually be sent because of the `resend_chunk_requests` loop. However,
             // we want to give some time for any `PartialEncodedChunkForward` messages to arrive
             // before we send requests.
-            if !is_chunk_forwarding_enabled || fetch_from_archival || old_block {
+            if !should_wait_for_chunk_forwarding || fetch_from_archival || old_block {
                 let request_result = self.request_partial_encoded_chunk(
                     height,
                     &parent_hash,
@@ -702,7 +696,7 @@ impl ShardsManager {
     }
 
     /// send chunk requests for some chunks in a block
-    /// `chunks_to_reqeust`: chunks to request
+    /// `chunks_to_request`: chunks to request
     /// `prev_hash`: hash of prev block of the block we are requesting missing chunks for
     ///              The function assumes the prev block is accepted
     /// `header_head`: current head of the header chain
@@ -715,7 +709,7 @@ impl ShardsManager {
         T: IntoIterator<Item = ShardChunkHeader>,
     {
         let is_chunk_forwarding_enabled =
-            self.is_chunk_forwarding_enabled(prev_hash).unwrap_or_else(|_| {
+            self.should_wait_for_chunk_forwarding(prev_hash).unwrap_or_else(|_| {
                 // prev_hash must be accepted because we don't request missing chunks through this
                 // this function for orphans
                 debug_assert!(false, "{:?} must be accepted", prev_hash);

@@ -11,8 +11,8 @@ use log::{debug, error, info, warn};
 use near_primitives::time::Clock;
 
 use near_chain::chain::{
-    ApplyStatePartsRequest, BlockCatchUpRequest, BlocksCatchUpState, StateSplitRequest,
-    TX_ROUTING_HEIGHT_HORIZON,
+    ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
+    StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
 };
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown};
@@ -48,7 +48,7 @@ use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::SyncStatus;
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
 use near_primitives::block_header::ApprovalType;
-use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::version::PROTOCOL_VERSION;
 
 use near_network::types::PartialEncodedChunkForwardMsg;
 
@@ -881,9 +881,10 @@ impl Client {
                     }
                     ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts => {
                         let chunk_header = pec_v2.extract().header;
+                        let prev_hash = chunk_header.prev_block_hash();
                         self.shards_mgr.request_chunks(
                             iter::once(chunk_header),
-                            &chunk_header.prev_block_hash(),
+                            &prev_hash,
                             &self.chain.header_head()?,
                         );
                         Ok(vec![])
@@ -1179,8 +1180,13 @@ impl Client {
         }
     }
 
-    pub fn request_missing_chunks(&mut self, blocks_missing_chunks: Arc<RwLock<Vec<(CryptoHash, Vec<ShardChunkHeader>>>>) {
-        for (prev_hash, missing_chunks) in blocks_missing_chunks.write().unwrap().drain(..) {
+    pub fn request_missing_chunks(
+        &mut self,
+        blocks_missing_chunks: Arc<RwLock<Vec<BlockMissingChunks>>>,
+    ) {
+        for BlockMissingChunks { prev_hash, missing_chunks } in
+            blocks_missing_chunks.write().unwrap().drain(..)
+        {
             self.shards_mgr.request_chunks(
                 missing_chunks,
                 &prev_hash,
@@ -1194,9 +1200,7 @@ impl Client {
 
     /// Check if any block with missing chunks is ready to be processed
     #[must_use]
-    pub fn process_blocks_with_missing_chunks(
-        &mut self,
-    ) -> Vec<AcceptedBlock> {
+    pub fn process_blocks_with_missing_chunks(&mut self) -> Vec<AcceptedBlock> {
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
         let challenges = Arc::new(RwLock::new(vec![]));
