@@ -717,8 +717,6 @@ impl Client {
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
         let challenges = Arc::new(RwLock::new(vec![]));
-        let block_prev_hash = *block.header().prev_hash();
-        let block_protocol_version = block.header().latest_protocol_version();
 
         let result = {
             let me = self
@@ -770,20 +768,8 @@ impl Client {
             self.last_time_head_progress_made = Clock::instant();
         }
 
-        let protocol_version = self
-            .runtime_adapter
-            .get_epoch_id_from_prev_block(&block_prev_hash)
-            .and_then(|epoch| self.runtime_adapter.get_epoch_protocol_version(&epoch))
-            .unwrap_or(block_protocol_version);
         // Request any missing chunks
-        self.shards_mgr.request_chunks(
-            blocks_missing_chunks.write().unwrap().drain(..).flatten(),
-            &self
-                .chain
-                .header_head()
-                .expect("header_head must be available when processing a block"),
-            protocol_version,
-        );
+        self.request_missing_chunks(blocks_missing_chunks);
 
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
         (unwrapped_accepted_blocks, result)
@@ -891,14 +877,14 @@ impl Client {
                             pec_v2.header.shard_id(),
                         );
                         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_hash);
-                        Ok(self.process_blocks_with_missing_chunks(protocol_version))
+                        Ok(self.process_blocks_with_missing_chunks())
                     }
                     ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts => {
                         let chunk_header = pec_v2.extract().header;
                         self.shards_mgr.request_chunks(
                             iter::once(chunk_header),
+                            &chunk_header.prev_block_hash(),
                             &self.chain.header_head()?,
-                            protocol_version,
                         );
                         Ok(vec![])
                     }
@@ -1193,11 +1179,23 @@ impl Client {
         }
     }
 
+    pub fn request_missing_chunks(&mut self, blocks_missing_chunks: Arc<RwLock<Vec<(CryptoHash, Vec<ShardChunkHeader>>>>) {
+        for (prev_hash, missing_chunks) in blocks_missing_chunks.write().unwrap().drain(..) {
+            self.shards_mgr.request_chunks(
+                missing_chunks,
+                &prev_hash,
+                &self
+                    .chain
+                    .header_head()
+                    .expect("header_head must be available when processing a block"),
+            );
+        }
+    }
+
     /// Check if any block with missing chunks is ready to be processed
     #[must_use]
     pub fn process_blocks_with_missing_chunks(
         &mut self,
-        protocol_version: ProtocolVersion,
     ) -> Vec<AcceptedBlock> {
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
@@ -1210,15 +1208,7 @@ impl Client {
         }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks), |challenge| challenges.write().unwrap().push(challenge));
         self.send_challenges(challenges);
 
-        self.shards_mgr.request_chunks(
-            blocks_missing_chunks.write().unwrap().drain(..).flatten(),
-            &self
-                .chain
-                .header_head()
-                .expect("header_head must be avaiable when processing blocks with missing chunks"),
-            protocol_version,
-        );
-
+        self.request_missing_chunks(blocks_missing_chunks);
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
         unwrapped_accepted_blocks
     }
@@ -1723,19 +1713,7 @@ impl Client {
 
                         self.send_challenges(challenges);
 
-                        self.shards_mgr.request_chunks(
-                            blocks_missing_chunks
-                                .write()
-                                .unwrap()
-                                .drain(..)
-                                .flat_map(|missing_chunks| missing_chunks.into_iter()),
-                            &self.chain.header_head()?,
-                            // It is ok to pass the latest protocol version here since we are likely
-                            // syncing old blocks, which means the protocol version will not change
-                            // the logic. Even in the worst case where we are syncing a recent block,
-                            // the only impact is the request will be sent after some delay.
-                            PROTOCOL_VERSION,
-                        );
+                        self.request_missing_chunks(blocks_missing_chunks);
 
                         return Ok(accepted_blocks.write().unwrap().drain(..).collect());
                     }
