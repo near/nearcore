@@ -17,7 +17,7 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType};
     use near_logger_utils::init_integration_logger;
     use near_network::types::PeerManagerMessageRequest;
-    use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses};
+    use near_network::types::{NetworkClientMessages, NetworkRequests, NetworkResponses};
     use near_network_primitives::types::{
         AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, PeerInfo,
     };
