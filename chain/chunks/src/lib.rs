@@ -1129,7 +1129,7 @@ impl ShardsManager {
         // We must check the protocol version every time, since a new value
         // could be passed to the function, whereas the signature check is intrinsic
         // to the header, thus only needs to happen exactly once.
-        let partial_encoded_chunk = partial_encoded_chunk.extract();
+        let partial_encoded_chunk = partial_encoded_chunk.into_inner();
         if !partial_encoded_chunk.header.version_range().contains(protocol_version) {
             return Err(Error::InvalidChunkHeader);
         }
@@ -1330,7 +1330,7 @@ impl ShardsManager {
                 self.process_partial_encoded_chunk(
                     // We can assert the signature on the header is valid because
                     // it would have been checked in an earlier call to this function.
-                    MaybeValidated::Validated(&forwarded_chunk),
+                    MaybeValidated::from_validated(&forwarded_chunk),
                     chain_store,
                     rs,
                     protocol_version,
@@ -1868,7 +1868,7 @@ mod test {
             let pec_v2 = partial_encoded_chunk.into();
             shards_manager
                 .process_partial_encoded_chunk(
-                    MaybeValidated::NotValidated(&pec_v2),
+                    MaybeValidated::from(&pec_v2),
                     &mut chain_store,
                     &mut rs,
                     PROTOCOL_VERSION,
@@ -1982,7 +1982,7 @@ mod test {
         let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&fixture.mock_part_ords);
         let result = shards_manager
             .process_partial_encoded_chunk(
-                MaybeValidated::NotValidated(&partial_encoded_chunk),
+                MaybeValidated::from(&partial_encoded_chunk),
                 &mut fixture.chain_store,
                 &mut fixture.rs,
                 PROTOCOL_VERSION,
@@ -2054,7 +2054,7 @@ mod test {
         };
         let result = shards_manager
             .process_partial_encoded_chunk(
-                MaybeValidated::NotValidated(&partial_encoded_chunk),
+                MaybeValidated::from(&partial_encoded_chunk),
                 &mut fixture.chain_store,
                 &mut fixture.rs,
                 PROTOCOL_VERSION,
