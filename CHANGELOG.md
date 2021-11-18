@@ -3,6 +3,11 @@
 ## [unreleased]
 
 ### Protocol Changes
+* Limit number of wasm functions in one contract to 10_000. [#4954](https://github.com/near/nearcore/pull/4954)
+
+## `1.22.0` [11-15-2021]
+
+### Protocol Changes
 * Upgrade from Wasmer 0 to Wasmer 2, bringing better performance and reliability. [#4934](https://github.com/near/nearcore/pull/4934)
 * Lower regular_op_cost (execution of a single WASM instruction) from 3_856_371 to 2_207_874. [#4979](https://github.com/near/nearcore/pull/4979)
 * Lower data receipt cost and base cost of `ecrecover` host function.
