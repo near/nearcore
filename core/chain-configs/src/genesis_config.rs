@@ -3,6 +3,7 @@
 //! NOTE: chain-configs is not the best place for `GenesisConfig` since it
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
+use std::fmt::Debug;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -297,8 +298,11 @@ impl GenesisConfig {
     ///
     /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
     /// GenesisConfig structure.
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
-        let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
+    pub fn from_file<P: AsRef<Path> + Debug + Clone>(path: P) -> Self {
+        let reader = BufReader::new(
+            File::open(path.clone())
+                .expect(format!("Could not open genesis config file: {:?}", path).as_str()),
+        );
         let genesis_config: GenesisConfig =
             serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.");
         genesis_config
@@ -346,8 +350,11 @@ impl GenesisRecords {
     ///
     /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
     /// GenesisConfig structure.
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
-        let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
+    pub fn from_file<P: AsRef<Path> + Debug + Clone>(path: P) -> Self {
+        let reader = BufReader::new(
+            File::open(path.clone())
+                .expect(format!("Could not open genesis config file. {:?}", path).as_str()),
+        );
         serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.")
     }
 
@@ -493,8 +500,8 @@ impl Genesis {
     /// Reads Genesis from config and records files.
     pub fn from_files<P1, P2>(config_path: P1, records_path: P2) -> Self
     where
-        P1: AsRef<Path>,
-        P2: AsRef<Path>,
+        P1: AsRef<Path> + Debug + Clone,
+        P2: AsRef<Path> + Debug + Clone,
     {
         let config = GenesisConfig::from_file(config_path);
         let records = GenesisRecords::from_file(records_path);
