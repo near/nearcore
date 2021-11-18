@@ -1013,7 +1013,7 @@ impl ClientActor {
     /// Process block and execute callbacks.
     fn process_block(
         &mut self,
-        mut block: MaybeValidated<Block>,
+        block: MaybeValidated<Block>,
         provenance: Provenance,
         peer_id: &PeerId,
     ) -> Result<(), near_chain::Error> {
@@ -1024,12 +1024,13 @@ impl ClientActor {
             self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Block { block: block.as_ref().into_inner().clone() },
             ));
-            // If we produced it, we don’t need to validate it.
-            block = MaybeValidated::from_validated(block.into_inner());
+            // If we produced it, we don’t need to validate it.  Mark the block
+            // as validated.
+            let _ = block.validate_with::<(), _>(|_| Ok(true));
         } else {
             let chain = &mut self.client.chain;
             let res = chain.process_block_header(&block.header(), |_| {});
-            let res = res.and_then(|_| chain.validate_block(&mut block));
+            let res = res.and_then(|_| chain.validate_block(&block));
             match res {
                 Ok(_) => {
                     let head = self.client.chain.head()?;

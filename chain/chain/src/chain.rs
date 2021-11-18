@@ -443,11 +443,11 @@ impl Chain {
         create_light_client_block_view(&final_block_header, chain_store, Some(next_block_producers))
     }
 
-    pub fn save_block(&mut self, mut block: MaybeValidated<Block>) -> Result<(), Error> {
+    pub fn save_block(&mut self, block: MaybeValidated<Block>) -> Result<(), Error> {
         if self.store.get_block(block.hash()).is_ok() {
             return Ok(());
         }
-        if let Err(e) = self.validate_block(&mut block) {
+        if let Err(e) = self.validate_block(&block) {
             byzantine_assert!(false);
             return Err(e.into());
         }
@@ -462,11 +462,11 @@ impl Chain {
         Ok(())
     }
 
-    pub fn save_orphan(&mut self, mut block: MaybeValidated<Block>) -> Result<(), Error> {
+    pub fn save_orphan(&mut self, block: MaybeValidated<Block>) -> Result<(), Error> {
         if self.orphans.contains(block.hash()) {
             return Ok(());
         }
-        if let Err(e) = self.validate_block(&mut block) {
+        if let Err(e) = self.validate_block(&block) {
             byzantine_assert!(false);
             return Err(e.into());
         }
@@ -692,7 +692,7 @@ impl Chain {
 
     /// Do basic validation of a block upon receiving it. Check that block is
     /// well-formed (various roots match).
-    pub fn validate_block(&mut self, block: &mut MaybeValidated<Block>) -> Result<(), Error> {
+    pub fn validate_block(&mut self, block: &MaybeValidated<Block>) -> Result<(), Error> {
         block
             .validate_with(|block| {
                 Chain::validate_block_impl(
@@ -1085,7 +1085,7 @@ impl Chain {
     fn process_block_single<F, F2, F3>(
         &mut self,
         me: &Option<AccountId>,
-        mut block: MaybeValidated<Block>,
+        block: MaybeValidated<Block>,
         provenance: Provenance,
         mut block_accepted: F,
         mut block_misses_chunks: F2,
@@ -1101,7 +1101,7 @@ impl Chain {
 
         let prev_head = self.store.head()?;
         let mut chain_update = self.chain_update();
-        let maybe_new_head = chain_update.process_block(me, &mut block, &provenance, on_challenge);
+        let maybe_new_head = chain_update.process_block(me, &block, &provenance, on_challenge);
         let block_height = block.header().height();
 
         match maybe_new_head {
@@ -3682,7 +3682,7 @@ impl<'a> ChainUpdate<'a> {
     fn process_block<F>(
         &mut self,
         me: &Option<AccountId>,
-        block: &mut MaybeValidated<Block>,
+        block: &MaybeValidated<Block>,
         provenance: &Provenance,
         on_challenge: F,
     ) -> Result<(Option<Tip>, bool), Error>
