@@ -1,14 +1,14 @@
 use near_primitives::time::Instant;
 use std::collections::HashMap;
-use std::fmt;
 use std::fmt::{Debug, Formatter};
-use std::io;
 use std::sync::{Arc, Mutex, RwLock};
+use std::{fmt, io};
 
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, MailboxError, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
-use futures::{future::BoxFuture, FutureExt};
+use futures::future::BoxFuture;
+use futures::FutureExt;
 #[cfg(feature = "test_features")]
 use serde::Serialize;
 use strum::AsStaticStr;
@@ -42,10 +42,11 @@ use near_primitives::views::QueryRequest;
 
 use crate::peer::peer_actor::PeerActor;
 use crate::routing::edge::{Edge, EdgeInfo, SimpleEdge};
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::ibf::IbfBox;
-use crate::routing::routing::{
-    GetRoutingTableResult, PeerRequestResult, RoutingTableInfo, ValidIBFLevel,
-};
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use crate::routing::ibf_peer_set::ValidIBFLevel;
+use crate::routing::routing::{GetRoutingTableResult, PeerRequestResult, RoutingTableInfo};
 use crate::PeerInfo;
 
 const ERROR_UNEXPECTED_LENGTH_OF_INPUT: &str = "Unexpected length of input";
@@ -341,20 +342,24 @@ pub enum PeerMessage {
     EpochSyncFinalizationRequest(EpochId),
     EpochSyncFinalizationResponse(EpochSyncFinalizationResponse),
 
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingTableSyncV2(RoutingSyncV2),
 }
 
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum RoutingSyncV2 {
     Version2(RoutingVersion2),
 }
 
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct PartialSync {
     pub ibf_level: ValidIBFLevel,
     pub ibf: Vec<IbfBox>,
 }
 
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum RoutingState {
     PartialSync(PartialSync),
@@ -364,6 +369,7 @@ pub enum RoutingState {
     InitializeIbf,
 }
 
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutingVersion2 {
     pub known_edges: u64,

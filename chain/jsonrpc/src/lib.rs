@@ -38,17 +38,17 @@ use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "test_features")]
-use near_network::routing::routing::GetRoutingTableResult;
+use near_network::routing::GetRoutingTableResult;
 #[cfg(feature = "sandbox")]
 use near_network::types::SandboxResponse;
 #[cfg(feature = "test_features")]
 use near_network::types::{GetPeerId, PeerManagerMessageRequest, SetAdvOptions};
+use near_network::types::{NetworkClientMessages, NetworkClientResponses};
 #[cfg(all(
     feature = "test_features",
     feature = "protocol_feature_routing_exchange_algorithm"
 ))]
 use near_network::types::{SetRoutingTable, StartRoutingTableSync};
-use near_network::{NetworkClientMessages, NetworkClientResponses};
 #[cfg(feature = "test_features")]
 use near_network::{
     PeerManagerActor, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,

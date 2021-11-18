@@ -5,8 +5,8 @@ use std::collections::{HashMap, HashSet};
 use std::mem::swap;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::atomic::Ordering;
-use std::sync::{atomic::AtomicUsize, Arc};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use actix::{
@@ -45,10 +45,8 @@ use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
 use crate::routing::codec::Codec;
 use crate::stats::metrics;
 use crate::stats::metrics::NetworkMetrics;
-use crate::{
-    FullPeerInfo, NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo,
-    RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
-};
+use crate::types::{FullPeerInfo, NetworkClientMessages, NetworkRequests, NetworkResponses};
+use crate::{RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse};
 
 #[cfg(all(
     feature = "test_features",
@@ -57,11 +55,10 @@ use crate::{
 use crate::routing::edge::SimpleEdge;
 
 use crate::routing::routing::{
-    EdgeType, EdgeVerifierHelper, PeerRequestResult, RoutingTableView, DELETE_PEERS_AFTER_TIME,
-    MAX_NUM_PEERS,
+    EdgeType, PeerRequestResult, RoutingTableView, DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS,
 };
 
-use crate::routing::edge_verifier_actor::EdgeVerifierActor;
+use crate::routing::edge_verifier_actor::{EdgeVerifierActor, EdgeVerifierHelper};
 use crate::routing::routing_table_actor::Prune;
 
 use crate::routing::edge::{Edge, EdgeInfo};
@@ -74,6 +71,7 @@ use crate::types::{
 };
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{RoutingSyncV2, RoutingVersion2};
+use crate::PeerInfo;
 use near_rate_limiter::{ThrottleController, ThrottledFrameRead};
 
 /// How often to request peers from active peers.

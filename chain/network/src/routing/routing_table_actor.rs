@@ -25,10 +25,10 @@ use crate::routing::ibf::{Ibf, IbfBox};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::ibf_peer_set::IbfPeerSet;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use crate::routing::ibf_peer_set::{ValidIBFLevel, MIN_IBF_LEVEL};
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::ibf_set::IbfSet;
 use crate::routing::routing::{EdgeType, Graph, SAVE_PEERS_MAX_TIME};
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::routing::routing::{ValidIBFLevel, MIN_IBF_LEVEL};
 use crate::stats::metrics;
 use crate::types::StopMsg;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
