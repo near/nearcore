@@ -8,8 +8,8 @@ use near_actix_test_utils::run_actix;
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, Query, ViewClientActor};
 use near_logger_utils::init_integration_logger;
+use near_network::types::NetworkResponses;
 use near_network::types::PeerManagerMessageRequest;
-use near_network::NetworkResponses;
 use near_network_primitives::types::PeerInfo;
 use near_primitives::types::BlockReference;
 use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
@@ -101,8 +101,10 @@ mod tests {
     use near_client::{ClientActor, Query, ViewClientActor};
     use near_crypto::{InMemorySigner, KeyType};
     use near_logger_utils::init_integration_logger;
-    use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
-    use near_network::{NetworkClientMessages, NetworkClientResponses, NetworkResponses};
+    use near_network::types::{
+        NetworkClientMessages, NetworkClientResponses, NetworkResponses, PeerManagerMessageRequest,
+        PeerManagerMessageResponse,
+    };
     use near_network_primitives::types::PeerInfo;
     use near_primitives::hash::CryptoHash;
     use near_primitives::transaction::SignedTransaction;

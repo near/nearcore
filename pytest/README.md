@@ -168,10 +168,13 @@ scheduled with `--release` flag) just as if they were executed on
 local machine.  Similarly, freshly built NEAR test contracts will be
 located in `../runtime/near-test-contracts/res` directory.
 
-The `NAYDUCK` and `NIGHTLY_RUNNER` environment variables are set when
-tests are run on NayDuck.  If all else fails they can be used to
+The `NAYDUCK=1`, `NIGHTLY_RUNNER=1` and `NAYDUCK_TIMEOUT=<timeout>`
+environment variables are set when tests are run on NayDuck.  If
+necessary and no other option exists, the first two can be used to
 change test’s behaviour to accommodate it running on the testing
-infrastructure as opposed to local machine.
+infrastructure as opposed to local machine.  Meanwhile,
+`NAYDUCK_TIMEOUT` specifies how much time in seconds test has to run
+before NayDuck decides the test failed.
 
 ### Code Style
 
