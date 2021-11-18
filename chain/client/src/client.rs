@@ -807,7 +807,7 @@ impl Client {
         let partial_chunk = PartialEncodedChunk::new(header, response.parts, response.receipts);
         // We already know the header signature is valid because we read it from the
         // shard manager.
-        self.process_partial_encoded_chunk(MaybeValidated::Validated(partial_chunk))
+        self.process_partial_encoded_chunk(MaybeValidated::from_validated(partial_chunk))
     }
 
     pub fn process_partial_encoded_chunk_forward(
@@ -850,7 +850,7 @@ impl Client {
         });
         // We already know the header signature is valid because we read it from the
         // shard manager.
-        self.process_partial_encoded_chunk(MaybeValidated::Validated(partial_chunk))
+        self.process_partial_encoded_chunk(MaybeValidated::from_validated(partial_chunk))
     }
 
     pub fn process_partial_encoded_chunk(
@@ -895,7 +895,7 @@ impl Client {
                         Ok(self.process_blocks_with_missing_chunks(protocol_version))
                     }
                     ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts => {
-                        let chunk_header = pec_v2.extract().header;
+                        let chunk_header = pec_v2.into_inner().header;
                         self.shards_mgr.request_chunks(
                             iter::once(chunk_header),
                             &self.chain.header_head()?,
@@ -904,14 +904,14 @@ impl Client {
                         Ok(vec![])
                     }
                     ProcessPartialEncodedChunkResult::NeedBlock => {
-                        missing_block_handler(self, pec_v2.extract())
+                        missing_block_handler(self, pec_v2.into_inner())
                     }
                 }
             }
 
             // If the epoch_id cannot be looked up then we have not processed
             // `partial_encoded_chunk.prev_block()` yet.
-            Err(_) => missing_block_handler(self, partial_encoded_chunk.extract().into()),
+            Err(_) => missing_block_handler(self, partial_encoded_chunk.into_inner().into()),
         }
     }
 
@@ -1175,8 +1175,7 @@ impl Client {
             self.shards_mgr.pop_stored_partial_encoded_chunks(next_height);
         for (_shard_id, partial_encoded_chunks) in partial_encoded_chunks.drain() {
             for partial_encoded_chunk in partial_encoded_chunks {
-                let chunk =
-                    MaybeValidated::NotValidated(PartialEncodedChunk::V2(partial_encoded_chunk));
+                let chunk = MaybeValidated::from(PartialEncodedChunk::V2(partial_encoded_chunk));
                 if let Ok(accepted_blocks) = self.process_partial_encoded_chunk(chunk) {
                     // Executing process_partial_encoded_chunk can unlock some blocks.
                     // Any block that is in the blocks_with_missing_chunks which doesn't have any chunks
