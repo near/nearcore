@@ -37,12 +37,18 @@ use near_store::Store;
 
 #[cfg(feature = "test_features")]
 use crate::routing::routing_table_actor::start_routing_table_actor;
-use crate::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 #[cfg(feature = "test_features")]
-use crate::NetworkClientResponses;
+use crate::types::NetworkClientMessages;
 #[cfg(feature = "test_features")]
-use crate::{NetworkClientMessages, RoutingTableActor};
-use crate::{NetworkResponses, PeerInfo, PeerManagerActor, PeerManagerAdapter};
+use crate::types::NetworkClientResponses;
+use crate::types::{
+    NetworkInfo, NetworkResponses, PeerManagerAdapter, PeerManagerMessageRequest,
+    PeerManagerMessageResponse,
+};
+use crate::PeerInfo;
+use crate::PeerManagerActor;
+#[cfg(feature = "test_features")]
+use crate::RoutingTableActor;
 
 /// Mock for `ClientActor`
 #[cfg(feature = "test_features")]
