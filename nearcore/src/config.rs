@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use actix;
+use futures::AsyncWriteExt;
 use hyper::body::HttpBody as _;
 use near_primitives::time::Clock;
 use num_rational::Rational;
@@ -1125,19 +1126,23 @@ pub fn download_file(url: &String, path: &Path) -> Result<(), FileDownloadError>
         // To avoid partially downloaded files, we first download the file to a temporary *.swp file
         // and rename it once the download is finished.
         let tmp_path = path.with_extension("swp");
-        let mut tmp_file = File::create(&tmp_path).map_err(FileDownloadError::OpenError)?;
+        let mut tmp_file =
+            async_std::fs::File::create(&tmp_path).await.map_err(FileDownloadError::OpenError)?;
 
+        // We run everything that interacts with the temporary *.swp file in a separate async block
+        // so that we can clean up and safely delete it if something went wrong.
         let process_tmp_file = async {
             while let Some(next_chunk_result) = resp.data().await {
                 let next_chunk = next_chunk_result?;
-                tmp_file.write_all(next_chunk.as_ref()).map_err(FileDownloadError::WriteError)?;
+                tmp_file
+                    .write_all(next_chunk.as_ref())
+                    .await
+                    .map_err(FileDownloadError::WriteError)?;
             }
             std::fs::rename(&tmp_path, path).map_err(FileDownloadError::RenameError)?;
             Ok(())
         };
 
-        // We run everything that interacts with the temporary *.swp file in a separate async block
-        // so that we can clean up and safely delete it if something went wrong.
         process_tmp_file.await.map_err(|e| match std::fs::remove_file(tmp_path) {
             Ok(_) => e,
             Err(remove_file_error) => {
