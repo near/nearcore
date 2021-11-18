@@ -446,7 +446,7 @@ pub(crate) fn view_chain(
         }
     };
     let mut epoch_manager =
-        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
+        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config, 0)
             .expect("Failed to start Epoch Manager");
     let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
 
@@ -530,7 +530,7 @@ pub(crate) fn print_epoch_info(
     let genesis_height = near_config.genesis.config.genesis_height;
     let mut chain_store = ChainStore::new(store.clone(), genesis_height);
     let mut epoch_manager =
-        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
+        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config, 0)
             .expect("Failed to start Epoch Manager");
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::with_config(
         &home_dir,

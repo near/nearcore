@@ -95,6 +95,23 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
         .collect()
 }
 
+pub fn create_nightshade_runtimes_with_num_epochs(
+    genesis: &Genesis,
+    n: usize,
+    additional_epochs_to_keep: u64,
+) -> Vec<Arc<dyn RuntimeAdapter>> {
+    (0..n)
+        .map(|_| {
+            Arc::new(nearcore::NightshadeRuntime::test_with_num_epochs(
+                Path::new("."),
+                create_test_store(),
+                genesis,
+                additional_epochs_to_keep,
+            )) as Arc<dyn RuntimeAdapter>
+        })
+        .collect()
+}
+
 /// Produce `blocks_number` block in the given environment, starting from the given height.
 /// Returns the first unoccupied height in the chain after this operation.
 fn produce_blocks_from_height(
@@ -1556,6 +1573,42 @@ fn test_gc_after_state_sync() {
     assert!(env.clients[1].runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash).is_ok());
     let tries = env.clients[1].runtime_adapter.get_tries();
     assert!(env.clients[1].chain.clear_data(tries, 2).is_ok());
+}
+
+/// This tests the `additional_epochs_to_keep` setting, which specifies the number of epochs to keep.
+///
+/// For this test, we set epoch length to `128`, and `additional_epochs_to_keep` to `5`.
+/// This tests shows, we keep `9` full epochs, and one partial epoch with `epoch_length - 100` blocks.
+#[test]
+fn test_num_blocks_in_storage_config_setting() {
+    let epoch_length = 128;
+    let epochs_to_keep = 10;
+
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::builder(chain_genesis)
+        .clients_count(2)
+        .runtime_adapters(create_nightshade_runtimes_with_num_epochs(
+            &genesis,
+            2,
+            epochs_to_keep - 5,
+        ))
+        .build();
+    for i in 1..epoch_length * (epochs_to_keep + 1) + 2 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        env.process_block(1, block, Provenance::NONE);
+    }
+    // Check for GC'ed blocks.
+    for i in 1..100 + epoch_length {
+        assert!(env.clients[0].chain.get_block_by_height(i).is_err());
+    }
+    // Check whenever we still keep blocks.
+    for i in epoch_length + 101..epoch_length * (epochs_to_keep) + 2 {
+        env.clients[0].chain.get_block_by_height(i).unwrap();
+    }
 }
 
 #[test]
@@ -3352,6 +3405,7 @@ fn test_limit_contract_functions_number_upgrade() {
                 &genesis,
                 TrackedConfig::new_empty(),
                 RuntimeConfigStore::new(None),
+                0,
             ))];
         let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
 
@@ -3730,6 +3784,7 @@ mod access_key_nonce_range_tests {
                     &genesis,
                     TrackedConfig::AllShards,
                     RuntimeConfigStore::test(),
+                    0,
                 )) as Arc<dyn RuntimeAdapter>
             })
             .collect();
@@ -3876,6 +3931,7 @@ mod access_key_nonce_range_tests {
                     &genesis,
                     TrackedConfig::AllShards,
                     RuntimeConfigStore::test(),
+                    0,
                 )) as Arc<dyn RuntimeAdapter>
             })
             .collect();

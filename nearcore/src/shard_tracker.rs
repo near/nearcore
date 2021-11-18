@@ -204,6 +204,7 @@ mod tests {
                 #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 false,
             )],
+            0,
         )
         .unwrap()
     }

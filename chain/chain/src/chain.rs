@@ -97,7 +97,8 @@ pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
 /// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
-/// Number of epochs for which we keep store data
+/// Default number of epochs for which we keep store data.
+/// This value may be overridden by `Config.additional_epochs_to_keep`.
 pub const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
 
 /// Maximum number of height to go through at each step when cleaning forks during garbage collection.

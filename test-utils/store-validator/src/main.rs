@@ -40,6 +40,7 @@ fn main() {
         None,
         None,
         None,
+        near_config.config.additional_epochs_to_keep,
     ));
 
     let mut store_validator = StoreValidator::new(

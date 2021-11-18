@@ -218,6 +218,7 @@ pub fn setup_epoch_manager_with_simple_nightshade_config(
             .iter()
             .map(|(account_id, balance)| stake(account_id.clone(), *balance))
             .collect(),
+        0,
     )
     .unwrap()
 }

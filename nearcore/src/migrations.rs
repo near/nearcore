@@ -149,6 +149,7 @@ pub fn migrate_18_to_19(path: &Path, near_config: &NearConfig) {
             near_config.genesis.config.protocol_version,
             RewardCalculator::new(&near_config.genesis.config),
             near_config.genesis.config.validators(),
+            0,
         )
         .unwrap();
         for (key, value) in store.iter(DBCol::ColEpochStart) {

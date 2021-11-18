@@ -311,6 +311,10 @@ fn default_gc_blocks_limit() -> NumBlocks {
     2
 }
 
+fn default_additional_epochs_to_keep() -> u64 {
+    0
+}
+
 fn default_view_client_threads() -> usize {
     4
 }
@@ -453,6 +457,8 @@ pub struct Config {
     /// For example, setting "use_db_migration_snapshot" to "/tmp/" will create a directory "/tmp/db_migration_snapshot" and populate it with the database files.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub db_migration_snapshot_path: Option<PathBuf>,
+    #[serde(default = "default_additional_epochs_to_keep")]
+    pub additional_epochs_to_keep: u64,
 }
 
 impl Default for Config {
@@ -481,6 +487,7 @@ impl Default for Config {
             max_gas_burnt_view: None,
             db_migration_snapshot_path: None,
             use_db_migration_snapshot: true,
+            additional_epochs_to_keep: default_additional_epochs_to_keep(),
         }
     }
 }

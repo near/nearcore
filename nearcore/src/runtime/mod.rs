@@ -159,6 +159,7 @@ impl NightshadeRuntime {
             trie_viewer_state_size_limit,
             max_gas_burnt_view,
             None,
+            config.config.additional_epochs_to_keep,
         )
     }
 
@@ -170,6 +171,7 @@ impl NightshadeRuntime {
         trie_viewer_state_size_limit: Option<u64>,
         max_gas_burnt_view: Option<Gas>,
         runtime_config_store: Option<RuntimeConfigStore>,
+        additional_epochs_to_keep: u64,
     ) -> Self {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
@@ -194,9 +196,14 @@ impl NightshadeRuntime {
             genesis.config.num_block_producer_seats_per_shard.len() as NumShards,
         );
         let epoch_manager = Arc::new(RwLock::new(
-            EpochManager::new_from_genesis_config(store.clone(), &genesis_config)
-                .expect("Failed to start Epoch Manager"),
+            EpochManager::new_from_genesis_config(
+                store.clone(),
+                &genesis_config,
+                additional_epochs_to_keep,
+            )
+            .expect("Failed to start Epoch Manager"),
         ));
+
         let shard_tracker = ShardTracker::new(tracked_config, epoch_manager.clone());
         NightshadeRuntime {
             genesis_config,
@@ -218,8 +225,18 @@ impl NightshadeRuntime {
         genesis: &Genesis,
         tracked_config: TrackedConfig,
         runtime_config_store: RuntimeConfigStore,
+        additional_epochs_to_keep: u64,
     ) -> Self {
-        Self::new(home_dir, store, genesis, tracked_config, None, None, Some(runtime_config_store))
+        Self::new(
+            home_dir,
+            store,
+            genesis,
+            tracked_config,
+            None,
+            None,
+            Some(runtime_config_store),
+            additional_epochs_to_keep,
+        )
     }
 
     pub fn test(home_dir: &Path, store: Store, genesis: &Genesis) -> Self {
@@ -229,6 +246,23 @@ impl NightshadeRuntime {
             genesis,
             TrackedConfig::new_empty(),
             RuntimeConfigStore::test(),
+            0,
+        )
+    }
+
+    pub fn test_with_num_epochs(
+        home_dir: &Path,
+        store: Store,
+        genesis: &Genesis,
+        additional_epochs_to_keep: u64,
+    ) -> Self {
+        Self::test_with_runtime_config_store(
+            home_dir,
+            store,
+            genesis,
+            TrackedConfig::new_empty(),
+            RuntimeConfigStore::test(),
+            additional_epochs_to_keep,
         )
     }
 
@@ -1199,7 +1233,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             // maintain pointers to avoid cloning.
             let mut last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
             let mut epoch_start_height = *epoch_first_block_info.height();
-            for _ in 0..NUM_EPOCHS_TO_KEEP_STORE_DATA - 1 {
+
+            for _ in
+                0..(NUM_EPOCHS_TO_KEEP_STORE_DATA - 1) + epoch_manager.additional_epochs_to_keep
+            {
                 let epoch_first_block =
                     *epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block();
                 let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
@@ -2124,6 +2161,7 @@ mod test {
                 None,
                 None,
                 Some(RuntimeConfigStore::free()),
+                0,
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&vec![0]);
