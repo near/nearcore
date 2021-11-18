@@ -2486,6 +2486,7 @@ dependencies = [
  "near-crypto",
  "near-logger-utils",
  "near-network",
+ "near-network-primitives",
  "near-pool",
  "near-primitives",
  "near-store",
@@ -2525,6 +2526,7 @@ dependencies = [
  "near-logger-utils",
  "near-metrics",
  "near-network",
+ "near-network-primitives",
  "near-performance-metrics",
  "near-performance-metrics-macros",
  "near-pool",
@@ -2638,7 +2640,6 @@ dependencies = [
  "actix-web",
  "easy-ext",
  "futures",
- "lazy_static",
  "near-chain-configs",
  "near-client",
  "near-jsonrpc-adversarial-primitives",
@@ -2646,8 +2647,10 @@ dependencies = [
  "near-jsonrpc-primitives",
  "near-metrics",
  "near-network",
+ "near-network-primitives",
  "near-primitives",
  "near-rpc-error-macro",
+ "once_cell",
  "prometheus",
  "serde",
  "serde_json",
@@ -2687,7 +2690,6 @@ name = "near-jsonrpc-primitives"
 version = "0.2.0"
 dependencies = [
  "actix",
- "lazy_static",
  "near-chain-configs",
  "near-client-primitives",
  "near-crypto",
@@ -2695,6 +2697,7 @@ dependencies = [
  "near-primitives",
  "near-primitives-core",
  "near-rpc-error-macro",
+ "once_cell",
  "serde",
  "serde_json",
  "thiserror",
@@ -2710,7 +2713,6 @@ dependencies = [
  "awc",
  "borsh 0.9.1",
  "futures",
- "lazy_static",
  "near-actix-test-utils",
  "near-chain-configs",
  "near-client",
@@ -2720,6 +2722,7 @@ dependencies = [
  "near-logger-utils",
  "near-network",
  "near-primitives",
+ "once_cell",
  "serde",
  "serde_json",
 ]
@@ -3056,6 +3059,7 @@ dependencies = [
  "base64 0.13.0",
  "borsh 0.9.1",
  "cached",
+ "memoffset",
  "near-primitives",
  "near-stable-hasher",
  "near-test-contracts",
@@ -3073,7 +3077,7 @@ dependencies = [
  "wasmer-runtime-near",
  "wasmer-types-near",
  "wasmer-vm-near",
- "wasmparser 0.51.4",
+ "wasmparser 0.78.2",
  "wasmtime",
  "wat",
 ]
@@ -5318,9 +5322,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-compiler-near"
-version = "2.0.2"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bd68dcb10e31d096fd0a7421e4150035623cb188e026d0bb6804a08f083d583"
+checksum = "7337099b0683652e52606b5630917a10f836dc210d4ee253bf3f83facff83b1a"
 dependencies = [
  "enumset",
  "loupe",
@@ -5337,15 +5341,16 @@ dependencies = [
 
 [[package]]
 name = "wasmer-compiler-singlepass-near"
-version = "2.0.2"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84c91c779f6339f5ccbe0fd324efb3668a499296394c9c343b5ca8d4fc6bca90"
+checksum = "b878963f500ee97bb86b4c7cef3d55b536f5b14d1b49d9ab36f38be2158f4c0d"
 dependencies = [
  "byteorder",
  "dynasm",
  "dynasmrt",
  "lazy_static",
  "loupe",
+ "memoffset",
  "more-asserts",
  "rayon",
  "smallvec",
@@ -5356,9 +5361,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-derive-near"
-version = "2.0.2"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54fcd5f4fb1bcecbfa04c00c2889261f3df4d99be2e1505b6614325413928045"
+checksum = "5be5e7432ff6a7357c8a8c52d8d9af94e11e6dfe6b85026f7839556a1666e1b7"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -5411,9 +5416,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-engine-near"
-version = "2.0.2"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e67b29ef257c9e909728980467d0b94b4e1929ac8a1ea2304e2dd1a7f99fe21"
+checksum = "0a44104129ff924c906c59adc4b12b4caa1867bbdb819cb0c1993597ec06db35"
 dependencies = [
  "backtrace",
  "lazy_static",
@@ -5432,9 +5437,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-engine-universal-near"
-version = "2.0.2"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75968090a3324470e9c418bec6fb40ed83b7becdea408d353cba1513d5c79f74"
+checksum = "94ef683f2e7236f91e20297d7dab6c82f3d1c09c45c95576af4bc4454be48f75"
 dependencies = [
  "cfg-if 1.0.0",
  "leb128",
@@ -5450,9 +5455,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-near"
-version = "2.0.2"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15a0ffb7c11eea62685bc6048e77901e3db088937bf3bf14bd9f804f52aaf20f"
+checksum = "7e92829f083cc2e319695ef1172cc114a13d45c8ef714f9cb3a7f9aabc4b10bd"
 dependencies = [
  "cfg-if 1.0.0",
  "indexmap",
@@ -5564,9 +5569,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-types-near"
-version = "2.0.2"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c00b9ef1732969d2ab16db3c138c7292c0068f02cce860dd33dbce280bc09431"
+checksum = "de952d66292b33d02350b89fcb434aba0fefd01da6507905d42ca1eb6759dc6a"
 dependencies = [
  "indexmap",
  "loupe",
@@ -5599,9 +5604,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-vm-near"
-version = "2.0.2"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db4d5891ac918f6177583f4ab20b2c6aca60c9f068a6ede12044395b8925018d"
+checksum = "1d55b8cf3d69904542534adf18370351b75fdc9bc451b7eb2dbe031d9e176c42"
 dependencies = [
  "backtrace",
  "cc",

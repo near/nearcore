@@ -9,8 +9,9 @@ use near_client::{
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::MockPeerManagerAdapter;
-use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
-use near_network::{NetworkClientMessages, NetworkClientResponses, PeerInfo};
+use near_network::types::{NetworkClientMessages, NetworkClientResponses};
+use near_network_primitives::types::NetworkViewClientResponses;
+use near_network_primitives::types::{NetworkViewClientMessages, PeerInfo};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::time::Utc;
 use near_primitives::transaction::SignedTransaction;
@@ -139,7 +140,6 @@ fn test_execution_outcome_for_chunk() {
             assert!(matches!(res, NetworkClientResponses::ValidTx));
 
             actix::clock::sleep(Duration::from_millis(500)).await;
-
             let execution_outcome = view_client
                 .send(TxStatus {
                     tx_hash,

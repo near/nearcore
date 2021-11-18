@@ -10,12 +10,15 @@ use near_actix_test_utils::run_actix;
 use near_client::ClientActor;
 use near_logger_utils::init_integration_logger;
 
-use near_network::routing::routing_table_actor::start_routing_table_actor;
+use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeoutActor};
 use near_network::types::{
-    NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerMessageRequest, SyncData,
+    NetworkClientResponses, NetworkRequests, PeerManagerMessageRequest, SyncData,
 };
-use near_network::{NetworkClientResponses, NetworkConfig, NetworkRequests, PeerManagerActor};
+use near_network::PeerManagerActor;
+use near_network_primitives::types::{
+    NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
+};
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_store::test_utils::create_test_store;

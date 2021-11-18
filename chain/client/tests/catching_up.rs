@@ -16,10 +16,11 @@ mod tests {
     use near_client::{ClientActor, Query, ViewClientActor};
     use near_crypto::{InMemorySigner, KeyType};
     use near_logger_utils::init_integration_logger;
-    use near_network::types::{
-        AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, PeerManagerMessageRequest,
+    use near_network::types::PeerManagerMessageRequest;
+    use near_network::types::{NetworkClientMessages, NetworkRequests, NetworkResponses};
+    use near_network_primitives::types::{
+        AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, PeerInfo,
     };
-    use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
     use near_primitives::hash::hash as hash_func;
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::Receipt;

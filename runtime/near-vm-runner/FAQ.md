@@ -15,6 +15,7 @@ First blockchains, such as Bitcoin and Ethereum 1.0, were in favour of the
 special purpose VMs, while more recent blockchains, partially due to broader
 Wasm implementations availability tend to use general purpose VM,
 providing blockchain APIs as external/host functions.
+
 Advantage of general purpose VM is mostly due to the broader developers community
 behind such VMs, and wider availability of the development tools, such as language
 compilers, debuggers, static analyzers, IDEs, etc.
@@ -33,14 +34,13 @@ declare in the transaction. This makes performing general computations on the
 blockchain harder to reason about, as developers must estimate maximum computational
 requirements of the contract before its execution.
 
-
-### What gas is supposed to represent? Complexity of computations performed, hardware resources used, power consumed, smth else?
+### What gas is supposed to represent? Complexity of computations performed, hardware resources used, power consumed, something else?
 
 Most practical blockchains make gas represent the number of the raw VM instructions
 executed for managed code execution, and some synthetic and usually precomputed cost
-for external native functions executed by the blockchain runtime.
-For example, the number of actual machine instructions could be used as gas metrics
-for host functions. Some blockchains however, approximate the gas as the elapsed time.
+for external native functions executed by the blockchain runtime. For example, the
+number of actual machine instructions could be used as gas metrics for host functions.
+Some blockchains however, approximate the gas as the elapsed time.
 
 ### What does the gas price reflect? How should I price the gas in my system? Pure price of hardware for validators or some economic meaning?
 
@@ -135,26 +135,28 @@ can go unnoticed for many months until it manifests or gets exploited by someone
 ### What is the cold cache attack and how do I avoid it?
 
 Cold cache attack is a generic attack not specific to the contract runtime.
-Consider the following scenario. Suppose some blockchain has the full governance mechanism that allows
-participants to decide on the configuration parameters of the system. Suppose someone discovered
-that the node would consume less resources if they add a caching layer somewhere, e.g. if
-they decide to cache compilation of the contracts. Suppose everyone incorporates this change
+Consider the following scenario. Suppose some blockchain has the full governance mechanism that
+allows participants to decide on the configuration parameters of the system. Suppose someone
+discovered that the node would consume less resources if they add a caching layer somewhere, e.g.
+if they decide to cache compilation of the contracts. Suppose everyone incorporates this change
 into their nodes, then through the governance mechanism they lower the fee of the cached operation,
-to represent the average cost of executing it. But average cost does not represent the worst
-case scenario. So someone might find a way to execute computation on the system in such a way
-that they would miss the cache. In case of the compiled contract this could be executing
-a “cold” contract. As a result they will incur high computational cost to the system by paying
-for an average scenario. This could lead to the node slowdown, dropout of the participants, etc.
+to represent the average cost of executing it. But average cost does not represent the worst case
+scenario. So someone might find a way to execute computation on the system in such a way that they
+would miss the cache. In case of the compiled contract this could be executing a “cold” contract.
+As a result they will incur high computational cost to the system by paying for an average
+scenario. This could lead to the node slowdown, dropout of the participants, etc.
 
-There is currently no clear way how to avoid cold cache attack for the case when we cache contract compilation.
+There is currently no clear way how to avoid cold cache attack for the case when we cache contract
+compilation.
 
 ### What contracts can be executed without the actual blockchain? How to automatically test contracts?
 
-Contracts are state machines, transferring the input state to the output state, so it’s not required
-to have the traditional blockchain notions, such as network consensus and global transaction history
-to be present to just execute the contract on known state. Thus, running certain contracts, such as tests,
-in predefined blockchain state is an extremely desirable feature of the contract runtime. It is also useful
-to dry-run contracts inside the devtools, e.g. to estimate the gas usage.
+Contracts are state machines, transferring the input state to the output state, so it’s not
+required to have the traditional blockchain notions, such as network consensus and global
+transaction history to be present to just execute the contract on known state. Thus, running
+certain contracts, such as tests, in predefined blockchain state is an extremely desirable feature
+of the contract runtime. It is also useful to dry-run contracts inside the devtools, e.g. to
+estimate the gas usage.
 
 ### Can Wasm clients be used for gas estimation?
 
@@ -178,27 +180,31 @@ libraries are expected to be used in the contract.
 ### What to do with the garbage collection in general purpose programming languages?
 
 As one could see from the previous question, high level languages may require GC,
-and the contract runtime may not have such a feature available.
-There are few options:
+and the contract runtime may not have such a feature available. There are few options:
+
    * Not support such a languages
-   * Support such languages but not implement object reclamation and GC as many contracts are short lived it could be a viable option
-   * Implement automated memory management as part of the language runtime and ship it with every program or once per language runtime version
+   * Support such languages but not implement object reclamation and GC as many contracts are short
+     lived it could be a viable option
+   * Implement automated memory management as part of the language runtime and ship it with every
+     program or once per language runtime version
    * Use runtime with existing GC, such as JVM or JS VM
-   * Move forward with the [WebAssembly GC proposal](https://github.com/WebAssembly/gc/blob/master/proposals/gc/Overview.md)
+   * Move forward with the [WebAssembly GC proposal]
+
+[WebAssembly GC proposal]: https://github.com/WebAssembly/gc/blob/master/proposals/gc/Overview.md
 
 ### Shall I support pure functional language, such as Haskell, in contracts?
 
-It depends on the target audience of your blockchain. Implementation wise, runtime for the functional
-programming languages is not that different from runtime for an object oriented language,
-and typically needs the GC. Thus, see the previous question.
+It depends on the target audience of your blockchain. Implementation wise, runtime for the
+functional programming languages is not that different from runtime for an object oriented
+language, and typically needs the GC. Thus, see the previous question.
 
 ### Is it important for the smart contract to be formally verifiable?
 
-As with any other software, formal verification on smart contracts checks a certain behavioral aspects
-of the program, and as such, could be a useful tool for finding bugs and potential misbehavior of
-the program. However, it is not a silver bullet, and does not guarantee that the smart contract is
-“correct”. Formal verification could be used as one of the static analysis tools helping developers
-to write the better code.
+As with any other software, formal verification on smart contracts checks a certain behavioral
+aspects of the program, and as such, could be a useful tool for finding bugs and potential
+misbehavior of the program. However, it is not a silver bullet, and does not guarantee that the
+smart contract is “correct”. Formal verification could be used as one of the static analysis tools
+helping developers to write the better code.
 
 ### Is it important for the smart contract language to be Turing-complete?
 
@@ -216,17 +222,17 @@ template generator, on top of the general purpose language (such as Rust) seems 
 good compromise between somewhat excessive expressive power of the general  purpose language
 and ability to use tooling (compilers, debuggers) for such a language. Exact choice of the
 technology mostly depends on the underlying general purpose language. In the case of Rust,
-DSL approach could be implemented using standard Rust AST macroses.
+DSL approach could be implemented using standard Rust AST macros.
 
 ### Should my embedded DSL (eDSL) be blackbox or glassbox?
 
-If the eDSL shall be blackbox and not allow underlying language primitives invocation, or be
-glassbox and allow the full power of the underlying general purpose language is an important
-design decision. Blackbox approach produces less powerful, but more analyzable and verifiable
-language, while glassbox is mostly a convenience to simplify coding, not really controlling
-the expressive power of the language. See
-[this question](#is-it-important-for-the-smart-contract-language-to-be-turing-complete)
-for further discussion.
+Whether the eDSL shall be blackbox and not allow underlying language primitives invocation, or be
+glassbox and allow the full power of the underlying general purpose language is an important design
+decision. Blackbox approach produces less powerful, but more analyzable and verifiable language,
+while glassbox is mostly a convenience to simplify coding, not really controlling the expressive
+power of the language. See [this
+question](#is-it-important-for-the-smart-contract-language-to-be-turing-complete) for further
+discussion.
 
 ### Should we make it impossible to write unsafe contracts?
 
@@ -248,26 +254,29 @@ Correctness and responsibility beyond that shall be usually decided outside of t
 
 ### Who is responsible for the safety of the assets programming?
 
-Blockchain runtime has an option to provide primitive for safe asset-like manipulation,
-however they must be carefully designed to avoid limiting functionality, or repeating generic
-data manipulation operations available in general purpose programming language by default.
+Blockchain runtime has an option to provide primitive for safe asset-like manipulation, however
+they must be carefully designed to avoid limiting functionality, or repeating generic data
+manipulation operations available in general purpose programming language by default.
 
 ### Should all contracts be optimal in terms of performance?
 
-The most important metric of performance in the blockchain is the rate of blocks/transactions processed
-by the chain as the whole, and contract runtime performance is a part of the equation, responsible for
-the raw execution speed. So contract optimizations are critical only if it makes the whole chain stall,
-and if performance is dominated by the other components, optimizations in contract runtimes may be
-ignored. When discussing the compiled contract size, huge (>1MiB) contracts are generally considered
-harmful. Shall we optimize 100KiB contracts to be as small as possible, at the cost of worse
-debuggability and less applicability of the general purpose libraries is not as clear. We generally
-tend to consider such optimizations worsening development experience as excessive. Also, there are
-certain best practises, such as avoiding JSON and using more efficient binary serialization for
-transferring parameters to contracts, which should be communicated to the blockchain developers.
+The most important metric of performance in the blockchain is the rate of blocks/transactions
+processed by the chain as the whole, and contract runtime performance is a part of the equation,
+responsible for the raw execution speed. So contract optimizations are critical only if it makes
+the whole chain stall, and if performance is dominated by the other components, optimizations in
+contract runtimes may be ignored. When discussing the compiled contract size, huge (>1MiB)
+contracts are generally considered harmful. Shall we optimize 100KiB contracts to be as small as
+possible, at the cost of worse debuggability and less applicability of the general purpose
+libraries is not as clear. We generally tend to consider such optimizations worsening development
+experience as excessive. Also, there are certain best practices, such as avoiding JSON and using
+more efficient binary serialization for transferring parameters to contracts, which should be
+communicated to the blockchain developers.
 
 ### Real financial world is asynchronous. Should DeFi (decentralized finance) also be?
 
-While a pretty broad question, when projected on smart contract context, it means few rather simple questions.
+While a pretty broad question, when projected on smart contract context, it means few rather simple
+questions.
+
    * Shall cross-contract calls be represented as:
        * sync operations
        * async operations
@@ -280,13 +289,14 @@ contract runtime likely shall support both modes of operation.
 
 ### How to think about the computational model for smart contracts, especially if they do I/O ?
 
-The basic dichotomy here is the following: shall you expose the ability of performing callbacks driven
-by the external operation in the same execution round (i.e. not recorded by the blockchain), or all
-the operations performed by the smart contract must be time-bound synchronous, and all async operations
-are represented as subsequent invocations of the same contract at different entry points/states.
-Second approach seems to be better suitable for the practical applications, as otherwise the contract
-must cope with the changed state of the blockchain during its execution, which may be not straightforward,
-and the contract runtime can no longer rely on predictable/bound execution time of the contract.
+The basic dichotomy here is the following: shall you expose the ability of performing callbacks
+driven by the external operation in the same execution round (i.e. not recorded by the blockchain),
+or all the operations performed by the smart contract must be time-bound synchronous, and all async
+operations are represented as subsequent invocations of the same contract at different entry
+points/states.  Second approach seems to be better suitable for the practical applications, as
+otherwise the contract must cope with the changed state of the blockchain during its execution,
+which may be not straightforward, and the contract runtime can no longer rely on predictable/bound
+execution time of the contract.
 
 ### Should there be a wasi-blockchain spec like for instance the upcoming wasi-crypto spec?
 
