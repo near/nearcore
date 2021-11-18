@@ -5,10 +5,6 @@ pub use routing::routing_table_actor::{
     RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
 };
 pub use stats::metrics;
-pub use types::{
-    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRecipient, NetworkRequests,
-    NetworkResponses, PeerManagerAdapter,
-};
 
 mod peer;
 mod peer_manager;

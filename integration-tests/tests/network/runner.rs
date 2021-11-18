@@ -25,8 +25,9 @@ use near_network::test_utils::{
 use near_network::routing::start_routing_table_actor;
 #[cfg(feature = "test_features")]
 use near_network::types::SetAdvOptions;
+use near_network::types::{NetworkRecipient, NetworkRequests, NetworkResponses};
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
-use near_network::{NetworkRecipient, NetworkRequests, NetworkResponses, PeerManagerActor};
+use near_network::PeerManagerActor;
 use near_network_primitives::types::{
     NetworkConfig, OutboundTcpConnect, PeerInfo, ROUTED_MESSAGE_TTL,
 };

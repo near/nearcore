@@ -51,10 +51,9 @@ impl From<near_client_primitives::types::GetReceiptError> for RpcReceiptError {
             }
             near_client_primitives::types::GetReceiptError::Unreachable(ref error_message) => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                near_metrics::inc_counter_vec(
-                    &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
-                    &["RpcReceiptError"],
-                );
+                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
+                    .with_label_values(&["RpcReceiptError"])
+                    .inc();
                 Self::InternalError { error_message: error.to_string() }
             }
         }

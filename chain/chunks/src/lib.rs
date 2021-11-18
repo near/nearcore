@@ -14,9 +14,7 @@ use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
     byzantine_assert, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind, RuntimeAdapter,
 };
-use near_network::types::PeerManagerAdapter;
-use near_network::types::PeerManagerMessageRequest;
-use near_network::NetworkRequests;
+use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_pool::{PoolIteratorWrapper, TransactionPool};
 use near_primitives::block::{BlockHeader, Tip};
 use near_primitives::hash::{hash, CryptoHash};
@@ -1737,7 +1735,7 @@ mod test {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use near_network::NetworkRequests;
+    use near_network::types::NetworkRequests;
     use near_primitives::block::Tip;
     use near_primitives::types::EpochId;
     #[cfg(feature = "expensive_tests")]

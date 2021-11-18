@@ -2,14 +2,13 @@ use near_primitives::time::Clock;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
-use conqueue::{QueueReceiver, QueueSender};
 use near_network_primitives::types::{PeerIdOrHash, Ping, Pong};
 #[cfg(feature = "test_features")]
 use serde::Serialize;
@@ -66,25 +65,6 @@ where
 #[cfg_attr(feature = "test_features", derive(Serialize))]
 pub struct GetRoutingTableResult {
     pub edges_info: Vec<SimpleEdge>,
-}
-
-pub struct EdgeVerifierHelper {
-    /// Shared version of edges_info used by multiple threads
-    pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
-    /// Queue of edges verified, but not added yes
-    pub edges_to_add_receiver: QueueReceiver<Edge>,
-    pub edges_to_add_sender: QueueSender<Edge>,
-}
-
-impl Default for EdgeVerifierHelper {
-    fn default() -> Self {
-        let (tx, rx) = conqueue::Queue::unbounded::<Edge>();
-        Self {
-            edges_info_shared: Default::default(),
-            edges_to_add_sender: tx,
-            edges_to_add_receiver: rx,
-        }
-    }
 }
 
 pub struct RoutingTableView {
