@@ -53,15 +53,12 @@ use crate::{RoutingTableActor, RoutingTableMessages, RoutingTableMessagesRespons
     feature = "protocol_feature_routing_exchange_algorithm"
 ))]
 use crate::routing::edge::SimpleEdge;
-
-use crate::routing::routing::{
-    EdgeType, PeerRequestResult, RoutingTableView, DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS,
-};
-
+use crate::routing::edge::{Edge, EdgeInfo, EdgeType};
 use crate::routing::edge_verifier_actor::{EdgeVerifierActor, EdgeVerifierHelper};
+use crate::routing::routing::{
+    PeerRequestResult, RoutingTableView, DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS,
+};
 use crate::routing::routing_table_actor::Prune;
-
-use crate::routing::edge::{Edge, EdgeInfo};
 #[cfg(feature = "test_features")]
 use crate::types::SetAdvOptions;
 use crate::types::{
