@@ -109,6 +109,10 @@ enum ApplyChunksMode {
     NotCaughtUp,
 }
 
+/// Orphan is a block whose previous block is not accepted (in store) yet.
+/// Therefore, they are not ready to be processed yet.
+/// We save these blocks in an in-memory orphan pool to be processed later
+/// after their previous block is accepted.
 pub struct Orphan {
     block: Block,
     provenance: Provenance,
@@ -131,10 +135,28 @@ impl Orphan {
     }
 }
 
+/// OrphanBlockPool stores information of all orphans that are waiting to be processed
+/// A block is added to the orphan pool when process_block failed because the block is an orphan
+/// A block is removed from the pool if
+/// 1) it is ready to be processed
+/// or
+/// 2) size of the pool exceeds MAX_ORPHAN_SIZE and the orphan was added a long time ago
+///    or the height is high
 pub struct OrphanBlockPool {
+    /// A map from block hash to a orphan block
     orphans: HashMap<CryptoHash, Orphan>,
+    /// A set that contains all orphans for which we have requested missing chunks for them
+    /// An orphan can be added to this set when it was first added to the pool, or later
+    /// when certain requirements are satisfied (see check_orphans)
+    /// It can only be removed from this set when the orphan is removed from the pool
+    orphans_requested_missing_chunks: HashSet<CryptoHash>,
+    /// A mep from block heights to orphan blocks at the height
+    /// It's used to evict orphans when the pool is saturated
     height_idx: HashMap<BlockHeight, Vec<CryptoHash>>,
+    /// A map from block hashes to orphan blocks whose prev block is the block
+    /// It's used to check which orphan blocks are ready to be processed when a block is accepted
     prev_hash_idx: HashMap<CryptoHash, Vec<CryptoHash>>,
+    /// number of orphans that are evicted
     evicted: usize,
 }
 
@@ -142,6 +164,7 @@ impl OrphanBlockPool {
     pub fn new() -> OrphanBlockPool {
         OrphanBlockPool {
             orphans: HashMap::default(),
+            orphans_requested_missing_chunks: HashSet::default(),
             height_idx: HashMap::default(),
             prev_hash_idx: HashMap::default(),
             evicted: 0,
@@ -156,24 +179,34 @@ impl OrphanBlockPool {
         self.evicted
     }
 
-    fn add(&mut self, orphan: Orphan) {
+    /// Add a block to the orphan pool
+    /// `requested_missing_chunks`: whether missing chunks has been requested for the orphan
+    fn add(&mut self, orphan: Orphan, requested_missing_chunks: bool) {
+        let block_hash = *orphan.block.hash();
         let height_hashes =
             self.height_idx.entry(orphan.block.header().height()).or_insert_with(|| vec![]);
         height_hashes.push(*orphan.block.hash());
         let prev_hash_entries =
             self.prev_hash_idx.entry(*orphan.block.header().prev_hash()).or_insert_with(|| vec![]);
-        prev_hash_entries.push(*orphan.block.hash());
-        self.orphans.insert(*orphan.block.hash(), orphan);
+        prev_hash_entries.push(block_hash.clone());
+        self.orphans.insert(block_hash.clone(), orphan);
+        if requested_missing_chunks {
+            self.orphans_requested_missing_chunks.insert(block_hash.clone());
+        }
 
         if self.orphans.len() > MAX_ORPHAN_SIZE {
             let old_len = self.orphans.len();
 
+            let mut removed_hashes: HashSet<CryptoHash> = HashSet::default();
             self.orphans.retain(|_, ref mut x| {
-                x.added.elapsed() < TimeDuration::from_secs(MAX_ORPHAN_AGE_SECS)
+                let keep = x.added.elapsed() < TimeDuration::from_secs(MAX_ORPHAN_AGE_SECS);
+                if !keep {
+                    removed_hashes.insert(*x.block.hash());
+                }
+                keep
             });
             let mut heights = self.height_idx.keys().cloned().collect::<Vec<u64>>();
             heights.sort_unstable();
-            let mut removed_hashes: HashSet<CryptoHash> = HashSet::default();
             for h in heights.iter().rev() {
                 if let Some(hash) = self.height_idx.remove(h) {
                     for h in hash {
@@ -188,6 +221,7 @@ impl OrphanBlockPool {
             self.height_idx.retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(&x)));
             self.prev_hash_idx
                 .retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(&x)));
+            self.orphans_requested_missing_chunks.retain(|x| !removed_hashes.contains(x));
 
             self.evicted += old_len - self.orphans.len();
         }
@@ -207,6 +241,7 @@ impl OrphanBlockPool {
             hs.iter()
                 .filter_map(|h| {
                     removed_hashes.insert(h.clone());
+                    self.orphans_requested_missing_chunks.remove(h);
                     self.orphans.remove(h)
                 })
                 .collect()
@@ -217,6 +252,8 @@ impl OrphanBlockPool {
         ret
     }
 
+    /// Return a list of orphans that are among the `target_depth` immediate descendants of
+    /// the block `prev_hash`
     pub fn get_orphans_within_depth(
         &self,
         prev_hash: CryptoHash,
@@ -249,6 +286,17 @@ impl OrphanBlockPool {
         }
         res
     }
+
+    /// Returns true if the block has not been requested yet and the number of orphans
+    /// for which we have requested missing chunks have not exceeded MAX_ORPHAN_MISSING_CHUNKS
+    fn can_request_missing_chunks_for_orphan(&self, block_hash: &CryptoHash) -> bool {
+        self.orphans_requested_missing_chunks.len() < MAX_ORPHAN_MISSING_CHUNKS
+            && !self.orphans_requested_missing_chunks.contains(block_hash)
+    }
+
+    fn mark_missing_chunks_requested_for_orphan(&mut self, block_hash: CryptoHash) {
+        self.orphans_requested_missing_chunks.insert(block_hash);
+    }
 }
 
 /// Contains information for missing chunks in a block
@@ -275,7 +323,6 @@ pub struct Chain {
     store: ChainStore,
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     orphans: OrphanBlockPool,
-    orphans_requested_missing_chunks: HashSet<CryptoHash>,
     pub blocks_with_missing_chunks: MissingChunksPool<Orphan>,
     genesis: Block,
     pub transaction_validity_period: NumBlocks,
@@ -315,7 +362,6 @@ impl Chain {
             runtime_adapter,
             orphans: OrphanBlockPool::new(),
             blocks_with_missing_chunks: MissingChunksPool::new(),
-            orphans_requested_missing_chunks: HashSet::new(),
             genesis: genesis.clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
@@ -432,7 +478,6 @@ impl Chain {
             runtime_adapter,
             orphans: OrphanBlockPool::new(),
             blocks_with_missing_chunks: MissingChunksPool::new(),
-            orphans_requested_missing_chunks: HashSet::new(),
             genesis: genesis.clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
@@ -533,7 +578,7 @@ impl Chain {
         Ok(())
     }
 
-    pub fn save_orphan(&mut self, block: Block) -> Result<(), Error> {
+    pub fn save_orphan(&mut self, block: Block, request_missing_chunks: bool) -> Result<(), Error> {
         if self.orphans.contains(block.hash()) {
             return Ok(());
         }
@@ -543,11 +588,10 @@ impl Chain {
             byzantine_assert!(false);
             return Err(e.into());
         }
-        self.orphans.add(Orphan {
-            block: block,
-            provenance: Provenance::NONE,
-            added: Clock::instant(),
-        });
+        self.orphans.add(
+            Orphan { block, provenance: Provenance::NONE, added: Clock::instant() },
+            request_missing_chunks,
+        );
         Ok(())
     }
 
@@ -1235,16 +1279,18 @@ impl Chain {
                         // we only add blocks that couldn't have been gc'ed to the orphan pool.
                         if block_height >= tail_height {
                             let block_hash = *block.hash();
-                            if let Some(orphan_missing_chunks) =
+                            let should_request_chunks = if let Some(orphan_missing_chunks) =
                                 self.should_request_chunks_for_orphan(me, &block)
                             {
                                 debug!(target:"chain", "request missing chunks for orphan {:?}", block_hash);
                                 orphan_misses_chunks(orphan_missing_chunks);
-                                self.orphans_requested_missing_chunks.insert(block_hash);
-                            }
+                                true
+                            } else {
+                                false
+                            };
 
                             let orphan = Orphan { block, provenance, added: Clock::instant() };
-                            self.orphans.add(orphan);
+                            self.orphans.add(orphan, should_request_chunks);
 
                             debug!(
                                 target: "chain",
@@ -1317,11 +1363,8 @@ impl Chain {
         orphan: &Block,
     ) -> Option<OrphanMissingChunks> {
         // 1) Orphans that with outstanding missing chunks request has not exceed `MAX_ORPHAN_MISSING_CHUNKS`
-        if self.orphans_requested_missing_chunks.len() >= MAX_ORPHAN_MISSING_CHUNKS {
-            return None;
-        }
         // 2) we haven't already requested missing chunks for the orphan
-        if self.orphans_requested_missing_chunks.contains(orphan.hash()) {
+        if !self.orphans.can_request_missing_chunks_for_orphan(orphan.hash()) {
             return None;
         }
         let mut block_hash = *orphan.header().prev_hash();
@@ -1344,7 +1387,7 @@ impl Chain {
                     // 5) The next block of `ancestor` has the same epoch_id as the orphan block
                     if &epoch_id == orphan.header().epoch_id() {
                         let mut chain_update = self.chain_update();
-                        // 6) The orphan have missing chunks
+                        // 6) The orphan has missing chunks
                         if let Err(e) = chain_update.ping_missing_chunks(me, block_hash, &orphan) {
                             return match e.kind() {
                                 ErrorKind::ChunksMissing(missing_chunks) => {
@@ -1366,8 +1409,9 @@ impl Chain {
         None
     }
 
+    /// only used for test
     pub fn check_orphan_partial_chunks_requested(&self, block_hash: &CryptoHash) -> bool {
-        self.orphans_requested_missing_chunks.contains(block_hash)
+        self.orphans.orphans_requested_missing_chunks.contains(block_hash)
     }
 
     pub fn prev_block_is_caught_up(
@@ -1501,7 +1545,7 @@ impl Chain {
                 {
                     debug!(target:"chain", "request missing chunks for orphan {:?}", orphan_hash);
                     orphan_misses_chunks(orphan_missing_chunks);
-                    self.orphans_requested_missing_chunks.insert(orphan_hash);
+                    self.orphans.mark_missing_chunks_requested_for_orphan(orphan_hash);
                 }
             }
             if let Some(orphans) = self.orphans.remove_by_prev_hash(prev_hash) {
@@ -1509,7 +1553,6 @@ impl Chain {
                 for orphan in orphans.into_iter() {
                     let block_hash = orphan.hash();
                     let timer = near_metrics::start_timer(&metrics::BLOCK_PROCESSING_TIME);
-                    self.orphans_requested_missing_chunks.remove(&block_hash);
                     let res = self.process_block_single(
                         me,
                         orphan.block,

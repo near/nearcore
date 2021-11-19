@@ -387,7 +387,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 }
                                 return NetworkClientResponses::NoResponse;
                             } else if block.hash() == sync_hash {
-                                if let Err(e) = self.client.chain.save_orphan(block) {
+                                // This is the immediate block after a state sync
+                                // We can afford to delay requesting missing chunks for this one block
+                                if let Err(e) = self.client.chain.save_orphan(block, false) {
                                     error!(target: "client", "Received an invalid block during state sync: {}", e);
                                 }
                                 return NetworkClientResponses::NoResponse;
