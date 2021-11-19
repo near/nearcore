@@ -749,7 +749,7 @@ pub enum EpochError {
     NotAValidator(AccountId, EpochId),
     /// Error getting information for a shard
     ShardingError(String),
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
     NotEnoughValidators { num_validators: u64, num_shards: u64 },
 }
 
@@ -772,7 +772,7 @@ impl Display for EpochError {
                 write!(f, "{} is not a validator in epoch {:?}", account_id, epoch_id)
             }
             EpochError::ShardingError(err) => write!(f, "Sharding Error: {}", err),
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
             EpochError::NotEnoughValidators { num_shards, num_validators } => {
                 write!(f, "There were not enough validator proposals to fill all shards. num_proposals: {}, num_shards: {}", num_validators, num_shards)
             }
@@ -793,7 +793,7 @@ impl Debug for EpochError {
                 write!(f, "NotAValidator({}, {:?})", account_id, epoch_id)
             }
             EpochError::ShardingError(err) => write!(f, "ShardingError({})", err),
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
             EpochError::NotEnoughValidators { num_shards, num_validators } => {
                 write!(f, "NotEnoughValidators({}, {})", num_validators, num_shards)
             }

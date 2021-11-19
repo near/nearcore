@@ -574,11 +574,12 @@ pub mod validator_stake {
             }
         }
 
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        #[cfg(feature = "protocol_feature_block_header_v3")]
         #[inline]
         pub fn is_chunk_only(&self) -> bool {
             match self {
                 Self::V1(_) => false,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 Self::V2(v2) => v2.is_chunk_only,
             }
         }

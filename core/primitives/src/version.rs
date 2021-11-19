@@ -122,6 +122,8 @@ pub enum ProtocolFeature {
     AltBn128,
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     ChunkOnlyProducers,
+    #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
+    NewValidatorSelectionAlgorithm,
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingExchangeAlgorithm,
     /// Limit number of wasm functions in one contract. See
@@ -133,12 +135,24 @@ pub enum ProtocolFeature {
 /// Current latest stable version of the protocol.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-#[cfg(not(feature = "nightly_protocol"))]
+#[cfg(all(
+    not(feature = "nightly_protocol"),
+    any(
+        not(feature = "protocol_feature_new_validator_selection_algorithm"),
+        feature = "protocol_feature_chunk_only_producers"
+    )
+))]
 pub const PROTOCOL_VERSION: ProtocolVersion = 48;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 123;
+pub const PROTOCOL_VERSION: ProtocolVersion = 125;
+
+#[cfg(all(
+    feature = "protocol_feature_new_validator_selection_algorithm",
+    not(feature = "protocol_feature_chunk_only_producers")
+))]
+pub const PROTOCOL_VERSION: ProtocolVersion = 124;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -168,7 +182,9 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_block_header_v3")]
             ProtocolFeature::BlockHeaderV3 => 109,
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            ProtocolFeature::ChunkOnlyProducers => 115,
+            ProtocolFeature::ChunkOnlyProducers => 125,
+            #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
+            ProtocolFeature::NewValidatorSelectionAlgorithm => 124,
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
             #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
