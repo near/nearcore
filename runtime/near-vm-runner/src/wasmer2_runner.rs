@@ -355,7 +355,7 @@ enum WasmerCompiler {
 
 #[derive(Hash)]
 struct Wasmer2Config {
-    seed: i32,
+    seed: u32,
     engine: WasmerEngine,
     compiler: WasmerCompiler,
 }
@@ -369,11 +369,11 @@ impl Wasmer2Config {
 }
 
 // We use following scheme for the bits forming seed:
-//  kind << 10, kind is 1 for Wasmer
+//  kind << 10, kind is 1 for Wasmer2
 //  major version << 6
 //  minor version
 const WASMER2_CONFIG: Wasmer2Config = Wasmer2Config {
-    seed: (1 << 10) | (2 << 6) | 0,
+    seed: (1 << 10) | (3 << 6) | 0,
     engine: WasmerEngine::Universal,
     compiler: WasmerCompiler::Singlepass,
 };

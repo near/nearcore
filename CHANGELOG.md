@@ -3,6 +3,8 @@
 ## [unreleased]
 
 ### Protocol Changes
+
+* Further lower regular_op_cost from 2_207_874 to 822_756.
 * Limit number of wasm functions in one contract to 10_000. [#4954](https://github.com/near/nearcore/pull/4954)
 
 ## `1.22.0` [11-15-2021]

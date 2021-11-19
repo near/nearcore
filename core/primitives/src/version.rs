@@ -114,6 +114,9 @@ pub enum ProtocolFeature {
     LowerDataReceiptAndEcrecoverBaseCost,
     /// Lowers the cost of wasm instruction due to switch to wasmer2.
     LowerRegularOpCost,
+    /// Lowers the cost of wasm instruction due to switch to faster,
+    /// compiler-intrinsics based gas counter.
+    LowerRegularOpCost2,
     /// Limit number of wasm functions in one contract. See
     /// <https://github.com/near/nearcore/pull/4954> for more details.
     LimitContractFunctionsNumber,
@@ -127,10 +130,6 @@ pub enum ProtocolFeature {
     ChunkOnlyProducers,
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingExchangeAlgorithm,
-    /// Lowers the cost of wasm instruction due to switch to faster,
-    /// compiler-intrinsics based gas counter.
-    #[cfg(feature = "protocol_feature_lower_regular_op_cost2")]
-    LowerRegularOpCost2,
 }
 
 /// Current latest stable version of the protocol.
@@ -164,7 +163,8 @@ impl ProtocolFeature {
             | ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost
             | ProtocolFeature::LowerRegularOpCost
             | ProtocolFeature::SimpleNightshade => 48,
-            ProtocolFeature::LimitContractFunctionsNumber => 49,
+            ProtocolFeature::LowerRegularOpCost2
+            | ProtocolFeature::LimitContractFunctionsNumber => 49,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -175,8 +175,6 @@ impl ProtocolFeature {
             ProtocolFeature::ChunkOnlyProducers => 115,
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
-            #[cfg(feature = "protocol_feature_lower_regular_op_cost2")]
-            ProtocolFeature::LowerRegularOpCost2 => 124,
         }
     }
 }
