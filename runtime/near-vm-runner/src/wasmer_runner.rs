@@ -1,6 +1,7 @@
 use crate::cache::into_vm_result;
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
+use crate::prepare::WASM_FEATURES;
 use crate::{cache, imports};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -9,6 +10,9 @@ use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VM
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
 use wasmer_runtime::{ImportObject, Module};
+
+const WASMER_FEATURES: wasmer_runtime::Features =
+    wasmer_runtime::Features { threads: WASM_FEATURES.threads, simd: WASM_FEATURES.simd };
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     let info = module.info();
@@ -339,7 +343,11 @@ pub(crate) fn run_wasmer0_module<'a>(
 }
 
 pub fn compile_wasmer0_module(code: &[u8]) -> bool {
-    wasmer_runtime::compile(code).is_ok()
+    wasmer_runtime::compile_with_config(
+        code,
+        wasmer_runtime::CompilerConfig { features: WASMER_FEATURES, ..Default::default() },
+    )
+    .is_ok()
 }
 
 pub(crate) fn wasmer0_vm_hash() -> u64 {

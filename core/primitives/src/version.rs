@@ -128,6 +128,10 @@ pub enum ProtocolFeature {
     /// <https://github.com/near/nearcore/pull/4954> for more details.
     #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
     LimitContractFunctionsNumber,
+    /// Lowers the cost of wasm instruction due to switch to faster,
+    /// compiler-intrinsics based gas counter.
+    #[cfg(feature = "protocol_feature_lower_regular_op_cost2")]
+    LowerRegularOpCost2,
 }
 
 /// Current latest stable version of the protocol.
@@ -138,7 +142,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 48;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 123;
+pub const PROTOCOL_VERSION: ProtocolVersion = 124;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -173,6 +177,8 @@ impl ProtocolFeature {
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
             #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
             ProtocolFeature::LimitContractFunctionsNumber => 123,
+            #[cfg(feature = "protocol_feature_lower_regular_op_cost2")]
+            ProtocolFeature::LowerRegularOpCost2 => 124,
         }
     }
 }
