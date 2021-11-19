@@ -19,6 +19,15 @@ steps:
     - "distro=amazonlinux"
     branches: "!master"
 
+  - label: "unused dependencie"
+    command: |
+      cargo +nightly udeps -p near-network
+
+    timeout: 60
+    agents:
+    - "distro=amazonlinux"
+    branches: "!master"
+
   - label: "sanity checks"
     command: |
       source ~/.cargo/env && set -eux
