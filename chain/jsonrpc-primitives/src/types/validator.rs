@@ -48,10 +48,9 @@ impl From<near_client_primitives::types::GetValidatorInfoError> for RpcValidator
                 ref error_message,
             ) => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                near_metrics::inc_counter_vec(
-                    &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
-                    &["RpcValidatorError"],
-                );
+                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
+                    .with_label_values(&["RpcValidatorError"])
+                    .inc();
                 Self::InternalError { error_message: error.to_string() }
             }
         }

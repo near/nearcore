@@ -40,9 +40,9 @@ use near_store::Store;
 use rand::thread_rng;
 use tokio_util::sync::PollSemaphore;
 
+use crate::peer::codec::Codec;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
-use crate::routing::codec::Codec;
 use crate::stats::metrics;
 use crate::stats::metrics::NetworkMetrics;
 use crate::types::{FullPeerInfo, NetworkClientMessages, NetworkRequests, NetworkResponses};
@@ -53,16 +53,12 @@ use crate::{RoutingTableActor, RoutingTableMessages, RoutingTableMessagesRespons
     feature = "protocol_feature_routing_exchange_algorithm"
 ))]
 use crate::routing::edge::SimpleEdge;
-
+use crate::routing::edge::{Edge, EdgeInfo, EdgeType};
+use crate::routing::edge_verifier_actor::{EdgeVerifierActor, EdgeVerifierHelper};
 use crate::routing::routing::{
-    EdgeType, EdgeVerifierHelper, PeerRequestResult, RoutingTableView, DELETE_PEERS_AFTER_TIME,
-    MAX_NUM_PEERS,
+    PeerRequestResult, RoutingTableView, DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS,
 };
-
-use crate::routing::edge_verifier_actor::EdgeVerifierActor;
 use crate::routing::routing_table_actor::Prune;
-
-use crate::routing::edge::{Edge, EdgeInfo};
 #[cfg(feature = "test_features")]
 use crate::types::SetAdvOptions;
 use crate::types::{

@@ -4,6 +4,7 @@ use wasmtime::Module;
 #[cfg(feature = "wasmtime_vm")]
 pub mod wasmtime_runner {
     use crate::errors::IntoVMError;
+    use crate::prepare::WASM_FEATURES;
     use crate::{imports, prepare};
     use near_primitives::contract::ContractCode;
     use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -17,7 +18,7 @@ pub mod wasmtime_runner {
     use std::ffi::c_void;
     use std::str;
     use wasmtime::ExternType::Func;
-    use wasmtime::{Config, Engine, Limits, Linker, Memory, MemoryType, Module, Store, TrapCode};
+    use wasmtime::{Engine, Limits, Linker, Memory, MemoryType, Module, Store, TrapCode};
 
     pub struct WasmtimeMemory(Memory);
 
@@ -152,7 +153,7 @@ pub mod wasmtime_runner {
         current_protocol_version: ProtocolVersion,
         _cache: Option<&dyn CompiledContractCache>,
     ) -> (Option<VMOutcome>, Option<VMError>) {
-        let mut config = Config::default();
+        let mut config = default_config();
         let engine = get_engine(&mut config);
         let store = Store::new(&engine);
         let mut memory = WasmtimeMemory::new(
@@ -264,10 +265,22 @@ pub mod wasmtime_runner {
     pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
         Engine::new(config.strategy(wasmtime::Strategy::Lightbeam).unwrap()).unwrap()
     }
+
+    pub(super) fn default_config() -> wasmtime::Config {
+        let mut config = wasmtime::Config::default();
+        config.wasm_threads(WASM_FEATURES.threads);
+        config.wasm_reference_types(WASM_FEATURES.reference_types);
+        config.wasm_simd(WASM_FEATURES.simd);
+        config.wasm_bulk_memory(WASM_FEATURES.bulk_memory);
+        config.wasm_multi_value(WASM_FEATURES.multi_value);
+        config.wasm_multi_memory(WASM_FEATURES.multi_memory);
+        config.wasm_module_linking(WASM_FEATURES.module_linking);
+        config
+    }
 }
 
 pub fn compile_module(code: &[u8]) -> bool {
-    let mut config = wasmtime::Config::default();
+    let mut config = wasmtime_runner::default_config();
     let engine = wasmtime_runner::get_engine(&mut config);
     Module::new(&engine, code).is_ok()
 }
