@@ -1853,7 +1853,8 @@ mod test {
             ChunkHash(hash(&[1])),
             ChunkRequestInfo {
                 height: 0,
-                parent_hash: Default::default(),
+                ancestor_hash: Default::default(),
+                prev_block_hash: Default::default(),
                 shard_id: 0,
                 added: added,
                 last_requested: added,
@@ -2137,7 +2138,7 @@ mod test {
         };
         shards_manager.request_chunks(
             vec![fixture.mock_chunk_header.clone()],
-            &fixture.mock_chunk_header.prev_block_hash(),
+            fixture.mock_chunk_header.prev_block_hash(),
             &header_head,
         );
         assert!(shards_manager
@@ -2157,7 +2158,7 @@ mod test {
         );
         shards_manager.request_chunks(
             vec![fixture.mock_chunk_header.clone()],
-            &fixture.mock_chunk_header.prev_block_hash(),
+            fixture.mock_chunk_header.prev_block_hash(),
             &header_head,
         );
         assert!(shards_manager
@@ -2177,7 +2178,7 @@ mod test {
         );
         shards_manager.request_chunks(
             vec![fixture.mock_chunk_header.clone()],
-            &fixture.mock_chunk_header.prev_block_hash(),
+            fixture.mock_chunk_header.prev_block_hash(),
             &header_head,
         );
         assert!(shards_manager
