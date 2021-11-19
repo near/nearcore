@@ -40,6 +40,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::runtime::config::RuntimeConfig;
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::ShardUId;
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
@@ -57,6 +58,7 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
@@ -3191,6 +3193,7 @@ fn test_validator_stake_host_function() {
 }
 
 // Check that we can't call a contract exceeding functions number limit after upgrade.
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 #[test]
 fn test_limit_contract_functions_number_upgrade() {
     let functions_number_limit: u32 = 10_000;
