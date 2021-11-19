@@ -1,6 +1,6 @@
-# Installation with carg
+# Installation with cargo
 
-You can install this library, with the following command.
+You can install `cargo-fuzz`, with the following command.
 
 ```bash
 cargo install cargo-fuzz
