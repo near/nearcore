@@ -714,7 +714,7 @@ impl Actor for Runner {
                 }
             }),
             1,
-            15000,
+            20000,
         )
         .start();
     }
