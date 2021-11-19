@@ -1,4 +1,3 @@
-use crate::routing::routing::EdgeType;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, SecretKey, Signature};
 use near_primitives::borsh::maybestd::sync::Arc;
@@ -288,4 +287,11 @@ impl SimpleEdge {
             EdgeType::Removed
         }
     }
+}
+
+/// Status of the edge
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, Hash)]
+pub enum EdgeType {
+    Added,
+    Removed,
 }

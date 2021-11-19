@@ -119,6 +119,13 @@ impl BlockLike for Orphan {
     }
 }
 
+/// Contains information for missing chunks in a block
+pub struct BlockMissingChunks {
+    /// previous block hash
+    pub prev_hash: CryptoHash,
+    pub missing_chunks: Vec<ShardChunkHeader>,
+}
+
 pub struct OrphanBlockPool {
     orphans: HashMap<CryptoHash, Orphan>,
     height_idx: HashMap<BlockHeight, Vec<CryptoHash>>,
@@ -770,7 +777,7 @@ impl Chain {
     ) -> Result<Option<Tip>, Error>
     where
         F: Copy + FnMut(AcceptedBlock) -> (),
-        F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
+        F2: Copy + FnMut(BlockMissingChunks) -> (),
         F3: Copy + FnMut(ChallengeBody) -> (),
     {
         let block_hash = *block.hash();
@@ -1000,7 +1007,7 @@ impl Chain {
     ) -> Result<(), Error>
     where
         F: Copy + FnMut(AcceptedBlock) -> (),
-        F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
+        F2: Copy + FnMut(BlockMissingChunks) -> (),
         F3: Copy + FnMut(ChallengeBody) -> (),
     {
         // Get header we were syncing into.
@@ -1088,7 +1095,7 @@ impl Chain {
     ) -> Result<Option<Tip>, Error>
     where
         F: FnMut(AcceptedBlock) -> (),
-        F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
+        F2: Copy + FnMut(BlockMissingChunks) -> (),
         F3: FnMut(ChallengeBody) -> (),
     {
         near_metrics::inc_counter(&metrics::BLOCK_PROCESSED_TOTAL);
@@ -1169,18 +1176,19 @@ impl Chain {
                     }
                     ErrorKind::ChunksMissing(missing_chunks) => {
                         let block_hash = *block.hash();
-                        block_misses_chunks(missing_chunks.clone());
+                        let missing_chunk_hashes: Vec<_> =
+                            missing_chunks.iter().map(|header| header.chunk_hash()).collect();
+                        block_misses_chunks(BlockMissingChunks {
+                            prev_hash: *block.header().prev_hash(),
+                            missing_chunks,
+                        });
                         let orphan = Orphan { block, provenance, added: Clock::instant() };
-
-                        self.blocks_with_missing_chunks.add_block_with_missing_chunks(
-                            orphan,
-                            missing_chunks.iter().map(|header| header.chunk_hash()).collect(),
-                        );
-
+                        self.blocks_with_missing_chunks
+                            .add_block_with_missing_chunks(orphan, missing_chunk_hashes.clone());
                         debug!(
                             target: "chain",
                             "Process block: missing chunks. Block hash: {:?}. Missing chunks: {:?}",
-                            block_hash, missing_chunks,
+                            block_hash, missing_chunk_hashes,
                         );
                     }
                     ErrorKind::EpochOutOfBounds(ref epoch_id) => {
@@ -1261,7 +1269,7 @@ impl Chain {
         on_challenge: F3,
     ) where
         F: Copy + FnMut(AcceptedBlock) -> (),
-        F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
+        F2: Copy + FnMut(BlockMissingChunks) -> (),
         F3: Copy + FnMut(ChallengeBody) -> (),
     {
         let mut new_blocks_accepted = vec![];
@@ -1309,7 +1317,7 @@ impl Chain {
     ) -> Option<Tip>
     where
         F: Copy + FnMut(AcceptedBlock) -> (),
-        F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
+        F2: Copy + FnMut(BlockMissingChunks) -> (),
         F3: Copy + FnMut(ChallengeBody) -> (),
     {
         let mut queue = vec![prev_hash];
@@ -2018,7 +2026,7 @@ impl Chain {
     ) -> Result<(), Error>
     where
         F: Copy + FnMut(AcceptedBlock) -> (),
-        F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
+        F2: Copy + FnMut(BlockMissingChunks) -> (),
         F3: Copy + FnMut(ChallengeBody) -> (),
     {
         debug!(
