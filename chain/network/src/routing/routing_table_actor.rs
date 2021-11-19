@@ -8,6 +8,7 @@ use actix::{Actor, Addr, Context, Handler, Message, System};
 use tracing::error;
 use tracing::{debug, trace, warn};
 
+use crate::metrics;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::edge::SimpleEdge;
 #[cfg(feature = "delay_detector")]
@@ -19,17 +20,17 @@ use near_primitives::utils::index_to_bytes;
 use near_store::db::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
 use near_store::{Store, StoreUpdate};
 
-use crate::routing::edge::Edge;
+use crate::routing::edge::{Edge, EdgeType};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::ibf::{Ibf, IbfBox};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::ibf_peer_set::IbfPeerSet;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::routing::ibf_set::IbfSet;
-use crate::routing::routing::{EdgeType, Graph, SAVE_PEERS_MAX_TIME};
+use crate::routing::ibf_peer_set::{ValidIBFLevel, MIN_IBF_LEVEL};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::routing::routing::{ValidIBFLevel, MIN_IBF_LEVEL};
-use crate::stats::metrics;
+use crate::routing::ibf_set::IbfSet;
+
+use crate::routing::routing::{Graph, SAVE_PEERS_MAX_TIME};
 use crate::types::StopMsg;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{PartialSync, PeerMessage, RoutingState, RoutingSyncV2, RoutingVersion2};
@@ -171,8 +172,8 @@ impl RoutingTableActor {
         self.needs_routing_table_recalculation = true;
 
         // Update metrics after edge update
-        near_metrics::inc_counter_by(&metrics::EDGE_UPDATES, total as u64);
-        near_metrics::set_gauge(&metrics::EDGE_ACTIVE, self.raw_graph.total_active_edges() as i64);
+        metrics::EDGE_UPDATES.inc_by(total as u64);
+        metrics::EDGE_ACTIVE.set(self.raw_graph.total_active_edges() as i64);
 
         edges
     }
@@ -242,7 +243,7 @@ impl RoutingTableActor {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("routing table update".into());
         let _routing_table_recalculation =
-            near_metrics::start_timer(&metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM);
+            metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
 
         trace!(target: "network", "Update routing table.");
 
@@ -253,8 +254,8 @@ impl RoutingTableActor {
             self.peer_last_time_reachable.insert(peer.clone(), now);
         }
 
-        near_metrics::inc_counter_by(&metrics::ROUTING_TABLE_RECALCULATIONS, 1);
-        near_metrics::set_gauge(&metrics::PEER_REACHABLE, self.peer_forwarding.len() as i64);
+        metrics::ROUTING_TABLE_RECALCULATIONS.inc();
+        metrics::PEER_REACHABLE.set(self.peer_forwarding.len() as i64);
     }
 
     /// If pruning is enabled we will remove unused edges and store them to disk.

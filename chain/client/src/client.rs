@@ -22,8 +22,9 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
-use near_network::types::{PartialEncodedChunkResponseMsg, PeerManagerMessageRequest};
-use near_network::{FullPeerInfo, NetworkClientResponses, NetworkRequests, PeerManagerAdapter};
+use near_network::types::{
+    FullPeerInfo, NetworkClientResponses, NetworkRequests, PeerManagerAdapter,
+};
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
@@ -47,10 +48,12 @@ use crate::metrics;
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::SyncStatus;
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
+use near_network::types::PeerManagerMessageRequest;
+use near_network_primitives::types::{
+    PartialEncodedChunkForwardMsg, PartialEncodedChunkResponseMsg,
+};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::version::PROTOCOL_VERSION;
-
-use near_network::types::PartialEncodedChunkForwardMsg;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -792,7 +795,7 @@ impl Client {
         let partial_chunk = PartialEncodedChunk::new(header, response.parts, response.receipts);
         // We already know the header signature is valid because we read it from the
         // shard manager.
-        self.process_partial_encoded_chunk(MaybeValidated::Validated(partial_chunk))
+        self.process_partial_encoded_chunk(MaybeValidated::from_validated(partial_chunk))
     }
 
     pub fn process_partial_encoded_chunk_forward(
@@ -835,7 +838,7 @@ impl Client {
         });
         // We already know the header signature is valid because we read it from the
         // shard manager.
-        self.process_partial_encoded_chunk(MaybeValidated::Validated(partial_chunk))
+        self.process_partial_encoded_chunk(MaybeValidated::from_validated(partial_chunk))
     }
 
     pub fn process_partial_encoded_chunk(
@@ -880,7 +883,7 @@ impl Client {
                         Ok(self.process_blocks_with_missing_chunks())
                     }
                     ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts => {
-                        let chunk_header = pec_v2.extract().header;
+                        let chunk_header = pec_v2.into_inner().header;
                         let prev_hash = chunk_header.prev_block_hash();
                         self.shards_mgr.request_chunks(
                             iter::once(chunk_header),
@@ -890,14 +893,14 @@ impl Client {
                         Ok(vec![])
                     }
                     ProcessPartialEncodedChunkResult::NeedBlock => {
-                        missing_block_handler(self, pec_v2.extract())
+                        missing_block_handler(self, pec_v2.into_inner())
                     }
                 }
             }
 
             // If the epoch_id cannot be looked up then we have not processed
             // `partial_encoded_chunk.prev_block()` yet.
-            Err(_) => missing_block_handler(self, partial_encoded_chunk.extract().into()),
+            Err(_) => missing_block_handler(self, partial_encoded_chunk.into_inner().into()),
         }
     }
 
@@ -1161,8 +1164,7 @@ impl Client {
             self.shards_mgr.pop_stored_partial_encoded_chunks(next_height);
         for (_shard_id, partial_encoded_chunks) in partial_encoded_chunks.drain() {
             for partial_encoded_chunk in partial_encoded_chunks {
-                let chunk =
-                    MaybeValidated::NotValidated(PartialEncodedChunk::V2(partial_encoded_chunk));
+                let chunk = MaybeValidated::from(PartialEncodedChunk::V2(partial_encoded_chunk));
                 if let Ok(accepted_blocks) = self.process_partial_encoded_chunk(chunk) {
                     // Executing process_partial_encoded_chunk can unlock some blocks.
                     // Any block that is in the blocks_with_missing_chunks which doesn't have any chunks

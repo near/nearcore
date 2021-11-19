@@ -73,3 +73,23 @@ in rust-analyzer
 ([docs](https://rust-analyzer.github.io/manual.html#rust-analyzer.assist.importGranularity)).
 
 **Rationale:** Consistency, matches existing practice.
+
+## Documentation
+
+When writing documentation in `.md` files, wrap lines at approximately 80
+columns.
+
+```markdown
+<!-- GOOD -->
+Manually reflowing paragraphs is tedious. Luckily, most editors have this
+functionality built in or available via extensions. For example, in Emacs you can
+use `fill-paragraph` (<kbd>M-q</kbd>), and VS Code has `stkb.rewrap` extension.
+
+<!-- BAD -->
+One sentence per-line is also occasionally used for technical writing.
+We avoid that format though.
+While convenient for editing, it may be poorly legible in unrendered form
+
+<!-- BAD -->
+Definitely don't use soft-wrapping. While markdown mostly ignores source level line breaks, relying on soft wrap makes the source completely unreadable, especially on modern wide displays.
+```

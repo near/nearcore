@@ -117,10 +117,9 @@ impl From<near_client_primitives::types::GetExecutionOutcomeError> for RpcLightC
             },
             near_client_primitives::types::GetExecutionOutcomeError::Unreachable { ref error_message } => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                near_metrics::inc_counter_vec(
-                    &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
+                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT.with_label_values(
                     &["RpcLightClientProofError"],
-                );
+                ).inc();
                 Self::InternalError { error_message: error.to_string() }
             }
         }
@@ -140,10 +139,9 @@ impl From<near_client_primitives::types::GetBlockProofError> for RpcLightClientP
                 ref error_message,
             } => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                near_metrics::inc_counter_vec(
-                    &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
-                    &["RpcLightClientProofError"],
-                );
+                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
+                    .with_label_values(&["RpcLightClientProofError"])
+                    .inc();
                 Self::InternalError { error_message: error.to_string() }
             }
         }
@@ -168,10 +166,9 @@ impl From<near_client_primitives::types::GetNextLightClientBlockError>
                 ref error_message,
             } => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                near_metrics::inc_counter_vec(
-                    &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
-                    &["RpcLightClientNextBlockError"],
-                );
+                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
+                    .with_label_values(&["RpcLightClientNextBlockError"])
+                    .inc();
                 Self::InternalError { error_message: error.to_string() }
             }
         }

@@ -41,6 +41,7 @@ near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
 near-vm-runner = { path = "../../runtime/near-vm-runner" }
 delay-detector = { path = "../../tools/delay_detector", optional = true }
+near-network-primitives = { path = "../network-primitives" }
 
 [dev-dependencies]
 near-logger-utils = { path = "../../test-utils/logger" }
