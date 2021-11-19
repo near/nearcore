@@ -347,7 +347,6 @@ mod tests {
                     protocol_upgrade_stake_threshold: Rational::new(80, 100),
                     protocol_upgrade_num_epochs: 2,
                     shard_layout: ShardLayout::v0(5, 0),
-                    validator_selection_config: Default::default(),
                 },
                 [0; 32],
                 &EpochInfo::default(),
