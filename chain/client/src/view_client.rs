@@ -3,8 +3,7 @@
 
 use near_primitives::time::Clock;
 use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
@@ -27,16 +26,14 @@ use near_client_primitives::types::{
     GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, QueryError, TxStatus,
     TxStatusError,
 };
-use near_network::types::PeerManagerMessageRequest;
-use near_network::types::{NetworkRequests, PeerManagerAdapter};
+use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 #[cfg(feature = "test_features")]
 use near_network_primitives::types::NetworkAdversarialMessage;
 use near_network_primitives::types::{
     NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
     StateResponseInfoV1, StateResponseInfoV2,
 };
-use near_performance_metrics_macros::perf;
-use near_performance_metrics_macros::perf_with_debug;
+use near_performance_metrics_macros::{perf, perf_with_debug};
 use near_primitives::block::{Block, BlockHeader, GenesisId, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};

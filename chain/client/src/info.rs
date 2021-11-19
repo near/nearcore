@@ -21,8 +21,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::Version;
 use near_telemetry::{telemetry, TelemetryActor};
 
-use crate::metrics;
-use crate::SyncStatus;
+use crate::{metrics, SyncStatus};
 use near_client_primitives::types::ShardSyncStatus;
 use near_primitives::time::Clock;
 

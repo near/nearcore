@@ -1,7 +1,6 @@
 use std::cmp::max;
 use std::collections::{BTreeMap, HashMap};
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use near_primitives::types::{BlockHeight, ShardId};
 
