@@ -2043,11 +2043,16 @@ impl<'a> VMLogic<'a> {
     ///
     /// `base + log_base + log_byte + num_bytes + utf8 decoding cost`
     pub fn log_utf8(&mut self, len: u64, ptr: u64) -> Result<()> {
+        println!("a");
         self.gas_counter.pay_base(base)?;
+        println!("b");
         self.check_can_add_a_log_message()?;
+        println!("c");
         let message = self.get_utf8_string(len, ptr)?;
+        println!("d");
         self.gas_counter.pay_base(log_base)?;
         self.gas_counter.pay_per(log_byte, message.len() as u64)?;
+        println!("e");
         self.checked_push_log(message)
     }
 
@@ -2516,7 +2521,7 @@ impl<'a> VMLogic<'a> {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct VMOutcome {
     pub balance: Balance,
     pub storage_usage: StorageUsage,
@@ -2528,17 +2533,17 @@ pub struct VMOutcome {
     pub profile: ProfileData,
 }
 
-impl std::fmt::Debug for VMOutcome {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let return_data_str = match &self.return_data {
-            ReturnData::None => "None".to_string(),
-            ReturnData::ReceiptIndex(_) => "Receipt".to_string(),
-            ReturnData::Value(v) => format!("Value [{} bytes]", v.len()),
-        };
-        write!(
-            f,
-            "VMOutcome: balance {} storage_usage {} return data {} burnt gas {} used gas {}",
-            self.balance, self.storage_usage, return_data_str, self.burnt_gas, self.used_gas
-        )
-    }
-}
+// impl std::fmt::Debug for VMOutcome {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         let return_data_str = match &self.return_data {
+//             ReturnData::None => "None".to_string(),
+//             ReturnData::ReceiptIndex(_) => "Receipt".to_string(),
+//             ReturnData::Value(v) => format!("Value [{} bytes]", v.len()),
+//         };
+//         write!(
+//             f,
+//             "VMOutcome: balance {} storage_usage {} return data {} burnt gas {} used gas {}",
+//             self.balance, self.storage_usage, return_data_str, self.burnt_gas, self.used_gas
+//         )
+//     }
+// }
