@@ -37,19 +37,17 @@ use near_primitives::{logging, unwrap_option_or_return};
 use near_rate_limiter::ThrottleController;
 use near_rust_allocator_proxy::allocator::get_tid;
 
+use crate::peer::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::peer::tracker::Tracker;
-use crate::routing::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::routing::edge::{Edge, EdgeInfo};
 use crate::stats::metrics::{self, NetworkMetrics};
 use crate::types::{
     Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
+    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerManagerMessageRequest, PeerMessage, PeerRequest, PeerResponse, PeersRequest, PeersResponse,
     SendMessage, Unregister,
 };
-use crate::{
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
-    PeerManagerActor,
-};
+use crate::{PeerInfo, PeerManagerActor};
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
@@ -488,7 +486,6 @@ impl PeerActor {
             | PeerMessage::PeersRequest
             | PeerMessage::PeersResponse(_)
             | PeerMessage::RoutingTableSync(_)
-            | PeerMessage::RoutingTableSyncV2(_)
             | PeerMessage::LastEdge(_)
             | PeerMessage::Disconnect
             | PeerMessage::RequestUpdateNonce(_)
@@ -497,6 +494,11 @@ impl PeerActor {
             | PeerMessage::BlockHeadersRequest(_)
             | PeerMessage::EpochSyncRequest(_)
             | PeerMessage::EpochSyncFinalizationRequest(_) => {
+                error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", msg);
+                return;
+            }
+            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+            PeerMessage::RoutingTableSyncV2(_) => {
                 error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", msg);
                 return;
             }

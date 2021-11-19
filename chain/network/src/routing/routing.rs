@@ -1,15 +1,12 @@
 use near_primitives::time::Clock;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
-use std::hash::Hash;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Message};
-use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
-use conqueue::{QueueReceiver, QueueSender};
 use near_network_primitives::types::{PeerIdOrHash, Ping, Pong};
 #[cfg(feature = "test_features")]
 use serde::Serialize;
@@ -26,9 +23,6 @@ use crate::routing::utils::cache_to_hashmap;
 use crate::PeerInfo;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
-const ROUTE_BACK_CACHE_SIZE: u64 = 100_000;
-const ROUTE_BACK_CACHE_EVICT_TIMEOUT: Duration = Duration::from_millis(120_000);
-const ROUTE_BACK_CACHE_REMOVE_BATCH: u64 = 100;
 const PING_PONG_CACHE_SIZE: usize = 1_000;
 const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
 const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
@@ -39,35 +33,6 @@ pub const SAVE_PEERS_MAX_TIME: Duration = Duration::from_secs(7_200);
 pub const DELETE_PEERS_AFTER_TIME: Duration = Duration::from_secs(3_600);
 /// Graph implementation supports up to 128 peers.
 pub const MAX_NUM_PEERS: usize = 128;
-
-/// Status of the edge
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, Hash)]
-pub enum EdgeType {
-    Added,
-    Removed,
-}
-
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Copy)]
-pub struct ValidIBFLevel(pub u64);
-
-/// We create IbfSets of various sizes from 2^10+2 up to 2^17+2. Those constants specify valid ranges.
-pub const MIN_IBF_LEVEL: ValidIBFLevel = ValidIBFLevel(10);
-pub const MAX_IBF_LEVEL: ValidIBFLevel = ValidIBFLevel(17);
-
-/// Represents IbfLevel from 10 to 17.
-impl ValidIBFLevel {
-    pub fn inc(&self) -> Option<ValidIBFLevel> {
-        if self.0 + 1 >= MIN_IBF_LEVEL.0 && self.0 + 1 <= MAX_IBF_LEVEL.0 {
-            Some(ValidIBFLevel(self.0 + 1))
-        } else {
-            None
-        }
-    }
-
-    pub fn is_valid(&self) -> bool {
-        return self.0 >= MIN_IBF_LEVEL.0 && self.0 <= MAX_IBF_LEVEL.0;
-    }
-}
 
 #[derive(Debug)]
 #[cfg_attr(feature = "test_features", derive(Serialize))]
@@ -91,25 +56,6 @@ where
 #[cfg_attr(feature = "test_features", derive(Serialize))]
 pub struct GetRoutingTableResult {
     pub edges_info: Vec<SimpleEdge>,
-}
-
-pub struct EdgeVerifierHelper {
-    /// Shared version of edges_info used by multiple threads
-    pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
-    /// Queue of edges verified, but not added yes
-    pub edges_to_add_receiver: QueueReceiver<Edge>,
-    pub edges_to_add_sender: QueueSender<Edge>,
-}
-
-impl Default for EdgeVerifierHelper {
-    fn default() -> Self {
-        let (tx, rx) = conqueue::Queue::unbounded::<Edge>();
-        Self {
-            edges_info_shared: Default::default(),
-            edges_to_add_sender: tx,
-            edges_to_add_receiver: rx,
-        }
-    }
 }
 
 pub struct RoutingTableView {
@@ -156,11 +102,7 @@ impl RoutingTableView {
             account_peers: SizedCache::with_size(ANNOUNCE_ACCOUNT_CACHE_SIZE),
             peer_forwarding: Default::default(),
             local_edges_info: Default::default(),
-            route_back: RouteBackCache::new(
-                ROUTE_BACK_CACHE_SIZE,
-                ROUTE_BACK_CACHE_EVICT_TIMEOUT,
-                ROUTE_BACK_CACHE_REMOVE_BATCH,
-            ),
+            route_back: RouteBackCache::default(),
             store,
             route_nonce: SizedCache::with_size(ROUND_ROBIN_NONCE_CACHE_SIZE),
             ping_info: SizedCache::with_size(PING_PONG_CACHE_SIZE),
