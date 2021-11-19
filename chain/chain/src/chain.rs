@@ -251,11 +251,21 @@ impl OrphanBlockPool {
     }
 }
 
+/// Contains information for missing chunks in a block
+pub struct BlockMissingChunks {
+    /// previous block hash
+    pub prev_hash: CryptoHash,
+    pub missing_chunks: Vec<ShardChunkHeader>,
+}
+
 /// Contains information needed to request chunks for orphans
 /// Fields will be used as arguments for `request_chunks_for_orphan`
-pub struct OrphanMissingChunksInfo {
+pub struct OrphanMissingChunks {
     pub missing_chunks: Vec<ShardChunkHeader>,
+    /// epoch id for the block that has missing chunks
     pub epoch_id: EpochId,
+    /// hash of an ancestor block of the block that has missing chunks
+    /// this is used as an argument for `request_chunks_for_orphan`
     pub ancestor_hash: CryptoHash,
 }
 
@@ -831,8 +841,8 @@ impl Chain {
     ) -> Result<Option<Tip>, Error>
     where
         F: Copy + FnMut(AcceptedBlock) -> (),
-        F1: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
-        F2: Copy + FnMut(OrphanMissingChunksInfo) -> (),
+        F1: Copy + FnMut(BlockMissingChunks) -> (),
+        F2: Copy + FnMut(OrphanMissingChunks) -> (),
         F3: Copy + FnMut(ChallengeBody) -> (),
     {
         let block_hash = *block.hash();
@@ -1059,14 +1069,14 @@ impl Chain {
         me: &Option<AccountId>,
         sync_hash: CryptoHash,
         block_accepted: F,
-        orphan_misses_chunks: F1,
-        block_misses_chunks: F2,
+        block_misses_chunks: F1,
+        orphan_misses_chunks: F2,
         on_challenge: F3,
     ) -> Result<(), Error>
     where
         F: Copy + FnMut(AcceptedBlock) -> (),
-        F1: Copy + FnMut(OrphanMissingChunksInfo) -> (),
-        F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
+        F1: Copy + FnMut(BlockMissingChunks) -> (),
+        F2: Copy + FnMut(OrphanMissingChunks) -> (),
         F3: Copy + FnMut(ChallengeBody) -> (),
     {
         // Get header we were syncing into.
@@ -1162,8 +1172,8 @@ impl Chain {
     ) -> Result<Option<Tip>, Error>
     where
         F: FnMut(AcceptedBlock) -> (),
-        F1: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
-        F2: Copy + FnMut(OrphanMissingChunksInfo) -> (),
+        F1: Copy + FnMut(BlockMissingChunks) -> (),
+        F2: Copy + FnMut(OrphanMissingChunks) -> (),
         F3: FnMut(ChallengeBody) -> (),
     {
         near_metrics::inc_counter(&metrics::BLOCK_PROCESSED_TOTAL);
@@ -1251,18 +1261,19 @@ impl Chain {
                     }
                     ErrorKind::ChunksMissing(missing_chunks) => {
                         let block_hash = *block.hash();
-                        block_misses_chunks(missing_chunks.clone());
+                        let missing_chunk_hashes: Vec<_> =
+                            missing_chunks.iter().map(|header| header.chunk_hash()).collect();
+                        block_misses_chunks(BlockMissingChunks {
+                            prev_hash: *block.header().prev_hash(),
+                            missing_chunks,
+                        });
                         let orphan = Orphan { block, provenance, added: Clock::instant() };
-
-                        self.blocks_with_missing_chunks.add_block_with_missing_chunks(
-                            orphan,
-                            missing_chunks.iter().map(|header| header.chunk_hash()).collect(),
-                        );
-
+                        self.blocks_with_missing_chunks
+                            .add_block_with_missing_chunks(orphan, missing_chunk_hashes.clone());
                         debug!(
                             target: "chain",
                             "Process block: missing chunks. Block hash: {:?}. Missing chunks: {:?}",
-                            block_hash, missing_chunks,
+                            block_hash, missing_chunk_hashes,
                         );
                     }
                     ErrorKind::EpochOutOfBounds(ref epoch_id) => {
@@ -1304,7 +1315,7 @@ impl Chain {
         &mut self,
         me: &Option<AccountId>,
         orphan: &Block,
-    ) -> Option<OrphanMissingChunksInfo> {
+    ) -> Option<OrphanMissingChunks> {
         // 1) Orphans that with outstanding missing chunks request has not exceed `MAX_ORPHAN_MISSING_CHUNKS`
         if self.orphans_requested_missing_chunks.len() >= MAX_ORPHAN_MISSING_CHUNKS {
             return None;
@@ -1337,7 +1348,7 @@ impl Chain {
                         if let Err(e) = chain_update.ping_missing_chunks(me, block_hash, &orphan) {
                             return match e.kind() {
                                 ErrorKind::ChunksMissing(missing_chunks) => {
-                                    Some(OrphanMissingChunksInfo {
+                                    Some(OrphanMissingChunks {
                                         missing_chunks,
                                         epoch_id,
                                         ancestor_hash: block_hash,
@@ -1414,8 +1425,8 @@ impl Chain {
         on_challenge: F3,
     ) where
         F: Copy + FnMut(AcceptedBlock) -> (),
-        F1: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
-        F2: Copy + FnMut(OrphanMissingChunksInfo) -> (),
+        F1: Copy + FnMut(BlockMissingChunks) -> (),
+        F2: Copy + FnMut(OrphanMissingChunks) -> (),
         F3: Copy + FnMut(ChallengeBody) -> (),
     {
         let mut new_blocks_accepted = vec![];
@@ -1466,8 +1477,8 @@ impl Chain {
     ) -> Option<Tip>
     where
         F: Copy + FnMut(AcceptedBlock) -> (),
-        F1: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
-        F2: Copy + FnMut(OrphanMissingChunksInfo) -> (),
+        F1: Copy + FnMut(BlockMissingChunks) -> (),
+        F2: Copy + FnMut(OrphanMissingChunks) -> (),
         F3: Copy + FnMut(ChallengeBody) -> (),
     {
         let mut queue = vec![prev_hash];
@@ -2194,8 +2205,8 @@ impl Chain {
     ) -> Result<(), Error>
     where
         F: Copy + FnMut(AcceptedBlock) -> (),
-        F1: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
-        F2: Copy + FnMut(OrphanMissingChunksInfo) -> (),
+        F1: Copy + FnMut(BlockMissingChunks) -> (),
+        F2: Copy + FnMut(OrphanMissingChunks) -> (),
         F3: Copy + FnMut(ChallengeBody) -> (),
     {
         debug!(

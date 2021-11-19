@@ -1072,10 +1072,9 @@ impl ClientActor {
                         self.request_block_by_hash(prev_hash, peer_id)
                     }
                 }
-                near_chain::ErrorKind::ChunksMissing(_) => {
-                    // missing chunks are already handled in self.client.process_block()
-                    // we don't need to do anything here
-                }
+                // missing chunks are already handled in self.client.process_block()
+                // we don't need to do anything here
+                near_chain::ErrorKind::ChunksMissing(_) => {}
                 _ => {
                     debug!(target: "client", "Process block: block {} refused by chain: {}", hash, e.kind());
                 }
@@ -1419,11 +1418,11 @@ impl ClientActor {
                             |accepted_block| {
                                 accepted_blocks.write().unwrap().push(accepted_block);
                             },
-                            |orphan_missing_chunks| {
-                                orphans_missing_chunks.write().unwrap().push(orphan_missing_chunks);
-                            },
                             |missing_chunks| {
                                 blocks_missing_chunks.write().unwrap().push(missing_chunks)
+                            },
+                            |orphan_missing_chunks| {
+                                orphans_missing_chunks.write().unwrap().push(orphan_missing_chunks);
                             },
                             |challenge| challenges.write().unwrap().push(challenge)
                         ));
@@ -1434,11 +1433,8 @@ impl ClientActor {
                             accepted_blocks.write().unwrap().drain(..).collect(),
                         );
 
-                        self.client.post_process_block_request_chunks(
-                            blocks_missing_chunks,
-                            orphans_missing_chunks,
-                            PROTOCOL_VERSION,
-                        );
+                        self.client
+                            .request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
 
                         self.client.sync_status =
                             SyncStatus::BodySync { current_height: 0, highest_height: 0 };

@@ -18,10 +18,9 @@ static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (0, include_config!("29.json")),
     (42, include_config!("42.json")),
     (48, include_config!("48.json")),
+    (49, include_config!("49.json")),
     #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
     (123, include_config!("123.json")),
-    #[cfg(feature = "protocol_feature_lower_regular_op_cost2")]
-    (124, include_config!("124.json")),
 ];
 
 pub static INITIAL_TESTNET_CONFIG: &[u8] = include_config!("29_testnet.json");
@@ -119,10 +118,9 @@ mod tests {
             "FF2Qg5qSM6iWQjD5ZyzEhdAV2g5MyQKXGYh4kyt8mMcE",
             "97UzHtVFBc4235jdur3DgNSUGNfGQfzRDLmAkYdZ19Re",
             "C6uw6BoeXr3KoKpVP34hBA7TqoywMbwMtJgqbTpPCiSB",
+            "9pnVZ23PC8YAJ966RtEBrQ3sw7DUn8a19arEpq3f8AhF",
             #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
             "AFpppR4PmSe4YBWzcyyH8vzLCeDbzfTRjeCGPVrmpPJj",
-            #[cfg(feature = "protocol_feature_lower_regular_op_cost2")]
-            "2cuq2HvuHT7Z27LUbgEtMxP2ejqrHK34J2V1GL1joiMn",
         ];
         let actual_hashes = CONFIGS
             .iter()
