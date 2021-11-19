@@ -1,7 +1,7 @@
 use crate::types::PeerMessage;
 use near_metrics::{
-    inc_counter_by_opt, inc_counter_opt, try_create_histogram, try_create_int_counter,
-    try_create_int_gauge, Histogram, IntCounter, IntGauge,
+    try_create_histogram, try_create_int_counter, try_create_int_gauge, Histogram, IntCounter,
+    IntGauge,
 };
 use near_network_primitives::types::RoutedMessageBody;
 use once_cell::sync::Lazy;
@@ -90,9 +90,11 @@ pub static DROPPED_MESSAGES_COUNT: Lazy<IntCounter> = Lazy::new(|| {
     .unwrap()
 });
 
+pub static NETWORK_METRICS: Lazy<NetworkMetrics> = Lazy::new(|| NetworkMetrics::new());
+
 #[derive(Clone)]
 pub struct NetworkMetrics {
-    pub peer_messages: HashMap<String, Option<IntCounter>>,
+    peer_messages: HashMap<String, IntCounter>,
 }
 
 impl NetworkMetrics {
@@ -132,13 +134,13 @@ impl NetworkMetrics {
 
     pub fn inc(&self, message_name: &str) {
         if let Some(counter) = self.peer_messages.get(message_name) {
-            inc_counter_opt(counter.as_ref());
+            counter.inc()
         }
     }
 
     pub fn inc_by(&self, message_name: &str, value: u64) {
         if let Some(counter) = self.peer_messages.get(message_name) {
-            inc_counter_by_opt(counter.as_ref(), value);
+            counter.inc_by(value);
         }
     }
 }

@@ -11,7 +11,7 @@ use crate::routing::routing_table_actor::{
 };
 use crate::routing::routing_table_view::{RoutingTableView, DELETE_PEERS_AFTER_TIME};
 use crate::stats::metrics;
-use crate::stats::metrics::NetworkMetrics;
+use crate::stats::metrics::{NetworkMetrics, NETWORK_METRICS};
 use crate::types::{
     FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
     PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerRequest, PeerResponse,
@@ -177,8 +177,6 @@ pub struct PeerManagerActor {
     started_connect_attempts: bool,
     /// Connected peers we have sent new edge update, but we haven't received response so far.
     local_peer_pending_update_nonce_request: HashMap<PeerId, u64>,
-    /// Dynamic Prometheus metrics
-    network_metrics: NetworkMetrics,
     /// RoutingTableActor, responsible for computing routing table, routing table exchange, etc.
     routing_table_addr: Addr<RoutingTableActor>,
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
@@ -290,7 +288,6 @@ impl PeerManagerActor {
             routing_table_exchange_helper: Default::default(),
             started_connect_attempts: false,
             local_peer_pending_update_nonce_request: HashMap::new(),
-            network_metrics: NetworkMetrics::new(),
             routing_table_addr,
             txns_since_last_block,
             peer_counter: Arc::new(AtomicUsize::new(0)),
@@ -818,7 +815,6 @@ impl PeerManagerActor {
             }
         };
 
-        let network_metrics = self.network_metrics.clone();
         let txns_since_last_block = Arc::clone(&self.txns_since_last_block);
 
         // Start every peer actor on separate thread.
@@ -855,7 +851,6 @@ impl PeerManagerActor {
                 client_addr,
                 view_client_addr,
                 partial_edge_info,
-                network_metrics,
                 txns_since_last_block,
                 peer_counter,
                 rate_limiter,
@@ -1346,7 +1341,8 @@ impl PeerManagerActor {
             }
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                self.network_metrics.inc(
+
+                NETWORK_METRICS.inc(
                     NetworkMetrics::peer_message_dropped(strum::AsStaticRef::as_static(&msg.body))
                         .as_str(),
                 );
