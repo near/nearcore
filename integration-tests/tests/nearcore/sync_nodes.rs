@@ -52,19 +52,12 @@ fn add_blocks(
         let next_epoch_id = EpochId(
             *blocks[(((prev.header().height()) / epoch_length) * epoch_length) as usize].hash(),
         );
-        #[cfg(feature = "protocol_feature_block_header_v3")]
         let next_bp_hash = Chain::compute_collection_hash(vec![ValidatorStake::new(
             "other".parse().unwrap(),
             signer.public_key(),
             TESTING_INIT_STAKE,
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
             false,
-        )])
-        .unwrap();
-        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-        let next_bp_hash = Chain::compute_collection_hash(vec![ValidatorStake::new(
-            "other".parse().unwrap(),
-            signer.public_key(),
-            TESTING_INIT_STAKE,
         )])
         .unwrap();
         let block = Block::produce(
