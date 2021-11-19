@@ -19,8 +19,9 @@ steps:
     - "distro=amazonlinux"
     branches: "!master"
 
-  - label: "unused dependencie"
+  - label: "check unused dependencies"
     command: |
+      source ~/.cargo/env && set -eux
       cargo +nightly udeps -p near-network
 
     timeout: 60
