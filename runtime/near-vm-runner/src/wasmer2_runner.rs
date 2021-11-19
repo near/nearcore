@@ -368,7 +368,13 @@ impl crate::runner::VM for Wasmer2VM {
         current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
     ) -> (Option<VMOutcome>, Option<VMError>) {
-        let _span = tracing::debug_span!(target: "vm", "run_wasmer2").entered();
+        let _span = tracing::debug_span!(
+            target: "vm",
+            "run_wasmer2",
+            "code.len" = code.code().len(),
+            %method_name
+        )
+        .entered();
         // NaN behavior is deterministic as of now: https://github.com/wasmerio/wasmer/issues/1269
         // So doesn't require x86. However, when it is on x86, AVX is required:
         // https://github.com/wasmerio/wasmer/issues/1567

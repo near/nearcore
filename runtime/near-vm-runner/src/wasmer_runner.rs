@@ -286,7 +286,13 @@ impl crate::runner::VM for Wasmer0VM {
         current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
     ) -> (Option<VMOutcome>, Option<VMError>) {
-        let _span = tracing::debug_span!(target: "vm", "run_wasmer").entered();
+        let _span = tracing::debug_span!(
+            target: "vm",
+            "run_wasmer0",
+            "code.len" = code.code().len(),
+            %method_name
+        )
+        .entered();
 
         if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
             // TODO(#1940): Remove once NaN is standardized by the VM.
