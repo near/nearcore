@@ -3713,7 +3713,8 @@ mod contract_precompilation_tests {
     use near_primitives::types::CompiledContractCache;
     use near_primitives::views::ViewApplyState;
     use near_store::{Store, StoreCompiledContractCache, TrieUpdate};
-    use near_vm_runner::{get_contract_cache_key, VMKind};
+    use near_vm_runner::get_contract_cache_key;
+    use near_vm_runner::internal::VMKind;
     use node_runtime::state_viewer::TrieViewer;
     use std::rc::Rc;
 

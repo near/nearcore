@@ -166,9 +166,9 @@ pub(crate) fn wasmtime_vm_hash() -> u64 {
     64
 }
 
-pub(crate) struct WasmtimeRuntime;
+pub(crate) struct WasmtimeVM;
 
-impl crate::runner::Runtime for WasmtimeRuntime {
+impl crate::runner::VM for WasmtimeVM {
     fn run(
         &self,
         code: &ContractCode,

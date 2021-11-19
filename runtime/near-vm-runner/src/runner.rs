@@ -50,7 +50,7 @@ pub fn run(
     }
 }
 
-pub trait Runtime {
+pub trait VM {
     /// Validate and run the specified contract.
     ///
     /// This is the entry point for executing a NEAR protocol contract. Before the entry point (as
@@ -96,25 +96,22 @@ impl VMKind {
     /// Make a [`Runtime`] for this [`VMKind`].
     ///
     /// This is not intended to be used by code other than standalone-vm-runner.
-    pub fn runtime(&self) -> Option<&'static dyn Runtime> {
+    pub fn runtime(&self) -> Option<&'static dyn VM> {
         match self {
             #[cfg(feature = "wasmer0_vm")]
             Self::Wasmer0 => {
-                use crate::wasmer_runner::Wasmer0Runtime;
-                static INSTANCE: Wasmer0Runtime = Wasmer0Runtime;
-                Some(&INSTANCE as &'static dyn Runtime)
+                use crate::wasmer_runner::Wasmer0VM;
+                Some(&Wasmer0VM as &'static dyn VM)
             }
             #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime => {
-                use crate::wasmtime_runner::WasmtimeRuntime;
-                static INSTANCE: WasmtimeRuntime = WasmtimeRuntime;
-                Some(&INSTANCE as &'static dyn Runtime)
+                use crate::wasmtime_runner::WasmtimeVM;
+                Some(&WasmtimeVM as &'static dyn VM)
             }
             #[cfg(feature = "wasmer2_vm")]
             Self::Wasmer2 => {
-                use crate::wasmer2_runner::Wasmer2Runtime;
-                static INSTANCE: Wasmer2Runtime = Wasmer2Runtime;
-                Some(&INSTANCE as &'static dyn Runtime)
+                use crate::wasmer2_runner::Wasmer2VM;
+                Some(&Wasmer2VM as &'static dyn VM)
             }
             #[allow(unreachable_patterns)] // reachable when some of the VMs are disabled.
             _ => None,

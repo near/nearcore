@@ -1497,7 +1497,8 @@ mod tests {
     use near_store::set_access_key;
     use near_store::test_utils::create_tries;
     use near_store::StoreCompiledContractCache;
-    use near_vm_runner::{get_contract_cache_key, VMKindPublicForInternalUseOnly as VMKind};
+    use near_vm_runner::get_contract_cache_key;
+    use near_vm_runner::internal::VMKind;
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use super::*;

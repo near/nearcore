@@ -6,7 +6,7 @@ use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::types::{CompiledContractCache, ProtocolVersion};
 use near_store::{create_store, StoreCompiledContractCache};
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_runner::VMKindPublicForInternalUseOnly as VMKind;
+use near_vm_runner::internal::VMKind;
 use nearcore::get_store_path;
 use std::fmt::Write;
 use std::sync::Arc;

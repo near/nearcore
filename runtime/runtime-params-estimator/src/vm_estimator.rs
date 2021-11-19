@@ -8,9 +8,8 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{create_store, StoreCompiledContractCache};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMOutcome};
-use near_vm_runner::{
-    precompile_contract_vm, prepare, VMError, VMKindPublicForInternalUseOnly as VMKind,
-};
+use near_vm_runner::internal::VMKind;
+use near_vm_runner::{precompile_contract_vm, prepare, VMError};
 use nearcore::get_store_path;
 use num_rational::Ratio;
 use num_traits::ToPrimitive;

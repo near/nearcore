@@ -271,9 +271,9 @@ pub(crate) fn wasmer0_vm_hash() -> u64 {
     42
 }
 
-pub(crate) struct Wasmer0Runtime;
+pub(crate) struct Wasmer0VM;
 
-impl crate::runner::Runtime for Wasmer0Runtime {
+impl crate::runner::VM for Wasmer0VM {
     fn run(
         &self,
         code: &ContractCode,
@@ -291,8 +291,9 @@ impl crate::runner::Runtime for Wasmer0Runtime {
         if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
             // TODO(#1940): Remove once NaN is standardized by the VM.
             panic!(
-            "Execution of smart contracts is only supported for x86 and x86_64 CPU architectures."
-        );
+                "Execution of smart contracts is only supported for x86 and x86_64 CPU \
+                 architectures."
+            );
         }
         #[cfg(not(feature = "no_cpu_compatibility_checks"))]
         if !is_x86_feature_detected!("avx") {

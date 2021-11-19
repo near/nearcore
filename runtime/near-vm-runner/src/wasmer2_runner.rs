@@ -353,9 +353,9 @@ pub(crate) fn run_wasmer2_module<'a>(
     (Some(logic.outcome()), err)
 }
 
-pub(crate) struct Wasmer2Runtime;
+pub(crate) struct Wasmer2VM;
 
-impl crate::runner::Runtime for Wasmer2Runtime {
+impl crate::runner::VM for Wasmer2VM {
     fn run(
         &self,
         code: &ContractCode,

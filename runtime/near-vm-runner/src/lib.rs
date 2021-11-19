@@ -26,9 +26,11 @@ pub use cache::precompile_contract;
 pub use cache::precompile_contract_vm;
 pub use cache::MockCompiledContractCache;
 pub use preload::{ContractCallPrepareRequest, ContractCallPrepareResult, ContractCaller};
-pub use runner::{run, Runtime};
+pub use runner::{run, VM};
 
-// This is public for internal experimentation use only, and should otherwise be considered an
-// implementation detail of `near-vm-runner`.
+/// This is public for internal experimentation use only, and should otherwise be considered an
+/// implementation detail of `near-vm-runner`.
 #[doc(hidden)]
-pub use vm_kind::VMKind as VMKindPublicForInternalUseOnly;
+pub mod internal {
+    pub use crate::vm_kind::VMKind;
+}
