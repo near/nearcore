@@ -252,7 +252,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         info!(target: "near", "Migrate DB from version 28 to 29");
         migrate_28_to_29(&path);
     }
-    #[cfg(feature = "nightly_protocol")]
+    #[cfg(any(feature = "nightly_protocol", feature = "protocol_feature_block_header_v3"))]
     {
         let store = create_store(&path);
 
