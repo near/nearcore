@@ -1,4 +1,6 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use actix::dev::MessageResponse;
 use actix::{Actor, Addr, Context, Handler, Message, System};
@@ -6,29 +8,32 @@ use actix::{Actor, Addr, Context, Handler, Message, System};
 use tracing::error;
 use tracing::{debug, trace, warn};
 
-use crate::stats::metrics;
+use crate::metrics;
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use crate::routing::edge::SimpleEdge;
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 use near_performance_metrics_macros::perf;
+use near_primitives::borsh::BorshSerialize;
 use near_primitives::network::PeerId;
+use near_primitives::utils::index_to_bytes;
+use near_store::db::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
+use near_store::{Store, StoreUpdate};
 
+use crate::routing::edge::{Edge, EdgeType};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::ibf::{Ibf, IbfBox};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::ibf_peer_set::IbfPeerSet;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::routing::ibf_set::IbfSet;
-use crate::routing::routing::{Edge, EdgeType, Graph, SAVE_PEERS_MAX_TIME};
+use crate::routing::ibf_peer_set::{ValidIBFLevel, MIN_IBF_LEVEL};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::routing::routing::{SimpleEdge, ValidIBFLevel, MIN_IBF_LEVEL};
+use crate::routing::ibf_set::IbfSet;
+
+use crate::routing::routing::{Graph, SAVE_PEERS_MAX_TIME};
 use crate::types::StopMsg;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{PartialSync, PeerMessage, RoutingState, RoutingSyncV2, RoutingVersion2};
-#[cfg(feature = "delay_detector")]
-use delay_detector::DelayDetector;
-use near_primitives::utils::index_to_bytes;
-use near_store::db::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
-use near_store::{Store, StoreUpdate};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 /// `Prune` enum is to specify how often should we prune edges.
 #[derive(Debug, Eq, PartialEq)]
@@ -112,9 +117,9 @@ impl RoutingTableActor {
         #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
         self.peer_ibf_set.remove_edge(&edge.to_simple_edge());
 
-        let key = (edge.peer0.clone(), edge.peer1.clone());
+        let key = edge.key();
         if self.edges_info.remove(&key).is_some() {
-            self.raw_graph.remove_edge(&edge.peer0, &edge.peer1);
+            self.raw_graph.remove_edge(&edge.key().0, &edge.key().1);
             self.needs_routing_table_recalculation = true;
         }
     }
@@ -122,15 +127,15 @@ impl RoutingTableActor {
     /// `add_verified_edge` adds edges, for which we already that theirs signatures
     /// are valid (`signature0`, `signature`).
     fn add_verified_edge(&mut self, edge: Edge) -> bool {
-        let key = edge.get_pair();
-        if !self.is_edge_newer(&key, edge.nonce) {
+        let key = edge.key();
+        if !self.is_edge_newer(&key, edge.nonce()) {
             // We already have a newer information about this edge. Discard this information.
             false
         } else {
             self.needs_routing_table_recalculation = true;
             match edge.edge_type() {
                 EdgeType::Added => {
-                    self.raw_graph.add_edge(key.0.clone(), key.1.clone());
+                    self.raw_graph.add_edge(&key.0, &key.1);
                 }
                 EdgeType::Removed => {
                     self.raw_graph.remove_edge(&key.0, &key.1);
@@ -138,7 +143,7 @@ impl RoutingTableActor {
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             self.peer_ibf_set.add_edge(&edge.to_simple_edge());
-            self.edges_info.insert(key, edge);
+            self.edges_info.insert(key.clone(), edge);
             true
         }
     }
@@ -157,7 +162,7 @@ impl RoutingTableActor {
 
         let total = edges.len();
         edges.retain(|edge| {
-            let key = edge.get_pair();
+            let key = edge.key();
 
             self.fetch_edges_for_peer_from_disk(&key.0);
             self.fetch_edges_for_peer_from_disk(&key.1);
@@ -167,8 +172,8 @@ impl RoutingTableActor {
         self.needs_routing_table_recalculation = true;
 
         // Update metrics after edge update
-        near_metrics::inc_counter_by(&metrics::EDGE_UPDATES, total as u64);
-        near_metrics::set_gauge(&metrics::EDGE_ACTIVE, self.raw_graph.total_active_edges() as i64);
+        metrics::EDGE_UPDATES.inc_by(total as u64);
+        metrics::EDGE_ACTIVE.set(self.raw_graph.total_active_edges() as i64);
 
         edges
     }
@@ -184,13 +189,13 @@ impl RoutingTableActor {
         let my_peer_id = self.my_peer_id().clone();
 
         // Get the "row" (a.k.a nonce) at which we've stored a given peer in the past (when we pruned it).
-        if let Ok(component_nonce) = self.component_nonce_from_peer(other_peer_id.clone()) {
+        if let Ok(component_nonce) = self.component_nonce_from_peer(other_peer_id) {
             let mut update = self.store.store_update();
 
             // Load all edges that were persisted in database in the cell - and add them to the current graph.
             if let Ok(edges) = self.get_and_remove_component_edges(component_nonce, &mut update) {
                 for edge in edges {
-                    for &peer_id in vec![&edge.peer0, &edge.peer1].iter() {
+                    for &peer_id in vec![&edge.key().0, &edge.key().1].iter() {
                         if peer_id == &my_peer_id
                             || self.peer_last_time_reachable.contains_key(peer_id)
                         {
@@ -198,14 +203,16 @@ impl RoutingTableActor {
                         }
 
                         // `edge = (peer_id, other_peer_id)` belongs to component that we loaded from database.
-                        if let Ok(cur_nonce) = self.component_nonce_from_peer(peer_id.clone()) {
+                        if let Ok(cur_nonce) = self.component_nonce_from_peer(peer_id) {
                             // If `peer_id` belongs to current component
                             if cur_nonce == component_nonce {
                                 // Mark it as reachable and delete from database.
                                 self.peer_last_time_reachable
                                     .insert(peer_id.clone(), Instant::now() - SAVE_PEERS_MAX_TIME);
-                                update
-                                    .delete(ColPeerComponent, Vec::from(peer_id.clone()).as_ref());
+                                update.delete(
+                                    ColPeerComponent,
+                                    peer_id.try_to_vec().unwrap().as_ref(),
+                                );
                             } else {
                                 warn!("We expected `peer_id` to belong to component {}, but it belongs to {}",
                                        component_nonce, cur_nonce);
@@ -236,7 +243,7 @@ impl RoutingTableActor {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("routing table update".into());
         let _routing_table_recalculation =
-            near_metrics::start_timer(&metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM);
+            metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
 
         trace!(target: "network", "Update routing table.");
 
@@ -247,8 +254,8 @@ impl RoutingTableActor {
             self.peer_last_time_reachable.insert(peer.clone(), now);
         }
 
-        near_metrics::inc_counter_by(&metrics::ROUTING_TABLE_RECALCULATIONS, 1);
-        near_metrics::set_gauge(&metrics::PEER_REACHABLE, self.peer_forwarding.len() as i64);
+        metrics::ROUTING_TABLE_RECALCULATIONS.inc();
+        metrics::PEER_REACHABLE.set(self.peer_forwarding.len() as i64);
     }
 
     /// If pruning is enabled we will remove unused edges and store them to disk.
@@ -290,7 +297,7 @@ impl RoutingTableActor {
             .iter()
             .filter_map(|(peer_id, last_time)| {
                 oldest_time = std::cmp::min(oldest_time, *last_time);
-                if now.duration_since(*last_time) >= prune_edges_not_reachable_for {
+                if now.saturating_duration_since(*last_time) >= prune_edges_not_reachable_for {
                     Some(peer_id.clone())
                 } else {
                     None
@@ -300,7 +307,7 @@ impl RoutingTableActor {
 
         // Save nodes on disk and remove from memory only if elapsed time from oldest peer
         // is greater than `SAVE_PEERS_MAX_TIME`
-        if !force_pruning && now.duration_since(oldest_time) < SAVE_PEERS_MAX_TIME {
+        if !force_pruning && now.saturating_duration_since(oldest_time) < SAVE_PEERS_MAX_TIME {
             return Vec::new();
         }
         debug!(target: "network", "try_save_edges: We are going to remove {} peers", peers_to_remove.len());
@@ -317,7 +324,7 @@ impl RoutingTableActor {
         for peer_id in peers_to_remove.iter() {
             let _ = update.set_ser(
                 ColPeerComponent,
-                Vec::from(peer_id.clone()).as_ref(),
+                peer_id.try_to_vec().unwrap().as_ref(),
                 &current_component_nonce,
             );
 
@@ -347,22 +354,12 @@ impl RoutingTableActor {
 
     /// Checks whenever given edge is newer than the one we already have.
     pub fn is_edge_newer(&self, key: &(PeerId, PeerId), nonce: u64) -> bool {
-        self.edges_info.get(&key).map_or(0, |x| x.nonce) < nonce
-    }
-
-    pub fn get_edge(&self, peer0: PeerId, peer1: PeerId) -> Option<Edge> {
-        let key = Edge::key(peer0, peer1);
-        self.edges_info.get(&key).cloned()
-    }
-
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    pub fn convert_simple_edges_to_edges(&self, edges: Vec<SimpleEdge>) -> Vec<Edge> {
-        edges.iter().filter_map(|k| self.edges_info.get(&k.key()).cloned()).collect()
+        self.edges_info.get(&key).map_or(0, |x| x.nonce()) < nonce
     }
 
     /// Get edges stored in DB under `ColPeerComponent` column at `peer_id` key.
-    fn component_nonce_from_peer(&mut self, peer_id: PeerId) -> Result<u64, ()> {
-        match self.store.get_ser::<u64>(ColPeerComponent, Vec::from(peer_id).as_ref()) {
+    fn component_nonce_from_peer(&mut self, peer_id: &PeerId) -> Result<u64, ()> {
+        match self.store.get_ser::<u64>(ColPeerComponent, peer_id.try_to_vec().unwrap().as_ref()) {
             Ok(Some(nonce)) => Ok(nonce),
             _ => Err(()),
         }
@@ -384,6 +381,10 @@ impl RoutingTableActor {
         update.delete(ColComponentEdges, enc_nonce.as_ref());
 
         res
+    }
+
+    pub fn get_all_edges(&self) -> Vec<Edge> {
+        self.edges_info.iter().map(|x| x.1.clone()).collect()
     }
 }
 
@@ -689,7 +690,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                             ibf_msg: Some(RoutingVersion2 {
                                 known_edges: self.edges_info.len() as u64,
                                 seed: ibf_msg.seed,
-                                edges: self.edges_info.iter().map(|x| x.1.clone()).collect(),
+                                edges: self.get_all_edges(),
                                 routing_state: RoutingState::Done,
                             }),
                         }

@@ -70,12 +70,13 @@ As mentioned, there are additional arguments that can go between the
 test category and the test specification arguments.  Those are
 `--timeout`, `--release` and `--remote`.
 
-`--timeout=<timeout>` which specifies the timeout in seconds after
-which the test will be stopped.  If not given the default timeout is
-180 seconds (i.e. three minutes).  For example, the following
-increases timeout for a test to four minutes:
+`--timeout=<timeout>` which specifies the time after which the test
+will be stopped and considered failed.  `<timeout>` is an integer with
+an optional `s`, `m` or `h` suffix.  If no suffix is given, `s` is
+assumed.  The default timeout is three minutes.  For example, the
+following increases timeout for a test to four minutes:
 
-    pytest --timeout=240 sanity/restaked.py
+    pytest --timeout=4m sanity/restaked.py
 
 `--release` makes the build use a release profile rather than a dev
 profile.  In other words, all `cargo` invocations are passed

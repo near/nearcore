@@ -26,17 +26,14 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
 use near_network::types::{
-    NetworkInfo, PeerChainInfoV2, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    ReasonForBan,
-};
-use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
-    PeerInfo,
 };
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 
-use near_network::routing::routing::EdgeInfo;
+use near_network::routing::EdgeInfo;
+use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
+use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -1166,7 +1163,7 @@ fn test_invalid_height_too_large() {
     let _ = env.clients[0].process_block(b1.clone(), Provenance::PRODUCED);
     let signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let b2 = Block::empty_with_height(&b1, std::u64::MAX, &signer);
+    let b2 = Block::empty_with_height(&b1, u64::MAX, &signer);
     let (_, res) = env.clients[0].process_block(b2, Provenance::NONE);
     assert!(matches!(res.unwrap_err().kind(), ErrorKind::InvalidBlockHeight(_)));
 }
@@ -1778,11 +1775,13 @@ fn test_gc_tail_update() {
     env.clients[1].sync_block_headers(headers).unwrap();
     // simulate save sync hash block
     let prev_sync_block = blocks[blocks.len() - 3].clone();
+    let prev_sync_hash = *prev_sync_block.hash();
+    let prev_sync_height = prev_sync_block.header().height();
     let sync_block = blocks[blocks.len() - 2].clone();
     env.clients[1].chain.reset_data_pre_state_sync(*sync_block.hash()).unwrap();
-    env.clients[1].chain.save_block(&prev_sync_block).unwrap();
+    env.clients[1].chain.save_block(prev_sync_block).unwrap();
     let mut store_update = env.clients[1].chain.mut_store().store_update();
-    store_update.inc_block_refcount(&prev_sync_block.hash()).unwrap();
+    store_update.inc_block_refcount(&prev_sync_hash).unwrap();
     store_update.save_block(sync_block.clone());
     store_update.commit().unwrap();
     env.clients[1]
@@ -1790,7 +1789,7 @@ fn test_gc_tail_update() {
         .reset_heads_post_state_sync(&None, *sync_block.hash(), |_| {}, |_| {}, |_| {})
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
-    assert_eq!(env.clients[1].chain.store().tail().unwrap(), prev_sync_block.header().height());
+    assert_eq!(env.clients[1].chain.store().tail().unwrap(), prev_sync_height);
 }
 
 /// Test that transaction does not become invalid when there is some gas price change.
@@ -2713,7 +2712,7 @@ fn test_epoch_protocol_version_change() {
         }
         for j in 0..2 {
             let (_, res) = env.clients[j].process_block(block.clone(), Provenance::NONE);
-            assert!(res.is_ok());
+            res.unwrap();
             run_catchup(&mut env.clients[j], &vec![]).unwrap();
         }
     }

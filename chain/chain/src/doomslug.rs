@@ -116,7 +116,7 @@ impl DoomslugTimer {
     /// # Returns
     /// Duration to sleep
     pub fn get_delay(&self, n: BlockHeightDelta) -> Duration {
-        let n32 = u32::try_from(n).unwrap_or(std::u32::MAX);
+        let n32 = u32::try_from(n).unwrap_or(u32::MAX);
         std::cmp::min(self.max_delay, self.min_delay + self.delay_step * n32.saturating_sub(2))
     }
 }

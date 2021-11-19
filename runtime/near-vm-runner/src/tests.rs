@@ -3,6 +3,7 @@ mod contract_preload;
 mod rs_contract;
 mod runtime_errors;
 mod ts_contract;
+mod wasm_validation;
 
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -63,7 +64,7 @@ fn make_simple_contract_call_with_gas_vm(
     let mut fake_external = MockedExternal::new();
     let mut context = create_context(vec![]);
     context.prepaid_gas = prepaid_gas;
-    let config = VMConfig::default();
+    let config = VMConfig::test();
     let fees = RuntimeFeesConfig::test();
 
     let promise_results = vec![];
@@ -130,7 +131,7 @@ fn make_cached_contract_call_vm(
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let mut fake_external = MockedExternal::new();
     let mut context = create_context(vec![]);
-    let config = VMConfig::default();
+    let config = VMConfig::test();
     let fees = RuntimeFeesConfig::test();
     let promise_results = vec![];
     context.prepaid_gas = prepaid_gas;

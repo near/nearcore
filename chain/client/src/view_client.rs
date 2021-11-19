@@ -27,13 +27,14 @@ use near_client_primitives::types::{
     GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, QueryError, TxStatus,
     TxStatusError,
 };
+use near_network::types::PeerManagerMessageRequest;
+use near_network::types::{NetworkRequests, PeerManagerAdapter};
 #[cfg(feature = "test_features")]
-use near_network::types::NetworkAdversarialMessage;
-use near_network::types::{
-    NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerMessageRequest, ReasonForBan,
-    StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
+use near_network_primitives::types::NetworkAdversarialMessage;
+use near_network_primitives::types::{
+    NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
+    StateResponseInfoV1, StateResponseInfoV2,
 };
-use near_network::{NetworkRequests, PeerManagerAdapter};
 use near_performance_metrics_macros::perf;
 use near_performance_metrics_macros::perf_with_debug;
 use near_primitives::block::{Block, BlockHeader, GenesisId, Tip};
@@ -827,12 +828,12 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                 let epoch_id = self.chain.get_block(&outcome_proof.block_hash)?.header().epoch_id();
                 let target_shard_id =
                     self.runtime_adapter.account_id_to_shard_id(&account_id, epoch_id)?;
-                let next_block_hash = self
-                    .chain
-                    .get_next_block_hash_with_new_chunk(&outcome_proof.block_hash, target_shard_id)?
-                    .cloned();
-                match next_block_hash {
-                    Some(h) => {
+                let res = self.chain.get_next_block_hash_with_new_chunk(
+                    &outcome_proof.block_hash,
+                    target_shard_id,
+                )?;
+                match res {
+                    Some((h, target_shard_id)) => {
                         outcome_proof.block_hash = h;
                         // Here we assume the number of shards is small so this reconstruction
                         // should be fast

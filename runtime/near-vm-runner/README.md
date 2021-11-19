@@ -7,16 +7,16 @@ This is the main crate of the "contract runtime" part of nearcore.
 
 - Wasm instrumentation for gas metering and various safety checks (`prepare.rs`).
 - Compiling Wasm to a particular VM representation (`cache.rs`).
-- Exposing blockchain-specific functionality to Wasm code.
-  That is, defining a corresponding host function for each funcition in `near-vm-logic` (`imports.rs`).
+- Exposing blockchain-specific functionality to Wasm code. That is, defining a corresponding host
+  function for each funcition in `near-vm-logic` (`imports.rs`).
 - Actual code execution (`wasmer_runner.rs`).
 
-A particular runtime used for Wasm execution is an implementation detail.
-At the moment we support Wasmer 0.x, Wasmer 1.0 and Wasmtime, with Wasmer 0.x being default.
+A particular runtime used for Wasm execution is an implementation detail.  At the moment we support
+Wasmer 0.x, Wasmer 2.0 and Wasmtime, with Wasmer 2.0 being default.
 
-The primary client of Wasm execution services is the blockchain proper. The
-second client is the contract sdk tooling. vm-runner provides additional API for
-contract developers to, for example, get a gas costs breakdown.
+The primary client of Wasm execution services is the blockchain proper. The second client is the
+contract sdk tooling. vm-runner provides additional API for contract developers to, for example,
+get a gas costs breakdown.
 
 See the [FAQ][./faq.md] document for high-leven design constraints discussion.
 
@@ -36,7 +36,7 @@ There's a bunch of unit-tests in this crate. You can run them with
 cargo t -p near-vm-runner --features wasmer0_vm,wasmer2_vm,wasmtime_vm
 ```
 
-The test use either a short wasm snippets specified inline, or a couple of
+The tests use either a short wasm snippets specified inline, or a couple of
 larger test contracts from the `near-test-contracts` crate.
 
 ## Profiling
@@ -53,9 +53,10 @@ fn compute_thing() {
 }
 ```
 
-This will record when the `_span` object is created and dropped, including the time diff between the two events.
+This will record when the `_span` object is created and dropped, including the time diff between
+the two events.
 
-To get a human readable output out of this events, you can use the built-in tracing subscriber:
+To get a human readable output out of these events, you can use the built-in tracing subscriber:
 
 ```ignore
 tracing_subscriber::fmt::Subscriber::builder()

@@ -20,6 +20,8 @@ static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (48, include_config!("48.json")),
     #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
     (123, include_config!("123.json")),
+    #[cfg(feature = "protocol_feature_lower_regular_op_cost2")]
+    (124, include_config!("124.json")),
 ];
 
 pub static INITIAL_TESTNET_CONFIG: &[u8] = include_config!("29_testnet.json");
@@ -114,11 +116,13 @@ mod tests {
     #[test]
     fn test_runtime_config_data() {
         let expected_hashes = vec![
-            "3VBfW1GkXwKNiThPhrtjm2qGupYv5oEEZWapduXkd2gY",
-            "BdCfuR4Gb5qgr2nhxUgGyDHesuhZg3Az5D3sEwQdQCvC",
-            "2AUtULBkjrfzTepo6zFFMp4ShtiKgjpoUjoyRXLpcxiw",
+            "FF2Qg5qSM6iWQjD5ZyzEhdAV2g5MyQKXGYh4kyt8mMcE",
+            "97UzHtVFBc4235jdur3DgNSUGNfGQfzRDLmAkYdZ19Re",
+            "C6uw6BoeXr3KoKpVP34hBA7TqoywMbwMtJgqbTpPCiSB",
             #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
-            "CmbWKajUaeK1U2owycf7tusLcVu26mrDSgJw3jz9jYie",
+            "AFpppR4PmSe4YBWzcyyH8vzLCeDbzfTRjeCGPVrmpPJj",
+            #[cfg(feature = "protocol_feature_lower_regular_op_cost2")]
+            "2cuq2HvuHT7Z27LUbgEtMxP2ejqrHK34J2V1GL1joiMn",
         ];
         let actual_hashes = CONFIGS
             .iter()

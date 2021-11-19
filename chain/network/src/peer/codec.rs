@@ -6,13 +6,14 @@ use bytesize::{GIB, MIB};
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::error;
 
+use near_network_primitives::types::ReasonForBan;
 use near_performance_metrics::framed_write::EncoderCallBack;
 #[cfg(feature = "performance_stats")]
 use near_performance_metrics::stats_enabled::get_thread_stats_logger;
 use near_rust_allocator_proxy::allocator::get_tid;
 
 use crate::stats::metrics;
-use crate::types::{PeerMessage, ReasonForBan};
+use crate::types::PeerMessage;
 
 const NETWORK_MESSAGE_MAX_SIZE: u32 = 512 * MIB as u32;
 const MAX_CAPACITY: u64 = GIB;
@@ -60,7 +61,7 @@ impl Encoder<Vec<u8>> for Codec {
             {
                 error!(target: "network", "{} throwing away message, because buffer is full item.len(): {} buf.capacity: {}", get_tid(), item.len(), buf.capacity());
 
-                near_metrics::inc_counter_by(&metrics::DROPPED_MESSAGES_COUNT, 1);
+                metrics::DROPPED_MESSAGES_COUNT.inc_by(1);
                 return Err(Error::new(ErrorKind::Other, "Buf max capacity exceeded"));
             }
             // First four bytes is the length of the buffer.
@@ -85,7 +86,6 @@ impl Decoder for Codec {
         let mut len_bytes: [u8; 4] = [0; 4];
         len_bytes.copy_from_slice(&buf[0..4]);
         let len = u32::from_le_bytes(len_bytes);
-
         if len > self.max_length {
             // If this point is reached, abusive peer is banned.
             return Ok(Some(Err(ReasonForBan::Abusive)));
@@ -102,11 +102,11 @@ impl Decoder for Codec {
     }
 }
 
-pub fn peer_message_to_bytes(peer_message: &PeerMessage) -> Result<Vec<u8>, std::io::Error> {
+pub(crate) fn peer_message_to_bytes(peer_message: &PeerMessage) -> Result<Vec<u8>, std::io::Error> {
     peer_message.try_to_vec()
 }
 
-pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error> {
+pub(crate) fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error> {
     PeerMessage::try_from_slice(bytes)
 }
 
@@ -120,7 +120,7 @@ fn peer_id_type_field_len(enum_var: u8) -> Option<usize> {
     }
 }
 
-pub fn is_forward_tx(bytes: &[u8]) -> Option<bool> {
+pub(crate) fn is_forward_tx(bytes: &[u8]) -> Option<bool> {
     let peer_message_variant = *bytes.get(0)?;
 
     // PeerMessage::Routed variant == 13
@@ -163,23 +163,21 @@ pub fn is_forward_tx(bytes: &[u8]) -> Option<bool> {
 
 #[cfg(test)]
 mod test {
+    use crate::PeerInfo;
     use near_crypto::{KeyType, PublicKey, SecretKey};
+    use near_network_primitives::types::{
+        PeerChainInfo, PeerChainInfoV2, PeerIdOrHash, RoutedMessage, RoutedMessageBody,
+    };
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::{self, CryptoHash};
     use near_primitives::network::{AnnounceAccount, PeerId};
     use near_primitives::transaction::{SignedTransaction, Transaction};
-    use near_primitives::{
-        types::EpochId,
-        version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION},
-    };
-
-    use crate::types::{
-        Handshake, HandshakeFailureReason, HandshakeV2, PeerChainInfo, PeerChainInfoV2,
-        PeerIdOrHash, PeerInfo, RoutedMessage, RoutedMessageBody, SyncData,
-    };
+    use near_primitives::types::EpochId;
+    use near_primitives::version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION};
 
     use super::*;
-    use crate::routing::routing::EdgeInfo;
+    use crate::routing::edge::EdgeInfo;
+    use crate::types::{Handshake, HandshakeFailureReason, HandshakeV2, SyncData};
 
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();
@@ -207,14 +205,14 @@ mod test {
             ForwardTxTargetType::Hash => PeerIdOrHash::Hash(hash::hash(b"peer_id_hash")),
             ForwardTxTargetType::PublicKey(key_type) => {
                 let secret_key = SecretKey::from_seed(key_type, "target_secret_key");
-                PeerIdOrHash::PeerId(PeerId(secret_key.public_key()))
+                PeerIdOrHash::PeerId(PeerId::new(secret_key.public_key()))
             }
         };
 
         let (author, signature) = {
             let secret_key = SecretKey::from_seed(schema.author, "author_secret_key");
             let public_key = secret_key.public_key();
-            let author = PeerId(public_key);
+            let author = PeerId::new(public_key);
             let msg_data = hash::hash(b"msg_data");
             let signature = secret_key.sign(msg_data.as_ref());
 
@@ -366,7 +364,7 @@ mod test {
             edges: Vec::new(),
             accounts: vec![AnnounceAccount {
                 account_id: "test1".parse().unwrap(),
-                peer_id: network_sk.public_key().into(),
+                peer_id: PeerId::new(network_sk.public_key()),
                 epoch_id: EpochId::default(),
                 signature,
             }],
@@ -381,8 +379,8 @@ mod test {
         let signature = sk.sign(hash.as_ref());
 
         let msg = PeerMessage::Routed(RoutedMessage {
-            target: PeerIdOrHash::PeerId(sk.public_key().into()),
-            author: sk.public_key().into(),
+            target: PeerIdOrHash::PeerId(PeerId::new(sk.public_key())),
+            author: PeerId::new(sk.public_key()),
             signature: signature.clone(),
             ttl: 100,
             body: RoutedMessageBody::BlockApproval(Approval {

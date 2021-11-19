@@ -903,16 +903,16 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         chunk_hash: &ChunkHash,
         signature: &Signature,
-        prev_block_hash: &CryptoHash,
+        epoch_id: &EpochId,
+        last_known_hash: &CryptoHash,
         height_created: BlockHeight,
         shard_id: ShardId,
     ) -> Result<bool, Error> {
-        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         if let Ok(chunk_producer) =
-            epoch_manager.get_chunk_producer_info(&epoch_id, height_created, shard_id)
+            epoch_manager.get_chunk_producer_info(epoch_id, height_created, shard_id)
         {
-            let slashed = epoch_manager.get_slashed_validators(prev_block_hash)?;
+            let slashed = epoch_manager.get_slashed_validators(last_known_hash)?;
             if slashed.contains_key(chunk_producer.account_id()) {
                 return Ok(false);
             }
@@ -1205,18 +1205,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
-        let genesis_height = self.genesis_config.genesis_height;
-        macro_rules! unwrap_result_or_return {
-            ($obj: expr) => {
-                match $obj {
-                    Ok(value) => value,
-                    Err(_) => {
-                        return genesis_height;
-                    }
-                }
-            };
-        }
-        let get_gc_stop_height_inner = || -> Result<BlockHeight, Error> {
+        (|| -> Result<BlockHeight, Error> {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
             // an epoch must have a first block.
             let epoch_first_block = *epoch_manager.get_block_info(block_hash)?.epoch_first_block();
@@ -1232,8 +1221,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
             }
             Ok(epoch_start_height)
-        };
-        unwrap_result_or_return!(get_gc_stop_height_inner())
+        }())
+        .unwrap_or(self.genesis_config.genesis_height)
     }
 
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
@@ -1682,7 +1671,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let trie = self.tries.get_view_trie_for_shard(shard_uid);
         let shard_id = shard_uid.shard_id();
         let new_shards = next_epoch_shard_layout
-            .get_split_shards(shard_id)
+            .get_split_shard_uids(shard_id)
             .ok_or(ErrorKind::InvalidShardId(shard_id))?;
         let mut state_roots: HashMap<_, _> =
             new_shards.iter().map(|shard_uid| (*shard_uid, StateRoot::default())).collect();
