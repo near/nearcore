@@ -15,6 +15,7 @@ use wasmer::{Bytes, ImportObject, Instance, Memory, MemoryType, Module, Pages, S
 use near_stable_hasher::StableHasher;
 use wasmer_compiler_singlepass::Singlepass;
 use wasmer_vm::TrapCode;
+use wasmer_wasi::WasiState;
 
 pub struct Wasmer2Memory(Memory);
 
@@ -73,7 +74,8 @@ impl IntoVMError for wasmer::InstantiationError {
                 VMError::FunctionCallError(FunctionCallError::LinkError { msg: e.to_string() })
             }
             wasmer::InstantiationError::Start(e) => e.into_vm_error(),
-            wasmer::InstantiationError::HostEnvInitialization(_) => {
+            wasmer::InstantiationError::HostEnvInitialization(e) => {
+                println!("{:?}", e);
                 VMError::FunctionCallError(FunctionCallError::CompilationError(
                     CompilationError::PrepareError(PrepareError::Instantiate),
                 ))
@@ -228,8 +230,11 @@ pub fn run_wasmer2(
         );
     }
 
+    // Temporary hack, start from wasmer wasi imports, will then replace impls by stubs and NEAR host function
+    // based implementations, aka "near-wasi"
+    let import_object = WasiState::new("hello").finalize().unwrap().import_object(&module).unwrap();
     let import_object =
-        imports::build_wasmer2(&store, memory_copy, &mut logic, current_protocol_version);
+        imports::build_wasmer2(&store, memory_copy, &mut logic, current_protocol_version, &import_object);
 
     if let Err(e) = check_method(&module, method_name) {
         return (None, Some(e));
@@ -357,7 +362,10 @@ pub(crate) fn run_wasmer2_module<'a>(
         current_protocol_version,
     );
 
-    let import = imports::build_wasmer2(store, memory_copy, &mut logic, current_protocol_version);
+    // Temporary hack, start from wasmer wasi imports, will then replace impls by stubs and NEAR host function
+    // based implementations, aka "near-wasi"
+    let import_object = WasiState::new("hello").finalize().unwrap().import_object(&module).unwrap();
+    let import = imports::build_wasmer2(store, memory_copy, &mut logic, current_protocol_version, &import_object);
 
     if let Err(e) = check_method(&module, method_name) {
         return (None, Some(e));

@@ -178,9 +178,10 @@ macro_rules! wrapped_imports {
                 memory: wasmer::Memory,
                 logic: &mut VMLogic<'_>,
                 protocol_version: ProtocolVersion,
+                import_object: &wasmer::ImportObject,
             ) -> wasmer::ImportObject {
                 let env = NearWasmerEnv {logic: ImportReference(logic as * mut _ as * mut c_void), memory: memory.clone()};
-                let mut import_object = wasmer::ImportObject::new();
+                let mut import_object = import_object.clone();
                 let mut namespace = wasmer::Exports::new();
                 namespace.insert("memory", memory);
                 $({

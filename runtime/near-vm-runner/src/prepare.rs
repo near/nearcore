@@ -96,7 +96,8 @@ impl<'a> ContractModule<'a> {
             if import.module() != "env" {
                 // This import tries to import something from non-"env" module,
                 // but all imports are located in "env" at the moment.
-                return Err(PrepareError::Instantiate);
+                println!("out of env import: {}.{}", import.module(), import.field());
+                // return Err(PrepareError::Instantiate);
             }
 
             let type_idx = match *import.external() {
@@ -109,7 +110,9 @@ impl<'a> ContractModule<'a> {
             };
 
             let Type::Function(ref _func_ty) =
-                types.get(*type_idx as usize).ok_or_else(|| PrepareError::Instantiate)?;
+                types.get(*type_idx as usize).ok_or_else(|| {
+                    PrepareError::Instantiate
+                })?;
 
             // TODO: Function type check with Env
             /*

@@ -1661,6 +1661,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "generational-arena"
+version = "0.2.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e1d3b771574f62d0548cee0ad9057857e9fc25d7a3335f140c84f6acd0bf601"
+dependencies = [
+ "cfg-if 0.1.10",
+ "serde",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3057,6 +3067,7 @@ dependencies = [
  "wasmer-runtime-near",
  "wasmer-types-near",
  "wasmer-vm-near",
+ "wasmer-wasi",
  "wasmparser 0.51.4",
  "wasmtime",
  "wat",
@@ -3289,9 +3300,9 @@ dependencies = [
 
 [[package]]
 name = "object"
-version = "0.25.3"
+version = "0.26.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a38f2be3697a57b4060074ff41b44c16870d916ad7877c17696e063257482bc7"
+checksum = "39f37e50073ccad23b6d09bcb5b263f4e76d3bb6038e4a3c08e52162ffa8abc2"
 dependencies = [
  "crc32fast",
  "indexmap",
@@ -4967,6 +4978,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "375a639232caf30edfc78e8d89b2d4c375515393e7af7e16f01cd96917fb2105"
 dependencies = [
  "cfg-if 1.0.0",
+ "log",
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
@@ -5280,29 +5292,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0237232789cf037d5480773fe568aac745bfe2afbc11a863e97901780a6b47cc"
 
 [[package]]
-name = "wasmer-compiler"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc86dda6f715f03104800be575a38382b35c3962953af9e9d8722dcf0bd2458f"
-dependencies = [
- "enumset",
- "loupe",
- "rkyv",
- "serde",
- "serde_bytes",
- "smallvec",
- "target-lexicon 0.12.2",
- "thiserror",
- "wasmer-types",
- "wasmer-vm",
- "wasmparser 0.78.2",
-]
-
-[[package]]
 name = "wasmer-compiler-near"
 version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bd68dcb10e31d096fd0a7421e4150035623cb188e026d0bb6804a08f083d583"
+source = "git+https://github.com/near/wasmer?rev=58f9c68838f9773d2c8aa5c130cf421733689368#58f9c68838f9773d2c8aa5c130cf421733689368"
 dependencies = [
  "enumset",
  "loupe",
@@ -5320,8 +5312,7 @@ dependencies = [
 [[package]]
 name = "wasmer-compiler-singlepass-near"
 version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84c91c779f6339f5ccbe0fd324efb3668a499296394c9c343b5ca8d4fc6bca90"
+source = "git+https://github.com/near/wasmer?rev=58f9c68838f9773d2c8aa5c130cf421733689368#58f9c68838f9773d2c8aa5c130cf421733689368"
 dependencies = [
  "byteorder",
  "dynasm",
@@ -5339,8 +5330,7 @@ dependencies = [
 [[package]]
 name = "wasmer-derive-near"
 version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54fcd5f4fb1bcecbfa04c00c2889261f3df4d99be2e1505b6614325413928045"
+source = "git+https://github.com/near/wasmer?rev=58f9c68838f9773d2c8aa5c130cf421733689368#58f9c68838f9773d2c8aa5c130cf421733689368"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -5349,31 +5339,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasmer-engine"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8454ead320a4017ba36ddd9ab4fbf7776fceea6ab0b79b5e53664a1682569fc3"
-dependencies = [
- "backtrace",
- "lazy_static",
- "loupe",
- "memmap2",
- "more-asserts",
- "rustc-demangle",
- "serde",
- "serde_bytes",
- "target-lexicon 0.12.2",
- "thiserror",
- "wasmer-compiler",
- "wasmer-types",
- "wasmer-vm",
-]
-
-[[package]]
 name = "wasmer-engine-dylib"
 version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6aa390d123ebe23d5315c39f6063fcc18319661d03c8000f23d0fe1c011e8135"
+source = "git+https://github.com/near/wasmer?rev=58f9c68838f9773d2c8aa5c130cf421733689368#58f9c68838f9773d2c8aa5c130cf421733689368"
 dependencies = [
  "cfg-if 1.0.0",
  "leb128",
@@ -5383,19 +5351,18 @@ dependencies = [
  "serde",
  "tempfile",
  "tracing",
- "wasmer-compiler",
- "wasmer-engine",
+ "wasmer-compiler-near",
+ "wasmer-engine-near",
  "wasmer-object",
- "wasmer-types",
- "wasmer-vm",
+ "wasmer-types-near",
+ "wasmer-vm-near",
  "which",
 ]
 
 [[package]]
 name = "wasmer-engine-near"
 version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e67b29ef257c9e909728980467d0b94b4e1929ac8a1ea2304e2dd1a7f99fe21"
+source = "git+https://github.com/near/wasmer?rev=58f9c68838f9773d2c8aa5c130cf421733689368#58f9c68838f9773d2c8aa5c130cf421733689368"
 dependencies = [
  "backtrace",
  "lazy_static",
@@ -5415,8 +5382,7 @@ dependencies = [
 [[package]]
 name = "wasmer-engine-universal-near"
 version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75968090a3324470e9c418bec6fb40ed83b7becdea408d353cba1513d5c79f74"
+source = "git+https://github.com/near/wasmer?rev=58f9c68838f9773d2c8aa5c130cf421733689368#58f9c68838f9773d2c8aa5c130cf421733689368"
 dependencies = [
  "cfg-if 1.0.0",
  "leb128",
@@ -5433,8 +5399,7 @@ dependencies = [
 [[package]]
 name = "wasmer-near"
 version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15a0ffb7c11eea62685bc6048e77901e3db088937bf3bf14bd9f804f52aaf20f"
+source = "git+https://github.com/near/wasmer?rev=58f9c68838f9773d2c8aa5c130cf421733689368#58f9c68838f9773d2c8aa5c130cf421733689368"
 dependencies = [
  "cfg-if 1.0.0",
  "indexmap",
@@ -5452,19 +5417,19 @@ dependencies = [
  "wasmer-engine-universal-near",
  "wasmer-types-near",
  "wasmer-vm-near",
+ "wat",
  "winapi",
 ]
 
 [[package]]
 name = "wasmer-object"
 version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c541c985799fc1444702501c15d41becfb066c92d9673defc1c7417fd8739e15"
+source = "git+https://github.com/near/wasmer?rev=58f9c68838f9773d2c8aa5c130cf421733689368#58f9c68838f9773d2c8aa5c130cf421733689368"
 dependencies = [
- "object 0.25.3",
+ "object 0.26.2",
  "thiserror",
- "wasmer-compiler",
- "wasmer-types",
+ "wasmer-compiler-near",
+ "wasmer-types-near",
 ]
 
 [[package]]
@@ -5532,23 +5497,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasmer-types"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c91f75d3c31f8b1f8d818ff49624fc974220243cbc07a2252f408192e97c6b51"
-dependencies = [
- "indexmap",
- "loupe",
- "rkyv",
- "serde",
- "thiserror",
-]
-
-[[package]]
 name = "wasmer-types-near"
 version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c00b9ef1732969d2ab16db3c138c7292c0068f02cce860dd33dbce280bc09431"
+source = "git+https://github.com/near/wasmer?rev=58f9c68838f9773d2c8aa5c130cf421733689368#58f9c68838f9773d2c8aa5c130cf421733689368"
 dependencies = [
  "indexmap",
  "loupe",
@@ -5558,32 +5509,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasmer-vm"
+name = "wasmer-vfs"
 version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "469a12346a4831e7dac639b9646d8c9b24c7d2cf0cf458b77f489edb35060c1f"
+source = "git+https://github.com/near/wasmer?rev=58f9c68838f9773d2c8aa5c130cf421733689368#58f9c68838f9773d2c8aa5c130cf421733689368"
 dependencies = [
- "backtrace",
- "cc",
- "cfg-if 1.0.0",
- "indexmap",
  "libc",
- "loupe",
- "memoffset",
- "more-asserts",
- "region 2.2.0",
- "rkyv",
- "serde",
  "thiserror",
- "wasmer-types",
- "winapi",
+ "tracing",
 ]
 
 [[package]]
 name = "wasmer-vm-near"
 version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db4d5891ac918f6177583f4ab20b2c6aca60c9f068a6ede12044395b8925018d"
+source = "git+https://github.com/near/wasmer?rev=58f9c68838f9773d2c8aa5c130cf421733689368#58f9c68838f9773d2c8aa5c130cf421733689368"
 dependencies = [
  "backtrace",
  "cc",
@@ -5599,6 +5537,35 @@ dependencies = [
  "thiserror",
  "wasmer-types-near",
  "winapi",
+]
+
+[[package]]
+name = "wasmer-wasi"
+version = "2.0.0"
+source = "git+https://github.com/near/wasmer?rev=58f9c68838f9773d2c8aa5c130cf421733689368#58f9c68838f9773d2c8aa5c130cf421733689368"
+dependencies = [
+ "cfg-if 1.0.0",
+ "generational-arena",
+ "getrandom 0.2.3",
+ "libc",
+ "thiserror",
+ "tracing",
+ "wasm-bindgen",
+ "wasmer-near",
+ "wasmer-vfs",
+ "wasmer-wasi-types",
+ "winapi",
+]
+
+[[package]]
+name = "wasmer-wasi-types"
+version = "2.0.0"
+source = "git+https://github.com/near/wasmer?rev=58f9c68838f9773d2c8aa5c130cf421733689368#58f9c68838f9773d2c8aa5c130cf421733689368"
+dependencies = [
+ "byteorder",
+ "serde",
+ "time 0.1.43",
+ "wasmer-types-near",
 ]
 
 [[package]]
