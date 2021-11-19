@@ -2,12 +2,35 @@ use std::collections::HashMap;
 
 use rand::Rng;
 
+use crate::routing::edge::{Edge, SimpleEdge};
 use near_primitives::network::PeerId;
 
 use crate::routing::ibf_set::IbfSet;
-use crate::routing::routing::{Edge, SimpleEdge};
+use borsh::{BorshDeserialize, BorshSerialize};
 
 pub type SlotMapId = u64;
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Copy)]
+pub struct ValidIBFLevel(pub u64);
+
+/// We create IbfSets of various sizes from 2^10+2 up to 2^17+2. Those constants specify valid ranges.
+pub const MIN_IBF_LEVEL: ValidIBFLevel = ValidIBFLevel(10);
+pub const MAX_IBF_LEVEL: ValidIBFLevel = ValidIBFLevel(17);
+
+/// Represents IbfLevel from 10 to 17.
+impl ValidIBFLevel {
+    pub fn inc(&self) -> Option<ValidIBFLevel> {
+        if self.0 + 1 >= MIN_IBF_LEVEL.0 && self.0 + 1 <= MAX_IBF_LEVEL.0 {
+            Some(ValidIBFLevel(self.0 + 1))
+        } else {
+            None
+        }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        return self.0 >= MIN_IBF_LEVEL.0 && self.0 <= MAX_IBF_LEVEL.0;
+    }
+}
 
 /// In order to reduce memory usage/bandwidth used we map each edge to u64.
 /// SlotMap contains mapping from SimpleToHash, and vice versa.
@@ -85,7 +108,7 @@ impl IbfPeerSet {
         let mut ibf_set = IbfSet::new(seed);
         // Initialize IbfSet with edges
         for (key, e) in edges_info.iter() {
-            let se = SimpleEdge::new(key.0.clone(), key.1.clone(), e.nonce);
+            let se = SimpleEdge::new(key.0.clone(), key.1.clone(), e.nonce());
             if let Some(id) = self.slot_map.get(&se) {
                 ibf_set.add_edge(&se, id);
             }
@@ -145,9 +168,10 @@ impl IbfPeerSet {
 
 #[cfg(test)]
 mod test {
-    use crate::routing::ibf_peer_set::{IbfPeerSet, SimpleEdge, SlotMap, SlotMapId};
+    use crate::routing::edge::{Edge, SimpleEdge};
+    use crate::routing::ibf_peer_set::ValidIBFLevel;
+    use crate::routing::ibf_peer_set::{IbfPeerSet, SlotMap, SlotMapId};
     use crate::routing::ibf_set::IbfSet;
-    use crate::routing::routing::{Edge, ValidIBFLevel};
     use crate::test_utils::random_peer_id;
     use near_primitives::network::PeerId;
     use std::collections::HashMap;

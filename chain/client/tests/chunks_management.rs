@@ -4,8 +4,8 @@ use near_chain::ChainGenesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::KeyType;
 use near_logger_utils::{init_integration_logger, init_test_logger};
-use near_network::types::PartialEncodedChunkRequestMsg;
-use near_network::NetworkRequests;
+use near_network::types::NetworkRequests;
+use near_network_primitives::types::PartialEncodedChunkRequestMsg;
 use near_primitives::hash::{hash, CryptoHash};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::sharding::ShardChunkHeaderInner;
@@ -125,26 +125,22 @@ fn store_partial_encoded_chunk_sanity() {
     };
     let block_hash = *env.clients[0].chain.genesis().hash();
     let block = env.clients[0].chain.get_block(&block_hash).unwrap().clone();
-    assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1).len(), 0);
+    assert_eq!(env.clients[0].shards_mgr.pop_stored_partial_encoded_chunks(1).len(), 0);
     env.clients[0]
         .shards_mgr
         .store_partial_encoded_chunk(&block.header(), partial_encoded_chunk.clone());
-    assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1).len(), 1);
-    assert_eq!(
-        env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1)[&0],
-        partial_encoded_chunk
-    );
+    let partial_encoded_chunks = env.clients[0].shards_mgr.pop_stored_partial_encoded_chunks(1);
+    assert_eq!(partial_encoded_chunks.len(), 1);
+    assert_eq!(partial_encoded_chunks[&0], vec![partial_encoded_chunk.clone()]);
 
-    // Check replacing
+    // Check adding after popping
     partial_encoded_chunk = update_chunk_hash(partial_encoded_chunk, ChunkHash(hash(&[123])));
     env.clients[0]
         .shards_mgr
         .store_partial_encoded_chunk(&block.header(), partial_encoded_chunk.clone());
-    assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1).len(), 1);
-    assert_eq!(
-        env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1)[&0],
-        partial_encoded_chunk
-    );
+    let partial_encoded_chunks = env.clients[0].shards_mgr.pop_stored_partial_encoded_chunks(1);
+    assert_eq!(partial_encoded_chunks.len(), 1);
+    assert_eq!(partial_encoded_chunks[&0], vec![partial_encoded_chunk.clone()]);
 
     // Check adding
     let mut partial_encoded_chunk2 = partial_encoded_chunk.clone();
@@ -165,18 +161,24 @@ fn store_partial_encoded_chunk_sanity() {
         &signer,
     ));
     partial_encoded_chunk2.header = h;
-    assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1).len(), 1);
+
+    env.clients[0]
+        .shards_mgr
+        .store_partial_encoded_chunk(&block.header(), partial_encoded_chunk.clone());
     env.clients[0]
         .shards_mgr
         .store_partial_encoded_chunk(&block.header(), partial_encoded_chunk2.clone());
-    assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1).len(), 2);
+    let partial_encoded_chunk3 =
+        update_chunk_hash(partial_encoded_chunk2.clone(), ChunkHash(hash(&[123])));
+    env.clients[0]
+        .shards_mgr
+        .store_partial_encoded_chunk(&block.header(), partial_encoded_chunk3.clone());
+    let partial_encoded_chunks = env.clients[0].shards_mgr.pop_stored_partial_encoded_chunks(1);
+    assert_eq!(partial_encoded_chunks.len(), 2);
+    assert_eq!(partial_encoded_chunks[&0], vec![partial_encoded_chunk.clone()]);
     assert_eq!(
-        env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1)[&0],
-        partial_encoded_chunk
-    );
-    assert_eq!(
-        env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1)[&173465755],
-        partial_encoded_chunk2
+        partial_encoded_chunks[&173465755],
+        vec![partial_encoded_chunk2.clone(), partial_encoded_chunk3.clone()]
     );
 
     // Check horizon
@@ -202,17 +204,17 @@ fn store_partial_encoded_chunk_sanity() {
     env.clients[0]
         .shards_mgr
         .store_partial_encoded_chunk(&block.header(), partial_encoded_chunk3.clone());
-    assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(2).len(), 0);
+    assert_eq!(env.clients[0].shards_mgr.pop_stored_partial_encoded_chunks(2).len(), 0);
     h = update_chunk_height_created(h, 9);
     partial_encoded_chunk3.header = h.clone();
     env.clients[0]
         .shards_mgr
         .store_partial_encoded_chunk(&block.header(), partial_encoded_chunk3.clone());
-    assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(9).len(), 0);
+    assert_eq!(env.clients[0].shards_mgr.pop_stored_partial_encoded_chunks(9).len(), 0);
     h = update_chunk_height_created(h, 5);
     partial_encoded_chunk3.header = h.clone();
     env.clients[0]
         .shards_mgr
         .store_partial_encoded_chunk(&block.header(), partial_encoded_chunk3.clone());
-    assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(5).len(), 1);
+    assert_eq!(env.clients[0].shards_mgr.pop_stored_partial_encoded_chunks(5).len(), 1);
 }

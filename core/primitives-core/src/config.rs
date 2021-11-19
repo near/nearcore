@@ -22,13 +22,9 @@ pub struct VMConfig {
 /// Describes limits for VM and Runtime.
 /// TODO #4139: consider switching to strongly-typed wrappers instead of raw quantities
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
-#[serde(default)]
 pub struct VMLimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
     pub max_gas_burnt: Gas,
-    /// Max burnt gas per view method.
-    /// TODO #4719: remove this field because it does not affect the protocol
-    pub max_gas_burnt_view: Gas,
 
     /// How tall the stack is allowed to grow?
     ///
@@ -86,18 +82,16 @@ pub struct VMLimitConfig {
     pub max_functions_number_per_contract: Option<u64>,
 }
 
-impl Default for VMConfig {
-    fn default() -> VMConfig {
+impl VMConfig {
+    pub fn test() -> VMConfig {
         VMConfig {
-            ext_costs: ExtCostsConfig::default(),
+            ext_costs: ExtCostsConfig::test(),
             grow_mem_cost: 1,
             regular_op_cost: (SAFETY_MULTIPLIER as u32) * 1285457,
-            limit_config: VMLimitConfig::default(),
+            limit_config: VMLimitConfig::test(),
         }
     }
-}
 
-impl VMConfig {
     /// Computes non-cryptographically-proof hash. The computation is fast but not cryptographically
     /// secure.
     pub fn non_crypto_hash(&self) -> u64 {
@@ -112,21 +106,15 @@ impl VMConfig {
             grow_mem_cost: 0,
             regular_op_cost: 0,
             // We shouldn't have any costs in the limit config.
-            limit_config: VMLimitConfig {
-                max_gas_burnt: u64::MAX,
-                max_gas_burnt_view: u64::MAX,
-                ..Default::default()
-            },
+            limit_config: VMLimitConfig { max_gas_burnt: u64::MAX, ..VMLimitConfig::test() },
         }
     }
 }
 
-// TODO #4649: remove default impl and create impls with explicitly stated purposes
-impl Default for VMLimitConfig {
-    fn default() -> Self {
+impl VMLimitConfig {
+    pub fn test() -> Self {
         Self {
             max_gas_burnt: 2 * 10u64.pow(14), // with 10**15 block gas limit this will allow 5 calls.
-            max_gas_burnt_view: 2 * 10u64.pow(14), // same as `max_gas_burnt` for now
 
             // NOTE: Stack height has to be 16K, otherwise Wasmer produces non-deterministic results.
             // For experimentation try `test_stack_overflow`.
@@ -179,7 +167,6 @@ pub struct ViewConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
-#[serde(default)]
 pub struct ExtCostsConfig {
     /// Base cost for calling a host function.
     pub base: Gas,
@@ -348,9 +335,8 @@ pub struct ExtCostsConfig {
 // have certain reserve for further gas price variation.
 const SAFETY_MULTIPLIER: u64 = 3;
 
-/// TODO #4649: remove default implementation when LowerEcrecoverBaseCost will be released
-impl Default for ExtCostsConfig {
-    fn default() -> ExtCostsConfig {
+impl ExtCostsConfig {
+    pub fn test() -> ExtCostsConfig {
         ExtCostsConfig {
             base: SAFETY_MULTIPLIER * 88256037,
             contract_compile_base: SAFETY_MULTIPLIER * 11815321,
@@ -421,9 +407,7 @@ impl Default for ExtCostsConfig {
             alt_bn128_g1_sum_byte: SAFETY_MULTIPLIER * 25406181,
         }
     }
-}
 
-impl ExtCostsConfig {
     fn free() -> ExtCostsConfig {
         ExtCostsConfig {
             base: 0,

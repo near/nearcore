@@ -6,10 +6,7 @@ use borsh::de::BorshDeserialize;
 use near_primitives::time::Clock;
 
 use near_crypto::Signature;
-use near_network::routing::routing::{
-    Edge, EdgeType, DELETE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME,
-};
-use near_network::routing::routing_table_actor::Prune;
+use near_network::routing::{Edge, EdgeType, Prune, DELETE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME};
 use near_network::test_utils::random_peer_id;
 use near_network::RoutingTableActor;
 use near_primitives::network::PeerId;
@@ -71,8 +68,8 @@ impl RoutingTableTest {
     }
 
     fn get_edge_description(&self, edge: &Edge) -> EdgeDescription {
-        let peer0 = self.rev_peers.get(&edge.peer0).unwrap();
-        let peer1 = self.rev_peers.get(&edge.peer1).unwrap();
+        let peer0 = self.rev_peers.get(&edge.key().0).unwrap();
+        let peer1 = self.rev_peers.get(&edge.key().1).unwrap();
         let edge_type = edge.edge_type();
         EdgeDescription(*peer0, *peer1, edge_type)
     }
@@ -107,7 +104,7 @@ impl RoutingTableTest {
         for EdgeDescription(peer0, peer1, edge_type) in on_memory.iter() {
             let peer0 = self.get_peer(*peer0).clone();
             let peer1 = self.get_peer(*peer1).clone();
-            let (peer0, peer1) = Edge::key(peer0, peer1);
+            let (peer0, peer1) = Edge::make_key(peer0, peer1);
 
             let res = self.routing_table.edges_info.get(&(peer0, peer1));
             assert!(res.is_some());

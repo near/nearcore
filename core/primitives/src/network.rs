@@ -1,45 +1,50 @@
 use std::fmt;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 
-use crate::hash::{hash, CryptoHash};
+use crate::hash::CryptoHash;
 use crate::types::{AccountId, EpochId};
+
+/// Peer id is the public key.
+#[derive(
+    BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
+pub struct PeerId(Arc<PeerIdInner>);
 
 /// Peer id is the public key.
 #[derive(
     BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash,
 )]
-pub struct PeerId(pub PublicKey);
+pub struct PeerIdInner(PublicKey);
 
 impl PeerId {
+    pub fn new(key: PublicKey) -> Self {
+        Self(Arc::new(PeerIdInner(key)))
+    }
+
+    pub fn public_key(&self) -> &PublicKey {
+        &self.0 .0
+    }
+}
+
+impl PeerIdInner {
     pub fn new(key: PublicKey) -> Self {
         Self(key)
     }
 
-    pub fn public_key(&self) -> PublicKey {
-        self.0.clone()
+    pub fn public_key(&self) -> &PublicKey {
+        &self.0
     }
 }
 
 impl PeerId {
     pub fn random() -> Self {
-        SecretKey::from_random(KeyType::ED25519).public_key().into()
-    }
-}
-
-impl From<PeerId> for Vec<u8> {
-    fn from(peer_id: PeerId) -> Vec<u8> {
-        peer_id.0.try_to_vec().unwrap()
-    }
-}
-
-impl From<PublicKey> for PeerId {
-    fn from(public_key: PublicKey) -> PeerId {
-        PeerId(public_key)
+        PeerId::new(SecretKey::from_random(KeyType::ED25519).public_key())
     }
 }
 
@@ -47,11 +52,17 @@ impl TryFrom<Vec<u8>> for PeerId {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(bytes: Vec<u8>) -> Result<PeerId, Self::Error> {
-        Ok(PeerId(PublicKey::try_from_slice(&bytes)?))
+        Ok(PeerId::new(PublicKey::try_from_slice(&bytes)?))
     }
 }
 
 impl PartialEq for PeerId {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 .0 == other.0 .0
+    }
+}
+
+impl PartialEq for PeerIdInner {
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0
     }
@@ -59,18 +70,18 @@ impl PartialEq for PeerId {
 
 impl fmt::Display for PeerId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.0 .0)
     }
 }
 
 impl fmt::Debug for PeerId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.0 .0)
     }
 }
 
 /// Account announcement information
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccount {
     /// AccountId to be announced.
     pub account_id: AccountId,
@@ -88,12 +99,9 @@ impl AnnounceAccount {
         peer_id: &PeerId,
         epoch_id: &EpochId,
     ) -> CryptoHash {
-        let header = AnnounceAccountRouteHeader {
-            account_id: account_id.clone(),
-            peer_id: peer_id.clone(),
-            epoch_id: epoch_id.clone(),
-        };
-        hash(&header.try_to_vec().unwrap())
+        let header = AnnounceAccountRouteHeader { account_id, peer_id, epoch_id };
+
+        CryptoHash::hash_borsh(&header)
     }
 
     pub fn hash(&self) -> CryptoHash {
@@ -101,9 +109,9 @@ impl AnnounceAccount {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize)]
-struct AnnounceAccountRouteHeader {
-    pub account_id: AccountId,
-    pub peer_id: PeerId,
-    pub epoch_id: EpochId,
+#[derive(BorshSerialize)]
+struct AnnounceAccountRouteHeader<'a> {
+    pub account_id: &'a AccountId,
+    pub peer_id: &'a PeerId,
+    pub epoch_id: &'a EpochId,
 }

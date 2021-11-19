@@ -199,10 +199,9 @@ impl From<near_client_primitives::types::QueryError> for RpcQueryError {
             } => Self::ContractExecutionError { vm_error, block_height, block_hash },
             near_client_primitives::types::QueryError::Unreachable { ref error_message } => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                near_metrics::inc_counter_vec(
-                    &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
-                    &["RpcQueryError"],
-                );
+                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
+                    .with_label_values(&["RpcQueryError"])
+                    .inc();
                 Self::InternalError { error_message: error.to_string() }
             }
             near_client_primitives::types::QueryError::TooLargeContractState {

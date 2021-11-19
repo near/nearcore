@@ -15,11 +15,14 @@
 use std::collections::VecDeque;
 use std::time::{Duration, SystemTime};
 
-const MINUTE_IN_MILLIS: u128 = 60_000;
+const MINUTE: Duration = Duration::from_secs(60);
 
+/// Stores list of entries for `RateCounter`
 struct Entry {
+    /// bytes since last reset
     bytes: u64,
-    expiration_timestamp: u128,
+    /// Time we created the entry.
+    recorded: SystemTime,
 }
 
 /// A rate counter tracks number of transfers, the amount of data exchanged and the rate of transfer
@@ -36,8 +39,8 @@ impl RateCounter {
 
     /// Increment number of bytes transferred, updating counts and rates.
     pub fn increment(&mut self, bytes: u64) {
-        let now = millis_since_epoch();
-        self.entries.push_back(Entry { bytes, expiration_timestamp: now + MINUTE_IN_MILLIS });
+        let now = SystemTime::now();
+        self.entries.push_back(Entry { bytes, recorded: now });
         self.bytes_sum += bytes;
         self.truncate(now);
     }
@@ -50,19 +53,12 @@ impl RateCounter {
         self.entries.len() as u64
     }
 
-    fn truncate(&mut self, now: u128) {
-        while !self.entries.is_empty() && self.entries.front().unwrap().expiration_timestamp < now {
+    fn truncate(&mut self, now: SystemTime) {
+        // Remove entries older than 1m.
+        while !self.entries.is_empty() && self.entries.front().unwrap().recorded < now - MINUTE {
             self.bytes_sum -= self.entries.pop_front().unwrap().bytes;
         }
     }
-}
-
-/// Returns timestamp in milliseconds.
-fn millis_since_epoch() -> u128 {
-    let since_epoch = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::new(0, 0));
-    since_epoch.as_millis()
 }
 
 #[cfg(test)]
@@ -82,7 +78,7 @@ mod tests {
         assert_eq!(rc.bytes_per_min(), 1123);
         assert_eq!(rc.count_per_min(), 2);
 
-        rc.truncate(millis_since_epoch() + MINUTE_IN_MILLIS + 1);
+        rc.truncate(SystemTime::now() + MINUTE + Duration::from_millis(1));
 
         assert_eq!(rc.bytes_per_min(), 0);
         assert_eq!(rc.count_per_min(), 0);

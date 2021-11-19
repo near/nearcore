@@ -442,12 +442,12 @@ impl Chain {
         create_light_client_block_view(&final_block_header, chain_store, Some(next_block_producers))
     }
 
-    pub fn save_block(&mut self, block: &Block) -> Result<(), Error> {
+    pub fn save_block(&mut self, block: Block) -> Result<(), Error> {
         if self.store.get_block(block.hash()).is_ok() {
             return Ok(());
         }
         if let Err(e) =
-            Chain::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis, block)
+            Chain::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis, &block)
         {
             byzantine_assert!(false);
             return Err(e.into());
@@ -455,7 +455,7 @@ impl Chain {
 
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
 
-        chain_store_update.save_block(block.clone());
+        chain_store_update.save_block(block);
         // We don't need to increase refcount for `prev_hash` at this point
         // because this is the block before State Sync.
 
@@ -463,18 +463,18 @@ impl Chain {
         Ok(())
     }
 
-    pub fn save_orphan(&mut self, block: &Block) -> Result<(), Error> {
+    pub fn save_orphan(&mut self, block: Block) -> Result<(), Error> {
         if self.orphans.contains(block.hash()) {
             return Ok(());
         }
         if let Err(e) =
-            Chain::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis, block)
+            Chain::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis, &block)
         {
             byzantine_assert!(false);
             return Err(e.into());
         }
         self.orphans.add(Orphan {
-            block: block.clone(),
+            block: block,
             provenance: Provenance::NONE,
             added: Clock::instant(),
         });
@@ -717,8 +717,12 @@ impl Chain {
                 {
                     return Err(ErrorKind::InvalidChunk.into());
                 }
-            } else {
-                if !runtime_adapter.verify_chunk_header_signature(&chunk_header.clone())? {
+            } else if chunk_header.height_created() == block.header().height() {
+                if !runtime_adapter.verify_chunk_header_signature(
+                    &chunk_header.clone(),
+                    block.header().epoch_id(),
+                    block.header().prev_hash(),
+                )? {
                     byzantine_assert!(false);
                     return Err(ErrorKind::InvalidChunk.into());
                 }
@@ -1088,6 +1092,7 @@ impl Chain {
         F3: FnMut(ChallengeBody) -> (),
     {
         near_metrics::inc_counter(&metrics::BLOCK_PROCESSED_TOTAL);
+        near_metrics::set_gauge(&metrics::NUM_ORPHANS, self.orphans.len() as i64);
 
         let prev_head = self.store.head()?;
         let mut chain_update = self.chain_update();
@@ -2537,13 +2542,51 @@ impl Chain {
     }
 
     /// Get next block hash for which there is a new chunk for the shard.
-    #[inline]
+    /// If sharding changes before we can find a block with a new chunk for the shard,
+    /// find the first block that contains a new chunk for any of the shards that split from the
+    /// original shard
     pub fn get_next_block_hash_with_new_chunk(
         &mut self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<Option<&CryptoHash>, Error> {
-        self.store.get_next_block_hash_with_new_chunk(block_hash, shard_id)
+    ) -> Result<Option<(CryptoHash, ShardId)>, Error> {
+        let mut block_hash = block_hash.clone();
+        let mut epoch_id = self.get_block_header(&block_hash)?.epoch_id().clone();
+        let mut shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id)?;
+        // this corrects all the shard where the original shard will split to if sharding changes
+        let mut shard_ids = vec![shard_id];
+
+        while let Ok(next_block_hash) = self.store.get_next_block_hash(&block_hash) {
+            let next_block_hash = next_block_hash.clone();
+            let next_epoch_id = self.get_block_header(&next_block_hash)?.epoch_id().clone();
+            if next_epoch_id != epoch_id {
+                let next_shard_layout = self.runtime_adapter.get_shard_layout(&next_epoch_id)?;
+                if next_shard_layout != shard_layout {
+                    shard_ids = shard_ids
+                        .into_iter()
+                        .flat_map(|id| {
+                            next_shard_layout.get_split_shard_ids(id).unwrap_or_else(|| {
+                                panic!("invalid shard layout {:?} because it does not contain split shards for parent shard {}", next_shard_layout, id)
+                            })
+                        })
+                        .collect();
+
+                    shard_layout = next_shard_layout;
+                }
+                epoch_id = next_epoch_id;
+            }
+            block_hash = next_block_hash;
+
+            let block = self.get_block(&block_hash)?;
+            let chunks = block.chunks();
+            for &shard_id in shard_ids.iter() {
+                if chunks[shard_id as usize].height_included() == block.header().height() {
+                    return Ok(Some((block_hash, shard_id)));
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     /// Returns underlying ChainStore.
@@ -3080,7 +3123,7 @@ impl<'a> ChainUpdate<'a> {
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         let next_shard_layout =
             self.runtime_adapter.get_shard_layout(block.header().next_epoch_id())?;
-        let new_shards = next_shard_layout.get_split_shards(shard_id).unwrap_or_else(|| {
+        let new_shards = next_shard_layout.get_split_shard_uids(shard_id).unwrap_or_else(|| {
             panic!("shard layout must contain maps of all shards to its split shards {}", shard_id)
         });
         new_shards
@@ -3491,7 +3534,7 @@ impl<'a> ChainUpdate<'a> {
                 }
 
                 let num_split_shards = next_epoch_shard_layout
-                    .get_split_shards(shard_uid.shard_id())
+                    .get_split_shard_uids(shard_uid.shard_id())
                     .unwrap_or_else(|| panic!("invalid shard layout {:?}", next_epoch_shard_layout))
                     .len() as NumShards;
                 let total_gas_used = chunk_extra.gas_used();
@@ -3831,12 +3874,6 @@ impl<'a> ChainUpdate<'a> {
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(block.clone());
         self.chain_store_update.inc_block_refcount(block.header().prev_hash())?;
-        for (shard_id, chunk_headers) in block.chunks().iter().enumerate() {
-            if chunk_headers.height_included() == block.header().height() {
-                self.chain_store_update
-                    .save_block_hash_with_new_chunk(*block.hash(), shard_id as ShardId);
-            }
-        }
 
         // Update the chain head if it's the new tip
         let res = self.update_head(block.header())?;
