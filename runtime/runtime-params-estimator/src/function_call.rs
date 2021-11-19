@@ -6,7 +6,7 @@ use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::types::{CompiledContractCache, ProtocolVersion};
 use near_store::{create_store, StoreCompiledContractCache};
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_runner::{run_vm, VMKind};
+use near_vm_runner::VMKindPublicForInternalUseOnly as VMKind;
 use nearcore::get_store_path;
 use std::fmt::Write;
 use std::sync::Arc;
@@ -98,6 +98,7 @@ pub fn compute_function_call_cost(
     repeats: u64,
     contract: &ContractCode,
 ) -> u64 {
+    let runtime = vm_kind.runtime().expect("runtime has not been enabled");
     let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
     let store = create_store(&get_store_path(workdir.path()));
     let cache_store = Arc::new(StoreCompiledContractCache { store });
@@ -113,7 +114,7 @@ pub fn compute_function_call_cost(
 
     // Warmup.
     if repeats != 1 {
-        let result = run_vm(
+        let result = runtime.run(
             &contract,
             "hello0",
             &mut fake_external,
@@ -121,7 +122,6 @@ pub fn compute_function_call_cost(
             &vm_config,
             &fees,
             &promise_results,
-            vm_kind,
             protocol_version,
             cache,
         );
@@ -130,7 +130,7 @@ pub fn compute_function_call_cost(
     // Run with gas metering.
     let start = start_count(gas_metric);
     for _ in 0..repeats {
-        let result = run_vm(
+        let result = runtime.run(
             &contract,
             "hello0",
             &mut fake_external,
@@ -138,7 +138,6 @@ pub fn compute_function_call_cost(
             &vm_config,
             &fees,
             &promise_results,
-            vm_kind,
             protocol_version,
             cache,
         );
