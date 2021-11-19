@@ -2,7 +2,7 @@ use crate::types::{BlockedPorts, PatternAddr};
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 
-/// `blacklist_from_iter` - converts list of addresses represented by strings to <IpAddr, BlockedPorts> HashMap
+/// converts list of addresses represented by strings to <IpAddr, BlockedPorts> HashMap
 ///
 /// Arguments:
 /// - `blacklist`- list of strings in following formats:

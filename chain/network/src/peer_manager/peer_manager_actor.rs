@@ -5,8 +5,8 @@ use std::collections::{HashMap, HashSet};
 use std::mem::swap;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::atomic::Ordering;
-use std::sync::{atomic::AtomicUsize, Arc};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use actix::{
@@ -21,6 +21,13 @@ use tracing::{debug, error, info, trace, warn};
 
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
+use near_network_primitives::types::{
+    AccountOrPeerIdOrHash, Ban, BlockedPorts, InboundTcpConnect, KnownPeerState, KnownPeerStatus,
+    KnownProducer, NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
+    OutboundTcpConnect, PeerIdOrHash, PeerManagerRequest, PeerType, Ping, Pong, QueryPeerStats,
+    RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom,
+    StateResponseInfo,
+};
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::checked_feature;
@@ -33,11 +40,12 @@ use near_store::Store;
 use rand::thread_rng;
 use tokio_util::sync::PollSemaphore;
 
+use crate::peer::codec::Codec;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
-use crate::routing::codec::Codec;
 use crate::stats::metrics;
 use crate::stats::metrics::NetworkMetrics;
+use crate::types::{FullPeerInfo, NetworkClientMessages, NetworkRequests, NetworkResponses};
 use crate::{RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse};
 
 #[cfg(all(
@@ -45,31 +53,22 @@ use crate::{RoutingTableActor, RoutingTableMessages, RoutingTableMessagesRespons
     feature = "protocol_feature_routing_exchange_algorithm"
 ))]
 use crate::routing::edge::SimpleEdge;
-
+use crate::routing::edge::{Edge, EdgeInfo, EdgeType};
+use crate::routing::edge_verifier_actor::{EdgeVerifierActor, EdgeVerifierHelper};
 use crate::routing::routing::{
-    EdgeType, EdgeVerifierHelper, PeerRequestResult, RoutingTableView, DELETE_PEERS_AFTER_TIME,
-    MAX_NUM_PEERS,
+    PeerRequestResult, RoutingTableView, DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS,
 };
-
-use crate::routing::edge_verifier_actor::EdgeVerifierActor;
 use crate::routing::routing_table_actor::Prune;
-
-use crate::routing::edge::{Edge, EdgeInfo};
 #[cfg(feature = "test_features")]
 use crate::types::SetAdvOptions;
 use crate::types::{
-    AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, EdgeList,
-    FullPeerInfo, InboundTcpConnect, KnownPeerState, KnownPeerStatus, KnownProducer,
-    NetworkClientMessages, NetworkConfig, NetworkInfo, NetworkRequests, NetworkResponses,
-    NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash,
-    PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerManagerRequest,
-    PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong,
-    QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, SendMessage, StateResponseInfo, StopMsg, SyncData, Unregister,
+    Consolidate, ConsolidateResponse, EdgeList, GetPeerId, GetPeerIdResult, NetworkInfo,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerRequest, PeerResponse,
+    PeersRequest, PeersResponse, SendMessage, StopMsg, SyncData, Unregister,
 };
-use crate::types::{GetPeerId, GetPeerIdResult};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{RoutingSyncV2, RoutingVersion2};
+use crate::PeerInfo;
 use near_rate_limiter::{ThrottleController, ThrottledFrameRead};
 
 /// How often to request peers from active peers.
@@ -1390,7 +1389,7 @@ impl PeerManagerActor {
             Ok(peer_id) => peer_id,
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                near_metrics::inc_counter(&metrics::DROP_MESSAGE_UNKNOWN_ACCOUNT);
+                metrics::DROP_MESSAGE_UNKNOWN_ACCOUNT.inc();
                 debug!(target: "network", "{:?} Drop message to {} Reason {:?}. Message {:?}",
                        self.config.account_id,
                        account_id,

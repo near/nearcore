@@ -1205,18 +1205,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
-        let genesis_height = self.genesis_config.genesis_height;
-        macro_rules! unwrap_result_or_return {
-            ($obj: expr) => {
-                match $obj {
-                    Ok(value) => value,
-                    Err(_) => {
-                        return genesis_height;
-                    }
-                }
-            };
-        }
-        let get_gc_stop_height_inner = || -> Result<BlockHeight, Error> {
+        (|| -> Result<BlockHeight, Error> {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
             // an epoch must have a first block.
             let epoch_first_block = *epoch_manager.get_block_info(block_hash)?.epoch_first_block();
@@ -1232,8 +1221,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
             }
             Ok(epoch_start_height)
-        };
-        unwrap_result_or_return!(get_gc_stop_height_inner())
+        }())
+        .unwrap_or(self.genesis_config.genesis_height)
     }
 
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {

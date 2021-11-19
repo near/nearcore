@@ -3,6 +3,7 @@ mod contract_preload;
 mod rs_contract;
 mod runtime_errors;
 mod ts_contract;
+mod wasm_validation;
 
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;

@@ -35,11 +35,11 @@ pub struct FastGasCounter {
     /// and the host code.
 
     /// The amount of gas that was irreversibly used for contract execution.
-    burnt_gas: u64,
+    pub burnt_gas: u64,
     /// Hard gas limit for execution
-    gas_limit: u64,
+    pub gas_limit: u64,
     /// Single WASM opcode cost
-    opcode_cost: u64,
+    pub opcode_cost: u64,
 }
 
 /// Gas counter (a part of VMlogic)
@@ -113,7 +113,7 @@ impl GasCounter {
             self.promises_gas = new_promises_gas;
             Ok(())
         } else {
-            Err(self.process_gas_limit(new_burnt_gas, new_used_gas))
+            Err(self.process_gas_limit(new_burnt_gas, new_used_gas).into())
         }
     }
 
@@ -125,13 +125,12 @@ impl GasCounter {
             self.fast_counter.burnt_gas = new_burnt_gas;
             Ok(())
         } else {
-            Err(self.process_gas_limit(new_burnt_gas, new_burnt_gas + self.promises_gas))
+            Err(self.process_gas_limit(new_burnt_gas, new_burnt_gas + self.promises_gas).into())
         }
     }
 
-    fn process_gas_limit(&mut self, new_burnt_gas: Gas, new_used_gas: Gas) -> VMLogicError {
+    pub fn process_gas_limit(&mut self, new_burnt_gas: Gas, new_used_gas: Gas) -> HostError {
         use std::cmp::min;
-
         // Never burn more gas than what was paid for.
         let hard_burnt_limit = min(self.prepaid_gas, self.max_gas_burnt);
         self.fast_counter.burnt_gas = min(new_burnt_gas, hard_burnt_limit);
@@ -154,12 +153,28 @@ impl GasCounter {
         } else {
             HostError::GasExceeded
         }
-        .into()
     }
 
     pub fn pay_wasm_gas(&mut self, opcodes: u32) -> Result<()> {
         let value = Gas::from(opcodes) * self.fast_counter.opcode_cost;
         self.burn_gas(value)
+    }
+
+    /// Very special function to get the gas counter pointer for generated machine code.
+    /// Please do not use, unless fully understand Rust aliasing and other consequences.
+    /// Can be used to emit inlined code like `pay_wasm_gas()`, i.e.
+    ///    mov base, gas_counter_raw_ptr
+    ///    mov rax, [base + 0] ; current burnt gas
+    ///    mov rcx, [base + 16] ; opcode cost
+    ///    imul rcx, block_ops_count ; block cost
+    ///    add rax, rcx ; new burnt gas
+    ///    jo emit_integer_overflow
+    ///    cmp rax, [base + 8] ; unsigned compare with burnt limit
+    ///    mov [base + 0], rax
+    ///    ja emit_gas_exceeded
+    pub fn gas_counter_raw_ptr(&mut self) -> *mut FastGasCounter {
+        use std::ptr;
+        ptr::addr_of_mut!(self.fast_counter)
     }
 
     #[inline]
@@ -271,11 +286,11 @@ impl GasCounter {
 
 #[cfg(test)]
 mod tests {
-    use crate::HostError;
+    use crate::{ExtCostsConfig, HostError};
     use near_primitives_core::types::Gas;
 
     fn make_test_counter(max_burnt: Gas, prepaid: Gas, is_view: bool) -> super::GasCounter {
-        super::GasCounter::new(Default::default(), max_burnt, 1, prepaid, is_view)
+        super::GasCounter::new(ExtCostsConfig::test(), max_burnt, 1, prepaid, is_view)
     }
 
     #[test]

@@ -8,6 +8,21 @@ use pwasm_utils::{self, rules};
 use near_vm_errors::PrepareError;
 use near_vm_logic::VMConfig;
 
+pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatures {
+    reference_types: false,
+    // wasmer singlepass compiler most likely requires multi_value return values to be disabled.
+    multi_value: false,
+    bulk_memory: false,
+    module_linking: false,
+    simd: false,
+    threads: false,
+    tail_call: false,
+    deterministic_only: false,
+    multi_memory: false,
+    exceptions: false,
+    memory64: false,
+};
+
 struct ContractModule<'a> {
     module: elements::Module,
     config: &'a VMConfig,
@@ -15,7 +30,10 @@ struct ContractModule<'a> {
 
 impl<'a> ContractModule<'a> {
     fn init(original_code: &[u8], config: &'a VMConfig) -> Result<Self, PrepareError> {
-        wasmparser::validate(original_code, None).map_err(|_| PrepareError::Deserialization)?;
+        wasmparser::Validator::new()
+            .wasm_features(WASM_FEATURES)
+            .validate_all(original_code)
+            .map_err(|_| PrepareError::Deserialization)?;
         let module = elements::deserialize_buffer(original_code)
             .map_err(|_| PrepareError::Deserialization)?;
         Ok(ContractModule { module, config })
