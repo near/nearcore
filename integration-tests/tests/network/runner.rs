@@ -219,55 +219,53 @@ impl StateMachine {
                     },
                 ));
             }
-            Action::CheckRoutingTable(u, expected) => {
-                self.actions.push(Box::new(
-                    move |info: SharedRunningInfo,
-                          flag: Arc<AtomicBool>,
-                          _ctx: &mut Context<WaitOrTimeoutActor>,
-                          _runner| {
-                        debug!(target: "network", "runner.rs: Action {:?}", action_clone);
-                        let expected = expected
-                            .clone()
-                            .into_iter()
-                            .map(|(target, routes)| {
-                                (
-                                    info.read().unwrap().peers_info[target].id.clone(),
-                                    routes
-                                        .into_iter()
-                                        .map(|hop| info.read().unwrap().peers_info[hop].id.clone())
-                                        .collect(),
-                                )
-                            })
-                            .collect();
+            Action::CheckRoutingTable(u, expected) => self.actions.push(Box::new(
+                move |info: SharedRunningInfo,
+                      flag: Arc<AtomicBool>,
+                      _ctx: &mut Context<WaitOrTimeoutActor>,
+                      _runner| {
+                    debug!(target: "network", "runner.rs: Action {:?}", action_clone);
+                    let expected = expected
+                        .clone()
+                        .into_iter()
+                        .map(|(target, routes)| {
+                            (
+                                info.read().unwrap().peers_info[target].id.clone(),
+                                routes
+                                    .into_iter()
+                                    .map(|hop| info.read().unwrap().peers_info[hop].id.clone())
+                                    .collect(),
+                            )
+                        })
+                        .collect();
 
-                        actix::spawn(
-                            info.read()
-                                .unwrap()
-                                .pm_addr
-                                .get(u)
-                                .unwrap()
-                                .send(PeerManagerMessageRequest::NetworkRequests(
-                                    NetworkRequests::FetchRoutingTable,
-                                ))
-                                .map_err(|_| ())
-                                .and_then(move |res: PeerManagerMessageResponse| {
-                                    if let NetworkResponses::RoutingTableInfo(routing_table) =
-                                        res.as_network_response()
-                                    {
-                                        if expected_routing_tables(
-                                            (*routing_table.peer_forwarding.as_ref()).clone(),
-                                            expected,
-                                        ) {
-                                            flag.store(true, Ordering::Relaxed);
-                                        }
+                    actix::spawn(
+                        info.read()
+                            .unwrap()
+                            .pm_addr
+                            .get(u)
+                            .unwrap()
+                            .send(PeerManagerMessageRequest::NetworkRequests(
+                                NetworkRequests::FetchRoutingTable,
+                            ))
+                            .map_err(|_| ())
+                            .and_then(move |res: PeerManagerMessageResponse| {
+                                if let NetworkResponses::RoutingTableInfo(routing_table) =
+                                    res.as_network_response()
+                                {
+                                    if expected_routing_tables(
+                                        (*routing_table.peer_forwarding.as_ref()).clone(),
+                                        expected,
+                                    ) {
+                                        flag.store(true, Ordering::Relaxed);
                                     }
-                                    future::ok(())
-                                })
-                                .map(drop),
-                        );
-                    },
-                ))
-            }
+                                }
+                                future::ok(())
+                            })
+                            .map(drop),
+                    );
+                },
+            )),
             Action::CheckAccountId(source, known_validators) => {
                 self.actions.push(Box::new(
                     move |info: SharedRunningInfo,
@@ -310,11 +308,11 @@ impl StateMachine {
             }
             Action::PingTo(source, nonce, target) => {
                 self.actions.push(Box::new(
-                    debug!(target: "network", "runner.rs: Action {:?}", action_clone);
                     move |info: SharedRunningInfo,
                           flag: Arc<AtomicBool>,
                           _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
+                        debug!(target: "network", "runner.rs: Action {:?}", action_clone);
                         let target = info.read().unwrap().peers_info[target].id.clone();
                         let _ = info.read().unwrap().pm_addr[source].do_send(
                             PeerManagerMessageRequest::NetworkRequests(NetworkRequests::PingTo(
@@ -327,11 +325,11 @@ impl StateMachine {
             }
             Action::Stop(source) => {
                 self.actions.push(Box::new(
-                    debug!(target: "network", "runner.rs: Action {:?}", action_clone);
                     move |info: SharedRunningInfo,
                           flag: Arc<AtomicBool>,
                           _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
+                        debug!(target: "network", "runner.rs: Action {:?}", action_clone);
                         actix::spawn(
                             info.read()
                                 .unwrap()
@@ -351,11 +349,11 @@ impl StateMachine {
             }
             Action::Wait(time) => {
                 self.actions.push(Box::new(
-                    debug!(target: "network", "runner.rs: Action {:?}", action_clone);
                     move |_info: SharedRunningInfo,
                           flag: Arc<AtomicBool>,
                           ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
+                        debug!(target: "network", "runner.rs: Action {:?}", action_clone);
                         ctx.run_later(Duration::from_millis(time as u64), move |_, _| {
                             flag.store(true, Ordering::Relaxed);
                         });
@@ -384,7 +382,7 @@ impl StateMachine {
                                 (nonce, info.read().unwrap().peers_info[source].id.clone(), count)
                             })
                             .collect();
-
+let action_clone2 = action_clone.clone();
                         actix::spawn(
                             info.read()
                                 .unwrap()
@@ -396,7 +394,7 @@ impl StateMachine {
                                 ))
                                 .map_err(|_| ())
                                 .and_then(move |res| {
-                                    debug!(target: "network", "runner.rs(2): Action {:?}", action_clone);
+                                    debug!(target: "network", "runner.rs(2): Action {:?}", action_clone2);
                                     if let NetworkResponses::PingPongInfo { pings, pongs } =
                                         res.as_network_response()
                                     {
@@ -904,7 +902,7 @@ pub fn change_account_id(node_id: usize, account_id: AccountId) -> ActionFn {
               flag: Arc<AtomicBool>,
               _ctx: &mut Context<WaitOrTimeoutActor>,
               runner: Addr<Runner>| {
-            debug!(target: "network", "runner.rs change_account_id {:?}", (node_id, account_id));
+            debug!(target: "network", "runner.rs change_account_id {:?}", (node_id, account_id.clone()));
             actix::spawn(
                 runner
                     .send(RunnerMessage::ChangeAccountId(node_id, account_id.clone()))
