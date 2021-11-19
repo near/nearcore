@@ -22,7 +22,7 @@ steps:
   - label: "check unused dependencies"
     command: |
       source ~/.cargo/env && set -eux
-      cargo install cargo-udeps --locked
+      cargo +nightly install cargo-udeps --locked
       cargo +nightly udeps -p near-network
 
     timeout: 60
