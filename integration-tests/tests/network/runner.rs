@@ -120,6 +120,7 @@ pub fn setup_network_node(
 }
 
 // TODO: Deprecate this in favor of separate functions.
+#[derive(Debug, Clone)]
 pub enum Action {
     AddEdge(usize, usize),
     CheckRoutingTable(usize, Vec<(usize, Vec<usize>)>),
@@ -160,6 +161,8 @@ impl StateMachine {
 
     pub fn push(&mut self, action: Action) {
         let num_prev_actions = self.actions.len();
+        let action_clone = action.clone();
+        let can_write_log = Arc::new(AtomicBool::new(true));
         match action {
             #[cfg(feature = "test_features")]
             Action::SetOptions { target, max_num_peers } => {
@@ -168,6 +171,9 @@ impl StateMachine {
                           flag: Arc<AtomicBool>,
                           _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
+                        if can_write_log.swap(false, Ordering::Relaxed) == true {
+                            debug!(target: "network", "runner.rs: Action {} {:?}", num_prev_actions, action_clone);
+                        }
                         let addr = info.read().unwrap().pm_addr[target].clone();
                         actix::spawn(
                             addr.send(PeerManagerMessageRequest::SetAdvOptions(SetAdvOptions {
@@ -195,6 +201,10 @@ impl StateMachine {
                           flag: Arc<AtomicBool>,
                           _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
+                        if can_write_log.swap(false, Ordering::Relaxed) == true {
+                            debug!(target: "network", "runner.rs: Action {} {:?}", num_prev_actions, action_clone);
+                        }
+
                         let addr = info.read().unwrap().pm_addr[u].clone();
                         let peer_info = info.read().unwrap().peers_info[v].clone();
                         actix::spawn(
@@ -214,61 +224,66 @@ impl StateMachine {
                     },
                 ));
             }
-            Action::CheckRoutingTable(u, expected) => {
-                debug!(target: "network", "Action::CheckRoutingTable {} {:?}", u, expected);
-                self.actions.push(Box::new(
-                    move |info: SharedRunningInfo,
-                          flag: Arc<AtomicBool>,
-                          _ctx: &mut Context<WaitOrTimeoutActor>,
-                          _runner| {
-                        let expected = expected
-                            .clone()
-                            .into_iter()
-                            .map(|(target, routes)| {
-                                (
-                                    info.read().unwrap().peers_info[target].id.clone(),
-                                    routes
-                                        .into_iter()
-                                        .map(|hop| info.read().unwrap().peers_info[hop].id.clone())
-                                        .collect(),
-                                )
-                            })
-                            .collect();
+            Action::CheckRoutingTable(u, expected) => self.actions.push(Box::new(
+                move |info: SharedRunningInfo,
+                      flag: Arc<AtomicBool>,
+                      _ctx: &mut Context<WaitOrTimeoutActor>,
+                      _runner| {
+                    if can_write_log.swap(false, Ordering::Relaxed) == true {
+                        debug!(target: "network", "runner.rs: Action {} {:?}", num_prev_actions, action_clone);
+                    }
 
-                        actix::spawn(
-                            info.read()
-                                .unwrap()
-                                .pm_addr
-                                .get(u)
-                                .unwrap()
-                                .send(PeerManagerMessageRequest::NetworkRequests(
-                                    NetworkRequests::FetchRoutingTable,
-                                ))
-                                .map_err(|_| ())
-                                .and_then(move |res: PeerManagerMessageResponse| {
-                                    if let NetworkResponses::RoutingTableInfo(routing_table) =
-                                        res.as_network_response()
-                                    {
-                                        if expected_routing_tables(
-                                            (*routing_table.peer_forwarding.as_ref()).clone(),
-                                            expected,
-                                        ) {
-                                            flag.store(true, Ordering::Relaxed);
-                                        }
+                    let expected = expected
+                        .clone()
+                        .into_iter()
+                        .map(|(target, routes)| {
+                            (
+                                info.read().unwrap().peers_info[target].id.clone(),
+                                routes
+                                    .into_iter()
+                                    .map(|hop| info.read().unwrap().peers_info[hop].id.clone())
+                                    .collect(),
+                            )
+                        })
+                        .collect();
+
+                    actix::spawn(
+                        info.read()
+                            .unwrap()
+                            .pm_addr
+                            .get(u)
+                            .unwrap()
+                            .send(PeerManagerMessageRequest::NetworkRequests(
+                                NetworkRequests::FetchRoutingTable,
+                            ))
+                            .map_err(|_| ())
+                            .and_then(move |res: PeerManagerMessageResponse| {
+                                if let NetworkResponses::RoutingTableInfo(routing_table) =
+                                    res.as_network_response()
+                                {
+                                    if expected_routing_tables(
+                                        (*routing_table.peer_forwarding.as_ref()).clone(),
+                                        expected,
+                                    ) {
+                                        flag.store(true, Ordering::Relaxed);
                                     }
-                                    future::ok(())
-                                })
-                                .map(drop),
-                        );
-                    },
-                ))
-            }
+                                }
+                                future::ok(())
+                            })
+                            .map(drop),
+                    );
+                },
+            )),
             Action::CheckAccountId(source, known_validators) => {
                 self.actions.push(Box::new(
                     move |info: SharedRunningInfo,
                           flag: Arc<AtomicBool>,
                           _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
+                        if can_write_log.swap(false, Ordering::Relaxed) == true {
+                            debug!(target: "network", "runner.rs: Action {} {:?}", num_prev_actions, action_clone);
+                        }
+
                         let expected_known: Vec<_> = known_validators
                             .clone()
                             .into_iter()
@@ -308,6 +323,10 @@ impl StateMachine {
                           flag: Arc<AtomicBool>,
                           _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
+                        if can_write_log.swap(false, Ordering::Relaxed) == true {
+                            debug!(target: "network", "runner.rs: Action {} {:?}", num_prev_actions, action_clone);
+                        }
+
                         let target = info.read().unwrap().peers_info[target].id.clone();
                         let _ = info.read().unwrap().pm_addr[source].do_send(
                             PeerManagerMessageRequest::NetworkRequests(NetworkRequests::PingTo(
@@ -324,6 +343,10 @@ impl StateMachine {
                           flag: Arc<AtomicBool>,
                           _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
+                        if can_write_log.swap(false, Ordering::Relaxed) == true {
+                            debug!(target: "network", "runner.rs: Action {} {:?}", num_prev_actions, action_clone);
+                        }
+
                         actix::spawn(
                             info.read()
                                 .unwrap()
@@ -347,6 +370,10 @@ impl StateMachine {
                           flag: Arc<AtomicBool>,
                           ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
+                        if can_write_log.swap(false, Ordering::Relaxed) == true {
+                            debug!(target: "network", "runner.rs: Action {} {:?}", num_prev_actions, action_clone);
+                        }
+
                         ctx.run_later(Duration::from_millis(time as u64), move |_, _| {
                             flag.store(true, Ordering::Relaxed);
                         });
@@ -359,6 +386,10 @@ impl StateMachine {
                           flag: Arc<AtomicBool>,
                           _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
+                        if can_write_log.swap(false, Ordering::Relaxed) == true {
+                            debug!(target: "network", "runner.rs: Action {} {:?}", num_prev_actions, action_clone);
+                        }
+
                         let pings_expected: Vec<_> = pings
                             .clone()
                             .into_iter()
@@ -374,7 +405,6 @@ impl StateMachine {
                                 (nonce, info.read().unwrap().peers_info[source].id.clone(), count)
                             })
                             .collect();
-
                         actix::spawn(
                             info.read()
                                 .unwrap()
@@ -389,7 +419,6 @@ impl StateMachine {
                                     if let NetworkResponses::PingPongInfo { pings, pongs } =
                                         res.as_network_response()
                                     {
-
                                         let ping_ok = pings.len() == pings_expected.len()
                                             && pings_expected.clone().into_iter().all(
                                                 |(nonce, source, count)| {
@@ -411,8 +440,6 @@ impl StateMachine {
                                                     })
                                                 },
                                             );
-                                        debug!(target: "network", "{}: ping, pong check : {} {:?} {:?} expected {:?} {:?}",
-                                            num_prev_actions, source, pings, pongs, pings_expected, pongs_expected);
                                         if ping_ok && pong_ok {
                                             flag.store(true, Ordering::Relaxed);
                                         }
@@ -699,8 +726,12 @@ impl Actor for Runner {
 
         let info = self.info.as_ref().cloned().unwrap();
 
+        let can_write_log = Arc::new(AtomicBool::new(true));
         WaitOrTimeoutActor::new(
             Box::new(move |ctx| {
+                if can_write_log.swap(false, Ordering::Relaxed) == true {
+                    debug!(target: "network", "runner.rs: WaitOrTimeoutActor");
+                }
                 if flag.load(Ordering::Relaxed) {
                     pointer = Some(pointer.map_or(0, |x| x + 1));
                     flag = Arc::new(AtomicBool::new(false));
@@ -759,11 +790,16 @@ pub fn check_expected_connections(
     expected_connections_lo: Option<usize>,
     expected_connections_hi: Option<usize>,
 ) -> ActionFn {
+    let can_write_log = Arc::new(AtomicBool::new(true));
     Box::new(
         move |info: SharedRunningInfo,
               flag: Arc<AtomicBool>,
               _ctx: &mut Context<WaitOrTimeoutActor>,
               _runner| {
+            if can_write_log.swap(false, Ordering::Relaxed) == true {
+                debug!(target: "network", "runner.rs check_expected_connections {:?}", (node_id, expected_connections_lo, expected_connections_hi));
+            }
+
             actix::spawn(
                 info.read()
                     .unwrap()
@@ -798,6 +834,7 @@ pub fn check_expected_connections(
 
 /// Check that `node_id` has a direct connection to `target_id`.
 pub fn check_direct_connection(node_id: usize, target_id: usize) -> ActionFn {
+    let can_write_log = Arc::new(AtomicBool::new(true));
     Box::new(
         move |info: SharedRunningInfo,
               flag: Arc<AtomicBool>,
@@ -805,6 +842,9 @@ pub fn check_direct_connection(node_id: usize, target_id: usize) -> ActionFn {
               _runner| {
             let info = info.read().unwrap();
             let target_peer_id = info.peers_info[target_id].id.clone();
+            if can_write_log.swap(false, Ordering::Relaxed) == true {
+                debug!(target: "network", "runner.rs check_direct_connection {:?}", (node_id, target_id));
+            }
 
             actix::spawn(
                 info.pm_addr
@@ -835,11 +875,15 @@ pub fn check_direct_connection(node_id: usize, target_id: usize) -> ActionFn {
 
 /// Restart a node that was already stopped.
 pub fn restart(node_id: usize) -> ActionFn {
+    let can_write_log = Arc::new(AtomicBool::new(true));
     Box::new(
         move |_info: SharedRunningInfo,
               flag: Arc<AtomicBool>,
               _ctx: &mut Context<WaitOrTimeoutActor>,
               runner: Addr<Runner>| {
+            if can_write_log.swap(false, Ordering::Relaxed) == true {
+                debug!(target: "network", "runner.rs restart {:?}", (node_id));
+            }
             actix::spawn(
                 runner
                     .send(RunnerMessage::StartNode(node_id))
@@ -856,11 +900,15 @@ pub fn restart(node_id: usize) -> ActionFn {
 
 /// Ban peer `banned_peer` from perspective of `target_peer`.
 pub fn ban_peer(target_peer: usize, banned_peer: usize) -> ActionFn {
+    let can_write_log = Arc::new(AtomicBool::new(true));
     Box::new(
         move |info: SharedRunningInfo,
               flag: Arc<AtomicBool>,
               _ctx: &mut Context<WaitOrTimeoutActor>,
               _runner| {
+            if can_write_log.swap(false, Ordering::Relaxed) == true {
+                debug!(target: "network", "runner.rs ban_peer {:?}", (target_peer, banned_peer));
+            }
             let info = info.read().unwrap();
             let banned_peer_id = info.peers_info[banned_peer].id.clone();
             actix::spawn(
@@ -882,11 +930,15 @@ pub fn ban_peer(target_peer: usize, banned_peer: usize) -> ActionFn {
 /// Change account id from a stopped peer. Notice this will also change its peer id, since
 /// peer_id is derived from account id with NetworkConfig::from_seed
 pub fn change_account_id(node_id: usize, account_id: AccountId) -> ActionFn {
+    let can_write_log = Arc::new(AtomicBool::new(true));
     Box::new(
         move |_info: SharedRunningInfo,
               flag: Arc<AtomicBool>,
               _ctx: &mut Context<WaitOrTimeoutActor>,
               runner: Addr<Runner>| {
+            if can_write_log.swap(false, Ordering::Relaxed) == true {
+                debug!(target: "network", "runner.rs change_account_id {:?}", (node_id, account_id.clone()));
+            }
             actix::spawn(
                 runner
                     .send(RunnerMessage::ChangeAccountId(node_id, account_id.clone()))
@@ -906,11 +958,15 @@ pub fn wait_for<T>(predicate: T) -> ActionFn
 where
     T: 'static + Fn() -> bool,
 {
+    let can_write_log = Arc::new(AtomicBool::new(true));
     Box::new(
         move |_info: SharedRunningInfo,
               flag: Arc<AtomicBool>,
               _ctx: &mut Context<WaitOrTimeoutActor>,
               _runner: Addr<Runner>| {
+            if can_write_log.swap(false, Ordering::Relaxed) == true {
+                debug!(target: "network", "runner.rs wait_for predicate");
+            }
             if predicate() {
                 flag.store(true, Ordering::Relaxed);
             }

@@ -37,8 +37,8 @@ use near_primitives::{logging, unwrap_option_or_return};
 use near_rate_limiter::ThrottleController;
 use near_rust_allocator_proxy::allocator::get_tid;
 
+use crate::peer::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::peer::tracker::Tracker;
-use crate::routing::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::routing::edge::{Edge, EdgeInfo};
 use crate::stats::metrics::{self, NetworkMetrics};
 use crate::types::{

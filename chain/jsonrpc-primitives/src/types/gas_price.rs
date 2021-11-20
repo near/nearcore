@@ -38,10 +38,9 @@ impl From<near_client_primitives::types::GetGasPriceError> for RpcGasPriceError 
             }
             GetGasPriceError::Unreachable { ref error_message } => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                near_metrics::inc_counter_vec(
-                    &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
-                    &["RpcGasPriceError"],
-                );
+                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
+                    .with_label_values(&["RpcGasPriceError"])
+                    .inc();
                 Self::InternalError { error_message: error.to_string() }
             }
         }
