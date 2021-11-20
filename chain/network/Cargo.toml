@@ -27,7 +27,6 @@ tokio-util = { version = "0.6", features = ["codec"] }
 tracing = "0.1.13"
 
 delay-detector = { path = "../../tools/delay_detector", optional = true}
-near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-metrics = { path = "../../core/metrics" }
 near-network-primitives = { path = "../network-primitives" }

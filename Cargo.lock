@@ -2762,7 +2762,6 @@ dependencies = [
  "lazy_static",
  "near-actix-test-utils",
  "near-chain",
- "near-chain-configs",
  "near-crypto",
  "near-logger-utils",
  "near-metrics",
@@ -2892,7 +2891,6 @@ dependencies = [
  "futures-core",
  "log",
  "pin-project-lite",
- "slab",
  "tokio",
  "tokio-util",
 ]
