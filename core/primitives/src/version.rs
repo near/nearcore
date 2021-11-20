@@ -117,6 +117,9 @@ pub enum ProtocolFeature {
     /// Lowers the cost of wasm instruction due to switch to faster,
     /// compiler-intrinsics based gas counter.
     LowerRegularOpCost2,
+    /// Limit number of wasm functions in one contract. See
+    /// <https://github.com/near/nearcore/pull/4954> for more details.
+    LimitContractFunctionsNumber,
 
     // nightly features
     #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -132,10 +135,6 @@ pub enum ProtocolFeature {
     AliasValidatorSelectionAlgorithm,
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingExchangeAlgorithm,
-    /// Limit number of wasm functions in one contract. See
-    /// <https://github.com/near/nearcore/pull/4954> for more details.
-    #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
-    LimitContractFunctionsNumber,
 }
 
 /// Current latest stable version of the protocol.
@@ -181,7 +180,8 @@ impl ProtocolFeature {
             | ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost
             | ProtocolFeature::LowerRegularOpCost
             | ProtocolFeature::SimpleNightshade => 48,
-            ProtocolFeature::LowerRegularOpCost2 => 49,
+            ProtocolFeature::LowerRegularOpCost2
+            | ProtocolFeature::LimitContractFunctionsNumber => 49,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -194,8 +194,6 @@ impl ProtocolFeature {
             ProtocolFeature::AliasValidatorSelectionAlgorithm => 125,
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
-            #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
-            ProtocolFeature::LimitContractFunctionsNumber => 123,
         }
     }
 }
