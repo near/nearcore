@@ -653,7 +653,7 @@ pub mod epoch_info {
         ) -> Self {
             checked_feature!(
                 "protocol_feature_new_validator_selection_algorithm",
-                NewValidatorSelectionAlgorithm,
+                AliasValidatorSelectionAlgorithm,
                 protocol_version,
                 {
                     let stake_weights = |ids: &[ValidatorId]| -> WeightedIndex {

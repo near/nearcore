@@ -125,8 +125,11 @@ pub enum ProtocolFeature {
     AltBn128,
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     ChunkOnlyProducers,
+    /// Changes how we select validators for epoch and how we select validators within epoch. See
+    /// https://github.com/near/NEPs/pull/167 for general description, note that we would not
+    /// introduce chunk-only validators with this feature
     #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
-    NewValidatorSelectionAlgorithm,
+    AliasValidatorSelectionAlgorithm,
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingExchangeAlgorithm,
     /// Limit number of wasm functions in one contract. See
@@ -188,7 +191,7 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
             ProtocolFeature::ChunkOnlyProducers => 126,
             #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
-            ProtocolFeature::NewValidatorSelectionAlgorithm => 125,
+            ProtocolFeature::AliasValidatorSelectionAlgorithm => 125,
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
             #[cfg(feature = "protocol_feature_limit_contract_functions_number")]

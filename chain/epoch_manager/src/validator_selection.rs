@@ -14,6 +14,7 @@ use std::cmp::{self, Ordering};
 use std::collections::hash_map;
 use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
 
+/// Select validators for next epoch and generate epoch info
 pub fn proposals_to_epoch_info(
     epoch_config: &EpochConfig,
     rng_seed: RngSeed,
@@ -50,26 +51,24 @@ pub fn proposals_to_epoch_info(
         order_proposals(proposals.values().filter(|p| !p.is_chunk_only()).cloned());
     let (block_producers, bp_stake_threshold) =
         select_block_producers(&mut block_producer_proposals, max_bp_selected, min_stake_ratio);
-    let mut chunk_producer_proposals = order_proposals(proposals.into_iter().map(|(_, p)| p));
-    let (chunk_producers, cp_stake_threshold) = checked_feature!(
+    let (chunk_producer_proposals, chunk_producers, cp_stake_threshold) = checked_feature!(
         "protocol_feature_chunk_only_producers",
         ChunkOnlyProducers,
         next_version,
         {
+            let mut chunk_producer_proposals =
+                order_proposals(proposals.into_iter().map(|(_, p)| p));
             let max_cp_selected = max_bp_selected
                 + (epoch_config.validator_selection_config.num_chunk_only_producer_seats as usize);
-            select_chunk_producers(
+            let (chunk_producers, cp_stake_treshold) = select_chunk_producers(
                 &mut chunk_producer_proposals,
                 max_cp_selected,
                 min_stake_ratio,
                 num_shards,
-            )
+            );
+            (chunk_producer_proposals, chunk_producers, cp_stake_treshold)
         },
-        {
-            let _ = chunk_producer_proposals;
-            chunk_producer_proposals = block_producer_proposals;
-            (block_producers.clone(), bp_stake_threshold)
-        }
+        { (block_producer_proposals, block_producers.clone(), bp_stake_threshold) }
     );
 
     // since block producer proposals could become chunk producers, their actual stake threshold
@@ -154,6 +153,7 @@ pub fn proposals_to_epoch_info(
         },
         {
             if chunk_producers.is_empty() {
+                // All validators tried to unstake?
                 return Err(EpochError::NotEnoughValidators { num_validators: 0u64, num_shards });
             }
             (0..num_shards).map(|_| block_producers_settlement.clone()).collect()
@@ -185,6 +185,8 @@ pub fn proposals_to_epoch_info(
     ))
 }
 
+/// Generates proposals based on new proposals, last epoch validators/fishermen and validator
+/// kickouts
 fn proposals_with_rollover(
     proposals: Vec<ValidatorStake>,
     prev_epoch_info: &EpochInfo,

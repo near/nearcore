@@ -49,7 +49,7 @@ pub fn proposals_to_epoch_info(
 ) -> Result<EpochInfo, EpochError> {
     checked_feature!(
         "protocol_feature_new_validator_selection_algorithm",
-        NewValidatorSelectionAlgorithm,
+        AliasValidatorSelectionAlgorithm,
         next_version,
         {
             return crate::validator_selection::proposals_to_epoch_info(
