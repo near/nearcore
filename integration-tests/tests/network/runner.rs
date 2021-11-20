@@ -162,7 +162,7 @@ impl StateMachine {
     pub fn push(&mut self, action: Action) {
         let num_prev_actions = self.actions.len();
         let action_clone = action.clone();
-        let can_write_log = Arc::new(AtomicBool::new(false));
+        let can_write_log = Arc::new(AtomicBool::new(true));
         match action {
             #[cfg(feature = "test_features")]
             Action::SetOptions { target, max_num_peers } => {
@@ -726,7 +726,7 @@ impl Actor for Runner {
 
         let info = self.info.as_ref().cloned().unwrap();
 
-        let can_write_log = Arc::new(AtomicBool::new(false));
+        let can_write_log = Arc::new(AtomicBool::new(true));
         WaitOrTimeoutActor::new(
             Box::new(move |ctx| {
                 if can_write_log.swap(false, Ordering::Relaxed) == true {
@@ -790,7 +790,7 @@ pub fn check_expected_connections(
     expected_connections_lo: Option<usize>,
     expected_connections_hi: Option<usize>,
 ) -> ActionFn {
-    let can_write_log = Arc::new(AtomicBool::new(false));
+    let can_write_log = Arc::new(AtomicBool::new(true));
     Box::new(
         move |info: SharedRunningInfo,
               flag: Arc<AtomicBool>,
@@ -834,7 +834,7 @@ pub fn check_expected_connections(
 
 /// Check that `node_id` has a direct connection to `target_id`.
 pub fn check_direct_connection(node_id: usize, target_id: usize) -> ActionFn {
-    let can_write_log = Arc::new(AtomicBool::new(false));
+    let can_write_log = Arc::new(AtomicBool::new(true));
     Box::new(
         move |info: SharedRunningInfo,
               flag: Arc<AtomicBool>,
@@ -875,7 +875,7 @@ pub fn check_direct_connection(node_id: usize, target_id: usize) -> ActionFn {
 
 /// Restart a node that was already stopped.
 pub fn restart(node_id: usize) -> ActionFn {
-    let can_write_log = Arc::new(AtomicBool::new(false));
+    let can_write_log = Arc::new(AtomicBool::new(true));
     Box::new(
         move |_info: SharedRunningInfo,
               flag: Arc<AtomicBool>,
@@ -900,7 +900,7 @@ pub fn restart(node_id: usize) -> ActionFn {
 
 /// Ban peer `banned_peer` from perspective of `target_peer`.
 pub fn ban_peer(target_peer: usize, banned_peer: usize) -> ActionFn {
-    let can_write_log = Arc::new(AtomicBool::new(false));
+    let can_write_log = Arc::new(AtomicBool::new(true));
     Box::new(
         move |info: SharedRunningInfo,
               flag: Arc<AtomicBool>,
@@ -930,7 +930,7 @@ pub fn ban_peer(target_peer: usize, banned_peer: usize) -> ActionFn {
 /// Change account id from a stopped peer. Notice this will also change its peer id, since
 /// peer_id is derived from account id with NetworkConfig::from_seed
 pub fn change_account_id(node_id: usize, account_id: AccountId) -> ActionFn {
-    let can_write_log = Arc::new(AtomicBool::new(false));
+    let can_write_log = Arc::new(AtomicBool::new(true));
     Box::new(
         move |_info: SharedRunningInfo,
               flag: Arc<AtomicBool>,
@@ -958,7 +958,7 @@ pub fn wait_for<T>(predicate: T) -> ActionFn
 where
     T: 'static + Fn() -> bool,
 {
-    let can_write_log = Arc::new(AtomicBool::new(false));
+    let can_write_log = Arc::new(AtomicBool::new(true));
     Box::new(
         move |_info: SharedRunningInfo,
               flag: Arc<AtomicBool>,
