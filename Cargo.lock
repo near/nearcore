@@ -2891,7 +2891,6 @@ dependencies = [
  "futures-core",
  "log",
  "pin-project-lite",
- "slab",
  "tokio",
  "tokio-util",
 ]
