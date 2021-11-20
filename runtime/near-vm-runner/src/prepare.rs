@@ -156,7 +156,6 @@ impl<'a> ContractModule<'a> {
     }
 
     fn validate_functions_number(self) -> Result<Self, PrepareError> {
-        #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
         if let Some(max_functions_number) =
             self.config.limit_config.max_functions_number_per_contract
         {
