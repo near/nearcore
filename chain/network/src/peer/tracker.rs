@@ -41,13 +41,15 @@ impl CircularUniqueQueue {
 /// Also keeps track of number of bytes sent and received from this peer to prevent abuse.
 pub struct Tracker {
     /// Bytes we've sent.
+    /// TODO: After #5225 refactor code to make this private
     pub(crate) sent_bytes: RateCounter,
     /// Bytes we've received.
+    /// TODO: After #5225 refactor code to make this private
     pub(crate) received_bytes: RateCounter,
     /// Sent requests.
-    pub(crate) requested: CircularUniqueQueue,
+    requested: CircularUniqueQueue,
     /// Received elements.
-    pub(crate) received: CircularUniqueQueue,
+    received: CircularUniqueQueue,
 }
 
 impl Default for Tracker {
