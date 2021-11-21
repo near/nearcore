@@ -2048,12 +2048,47 @@ mod test {
             )
         }
 
+        pub fn new_with_minimum_stake_divisor(
+            prefix: &str,
+            validators: Vec<Vec<AccountId>>,
+            epoch_length: BlockHeightDelta,
+            has_reward: bool,
+            stake_divisor: u64,
+        ) -> Self {
+            Self::new_with_tracking_and_minimum_stake_divisor(
+                prefix,
+                validators,
+                epoch_length,
+                TrackedConfig::new_empty(),
+                has_reward,
+                Some(stake_divisor),
+            )
+        }
+
         pub fn new_with_tracking(
             prefix: &str,
             validators: Vec<Vec<AccountId>>,
             epoch_length: BlockHeightDelta,
             tracked_config: TrackedConfig,
             has_reward: bool,
+        ) -> Self {
+            Self::new_with_tracking_and_minimum_stake_divisor(
+                prefix,
+                validators,
+                epoch_length,
+                tracked_config,
+                has_reward,
+                None,
+            )
+        }
+
+        fn new_with_tracking_and_minimum_stake_divisor(
+            prefix: &str,
+            validators: Vec<Vec<AccountId>>,
+            epoch_length: BlockHeightDelta,
+            tracked_config: TrackedConfig,
+            has_reward: bool,
+            minimum_stake_divisor: Option<u64>,
         ) -> Self {
             let dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
             let store = create_store(&get_store_path(dir.path()));
@@ -2072,6 +2107,9 @@ mod test {
                 genesis.config.block_producer_kickout_threshold;
             if !has_reward {
                 genesis.config.max_inflation_rate = Rational::from_integer(0);
+            }
+            if let Some(minimum_stake_divisor) = minimum_stake_divisor {
+                genesis.config.minimum_stake_divisor = minimum_stake_divisor;
             }
             let genesis_total_supply = genesis.config.total_supply;
             let genesis_protocol_version = genesis.config.protocol_version;
@@ -2280,13 +2318,12 @@ mod test {
             &signer,
             CryptoHash::default(),
         );
-        let test2_stake_amount =
-            if cfg!(feature = "protocol_feature_new_validator_selection_algorithm") {
-                3600 * crate::NEAR_BASE
-            } else {
-                TESTING_INIT_STAKE
-            };
-        let transactions = if cfg!(feature = "protocol_feature_new_validator_selection_algorithm") {
+        let test2_stake_amount = if cfg!(feature = "protocol_feature_chunk_only_producers") {
+            3600 * crate::NEAR_BASE
+        } else {
+            TESTING_INIT_STAKE
+        };
+        let transactions = if cfg!(feature = "protocol_feature_chunk_only_producers") {
             // With the new validator selection algorithm, test2 needs to have less stake to
             // become a fisherman.
             let signer = InMemorySigner::from_seed(
@@ -2903,22 +2940,19 @@ mod test {
             0,
             true
         ));
-        assert!(!env.runtime.cares_about_shard(
-            Some(&validators[0]),
-            &env.head.last_block_hash,
-            1,
-            true
-        ));
+        assert!(
+            env.runtime.cares_about_shard(Some(&validators[0]), &env.head.last_block_hash, 1, true)
+                ^ env.runtime.cares_about_shard(
+                    Some(&validators[1]),
+                    &env.head.last_block_hash,
+                    1,
+                    true
+                )
+        );
         assert!(env.runtime.cares_about_shard(
             Some(&validators[1]),
             &env.head.last_block_hash,
             0,
-            true
-        ));
-        assert!(env.runtime.cares_about_shard(
-            Some(&validators[1]),
-            &env.head.last_block_hash,
-            1,
             true
         ));
 
@@ -3181,7 +3215,19 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new("test_fishermen_stake", vec![validators.clone()], 4, false);
+        let mut env = if cfg!(feature = "protocol_feature_new_validator_selection_algorithm")
+            && !cfg!(feature = "protocol_feature_chunk_only_producers")
+        {
+            TestEnv::new_with_minimum_stake_divisor(
+                "test_fishermen_stake",
+                vec![validators.clone()],
+                4,
+                false,
+                20000,
+            )
+        } else {
+            TestEnv::new("test_fishermen_stake", vec![validators.clone()], 4, false)
+        };
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -3251,7 +3297,19 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new("test_fishermen_unstake", vec![validators.clone()], 2, false);
+        let mut env = if cfg!(feature = "protocol_feature_new_validator_selection_algorithm")
+            && !cfg!(feature = "protocol_feature_chunk_only_producers")
+        {
+            TestEnv::new_with_minimum_stake_divisor(
+                "test_fishermen_unstake",
+                vec![validators.clone()],
+                2,
+                false,
+                20000,
+            )
+        } else {
+            TestEnv::new("test_fishermen_unstake", vec![validators.clone()], 2, false)
+        };
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))

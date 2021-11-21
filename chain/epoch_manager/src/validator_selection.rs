@@ -156,7 +156,18 @@ pub fn proposals_to_epoch_info(
                 // All validators tried to unstake?
                 return Err(EpochError::NotEnoughValidators { num_validators: 0u64, num_shards });
             }
-            (0..num_shards).map(|_| block_producers_settlement.clone()).collect()
+            let mut id = 0usize;
+            (0usize..(num_shards as usize))
+                .map(|shard_id| {
+                    (0..epoch_config.num_block_producer_seats_per_shard[shard_id])
+                        .map(|_| {
+                            let res = block_producers_settlement[id];
+                            id = (id + 1) % block_producers_settlement.len();
+                            res
+                        })
+                        .collect()
+                })
+                .collect()
         }
     );
 
