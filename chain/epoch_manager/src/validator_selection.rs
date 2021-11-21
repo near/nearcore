@@ -159,7 +159,8 @@ pub fn proposals_to_epoch_info(
             let mut id = 0usize;
             (0usize..(num_shards as usize))
                 .map(|shard_id| {
-                    (0..epoch_config.num_block_producer_seats_per_shard[shard_id])
+                    (0..epoch_config.num_block_producer_seats_per_shard[shard_id]
+                        .min(block_producers_settlement.len() as u64))
                         .map(|_| {
                             let res = block_producers_settlement[id];
                             id = (id + 1) % block_producers_settlement.len();
