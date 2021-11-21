@@ -1,10 +1,11 @@
-pub use near_network_primitives::types::PeerInfo;
-pub use peer_manager::peer_manager_actor::PeerManagerActor;
-pub use peer_manager::peer_store::iter_peers_from_store;
-pub use routing::routing_table_actor::{
+pub use crate::peer_manager::peer_manager_actor::PeerManagerActor;
+pub use crate::peer_manager::peer_store::iter_peers_from_store;
+pub use crate::routing::routing_table_actor::{
     RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
 };
-pub use stats::metrics;
+pub use crate::stats::metrics;
+// TODO(#5307)
+pub use near_network_primitives::types::PeerInfo;
 
 mod peer;
 mod peer_manager;
