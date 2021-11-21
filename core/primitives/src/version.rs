@@ -153,11 +153,11 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 49;
 #[cfg(feature = "nightly_protocol")]
 pub const PROTOCOL_VERSION: ProtocolVersion = 124;
 
-// #[cfg(all(
-//     feature = "protocol_feature_new_validator_selection_algorithm",
-//     not(feature = "protocol_feature_chunk_only_producers")
-// ))]
-// pub const PROTOCOL_VERSION: ProtocolVersion = 123;
+#[cfg(all(
+    feature = "protocol_feature_new_validator_selection_algorithm",
+    not(feature = "protocol_feature_chunk_only_producers")
+))]
+pub const PROTOCOL_VERSION: ProtocolVersion = 123;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
