@@ -121,12 +121,11 @@ pytest sanity/state_sync_fail.py
 #pytest sanity/garbage_collection_sharding_upgrade.py
 #pytest sanity/garbage_collection_sharding_upgrade.py --features nightly_protocol,nightly_protocol_features
 
-
-# TODO(#4618): Those tests are currently broken.  Comment out while we’re
-# working on a fix / deciding whether to remove them.
 pytest sanity/restart.py
 pytest sanity/restart.py --features nightly_protocol,nightly_protocol_features
 pytest sanity/rpc_finality.py
 pytest sanity/rpc_finality.py --features nightly_protocol,nightly_protocol_features
+# TODO(#4618): Those tests are currently broken.  Comment out while we’re
+# working on a fix / deciding whether to remove them.
 #pytest sanity/state_migration.py
 #pytest sanity/state_migration.py --features nightly_protocol,nightly_protocol_features

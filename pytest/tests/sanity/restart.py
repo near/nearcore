@@ -63,7 +63,6 @@ while max_height < BLOCKS1:
                 last_common[i][j] = height
                 last_common[j][i] = height
 
-        assert min_common() + 2 >= height, heights_report()
 
 assert min_common() + 2 >= BLOCKS1, heights_report()
 
