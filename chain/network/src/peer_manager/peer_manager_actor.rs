@@ -1,26 +1,18 @@
-use rand::seq::{IteratorRandom, SliceRandom};
-use std::cmp;
-use std::collections::{HashMap, HashSet};
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use std::mem::swap;
-use std::net::SocketAddr;
-use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
+use crate::peer::codec::Codec;
+use crate::peer::peer_actor::PeerActor;
+use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
+use crate::stats::metrics;
+use crate::stats::metrics::NetworkMetrics;
+use crate::types::{FullPeerInfo, NetworkClientMessages, NetworkRequests, NetworkResponses};
+use crate::{RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse};
 use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, SyncArbiter, WrapFuture,
 };
-use futures::task::Poll;
-use futures::{future, Stream, StreamExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Semaphore;
-use tracing::{debug, error, info, trace, warn};
-
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
+use futures::task::Poll;
+use futures::{future, Stream, StreamExt};
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Ban, BlockedPorts, InboundTcpConnect, KnownPeerState, KnownPeerStatus,
     KnownProducer, NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
@@ -37,16 +29,21 @@ use near_primitives::time::Clock;
 use near_primitives::types::{AccountId, ProtocolVersion};
 use near_primitives::utils::from_timestamp;
 use near_store::Store;
+use rand::seq::{IteratorRandom, SliceRandom};
 use rand::thread_rng;
+use std::cmp;
+use std::collections::{HashMap, HashSet};
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use std::mem::swap;
+use std::net::SocketAddr;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Semaphore;
 use tokio_util::sync::PollSemaphore;
-
-use crate::peer::codec::Codec;
-use crate::peer::peer_actor::PeerActor;
-use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
-use crate::stats::metrics;
-use crate::stats::metrics::NetworkMetrics;
-use crate::types::{FullPeerInfo, NetworkClientMessages, NetworkRequests, NetworkResponses};
-use crate::{RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse};
+use tracing::{debug, error, info, trace, warn};
 
 #[cfg(all(
     feature = "test_features",
