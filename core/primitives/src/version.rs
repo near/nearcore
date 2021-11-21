@@ -13,7 +13,7 @@ pub struct Version {
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 28;
+pub const DB_VERSION: DbVersion = 29;
 
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
@@ -114,6 +114,12 @@ pub enum ProtocolFeature {
     LowerDataReceiptAndEcrecoverBaseCost,
     /// Lowers the cost of wasm instruction due to switch to wasmer2.
     LowerRegularOpCost,
+    /// Lowers the cost of wasm instruction due to switch to faster,
+    /// compiler-intrinsics based gas counter.
+    LowerRegularOpCost2,
+    /// Limit number of wasm functions in one contract. See
+    /// <https://github.com/near/nearcore/pull/4954> for more details.
+    LimitContractFunctionsNumber,
 
     // nightly features
     #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -124,21 +130,17 @@ pub enum ProtocolFeature {
     ChunkOnlyProducers,
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingExchangeAlgorithm,
-    /// Limit number of wasm functions in one contract. See
-    /// <https://github.com/near/nearcore/pull/4954> for more details.
-    #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
-    LimitContractFunctionsNumber,
 }
 
 /// Current latest stable version of the protocol.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 48;
+pub const PROTOCOL_VERSION: ProtocolVersion = 49;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 123;
+pub const PROTOCOL_VERSION: ProtocolVersion = 124;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -161,6 +163,8 @@ impl ProtocolFeature {
             | ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost
             | ProtocolFeature::LowerRegularOpCost
             | ProtocolFeature::SimpleNightshade => 48,
+            ProtocolFeature::LowerRegularOpCost2
+            | ProtocolFeature::LimitContractFunctionsNumber => 49,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -171,8 +175,6 @@ impl ProtocolFeature {
             ProtocolFeature::ChunkOnlyProducers => 115,
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
-            #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
-            ProtocolFeature::LimitContractFunctionsNumber => 123,
         }
     }
 }

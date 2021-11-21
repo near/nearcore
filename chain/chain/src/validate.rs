@@ -241,9 +241,12 @@ fn validate_chunk_authorship(
     runtime_adapter: &dyn RuntimeAdapter,
     chunk_header: &ShardChunkHeader,
 ) -> Result<AccountId, Error> {
-    if runtime_adapter.verify_chunk_header_signature(chunk_header)? {
-        let epoch_id =
-            runtime_adapter.get_epoch_id_from_prev_block(&chunk_header.prev_block_hash())?;
+    let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(&chunk_header.prev_block_hash())?;
+    if runtime_adapter.verify_chunk_header_signature(
+        chunk_header,
+        &epoch_id,
+        &chunk_header.prev_block_hash(),
+    )? {
         let chunk_producer = runtime_adapter.get_chunk_producer(
             &epoch_id,
             chunk_header.height_created(),

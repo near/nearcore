@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::Utc;
+
 use num_rational::Rational;
 use tracing::debug;
 
@@ -56,6 +56,7 @@ use crate::types::{
 use crate::Doomslug;
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
 use near_primitives::epoch_manager::ShardConfig;
+use near_primitives::time::Clock;
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
 struct AccountNonce(AccountId, Nonce);
@@ -362,7 +363,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _chunk_hash: &ChunkHash,
         _signature: &Signature,
-        _prev_block_hash: &CryptoHash,
+        _epoch_id: &EpochId,
+        _last_kown_hash: &CryptoHash,
         _height_created: BlockHeight,
         _shard_id: ShardId,
     ) -> Result<bool, Error> {
@@ -1220,7 +1222,7 @@ pub fn setup_with_tx_validity_period(
     let chain = Chain::new(
         runtime.clone(),
         &ChainGenesis {
-            time: Utc::now(),
+            time: Clock::utc(),
             height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 100,
@@ -1267,7 +1269,7 @@ pub fn setup_with_validators(
     let chain = Chain::new(
         runtime.clone(),
         &ChainGenesis {
-            time: Utc::now(),
+            time: Clock::utc(),
             height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 100,
@@ -1386,7 +1388,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
 impl ChainGenesis {
     pub fn test() -> Self {
         ChainGenesis {
-            time: Utc::now(),
+            time: Clock::utc(),
             height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 0,
@@ -1402,7 +1404,7 @@ impl ChainGenesis {
 
 #[cfg(test)]
 mod test {
-    use std::time::Instant;
+    use std::convert::TryFrom;
 
     use borsh::BorshSerialize;
     use rand::Rng;
@@ -1410,6 +1412,7 @@ mod test {
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ReceiptList;
+    use near_primitives::time::Clock;
     use near_primitives::types::{AccountId, EpochId, NumShards};
     use near_store::test_utils::create_test_store;
 
@@ -1459,10 +1462,10 @@ mod test {
                 )
             })
             .collect::<Vec<_>>();
-        let start = Instant::now();
+        let start = Clock::instant();
         let naive_result = runtime_adapter.naive_build_receipt_hashes(&receipts);
         let naive_duration = start.elapsed();
-        let start = Instant::now();
+        let start = Clock::instant();
         let shard_layout = runtime_adapter.get_shard_layout(&EpochId::default()).unwrap();
         let prod_result = runtime_adapter.build_receipts_hashes(&receipts, &shard_layout);
         let prod_duration = start.elapsed();

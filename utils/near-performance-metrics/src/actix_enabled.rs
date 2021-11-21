@@ -1,7 +1,6 @@
 use log::warn;
 use std::panic::Location;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::stats_enabled::{get_thread_stats_logger, MyFuture, REF_COUNTER, SLOW_CALL_THRESHOLD};
 
@@ -29,13 +28,13 @@ where
 
     let f2 = move |a: &mut A, b: &mut A::Context| {
         let stat = get_thread_stats_logger();
-        let now = Instant::now();
-        stat.lock().unwrap().pre_log(now);
+        let started = Instant::now();
+        stat.lock().unwrap().pre_log(started);
 
         f(a, b);
 
         let ended = Instant::now();
-        let took = ended - now;
+        let took = ended.saturating_duration_since(started);
         stat.lock().unwrap().log("run_later", loc.file(), loc.line(), took, ended, "");
         if took > SLOW_CALL_THRESHOLD {
             warn!(

@@ -2,8 +2,8 @@
 extern crate bencher;
 
 use bencher::Bencher;
-
 use near_network::routing::Graph;
+
 use near_network::test_utils::random_peer_id;
 
 fn build_graph(depth: usize, size: usize) -> Graph {
@@ -13,16 +13,13 @@ fn build_graph(depth: usize, size: usize) -> Graph {
     let mut graph = Graph::new(source.clone());
 
     for i in 0..size {
-        graph.add_edge(source.clone(), nodes[i].clone());
+        graph.add_edge(&source, &nodes[i]);
     }
 
     for layer in 0..depth - 1 {
         for u in 0..size {
             for v in 0..size {
-                graph.add_edge(
-                    nodes[layer * size + u].clone(),
-                    nodes[(layer + 1) * size + v].clone(),
-                );
+                graph.add_edge(&nodes[layer * size + u], &nodes[(layer + 1) * size + v]);
             }
         }
     }
@@ -70,6 +67,6 @@ benchmark_group!(
 benchmark_main!(benches);
 
 // running 3 tests
-// test calculate_distance_10_10  ... bench:   1,503,222 ns/iter (+/- 126,811)
-// test calculate_distance_10_100 ... bench: 988,705,595 ns/iter (+/- 118,318,208)
-// test calculate_distance_3_3    ... bench:      18,928 ns/iter (+/- 3,174)
+// test calculate_distance_10_10  ... bench:      12,442 ns/iter (+/- 307)
+// test calculate_distance_10_100 ... bench:   1,337,039 ns/iter (+/- 74,565)
+// test calculate_distance_3_3    ... bench:         636 ns/iter (+/- 12)

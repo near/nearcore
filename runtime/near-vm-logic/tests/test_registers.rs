@@ -23,7 +23,7 @@ fn test_non_existent_register() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
 
-    assert_eq!(logic.register_len(0), Ok(std::u64::MAX) as Result<u64, VMLogicError>);
+    assert_eq!(logic.register_len(0), Ok(u64::MAX) as Result<u64, VMLogicError>);
     let buffer = [0u8; 3];
     assert_eq!(
         logic.read_register(0, buffer.as_ptr() as u64),
@@ -92,5 +92,5 @@ fn test_max_register_memory_limit() {
 fn test_register_is_not_used() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
-    assert_eq!(logic.register_len(0), Ok(std::u64::MAX));
+    assert_eq!(logic.register_len(0), Ok(u64::MAX));
 }

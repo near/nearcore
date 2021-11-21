@@ -9,7 +9,8 @@ use std::time::Duration;
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
+use near_primitives::time::{Clock, Utc};
 use serde::{Deserialize, Serialize};
 use strum::AsStaticStr;
 use tokio::net::TcpStream;
@@ -17,7 +18,7 @@ use tracing::{error, warn};
 
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_primitives::block::{Approval, Block, BlockHeader, GenesisId};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{
@@ -108,7 +109,7 @@ impl FromStr for PeerInfo {
                 format!("Invalid PeerInfo format: {:?}", chunks),
             )));
         }
-        Ok(PeerInfo { id: PeerId(chunks[0].parse()?), addr, account_id })
+        Ok(PeerInfo { id: PeerId::new(chunks[0].parse()?), addr, account_id })
     }
 }
 
@@ -357,7 +358,7 @@ impl AccountOrPeerIdOrHash {
     }
 }
 
-#[derive(Message)]
+#[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub struct RawRoutedMessage {
     pub target: AccountOrPeerIdOrHash,
@@ -417,11 +418,7 @@ impl RoutedMessage {
         source: &PeerId,
         body: &RoutedMessageBody,
     ) -> CryptoHash {
-        hash(
-            &RoutedMessageNoSignature { target, author: source, body }
-                .try_to_vec()
-                .expect("Failed to serialize"),
-        )
+        CryptoHash::hash_borsh(&RoutedMessageNoSignature { target, author: source, body })
     }
 
     pub fn hash(&self) -> CryptoHash {
@@ -453,6 +450,7 @@ impl RoutedMessage {
 }
 
 /// Routed Message wrapped with previous sender of the message.
+#[derive(Clone, Debug)]
 pub struct RoutedMessageFrom {
     /// Routed messages.
     pub msg: RoutedMessage,
@@ -663,8 +661,8 @@ impl KnownPeerState {
         KnownPeerState {
             peer_info,
             status: KnownPeerStatus::Unknown,
-            first_seen: to_timestamp(Utc::now()),
-            last_seen: to_timestamp(Utc::now()),
+            first_seen: to_timestamp(Clock::utc()),
+            last_seen: to_timestamp(Clock::utc()),
         }
     }
 
@@ -686,7 +684,7 @@ impl TryFrom<Vec<u8>> for KnownPeerState {
 }
 
 /// Actor message that holds the TCP stream from an inbound TCP connection
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result = "()")]
 pub struct InboundTcpConnect {
     /// Tcp stream of the inbound connections
@@ -701,7 +699,7 @@ impl InboundTcpConnect {
 }
 
 /// Actor message to request the creation of an outbound TCP connection to a peer.
-#[derive(Message)]
+#[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub struct OutboundTcpConnect {
     /// Peer information of the outbound connection
@@ -768,7 +766,7 @@ pub enum ReasonForBan {
 
 /// Banning signal sent from Peer instance to PeerManager
 /// just before Peer instance is stopped.
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result = "()")]
 pub struct Ban {
     pub peer_id: PeerId,
@@ -782,6 +780,11 @@ pub enum PeerManagerRequest {
     BanPeer(ReasonForBan),
     UnregisterPeer,
 }
+
+/// Messages from Peer to PeerManager
+#[derive(Message, Debug)]
+#[rtype(result = "()")]
+pub enum PeerRequest {}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct KnownProducer {

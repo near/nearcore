@@ -3,7 +3,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use actix::Message;
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
+use near_primitives::time::Utc;
 use serde::{Deserialize, Serialize};
 
 use near_chain_configs::ProtocolConfigView;

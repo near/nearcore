@@ -1,21 +1,21 @@
-use std::collections::{
-    hash_map::{Entry, Iter},
-    HashMap,
-};
+use std::collections::hash_map::{Entry, Iter};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use borsh::BorshSerialize;
-use chrono::Utc;
+use near_network_primitives::types::{
+    KnownPeerState, KnownPeerStatus, NetworkConfig, ReasonForBan,
+};
+use near_primitives::time::Utc;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use tracing::{debug, error};
 
+use crate::PeerInfo;
 use near_primitives::network::PeerId;
 use near_primitives::utils::to_timestamp;
 use near_store::{ColPeers, Store};
-
-use crate::types::{KnownPeerState, KnownPeerStatus, NetworkConfig, PeerInfo, ReasonForBan};
 
 /// Level of trust we have about a new (PeerId, Addr) pair.
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -115,10 +115,6 @@ impl PeerStore {
         self.peer_states.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.peer_states.is_empty()
-    }
-
     pub fn is_banned(&self, peer_id: &PeerId) -> bool {
         self.peer_states
             .get(&peer_id)
@@ -196,10 +192,6 @@ impl PeerStore {
         peers.iter().take(count as usize).cloned().collect::<Vec<_>>()
     }
 
-    pub fn all_peers(&self) -> Vec<KnownPeerState> {
-        self.peer_states.iter().map(|(_, v)| v.clone()).collect()
-    }
-
     /// Return unconnected or peers with unknown status that we can try to connect to.
     /// Peers with unknown addresses are filtered out.
     pub fn unconnected_peers(&self, ignore_fn: impl Fn(&KnownPeerState) -> bool) -> Vec<PeerInfo> {
@@ -222,10 +214,6 @@ impl PeerStore {
             },
             max_count,
         )
-    }
-
-    pub fn connected_peers(&self, max_count: u32) -> Vec<PeerInfo> {
-        self.find_peers(|p| matches!(p.status, KnownPeerStatus::Connected), max_count)
     }
 
     /// Return iterator over all known peers.
@@ -378,6 +366,15 @@ impl PeerStore {
     }
 }
 
+/// Public method used to iterate through all peers stored in the database.
+pub fn iter_peers_from_store<F>(store: Arc<Store>, f: F)
+where
+    F: Fn((&PeerId, &KnownPeerState)),
+{
+    let peer_store = PeerStore::new(store, &[]).unwrap();
+    peer_store.iter().for_each(|x| f(x));
+}
+
 #[cfg(test)]
 mod test {
     use near_crypto::{KeyType, SecretKey};
@@ -387,7 +384,7 @@ mod test {
     use super::*;
 
     fn get_peer_id(seed: String) -> PeerId {
-        SecretKey::from_seed(KeyType::ED25519, seed.as_str()).public_key().into()
+        PeerId::new(SecretKey::from_seed(KeyType::ED25519, seed.as_str()).public_key())
     }
 
     fn get_addr(port: u8) -> SocketAddr {
@@ -400,7 +397,7 @@ mod test {
 
     fn gen_peer_info(port: u8) -> PeerInfo {
         PeerInfo {
-            id: PeerId::from(SecretKey::from_random(KeyType::ED25519).public_key()),
+            id: PeerId::new(SecretKey::from_random(KeyType::ED25519).public_key()),
             addr: Some(get_addr(port)),
             account_id: None,
         }

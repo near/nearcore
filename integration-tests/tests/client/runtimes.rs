@@ -13,8 +13,8 @@ use near_chunks::test_utils::ChunkForwardingTestFixture;
 use near_chunks::ProcessPartialEncodedChunkResult;
 use near_client::test_utils::TestEnv;
 use near_crypto::KeyType;
-use near_network::test_utils::MockNetworkAdapter;
-use near_network::types::PartialEncodedChunkForwardMsg;
+use near_network::test_utils::MockPeerManagerAdapter;
+use near_network_primitives::types::PartialEncodedChunkForwardMsg;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::hash::hash;
@@ -66,7 +66,7 @@ fn test_pending_approvals() {
 
 #[test]
 fn test_invalid_approvals() {
-    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let mut env = TestEnv::builder(ChainGenesis::test())
         .runtime_adapters(create_runtimes(1))
         .network_adapters(vec![network_adapter.clone()])
@@ -158,7 +158,7 @@ fn test_process_partial_encoded_chunk_with_missing_block() {
     // process_partial_encoded_chunk should return Ok(NeedBlock) if the chunk is
     // based on a missing block.
     let result = client.shards_mgr.process_partial_encoded_chunk(
-        MaybeValidated::NotValidated(&mock_chunk),
+        MaybeValidated::from(&mock_chunk),
         client.chain.mut_store(),
         &mut client.rs,
         PROTOCOL_VERSION,
@@ -167,9 +167,8 @@ fn test_process_partial_encoded_chunk_with_missing_block() {
 
     // Client::process_partial_encoded_chunk should not return an error
     // if the chunk is based on a missing block.
-    let result = client.process_partial_encoded_chunk(MaybeValidated::NotValidated(
-        PartialEncodedChunk::V2(mock_chunk),
-    ));
+    let result = client
+        .process_partial_encoded_chunk(MaybeValidated::from(PartialEncodedChunk::V2(mock_chunk)));
     match result {
         Ok(accepted_blocks) => assert!(accepted_blocks.is_empty()),
         Err(e) => panic!("Client::process_partial_encoded_chunk failed with {:?}", e),

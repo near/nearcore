@@ -9,9 +9,9 @@ use actix::dev::ToEnvelope;
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
-use chrono::Duration as OldDuration;
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use log::{debug, error, info, trace, warn};
+use near_primitives::time::{Clock, Utc};
 
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
@@ -27,14 +27,16 @@ use near_chain_configs::ClientConfig;
 #[cfg(feature = "test_features")]
 use near_chain_configs::GenesisConfig;
 use near_crypto::Signature;
-#[cfg(feature = "test_features")]
-use near_network::types::NetworkAdversarialMessage;
-use near_network::types::{NetworkInfo, ReasonForBan};
 #[cfg(feature = "sandbox")]
-use near_network::types::{NetworkSandboxMessage, SandboxResponse};
-use near_network::{
-    NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
+use near_network::types::SandboxResponse;
+use near_network::types::{
+    NetworkClientMessages, NetworkClientResponses, NetworkRequests, PeerManagerAdapter,
 };
+use near_network::types::{NetworkInfo, PeerManagerMessageRequest};
+#[cfg(feature = "test_features")]
+use near_network_primitives::types::NetworkAdversarialMessage;
+#[cfg(feature = "sandbox")]
+use near_network_primitives::types::NetworkSandboxMessage;
 use near_performance_metrics;
 use near_performance_metrics_macros::{perf, perf_with_debug};
 use near_primitives::hash::CryptoHash;
@@ -64,6 +66,7 @@ use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
     StatusError, StatusSyncInfo, SyncStatus,
 };
+use near_network_primitives::types::ReasonForBan;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::syncing::StatePartKey;
 use near_store::db::DBCol::ColStateParts;
@@ -82,7 +85,7 @@ pub struct ClientActor {
     pub adv: Arc<RwLock<AdversarialControls>>,
 
     client: Client,
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
     network_info: NetworkInfo,
     /// Identity that represents this Client at the network level.
     /// It is used as part of the messages that identify this client.
@@ -108,7 +111,7 @@ pub struct ClientActor {
 fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
     loop {
         // Get chrono::Duration::num_seconds() by deducting genesis_time from now.
-        let duration = genesis_time.signed_duration_since(Utc::now());
+        let duration = genesis_time.signed_duration_since(Clock::utc());
         let chrono_seconds = duration.num_seconds();
         // Check if number of seconds in chrono::Duration larger than zero.
         if chrono_seconds <= 0 {
@@ -130,7 +133,7 @@ impl ClientActor {
         chain_genesis: ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         node_id: PeerId,
-        network_adapter: Arc<dyn NetworkAdapter>,
+        network_adapter: Arc<dyn PeerManagerAdapter>,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         telemetry_actor: Addr<TelemetryActor>,
         enable_doomslug: bool,
@@ -285,8 +288,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             }
                             let block = block.expect("block should exist after produced");
                             info!(target: "adversary", "Producing {} block out of {}, height = {}", blocks_produced, num_blocks, height);
-                            self.network_adapter
-                                .do_send(NetworkRequests::Block { block: block.clone() });
+                            self.network_adapter.do_send(
+                                PeerManagerMessageRequest::NetworkRequests(
+                                    NetworkRequests::Block { block: block.clone() },
+                                ),
+                            );
                             let (accepted_blocks, _) =
                                 self.client.process_block(block, Provenance::PRODUCED);
                             for accepted_block in accepted_blocks {
@@ -375,12 +381,12 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
                         if let Ok(header) = self.client.chain.get_block_header(sync_hash) {
                             if block.hash() == header.prev_hash() {
-                                if let Err(e) = self.client.chain.save_block(&block) {
+                                if let Err(e) = self.client.chain.save_block(block) {
                                     error!(target: "client", "Failed to save a block during state sync: {}", e);
                                 }
                                 return NetworkClientResponses::NoResponse;
                             } else if block.hash() == sync_hash {
-                                if let Err(e) = self.client.chain.save_orphan(&block) {
+                                if let Err(e) = self.client.chain.save_orphan(block) {
                                     error!(target: "client", "Received an invalid block during state sync: {}", e);
                                 }
                                 return NetworkClientResponses::NoResponse;
@@ -563,9 +569,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk) => {
-                if let Ok(accepted_blocks) = self.client.process_partial_encoded_chunk(
-                    MaybeValidated::NotValidated(partial_encoded_chunk),
-                ) {
+                if let Ok(accepted_blocks) = self
+                    .client
+                    .process_partial_encoded_chunk(MaybeValidated::from(partial_encoded_chunk))
+                {
                     self.process_accepted_blocks(accepted_blocks);
                 }
                 NetworkClientResponses::NoResponse
@@ -735,7 +742,7 @@ impl ClientActor {
             Some(signer) => signer,
         };
 
-        let now = Instant::now();
+        let now = Clock::instant();
         // Check that we haven't announced it too recently
         if let Some(last_validator_announce_time) = self.last_validator_announce_time {
             // Don't make announcement if have passed less than half of the time in which other peers
@@ -759,12 +766,14 @@ impl ClientActor {
             self.last_validator_announce_time = Some(now);
             let signature = self.sign_announce_account(&next_epoch_id).unwrap();
 
-            self.network_adapter.do_send(NetworkRequests::AnnounceAccount(AnnounceAccount {
-                account_id: validator_signer.validator_id().clone(),
-                peer_id: self.node_id.clone(),
-                epoch_id: next_epoch_id,
-                signature,
-            }));
+            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::AnnounceAccount(AnnounceAccount {
+                    account_id: validator_signer.validator_id().clone(),
+                    peer_id: self.node_id.clone(),
+                    epoch_id: next_epoch_id,
+                    signature,
+                }),
+            ));
         }
     }
 
@@ -804,7 +813,7 @@ impl ClientActor {
                     || num_chunks == self.client.runtime_adapter.num_shards(&epoch_id).unwrap();
 
                 if self.client.doomslug.ready_to_produce_block(
-                    Instant::now(),
+                    Clock::instant(),
                     height,
                     have_all_chunks,
                 ) {
@@ -903,8 +912,7 @@ impl ClientActor {
 
     fn try_doomslug_timer(&mut self, _: &mut Context<ClientActor>) {
         let _ = self.client.check_and_update_doomslug_tip();
-
-        let approvals = self.client.doomslug.process_timer(Instant::now());
+        let approvals = self.client.doomslug.process_timer(Clock::instant());
 
         // Important to save the largest approval target height before sending approvals, so
         // that if the node crashes in the meantime, we cannot get slashed on recovery
@@ -936,37 +944,13 @@ impl ClientActor {
     fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
         match self.client.produce_block(next_height) {
             Ok(Some(block)) => {
-                let block_hash = *block.hash();
                 let peer_id = self.node_id.clone();
-                let prev_hash = *block.header().prev_hash();
-                let block_protocol_version = block.header().latest_protocol_version();
                 let res = self.process_block(block, Provenance::PRODUCED, &peer_id);
                 match &res {
                     Ok(_) => Ok(()),
                     Err(e) => match e.kind() {
-                        near_chain::ErrorKind::ChunksMissing(missing_chunks) => {
-                            debug!(
-                                "Chunks were missing for newly produced block {}, I'm {:?}, requesting. Missing: {:?}, ({:?})",
-                                block_hash,
-                                self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
-                                missing_chunks,
-                                missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
-                            );
-                            let protocol_version = self
-                                .client
-                                .runtime_adapter
-                                .get_epoch_id_from_prev_block(&prev_hash)
-                                .and_then(|epoch| {
-                                    self.client.runtime_adapter.get_epoch_protocol_version(&epoch)
-                                })
-                                .unwrap_or(block_protocol_version);
-                            self.client.shards_mgr.request_chunks(
-                                missing_chunks,
-                                &self.client.chain.header_head().expect("header_head must be available when processing newly produced block"),
-                                protocol_version,
-                            );
-                            Ok(())
-                        }
+                        // missing chunks were already dealt with in client.process_block
+                        near_chain::ErrorKind::ChunksMissing(_) => Ok(()),
                         _ => {
                             error!(target: "client", "Failed to process freshly produced block: {:?}", res);
                             byzantine_assert!(false);
@@ -1009,7 +993,9 @@ impl ClientActor {
         // If we didn't produce the block and didn't request it, do basic validation
         // before sending it out.
         if provenance == Provenance::PRODUCED {
-            self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
+            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::Block { block: block.clone() },
+            ));
         } else {
             match self.client.chain.validate_block(&block) {
                 Ok(_) => {
@@ -1025,10 +1011,12 @@ impl ClientActor {
                 }
                 Err(e) => {
                     if e.is_bad_data() {
-                        self.network_adapter.do_send(NetworkRequests::BanPeer {
-                            peer_id: peer_id.clone(),
-                            ban_reason: ReasonForBan::BadBlockHeader,
-                        });
+                        self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::BanPeer {
+                                peer_id: peer_id.clone(),
+                                ban_reason: ReasonForBan::BadBlockHeader,
+                            },
+                        ));
                         return Err(e);
                     }
                 }
@@ -1055,7 +1043,6 @@ impl ClientActor {
             return;
         }
         let prev_hash = *block.header().prev_hash();
-        let block_protocol_version = block.header().latest_protocol_version();
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         match self.process_block(block, provenance, &peer_id) {
@@ -1081,31 +1068,9 @@ impl ClientActor {
                         self.request_block_by_hash(prev_hash, peer_id)
                     }
                 }
-                near_chain::ErrorKind::ChunksMissing(missing_chunks) => {
-                    debug!(
-                        target: "client",
-                        "Chunks were missing for block {}, I'm {:?}, requesting. Missing: {:?}, ({:?})",
-                        hash.clone(),
-                        self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
-                        missing_chunks,
-                        missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
-                    );
-                    let protocol_version = self
-                        .client
-                        .runtime_adapter
-                        .get_epoch_id_from_prev_block(&prev_hash)
-                        .and_then(|epoch| {
-                            self.client.runtime_adapter.get_epoch_protocol_version(&epoch)
-                        })
-                        .unwrap_or(block_protocol_version);
-                    self.client.shards_mgr.request_chunks(
-                        missing_chunks,
-                        &self.client.chain.header_head().expect(
-                            "header_head should always be available when block is received",
-                        ),
-                        protocol_version,
-                    );
-                }
+                // missing chunks are already handled in self.client.process_block()
+                // we don't need to do anything here
+                near_chain::ErrorKind::ChunksMissing(_) => {}
                 _ => {
                     debug!(target: "client", "Process block: block {} refused by chain: {}", hash, e.kind());
                 }
@@ -1135,7 +1100,9 @@ impl ClientActor {
     fn request_block_by_hash(&mut self, hash: CryptoHash, peer_id: PeerId) {
         match self.client.chain.block_exists(&hash) {
             Ok(false) => {
-                self.network_adapter.do_send(NetworkRequests::BlockRequest { hash, peer_id });
+                self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::BlockRequest { hash, peer_id },
+                ));
             }
             Ok(true) => {
                 debug!(target: "client", "send_block_request_to_peer: block {} already known", hash)
@@ -1297,7 +1264,7 @@ impl ClientActor {
 
         f(self, ctx);
 
-        return now.checked_add_signed(OldDuration::from_std(duration).unwrap()).unwrap();
+        return now.checked_add_signed(chrono::Duration::from_std(duration).unwrap()).unwrap();
     }
 
     /// Main syncing job responsible for syncing client with other peers.
@@ -1458,18 +1425,7 @@ impl ClientActor {
                             accepted_blocks.write().unwrap().drain(..).collect(),
                         );
 
-                        self.client.shards_mgr.request_chunks(
-                            blocks_missing_chunks.write().unwrap().drain(..).flatten(),
-                            &self
-                                .client
-                                .chain
-                                .header_head()
-                                .expect("header_head must be available during sync"),
-                            // It is ok to pass the latest protocol version here since we are likely
-                            // syncing old blocks, which means the protocol version will not change
-                            // the logic.
-                            PROTOCOL_VERSION,
-                        );
+                        self.client.request_missing_chunks(blocks_missing_chunks);
 
                         self.client.sync_status =
                             SyncStatus::BodySync { current_height: 0, highest_height: 0 };
@@ -1675,7 +1631,7 @@ pub fn start_client(
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     node_id: PeerId,
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
     #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,

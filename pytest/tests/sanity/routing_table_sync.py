@@ -59,10 +59,10 @@ def new_edge(peer_a, peer_b, nonce):
     return {
         'nonce':
             nonce,
-        'peer0':
+        'key': [
             'ed25519:' + min(s1, s2),
-        'peer1':
             'ed25519:' + max(s1, s2),
+        ],
         'removal_info':
             None,
         'signature0':
@@ -85,11 +85,11 @@ tests = [
     # Only second node has new edges
     [0, 3, 0, 5],
     # check edge case, where full sync is required
-    [50000, 50000, 0, 15],
+    [25000, 25000, 0, 15],
     # Both nodes have new edges
     [1, 11, 0, 5],
     # Both nodes have 1 each other doesn't know about, and there are bunch of common edges
-    [1, 1, 200000, 5],
+    [1, 1, 50000, 5],
     # medium test, both nodes have some edges
     [10000, 10000, 0, 15],
 ]
@@ -139,10 +139,7 @@ for (left, right, common, TIMEOUT) in tests:
     to_node1 = right_nodes + common_nodes
 
     def simplify(edges):
-        return [{
-            'key': (edge['peer0'], edge['peer1']),
-            'nonce': edge['nonce']
-        } for edge in edges]
+        return [{'key': edge['key'], 'nonce': edge['nonce']} for edge in edges]
 
     all_edges = simplify(left_nodes + to_node1)
 
@@ -170,16 +167,6 @@ for (left, right, common, TIMEOUT) in tests:
         var_b = {(x['key'][0], x['key'][1], x['nonce']) for x in var_b}
         return var_a, var_b
 
-    def adv_get_routing_table_new(n):
-        logger.info("getting routing tables")
-        var_a = n[0].json_rpc("adv_get_routing_table_new", {},
-                              timeout=60)["result"]["edges_info"]
-        var_b = n[1].json_rpc("adv_get_routing_table_new", {},
-                              timeout=60)["result"]["edges_info"]
-        var_a = {(x['key'][0], x['key'][1], x['nonce']) for x in var_a}
-        var_b = {(x['key'][0], x['key'][1], x['nonce']) for x in var_b}
-        return var_a, var_b
-
     # compute set difference of routing tables
     a, b = adv_get_routing_table(nodes)
     logger.info("case 1 nodes %s vs %s diff %s " %
@@ -187,12 +174,6 @@ for (left, right, common, TIMEOUT) in tests:
     assert (len(a) == 1 + left + common)
     assert (len(b) == 1 + right + common)
     assert (len(a.symmetric_difference(b)) == left + right)
-    a2, b2 = adv_get_routing_table_new(nodes)
-    logger.info("case 1 nodes %s vs %s diff %s " %
-                (len(a2), len(b2), len(a2.symmetric_difference(b2))))
-    assert (len(a2) == 1 + left + common)
-    assert (len(b2) == 1 + right + common)
-    assert (len(a2.symmetric_difference(b2)) == left + right)
 
     time.sleep(1)
 
@@ -204,7 +185,7 @@ for (left, right, common, TIMEOUT) in tests:
     started = time.time()
     while True:
         assert time.time() - started < TIMEOUT
-        status = nodes[0].get_status()
+        status = nodes[0].get_status(timeout=30)
         height = status['sync_info']['latest_block_height']
         if success.value == 1:
             break
@@ -219,10 +200,6 @@ for (left, right, common, TIMEOUT) in tests:
     logger.info("case 2 nodes %s vs %s diff %s " %
                 (len(a), len(b), len(a.symmetric_difference(b))))
     assert (len(a.symmetric_difference(b)) == 0)
-    a2, b2 = adv_get_routing_table_new(nodes)
-    logger.info("case 2 nodes %s vs %s diff %s " %
-                (len(a2), len(b2), len(a2.symmetric_difference(b2))))
-    assert (len(a2.symmetric_difference(b2)) == 0)
 
     # remove edges
     logger.info("removing edges")
@@ -238,9 +215,6 @@ for (left, right, common, TIMEOUT) in tests:
                       timeout=30)
 
     a, b = adv_get_routing_table(nodes)
-    a2, b2 = adv_get_routing_table_new(nodes)
     logger.info("case 3: %s %s" % (len(a), len(b)))
     assert (len(a) == 1 and len(b) == 1)
-    logger.info("case 3: %s %s" % (len(a2), len(b2)))
-    assert (len(a2) == 1 and len(b2) == 1)
     logger.info("test took %s" % round(time.time() - start))

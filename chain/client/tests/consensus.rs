@@ -12,7 +12,9 @@ mod tests {
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, ViewClientActor};
     use near_logger_utils::init_integration_logger;
-    use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
+    use near_network::types::PeerManagerMessageRequest;
+    use near_network::types::{NetworkClientMessages, NetworkRequests, NetworkResponses};
+    use near_network_primitives::types::PeerInfo;
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::types::{AccountId, BlockHeight};
 
@@ -77,7 +79,7 @@ mod tests {
                 vec![false; validators.iter().map(|x| x.len()).sum()],
                 false,
                 Arc::new(RwLock::new(Box::new(
-                    move |from_whom: AccountId, msg: &NetworkRequests| {
+                    move |from_whom: AccountId, msg: &PeerManagerMessageRequest| {
                         let mut all_blocks: RwLockWriteGuard<BTreeMap<BlockHeight, Block>> =
                             all_blocks.write().unwrap();
                         let mut final_block_heights = final_block_heights.write().unwrap();
@@ -89,7 +91,7 @@ mod tests {
 
                         let mut delayed_blocks = delayed_blocks.write().unwrap();
 
-                        match msg {
+                        match msg.as_network_requests_ref() {
                             NetworkRequests::Block { block } => {
                                 if !all_blocks.contains_key(&block.header().height()) {
                                     println!(
@@ -142,7 +144,7 @@ mod tests {
                                     *largest_block_height = block.header().height();
                                     if delayed_blocks.len() < 2 {
                                         delayed_blocks.push(block.clone());
-                                        return (NetworkResponses::NoResponse, false);
+                                        return (NetworkResponses::NoResponse.into(), false);
                                     }
                                 }
                                 *largest_block_height =
@@ -151,7 +153,7 @@ mod tests {
                                 let mut new_delayed_blocks = vec![];
                                 for delayed_block in delayed_blocks.iter() {
                                     if delayed_block.hash() == block.hash() {
-                                        return (NetworkResponses::NoResponse, false);
+                                        return (NetworkResponses::NoResponse.into(), false);
                                     }
                                     if delayed_block.header().height()
                                         <= block.header().height() + 2
@@ -229,7 +231,7 @@ mod tests {
                                             // We already manually sent a skip conflicting with this endorsement
                                             // my_ord % 8 < 2 are two malicious actors in every epoch and they
                                             // continue sending endorsements
-                                            return (NetworkResponses::NoResponse, false);
+                                            return (NetworkResponses::NoResponse.into(), false);
                                         }
 
                                         approval_message.approval.target_height - 1
@@ -275,13 +277,13 @@ mod tests {
                                     // the paritcipants who haven't sent their endorsements to be converted
                                     // to skips change their head.
                                     if my_ord % 8 < 2 {
-                                        return (NetworkResponses::NoResponse, false);
+                                        return (NetworkResponses::NoResponse.into(), false);
                                     }
                                 }
                             }
                             _ => {}
                         };
-                        (NetworkResponses::NoResponse, true)
+                        (NetworkResponses::NoResponse.into(), true)
                     },
                 ))),
             );

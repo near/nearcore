@@ -1,20 +1,30 @@
+use near_primitives::time::Instant;
 use std::collections::HashMap;
-use std::fmt;
 use std::fmt::{Debug, Formatter};
-use std::io;
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Instant;
+use std::{fmt, io};
 
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, MailboxError, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
-use futures::{future::BoxFuture, FutureExt};
+use futures::future::BoxFuture;
+use futures::FutureExt;
 #[cfg(feature = "test_features")]
 use serde::Serialize;
 use strum::AsStaticStr;
 
 use conqueue::QueueSender;
-pub use near_network_primitives::types::*;
+#[cfg(feature = "test_features")]
+use near_network_primitives::types::NetworkAdversarialMessage;
+
+#[cfg(feature = "sandbox")]
+use near_network_primitives::types::NetworkSandboxMessage;
+use near_network_primitives::types::{
+    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, InboundTcpConnect, KnownProducer,
+    OutboundTcpConnect, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
+    PartialEncodedChunkResponseMsg, PeerChainInfo, PeerChainInfoV2, PeerType, Ping, Pong,
+    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+};
 
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
@@ -30,14 +40,14 @@ use near_primitives::version::{
 };
 use near_primitives::views::QueryRequest;
 
-use crate::ibf::IbfBox;
-use crate::peer::Peer;
-#[cfg(feature = "test_features")]
-use crate::routing::SetAdvOptionsResult;
-use crate::routing::{
-    Edge, EdgeInfo, GetRoutingTableResult, PeerRequestResult, RoutingTableInfo, SimpleEdge,
-    ValidIBFLevel,
-};
+use crate::peer::peer_actor::PeerActor;
+use crate::routing::edge::{Edge, EdgeInfo, SimpleEdge};
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use crate::routing::ibf::IbfBox;
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use crate::routing::ibf_peer_set::ValidIBFLevel;
+use crate::routing::routing::{GetRoutingTableResult, PeerRequestResult, RoutingTableInfo};
+use crate::PeerInfo;
 
 const ERROR_UNEXPECTED_LENGTH_OF_INPUT: &str = "Unexpected length of input";
 
@@ -332,20 +342,24 @@ pub enum PeerMessage {
     EpochSyncFinalizationRequest(EpochId),
     EpochSyncFinalizationResponse(EpochSyncFinalizationResponse),
 
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingTableSyncV2(RoutingSyncV2),
 }
 
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum RoutingSyncV2 {
     Version2(RoutingVersion2),
 }
 
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct PartialSync {
     pub ibf_level: ValidIBFLevel,
     pub ibf: Vec<IbfBox>,
 }
 
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum RoutingState {
     PartialSync(PartialSync),
@@ -355,6 +369,7 @@ pub enum RoutingState {
     InitializeIbf,
 }
 
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutingVersion2 {
     pub known_edges: u64,
@@ -432,8 +447,9 @@ pub struct SendMessage {
 
 /// Actor message to consolidate potential new peer.
 /// Returns if connection should be kept or dropped.
+#[derive(Clone, Debug)]
 pub struct Consolidate {
-    pub actor: Addr<Peer>,
+    pub actor: Addr<PeerActor>,
     pub peer_info: PeerInfo,
     pub peer_type: PeerType,
     pub chain_info: PeerChainInfoV2,
@@ -451,6 +467,7 @@ impl Message for Consolidate {
     type Result = ConsolidateResponse;
 }
 
+#[derive(Clone, Debug)]
 pub struct GetPeerId {}
 
 impl Message for GetPeerId {
@@ -463,17 +480,20 @@ pub struct GetPeerIdResult {
     pub peer_id: PeerId,
 }
 
+#[derive(Debug)]
 pub struct GetRoutingTable {}
 
 impl Message for GetRoutingTable {
     type Result = GetRoutingTableResult;
 }
 
+#[derive(Clone, Debug)]
 #[cfg(feature = "test_features")]
 pub struct StartRoutingTableSync {
     pub peer_id: PeerId,
 }
 
+#[derive(Clone, Debug)]
 #[cfg(feature = "test_features")]
 pub struct SetAdvOptions {
     pub disable_edge_signature_verification: Option<bool>,
@@ -484,7 +504,7 @@ pub struct SetAdvOptions {
 
 #[cfg(feature = "test_features")]
 impl Message for SetAdvOptions {
-    type Result = SetAdvOptionsResult;
+    type Result = ();
 }
 
 #[cfg(feature = "test_features")]
@@ -500,7 +520,7 @@ pub enum ConsolidateResponse {
 }
 
 /// Unregister message from Peer to PeerManager.
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result = "()")]
 pub struct Unregister {
     pub peer_id: PeerId,
@@ -513,7 +533,7 @@ pub struct Unregister {
 pub struct StopMsg {}
 
 /// Message from peer to peer manager
-#[derive(strum::AsRefStr)]
+#[derive(strum::AsRefStr, Clone, Debug)]
 pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
     RouteBack(Box<RoutedMessageBody>, CryptoHash),
@@ -525,14 +545,14 @@ impl Message for PeerRequest {
     type Result = PeerResponse;
 }
 
-#[derive(MessageResponse)]
+#[derive(MessageResponse, Debug)]
 pub enum PeerResponse {
     NoResponse,
     UpdatedEdge(EdgeInfo),
 }
 
 /// Requesting peers from peer manager to communicate to a peer.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PeersRequest {}
 
 impl Message for PeersRequest {
@@ -540,10 +560,132 @@ impl Message for PeersRequest {
 }
 
 /// Received new peers from another peer.
-#[derive(Message)]
+#[derive(Message, Debug, Clone)]
 #[rtype(result = "()")]
 pub struct PeersResponse {
     pub peers: Vec<PeerInfo>,
+}
+
+/// List of all messages, which PeerManagerActor accepts through Actix. There is also another list
+/// which contains reply for each message to PeerManager.
+/// There is 1 to 1 mapping between an entry in `PeerManagerMessageRequest` and `PeerManagerMessageResponse`.
+#[derive(Debug)]
+pub enum PeerManagerMessageRequest {
+    RoutedMessageFrom(RoutedMessageFrom),
+    NetworkRequests(NetworkRequests),
+    Consolidate(Consolidate),
+    PeersRequest(PeersRequest),
+    PeersResponse(PeersResponse),
+    PeerRequest(PeerRequest),
+    GetPeerId(GetPeerId),
+    OutboundTcpConnect(OutboundTcpConnect),
+    InboundTcpConnect(InboundTcpConnect),
+    Unregister(Unregister),
+    Ban(Ban),
+    #[cfg(feature = "test_features")]
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    StartRoutingTableSync(StartRoutingTableSync),
+    #[cfg(feature = "test_features")]
+    SetAdvOptions(SetAdvOptions),
+    #[cfg(feature = "test_features")]
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    SetRoutingTable(SetRoutingTable),
+}
+
+impl PeerManagerMessageRequest {
+    pub fn as_network_requests(self) -> NetworkRequests {
+        if let PeerManagerMessageRequest::NetworkRequests(item) = self {
+            item
+        } else {
+            panic!("expected PeerMessageRequest::NetworkRequests(");
+        }
+    }
+
+    pub fn as_network_requests_ref(&self) -> &NetworkRequests {
+        if let PeerManagerMessageRequest::NetworkRequests(item) = self {
+            item
+        } else {
+            panic!("expected PeerMessageRequest::NetworkRequests(");
+        }
+    }
+}
+
+impl Message for PeerManagerMessageRequest {
+    type Result = PeerManagerMessageResponse;
+}
+
+/// List of all replies to messages to PeerManager. See `PeerManagerMessageRequest` for more details.
+#[derive(MessageResponse, Debug)]
+pub enum PeerManagerMessageResponse {
+    RoutedMessageFrom(bool),
+    NetworkResponses(NetworkResponses),
+    ConsolidateResponse(ConsolidateResponse),
+    PeerRequestResult(PeerRequestResult),
+    PeersResponseResult(()),
+    PeerResponse(PeerResponse),
+    GetPeerIdResult(GetPeerIdResult),
+    OutboundTcpConnect(()),
+    InboundTcpConnect(()),
+    Unregister(()),
+    Ban(()),
+    #[cfg(feature = "test_features")]
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    StartRoutingTableSync(()),
+    #[cfg(feature = "test_features")]
+    SetAdvOptions(()),
+    #[cfg(feature = "test_features")]
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    SetRoutingTable(()),
+}
+
+impl PeerManagerMessageResponse {
+    pub fn as_routed_message_from(self) -> bool {
+        if let PeerManagerMessageResponse::RoutedMessageFrom(item) = self {
+            item
+        } else {
+            panic!("expected PeerMessageRequest::RoutedMessageFrom(");
+        }
+    }
+
+    pub fn as_network_response(self) -> NetworkResponses {
+        if let PeerManagerMessageResponse::NetworkResponses(item) = self {
+            item
+        } else {
+            panic!("expected PeerMessageRequest::NetworkResponses(");
+        }
+    }
+
+    pub fn as_consolidate_response(self) -> ConsolidateResponse {
+        if let PeerManagerMessageResponse::ConsolidateResponse(item) = self {
+            item
+        } else {
+            panic!("expected PeerMessageRequest::ConsolidateResponse(");
+        }
+    }
+
+    pub fn as_peers_request_result(self) -> PeerRequestResult {
+        if let PeerManagerMessageResponse::PeerRequestResult(item) = self {
+            item
+        } else {
+            panic!("expected PeerMessageRequest::PeerRequestResult(");
+        }
+    }
+
+    pub fn as_peer_response(self) -> PeerResponse {
+        if let PeerManagerMessageResponse::PeerResponse(item) = self {
+            item
+        } else {
+            panic!("expected PeerMessageRequest::PeerResponse(");
+        }
+    }
+
+    pub fn as_peer_id_result(self) -> GetPeerIdResult {
+        if let PeerManagerMessageResponse::GetPeerIdResult(item) = self {
+            item
+        } else {
+            panic!("expected PeerMessageRequest::GetPeerIdResult(");
+        }
+    }
 }
 
 // TODO(#1313): Use Box
@@ -720,6 +862,12 @@ pub enum NetworkResponses {
     RouteNotFound,
 }
 
+impl From<NetworkResponses> for PeerManagerMessageResponse {
+    fn from(msg: NetworkResponses) -> Self {
+        PeerManagerMessageResponse::NetworkResponses(msg)
+    }
+}
+
 impl<A, M> MessageResponse<A, M> for NetworkResponses
 where
     A: Actor,
@@ -833,37 +981,37 @@ impl Message for NetworkClientMessages {
 
 /// Adapter to break dependency of sub-components on the network requests.
 /// For tests use MockNetworkAdapter that accumulates the requests to network.
-pub trait NetworkAdapter: Sync + Send {
+pub trait PeerManagerAdapter: Sync + Send {
     fn send(
         &self,
-        msg: NetworkRequests,
-    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>>;
+        msg: PeerManagerMessageRequest,
+    ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, MailboxError>>;
 
-    fn do_send(&self, msg: NetworkRequests);
+    fn do_send(&self, msg: PeerManagerMessageRequest);
 }
 
 pub struct NetworkRecipient {
-    network_recipient: RwLock<Option<Recipient<NetworkRequests>>>,
+    peer_manager_recipient: RwLock<Option<Recipient<PeerManagerMessageRequest>>>,
 }
 
 unsafe impl Sync for NetworkRecipient {}
 
 impl NetworkRecipient {
     pub fn new() -> Self {
-        Self { network_recipient: RwLock::new(None) }
+        Self { peer_manager_recipient: RwLock::new(None) }
     }
 
-    pub fn set_recipient(&self, network_recipient: Recipient<NetworkRequests>) {
-        *self.network_recipient.write().unwrap() = Some(network_recipient);
+    pub fn set_recipient(&self, peer_manager_recipient: Recipient<PeerManagerMessageRequest>) {
+        *self.peer_manager_recipient.write().unwrap() = Some(peer_manager_recipient);
     }
 }
 
-impl NetworkAdapter for NetworkRecipient {
+impl PeerManagerAdapter for NetworkRecipient {
     fn send(
         &self,
-        msg: NetworkRequests,
-    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>> {
-        self.network_recipient
+        msg: PeerManagerMessageRequest,
+    ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, MailboxError>> {
+        self.peer_manager_recipient
             .read()
             .unwrap()
             .as_ref()
@@ -872,9 +1020,9 @@ impl NetworkAdapter for NetworkRecipient {
             .boxed()
     }
 
-    fn do_send(&self, msg: NetworkRequests) {
+    fn do_send(&self, msg: PeerManagerMessageRequest) {
         let _ = self
-            .network_recipient
+            .peer_manager_recipient
             .read()
             .unwrap()
             .as_ref()
@@ -883,7 +1031,7 @@ impl NetworkAdapter for NetworkRecipient {
     }
 }
 
-#[derive(Message, Clone)]
+#[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub struct SetRoutingTable {
     pub add_edges: Option<Vec<Edge>>,

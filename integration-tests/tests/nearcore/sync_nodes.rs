@@ -13,8 +13,10 @@ use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock};
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_integration_logger;
-use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
-use near_network::{NetworkClientMessages, PeerInfo};
+
+use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
+use near_network::types::NetworkClientMessages;
+use near_network_primitives::types::PeerInfo;
 use near_primitives::block::Approval;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::num_rational::Rational;
@@ -150,7 +152,7 @@ fn sync_nodes() {
             let nearcore::NearNode { view_client: view_client2, .. } =
                 start_with_config(dir2.path(), near2);
 
-            WaitOrTimeout::new(
+            WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     actix::spawn(view_client2.send(GetBlock::latest()).then(|res| {
                         match &res {
@@ -200,7 +202,7 @@ fn sync_after_sync_nodes() {
 
             let next_step = Arc::new(AtomicBool::new(false));
             let epoch_length = genesis.config.epoch_length;
-            WaitOrTimeout::new(
+            WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     let blocks1 = blocks.clone();
                     let client11 = client1.clone();
@@ -290,7 +292,7 @@ fn sync_state_stake_change() {
             let dir2_path = dir2.path().to_path_buf();
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
             let arbiters_holder2 = arbiters_holder.clone();
-            WaitOrTimeout::new(
+            WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     let started_copy = started.clone();
                     let near2_copy = near2.clone();
@@ -305,7 +307,7 @@ fn sync_state_stake_change() {
                                 start_with_config(&dir2_path_copy, near2_copy);
                             *arbiters_holder2.write().unwrap() = arbiters;
 
-                            WaitOrTimeout::new(
+                            WaitOrTimeoutActor::new(
                                 Box::new(move |_ctx| {
                                     actix::spawn(view_client2.send(GetBlock::latest()).then(
                                         move |res| {

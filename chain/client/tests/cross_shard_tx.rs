@@ -8,7 +8,9 @@ use near_actix_test_utils::run_actix;
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, Query, ViewClientActor};
 use near_logger_utils::init_integration_logger;
-use near_network::{NetworkRequests, NetworkResponses, PeerInfo};
+use near_network::types::NetworkResponses;
+use near_network::types::PeerManagerMessageRequest;
+use near_network_primitives::types::PeerInfo;
 use near_primitives::types::BlockReference;
 use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
 
@@ -44,9 +46,11 @@ fn test_keyvalue_runtime_balances() {
             vec![false; validators.iter().map(|x| x.len()).sum()],
             vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
-            Arc::new(RwLock::new(Box::new(move |_account_id: _, _msg: &NetworkRequests| {
-                (NetworkResponses::NoResponse, true)
-            }))),
+            Arc::new(RwLock::new(Box::new(
+                move |_account_id: _, _msg: &PeerManagerMessageRequest| {
+                    (NetworkResponses::NoResponse.into(), true)
+                },
+            ))),
         );
         *connectors.write().unwrap() = conn;
 
@@ -97,9 +101,11 @@ mod tests {
     use near_client::{ClientActor, Query, ViewClientActor};
     use near_crypto::{InMemorySigner, KeyType};
     use near_logger_utils::init_integration_logger;
-    use near_network::{
-        NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
+    use near_network::types::{
+        NetworkClientMessages, NetworkClientResponses, NetworkResponses, PeerManagerMessageRequest,
+        PeerManagerMessageResponse,
     };
+    use near_network_primitives::types::PeerInfo;
     use near_primitives::hash::CryptoHash;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::{AccountId, BlockReference};
@@ -450,9 +456,16 @@ mod tests {
                 vec![true; validators.iter().map(|x| x.len()).sum()],
                 vec![false; validators.iter().map(|x| x.len()).sum()],
                 true,
-                Arc::new(RwLock::new(Box::new(move |_account_id: _, _msg: &NetworkRequests| {
-                    (NetworkResponses::NoResponse, true)
-                }))),
+                Arc::new(RwLock::new(Box::new(
+                    move |_account_id: _, _msg: &PeerManagerMessageRequest| {
+                        (
+                            PeerManagerMessageResponse::NetworkResponses(
+                                NetworkResponses::NoResponse,
+                            ),
+                            true,
+                        )
+                    },
+                ))),
             );
             *connectors.write().unwrap() = conn;
             let block_hash = *genesis_block.hash();

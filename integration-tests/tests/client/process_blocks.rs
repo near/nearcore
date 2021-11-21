@@ -24,22 +24,23 @@ use near_client::test_utils::{
 use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::init_test_logger;
-use near_network::test_utils::{wait_or_panic, MockNetworkAdapter};
-use near_network::types::{NetworkInfo, PeerChainInfoV2, ReasonForBan};
-use near_network::{
+use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
+use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
-    PeerInfo,
 };
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 
 use near_network::routing::EdgeInfo;
+use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
+use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::runtime::config::RuntimeConfig;
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::ShardUId;
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
@@ -57,7 +58,7 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
@@ -222,13 +223,13 @@ fn produce_two_blocks() {
             true,
             false,
             Box::new(move |msg, _ctx, _| {
-                if let NetworkRequests::Block { .. } = msg {
+                if let NetworkRequests::Block { .. } = msg.as_network_requests_ref() {
                     count.fetch_add(1, Ordering::Relaxed);
                     if count.load(Ordering::Relaxed) >= 2 {
                         System::current().stop();
                     }
                 }
-                NetworkResponses::NoResponse
+                PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
         near_network::test_utils::wait_or_panic(5000);
@@ -252,7 +253,7 @@ fn produce_blocks_with_tx() {
                 if let NetworkRequests::PartialEncodedChunkMessage {
                     account_id: _,
                     partial_encoded_chunk,
-                } = msg
+                } = msg.as_network_requests_ref()
                 {
                     let header = partial_encoded_chunk.header.clone();
                     let height = header.height_created() as usize;
@@ -286,7 +287,7 @@ fn produce_blocks_with_tx() {
                         }
                     }
                 }
-                NetworkResponses::NoResponse
+                PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
         near_network::test_utils::wait_or_panic(5000);
@@ -317,7 +318,7 @@ fn receive_network_block() {
             true,
             false,
             Box::new(move |msg, _ctx, _| {
-                if let NetworkRequests::Approval { .. } = msg {
+                if let NetworkRequests::Approval { .. } = msg.as_network_requests_ref() {
                     let mut first_header_announce = first_header_announce.write().unwrap();
                     if *first_header_announce {
                         *first_header_announce = false;
@@ -325,7 +326,7 @@ fn receive_network_block() {
                         System::current().stop();
                     }
                 }
-                NetworkResponses::NoResponse
+                PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
         actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
@@ -384,7 +385,7 @@ fn produce_block_with_approvals() {
             true,
             false,
             Box::new(move |msg, _ctx, _| {
-                if let NetworkRequests::Block { block } = msg {
+                if let NetworkRequests::Block { block } = msg.as_network_requests_ref() {
                     // Below we send approvals from all the block producers except for test1 and test2
                     // test1 will only create their approval for height 10 after their doomslug timer
                     // runs 10 iterations, which is way further in the future than them producing the
@@ -403,7 +404,7 @@ fn produce_block_with_approvals() {
                         assert!(false);
                     }
                 }
-                NetworkResponses::NoResponse
+                PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
         actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
@@ -489,9 +490,16 @@ fn produce_block_with_approvals_arrived_early() {
     run_actix(async move {
         let mut approval_counter = 0;
         let network_mock: Arc<
-            RwLock<Box<dyn FnMut(AccountId, &NetworkRequests) -> (NetworkResponses, bool)>>,
-        > = Arc::new(RwLock::new(Box::new(|_: _, _: &NetworkRequests| {
-            (NetworkResponses::NoResponse, true)
+            RwLock<
+                Box<
+                    dyn FnMut(
+                        AccountId,
+                        &PeerManagerMessageRequest,
+                    ) -> (PeerManagerMessageResponse, bool),
+                >,
+            >,
+        > = Arc::new(RwLock::new(Box::new(|_: _, _: &PeerManagerMessageRequest| {
+            (PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
         })));
         let (_, conns, _) = setup_mock_all_validators(
             validators.clone(),
@@ -508,8 +516,9 @@ fn produce_block_with_approvals_arrived_early() {
             false,
             network_mock.clone(),
         );
-        *network_mock.write().unwrap() =
-            Box::new(move |_: _, msg: &NetworkRequests| -> (NetworkResponses, bool) {
+        *network_mock.write().unwrap() = Box::new(
+            move |_: _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
+                let msg = msg.as_network_requests_ref();
                 match msg {
                     NetworkRequests::Block { block } => {
                         if block.header().height() == 3 {
@@ -523,11 +532,11 @@ fn produce_block_with_approvals_arrived_early() {
                                 }
                             }
                             *block_holder.write().unwrap() = Some(block.clone());
-                            return (NetworkResponses::NoResponse, false);
+                            return (NetworkResponses::NoResponse.into(), false);
                         } else if block.header().height() == 4 {
                             System::current().stop();
                         }
-                        (NetworkResponses::NoResponse, true)
+                        (NetworkResponses::NoResponse.into(), true)
                     }
                     NetworkRequests::Approval { approval_message } => {
                         if approval_message.target.as_ref() == "test1"
@@ -543,11 +552,12 @@ fn produce_block_with_approvals_arrived_early() {
                                 false,
                             ));
                         }
-                        (NetworkResponses::NoResponse, true)
+                        (NetworkResponses::NoResponse.into(), true)
                     }
-                    _ => (NetworkResponses::NoResponse, true),
+                    _ => (NetworkResponses::NoResponse.into(), true),
                 }
-            });
+            },
+        );
 
         near_network::test_utils::wait_or_panic(10000);
     });
@@ -565,7 +575,7 @@ fn invalid_blocks_common(is_requested: bool) {
             true,
             false,
             Box::new(move |msg, _ctx, _client_actor| {
-                match msg {
+                match msg.as_network_requests_ref() {
                     NetworkRequests::Block { block } => {
                         if is_requested {
                             panic!("rebroadcasting requested block");
@@ -585,7 +595,7 @@ fn invalid_blocks_common(is_requested: bool) {
                     }
                     _ => {}
                 };
-                NetworkResponses::NoResponse
+                PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
         actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
@@ -711,11 +721,19 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
     run_actix(async move {
         let mut ban_counter = 0;
-        let network_mock: Arc<
-            RwLock<Box<dyn FnMut(AccountId, &NetworkRequests) -> (NetworkResponses, bool)>>,
-        > = Arc::new(RwLock::new(Box::new(|_: _, _: &NetworkRequests| {
-            (NetworkResponses::NoResponse, true)
+        let peer_manager_mock: Arc<
+            RwLock<
+                Box<
+                    dyn FnMut(
+                        AccountId,
+                        &PeerManagerMessageRequest,
+                    ) -> (PeerManagerMessageResponse, bool),
+                >,
+            >,
+        > = Arc::new(RwLock::new(Box::new(|_: _, _: &PeerManagerMessageRequest| {
+            (PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
         })));
+
         let (_, conns, _) = setup_mock_all_validators(
             validators.clone(),
             key_pairs,
@@ -729,12 +747,12 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
             vec![false; validators.iter().map(|x| x.len()).sum()],
             vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
-            network_mock.clone(),
+            peer_manager_mock.clone(),
         );
         let mut sent_bad_blocks = false;
-        *network_mock.write().unwrap() =
-            Box::new(move |_: _, msg: &NetworkRequests| -> (NetworkResponses, bool) {
-                match msg {
+        *peer_manager_mock.write().unwrap() = Box::new(
+            move |_: _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
+                match msg.as_network_requests_ref() {
                     NetworkRequests::Block { block } => {
                         if block.header().height() >= 4 && !sent_bad_blocks {
                             let block_producer_idx =
@@ -798,7 +816,12 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                 }
                             }
 
-                            return (NetworkResponses::NoResponse, false);
+                            return (
+                                PeerManagerMessageResponse::NetworkResponses(
+                                    NetworkResponses::NoResponse,
+                                ),
+                                false,
+                            );
                         }
                         if block.header().height() > 20 {
                             match mode {
@@ -809,7 +832,12 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                             }
                             System::current().stop();
                         }
-                        (NetworkResponses::NoResponse, true)
+                        (
+                            PeerManagerMessageResponse::NetworkResponses(
+                                NetworkResponses::NoResponse,
+                            ),
+                            true,
+                        )
                     }
                     NetworkRequests::BanPeer { peer_id, ban_reason } => match mode {
                         InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
@@ -818,15 +846,24 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                             if ban_counter > 3 {
                                 panic!("more bans than expected");
                             }
-                            (NetworkResponses::NoResponse, true)
+                            (
+                                PeerManagerMessageResponse::NetworkResponses(
+                                    NetworkResponses::NoResponse,
+                                ),
+                                true,
+                            )
                         }
                         InvalidBlockMode::InvalidBlock => {
                             panic!("banning peer {:?} unexpectedly for {:?}", peer_id, ban_reason);
                         }
                     },
-                    _ => (NetworkResponses::NoResponse, true),
+                    _ => (
+                        PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
+                        true,
+                    ),
                 }
-            });
+            },
+        );
 
         near_network::test_utils::wait_or_panic(20000);
     });
@@ -862,7 +899,7 @@ fn skip_block_production() {
             true,
             false,
             Box::new(move |msg, _ctx, _client_actor| {
-                match msg {
+                match msg.as_network_requests_ref() {
                     NetworkRequests::Block { block } => {
                         if block.header().height() > 3 {
                             System::current().stop();
@@ -870,7 +907,7 @@ fn skip_block_production() {
                     }
                     _ => {}
                 };
-                NetworkResponses::NoResponse
+                PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
         wait_or_panic(10000);
@@ -889,15 +926,16 @@ fn client_sync_headers() {
             "other".parse().unwrap(),
             false,
             false,
-            Box::new(move |msg, _ctx, _client_actor| match msg {
+            Box::new(move |msg, _ctx, _client_actor| match msg.as_network_requests_ref() {
                 NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
                     assert_eq!(*peer_id, peer_info1.id);
                     assert_eq!(hashes.len(), 1);
                     // TODO: check it requests correct hashes.
                     System::current().stop();
-                    NetworkResponses::NoResponse
+
+                    PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
                 }
-                _ => NetworkResponses::NoResponse,
+                _ => PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
             }),
         );
         client.do_send(NetworkClientMessages::NetworkInfo(NetworkInfo {
@@ -952,7 +990,7 @@ fn produce_blocks(client: &mut Client, num: u64) {
 fn test_process_invalid_tx() {
     init_test_logger();
     let store = create_test_store();
-    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.transaction_validity_period = 10;
     let mut client = setup_client(
@@ -1004,7 +1042,7 @@ fn test_process_invalid_tx() {
 fn test_time_attack() {
     init_test_logger();
     let store = create_test_store();
-    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let chain_genesis = ChainGenesis::test();
     let mut client = setup_client(
         store,
@@ -1036,7 +1074,7 @@ fn test_time_attack() {
 fn test_invalid_approvals() {
     init_test_logger();
     let store = create_test_store();
-    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let chain_genesis = ChainGenesis::test();
     let mut client = setup_client(
         store,
@@ -1089,7 +1127,7 @@ fn test_no_double_sign() {
 fn test_invalid_gas_price() {
     init_test_logger();
     let store = create_test_store();
-    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.min_gas_price = 100;
     let mut client = setup_client(
@@ -1126,7 +1164,7 @@ fn test_invalid_height_too_large() {
     let _ = env.clients[0].process_block(b1.clone(), Provenance::PRODUCED);
     let signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let b2 = Block::empty_with_height(&b1, std::u64::MAX, &signer);
+    let b2 = Block::empty_with_height(&b1, u64::MAX, &signer);
     let (_, res) = env.clients[0].process_block(b2, Provenance::NONE);
     assert!(matches!(res.unwrap_err().kind(), ErrorKind::InvalidBlockHeight(_)));
 }
@@ -1284,7 +1322,7 @@ fn test_bad_chunk_mask() {
                 2,
                 Some(account_id.clone()),
                 false,
-                Arc::new(MockNetworkAdapter::default()),
+                Arc::new(MockPeerManagerAdapter::default()),
                 chain_genesis.clone(),
             )
         })
@@ -1677,7 +1715,11 @@ fn test_tx_forward_around_epoch_boundary() {
     env.clients[2].process_tx(tx, false, false);
     let mut accounts_to_forward = HashSet::new();
     for request in env.network_adapters[2].requests.read().unwrap().iter() {
-        if let NetworkRequests::ForwardTx(account_id, _) = request {
+        if let PeerManagerMessageRequest::NetworkRequests(NetworkRequests::ForwardTx(
+            account_id,
+            _,
+        )) = request
+        {
             accounts_to_forward.insert(account_id.clone());
         }
     }
@@ -1734,11 +1776,13 @@ fn test_gc_tail_update() {
     env.clients[1].sync_block_headers(headers).unwrap();
     // simulate save sync hash block
     let prev_sync_block = blocks[blocks.len() - 3].clone();
+    let prev_sync_hash = *prev_sync_block.hash();
+    let prev_sync_height = prev_sync_block.header().height();
     let sync_block = blocks[blocks.len() - 2].clone();
     env.clients[1].chain.reset_data_pre_state_sync(*sync_block.hash()).unwrap();
-    env.clients[1].chain.save_block(&prev_sync_block).unwrap();
+    env.clients[1].chain.save_block(prev_sync_block).unwrap();
     let mut store_update = env.clients[1].chain.mut_store().store_update();
-    store_update.inc_block_refcount(&prev_sync_block.hash()).unwrap();
+    store_update.inc_block_refcount(&prev_sync_hash).unwrap();
     store_update.save_block(sync_block.clone());
     store_update.commit().unwrap();
     env.clients[1]
@@ -1746,7 +1790,7 @@ fn test_gc_tail_update() {
         .reset_heads_post_state_sync(&None, *sync_block.hash(), |_| {}, |_| {}, |_| {})
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
-    assert_eq!(env.clients[1].chain.store().tail().unwrap(), prev_sync_block.header().height());
+    assert_eq!(env.clients[1].chain.store().tail().unwrap(), prev_sync_height);
 }
 
 /// Test that transaction does not become invalid when there is some gas price change.
@@ -1874,7 +1918,7 @@ fn test_incorrect_validator_key_produce_block() {
         config,
         chain_genesis,
         runtime_adapter,
-        Arc::new(MockNetworkAdapter::default()),
+        Arc::new(MockPeerManagerAdapter::default()),
         Some(signer),
         false,
     )
@@ -2159,7 +2203,7 @@ fn test_validate_chunk_extra() {
         .distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, &mut chain_store)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
-    let accepted_blocks = env.clients[0].process_blocks_with_missing_chunks(PROTOCOL_VERSION);
+    let accepted_blocks = env.clients[0].process_blocks_with_missing_chunks();
     assert_eq!(accepted_blocks.len(), 2);
     for (i, accepted_block) in accepted_blocks.into_iter().enumerate() {
         if i == 0 {
@@ -2669,7 +2713,7 @@ fn test_epoch_protocol_version_change() {
         }
         for j in 0..2 {
             let (_, res) = env.clients[j].process_block(block.clone(), Provenance::NONE);
-            assert!(res.is_ok());
+            res.unwrap();
             run_catchup(&mut env.clients[j], &vec![]).unwrap();
         }
     }
@@ -2907,11 +2951,14 @@ fn test_not_broadcast_block_on_accept() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let mut env = TestEnv::builder(ChainGenesis::test())
         .clients_count(2)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 2))
-        .network_adapters(vec![Arc::new(MockNetworkAdapter::default()), network_adapter.clone()])
+        .network_adapters(vec![
+            Arc::new(MockPeerManagerAdapter::default()),
+            network_adapter.clone(),
+        ])
         .build();
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     for i in 0..2 {
@@ -3146,15 +3193,12 @@ fn test_validator_stake_host_function() {
 }
 
 // Check that we can't call a contract exceeding functions number limit after upgrade.
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 #[test]
 fn test_limit_contract_functions_number_upgrade() {
     let functions_number_limit: u32 = 10_000;
 
-    #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
     let old_protocol_version = ProtocolFeature::LimitContractFunctionsNumber.protocol_version() - 1;
-    #[cfg(not(feature = "protocol_feature_limit_contract_functions_number"))]
-    let old_protocol_version = PROTOCOL_VERSION - 1;
-
     let new_protocol_version = old_protocol_version + 1;
 
     // Prepare TestEnv with a contract at the old protocol version.
@@ -3242,14 +3286,10 @@ fn test_limit_contract_functions_number_upgrade() {
     };
 
     assert!(matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_)));
-    if cfg!(feature = "protocol_feature_limit_contract_functions_number") {
-        assert!(matches!(
-            new_outcome.status,
-            FinalExecutionStatus::Failure(TxExecutionError::ActionError(_))
-        ));
-    } else {
-        assert!(matches!(new_outcome.status, FinalExecutionStatus::SuccessValue(_)));
-    }
+    assert!(matches!(
+        new_outcome.status,
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(_))
+    ));
 }
 
 mod access_key_nonce_range_tests {
