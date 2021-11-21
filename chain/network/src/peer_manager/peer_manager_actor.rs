@@ -773,7 +773,7 @@ impl PeerManagerActor {
                 MAX_MESSAGES_TOTAL_SIZE,
             );
             PeerActor::add_stream(
-                ThrottledFrameRead::new(read, Codec::new(), rate_limiter.clone(), semaphore)
+                ThrottledFrameRead::new(read, Codec::default(), rate_limiter.clone(), semaphore)
                     .take_while(|x| match x {
                         Ok(_) => future::ready(true),
                         Err(e) => {
@@ -790,7 +790,7 @@ impl PeerManagerActor {
                 remote_addr,
                 peer_info,
                 peer_type,
-                FramedWrite::new(write, Codec::new(), Codec::new(), ctx),
+                FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
                 handshake_timeout,
                 recipient,
                 client_addr,
