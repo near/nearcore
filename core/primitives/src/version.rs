@@ -151,13 +151,13 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 49;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 126;
+pub const PROTOCOL_VERSION: ProtocolVersion = 124;
 
 #[cfg(all(
     feature = "protocol_feature_new_validator_selection_algorithm",
     not(feature = "protocol_feature_chunk_only_producers")
 ))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 125;
+pub const PROTOCOL_VERSION: ProtocolVersion = 123;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -189,9 +189,9 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_block_header_v3")]
             ProtocolFeature::BlockHeaderV3 => 109,
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            ProtocolFeature::ChunkOnlyProducers => 126,
+            ProtocolFeature::ChunkOnlyProducers => 124,
             #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
-            ProtocolFeature::AliasValidatorSelectionAlgorithm => 125,
+            ProtocolFeature::AliasValidatorSelectionAlgorithm => 123,
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
         }
