@@ -1,6 +1,4 @@
 use crate::stats::metrics;
-use crate::types::PeerMessage;
-use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::{Buf, BufMut, BytesMut};
 use bytesize::{GIB, MIB};
 use near_network_primitives::types::ReasonForBan;
@@ -99,14 +97,6 @@ impl Decoder for Codec {
     }
 }
 
-pub(crate) fn peer_message_to_bytes(peer_message: &PeerMessage) -> Result<Vec<u8>, std::io::Error> {
-    peer_message.try_to_vec()
-}
-
-pub(crate) fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error> {
-    PeerMessage::try_from_slice(bytes)
-}
-
 fn peer_id_type_field_len(enum_var: u8) -> Option<usize> {
     // 1 byte for enum variant, then some number depending on the
     // public key type
@@ -160,10 +150,17 @@ pub(crate) fn is_forward_tx(bytes: &[u8]) -> Option<bool> {
 
 #[cfg(test)]
 mod test {
+    use crate::peer::codec::{is_forward_tx, Codec, NETWORK_MESSAGE_MAX_SIZE};
+    use crate::routing::edge::EdgeInfo;
+    use crate::types::{Handshake, HandshakeFailureReason, HandshakeV2, PeerMessage, SyncData};
     use crate::PeerInfo;
+    use borsh::BorshDeserialize;
+    use borsh::BorshSerialize;
+    use bytes::{BufMut, BytesMut};
     use near_crypto::{KeyType, PublicKey, SecretKey};
     use near_network_primitives::types::{
-        PeerChainInfo, PeerChainInfoV2, PeerIdOrHash, RoutedMessage, RoutedMessageBody,
+        PeerChainInfo, PeerChainInfoV2, PeerIdOrHash, ReasonForBan, RoutedMessage,
+        RoutedMessageBody,
     };
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::{self, CryptoHash};
@@ -171,17 +168,14 @@ mod test {
     use near_primitives::transaction::{SignedTransaction, Transaction};
     use near_primitives::types::EpochId;
     use near_primitives::version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION};
-
-    use super::*;
-    use crate::routing::edge::EdgeInfo;
-    use crate::types::{Handshake, HandshakeFailureReason, HandshakeV2, SyncData};
+    use tokio_util::codec::{Decoder, Encoder};
 
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();
         let mut buffer = BytesMut::new();
-        codec.encode(peer_message_to_bytes(&msg).unwrap(), &mut buffer).unwrap();
+        codec.encode(msg.try_to_vec().unwrap(), &mut buffer).unwrap();
         let decoded = codec.decode(&mut buffer).unwrap().unwrap().unwrap();
-        assert_eq!(bytes_to_peer_message(&decoded).unwrap(), msg);
+        assert_eq!(PeerMessage::try_from_slice(&decoded).unwrap(), msg);
     }
 
     #[derive(Debug, Copy, Clone)]
@@ -327,10 +321,10 @@ mod test {
 
         let mut codec = Codec::new();
         let mut buffer = BytesMut::new();
-        codec.encode(peer_message_to_bytes(&msg).unwrap(), &mut buffer).unwrap();
+        codec.encode(msg.try_to_vec().unwrap(), &mut buffer).unwrap();
         let decoded = codec.decode(&mut buffer).unwrap().unwrap().unwrap();
 
-        let err = bytes_to_peer_message(&decoded).unwrap_err();
+        let err = PeerMessage::try_from_slice(&decoded).unwrap_err();
 
         assert_eq!(
             *err.get_ref()
