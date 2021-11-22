@@ -1,3 +1,11 @@
+# Installation with cargo
+
+You can install `cargo-fuzz`, with the following command.
+
+```bash
+cargo install cargo-fuzz
+```
+
 # Runtime Fuzz
 
 Currently only one target is present -- runtime-fuzzer.  

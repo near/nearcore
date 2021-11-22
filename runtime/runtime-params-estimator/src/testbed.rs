@@ -41,6 +41,7 @@ impl RuntimeTestbed {
         let mut runtime_config =
             RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).as_ref().clone();
 
+        // Override vm limits config to simplify block processing.
         runtime_config.wasm_config.limit_config = VMLimitConfig {
             max_total_log_length: u64::MAX,
             max_number_registers: u64::MAX,
@@ -55,7 +56,7 @@ impl RuntimeTestbed {
             max_total_prepaid_gas: u64::MAX,
             max_number_bytes_method_names: u64::MAX,
 
-            ..Default::default()
+            ..VMLimitConfig::test()
         };
         runtime_config.account_creation_config.min_allowed_top_level_account_length = 0;
 

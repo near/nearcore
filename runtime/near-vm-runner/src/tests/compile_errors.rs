@@ -1,10 +1,6 @@
-#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
 use near_primitives::version::ProtocolFeature;
-#[cfg(not(feature = "protocol_feature_limit_contract_functions_number"))]
-use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_errors::{CompilationError, FunctionCallError, PrepareError, VMError};
 
-#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
 use assert_matches::assert_matches;
 
 use crate::tests::{
@@ -156,12 +152,8 @@ fn test_evil_function_index() {
 #[test]
 fn test_limit_contract_functions_number() {
     with_vm_variants(|vm_kind: VMKind| {
-        #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
         let old_protocol_version =
             ProtocolFeature::LimitContractFunctionsNumber.protocol_version() - 1;
-        #[cfg(not(feature = "protocol_feature_limit_contract_functions_number"))]
-        let old_protocol_version = PROTOCOL_VERSION - 1;
-
         let new_protocol_version = old_protocol_version + 1;
 
         let functions_number_limit: u32 = 10_000;
@@ -192,9 +184,6 @@ fn test_limit_contract_functions_number() {
             new_protocol_version,
             vm_kind,
         );
-        #[cfg(not(feature = "protocol_feature_limit_contract_functions_number"))]
-        assert_eq!(err, None);
-        #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
         assert_matches!(
             err,
             Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
