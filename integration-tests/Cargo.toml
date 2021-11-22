@@ -60,8 +60,9 @@ protocol_feature_alt_bn128 = [
     "near-vm-errors/protocol_feature_alt_bn128",
 ]
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-store/protocol_feature_block_header_v3"]
-protocol_feature_chunk_only_producers = ["near-client/protocol_feature_chunk_only_producers"]
-nightly_protocol_features = ["nearcore/nightly_protocol_features", "protocol_feature_alt_bn128", "protocol_feature_block_header_v3"]
+protocol_feature_chunk_only_producers = ["near-client/protocol_feature_chunk_only_producers", "protocol_feature_new_validator_selection_algorithm"]
+protocol_feature_new_validator_selection_algorithm = ["protocol_feature_block_header_v3", "near-client/protocol_feature_new_validator_selection_algorithm"]
+nightly_protocol_features = ["nearcore/nightly_protocol_features", "protocol_feature_alt_bn128", "protocol_feature_block_header_v3", "protocol_feature_new_validator_selection_algorithm", "protocol_feature_chunk_only_producers"]
 nightly_protocol = ["nearcore/nightly_protocol"]
 sandbox = ["near-network/sandbox", "near-chain/sandbox", "node-runtime/sandbox", "near-client/sandbox"]
 no_cache = ["nearcore/no_cache"]

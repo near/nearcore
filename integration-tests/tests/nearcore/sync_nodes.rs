@@ -13,7 +13,6 @@ use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock};
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_integration_logger;
-
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
 use near_network::types::NetworkClientMessages;
 use near_network_primitives::types::PeerInfo;
@@ -54,7 +53,7 @@ fn add_blocks(
         let next_epoch_id = EpochId(
             *blocks[(((prev.header().height()) / epoch_length) * epoch_length) as usize].hash(),
         );
-        #[cfg(feature = "protocol_feature_block_header_v3")]
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
         let next_bp_hash = Chain::compute_collection_hash(vec![ValidatorStake::new(
             "other".parse().unwrap(),
             signer.public_key(),
@@ -62,7 +61,7 @@ fn add_blocks(
             false,
         )])
         .unwrap();
-        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+        #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
         let next_bp_hash = Chain::compute_collection_hash(vec![ValidatorStake::new(
             "other".parse().unwrap(),
             signer.public_key(),
