@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 macro_rules! include_config {
     ($file:expr) => {
-        include_bytes!(concat!("../../../../nearcore/res/runtime_configs/", $file))
+        include_bytes!(concat!("../../res/runtime_configs/", $file))
     };
 }
 
@@ -19,8 +19,6 @@ static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (42, include_config!("42.json")),
     (48, include_config!("48.json")),
     (49, include_config!("49.json")),
-    #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
-    (123, include_config!("123.json")),
 ];
 
 pub static INITIAL_TESTNET_CONFIG: &[u8] = include_config!("29_testnet.json");
@@ -118,9 +116,7 @@ mod tests {
             "FF2Qg5qSM6iWQjD5ZyzEhdAV2g5MyQKXGYh4kyt8mMcE",
             "97UzHtVFBc4235jdur3DgNSUGNfGQfzRDLmAkYdZ19Re",
             "C6uw6BoeXr3KoKpVP34hBA7TqoywMbwMtJgqbTpPCiSB",
-            "9pnVZ23PC8YAJ966RtEBrQ3sw7DUn8a19arEpq3f8AhF",
-            #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
-            "AFpppR4PmSe4YBWzcyyH8vzLCeDbzfTRjeCGPVrmpPJj",
+            "2cuq2HvuHT7Z27LUbgEtMxP2ejqrHK34J2V1GL1joiMn",
         ];
         let actual_hashes = CONFIGS
             .iter()

@@ -40,6 +40,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::runtime::config::RuntimeConfig;
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::ShardUId;
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
@@ -57,7 +58,7 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
@@ -2654,8 +2655,8 @@ fn test_wasmer2_upgrade() {
         capture.drain()
     };
 
-    assert!(logs_at_old_version.contains(&"run_vm vm_kind=Wasmer0".to_string()));
-    assert!(logs_at_new_version.contains(&"run_vm vm_kind=Wasmer2".to_string()));
+    assert!(logs_at_old_version.iter().any(|l| l.contains(&"run_wasmer0")));
+    assert!(logs_at_new_version.iter().any(|l| l.contains(&"run_wasmer2")));
 }
 
 #[test]
@@ -3192,15 +3193,12 @@ fn test_validator_stake_host_function() {
 }
 
 // Check that we can't call a contract exceeding functions number limit after upgrade.
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 #[test]
 fn test_limit_contract_functions_number_upgrade() {
     let functions_number_limit: u32 = 10_000;
 
-    #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
     let old_protocol_version = ProtocolFeature::LimitContractFunctionsNumber.protocol_version() - 1;
-    #[cfg(not(feature = "protocol_feature_limit_contract_functions_number"))]
-    let old_protocol_version = PROTOCOL_VERSION - 1;
-
     let new_protocol_version = old_protocol_version + 1;
 
     // Prepare TestEnv with a contract at the old protocol version.
@@ -3288,14 +3286,10 @@ fn test_limit_contract_functions_number_upgrade() {
     };
 
     assert!(matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_)));
-    if cfg!(feature = "protocol_feature_limit_contract_functions_number") {
-        assert!(matches!(
-            new_outcome.status,
-            FinalExecutionStatus::Failure(TxExecutionError::ActionError(_))
-        ));
-    } else {
-        assert!(matches!(new_outcome.status, FinalExecutionStatus::SuccessValue(_)));
-    }
+    assert!(matches!(
+        new_outcome.status,
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(_))
+    ));
 }
 
 mod access_key_nonce_range_tests {
@@ -3713,7 +3707,8 @@ mod contract_precompilation_tests {
     use near_primitives::types::CompiledContractCache;
     use near_primitives::views::ViewApplyState;
     use near_store::{Store, StoreCompiledContractCache, TrieUpdate};
-    use near_vm_runner::{get_contract_cache_key, VMKind};
+    use near_vm_runner::get_contract_cache_key;
+    use near_vm_runner::internal::VMKind;
     use node_runtime::state_viewer::TrieViewer;
     use std::rc::Rc;
 

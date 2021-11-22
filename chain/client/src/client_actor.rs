@@ -10,7 +10,6 @@ use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
 use chrono::DateTime;
-use chrono::Duration as OldDuration;
 use log::{debug, error, info, trace, warn};
 use near_primitives::time::{Clock, Utc};
 
@@ -1265,7 +1264,7 @@ impl ClientActor {
 
         f(self, ctx);
 
-        return now.checked_add_signed(OldDuration::from_std(duration).unwrap()).unwrap();
+        return now.checked_add_signed(chrono::Duration::from_std(duration).unwrap()).unwrap();
     }
 
     /// Main syncing job responsible for syncing client with other peers.
