@@ -172,7 +172,7 @@ impl StateMachine {
                           _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
                         if can_write_log.swap(false, Ordering::Relaxed) == true {
-                            debug!(target: "network", message =  "runner.rs: Action", num_prev_actions, ?action_clone);
+                            debug!(target: "network", message = "runner.rs: Action", num_prev_actions, ?action_clone);
                         }
                         let addr = info.read().unwrap().pm_addr[target].clone();
                         actix::spawn(
@@ -202,7 +202,7 @@ impl StateMachine {
                           _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
                         if can_write_log.swap(false, Ordering::Relaxed) == true {
-                            debug!(target: "network", message =  "runner.rs: Action", num_prev_actions, ?action_clone);
+                            debug!(target: "network", message = "runner.rs: Action", num_prev_actions, ?action_clone);
                         }
 
                         let addr = info.read().unwrap().pm_addr[u].clone();
@@ -230,7 +230,7 @@ impl StateMachine {
                       _ctx: &mut Context<WaitOrTimeoutActor>,
                       _runner| {
                     if can_write_log.swap(false, Ordering::Relaxed) == true {
-                        debug!(target: "network", message =  "runner.rs: Action", num_prev_actions, ?action_clone);
+                        debug!(target: "network", message = "runner.rs: Action", num_prev_actions, ?action_clone);
                     }
 
                     let expected = expected
@@ -281,7 +281,7 @@ impl StateMachine {
                           _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
                         if can_write_log.swap(false, Ordering::Relaxed) == true {
-                            debug!(target: "network", message =  "runner.rs: Action", num_prev_actions, ?action_clone);
+                            debug!(target: "network", message = "runner.rs: Action", num_prev_actions, ?action_clone);
                         }
 
                         let expected_known: Vec<_> = known_validators
@@ -324,7 +324,7 @@ impl StateMachine {
                           _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
                         if can_write_log.swap(false, Ordering::Relaxed) == true {
-                            debug!(target: "network", message =  "runner.rs: Action", num_prev_actions, ?action_clone);
+                            debug!(target: "network", message = "runner.rs: Action", num_prev_actions, ?action_clone);
                         }
 
                         let target = info.read().unwrap().peers_info[target].id.clone();
@@ -344,7 +344,7 @@ impl StateMachine {
                           _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
                         if can_write_log.swap(false, Ordering::Relaxed) == true {
-                            debug!(target: "network", message =  "runner.rs: Action", num_prev_actions, ?action_clone);
+                            debug!(target: "network", message = "runner.rs: Action", num_prev_actions, ?action_clone);
                         }
 
                         actix::spawn(
@@ -371,7 +371,7 @@ impl StateMachine {
                           ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
                         if can_write_log.swap(false, Ordering::Relaxed) == true {
-                            debug!(target: "network", message =  "runner.rs: Action", num_prev_actions, ?action_clone);
+                            debug!(target: "network", message = "runner.rs: Action", num_prev_actions, ?action_clone);
                         }
 
                         ctx.run_later(Duration::from_millis(time as u64), move |_, _| {
@@ -387,7 +387,7 @@ impl StateMachine {
                           _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
                         if can_write_log.swap(false, Ordering::Relaxed) == true {
-                            debug!(target: "network", message =  "runner.rs: Action", num_prev_actions, ?action_clone);
+                            debug!(target: "network", message = "runner.rs: Action", num_prev_actions, ?action_clone);
                         }
 
                         let pings_expected: Vec<_> = pings
@@ -843,7 +843,7 @@ pub fn check_direct_connection(node_id: usize, target_id: usize) -> ActionFn {
             let info = info.read().unwrap();
             let target_peer_id = info.peers_info[target_id].id.clone();
             if can_write_log.swap(false, Ordering::Relaxed) == true {
-                debug!(target: "network", message="runner.rs check_direct_connection {}, {}", node_id, ?target_id);
+                debug!(target: "network",  message = "runner.rs check_direct_connection {}, {}", node_id, ?target_id);
             }
 
             actix::spawn(
@@ -937,7 +937,7 @@ pub fn change_account_id(node_id: usize, account_id: AccountId) -> ActionFn {
               _ctx: &mut Context<WaitOrTimeoutActor>,
               runner: Addr<Runner>| {
             if can_write_log.swap(false, Ordering::Relaxed) == true {
-                debug!(target: "network", message="runner.rs change_account_id {} {}", ?node_id, ?account_id);
+                debug!(target: "network",  message = "runner.rs change_account_id {} {}", ?node_id, ?account_id);
             }
             actix::spawn(
                 runner
