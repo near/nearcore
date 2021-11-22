@@ -9,7 +9,7 @@ use crate::tests::{
     make_cached_contract_call_vm, make_simple_contract_call_vm,
     make_simple_contract_call_with_gas_vm, with_vm_variants,
 };
-use crate::VMKind;
+use crate::vm_kind::VMKind;
 
 #[track_caller]
 fn gas_and_error_match(
