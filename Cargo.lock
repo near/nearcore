@@ -2845,12 +2845,10 @@ dependencies = [
  "primitive-types",
  "rand 0.7.3",
  "reed-solomon-erasure",
- "regex",
  "serde",
  "serde_json",
  "sha2",
  "smart-default",
- "validator",
 ]
 
 [[package]]
@@ -2861,8 +2859,6 @@ dependencies = [
  "borsh 0.9.1",
  "bs58",
  "derive_more",
- "hex",
- "lazy_static",
  "near-account-id",
  "num-rational",
  "serde",
