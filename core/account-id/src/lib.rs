@@ -57,7 +57,7 @@ impl AccountId {
 
             (!last_char_is_separator)
                 .then(|| ())
-                .ok_or(ParseAccountError(ParseErrorKind::Invalid, account_id.to_string()))
+                .ok_or_else(|| ParseAccountError(ParseErrorKind::Invalid, account_id.to_string()))
         }
     }
 
@@ -82,7 +82,7 @@ impl AccountId {
         self.len() >= MIN_ACCOUNT_ID_LEN
             && self.len() <= MAX_ACCOUNT_ID_LEN
             && self.as_ref() != "system"
-            && !self.as_ref().contains(".")
+            && !self.as_ref().contains('.')
     }
 
     /// Returns true if the signer_id can create a direct sub-account with the given account Id.
