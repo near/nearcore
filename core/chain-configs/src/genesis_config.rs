@@ -56,7 +56,7 @@ fn default_shard_layout() -> ShardLayout {
     ShardLayout::default()
 }
 
-#[cfg(feature = "protocol_feature_chunk_only_producers")]
+#[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
 fn default_minimum_stake_ratio() -> Rational {
     Rational::new(160, 1_000_000)
 }
@@ -99,6 +99,7 @@ pub struct GenesisConfig {
     pub num_block_producer_seats: NumSeats,
     /// Defines number of shards and number of block producer seats per each shard at genesis.
     /// Note: not used with protocol_feature_chunk_only_producers -- replaced by minimum_validators_per_shard
+    /// Note: not used before as all block producers produce chunks for all shards
     pub num_block_producer_seats_per_shard: Vec<NumSeats>,
     /// Expected number of hidden validators per shard.
     pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
@@ -177,7 +178,7 @@ pub struct GenesisConfig {
     pub minimum_validators_per_shard: NumSeats,
     /// The lowest ratio s/s_total any block producer can have.
     /// See https://github.com/near/NEPs/pull/167 for details
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
     #[serde(default = "default_minimum_stake_ratio")]
     #[default(Rational::new(160, 1_000_000))]
     pub minimum_stake_ratio: Rational,
@@ -201,9 +202,11 @@ impl From<&GenesisConfig> for EpochConfig {
             protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
             minimum_stake_divisor: config.minimum_stake_divisor,
             shard_layout: config.shard_layout.clone(),
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
             validator_selection_config: near_primitives::epoch_manager::ValidatorSelectionConfig {
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 num_chunk_only_producer_seats: config.num_chunk_only_producer_seats,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 minimum_validators_per_shard: config.minimum_validators_per_shard,
                 minimum_stake_ratio: config.minimum_stake_ratio,
             },

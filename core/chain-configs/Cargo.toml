@@ -23,4 +23,5 @@ near-primitives = { path = "../primitives" }
 
 [features]
 default = []
-protocol_feature_chunk_only_producers = ["near-primitives/protocol_feature_chunk_only_producers"]
+protocol_feature_chunk_only_producers = ["near-primitives/protocol_feature_chunk_only_producers", "protocol_feature_new_validator_selection_algorithm"]
+protocol_feature_new_validator_selection_algorithm = ["near-primitives/protocol_feature_new_validator_selection_algorithm"]
