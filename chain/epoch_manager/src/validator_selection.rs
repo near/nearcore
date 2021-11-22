@@ -161,7 +161,7 @@ pub fn proposals_to_epoch_info(
             // Here we assign validators to chunks (we try to keep number of shards assigned for
             // each validator as even as possible). Note that in prod configuration number of seats
             // per shard is the same as maximal number of block producers, so normally all
-            // validators would be assigned to all chats
+            // validators would be assigned to all chunks
             (0usize..(num_shards as usize))
                 .map(|shard_id| {
                     (0..epoch_config.num_block_producer_seats_per_shard[shard_id]
