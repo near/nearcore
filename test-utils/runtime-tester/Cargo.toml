@@ -23,4 +23,3 @@ near-logger-utils = { path = "../logger" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
-testlib = { path = "../testlib" }
