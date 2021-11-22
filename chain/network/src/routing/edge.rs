@@ -13,7 +13,6 @@ pub struct EdgeInfo {
     pub nonce: u64,
     pub signature: Signature,
 }
-
 impl EdgeInfo {
     pub fn new(peer0: &PeerId, peer1: &PeerId, nonce: u64, secret_key: &SecretKey) -> Self {
         let data = if peer0 < peer1 {

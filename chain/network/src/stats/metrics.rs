@@ -1,15 +1,12 @@
-use std::collections::HashMap;
-
-use once_cell::sync::Lazy;
-use strum::VariantNames;
-
+use crate::types::PeerMessage;
 use near_metrics::{
     inc_counter_by_opt, inc_counter_opt, try_create_histogram, try_create_int_counter,
     try_create_int_gauge, Histogram, IntCounter, IntGauge,
 };
-
-use crate::types::PeerMessage;
 use near_network_primitives::types::RoutedMessageBody;
+use once_cell::sync::Lazy;
+use std::collections::HashMap;
+use strum::VariantNames;
 
 pub static PEER_CONNECTIONS_TOTAL: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_peer_connections_total", "Number of connected peers").unwrap()
