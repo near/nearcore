@@ -1,8 +1,11 @@
 use crate::types::Balance;
 use aliases::Aliases;
 use borsh::{BorshDeserialize, BorshSerialize};
+#[cfg(feature = "deepsize")]
+use deepsize::DeepSizeOf;
 use serde::Serialize;
 
+#[cfg_attr(feature = "deepsize", derive(DeepSizeOf))]
 #[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct WeightedIndex {
     weight_sum: Balance,
