@@ -1,19 +1,16 @@
-use std::io::{Error, ErrorKind};
-
+use crate::stats::metrics;
+use crate::types::PeerMessage;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::{Buf, BufMut, BytesMut};
 use bytesize::{GIB, MIB};
-use tokio_util::codec::{Decoder, Encoder};
-use tracing::error;
-
 use near_network_primitives::types::ReasonForBan;
 use near_performance_metrics::framed_write::EncoderCallBack;
 #[cfg(feature = "performance_stats")]
 use near_performance_metrics::stats_enabled::get_thread_stats_logger;
 use near_rust_allocator_proxy::allocator::get_tid;
-
-use crate::stats::metrics;
-use crate::types::PeerMessage;
+use std::io::{Error, ErrorKind};
+use tokio_util::codec::{Decoder, Encoder};
+use tracing::error;
 
 const NETWORK_MESSAGE_MAX_SIZE: u32 = 512 * MIB as u32;
 const MAX_CAPACITY: u64 = GIB;

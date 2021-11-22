@@ -10,7 +10,6 @@ use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
 use chrono::DateTime;
-use chrono::Duration as OldDuration;
 use log::{debug, error, info, trace, warn};
 use near_primitives::time::{Clock, Utc};
 
@@ -944,39 +943,15 @@ impl ClientActor {
     fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
         match self.client.produce_block(next_height) {
             Ok(Some(block)) => {
-                let block_hash = *block.hash();
                 let peer_id = self.node_id.clone();
-                let prev_hash = *block.header().prev_hash();
-                let block_protocol_version = block.header().latest_protocol_version();
                 // We’ve produced the block so that counts as validated block.
                 let block = MaybeValidated::from_validated(block);
                 let res = self.process_block(block, Provenance::PRODUCED, &peer_id);
                 match &res {
                     Ok(_) => Ok(()),
                     Err(e) => match e.kind() {
-                        near_chain::ErrorKind::ChunksMissing(missing_chunks) => {
-                            debug!(
-                                "Chunks were missing for newly produced block {}, I'm {:?}, requesting. Missing: {:?}, ({:?})",
-                                block_hash,
-                                self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
-                                missing_chunks,
-                                missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
-                            );
-                            let protocol_version = self
-                                .client
-                                .runtime_adapter
-                                .get_epoch_id_from_prev_block(&prev_hash)
-                                .and_then(|epoch| {
-                                    self.client.runtime_adapter.get_epoch_protocol_version(&epoch)
-                                })
-                                .unwrap_or(block_protocol_version);
-                            self.client.shards_mgr.request_chunks(
-                                missing_chunks,
-                                &self.client.chain.header_head().expect("header_head must be available when processing newly produced block"),
-                                protocol_version,
-                            );
-                            Ok(())
-                        }
+                        // missing chunks were already dealt with in client.process_block
+                        near_chain::ErrorKind::ChunksMissing(_) => Ok(()),
                         _ => {
                             error!(target: "client", "Failed to process freshly produced block: {:?}", res);
                             byzantine_assert!(false);
@@ -1075,7 +1050,6 @@ impl ClientActor {
             return;
         }
         let prev_hash = *block.header().prev_hash();
-        let block_protocol_version = block.header().latest_protocol_version();
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         match self.process_block(block.into(), provenance, &peer_id) {
@@ -1101,31 +1075,9 @@ impl ClientActor {
                         self.request_block_by_hash(prev_hash, peer_id)
                     }
                 }
-                near_chain::ErrorKind::ChunksMissing(missing_chunks) => {
-                    debug!(
-                        target: "client",
-                        "Chunks were missing for block {}, I'm {:?}, requesting. Missing: {:?}, ({:?})",
-                        hash.clone(),
-                        self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
-                        missing_chunks,
-                        missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
-                    );
-                    let protocol_version = self
-                        .client
-                        .runtime_adapter
-                        .get_epoch_id_from_prev_block(&prev_hash)
-                        .and_then(|epoch| {
-                            self.client.runtime_adapter.get_epoch_protocol_version(&epoch)
-                        })
-                        .unwrap_or(block_protocol_version);
-                    self.client.shards_mgr.request_chunks(
-                        missing_chunks,
-                        &self.client.chain.header_head().expect(
-                            "header_head should always be available when block is received",
-                        ),
-                        protocol_version,
-                    );
-                }
+                // missing chunks are already handled in self.client.process_block()
+                // we don't need to do anything here
+                near_chain::ErrorKind::ChunksMissing(_) => {}
                 _ => {
                     debug!(target: "client", "Process block: block {} refused by chain: {}", hash, e.kind());
                 }
@@ -1319,7 +1271,7 @@ impl ClientActor {
 
         f(self, ctx);
 
-        return now.checked_add_signed(OldDuration::from_std(duration).unwrap()).unwrap();
+        return now.checked_add_signed(chrono::Duration::from_std(duration).unwrap()).unwrap();
     }
 
     /// Main syncing job responsible for syncing client with other peers.
@@ -1480,18 +1432,7 @@ impl ClientActor {
                             accepted_blocks.write().unwrap().drain(..).collect(),
                         );
 
-                        self.client.shards_mgr.request_chunks(
-                            blocks_missing_chunks.write().unwrap().drain(..).flatten(),
-                            &self
-                                .client
-                                .chain
-                                .header_head()
-                                .expect("header_head must be available during sync"),
-                            // It is ok to pass the latest protocol version here since we are likely
-                            // syncing old blocks, which means the protocol version will not change
-                            // the logic.
-                            PROTOCOL_VERSION,
-                        );
+                        self.client.request_missing_chunks(blocks_missing_chunks);
 
                         self.client.sync_status =
                             SyncStatus::BodySync { current_height: 0, highest_height: 0 };

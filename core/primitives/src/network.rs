@@ -3,6 +3,8 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+#[cfg(feature = "deepsize")]
+use deepsize::DeepSizeOf;
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
@@ -11,12 +13,14 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, EpochId};
 
 /// Peer id is the public key.
+#[cfg_attr(feature = "deepsize", derive(DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
 pub struct PeerId(Arc<PeerIdInner>);
 
 /// Peer id is the public key.
+#[cfg_attr(feature = "deepsize", derive(DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash,
 )]
@@ -81,6 +85,7 @@ impl fmt::Debug for PeerId {
 }
 
 /// Account announcement information
+#[cfg_attr(feature = "deepsize", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccount {
     /// AccountId to be announced.
@@ -94,24 +99,17 @@ pub struct AnnounceAccount {
 }
 
 impl AnnounceAccount {
+    /// We hash only (account_id, peer_id, epoch_id). There is no need hash the signature
+    /// as it's uniquely determined the the triple.
     pub fn build_header_hash(
         account_id: &AccountId,
         peer_id: &PeerId,
         epoch_id: &EpochId,
     ) -> CryptoHash {
-        let header = AnnounceAccountRouteHeader { account_id, peer_id, epoch_id };
-
-        CryptoHash::hash_borsh(&header)
+        CryptoHash::hash_borsh(&(account_id, peer_id, epoch_id))
     }
 
     pub fn hash(&self) -> CryptoHash {
         AnnounceAccount::build_header_hash(&self.account_id, &self.peer_id, &self.epoch_id)
     }
-}
-
-#[derive(BorshSerialize)]
-struct AnnounceAccountRouteHeader<'a> {
-    pub account_id: &'a AccountId,
-    pub peer_id: &'a PeerId,
-    pub epoch_id: &'a EpochId,
 }

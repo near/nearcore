@@ -1,45 +1,3 @@
-use near_primitives::time::Instant;
-use std::collections::HashMap;
-use std::fmt::{Debug, Formatter};
-use std::sync::{Arc, Mutex, RwLock};
-use std::{fmt, io};
-
-use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, Addr, MailboxError, Message, Recipient};
-use borsh::{BorshDeserialize, BorshSerialize};
-use futures::future::BoxFuture;
-use futures::FutureExt;
-#[cfg(feature = "test_features")]
-use serde::Serialize;
-use strum::AsStaticStr;
-
-use conqueue::QueueSender;
-#[cfg(feature = "test_features")]
-use near_network_primitives::types::NetworkAdversarialMessage;
-
-#[cfg(feature = "sandbox")]
-use near_network_primitives::types::NetworkSandboxMessage;
-use near_network_primitives::types::{
-    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, InboundTcpConnect, KnownProducer,
-    OutboundTcpConnect, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfo, PeerChainInfoV2, PeerType, Ping, Pong,
-    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
-};
-
-use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader, GenesisId};
-use near_primitives::challenge::Challenge;
-use near_primitives::errors::InvalidTxError;
-use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::sharding::{PartialEncodedChunk, PartialEncodedChunkWithArcReceipts};
-use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockReference, EpochId, ShardId};
-use near_primitives::version::{
-    ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
-};
-use near_primitives::views::QueryRequest;
-
 use crate::peer::peer_actor::PeerActor;
 use crate::routing::edge::{Edge, EdgeInfo, SimpleEdge};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -48,6 +6,43 @@ use crate::routing::ibf::IbfBox;
 use crate::routing::ibf_peer_set::ValidIBFLevel;
 use crate::routing::routing::{GetRoutingTableResult, PeerRequestResult, RoutingTableInfo};
 use crate::PeerInfo;
+use actix::dev::{MessageResponse, ResponseChannel};
+use actix::{Actor, Addr, MailboxError, Message, Recipient};
+use borsh::{BorshDeserialize, BorshSerialize};
+use conqueue::QueueSender;
+use futures::future::BoxFuture;
+use futures::FutureExt;
+#[cfg(feature = "test_features")]
+use near_network_primitives::types::NetworkAdversarialMessage;
+#[cfg(feature = "sandbox")]
+use near_network_primitives::types::NetworkSandboxMessage;
+use near_network_primitives::types::{
+    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, InboundTcpConnect, KnownProducer,
+    OutboundTcpConnect, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
+    PartialEncodedChunkResponseMsg, PeerChainInfo, PeerChainInfoV2, PeerType, Ping, Pong,
+    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+};
+use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader, GenesisId};
+use near_primitives::challenge::Challenge;
+use near_primitives::errors::InvalidTxError;
+use near_primitives::hash::CryptoHash;
+use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::sharding::{PartialEncodedChunk, PartialEncodedChunkWithArcReceipts};
+use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
+use near_primitives::time::Instant;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, BlockReference, EpochId, ShardId};
+use near_primitives::version::{
+    ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
+};
+use near_primitives::views::QueryRequest;
+#[cfg(feature = "test_features")]
+use serde::Serialize;
+use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
+use std::sync::{Arc, Mutex, RwLock};
+use std::{fmt, io};
+use strum::AsStaticStr;
 
 const ERROR_UNEXPECTED_LENGTH_OF_INPUT: &str = "Unexpected length of input";
 

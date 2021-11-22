@@ -1,21 +1,7 @@
-use std::collections::{HashMap, HashSet};
-use std::fmt;
-use std::fmt::{Debug, Error, Formatter};
-use std::hash::Hash;
-use std::net::{AddrParseError, IpAddr, SocketAddr};
-use std::str::FromStr;
-use std::time::Duration;
-
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
-use near_primitives::time::{Clock, Utc};
-use serde::{Deserialize, Serialize};
-use strum::AsStaticStr;
-use tokio::net::TcpStream;
-use tracing::{error, warn};
-
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_primitives::block::{Approval, Block, BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
@@ -31,10 +17,22 @@ use near_primitives::syncing::{
     EpochSyncFinalizationResponse, EpochSyncResponse, ShardStateSyncResponse,
     ShardStateSyncResponseV1,
 };
+use near_primitives::time::{Clock, Utc};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::fmt;
+use std::fmt::{Debug, Error, Formatter};
+use std::hash::Hash;
+use std::net::{AddrParseError, IpAddr, SocketAddr};
+use std::str::FromStr;
+use std::time::Duration;
+use strum::AsStaticStr;
+use tokio::net::TcpStream;
+use tracing::{error, warn};
 
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network

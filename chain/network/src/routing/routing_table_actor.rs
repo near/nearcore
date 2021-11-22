@@ -1,25 +1,6 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
-use actix::dev::MessageResponse;
-use actix::{Actor, Addr, Context, Handler, Message, System};
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use tracing::error;
-use tracing::{debug, trace, warn};
-
 use crate::metrics;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::edge::SimpleEdge;
-#[cfg(feature = "delay_detector")]
-use delay_detector::DelayDetector;
-use near_performance_metrics_macros::perf;
-use near_primitives::borsh::BorshSerialize;
-use near_primitives::network::PeerId;
-use near_primitives::utils::index_to_bytes;
-use near_store::db::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
-use near_store::{Store, StoreUpdate};
-
 use crate::routing::edge::{Edge, EdgeType};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::ibf::{Ibf, IbfBox};
@@ -29,6 +10,22 @@ use crate::routing::ibf_peer_set::IbfPeerSet;
 use crate::routing::ibf_peer_set::{ValidIBFLevel, MIN_IBF_LEVEL};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::ibf_set::IbfSet;
+use actix::dev::MessageResponse;
+use actix::{Actor, Addr, Context, Handler, Message, System};
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
+use near_performance_metrics_macros::perf;
+use near_primitives::borsh::BorshSerialize;
+use near_primitives::network::PeerId;
+use near_primitives::utils::index_to_bytes;
+use near_store::db::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
+use near_store::{Store, StoreUpdate};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use tracing::error;
+use tracing::{debug, trace, warn};
 
 use crate::routing::routing::{Graph, SAVE_PEERS_MAX_TIME};
 use crate::types::StopMsg;
