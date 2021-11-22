@@ -5,7 +5,7 @@ use clap::Clap;
 use genesis_populate::GenesisBuilder;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::create_store;
-use near_vm_runner::VMKind;
+use near_vm_runner::internal::VMKind;
 use nearcore::{get_store_path, load_config};
 use runtime_params_estimator::cases::run;
 use runtime_params_estimator::costs_to_runtime_config;

@@ -81,6 +81,3 @@ force_wasmer0 = ["near-vm-runner/force_wasmer0"]
 force_wasmtime = ["near-vm-runner/force_wasmtime"]
 
 sandbox = ["near-client/sandbox", "node-runtime/sandbox", "near-jsonrpc/sandbox"]
-
-[package.metadata.workspaces]
-independent = true
