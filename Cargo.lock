@@ -1962,7 +1962,6 @@ dependencies = [
  "console",
  "lazy_static",
  "number_prefix",
- "rayon",
  "regex",
 ]
 
@@ -2001,7 +2000,6 @@ dependencies = [
  "borsh 0.9.1",
  "cached",
  "chrono",
- "funty",
  "futures",
  "hex",
  "lazy_static",
@@ -2502,7 +2500,6 @@ dependencies = [
  "delay-detector",
  "futures",
  "lazy_static",
- "linked-hash-map",
  "log",
  "near-actix-test-utils",
  "near-chain",
@@ -2520,8 +2517,6 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-telemetry",
- "near-test-contracts",
- "near-vm-runner",
  "num-rational",
  "rand 0.7.3",
  "reed-solomon-erasure",
@@ -2643,7 +2638,6 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
- "validator",
 ]
 
 [[package]]
@@ -2662,7 +2656,6 @@ name = "near-jsonrpc-client"
 version = "0.0.0"
 dependencies = [
  "actix-http",
- "actix-web",
  "awc",
  "futures",
  "near-jsonrpc-primitives",
@@ -2747,10 +2740,7 @@ dependencies = [
  "delay-detector",
  "futures",
  "lazy_static",
- "near-actix-test-utils",
- "near-chain",
  "near-crypto",
- "near-logger-utils",
  "near-metrics",
  "near-network-primitives",
  "near-performance-metrics",
@@ -2845,12 +2835,10 @@ dependencies = [
  "primitive-types",
  "rand 0.7.3",
  "reed-solomon-erasure",
- "regex",
  "serde",
  "serde_json",
  "sha2",
  "smart-default",
- "validator",
 ]
 
 [[package]]
@@ -2861,8 +2849,6 @@ dependencies = [
  "borsh 0.9.1",
  "bs58",
  "derive_more",
- "hex",
- "lazy_static",
  "near-account-id",
  "num-rational",
  "serde",
@@ -3083,7 +3069,6 @@ dependencies = [
  "num-rational",
  "serde",
  "serde_json",
- "strum",
  "tracing-span-tree",
 ]
 
@@ -3180,7 +3165,6 @@ dependencies = [
  "borsh 0.9.1",
  "byteorder",
  "hex",
- "indicatif",
  "lazy_static",
  "log",
  "near-chain-configs",
@@ -3199,7 +3183,6 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
- "tempfile",
  "testlib",
  "thiserror",
  "tracing",
@@ -4721,24 +4704,14 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "actix-rt",
- "assert_matches",
  "borsh 0.9.1",
  "byteorder",
- "clap 2.33.3",
  "futures",
  "hex",
- "lazy-static-include",
  "log",
- "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
- "near-client",
  "near-crypto",
- "near-jsonrpc",
- "near-jsonrpc-client",
- "near-jsonrpc-primitives",
- "near-logger-utils",
- "near-network",
  "near-primitives",
  "near-store",
  "near-test-contracts",
@@ -4747,7 +4720,6 @@ dependencies = [
  "once_cell",
  "rand 0.7.3",
  "serde_json",
- "tempfile",
 ]
 
 [[package]]

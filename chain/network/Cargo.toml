@@ -39,9 +39,6 @@ near-store = { path = "../../core/store" }
 
 [dev-dependencies]
 bencher = "0.1.5"
-near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
-near-chain = { path = "../chain" }
-near-logger-utils = {path = "../../test-utils/logger"}
 tempfile = "3"
 
 [features]
