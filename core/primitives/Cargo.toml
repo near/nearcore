@@ -27,6 +27,7 @@ reed-solomon-erasure = "4"
 hex = "0.4"
 num-rational = { version = "0.3", features = ["serde"] }
 primitive-types = "0.10"
+deepsize = { version = "0.2.0", features = ["chrono"], optional=true }
 
 borsh = { version = "0.9", features = ["rc"] }
 
