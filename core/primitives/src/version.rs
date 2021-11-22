@@ -1,8 +1,11 @@
+#[cfg(feature = "deepsize")]
+use deepsize::DeepSizeOf;
 use serde::{Deserialize, Serialize};
 
 use crate::types::Balance;
 
 /// Data structure for semver version and github tag or commit.
+#[cfg_attr(feature = "deepsize", derive(DeepSizeOf))]
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Version {
     pub version: String,
