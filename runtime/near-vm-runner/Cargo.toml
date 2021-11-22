@@ -18,7 +18,7 @@ borsh = "0.9"
 serde = { version = "1", features = ["derive"] }
 wasmer-runtime = { version = "0.18.0", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near", optional = true }
 wasmer-runtime-core = { version = "0.18.2", package = "wasmer-runtime-core-near", optional = true}
-wasmparser = "0.51"
+wasmparser = "0.78"
 memoffset = "0.6"
 
 # Use the following for development versions of Wasmer.
@@ -73,7 +73,6 @@ protocol_feature_alt_bn128 = [
     "near-primitives/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128"
 ]
-protocol_feature_limit_contract_functions_number = ["near-primitives/protocol_feature_limit_contract_functions_number", "near-vm-errors/protocol_feature_limit_contract_functions_number"]
 nightly_protocol = ["near-primitives/nightly_protocol"]
 
 [package.metadata.cargo-udeps.ignore]

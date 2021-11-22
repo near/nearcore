@@ -42,10 +42,9 @@ impl From<near_client_primitives::types::GetBlockError> for RpcBlockError {
             }
             near_client_primitives::types::GetBlockError::Unreachable { ref error_message } => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                near_metrics::inc_counter_vec(
-                    &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
-                    &["RpcBlockError"],
-                );
+                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
+                    .with_label_values(&["RpcBlockError"])
+                    .inc();
                 Self::InternalError { error_message: error.to_string() }
             }
         }

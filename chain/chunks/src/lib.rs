@@ -14,9 +14,7 @@ use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
     byzantine_assert, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind, RuntimeAdapter,
 };
-use near_network::types::PeerManagerAdapter;
-use near_network::types::PeerManagerMessageRequest;
-use near_network::NetworkRequests;
+use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_pool::{PoolIteratorWrapper, TransactionPool};
 use near_primitives::block::{BlockHeader, Tip};
 use near_primitives::hash::{hash, CryptoHash};
@@ -608,11 +606,40 @@ impl ShardsManager {
             .collect::<HashSet<_>>()
     }
 
+    /// Check whether the node should wait for chunk parts being forwarded to it
+    /// Chunks will be forwarded to validators if feature ForwardChunkParts is enabled
+    fn should_wait_for_chunk_forwarding(&self, prev_hash: &CryptoHash) -> Result<bool, Error> {
+        // chunks will not be forwarded to non-validators
+        if self.me.is_none() {
+            return Ok(false);
+        }
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(prev_hash)?;
+        let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
+        if !checked_feature!("stable", ForwardChunkParts, protocol_version) {
+            return Ok(false);
+        }
+        Ok(self
+            .runtime_adapter
+            .get_validator_by_account_id(&epoch_id, prev_hash, self.me.as_ref().unwrap())
+            .is_ok())
+    }
+
+    /// Only marks this chunk as being requested
+    /// Note no requests are actually sent at this point.
+    fn request_chunk_single_mark_only(&mut self, chunk_header: &ShardChunkHeader) {
+        self.request_chunk_single(chunk_header, None, false)
+    }
+
+    /// send partial chunk requests for one chunk
+    /// `chunk_header`: the chunk being requested
+    /// `header_head`: header head of the current chain. If it is None, the request will be only
+    ///                added to he request pool, but not sent.
+    /// `should_wait_for_chunk_forwarding`: whether chunks will be forwarded to this node
     fn request_chunk_single(
         &mut self,
         chunk_header: &ShardChunkHeader,
         header_head: Option<&Tip>,
-        protocol_version: ProtocolVersion,
+        should_wait_for_chunk_forwarding: bool,
     ) {
         let parent_hash = chunk_header.prev_block_hash();
         let height = chunk_header.height_created();
@@ -645,14 +672,12 @@ impl ShardsManager {
             let old_block = header_head.last_block_hash != parent_hash
                 && header_head.prev_block_hash != parent_hash;
 
-            // If the protocol version is later than the one where chunk forwarding was introduced,
+            // If chunks forwarding is enabled,
             // we purposely do not send chunk request messages right away for new blocks. Such requests
             // will eventually be sent because of the `resend_chunk_requests` loop. However,
             // we want to give some time for any `PartialEncodedChunkForward` messages to arrive
             // before we send requests.
-            let is_chunk_forwarding_enabled =
-                checked_feature!("stable", ForwardChunkParts, protocol_version);
-            if !is_chunk_forwarding_enabled || fetch_from_archival || old_block {
+            if !should_wait_for_chunk_forwarding || fetch_from_archival || old_block {
                 let request_result = self.request_partial_encoded_chunk(
                     height,
                     &parent_hash,
@@ -669,16 +694,29 @@ impl ShardsManager {
         }
     }
 
+    /// send chunk requests for some chunks in a block
+    /// `chunks_to_request`: chunks to request
+    /// `prev_hash`: hash of prev block of the block we are requesting missing chunks for
+    ///              The function assumes the prev block is accepted
+    /// `header_head`: current head of the header chain
     pub fn request_chunks<T>(
         &mut self,
         chunks_to_request: T,
+        prev_hash: &CryptoHash,
         header_head: &Tip,
-        protocol_version: ProtocolVersion,
     ) where
         T: IntoIterator<Item = ShardChunkHeader>,
     {
+        let is_chunk_forwarding_enabled =
+            self.should_wait_for_chunk_forwarding(prev_hash).unwrap_or_else(|_| {
+                // prev_hash must be accepted because we don't request missing chunks through this
+                // this function for orphans
+                debug_assert!(false, "{:?} must be accepted", prev_hash);
+                error!(target:"chunks", "requesting chunks for orphan {:?}", prev_hash);
+                false
+            });
         for chunk_header in chunks_to_request {
-            self.request_chunk_single(&chunk_header, Some(header_head), protocol_version)
+            self.request_chunk_single(&chunk_header, Some(header_head), is_chunk_forwarding_enabled)
         }
     }
 
@@ -1129,7 +1167,7 @@ impl ShardsManager {
         // We must check the protocol version every time, since a new value
         // could be passed to the function, whereas the signature check is intrinsic
         // to the header, thus only needs to happen exactly once.
-        let partial_encoded_chunk = partial_encoded_chunk.extract();
+        let partial_encoded_chunk = partial_encoded_chunk.into_inner();
         if !partial_encoded_chunk.header.version_range().contains(protocol_version) {
             return Err(Error::InvalidChunkHeader);
         }
@@ -1326,11 +1364,11 @@ impl ShardsManager {
                 };
                 // Make sure we mark this chunk as being requested so that it is handled
                 // properly in the next call. Note no requests are actually sent at this point.
-                self.request_chunk_single(header, None, protocol_version);
+                self.request_chunk_single_mark_only(header);
                 self.process_partial_encoded_chunk(
                     // We can assert the signature on the header is valid because
                     // it would have been checked in an earlier call to this function.
-                    MaybeValidated::Validated(&forwarded_chunk),
+                    MaybeValidated::from_validated(&forwarded_chunk),
                     chain_store,
                     rs,
                     protocol_version,
@@ -1737,7 +1775,7 @@ mod test {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use near_network::NetworkRequests;
+    use near_network::types::NetworkRequests;
     use near_primitives::block::Tip;
     use near_primitives::types::EpochId;
     #[cfg(feature = "expensive_tests")]
@@ -1868,7 +1906,7 @@ mod test {
             let pec_v2 = partial_encoded_chunk.into();
             shards_manager
                 .process_partial_encoded_chunk(
-                    MaybeValidated::NotValidated(&pec_v2),
+                    MaybeValidated::from(&pec_v2),
                     &mut chain_store,
                     &mut rs,
                     PROTOCOL_VERSION,
@@ -1982,15 +2020,16 @@ mod test {
         let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&fixture.mock_part_ords);
         let result = shards_manager
             .process_partial_encoded_chunk(
-                MaybeValidated::NotValidated(&partial_encoded_chunk),
+                MaybeValidated::from(&partial_encoded_chunk),
                 &mut fixture.chain_store,
                 &mut fixture.rs,
                 PROTOCOL_VERSION,
             )
             .unwrap();
         match result {
-            ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts => shards_manager
-                .request_chunk_single(&fixture.mock_chunk_header, None, PROTOCOL_VERSION),
+            ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts => {
+                shards_manager.request_chunk_single_mark_only(&fixture.mock_chunk_header)
+            }
 
             _ => panic!("Expected to need more parts!"),
         }
@@ -2027,6 +2066,74 @@ mod test {
     }
 
     #[test]
+    // test that
+    // when a non valdiator requests chunks, the request is sent immediately
+    // when a validator requests chunks, the request is recorded but not sent, because it
+    // will wait for chunks being forwarded
+    fn test_chunk_forward_non_validator() {
+        // When a non validator node requests chunks, the request should be send immediately
+        let fixture = ChunkForwardingTestFixture::default();
+        let mut shards_manager =
+            ShardsManager::new(None, fixture.mock_runtime.clone(), fixture.mock_network.clone());
+        let header_head = Tip {
+            height: 0,
+            last_block_hash: CryptoHash::default(),
+            prev_block_hash: CryptoHash::default(),
+            epoch_id: EpochId::default(),
+            next_epoch_id: EpochId::default(),
+        };
+        shards_manager.request_chunks(
+            vec![fixture.mock_chunk_header.clone()],
+            &fixture.mock_chunk_header.prev_block_hash(),
+            &header_head,
+        );
+        assert!(shards_manager
+            .requested_partial_encoded_chunks
+            .contains_key(&fixture.mock_chunk_header.chunk_hash()));
+        let mut requested = false;
+        while let Some(_) = fixture.mock_network.pop() {
+            requested = true;
+        }
+        assert!(requested);
+
+        // still a non-validator because the account id is not a validator account id
+        let mut shards_manager = ShardsManager::new(
+            Some("none".parse().unwrap()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+        );
+        shards_manager.request_chunks(
+            vec![fixture.mock_chunk_header.clone()],
+            &fixture.mock_chunk_header.prev_block_hash(),
+            &header_head,
+        );
+        assert!(shards_manager
+            .requested_partial_encoded_chunks
+            .contains_key(&fixture.mock_chunk_header.chunk_hash()));
+        let mut requested = false;
+        while let Some(_) = fixture.mock_network.pop() {
+            requested = true;
+        }
+        assert!(requested);
+
+        // when a validator request chunks, the request should be send immediately
+        let mut shards_manager = ShardsManager::new(
+            Some(fixture.mock_shard_tracker.clone()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+        );
+        shards_manager.request_chunks(
+            vec![fixture.mock_chunk_header.clone()],
+            &fixture.mock_chunk_header.prev_block_hash(),
+            &header_head,
+        );
+        assert!(shards_manager
+            .requested_partial_encoded_chunks
+            .contains_key(&fixture.mock_chunk_header.chunk_hash()));
+        assert!(fixture.mock_network.pop().is_none());
+    }
+
+    #[test]
     fn test_receive_forward_before_header() {
         // When a node receives a chunk forward before the chunk header, it should store
         // the forward and use it when it receives the header
@@ -2054,7 +2161,7 @@ mod test {
         };
         let result = shards_manager
             .process_partial_encoded_chunk(
-                MaybeValidated::NotValidated(&partial_encoded_chunk),
+                MaybeValidated::from(&partial_encoded_chunk),
                 &mut fixture.chain_store,
                 &mut fixture.rs,
                 PROTOCOL_VERSION,

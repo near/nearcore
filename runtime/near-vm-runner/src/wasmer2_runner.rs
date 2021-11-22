@@ -1,5 +1,6 @@
 use crate::cache::into_vm_result;
 use crate::errors::IntoVMError;
+use crate::prepare::WASM_FEATURES;
 use crate::{cache, imports};
 use memoffset::offset_of;
 use near_primitives::contract::ContractCode;
@@ -23,6 +24,21 @@ use near_vm_logic::gas_counter::FastGasCounter;
 use wasmer_compiler_singlepass::Singlepass;
 use wasmer_types::InstanceConfig;
 use wasmer_vm::TrapCode;
+
+const WASMER_FEATURES: wasmer::Features = wasmer::Features {
+    threads: WASM_FEATURES.threads,
+    reference_types: WASM_FEATURES.reference_types,
+    simd: WASM_FEATURES.simd,
+    bulk_memory: WASM_FEATURES.bulk_memory,
+    multi_value: WASM_FEATURES.multi_value,
+    tail_call: WASM_FEATURES.tail_call,
+    module_linking: WASM_FEATURES.module_linking,
+    multi_memory: WASM_FEATURES.multi_memory,
+    memory64: WASM_FEATURES.memory64,
+    exceptions: WASM_FEATURES.exceptions,
+    // singlepass does not support signals.
+    signal_less: true,
+};
 
 pub struct Wasmer2Memory(Memory);
 
@@ -339,7 +355,7 @@ enum WasmerCompiler {
 
 #[derive(Hash)]
 struct Wasmer2Config {
-    seed: i32,
+    seed: u32,
     engine: WasmerEngine,
     compiler: WasmerCompiler,
 }
@@ -353,11 +369,11 @@ impl Wasmer2Config {
 }
 
 // We use following scheme for the bits forming seed:
-//  kind << 10, kind is 1 for Wasmer
+//  kind << 10, kind is 1 for Wasmer2
 //  major version << 6
 //  minor version
 const WASMER2_CONFIG: Wasmer2Config = Wasmer2Config {
-    seed: (1 << 10) | (2 << 6) | 0,
+    seed: (1 << 10) | (3 << 6) | 0,
     engine: WasmerEngine::Universal,
     compiler: WasmerCompiler::Singlepass,
 };
@@ -372,7 +388,7 @@ pub(crate) fn default_wasmer2_store() -> Store {
     let compiler = Singlepass::new();
     // We only support universal engine at the moment.
     assert_eq!(WASMER2_CONFIG.engine, WasmerEngine::Universal);
-    let engine = wasmer::Universal::new(compiler).engine();
+    let engine = wasmer::Universal::new(compiler).features(WASMER_FEATURES).engine();
     Store::new(&engine)
 }
 

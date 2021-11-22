@@ -94,24 +94,17 @@ pub struct AnnounceAccount {
 }
 
 impl AnnounceAccount {
+    /// We hash only (account_id, peer_id, epoch_id). There is no need hash the signature
+    /// as it's uniquely determined the the triple.
     pub fn build_header_hash(
         account_id: &AccountId,
         peer_id: &PeerId,
         epoch_id: &EpochId,
     ) -> CryptoHash {
-        let header = AnnounceAccountRouteHeader { account_id, peer_id, epoch_id };
-
-        CryptoHash::hash_borsh(&header)
+        CryptoHash::hash_borsh(&(account_id, peer_id, epoch_id))
     }
 
     pub fn hash(&self) -> CryptoHash {
         AnnounceAccount::build_header_hash(&self.account_id, &self.peer_id, &self.epoch_id)
     }
-}
-
-#[derive(BorshSerialize, BorshDeserialize)]
-struct AnnounceAccountRouteHeader<'a> {
-    pub account_id: &'a AccountId,
-    pub peer_id: &'a PeerId,
-    pub epoch_id: &'a EpochId,
 }

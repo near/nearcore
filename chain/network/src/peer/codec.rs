@@ -86,7 +86,6 @@ impl Decoder for Codec {
         let mut len_bytes: [u8; 4] = [0; 4];
         len_bytes.copy_from_slice(&buf[0..4]);
         let len = u32::from_le_bytes(len_bytes);
-
         if len > self.max_length {
             // If this point is reached, abusive peer is banned.
             return Ok(Some(Err(ReasonForBan::Abusive)));
@@ -103,11 +102,11 @@ impl Decoder for Codec {
     }
 }
 
-pub fn peer_message_to_bytes(peer_message: &PeerMessage) -> Result<Vec<u8>, std::io::Error> {
+pub(crate) fn peer_message_to_bytes(peer_message: &PeerMessage) -> Result<Vec<u8>, std::io::Error> {
     peer_message.try_to_vec()
 }
 
-pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error> {
+pub(crate) fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error> {
     PeerMessage::try_from_slice(bytes)
 }
 
@@ -121,7 +120,7 @@ fn peer_id_type_field_len(enum_var: u8) -> Option<usize> {
     }
 }
 
-pub fn is_forward_tx(bytes: &[u8]) -> Option<bool> {
+pub(crate) fn is_forward_tx(bytes: &[u8]) -> Option<bool> {
     let peer_message_variant = *bytes.get(0)?;
 
     // PeerMessage::Routed variant == 13
@@ -173,10 +172,8 @@ mod test {
     use near_primitives::hash::{self, CryptoHash};
     use near_primitives::network::{AnnounceAccount, PeerId};
     use near_primitives::transaction::{SignedTransaction, Transaction};
-    use near_primitives::{
-        types::EpochId,
-        version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION},
-    };
+    use near_primitives::types::EpochId;
+    use near_primitives::version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION};
 
     use super::*;
     use crate::routing::edge::EdgeInfo;

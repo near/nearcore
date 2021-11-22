@@ -136,7 +136,7 @@ impl Serialize for Base64String {
     }
 }
 
-lazy_static::lazy_static! {
+
     static ref RUNTIME: std::sync::Mutex<tokio::runtime::Runtime> = {
         std::sync::Mutex::new(
             tokio::runtime::Builder::new_multi_thread()
@@ -145,7 +145,7 @@ lazy_static::lazy_static! {
                 .unwrap(),
         )
     };
-}
+
 
 fuzz_target!(|requests: Vec<JsonRpcRequest>| {
     NODE_INIT.call_once(|| {

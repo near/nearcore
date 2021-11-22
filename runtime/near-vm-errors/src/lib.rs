@@ -144,7 +144,6 @@ pub enum PrepareError {
     /// Error creating memory.
     Memory,
     /// Contract contains too many functions.
-    #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
     TooManyFunctions,
 }
 
@@ -294,7 +293,6 @@ impl fmt::Display for PrepareError {
             StackHeightInstrumentation => write!(f, "Stack instrumentation failed."),
             Instantiate => write!(f, "Error happened during instantiation."),
             Memory => write!(f, "Error creating memory."),
-            #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
             TooManyFunctions => write!(f, "Too many functions in contract."),
         }
     }

@@ -1,13 +1,11 @@
 use crate::node::Node;
-use lazy_static::lazy_static;
+use cached::once_cell::sync::Lazy;
 use std::process::Output;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
 
-lazy_static! {
-    static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
-}
+static HEAVY_TESTS_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 pub fn heavy_test<F>(f: F)
 where
