@@ -58,9 +58,10 @@ impl AccountId {
                 last_char_is_separator = current_char_is_separator;
             }
 
-            (!last_char_is_separator)
-                .then(|| ())
-                .ok_or_else(|| ParseAccountError(ParseErrorKind::Invalid, account_id.to_string()))
+            if last_char_is_separator {
+                return Err(ParseAccountError(ParseErrorKind::Invalid, account_id.to_string()));
+            }
+            Ok(())
         }
     }
 
