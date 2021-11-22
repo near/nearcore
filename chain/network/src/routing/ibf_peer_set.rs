@@ -1,12 +1,9 @@
-use std::collections::HashMap;
-
-use rand::Rng;
-
 use crate::routing::edge::{Edge, SimpleEdge};
-use near_primitives::network::PeerId;
-
 use crate::routing::ibf_set::IbfSet;
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::network::PeerId;
+use rand::Rng;
+use std::collections::HashMap;
 
 pub type SlotMapId = u64;
 

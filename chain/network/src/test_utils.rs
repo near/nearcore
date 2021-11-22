@@ -1,28 +1,25 @@
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::net::TcpListener;
-use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
-
-use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
-use futures::future::BoxFuture;
-use futures::{future, FutureExt};
-use once_cell::sync::Lazy;
-use rand::{thread_rng, RngCore};
-use tracing::debug;
-
-use near_crypto::{KeyType, SecretKey};
-use near_network_primitives::types::ReasonForBan;
-use near_primitives::hash::hash;
-use near_primitives::network::PeerId;
-use near_primitives::types::EpochId;
-use near_primitives::utils::index_to_bytes;
-
 use crate::types::{
     NetworkInfo, NetworkResponses, PeerManagerAdapter, PeerManagerMessageRequest,
     PeerManagerMessageResponse,
 };
 use crate::PeerInfo;
 use crate::PeerManagerActor;
+use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
+use futures::future::BoxFuture;
+use futures::{future, FutureExt};
+use near_crypto::{KeyType, SecretKey};
+use near_network_primitives::types::ReasonForBan;
+use near_primitives::hash::hash;
+use near_primitives::network::PeerId;
+use near_primitives::types::EpochId;
+use near_primitives::utils::index_to_bytes;
+use once_cell::sync::Lazy;
+use rand::{thread_rng, RngCore};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::net::TcpListener;
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::Duration;
+use tracing::debug;
 
 static OPENED_PORTS: Lazy<Mutex<HashSet<u16>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 

@@ -1,8 +1,7 @@
+use borsh::{BorshDeserialize, BorshSerialize};
 use std::cmp::{max, min};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
-
-use borsh::{BorshDeserialize, BorshSerialize};
 use tracing::error;
 
 /// Ibf consists of multiple boxes, this constant specified the number of unique boxes

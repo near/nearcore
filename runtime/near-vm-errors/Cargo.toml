@@ -17,10 +17,11 @@ hex = "0.4"
 serde = { version = "1", features = ["derive"] }
 
 borsh = "0.9"
-
+deepsize = { version = "0.2.0", optional = true }
 near-account-id = { path = "../../core/account-id" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_alt_bn128 = []
+deepsize_featre = ["deepsize"]
