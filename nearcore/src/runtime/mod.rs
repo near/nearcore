@@ -2765,7 +2765,6 @@ mod test {
         for _ in 10..14 {
             env.step(vec![vec![], vec![]], vec![true, true], ChallengesResult::default());
         }
-        // which validator is kicked out depends on which validator selection is used
         let account = env.view_account(&block_producers[3].validator_id());
         assert_eq!(account.locked, 0);
 
@@ -2940,6 +2939,8 @@ mod test {
             0,
             true
         ));
+        // which validator is selected to shard 1 sole validator seat depends on which validator
+        // selection algorithm is used
         assert!(
             env.runtime.cares_about_shard(Some(&validators[0]), &env.head.last_block_hash, 1, true)
                 ^ env.runtime.cares_about_shard(
@@ -3223,6 +3224,8 @@ mod test {
                 vec![validators.clone()],
                 4,
                 false,
+                // We need to be able to stake enough to be fisherman, but not enough to be
+                // validator
                 20000,
             )
         } else {
@@ -3305,6 +3308,8 @@ mod test {
                 vec![validators.clone()],
                 2,
                 false,
+                // We need to be able to stake enough to be fisherman, but not enough to be
+                // validator
                 20000,
             )
         } else {

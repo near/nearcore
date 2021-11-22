@@ -140,24 +140,12 @@ pub enum ProtocolFeature {
 /// Current latest stable version of the protocol.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-#[cfg(all(
-    not(feature = "nightly_protocol"),
-    any(
-        not(feature = "protocol_feature_new_validator_selection_algorithm"),
-        feature = "protocol_feature_chunk_only_producers"
-    )
-))]
+#[cfg(not(feature = "nightly_protocol"))]
 pub const PROTOCOL_VERSION: ProtocolVersion = 49;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
 pub const PROTOCOL_VERSION: ProtocolVersion = 124;
-
-#[cfg(all(
-    feature = "protocol_feature_new_validator_selection_algorithm",
-    not(feature = "protocol_feature_chunk_only_producers")
-))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 123;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {

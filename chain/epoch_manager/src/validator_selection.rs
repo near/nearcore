@@ -127,6 +127,7 @@ pub fn proposals_to_epoch_info(
             let mut chunk_producers_settlement: Vec<Vec<ValidatorId>> =
                 shard_assignment.iter().map(|vs| Vec::with_capacity(vs.len())).collect();
             let mut i = all_validators.len();
+            // Here we assign validator ids to all chunk only validators
             for (shard_validators, shard_validator_ids) in
                 shard_assignment.into_iter().zip(chunk_producers_settlement.iter_mut())
             {
@@ -157,6 +158,10 @@ pub fn proposals_to_epoch_info(
                 return Err(EpochError::NotEnoughValidators { num_validators: 0u64, num_shards });
             }
             let mut id = 0usize;
+            // Here we assign validators to chunks (we try to keep number of shards assigned for
+            // each validator as even as possible). Note that in prod configuration number of seats
+            // per shard is the same as maximal number of block producers, so normally all
+            // validators would be assigned to all chats
             (0usize..(num_shards as usize))
                 .map(|shard_id| {
                     (0..epoch_config.num_block_producer_seats_per_shard[shard_id]
@@ -199,6 +204,15 @@ pub fn proposals_to_epoch_info(
 
 /// Generates proposals based on new proposals, last epoch validators/fishermen and validator
 /// kickouts
+/// For each account that was validator or fisherman in last epoch or made stake action last epoch
+/// we apply the following in the order of priority
+/// 1. If account is in validator_kickout it cannot be validator or fisherman for the next epoch,
+///        we will not include it in proposals or fishermen
+/// 2. If account made staking action last epoch, it will be included in proposals with stake
+///        adjusted by rewards from last epoch, if any
+/// 3. If account was validator last epoch, it will be included in proposals with the same stake
+///        as last epoch, adjusted by rewards from last epoch, if any
+/// 4. If account was fisherman last epoch, it is included in fishermen
 fn proposals_with_rollover(
     proposals: Vec<ValidatorStake>,
     prev_epoch_info: &EpochInfo,
