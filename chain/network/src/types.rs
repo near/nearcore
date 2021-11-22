@@ -63,19 +63,19 @@ impl std::error::Error for HandshakeFailureReason {}
 
 #[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
-    pub version: u32,
+    pub(crate) version: u32,
     /// Oldest supported protocol version.
-    pub oldest_supported_version: u32,
+    pub(crate) oldest_supported_version: u32,
     /// Sender's peer id.
-    pub peer_id: PeerId,
+    pub(crate) peer_id: PeerId,
     /// Receiver's peer id.
-    pub target_peer_id: PeerId,
+    pub(crate) target_peer_id: PeerId,
     /// Sender's listening addr.
-    pub listen_port: Option<u16>,
+    pub(crate) listen_port: Option<u16>,
     /// Peer's chain information.
-    pub chain_info: PeerChainInfoV2,
+    pub(crate) chain_info: PeerChainInfoV2,
     /// Info for new edge.
-    pub edge_info: EdgeInfo,
+    pub(crate) edge_info: EdgeInfo,
 }
 
 /// Struct describing the layout for Handshake.
@@ -83,25 +83,25 @@ pub struct Handshake {
 /// Struct describing the layout for Handshake.
 /// It is used to automatically derive BorshDeserialize.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct HandshakeAutoDes {
+pub(crate) struct HandshakeAutoDes {
     /// Protocol version.
-    pub version: u32,
+    pub(crate) version: u32,
     /// Oldest supported protocol version.
-    pub oldest_supported_version: u32,
+    pub(crate) oldest_supported_version: u32,
     /// Sender's peer id.
-    pub peer_id: PeerId,
+    pub(crate) peer_id: PeerId,
     /// Receiver's peer id.
-    pub target_peer_id: PeerId,
+    pub(crate) target_peer_id: PeerId,
     /// Sender's listening addr.
-    pub listen_port: Option<u16>,
+    pub(crate) listen_port: Option<u16>,
     /// Peer's chain information.
-    pub chain_info: PeerChainInfoV2,
+    pub(crate) chain_info: PeerChainInfoV2,
     /// Info for new edge.
-    pub edge_info: EdgeInfo,
+    pub(crate) edge_info: EdgeInfo,
 }
 
 impl Handshake {
-    pub fn new(
+    pub(crate) fn new(
         version: ProtocolVersion,
         peer_id: PeerId,
         target_peer_id: PeerId,
@@ -167,17 +167,17 @@ impl From<HandshakeAutoDes> for Handshake {
 // TODO: Remove Handshake V2 in next iteration
 #[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
 pub struct HandshakeV2 {
-    pub version: u32,
-    pub oldest_supported_version: u32,
-    pub peer_id: PeerId,
-    pub target_peer_id: PeerId,
-    pub listen_port: Option<u16>,
-    pub chain_info: PeerChainInfo,
-    pub edge_info: EdgeInfo,
+    pub(crate) version: u32,
+    pub(crate) oldest_supported_version: u32,
+    pub(crate) peer_id: PeerId,
+    pub(crate) target_peer_id: PeerId,
+    pub(crate) listen_port: Option<u16>,
+    pub(crate) chain_info: PeerChainInfo,
+    pub(crate) edge_info: EdgeInfo,
 }
 
 impl HandshakeV2 {
-    pub fn new(
+    pub(crate) fn new(
         version: ProtocolVersion,
         peer_id: PeerId,
         target_peer_id: PeerId,
@@ -200,14 +200,14 @@ impl HandshakeV2 {
 /// Struct describing the layout for HandshakeV2.
 /// It is used to automatically derive BorshDeserialize.
 #[derive(BorshDeserialize)]
-pub struct HandshakeV2AutoDes {
-    pub version: u32,
-    pub oldest_supported_version: u32,
-    pub peer_id: PeerId,
-    pub target_peer_id: PeerId,
-    pub listen_port: Option<u16>,
-    pub chain_info: PeerChainInfo,
-    pub edge_info: EdgeInfo,
+pub(crate) struct HandshakeV2AutoDes {
+    pub(crate) version: u32,
+    pub(crate) oldest_supported_version: u32,
+    pub(crate) peer_id: PeerId,
+    pub(crate) target_peer_id: PeerId,
+    pub(crate) listen_port: Option<u16>,
+    pub(crate) chain_info: PeerChainInfo,
+    pub(crate) edge_info: EdgeInfo,
 }
 
 // Use custom deserializer for HandshakeV2. Try to read version of the other peer from the header.
@@ -272,12 +272,12 @@ impl From<HandshakeV2> for Handshake {
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct SyncData {
-    pub edges: Vec<Edge>,
-    pub accounts: Vec<AnnounceAccount>,
+    pub(crate) edges: Vec<Edge>,
+    pub(crate) accounts: Vec<AnnounceAccount>,
 }
 
 impl SyncData {
-    pub fn edge(edge: Edge) -> Self {
+    pub(crate) fn edge(edge: Edge) -> Self {
         Self { edges: vec![edge], accounts: Vec::new() }
     }
 
@@ -285,7 +285,7 @@ impl SyncData {
         Self { edges: Vec::new(), accounts: vec![account] }
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.edges.is_empty() && self.accounts.is_empty()
     }
 }
@@ -350,8 +350,8 @@ pub enum RoutingSyncV2 {
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct PartialSync {
-    pub ibf_level: ValidIBFLevel,
-    pub ibf: Vec<IbfBox>,
+    pub(crate) ibf_level: ValidIBFLevel,
+    pub(crate) ibf: Vec<IbfBox>,
 }
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -367,10 +367,10 @@ pub enum RoutingState {
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutingVersion2 {
-    pub known_edges: u64,
-    pub seed: u64,
-    pub edges: Vec<Edge>,
-    pub routing_state: RoutingState,
+    pub(crate) known_edges: u64,
+    pub(crate) seed: u64,
+    pub(crate) edges: Vec<Edge>,
+    pub(crate) routing_state: RoutingState,
 }
 
 impl fmt::Display for PeerMessage {
@@ -380,7 +380,7 @@ impl fmt::Display for PeerMessage {
 }
 
 impl PeerMessage {
-    pub fn msg_variant(&self) -> &str {
+    pub(crate) fn msg_variant(&self) -> &str {
         match self {
             PeerMessage::Routed(routed_message) => {
                 strum::AsStaticRef::as_static(&routed_message.body)
@@ -389,7 +389,7 @@ impl PeerMessage {
         }
     }
 
-    pub fn is_client_message(&self) -> bool {
+    pub(crate) fn is_client_message(&self) -> bool {
         match self {
             PeerMessage::Block(_)
             | PeerMessage::BlockHeaders(_)
@@ -413,7 +413,7 @@ impl PeerMessage {
         }
     }
 
-    pub fn is_view_client_message(&self) -> bool {
+    pub(crate) fn is_view_client_message(&self) -> bool {
         match self {
             PeerMessage::Routed(r) => match r.body {
                 RoutedMessageBody::QueryRequest { .. }
@@ -437,25 +437,25 @@ impl PeerMessage {
 #[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub struct SendMessage {
-    pub message: PeerMessage,
+    pub(crate) message: PeerMessage,
 }
 
 /// Actor message to consolidate potential new peer.
 /// Returns if connection should be kept or dropped.
 #[derive(Clone, Debug)]
 pub struct Consolidate {
-    pub actor: Addr<PeerActor>,
-    pub peer_info: PeerInfo,
-    pub peer_type: PeerType,
-    pub chain_info: PeerChainInfoV2,
+    pub(crate) actor: Addr<PeerActor>,
+    pub(crate) peer_info: PeerInfo,
+    pub(crate) peer_type: PeerType,
+    pub(crate) chain_info: PeerChainInfoV2,
     // Edge information from this node.
     // If this is None it implies we are outbound connection, so we need to create our
     // EdgeInfo part and send it to the other peer.
-    pub this_edge_info: Option<EdgeInfo>,
+    pub(crate) this_edge_info: Option<EdgeInfo>,
     // Edge information from other node.
-    pub other_edge_info: EdgeInfo,
+    pub(crate) other_edge_info: EdgeInfo,
     // Protocol version of new peer. May be higher than ours.
-    pub peer_protocol_version: ProtocolVersion,
+    pub(crate) peer_protocol_version: ProtocolVersion,
 }
 
 impl Message for Consolidate {
@@ -472,7 +472,7 @@ impl Message for GetPeerId {
 #[derive(MessageResponse, Debug)]
 #[cfg_attr(feature = "test_features", derive(Serialize))]
 pub struct GetPeerIdResult {
-    pub peer_id: PeerId,
+    pub(crate) peer_id: PeerId,
 }
 
 #[derive(Debug)]
@@ -518,14 +518,14 @@ pub enum ConsolidateResponse {
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
 pub struct Unregister {
-    pub peer_id: PeerId,
-    pub peer_type: PeerType,
-    pub remove_from_peer_store: bool,
+    pub(crate) peer_id: PeerId,
+    pub(crate) peer_type: PeerType,
+    pub(crate) remove_from_peer_store: bool,
 }
 
 #[derive(Message)]
 #[rtype(result = "()")]
-pub struct StopMsg {}
+pub(crate) struct StopMsg {}
 
 /// Message from peer to peer manager
 #[derive(strum::AsRefStr, Clone, Debug)]
@@ -558,7 +558,7 @@ impl Message for PeersRequest {
 #[derive(Message, Debug, Clone)]
 #[rtype(result = "()")]
 pub struct PeersResponse {
-    pub peers: Vec<PeerInfo>,
+    pub(crate) peers: Vec<PeerInfo>,
 }
 
 /// List of all messages, which PeerManagerActor accepts through Actix. There is also another list
@@ -803,11 +803,11 @@ pub enum NetworkRequests {
 }
 
 pub struct EdgeList {
-    pub edges: Vec<Edge>,
-    pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
-    pub sender: QueueSender<Edge>,
+    pub(crate) edges: Vec<Edge>,
+    pub(crate) edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
+    pub(crate) sender: QueueSender<Edge>,
     #[cfg(feature = "test_features")]
-    pub adv_disable_edge_signature_verification: bool,
+    pub(crate) adv_disable_edge_signature_verification: bool,
 }
 
 impl Message for EdgeList {
