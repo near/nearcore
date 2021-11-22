@@ -316,7 +316,8 @@
         "GasInstrumentation",
         "StackHeightInstrumentation",
         "Instantiate",
-        "Memory"
+        "Memory",
+        "TooManyFunctions"
       ],
       "props": {}
     },
@@ -347,6 +348,11 @@
     },
     "StackOverflow": {
       "name": "StackOverflow",
+      "subtypes": [],
+      "props": {}
+    },
+    "TooManyFunctions": {
+      "name": "TooManyFunctions",
       "subtypes": [],
       "props": {}
     },

@@ -47,6 +47,18 @@ members = [
     "utils/near-rate-limiter",
 ]
 
+[workspace.metadata.workspaces]
+version = "0.10.0"
+exclude = [
+  # v0.0.0 {
+    "neard",
+    "nearcore",
+    "integration-tests",
+    "chain/jsonrpc/jsonrpc-tests",
+    "runtime/near-test-contracts",
+  # }
+]
+
 [patch.crates-io]
 
 [profile.release]
