@@ -82,14 +82,14 @@ impl ThreadStats {
     }
 
     pub fn log_add_write_buffer(&mut self, bytes: usize, buf_len: usize, buf_capacity: usize) {
-        self.write_buf_added = self.write_buf_added + ByteSize::b(bytes as u64);
+        self.write_buf_added += ByteSize::b(bytes as u64);
         self.write_buf_len = ByteSize::b(buf_len as u64);
         self.write_buf_capacity = ByteSize::b(buf_capacity as u64);
         self.write_buf_capacity = ByteSize::b(buf_capacity as u64);
     }
 
     pub fn log_drain_write_buffer(&mut self, bytes: usize, buf_len: usize, buf_capacity: usize) {
-        self.write_buf_drained = self.write_buf_drained + ByteSize::b(bytes as u64);
+        self.write_buf_drained += ByteSize::b(bytes as u64);
         self.write_buf_len = ByteSize::b(buf_len as u64);
         self.write_buf_capacity = ByteSize::b(buf_capacity as u64);
     }
@@ -172,7 +172,7 @@ impl ThreadStats {
             self.write_buf_drained = Default::default();
 
             let mut stat: Vec<_> = self.stat.iter().collect();
-            stat.sort_by(|x, y| (*x).0.cmp(&(*y).0));
+            stat.sort_by(|x, y| (*x).0.cmp(&*y.0));
 
             for entry in stat {
                 warn!(
@@ -253,7 +253,7 @@ impl Stats {
             MIN_OCCUPANCY_RATIO_THRESHOLD
         );
         let mut s: Vec<_> = self.stats.iter().collect();
-        s.sort_by(|x, y| (*x).0.cmp(&(*y).0));
+        s.sort_by(|x, y| (*x).0.cmp(&*y.0));
 
         let mut ratio = 0.0;
         let mut other_ratio = 0.0;
@@ -265,7 +265,7 @@ impl Stats {
                 entry.1.lock().unwrap().print_stats_and_clear(*entry.0, sleep_time, now);
             ratio += tmp_ratio;
             other_ratio += tmp_other_ratio;
-            other_memory_size = other_memory_size + tmp_other_memory_size;
+            other_memory_size += tmp_other_memory_size;
             other_memory_count += tmp_other_memory_count;
         }
         info!(
