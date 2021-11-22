@@ -1,6 +1,6 @@
+use crate::prepare::prepare_contract;
+use crate::vm_kind::VMKind;
 use near_vm_logic::VMConfig;
-
-use crate::{prepare::prepare_contract, VMKind};
 
 static SIMD: &str = r#"
 (module
