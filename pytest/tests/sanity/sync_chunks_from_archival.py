@@ -28,12 +28,16 @@ HEIGHTS_BEFORE_CHECK = 25
 
 class Handler(ProxyHandler):
 
-    def __init__(self, *args, hash_to_metadata={}, requests={}, responses={}, **kwargs):
+    def __init__(self,
+                 *args,
+                 hash_to_metadata={},
+                 requests={},
+                 responses={},
+                 **kwargs):
         super().__init__(*args, **kwargs)
         self.hash_to_metadata = hash_to_metadata
         self.requests = requests
         self.responses = responses
-
 
     async def handle(self, msg, fr, to):
         if msg.enum == 'Routed':
@@ -83,16 +87,18 @@ class Handler(ProxyHandler):
 
         return True
 
-        
 
-
-if __name__ == '__main__':        
+if __name__ == '__main__':
     manager = multiprocessing.Manager()
     hash_to_metadata = manager.dict()
     requests = manager.dict()
     responses = manager.dict()
 
-    proxy = NodesProxy(partial(Handler, hash_to_metadata=hash_to_metadata, requests=requests, responses=responses))
+    proxy = NodesProxy(
+        partial(Handler,
+                hash_to_metadata=hash_to_metadata,
+                requests=requests,
+                responses=responses))
 
     started = time.time()
 
@@ -153,16 +159,14 @@ if __name__ == '__main__':
 
     boot_node = spin_up_node(config, near_root, node_dirs[0], 0, proxy=proxy)
     node1 = spin_up_node(config,
-                        near_root,
-                        node_dirs[1],
-                        1,
-                        boot_node=boot_node,
-                        proxy=proxy)
-
+                         near_root,
+                         node_dirs[1],
+                         1,
+                         boot_node=boot_node,
+                         proxy=proxy)
 
     def get_validators(node):
         return set([x['account_id'] for x in node.get_status()['validators']])
-
 
     logging.info("Getting to height %s" % HEIGHTS_BEFORE_ROTATE)
     while True:
@@ -174,37 +178,37 @@ if __name__ == '__main__':
         time.sleep(1)
 
     node2 = spin_up_node(config,
-                        near_root,
-                        node_dirs[2],
-                        2,
-                        boot_node=boot_node,
-                        proxy=proxy)
+                         near_root,
+                         node_dirs[2],
+                         2,
+                         boot_node=boot_node,
+                         proxy=proxy)
     node3 = spin_up_node(config,
-                        near_root,
-                        node_dirs[3],
-                        3,
-                        boot_node=boot_node,
-                        proxy=proxy)
+                         near_root,
+                         node_dirs[3],
+                         3,
+                         boot_node=boot_node,
+                         proxy=proxy)
 
     status = boot_node.get_status()
     hash_ = status['sync_info']['latest_block_hash']
 
     logging.info("Waiting for the new nodes to sync")
     while True:
-        if not node2.get_status()['sync_info']['syncing'] and not node3.get_status(
-        )['sync_info']['syncing']:
+        if not node2.get_status()['sync_info'][
+                'syncing'] and not node3.get_status()['sync_info']['syncing']:
             break
         time.sleep(1)
 
     for stake, nodes, expected_vals in [
         (100000000000000000000000000000000, [node2, node3],
-        ["test0", "test1", "test2", "test3"]),
+         ["test0", "test1", "test2", "test3"]),
         (0, [boot_node, node1], ["test2", "test3"]),
     ]:
         logging.info("Rotating validators")
         for ord_, node in enumerate(reversed(nodes)):
             tx = sign_staking_tx(node.signer_key, node.validator_key, stake, 10,
-                                base58.b58decode(hash_.encode('utf8')))
+                                 base58.b58decode(hash_.encode('utf8')))
             boot_node.send_tx(tx)
 
         logging.info("Waiting for rotation to occur")
@@ -236,7 +240,7 @@ if __name__ == '__main__':
     node4 = spin_up_node(config, near_root, node_dirs[4], 4, boot_node=node2)
 
     logging.info("Waiting for the new node to sync. We are %s seconds in" %
-                (time.time() - started))
+                 (time.time() - started))
     while True:
         assert time.time() - started < TIMEOUT
         status = node4.get_status()
@@ -263,7 +267,6 @@ if __name__ == '__main__':
                 assert (h, shard, 2) not in responses, h
             else:
                 assert False, f"Missing request for shard {shard} in block {h}"
-            
 
     # The last 5 blocks with epoch_length=10 will certainly be in the
     # same epoch as head, or in the previous epoch, and thus should
@@ -271,7 +274,7 @@ if __name__ == '__main__':
     for h in range(new_height - 5, new_height - 1):
         for shard in [0, 1]:
             for producer in [2, 3]:
-                assert(h, shard, producer) in requests, h
-                assert(h, shard, producer) in responses, h
+                assert (h, shard, producer) in requests, h
+                assert (h, shard, producer) in responses, h
 
     logging.info("Done. Took %s seconds" % (time.time() - started))

@@ -14,10 +14,13 @@ sys.path.append('lib')
 from cluster import start_cluster
 from configured_logger import logger
 from transaction import sign_payment_tx
+
+
 class TestRpcFinality(unittest.TestCase):
+
     def test_finality(self):
         nodes = start_cluster(4, 1, 1, None,
-                            [["min_gas_price", 0], ["epoch_length", 100]], {})
+                              [["min_gas_price", 0], ["epoch_length", 100]], {})
 
         time.sleep(3)
         # kill one validating node so that no block can be finalized
@@ -31,7 +34,7 @@ class TestRpcFinality(unittest.TestCase):
         status = nodes[0].get_status()
         latest_block_hash = status['sync_info']['latest_block_hash']
         tx = sign_payment_tx(nodes[0].signer_key, 'test1', token_transfer, 1,
-                            base58.b58decode(latest_block_hash.encode('utf8')))
+                             base58.b58decode(latest_block_hash.encode('utf8')))
         logger.info("About to send payment")
         logger.info(nodes[0].send_tx_and_wait(tx, timeout=200))
         logger.info("Done")
@@ -44,17 +47,20 @@ class TestRpcFinality(unittest.TestCase):
             acc_doomslug_finality = nodes[0].get_account(acc_id, "near-final")
             acc_nfg_finality = nodes[0].get_account(acc_id, "final")
             if i == 0:
-                self.assertEqual(int(acc_no_finality['result']
-                        ['amount']), acc0_balance - token_transfer)
-                self.assertEqual(int(acc_doomslug_finality['result']
-                        ['amount']), acc0_balance - token_transfer)
-                self.assertEqual(int(acc_nfg_finality['result']['amount']), acc0_balance - token_transfer)
+                self.assertEqual(int(acc_no_finality['result']['amount']),
+                                 acc0_balance - token_transfer)
+                self.assertEqual(int(acc_doomslug_finality['result']['amount']),
+                                 acc0_balance - token_transfer)
+                self.assertEqual(int(acc_nfg_finality['result']['amount']),
+                                 acc0_balance - token_transfer)
             else:
-                self.assertEqual(int(acc_no_finality['result']
-                        ['amount']), acc1_balance + token_transfer)
-                self.assertEqual(int(acc_doomslug_finality['result']
-                        ['amount']), acc1_balance + token_transfer)
-                self.assertEqual(int(acc_nfg_finality['result']['amount']), acc1_balance + token_transfer)
+                self.assertEqual(int(acc_no_finality['result']['amount']),
+                                 acc1_balance + token_transfer)
+                self.assertEqual(int(acc_doomslug_finality['result']['amount']),
+                                 acc1_balance + token_transfer)
+                self.assertEqual(int(acc_nfg_finality['result']['amount']),
+                                 acc1_balance + token_transfer)
+
 
 if __name__ == '__main__':
     unittest.main()
