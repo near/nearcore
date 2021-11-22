@@ -7,7 +7,7 @@ use crate::tests::{
     make_simple_contract_call_vm, make_simple_contract_call_with_protocol_version_vm,
     with_vm_variants,
 };
-use crate::VMKind;
+use crate::vm_kind::VMKind;
 
 fn initializer_wrong_signature_contract() -> Vec<u8> {
     wat::parse_str(

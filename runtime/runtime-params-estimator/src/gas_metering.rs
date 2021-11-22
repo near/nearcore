@@ -8,7 +8,7 @@ use near_primitives::types::CompiledContractCache;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{create_store, StoreCompiledContractCache};
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_runner::{run_vm, VMKind};
+use near_vm_runner::internal::VMKind;
 use nearcore::get_store_path;
 use std::fmt::Write;
 use std::sync::Arc;
@@ -163,6 +163,7 @@ pub fn compute_gas_metering_cost(
     repeats: i32,
     contract: &ContractCode,
 ) -> u64 {
+    let runtime = vm_kind.runtime().expect("runtime has not been enabled");
     let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
     let store = create_store(&get_store_path(workdir.path()));
     let cache_store = Arc::new(StoreCompiledContractCache { store });
@@ -176,7 +177,7 @@ pub fn compute_gas_metering_cost(
     let promise_results = vec![];
 
     // Warmup.
-    let result = run_vm(
+    let result = runtime.run(
         &contract,
         "hello",
         &mut fake_external,
@@ -184,7 +185,6 @@ pub fn compute_gas_metering_cost(
         &vm_config_gas,
         &fees,
         &promise_results,
-        vm_kind,
         PROTOCOL_VERSION,
         cache,
     );
@@ -193,7 +193,7 @@ pub fn compute_gas_metering_cost(
     // Run with gas metering.
     let start = start_count(gas_metric);
     for _ in 0..repeats {
-        let result = run_vm(
+        let result = runtime.run(
             &contract,
             "hello",
             &mut fake_external,
@@ -201,7 +201,6 @@ pub fn compute_gas_metering_cost(
             &vm_config_gas,
             &fees,
             &promise_results,
-            vm_kind,
             PROTOCOL_VERSION,
             cache,
         );
@@ -210,7 +209,7 @@ pub fn compute_gas_metering_cost(
     let total_raw_with_gas = end_count(gas_metric, &start) as i128;
 
     let vm_config_no_gas = VMConfig::free();
-    let result = run_vm(
+    let result = runtime.run(
         &contract,
         "hello",
         &mut fake_external,
@@ -218,14 +217,13 @@ pub fn compute_gas_metering_cost(
         &vm_config_no_gas,
         &fees,
         &promise_results,
-        vm_kind,
         PROTOCOL_VERSION,
         cache,
     );
     assert!(result.1.is_none());
     let start = start_count(gas_metric);
     for _ in 0..repeats {
-        let result = run_vm(
+        let result = runtime.run(
             &contract,
             "hello",
             &mut fake_external,
@@ -233,7 +231,6 @@ pub fn compute_gas_metering_cost(
             &vm_config_no_gas,
             &fees,
             &promise_results,
-            vm_kind,
             PROTOCOL_VERSION,
             cache,
         );
