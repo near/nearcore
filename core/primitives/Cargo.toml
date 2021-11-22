@@ -31,7 +31,7 @@ deepsize = { version = "0.2.0", features = ["chrono"], optional=true }
 
 borsh = { version = "0.9", features = ["rc"] }
 
-near-primitives-core = { path = "../primitives-core" }
+near-primitives-core = { path = "../primitives-core"}
 near-crypto = { path = "../crypto" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
@@ -43,6 +43,7 @@ protocol_feature_chunk_only_producers = []
 protocol_feature_routing_exchange_algorithm = ["near-primitives-core/protocol_feature_routing_exchange_algorithm"]
 nightly_protocol_features = ["nightly_protocol", "protocol_feature_alt_bn128", "protocol_feature_chunk_only_producers", "protocol_feature_routing_exchange_algorithm"]
 nightly_protocol = []
+deepsize_feature = ["deepsize", "near-vm-errors/deepsize_feature", "near-primitives-core/deepsize_feature", "near-crypto/deepsize_feature"]
 
 [dev-dependencies]
 bencher = "0.1.5"

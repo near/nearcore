@@ -3,8 +3,6 @@ use bs58;
 use curve25519_dalek::constants::{
     RISTRETTO_BASEPOINT_POINT as G, RISTRETTO_BASEPOINT_TABLE as GT,
 };
-#[cfg(feature = "deepsize")]
-use deepsize::{Context, DeepSizeOf};
 use rand_core::OsRng;
 use std::borrow::Borrow;
 use subtle::{ConditionallySelectable, ConstantTimeEq};
@@ -16,16 +14,16 @@ pub struct SecretKey(pub(crate) Scalar, pub(crate) PublicKey);
 value_type!(pub, Value, 32, "value");
 value_type!(pub, Proof, 64, "proof");
 
-#[cfg(feature = "deepsize")]
-impl DeepSizeOf for Value {
-    fn deep_size_of_children(&self, _context: &mut Context) -> usize {
+#[cfg(feature = "deepsize_feature")]
+impl deepsize::DeepSizeOf for Value {
+    fn deep_size_of_children(&self, _context: &mut deepsize::Context) -> usize {
         0
     }
 }
 
-#[cfg(feature = "deepsize")]
-impl DeepSizeOf for Proof {
-    fn deep_size_of_children(&self, _context: &mut Context) -> usize {
+#[cfg(feature = "deepsize_feature")]
+impl deepsize::DeepSizeOf for Proof {
+    fn deep_size_of_children(&self, _context: &mut deepsize::Context) -> usize {
         0
     }
 }
