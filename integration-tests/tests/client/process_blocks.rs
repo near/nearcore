@@ -2655,8 +2655,8 @@ fn test_wasmer2_upgrade() {
         capture.drain()
     };
 
-    assert!(logs_at_old_version.contains(&"run_vm vm_kind=Wasmer0".to_string()));
-    assert!(logs_at_new_version.contains(&"run_vm vm_kind=Wasmer2".to_string()));
+    assert!(logs_at_old_version.iter().any(|l| l.contains(&"run_wasmer0")));
+    assert!(logs_at_new_version.iter().any(|l| l.contains(&"run_wasmer2")));
 }
 
 #[test]
@@ -3707,7 +3707,8 @@ mod contract_precompilation_tests {
     use near_primitives::types::CompiledContractCache;
     use near_primitives::views::ViewApplyState;
     use near_store::{Store, StoreCompiledContractCache, TrieUpdate};
-    use near_vm_runner::{get_contract_cache_key, VMKind};
+    use near_vm_runner::get_contract_cache_key;
+    use near_vm_runner::internal::VMKind;
     use node_runtime::state_viewer::TrieViewer;
     use std::rc::Rc;
 

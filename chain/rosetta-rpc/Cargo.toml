@@ -1,6 +1,6 @@
 [package]
 name = "near-rosetta-rpc"
-version = "0.1.1"
+version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 edition = "2021"
