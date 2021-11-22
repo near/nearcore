@@ -11,7 +11,6 @@ actix = "=0.11.0-beta.2" # Pinned the version to avoid compilation errors
 actix_derive = "=0.6.0-beta.1" # Pinned dependency in addition to actix dependecy (remove this line once the pinning is not needed)
 actix-web = "=4.0.0-beta.6"
 actix-rt = "2"
-async-std = "1.9.0"
 byteorder = "1.2"
 easy-ext = "0.2"
 chrono = { version = "0.4.4", features = ["serde"] }
@@ -25,6 +24,7 @@ serde_json = "1"
 dirs = "3"
 borsh = "0.9"
 thiserror = "1.0"
+tokio = { version = "1.1", features = ["fs"] }
 tracing = "0.1.13"
 smart-default = "0.6"
 num-rational = { version = "0.3", features = ["serde"] }
