@@ -13,9 +13,9 @@ use near_vm_logic::{External, ProtocolVersion, VMConfig, VMContext, VMOutcome};
 use crate::cache::{self, into_vm_result};
 use crate::memory::WasmerMemory;
 use crate::preload::VMModule::{Wasmer0, Wasmer2};
+use crate::vm_kind::VMKind;
 use crate::wasmer2_runner::{default_wasmer2_store, run_wasmer2_module, Wasmer2Memory};
 use crate::wasmer_runner::run_wasmer0_module;
-use crate::VMKind;
 
 const SHARE_MEMORY_INSTANCE: bool = false;
 

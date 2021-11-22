@@ -14,7 +14,7 @@ pub use near_primitives_core::logging;
 pub mod merkle;
 pub mod network;
 pub use near_primitives_core::profile;
-#[cfg(feature = "protocol_feature_chunk_only_producers")]
+#[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
 pub mod rand;
 pub mod receipt;
 pub mod runtime;
