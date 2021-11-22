@@ -379,20 +379,18 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     .mut_store()
                     .get_all_block_hashes_by_height(block.header().height());
                 if was_requested || !blocks_at_height.is_ok() {
-                    let block = MaybeValidated::from(block);
                     if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
                         if let Ok(header) = self.client.chain.get_block_header(sync_hash) {
                             if block.hash() == header.prev_hash() {
-                                if let Err(e) = self.client.chain.save_block(block) {
+                                if let Err(e) = self.client.chain.save_block(block.into()) {
                                     error!(target: "client", "Failed to save a block during state sync: {}", e);
                                 }
-                                return NetworkClientResponses::NoResponse;
                             } else if block.hash() == sync_hash {
-                                if let Err(e) = self.client.chain.save_orphan(block) {
+                                if let Err(e) = self.client.chain.save_orphan(block.into()) {
                                     error!(target: "client", "Received an invalid block during state sync: {}", e);
                                 }
-                                return NetworkClientResponses::NoResponse;
                             }
+                            return NetworkClientResponses::NoResponse;
                         }
                     }
                     self.receive_block(block, peer_id, was_requested);
@@ -1062,12 +1060,7 @@ impl ClientActor {
     }
 
     /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
-    fn receive_block(
-        &mut self,
-        block: MaybeValidated<Block>,
-        peer_id: PeerId,
-        was_requested: bool,
-    ) {
+    fn receive_block(&mut self, block: Block, peer_id: PeerId, was_requested: bool) {
         let hash = *block.hash();
         debug!(target: "client", "{:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header().prev_hash(), block.header().height(), peer_id, was_requested);
         let head = unwrap_or_return!(self.client.chain.head());
@@ -1085,7 +1078,7 @@ impl ClientActor {
         let block_protocol_version = block.header().latest_protocol_version();
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
-        match self.process_block(block, provenance, &peer_id) {
+        match self.process_block(block.into(), provenance, &peer_id) {
             Ok(_) => {}
             Err(ref err) if err.is_bad_data() => {
                 warn!(target: "client", "receive bad block: {}", err);
