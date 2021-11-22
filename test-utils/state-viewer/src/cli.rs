@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use clap::{AppSettings, Clap};
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 
 use near_logger_utils::init_integration_logger;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -12,9 +12,7 @@ use nearcore::{get_default_home, get_store_path, load_config, NearConfig};
 
 use crate::commands::*;
 
-lazy_static! {
-    static ref DEFAULT_HOME: PathBuf = get_default_home();
-}
+static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(|| get_default_home());
 
 #[derive(Clap)]
 #[clap(setting = AppSettings::SubcommandRequiredElseHelp)]

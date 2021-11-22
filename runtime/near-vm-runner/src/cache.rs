@@ -1,9 +1,9 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::prepare;
+use crate::vm_kind::VMKind;
 use crate::wasmer2_runner::{default_wasmer2_store, wasmer2_vm_hash};
 use crate::wasmer_runner::wasmer0_vm_hash;
 use crate::wasmtime_runner::wasmtime_vm_hash;
-use crate::VMKind;
 use borsh::{BorshDeserialize, BorshSerialize};
 #[cfg(not(feature = "no_cache"))]
 use cached::{cached_key, SizedCache};
