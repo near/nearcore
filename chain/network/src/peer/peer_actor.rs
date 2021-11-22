@@ -1,18 +1,19 @@
-use std::cmp::max;
-use std::fmt::Debug;
-use std::io;
-use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
+use crate::peer::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
+use crate::peer::tracker::Tracker;
+use crate::routing::edge::{Edge, EdgeInfo};
+use crate::stats::metrics::{self, NetworkMetrics};
+use crate::types::{
+    Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
+    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
+    PeerManagerMessageRequest, PeerMessage, PeerRequest, PeerResponse, PeersRequest, PeersResponse,
+    SendMessage, Unregister,
+};
+use crate::{PeerInfo, PeerManagerActor};
 use actix::{
     Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
 use cached::{Cached, SizedCache};
-use tracing::{debug, error, info, trace, warn};
-
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use near_crypto::Signature;
@@ -36,18 +37,14 @@ use near_primitives::version::{
 use near_primitives::{logging, unwrap_option_or_return};
 use near_rate_limiter::ThrottleController;
 use near_rust_allocator_proxy::allocator::get_tid;
-
-use crate::peer::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
-use crate::peer::tracker::Tracker;
-use crate::routing::edge::{Edge, EdgeInfo};
-use crate::stats::metrics::{self, NetworkMetrics};
-use crate::types::{
-    Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
-    PeerManagerMessageRequest, PeerMessage, PeerRequest, PeerResponse, PeersRequest, PeersResponse,
-    SendMessage, Unregister,
-};
-use crate::{PeerInfo, PeerManagerActor};
+use std::cmp::max;
+use std::fmt::Debug;
+use std::io;
+use std::net::SocketAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tracing::{debug, error, info, trace, warn};
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
