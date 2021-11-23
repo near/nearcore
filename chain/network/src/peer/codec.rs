@@ -1,3 +1,10 @@
+/// The purpose of this crate is to encode/decode messages on the network layer.
+/// Each message contains:
+///     - 4 bytes - length of the message as u32
+///     - the message itself, which is encoded with `borsh`
+///
+/// NOTES:
+///     - Code has an extra logic to ban peers if they sent messages that are too large.
 use crate::stats::metrics;
 use bytes::{Buf, BufMut, BytesMut};
 use bytesize::{GIB, MIB};
@@ -145,7 +152,7 @@ pub(crate) fn is_forward_tx(bytes: &[u8]) -> Option<bool> {
 
 #[cfg(test)]
 mod test {
-    use crate::peer::codec::{is_forward_tx, Codec, NETWORK_MESSAGE_MAX_SIZE};
+    use crate::peer::codec::{is_forward_tx, Codec, NETWORK_MESSAGE_MAX_SIZE_BYTES};
     use crate::routing::edge::EdgeInfo;
     use crate::types::{Handshake, HandshakeFailureReason, HandshakeV2, PeerMessage, SyncData};
     use crate::PeerInfo;
