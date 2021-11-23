@@ -81,13 +81,8 @@ imports and rely on `rustfmt` to sort them.
 
 ```rust
 // GOOD
-<<<<<<< HEAD
 use crate::types::KnownPeerState;
 use borsh::BorshSerialize;
-=======
-use borsh::BorshSerialize;
-use crate::types::KnownPeerState;
->>>>>>> 28291a693... docs: document consistent import style (#5290)
 use near_primitives::utils::to_timestamp;
 use near_store::{ColPeers, Store};
 use rand::seq::SliceRandom;
