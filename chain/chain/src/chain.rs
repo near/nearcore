@@ -268,8 +268,7 @@ impl OrphanBlockPool {
         parent_hash: CryptoHash,
         target_depth: u64,
     ) -> Vec<CryptoHash> {
-        #[cfg(debug_assertions)]
-        let mut visited = HashSet::new();
+        let mut _visited = HashSet::new();
 
         let mut res = vec![];
         let mut queue = vec![(parent_hash, 0)];
@@ -282,7 +281,7 @@ impl OrphanBlockPool {
                     queue.push((*hash, depth + 1));
                     res.push(*hash);
                     // there should be no loop
-                    debug_assert!(visited.insert(*hash));
+                    debug_assert!(_visited.insert(*hash));
                 }
             }
 
