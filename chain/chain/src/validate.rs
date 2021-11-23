@@ -11,7 +11,7 @@ use near_primitives::challenge::{
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::{
-    ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkHeaderV2, ShardChunkHeaderV3
+    ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkHeaderV2, ShardChunkHeaderV3,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
