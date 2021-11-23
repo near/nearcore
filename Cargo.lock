@@ -2673,6 +2673,7 @@ dependencies = [
 name = "near-jsonrpc-adversarial-primitives"
 version = "0.0.0"
 dependencies = [
+ "deepsize",
  "near-jsonrpc-primitives",
  "near-network",
  "near-primitives",
@@ -2767,6 +2768,7 @@ dependencies = [
  "cached",
  "chrono",
  "conqueue",
+ "deepsize",
  "delay-detector",
  "futures",
  "lazy_static",
@@ -2801,6 +2803,7 @@ dependencies = [
  "actix",
  "borsh 0.9.1",
  "chrono",
+ "deepsize",
  "near-crypto",
  "near-primitives",
  "serde",

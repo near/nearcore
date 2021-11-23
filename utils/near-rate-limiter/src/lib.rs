@@ -1,3 +1,3 @@
 pub(crate) mod framed_read;
 
-pub use framed_read::{ThrottleController, ThrottledFrameRead};
+pub use framed_read::{ThrottleController, ThrottleToken, ThrottledFrameRead};

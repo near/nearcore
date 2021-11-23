@@ -58,12 +58,42 @@ pub struct ThrottleController {
     semaphore: PollSemaphore,
 }
 
+/// Stores metadata about size of message, which is currently tracked by `ThrottleController`.
+/// Only one instance of this struct should exist, that's why there is no close.
+pub struct ThrottleToken {
+    /// Represents limits for `PeerActorManager`
+    throttle_controller: ThrottleController,
+    /// Size of message tracked.
+    msg_len: usize,
+}
+
+impl ThrottleToken {
+    pub fn new(throttle_controller: ThrottleController, msg_len: usize) -> Self {
+        throttle_controller.add_msg(msg_len);
+        Self { throttle_controller, msg_len }
+    }
+
+    pub fn into_inner(&self) -> ThrottleController {
+        self.throttle_controller.clone()
+    }
+}
+
+impl Drop for ThrottleToken {
+    fn drop(&mut self) {
+        self.throttle_controller.remove_msg(self.msg_len)
+    }
+}
+
 impl ThrottleController {
     /// Initialize `ThrottleController`.
     ///
     /// Arguments:
-    /// - tx - `tx` is used to notify `ThrottleController` to wake up and consider reading again.
+    /// - `semaphore` - `semaphore` is used to notify `ThrottleController` to wake up and
+    ///        consider reading again.
     ///        That happens when a message is removed, and limits are increased.
+    /// - `max_num_messages_in_progress` - maximum number of messages count before throttling starts.
+    /// - `max_total_sizeof_messages_in_progress` - maximum total size of messages count
+    ///        before throttling starts.
     pub fn new(
         semaphore: PollSemaphore,
         max_num_messages_in_progress: usize,
@@ -78,27 +108,33 @@ impl ThrottleController {
         }
     }
 
-    // Check whenever
+    /// Check whenever `ThrottleFrameRead` is allowed to read from socket.
+    /// That is, we didn't exceed limits yet.
     fn is_ready(&self) -> bool {
-        self.num_messages_in_progress.load(Ordering::SeqCst) < self.max_num_messages_in_progress
-            && self.total_sizeof_messages_in_progress.load(Ordering::SeqCst)
-                < self.max_total_sizeof_messages_in_progress
+        (self.num_messages_in_progress.load(Ordering::SeqCst) < self.max_num_messages_in_progress)
+            && (self.total_sizeof_messages_in_progress.load(Ordering::SeqCst)
+                < self.max_total_sizeof_messages_in_progress)
     }
 
-    // Increase limits by size of the message
+    /// Tracks the message and increase limits by size of the message.
     pub fn add_msg(&self, msg_size: usize) {
         self.num_messages_in_progress.fetch_add(1, Ordering::SeqCst);
-        self.total_sizeof_messages_in_progress.fetch_add(msg_size, Ordering::SeqCst);
+        if msg_size != 0 {
+            self.total_sizeof_messages_in_progress.fetch_add(msg_size, Ordering::SeqCst);
+        }
     }
 
-    // Decrease limits by size of the message and notify ThrottledFramedReader to try to
-    // read again
+    /// Un-tracks the message and decreases limits by size of the message and notifies
+    /// `ThrottledFramedReader` to try to read again
     pub fn remove_msg(&mut self, msg_size: usize) {
         self.num_messages_in_progress.fetch_sub(1, Ordering::SeqCst);
-        self.total_sizeof_messages_in_progress.fetch_sub(msg_size, Ordering::SeqCst);
+        if msg_size != 0 {
+            self.total_sizeof_messages_in_progress.fetch_sub(msg_size, Ordering::SeqCst);
+        }
 
-        // Notify throttled framed reader
+        // If `ThrottledFramedReader` is not scheduled to read.
         if self.semaphore.available_permits() == 0 {
+            // Notify throttled framed reader to start readin
             self.semaphore.add_permits(1);
         }
     }

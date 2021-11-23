@@ -7,7 +7,7 @@ mod borsh;
 #[cfg(feature = "serde")]
 mod serde;
 
-#[cfg(feature = "deepsize")]
+#[cfg(feature = "deepsize_feature")]
 use deepsize::DeepSizeOf;
 pub use error::{ParseAccountError, ParseErrorKind};
 
@@ -17,7 +17,7 @@ pub const MAX_ACCOUNT_ID_LEN: usize = 64;
 /// Account identifier. Provides access to user's state.
 ///
 /// This guarantees all properly constructed AccountId's are valid for the NEAR network.
-#[cfg_attr(feature = "deepsize", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Eq, Ord, Hash, Clone, Debug, PartialEq, PartialOrd)]
 pub struct AccountId(Box<str>);
 
