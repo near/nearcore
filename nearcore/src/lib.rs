@@ -246,7 +246,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         let store = create_store(&path);
         set_store_version(&store, 28);
     }
-    if db_version <= 29 {
+    if db_version <= 28 {
         // version 28 => 29: delete ColNextBlockWithNewChunk, ColLastBlockWithNewChunk
         info!(target: "near", "Migrate DB from version 28 to 29");
         migrate_28_to_29(&path);
