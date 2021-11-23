@@ -742,7 +742,7 @@ def start_cluster(num_nodes,
 
 DEFAULT_CONFIG = {
     'local': True,
-    'near_root': '../target/debug/',
+    'near_root': os.environ.get("NEAR_ROOT", '../target/debug/'),
     'binary_name': 'neard',
     'release': False,
 }
