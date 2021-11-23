@@ -3,7 +3,7 @@
 use std::fmt::{self, Error, Formatter};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "deepsize")]
+#[cfg(feature = "deepsize_feature")]
 use deepsize::DeepSizeOf;
 use near_account_id::AccountId;
 use near_rpc_error_macro::RpcError;
@@ -48,7 +48,7 @@ pub enum FunctionCallError {
 /// add new variants at the end (but do that very carefully). This type must be never used
 /// directly, and must be converted to `ContractCallError` instead using `into()` converter.
 /// It describes stable serialization format, and only used by serialization logic.
-#[cfg_attr(feature = "deepsize", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 pub enum FunctionCallErrorSer {
     /// Wasm compilation error
@@ -77,7 +77,7 @@ pub enum CacheError {
     SerializationError { hash: [u8; 32] },
 }
 /// A kind of a trap happened during execution of a binary
-#[cfg_attr(feature = "deepsize", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
@@ -102,7 +102,7 @@ pub enum WasmTrap {
     GenericTrap,
 }
 
-#[cfg_attr(feature = "deepsize", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
@@ -112,7 +112,7 @@ pub enum MethodResolveError {
     MethodInvalidSignature,
 }
 
-#[cfg_attr(feature = "deepsize", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
@@ -123,7 +123,7 @@ pub enum CompilationError {
     UnsupportedCompiler { msg: String },
 }
 
-#[cfg_attr(feature = "deepsize", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
@@ -154,7 +154,7 @@ pub enum PrepareError {
     TooManyFunctions,
 }
 
-#[cfg_attr(feature = "deepsize", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
