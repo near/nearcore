@@ -1,3 +1,20 @@
+# Installation with cargo
+
+You can install `cargo-fuzz`, with the following command.
+
+```bash
+cargo install cargo-fuzz
+```
+
+# How to see if everything works
+
+You can see if it compiles by the following command.
+
+```
+cd test-utils/runtime-tester/fuzz/
+env RUSTC_BOOTSTRAP=1 'cargo' 'fuzz' 'run' 'runtime-fuzzer' '--' '-len_control=0' '-prefer_small=0' '-max_len=4000000' '-rss_limit_mb=10240'
+```
+
 # Runtime Fuzz
 
 Currently only one target is present -- runtime-fuzzer.  
