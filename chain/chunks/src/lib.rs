@@ -87,7 +87,8 @@ pub enum ProcessPartialEncodedChunkResult {
 #[derive(Clone, Debug)]
 struct ChunkRequestInfo {
     height: BlockHeight,
-    // hash of the ancestor hash used for the request
+    // hash of the ancestor hash used for the request, i.e., the first block up the
+    // parent chain of the block that has missing chunks that is approved
     ancestor_hash: CryptoHash,
     // previous block hash of the chunk
     prev_block_hash: CryptoHash,
@@ -734,7 +735,7 @@ impl ShardsManager {
     /// Request chunks for an orphan block.
     /// `epoch_id`: epoch_id of the orphan block
     /// `ancestor_hash`: because BlockInfo for the immediate parent of an orphan block is not ready,
-    ///                we use hash of an ancestor block of this orphan for request chunks. It must
+    ///                we use hash of an ancestor block of this orphan to request chunks. It must
     ///                satisfy
     ///                1) it is from the same epoch than `epoch_id`
     ///                2) it is processed
@@ -756,7 +757,7 @@ impl ShardsManager {
 
         let should_wait_for_chunk_forwarding =
             self.should_wait_for_chunk_forwarding(&ancestor_hash).unwrap_or_else(|_| {
-                // prev_hash must be accepted because we don't request missing chunks through this
+                // ancestor_hash must be accepted because we don't request missing chunks through this
                 // this function for orphans
                 debug_assert!(false, "{:?} must be accepted", ancestor_hash);
                 error!(target:"chunks", "requesting chunks for orphan whose ancestor_hash {:?} is not accepted", ancestor_hash);
