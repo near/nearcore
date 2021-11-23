@@ -68,7 +68,7 @@ use near_store::db::DBCol::ColStateParts;
 use near_store::get;
 use near_store::test_utils::create_test_store;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use nearcore::NEAR_BASE;
+use nearcore::{TrackedConfig, NEAR_BASE};
 use rand::Rng;
 
 pub fn set_block_protocol_version(
@@ -3217,6 +3217,7 @@ fn test_limit_contract_functions_number_upgrade() {
                 Path::new("."),
                 create_test_store(),
                 &genesis,
+                TrackedConfig::new_empty(),
                 RuntimeConfigStore::new(None),
             ))];
         let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
@@ -3460,10 +3461,21 @@ mod access_key_nonce_range_tests {
         let mut genesis = Genesis::test(accounts, num_validators);
         genesis.config.epoch_length = epoch_length;
         let chain_genesis = ChainGenesis::from(&genesis);
+        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = (0..2)
+            .map(|_| {
+                Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
+                    Path::new("."),
+                    create_test_store(),
+                    &genesis,
+                    TrackedConfig::AllShards,
+                    RuntimeConfigStore::test(),
+                )) as Arc<dyn RuntimeAdapter>
+            })
+            .collect();
         let mut env = TestEnv::builder(chain_genesis)
             .clients_count(num_clients)
             .validator_seats(num_validators as usize)
-            .runtime_adapters(create_nightshade_runtimes(&genesis, num_clients))
+            .runtime_adapters(runtimes)
             .build();
 
         let mut blocks = vec![];

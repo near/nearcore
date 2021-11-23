@@ -60,6 +60,7 @@ impl Scenario {
                 if let Some(tempdir) = &tempdir { tempdir.path() } else { Path::new(".") },
                 store,
                 &genesis,
+                TrackedConig::new_empty(),
                 runtime_config_store,
             ))])
             .build();
