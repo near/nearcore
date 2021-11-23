@@ -1,16 +1,13 @@
+use crate::routing::ibf::{Ibf, IbfBox};
+use crate::routing::ibf_peer_set::SlotMapId;
+use crate::routing::ibf_peer_set::{ValidIBFLevel, MAX_IBF_LEVEL, MIN_IBF_LEVEL};
+use near_stable_hasher::StableHasher;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
-
 use tracing::{error, warn};
-
-use near_stable_hasher::StableHasher;
-
-use crate::routing::ibf::{Ibf, IbfBox};
-use crate::routing::ibf_peer_set::SlotMapId;
-use crate::routing::ibf_peer_set::{ValidIBFLevel, MAX_IBF_LEVEL, MIN_IBF_LEVEL};
 
 /// Stores list of `Ibf` data structures of various sizes.
 /// In the current implementation we use sizes from 2^10+  2 ... 2^17 + 2.

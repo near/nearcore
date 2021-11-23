@@ -1,5 +1,5 @@
-use near_chain::test_utils::setup;
-use near_chain::{Block, ErrorKind, Provenance};
+use crate::test_utils::setup;
+use crate::{Block, ErrorKind};
 use near_logger_utils::init_test_logger;
 
 #[test]
@@ -12,9 +12,7 @@ fn challenges_new_head_prev() {
         let prev = chain.get_block(&prev_hash).unwrap();
         let block = Block::empty(&prev, &*signer);
         hashes.push(*block.hash());
-        let tip = chain
-            .process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
-            .unwrap();
+        let tip = chain.process_block_test(&None, block).unwrap();
         assert_eq!(tip.unwrap().height, i + 1);
     }
 
@@ -28,9 +26,7 @@ fn challenges_new_head_prev() {
     let challenger_block = Block::empty_with_height(&prev, 3, &*signer);
     let challenger_hash = *challenger_block.hash();
 
-    let _ = chain
-        .process_block(&None, challenger_block, Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
-        .unwrap();
+    let _ = chain.process_block_test(&None, challenger_block).unwrap();
 
     // At this point the challenger block is not on canonical chain
     assert_eq!(chain.head_header().unwrap().height(), 5);
@@ -47,9 +43,7 @@ fn challenges_new_head_prev() {
 
     // Try to add a block on top of the fifth block.
 
-    if let Err(e) =
-        chain.process_block(&None, last_block, Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
-    {
+    if let Err(e) = chain.process_block_test(&None, last_block) {
         assert_eq!(e.kind(), ErrorKind::ChallengedBlockOnChain)
     } else {
         assert!(false);
@@ -58,30 +52,19 @@ fn challenges_new_head_prev() {
 
     // Add two more blocks
     let b3 = Block::empty(&chain.get_block(&hashes[2]).unwrap().clone(), &*signer);
-    let _ = chain
-        .process_block(&None, b3.clone(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
-        .unwrap()
-        .unwrap();
+    let _ = chain.process_block_test(&None, b3.clone()).unwrap().unwrap();
 
     let b4 = Block::empty(&b3, &*signer);
-    let new_head = chain
-        .process_block(&None, b4.clone(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
-        .unwrap()
-        .unwrap()
-        .last_block_hash;
+    let new_head = chain.process_block_test(&None, b4.clone()).unwrap().unwrap().last_block_hash;
 
     assert_eq!(chain.head_header().unwrap().hash(), &new_head);
 
     // Add two more blocks on an alternative chain
     let b3 = Block::empty(&chain.get_block(&hashes[2]).unwrap().clone(), &*signer);
-    let _ = chain
-        .process_block(&None, b3.clone(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
-        .unwrap();
+    let _ = chain.process_block_test(&None, b3.clone()).unwrap();
 
     let b4 = Block::empty(&b3, &*signer);
-    let _ = chain
-        .process_block(&None, b4.clone(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
-        .unwrap();
+    let _ = chain.process_block_test(&None, b4.clone()).unwrap();
     let challenger_hash = b4.hash();
 
     assert_eq!(chain.head_header().unwrap().hash(), &new_head);
@@ -98,9 +81,7 @@ fn test_no_challenge_on_same_header() {
     let prev_hash = *chain.head_header().unwrap().hash();
     let prev = chain.get_block(&prev_hash).unwrap();
     let block = Block::empty(&prev, &*signer);
-    let tip = chain
-        .process_block(&None, block.clone(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
-        .unwrap();
+    let tip = chain.process_block_test(&None, block.clone()).unwrap();
     assert_eq!(tip.unwrap().height, 1);
     if let Err(e) = chain.process_block_header(block.header(), |_| panic!("Unexpected Challenge")) {
         match e.kind() {

@@ -1152,14 +1152,14 @@ mod tests {
 
     #[test]
     fn test_validate_receipt_valid() {
-        let limit_config = VMLimitConfig::default();
+        let limit_config = VMLimitConfig::test();
         validate_receipt(&limit_config, &Receipt::new_balance_refund(&alice_account(), 10))
             .expect("valid receipt");
     }
 
     #[test]
     fn test_validate_action_receipt_too_many_input_deps() {
-        let mut limit_config = VMLimitConfig::default();
+        let mut limit_config = VMLimitConfig::test();
         limit_config.max_number_input_data_dependencies = 1;
         assert_eq!(
             validate_action_receipt(
@@ -1185,7 +1185,7 @@ mod tests {
 
     #[test]
     fn test_validate_data_receipt_valid() {
-        let limit_config = VMLimitConfig::default();
+        let limit_config = VMLimitConfig::test();
         validate_data_receipt(
             &limit_config,
             &DataReceipt { data_id: CryptoHash::default(), data: None },
@@ -1201,7 +1201,7 @@ mod tests {
 
     #[test]
     fn test_validate_data_receipt_too_much_data() {
-        let mut limit_config = VMLimitConfig::default();
+        let mut limit_config = VMLimitConfig::test();
         let data = b"hello".to_vec();
         limit_config.max_length_returned_data = data.len() as u64 - 1;
         assert_eq!(
@@ -1221,13 +1221,13 @@ mod tests {
 
     #[test]
     fn test_validate_actions_empty() {
-        let limit_config = VMLimitConfig::default();
+        let limit_config = VMLimitConfig::test();
         validate_actions(&limit_config, &[]).expect("empty actions");
     }
 
     #[test]
     fn test_validate_actions_valid_function_call() {
-        let limit_config = VMLimitConfig::default();
+        let limit_config = VMLimitConfig::test();
         validate_actions(
             &limit_config,
             &vec![Action::FunctionCall(FunctionCallAction {
@@ -1242,7 +1242,7 @@ mod tests {
 
     #[test]
     fn test_validate_actions_too_much_gas() {
-        let mut limit_config = VMLimitConfig::default();
+        let mut limit_config = VMLimitConfig::test();
         limit_config.max_total_prepaid_gas = 220;
         assert_eq!(
             validate_actions(
@@ -1269,7 +1269,7 @@ mod tests {
 
     #[test]
     fn test_validate_actions_gas_overflow() {
-        let mut limit_config = VMLimitConfig::default();
+        let mut limit_config = VMLimitConfig::test();
         limit_config.max_total_prepaid_gas = 220;
         assert_eq!(
             validate_actions(
@@ -1296,7 +1296,7 @@ mod tests {
 
     #[test]
     fn test_validate_actions_num_actions() {
-        let mut limit_config = VMLimitConfig::default();
+        let mut limit_config = VMLimitConfig::test();
         limit_config.max_actions_per_receipt = 1;
         assert_eq!(
             validate_actions(
@@ -1316,7 +1316,7 @@ mod tests {
 
     #[test]
     fn test_validate_delete_must_be_final() {
-        let mut limit_config = VMLimitConfig::default();
+        let mut limit_config = VMLimitConfig::test();
         limit_config.max_actions_per_receipt = 3;
         assert_eq!(
             validate_actions(
@@ -1335,7 +1335,7 @@ mod tests {
 
     #[test]
     fn test_validate_delete_must_work_if_its_final() {
-        let mut limit_config = VMLimitConfig::default();
+        let mut limit_config = VMLimitConfig::test();
         limit_config.max_actions_per_receipt = 3;
         assert_eq!(
             validate_actions(
@@ -1355,14 +1355,14 @@ mod tests {
 
     #[test]
     fn test_validate_action_valid_create_account() {
-        validate_action(&VMLimitConfig::default(), &Action::CreateAccount(CreateAccountAction {}))
+        validate_action(&VMLimitConfig::test(), &Action::CreateAccount(CreateAccountAction {}))
             .expect("valid action");
     }
 
     #[test]
     fn test_validate_action_valid_function_call() {
         validate_action(
-            &VMLimitConfig::default(),
+            &VMLimitConfig::test(),
             &Action::FunctionCall(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
@@ -1377,7 +1377,7 @@ mod tests {
     fn test_validate_action_invalid_function_call_zero_gas() {
         assert_eq!(
             validate_action(
-                &VMLimitConfig::default(),
+                &VMLimitConfig::test(),
                 &Action::FunctionCall(FunctionCallAction {
                     method_name: "new".to_string(),
                     args: vec![],
@@ -1392,17 +1392,14 @@ mod tests {
 
     #[test]
     fn test_validate_action_valid_transfer() {
-        validate_action(
-            &VMLimitConfig::default(),
-            &Action::Transfer(TransferAction { deposit: 10 }),
-        )
-        .expect("valid action");
+        validate_action(&VMLimitConfig::test(), &Action::Transfer(TransferAction { deposit: 10 }))
+            .expect("valid action");
     }
 
     #[test]
     fn test_validate_action_valid_stake() {
         validate_action(
-            &VMLimitConfig::default(),
+            &VMLimitConfig::test(),
             &Action::Stake(StakeAction {
                 stake: 100,
                 public_key: "ed25519:KuTCtARNzxZQ3YvXDeLjx83FDqxv2SdQTSbiq876zR7".parse().unwrap(),
@@ -1415,7 +1412,7 @@ mod tests {
     fn test_validate_action_invalid_staking_key() {
         assert_eq!(
             validate_action(
-                &VMLimitConfig::default(),
+                &VMLimitConfig::test(),
                 &Action::Stake(StakeAction {
                     stake: 100,
                     public_key: PublicKey::empty(KeyType::ED25519),
@@ -1431,7 +1428,7 @@ mod tests {
     #[test]
     fn test_validate_action_valid_add_key_full_permission() {
         validate_action(
-            &VMLimitConfig::default(),
+            &VMLimitConfig::test(),
             &Action::AddKey(AddKeyAction {
                 public_key: PublicKey::empty(KeyType::ED25519),
                 access_key: AccessKey::full_access(),
@@ -1443,7 +1440,7 @@ mod tests {
     #[test]
     fn test_validate_action_valid_add_key_function_call() {
         validate_action(
-            &VMLimitConfig::default(),
+            &VMLimitConfig::test(),
             &Action::AddKey(AddKeyAction {
                 public_key: PublicKey::empty(KeyType::ED25519),
                 access_key: AccessKey {
@@ -1462,7 +1459,7 @@ mod tests {
     #[test]
     fn test_validate_action_valid_delete_key() {
         validate_action(
-            &VMLimitConfig::default(),
+            &VMLimitConfig::test(),
             &Action::DeleteKey(DeleteKeyAction { public_key: PublicKey::empty(KeyType::ED25519) }),
         )
         .expect("valid action");
@@ -1471,7 +1468,7 @@ mod tests {
     #[test]
     fn test_validate_action_valid_delete_account() {
         validate_action(
-            &VMLimitConfig::default(),
+            &VMLimitConfig::test(),
             &Action::DeleteAccount(DeleteAccountAction { beneficiary_id: alice_account() }),
         )
         .expect("valid action");

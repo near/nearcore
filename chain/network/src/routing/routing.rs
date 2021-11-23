@@ -1,28 +1,23 @@
-use near_primitives::time::Clock;
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, VecDeque};
-use std::hash::Hash;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
-use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, Message};
-use borsh::{BorshDeserialize, BorshSerialize};
-use cached::{Cached, SizedCache};
-use near_network_primitives::types::{PeerIdOrHash, Ping, Pong};
-#[cfg(feature = "test_features")]
-use serde::Serialize;
-use tracing::warn;
-
-use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::AccountId;
-use near_store::{ColAccountAnnouncements, Store};
-
 use crate::routing::edge::{Edge, SimpleEdge};
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::routing::utils::cache_to_hashmap;
 use crate::PeerInfo;
+use actix::dev::{MessageResponse, ResponseChannel};
+use actix::{Actor, Message};
+use cached::{Cached, SizedCache};
+use near_network_primitives::types::{PeerIdOrHash, Ping, Pong};
+use near_primitives::hash::CryptoHash;
+use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::time::Clock;
+use near_primitives::types::AccountId;
+use near_store::{ColAccountAnnouncements, Store};
+#[cfg(feature = "test_features")]
+use serde::Serialize;
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tracing::warn;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const PING_PONG_CACHE_SIZE: usize = 1_000;
@@ -35,13 +30,6 @@ pub const SAVE_PEERS_MAX_TIME: Duration = Duration::from_secs(7_200);
 pub const DELETE_PEERS_AFTER_TIME: Duration = Duration::from_secs(3_600);
 /// Graph implementation supports up to 128 peers.
 pub const MAX_NUM_PEERS: usize = 128;
-
-/// Status of the edge
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, Hash)]
-pub enum EdgeType {
-    Added,
-    Removed,
-}
 
 #[derive(Debug)]
 #[cfg_attr(feature = "test_features", derive(Serialize))]

@@ -1,6 +1,8 @@
 use crate::serialize::u128_dec_format;
 use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
+#[cfg(feature = "deepsize_feature")]
+use deepsize::DeepSizeOf;
 use near_crypto::PublicKey;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
@@ -10,6 +12,7 @@ use near_rpc_error_macro::RpcError;
 use near_vm_errors::{CompilationError, FunctionCallErrorSer, MethodResolveError, VMLogicError};
 
 /// Error returned in the ExecutionOutcome in case of failure
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -101,6 +104,7 @@ impl std::fmt::Display for StorageError {
 impl std::error::Error for StorageError {}
 
 /// An error happened during TX execution
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -147,6 +151,7 @@ pub enum InvalidTxError {
     TransactionSizeExceeded { size: u64, limit: u64 },
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -173,6 +178,7 @@ pub enum InvalidAccessKeyError {
 }
 
 /// Describes the error for validating a list of actions.
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
 )]
@@ -204,6 +210,7 @@ pub enum ActionsValidationError {
 }
 
 /// Describes the error for validating a receipt.
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
 )]
@@ -320,6 +327,7 @@ impl Display for ActionsValidationError {
 }
 
 /// An error happened during Acton execution
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -331,6 +339,7 @@ pub struct ActionError {
     pub kind: ActionErrorKind,
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, RpcError)]
 pub enum ContractCallError {
     MethodResolveError(MethodResolveError),
@@ -369,6 +378,7 @@ impl From<FunctionCallErrorSer> for ContractCallError {
     }
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -738,7 +748,10 @@ impl Display for ActionErrorKind {
 pub enum EpochError {
     /// Error calculating threshold from given stakes for given number of seats.
     /// Only should happened if calling code doesn't check for integer value of stake > number of seats.
-    ThresholdError { stake_sum: Balance, num_seats: u64 },
+    ThresholdError {
+        stake_sum: Balance,
+        num_seats: u64,
+    },
     /// Requesting validators for an epoch that wasn't computed yet.
     EpochOutOfBounds(EpochId),
     /// Missing block hash in the storage (means there is some structural issue).
@@ -749,8 +762,10 @@ pub enum EpochError {
     NotAValidator(AccountId, EpochId),
     /// Error getting information for a shard
     ShardingError(String),
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    NotEnoughValidators { num_validators: u64, num_shards: u64 },
+    NotEnoughValidators {
+        num_validators: u64,
+        num_shards: u64,
+    },
 }
 
 impl std::error::Error for EpochError {}
@@ -772,7 +787,6 @@ impl Display for EpochError {
                 write!(f, "{} is not a validator in epoch {:?}", account_id, epoch_id)
             }
             EpochError::ShardingError(err) => write!(f, "Sharding Error: {}", err),
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
             EpochError::NotEnoughValidators { num_shards, num_validators } => {
                 write!(f, "There were not enough validator proposals to fill all shards. num_proposals: {}, num_shards: {}", num_validators, num_shards)
             }
@@ -793,7 +807,6 @@ impl Debug for EpochError {
                 write!(f, "NotAValidator({}, {:?})", account_id, epoch_id)
             }
             EpochError::ShardingError(err) => write!(f, "ShardingError({})", err),
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
             EpochError::NotEnoughValidators { num_shards, num_validators } => {
                 write!(f, "NotEnoughValidators({}, {})", num_validators, num_shards)
             }

@@ -5,12 +5,12 @@ use std::env;
 use self::cli::NeardCmd;
 use clap::crate_version;
 use git_version::git_version;
-use lazy_static::lazy_static;
 use near_performance_metrics;
 use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
 #[cfg(feature = "memory_stats")]
 use near_rust_allocator_proxy::allocator::MyAllocator;
 use nearcore::get_default_home;
+use once_cell::sync::Lazy;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -21,17 +21,17 @@ pub fn get_version() -> String {
     }
 }
 
-lazy_static! {
-    static ref NEARD_VERSION: Version =
-        Version { version: get_version(), build: git_version!(fallback = "unknown").to_string() };
-    static ref NEARD_VERSION_STRING: String = {
-        format!(
-            "(release {}) (build {}) (protocol {}) (db {})",
-            NEARD_VERSION.version, NEARD_VERSION.build, PROTOCOL_VERSION, DB_VERSION
-        )
-    };
-    static ref DEFAULT_HOME: PathBuf = get_default_home();
-}
+static NEARD_VERSION: Lazy<Version> = Lazy::new(|| Version {
+    version: get_version(),
+    build: git_version!(fallback = "unknown").to_string(),
+});
+static NEARD_VERSION_STRING: Lazy<String> = Lazy::new(|| {
+    format!(
+        "(release {}) (build {}) (protocol {}) (db {})",
+        NEARD_VERSION.version, NEARD_VERSION.build, PROTOCOL_VERSION, DB_VERSION
+    )
+});
+static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(|| get_default_home());
 
 #[cfg(feature = "memory_stats")]
 #[global_allocator]

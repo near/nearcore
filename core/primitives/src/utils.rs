@@ -62,7 +62,7 @@ pub struct MaybeValidated<T> {
 impl<T> MaybeValidated<T> {
     /// Creates new MaybeValidated object marking payload as validated.  No
     /// verification is performed; it’s caller’s responsibility to make sure the
-    /// payload was indeed validated.
+    /// payload has indeed been validated.
     ///
     /// # Example
     ///
@@ -107,6 +107,12 @@ impl<T> MaybeValidated<T> {
             self.validated.set(*res.as_ref().unwrap_or(&false));
             res
         }
+    }
+
+    /// Marks the payload as valid.  No verification is performed; it’s caller’s
+    /// responsibility to make sure the payload has indeed been validated.
+    pub fn mark_as_valid(&self) {
+        self.validated.set(true);
     }
 
     /// Applies function to the payload (whether it’s been validated or not) and
