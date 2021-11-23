@@ -76,49 +76,6 @@ in rust-analyzer
 
 ### Import Blocks
 
-**Proposal A**
-
-Separate the group of `use` items with blank lines:
-
-1. Imports from the standard library.
-2. Imports from crates.io crates.
-3. Imports from other crates in nearcore repository.
-4. Imports from the current crate
-
-Within each group, imports are sorted automatically by `rustfmt`
-
-```rust
-// GOOD
-use std::collections::HashMap;
-use std::net::SocketAddr;
-
-use borsh::BorshSerialize;
-use rand::seq::SliceRandom;
-
-use near_primitives::utils::to_timestamp;
-use near_store::{ColPeers, Store};
-
-use crate::types::KnownPeerState;
-
-// BAD -- no blank lines between the groups, groups are in a wrong order
-use borsh::BorshSerialize;
-use crate::types::KnownPeerState;
-use near_primitives::utils::to_timestamp;
-use near_store::{ColPeers, Store};
-use rand::seq::SliceRandom;
-use std::collections::HashMap;
-use std::net::SocketAddr;
-```
-
-**Rationale:** Consistency, improved readability. Specifically, correct
-dependencies and non-dependencies between modules and crates is what makes the
-overall architecture easy or hard to work with. More readable imports allow to
-spot problems like layering violations more easily.
-
-<hr/>
-
-**Proposal B**
-
 Do not separate imports into groups with blank lines. Write a single block of
 imports and rely on `rustfmt` to sort them.
 
