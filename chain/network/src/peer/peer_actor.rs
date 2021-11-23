@@ -1,4 +1,4 @@
-use crate::peer::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
+use crate::peer::codec::{self, Codec};
 use crate::peer::tracker::Tracker;
 use crate::routing::edge::{Edge, EdgeInfo};
 use crate::stats::metrics::{self, NetworkMetrics};
@@ -13,6 +13,8 @@ use actix::{
     Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
+use borsh::BorshDeserialize;
+use borsh::BorshSerialize;
 use cached::{Cached, SizedCache};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
@@ -173,7 +175,7 @@ impl PeerActor {
             _ => (),
         };
 
-        match peer_message_to_bytes(msg) {
+        match msg.try_to_vec() {
             Ok(bytes) => {
                 self.tracker.increment_sent(bytes.len() as u64);
                 let bytes_len = bytes.len();
@@ -625,7 +627,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 return;
             }
         }
-        let mut peer_msg = match bytes_to_peer_message(&msg) {
+        let mut peer_msg = match PeerMessage::try_from_slice(&msg) {
             Ok(peer_msg) => peer_msg,
             Err(err) => {
                 if let Some(version) = err
