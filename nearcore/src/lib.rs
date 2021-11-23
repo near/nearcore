@@ -252,7 +252,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         migrate_28_to_29(&path);
     }
     if db_version <= 29 {
-        // version 28 => 29: migrate all structures that use ValidatorStake to versionized version
+        // version 29 => 30: migrate all structures that use ValidatorStake to versionized version
         info!(target: "near", "Migrate DB from version 29 to 30");
         migrate_29_to_30(&path);
     }
