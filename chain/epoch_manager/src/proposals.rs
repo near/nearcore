@@ -47,35 +47,29 @@ pub fn proposals_to_epoch_info(
     minted_amount: Balance,
     next_version: ProtocolVersion,
 ) -> Result<EpochInfo, EpochError> {
-    checked_feature!(
-        "stable",
-        AliasValidatorSelectionAlgorithm,
-        next_version,
-        {
-            return crate::validator_selection::proposals_to_epoch_info(
-                epoch_config,
-                rng_seed,
-                prev_epoch_info,
-                proposals,
-                validator_kickout,
-                validator_reward,
-                minted_amount,
-                next_version,
-            );
-        },
-        {
-            return old_validator_selection::proposals_to_epoch_info(
-                epoch_config,
-                rng_seed,
-                prev_epoch_info,
-                proposals,
-                validator_kickout,
-                validator_reward,
-                minted_amount,
-                next_version,
-            );
-        }
-    )
+    if checked_feature!("stable", AliasValidatorSelectionAlgorithm, next_version) {
+        return crate::validator_selection::proposals_to_epoch_info(
+            epoch_config,
+            rng_seed,
+            prev_epoch_info,
+            proposals,
+            validator_kickout,
+            validator_reward,
+            minted_amount,
+            next_version,
+        );
+    } else {
+        return old_validator_selection::proposals_to_epoch_info(
+            epoch_config,
+            rng_seed,
+            prev_epoch_info,
+            proposals,
+            validator_kickout,
+            validator_reward,
+            minted_amount,
+            next_version,
+        );
+    }
 }
 
 mod old_validator_selection {
