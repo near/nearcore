@@ -4,7 +4,6 @@ use num_rational::Rational;
 
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::challenge::SlashedValidator;
-#[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::epoch_manager::block_info::BlockInfoV2;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardConfig, ValidatorWeight};
@@ -341,35 +340,6 @@ pub fn record_block(
     record_block_with_slashes(epoch_manager, prev_h, cur_h, height, proposals, vec![]);
 }
 
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
-pub fn block_info(
-    hash: CryptoHash,
-    height: BlockHeight,
-    last_finalized_height: BlockHeight,
-    last_final_block_hash: CryptoHash,
-    prev_hash: CryptoHash,
-    epoch_first_block: CryptoHash,
-    chunk_mask: Vec<bool>,
-    total_supply: Balance,
-) -> BlockInfo {
-    BlockInfo {
-        hash,
-        height,
-        last_finalized_height,
-        last_final_block_hash,
-        prev_hash,
-        epoch_first_block,
-        epoch_id: Default::default(),
-        proposals: vec![],
-        chunk_mask,
-        latest_protocol_version: PROTOCOL_VERSION,
-        slashed: Default::default(),
-        total_supply,
-        timestamp_nanosec: height * NUM_NS_IN_SECOND,
-    }
-}
-
-#[cfg(feature = "protocol_feature_block_header_v3")]
 pub fn block_info(
     hash: CryptoHash,
     height: BlockHeight,

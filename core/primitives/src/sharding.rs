@@ -11,9 +11,9 @@ use crate::transaction::SignedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
 use crate::validator_signer::ValidatorSigner;
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use crate::version::ProtocolFeature;
-use crate::version::{ProtocolVersion, ProtocolVersionRange, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
+use crate::version::{
+    ProtocolFeature, ProtocolVersion, ProtocolVersionRange, SHARD_CHUNK_HEADER_UPGRADE_VERSION,
+};
 use reed_solomon_erasure::ReconstructShard;
 use std::sync::Arc;
 
@@ -63,108 +63,10 @@ pub struct StateSyncInfo {
     pub shards: Vec<ShardInfo>,
 }
 
-#[cfg(feature = "protocol_feature_block_header_v3")]
 pub mod shard_chunk_header_inner;
-#[cfg(feature = "protocol_feature_block_header_v3")]
 pub use shard_chunk_header_inner::{
     ShardChunkHeaderInner, ShardChunkHeaderInnerV1, ShardChunkHeaderInnerV2,
 };
-
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
-pub struct ShardChunkHeaderInner {
-    /// Previous block hash.
-    pub prev_block_hash: CryptoHash,
-    pub prev_state_root: StateRoot,
-    /// Root of the outcomes from execution transactions and results.
-    pub outcome_root: CryptoHash,
-    pub encoded_merkle_root: CryptoHash,
-    pub encoded_length: u64,
-    pub height_created: BlockHeight,
-    /// Shard index.
-    pub shard_id: ShardId,
-    /// Gas used in this chunk.
-    pub gas_used: Gas,
-    /// Gas limit voted by validators.
-    pub gas_limit: Gas,
-    /// Total balance burnt in previous chunk
-    pub balance_burnt: Balance,
-    /// Outgoing receipts merkle root.
-    pub outgoing_receipts_root: CryptoHash,
-    /// Tx merkle root.
-    pub tx_root: CryptoHash,
-    /// Validator proposals.
-    pub validator_proposals: Vec<ValidatorStake>,
-}
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
-pub type ShardChunkHeaderInnerV1 = ShardChunkHeaderInner;
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
-impl ShardChunkHeaderInner {
-    #[inline]
-    pub fn prev_state_root(&self) -> &StateRoot {
-        &self.prev_state_root
-    }
-
-    #[inline]
-    pub fn prev_block_hash(&self) -> &CryptoHash {
-        &self.prev_block_hash
-    }
-
-    #[inline]
-    pub fn gas_limit(&self) -> Gas {
-        self.gas_limit
-    }
-
-    #[inline]
-    pub fn gas_used(&self) -> Gas {
-        self.gas_used
-    }
-
-    #[inline]
-    pub fn validator_proposals(&self) -> ValidatorStakeIter {
-        ValidatorStakeIter::new(&self.validator_proposals)
-    }
-
-    #[inline]
-    pub fn height_created(&self) -> BlockHeight {
-        self.height_created
-    }
-
-    #[inline]
-    pub fn shard_id(&self) -> ShardId {
-        self.shard_id
-    }
-
-    #[inline]
-    pub fn outcome_root(&self) -> &CryptoHash {
-        &self.outcome_root
-    }
-
-    #[inline]
-    pub fn encoded_merkle_root(&self) -> &CryptoHash {
-        &self.encoded_merkle_root
-    }
-
-    #[inline]
-    pub fn encoded_length(&self) -> u64 {
-        self.encoded_length
-    }
-
-    #[inline]
-    pub fn balance_burnt(&self) -> Balance {
-        self.balance_burnt
-    }
-
-    #[inline]
-    pub fn outgoing_receipts_root(&self) -> &CryptoHash {
-        &self.outgoing_receipts_root
-    }
-
-    #[inline]
-    pub fn tx_root(&self) -> &CryptoHash {
-        &self.tx_root
-    }
-}
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 #[borsh_init(init)]
@@ -244,7 +146,6 @@ impl ShardChunkHeaderV2 {
 }
 
 // V2 -> V3: Use versioned ShardChunkHeaderInner structure
-#[cfg(feature = "protocol_feature_block_header_v3")]
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 #[borsh_init(init)]
 pub struct ShardChunkHeaderV3 {
@@ -259,7 +160,6 @@ pub struct ShardChunkHeaderV3 {
     pub hash: ChunkHash,
 }
 
-#[cfg(feature = "protocol_feature_block_header_v3")]
 impl ShardChunkHeaderV3 {
     pub fn init(&mut self) {
         self.hash = Self::compute_hash(&self.inner);
@@ -313,21 +213,10 @@ impl ShardChunkHeaderV3 {
 pub enum ShardChunkHeader {
     V1(ShardChunkHeaderV1),
     V2(ShardChunkHeaderV2),
-    #[cfg(feature = "protocol_feature_block_header_v3")]
     V3(ShardChunkHeaderV3),
 }
 
 impl ShardChunkHeader {
-    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-    #[inline]
-    pub fn take_inner(self) -> ShardChunkHeaderInner {
-        match self {
-            Self::V1(header) => header.inner,
-            Self::V2(header) => header.inner,
-        }
-    }
-
-    #[cfg(feature = "protocol_feature_block_header_v3")]
     #[inline]
     pub fn take_inner(self) -> ShardChunkHeaderInner {
         match self {
@@ -341,7 +230,6 @@ impl ShardChunkHeader {
         let inner_bytes = match self {
             Self::V1(header) => header.inner.try_to_vec(),
             Self::V2(header) => header.inner.try_to_vec(),
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             Self::V3(header) => header.inner.try_to_vec(),
         };
         hash(&inner_bytes.expect("Failed to serialize"))
@@ -352,7 +240,6 @@ impl ShardChunkHeader {
         match self {
             Self::V1(header) => header.inner.height_created,
             Self::V2(header) => header.inner.height_created,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             Self::V3(header) => header.inner.height_created(),
         }
     }
@@ -362,7 +249,6 @@ impl ShardChunkHeader {
         match self {
             Self::V1(header) => &header.signature,
             Self::V2(header) => &header.signature,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             Self::V3(header) => &header.signature,
         }
     }
@@ -372,7 +258,6 @@ impl ShardChunkHeader {
         match self {
             Self::V1(header) => header.height_included,
             Self::V2(header) => header.height_included,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             Self::V3(header) => header.height_included,
         }
     }
@@ -382,7 +267,6 @@ impl ShardChunkHeader {
         match self {
             Self::V1(header) => &mut header.height_included,
             Self::V2(header) => &mut header.height_included,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             Self::V3(header) => &mut header.height_included,
         }
     }
@@ -392,7 +276,6 @@ impl ShardChunkHeader {
         match self {
             Self::V1(header) => ValidatorStakeIter::v1(&header.inner.validator_proposals),
             Self::V2(header) => ValidatorStakeIter::v1(&header.inner.validator_proposals),
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             Self::V3(header) => header.inner.validator_proposals(),
         }
     }
@@ -402,7 +285,6 @@ impl ShardChunkHeader {
         match self {
             Self::V1(header) => header.inner.prev_state_root,
             Self::V2(header) => header.inner.prev_state_root,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             Self::V3(header) => *header.inner.prev_state_root(),
         }
     }
@@ -412,7 +294,6 @@ impl ShardChunkHeader {
         match self {
             Self::V1(header) => header.inner.prev_block_hash,
             Self::V2(header) => header.inner.prev_block_hash,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             Self::V3(header) => *header.inner.prev_block_hash(),
         }
     }
@@ -422,7 +303,6 @@ impl ShardChunkHeader {
         match self {
             Self::V1(header) => header.inner.encoded_merkle_root,
             Self::V2(header) => header.inner.encoded_merkle_root,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             Self::V3(header) => *header.inner.encoded_merkle_root(),
         }
     }
@@ -432,7 +312,6 @@ impl ShardChunkHeader {
         match self {
             Self::V1(header) => header.inner.shard_id,
             Self::V2(header) => header.inner.shard_id,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             Self::V3(header) => header.inner.shard_id(),
         }
     }
@@ -442,7 +321,6 @@ impl ShardChunkHeader {
         match self {
             Self::V1(header) => header.inner.encoded_length,
             Self::V2(header) => header.inner.encoded_length,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             Self::V3(header) => header.inner.encoded_length(),
         }
     }
@@ -452,7 +330,6 @@ impl ShardChunkHeader {
         match &self {
             ShardChunkHeader::V1(header) => header.inner.gas_used,
             ShardChunkHeader::V2(header) => header.inner.gas_used,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             ShardChunkHeader::V3(header) => header.inner.gas_used(),
         }
     }
@@ -462,7 +339,6 @@ impl ShardChunkHeader {
         match &self {
             ShardChunkHeader::V1(header) => header.inner.gas_limit,
             ShardChunkHeader::V2(header) => header.inner.gas_limit,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             ShardChunkHeader::V3(header) => header.inner.gas_limit(),
         }
     }
@@ -472,7 +348,6 @@ impl ShardChunkHeader {
         match &self {
             ShardChunkHeader::V1(header) => header.inner.balance_burnt,
             ShardChunkHeader::V2(header) => header.inner.balance_burnt,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             ShardChunkHeader::V3(header) => header.inner.balance_burnt(),
         }
     }
@@ -482,7 +357,6 @@ impl ShardChunkHeader {
         match &self {
             ShardChunkHeader::V1(header) => header.inner.outgoing_receipts_root,
             ShardChunkHeader::V2(header) => header.inner.outgoing_receipts_root,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             ShardChunkHeader::V3(header) => *header.inner.outgoing_receipts_root(),
         }
     }
@@ -492,7 +366,6 @@ impl ShardChunkHeader {
         match &self {
             ShardChunkHeader::V1(header) => header.inner.outcome_root,
             ShardChunkHeader::V2(header) => header.inner.outcome_root,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             ShardChunkHeader::V3(header) => *header.inner.outcome_root(),
         }
     }
@@ -502,7 +375,6 @@ impl ShardChunkHeader {
         match &self {
             ShardChunkHeader::V1(header) => header.inner.tx_root,
             ShardChunkHeader::V2(header) => header.inner.tx_root,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             ShardChunkHeader::V3(header) => *header.inner.tx_root(),
         }
     }
@@ -512,24 +384,10 @@ impl ShardChunkHeader {
         match &self {
             ShardChunkHeader::V1(header) => header.hash.clone(),
             ShardChunkHeader::V2(header) => header.hash.clone(),
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             ShardChunkHeader::V3(header) => header.hash.clone(),
         }
     }
 
-    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-    pub fn version_range(&self) -> ProtocolVersionRange {
-        match &self {
-            ShardChunkHeader::V1(_) => {
-                ProtocolVersionRange::new(0, Some(SHARD_CHUNK_HEADER_UPGRADE_VERSION))
-            }
-            ShardChunkHeader::V2(_) => {
-                ProtocolVersionRange::new(SHARD_CHUNK_HEADER_UPGRADE_VERSION, None)
-            }
-        }
-    }
-
-    #[cfg(feature = "protocol_feature_block_header_v3")]
     pub fn version_range(&self) -> ProtocolVersionRange {
         let block_header_v3_version = ProtocolFeature::BlockHeaderV3.protocol_version();
         match &self {
@@ -665,7 +523,6 @@ impl PartialEncodedChunk {
             PartialEncodedChunk::V2(chunk) => match &chunk.header {
                 ShardChunkHeader::V1(header) => &header.inner.prev_block_hash,
                 ShardChunkHeader::V2(header) => &header.inner.prev_block_hash,
-                #[cfg(feature = "protocol_feature_block_header_v3")]
                 ShardChunkHeader::V3(header) => header.inner.prev_block_hash(),
             },
         }
@@ -793,7 +650,6 @@ impl ShardChunk {
                     receipts: chunk.receipts,
                 })),
                 ShardChunkHeader::V2(_) => None,
-                #[cfg(feature = "protocol_feature_block_header_v3")]
                 ShardChunkHeader::V3(_) => None,
             },
             Self::V2(chunk) => Some(ShardChunk::V2(ShardChunkV2 {
@@ -1102,12 +958,7 @@ impl EncodedShardChunk {
         gas_limit: Gas,
         balance_burnt: Balance,
         tx_root: CryptoHash,
-        #[cfg(feature = "protocol_feature_block_header_v3")] validator_proposals: Vec<
-            ValidatorStake,
-        >,
-        #[cfg(not(feature = "protocol_feature_block_header_v3"))] validator_proposals: Vec<
-            ValidatorStakeV1,
-        >,
+        validator_proposals: Vec<ValidatorStake>,
         transactions: Vec<SignedTransaction>,
         outgoing_receipts: &Vec<Receipt>,
         outgoing_receipts_root: CryptoHash,
@@ -1121,13 +972,9 @@ impl EncodedShardChunk {
         content.reconstruct(rs).unwrap();
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
 
-        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-        let block_header_v3_version: Option<u32> = None;
-        #[cfg(feature = "protocol_feature_block_header_v3")]
         let block_header_v3_version = Some(ProtocolFeature::BlockHeaderV3.protocol_version());
 
         if protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             let validator_proposals =
                 validator_proposals.into_iter().map(|v| v.into_v1()).collect();
             let header = ShardChunkHeaderV1::new(
@@ -1151,7 +998,6 @@ impl EncodedShardChunk {
         } else if block_header_v3_version.is_none()
             || protocol_version < block_header_v3_version.unwrap()
         {
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             let validator_proposals =
                 validator_proposals.into_iter().map(|v| v.into_v1()).collect();
             let header = ShardChunkHeaderV2::new(
@@ -1173,29 +1019,24 @@ impl EncodedShardChunk {
             let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V2(header), content };
             Ok((Self::V2(chunk), merkle_paths))
         } else {
-            #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-            unreachable!();
-            #[cfg(feature = "protocol_feature_block_header_v3")]
-            {
-                let header = ShardChunkHeaderV3::new(
-                    prev_block_hash,
-                    prev_state_root,
-                    outcome_root,
-                    encoded_merkle_root,
-                    encoded_length,
-                    height,
-                    shard_id,
-                    gas_used,
-                    gas_limit,
-                    balance_burnt,
-                    outgoing_receipts_root,
-                    tx_root,
-                    validator_proposals,
-                    signer,
-                );
-                let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V3(header), content };
-                Ok((Self::V2(chunk), merkle_paths))
-            }
+            let header = ShardChunkHeaderV3::new(
+                prev_block_hash,
+                prev_state_root,
+                outcome_root,
+                encoded_merkle_root,
+                encoded_length,
+                height,
+                shard_id,
+                gas_used,
+                gas_limit,
+                balance_burnt,
+                outgoing_receipts_root,
+                tx_root,
+                validator_proposals,
+                signer,
+            );
+            let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V3(header), content };
+            Ok((Self::V2(chunk), merkle_paths))
         }
     }
 

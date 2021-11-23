@@ -20,9 +20,6 @@ use near_primitives::block::Approval;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::num_rational::Rational;
 use near_primitives::transaction::SignedTransaction;
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use near_primitives::types::validator_stake::ValidatorStake;
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeightDelta, EpochId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -72,12 +69,10 @@ fn add_blocks(
             PROTOCOL_VERSION,
             &prev.header(),
             prev.header().height() + 1,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
-            (prev.header().block_ordinal() + 1),
+            prev.header().block_ordinal() + 1,
             blocks[0].chunks().iter().cloned().collect(),
             epoch_id,
             next_epoch_id,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             None,
             vec![Some(
                 Approval::new(

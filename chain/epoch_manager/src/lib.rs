@@ -3724,17 +3724,11 @@ mod tests {
         check_kickout(&epoch_info3, &[("test1", NotEnoughBlocks { produced: 0, expected: 1 })]);
     }
 
-    #[cfg(feature = "protocol_feature_block_header_v3")]
     fn set_block_info_protocol_version(info: &mut BlockInfo, protocol_version: ProtocolVersion) {
         match info {
             BlockInfo::V1(v1) => v1.latest_protocol_version = protocol_version,
             BlockInfo::V2(v2) => v2.latest_protocol_version = protocol_version,
         }
-    }
-
-    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-    fn set_block_info_protocol_version(info: &mut BlockInfo, protocol_version: ProtocolVersion) {
-        info.latest_protocol_version = protocol_version;
     }
 
     #[test]

@@ -455,14 +455,9 @@ mod tests {
             HashMap::default(),
             0,
         );
-        #[cfg(feature = "protocol_feature_block_header_v3")]
         match &mut epoch_info {
             EpochInfo::V1(info) => info.validator_kickout = HashMap::default(),
             EpochInfo::V2(info) => info.validator_kickout = HashMap::default(),
-        }
-        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-        {
-            epoch_info.validator_kickout = HashMap::default();
         }
         assert_eq!(
             proposals_to_epoch_info(
