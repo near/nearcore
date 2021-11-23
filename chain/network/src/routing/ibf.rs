@@ -15,6 +15,7 @@ const NUM_HASHES: usize = 3;
 /// The box considered to be empty if both xor of elements inserted and their hashes is equal to 0.
 /// To check whenever only one element is inside the box, we can check whenever hash of `xor_element`
 /// is equal to `xor_hash`.
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Default)]
 pub struct IbfBox {
     xor_elem: u64,

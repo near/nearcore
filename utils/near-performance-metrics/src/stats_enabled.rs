@@ -172,7 +172,7 @@ impl ThreadStats {
             self.write_buf_drained = Default::default();
 
             let mut stat: Vec<_> = self.stat.iter().collect();
-            stat.sort_by(|x, y| (*x).0.cmp(&*y.0));
+            stat.sort_by_key(|f| f.0);
 
             for entry in stat {
                 warn!(
@@ -253,7 +253,7 @@ impl Stats {
             MIN_OCCUPANCY_RATIO_THRESHOLD
         );
         let mut s: Vec<_> = self.stats.iter().collect();
-        s.sort_by(|x, y| (*x).0.cmp(&*y.0));
+        s.sort_by_key(|f| f.0);
 
         let mut ratio = 0.0;
         let mut other_ratio = 0.0;
