@@ -6,16 +6,20 @@ use std::io::{Error, ErrorKind, Write};
 use std::str::FromStr;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use ed25519_dalek::ed25519::signature::{Signature as _, Signer as _, Verifier as _};
-use lazy_static::lazy_static;
+// We need to import ed25519::signature::Signature, because we use traits from those structs.
+// However, `Signature` symbol is already used to define a different data structure.
+#[cfg(feature = "deepsize")]
+use deepsize::{Context, DeepSizeOf};
+use ed25519_dalek::ed25519::signature::{Signature as _Signature, Signer, Verifier};
+#[cfg(feature = "deepsize")]
+use ed25519_dalek::SIGNATURE_LENGTH;
+use once_cell::sync::Lazy;
 use primitive_types::U256;
 use rand_core::OsRng;
 use secp256k1::Message;
 use serde::{Deserialize, Serialize};
 
-lazy_static! {
-    pub static ref SECP256K1: secp256k1::Secp256k1 = secp256k1::Secp256k1::new();
-}
+pub static SECP256K1: Lazy<secp256k1::Secp256k1> = Lazy::new(|| secp256k1::Secp256k1::new());
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum KeyType {
@@ -75,6 +79,13 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::errors::Pa
 
 #[derive(Copy, Clone)]
 pub struct Secp256K1PublicKey([u8; 64]);
+
+#[cfg(feature = "deepsize")]
+impl DeepSizeOf for Secp256K1PublicKey {
+    fn deep_size_of_children(&self, _context: &mut Context) -> usize {
+        0
+    }
+}
 
 impl From<[u8; 64]> for Secp256K1PublicKey {
     fn from(data: [u8; 64]) -> Self {
@@ -142,6 +153,7 @@ impl Ord for Secp256K1PublicKey {
     }
 }
 
+#[cfg_attr(feature = "deepsize", derive(DeepSizeOf))]
 #[derive(Copy, Clone, derive_more::AsRef)]
 #[as_ref(forward)]
 pub struct ED25519PublicKey(pub [u8; ed25519_dalek::PUBLIC_KEY_LENGTH]);
@@ -190,6 +202,7 @@ impl Ord for ED25519PublicKey {
 }
 
 /// Public key container supporting different curves.
+#[cfg_attr(feature = "deepsize", derive(DeepSizeOf))]
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq)]
 pub enum PublicKey {
     ED25519(ED25519PublicKey),
@@ -562,8 +575,10 @@ const SECP256K1_N: U256 =
 const SECP256K1_N_HALF_ONE: U256 =
     U256([0xdfe92f46681b20a1, 0x5d576e7357a4501d, 0xffffffffffffffff, 0x7fffffffffffffff]);
 
+const SECP256K1_SIGNATURE_LENGTH: usize = 65;
+
 #[derive(Clone, Hash)]
-pub struct Secp256K1Signature([u8; 65]);
+pub struct Secp256K1Signature([u8; SECP256K1_SIGNATURE_LENGTH]);
 
 impl Secp256K1Signature {
     pub fn check_signature_values(&self, reject_upper: bool) -> bool {
@@ -666,6 +681,16 @@ impl From<Secp256K1Signature> for [u8; 65] {
 pub enum Signature {
     ED25519(ed25519_dalek::Signature),
     SECP256K1(Secp256K1Signature),
+}
+
+#[cfg(feature = "deepsize")]
+impl DeepSizeOf for Signature {
+    fn deep_size_of_children(&self, _context: &mut Context) -> usize {
+        match self {
+            Signature::ED25519(_) => SIGNATURE_LENGTH,
+            Signature::SECP256K1(_) => SECP256K1_SIGNATURE_LENGTH,
+        }
+    }
 }
 
 impl Hash for Signature {

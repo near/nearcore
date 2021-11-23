@@ -193,54 +193,51 @@ impl DBCol {
 }
 
 // List of columns for which GC should be implemented
-lazy_static! {
-    pub static ref SHOULD_COL_GC: Vec<bool> = {
-        let mut col_gc = vec![true; NUM_COLS];
-        col_gc[DBCol::ColDbVersion as usize] = false; // DB version is unrelated to GC
-        col_gc[DBCol::ColBlockMisc as usize] = false;
-        // TODO #3488 remove
-        col_gc[DBCol::ColBlockHeader as usize] = false; // header sync needs headers
-        col_gc[DBCol::ColGCCount as usize] = false; // GC count it self isn't GCed
-        col_gc[DBCol::ColBlockHeight as usize] = false; // block sync needs it + genesis should be accessible
-        col_gc[DBCol::ColPeers as usize] = false; // Peers is unrelated to GC
-        col_gc[DBCol::ColBlockMerkleTree as usize] = false;
-        col_gc[DBCol::ColAccountAnnouncements as usize] = false;
-        col_gc[DBCol::ColEpochLightClientBlocks as usize] = false;
-        col_gc[DBCol::ColPeerComponent as usize] = false; // Peer related info doesn't GC
-        col_gc[DBCol::ColLastComponentNonce as usize] = false;
-        col_gc[DBCol::ColComponentEdges as usize] = false;
-        col_gc[DBCol::ColBlockOrdinal as usize] = false;
-        col_gc[DBCol::ColEpochInfo as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
-        col_gc[DBCol::ColEpochValidatorInfo as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
-        col_gc[DBCol::ColEpochStart as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
-        col_gc[DBCol::ColCachedContractCode as usize] = false;
-        col_gc
-    };
-}
+
+pub static SHOULD_COL_GC: [bool; NUM_COLS] = {
+    let mut col_gc = [true; NUM_COLS];
+    col_gc[DBCol::ColDbVersion as usize] = false; // DB version is unrelated to GC
+    col_gc[DBCol::ColBlockMisc as usize] = false;
+    // TODO #3488 remove
+    col_gc[DBCol::ColBlockHeader as usize] = false; // header sync needs headers
+    col_gc[DBCol::ColGCCount as usize] = false; // GC count it self isn't GCed
+    col_gc[DBCol::ColBlockHeight as usize] = false; // block sync needs it + genesis should be accessible
+    col_gc[DBCol::ColPeers as usize] = false; // Peers is unrelated to GC
+    col_gc[DBCol::ColBlockMerkleTree as usize] = false;
+    col_gc[DBCol::ColAccountAnnouncements as usize] = false;
+    col_gc[DBCol::ColEpochLightClientBlocks as usize] = false;
+    col_gc[DBCol::ColPeerComponent as usize] = false; // Peer related info doesn't GC
+    col_gc[DBCol::ColLastComponentNonce as usize] = false;
+    col_gc[DBCol::ColComponentEdges as usize] = false;
+    col_gc[DBCol::ColBlockOrdinal as usize] = false;
+    col_gc[DBCol::ColEpochInfo as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
+    col_gc[DBCol::ColEpochValidatorInfo as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
+    col_gc[DBCol::ColEpochStart as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
+    col_gc[DBCol::ColCachedContractCode as usize] = false;
+    col_gc
+};
 
 // List of columns for which GC may not be executed even in fully operational node
-lazy_static! {
-    pub static ref SKIP_COL_GC: Vec<bool> = {
-        let mut col_gc = vec![false; NUM_COLS];
-        // A node may never restarted
-        col_gc[DBCol::ColStateHeaders as usize] = true;
-        // True until #2515
-        col_gc[DBCol::ColStateParts as usize] = true;
-        col_gc
-    };
-}
+
+pub static SKIP_COL_GC: [bool; NUM_COLS] = {
+    let mut col_gc = [false; NUM_COLS];
+    // A node may never restarted
+    col_gc[DBCol::ColStateHeaders as usize] = true;
+    // True until #2515
+    col_gc[DBCol::ColStateParts as usize] = true;
+    col_gc
+};
 
 // List of reference counted columns
-lazy_static! {
-    pub static ref IS_COL_RC: Vec<bool> = {
-        let mut col_rc = vec![false; NUM_COLS];
-        col_rc[DBCol::ColState as usize] = true;
-        col_rc[DBCol::ColTransactions as usize] = true;
-        col_rc[DBCol::ColReceipts as usize] = true;
-        col_rc[DBCol::ColReceiptIdToShardId as usize] = true;
-        col_rc
-    };
-}
+
+pub static IS_COL_RC: [bool; NUM_COLS] = {
+    let mut col_rc = [false; NUM_COLS];
+    col_rc[DBCol::ColState as usize] = true;
+    col_rc[DBCol::ColTransactions as usize] = true;
+    col_rc[DBCol::ColReceipts as usize] = true;
+    col_rc[DBCol::ColReceiptIdToShardId as usize] = true;
+    col_rc
+};
 
 pub const HEAD_KEY: &[u8; 4] = b"HEAD";
 pub const TAIL_KEY: &[u8; 4] = b"TAIL";

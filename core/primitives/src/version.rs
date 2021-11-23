@@ -1,8 +1,11 @@
+#[cfg(feature = "deepsize")]
+use deepsize::DeepSizeOf;
 use serde::{Deserialize, Serialize};
 
 use crate::types::Balance;
 
 /// Data structure for semver version and github tag or commit.
+#[cfg_attr(feature = "deepsize", derive(DeepSizeOf))]
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Version {
     pub version: String,
@@ -128,6 +131,11 @@ pub enum ProtocolFeature {
     AltBn128,
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     ChunkOnlyProducers,
+    /// Changes how we select validators for epoch and how we select validators within epoch. See
+    /// https://github.com/near/NEPs/pull/167 for general description, note that we would not
+    /// introduce chunk-only validators with this feature
+    #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
+    AliasValidatorSelectionAlgorithm,
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingExchangeAlgorithm,
 }
@@ -172,7 +180,9 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_block_header_v3")]
             ProtocolFeature::BlockHeaderV3 => 109,
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            ProtocolFeature::ChunkOnlyProducers => 115,
+            ProtocolFeature::ChunkOnlyProducers => 124,
+            #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
+            ProtocolFeature::AliasValidatorSelectionAlgorithm => 123,
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
         }

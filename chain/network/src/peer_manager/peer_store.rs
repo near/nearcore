@@ -1,21 +1,19 @@
-use std::collections::hash_map::{Entry, Iter};
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::sync::Arc;
-
+use crate::PeerInfo;
 use borsh::BorshSerialize;
 use near_network_primitives::types::{
     KnownPeerState, KnownPeerStatus, NetworkConfig, ReasonForBan,
 };
-use near_primitives::time::Utc;
-use rand::seq::SliceRandom;
-use rand::thread_rng;
-use tracing::{debug, error};
-
-use crate::PeerInfo;
 use near_primitives::network::PeerId;
+use near_primitives::time::Utc;
 use near_primitives::utils::to_timestamp;
 use near_store::{ColPeers, Store};
+use rand::seq::SliceRandom;
+use rand::thread_rng;
+use std::collections::hash_map::{Entry, Iter};
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use tracing::{debug, error};
 
 /// Level of trust we have about a new (PeerId, Addr) pair.
 #[derive(Eq, PartialEq, Debug, Clone)]

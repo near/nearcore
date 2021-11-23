@@ -48,8 +48,8 @@ pub fn proposals_to_epoch_info(
     next_version: ProtocolVersion,
 ) -> Result<EpochInfo, EpochError> {
     checked_feature!(
-        "protocol_feature_chunk_only_producers",
-        ChunkOnlyProducers,
+        "protocol_feature_new_validator_selection_algorithm",
+        AliasValidatorSelectionAlgorithm,
         next_version,
         {
             return crate::validator_selection::proposals_to_epoch_info(
@@ -271,13 +271,13 @@ mod old_validator_selection {
             minted_amount,
             threshold,
             next_version,
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
             rng_seed,
         ))
     }
 }
 
-#[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
+#[cfg(not(feature = "protocol_feature_new_validator_selection_algorithm"))]
 #[cfg(test)]
 mod tests {
     use num_rational::Rational;
@@ -347,8 +347,6 @@ mod tests {
                     protocol_upgrade_stake_threshold: Rational::new(80, 100),
                     protocol_upgrade_num_epochs: 2,
                     shard_layout: ShardLayout::v0(5, 0),
-                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                    validator_selection_config: Default::default(),
                 },
                 [0; 32],
                 &EpochInfo::default(),

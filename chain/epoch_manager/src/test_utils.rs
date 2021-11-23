@@ -119,7 +119,7 @@ pub fn epoch_info_with_num_seats(
         minted_amount,
         seat_price,
         PROTOCOL_VERSION,
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
         [0; 32],
     )
 }
@@ -152,7 +152,7 @@ pub fn epoch_config(
         protocol_upgrade_stake_threshold: Rational::new(80, 100),
         protocol_upgrade_num_epochs: 2,
         minimum_stake_divisor: 1,
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
         validator_selection_config: Default::default(),
         shard_layout: ShardLayout::v0(num_shards, 0),
     };

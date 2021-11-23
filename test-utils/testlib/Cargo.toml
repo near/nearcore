@@ -44,5 +44,6 @@ protocol_feature_alt_bn128 = [
     "near-vm-errors/protocol_feature_alt_bn128",
 ]
 protocol_feature_chunk_only_producers = ["near-client/protocol_feature_chunk_only_producers"]
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_chunk_only_producers", "protocol_feature_alt_bn128"]
+protocol_feature_new_validator_selection_algorithm = ["near-client/protocol_feature_new_validator_selection_algorithm"]
+nightly_protocol_features = ["nightly_protocol", "protocol_feature_chunk_only_producers", "protocol_feature_alt_bn128", "protocol_feature_new_validator_selection_algorithm"]
 nightly_protocol = []
