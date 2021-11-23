@@ -38,6 +38,7 @@ use near_primitives::types::{
     NumBlocks, NumShards, ShardId, StateChangesForSplitStates, StateRoot,
 };
 use near_primitives::unwrap_or_return;
+use near_primitives::utils::MaybeValidated;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
@@ -118,7 +119,7 @@ enum ApplyChunksMode {
 /// We save these blocks in an in-memory orphan pool to be processed later
 /// after their previous block is accepted.
 pub struct Orphan {
-    block: Block,
+    block: MaybeValidated<Block>,
     provenance: Provenance,
     added: Instant,
 }
@@ -566,20 +567,18 @@ impl Chain {
         create_light_client_block_view(&final_block_header, chain_store, Some(next_block_producers))
     }
 
-    pub fn save_block(&mut self, block: Block) -> Result<(), Error> {
+    pub fn save_block(&mut self, block: MaybeValidated<Block>) -> Result<(), Error> {
         if self.store.get_block(block.hash()).is_ok() {
             return Ok(());
         }
-        if let Err(e) =
-            Chain::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis, &block)
-        {
+        if let Err(e) = self.validate_block(&block) {
             byzantine_assert!(false);
             return Err(e.into());
         }
 
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
 
-        chain_store_update.save_block(block);
+        chain_store_update.save_block(block.into_inner());
         // We don't need to increase refcount for `prev_hash` at this point
         // because this is the block before State Sync.
 
@@ -589,15 +588,13 @@ impl Chain {
 
     pub fn save_orphan(
         &mut self,
-        block: Block,
+        block: MaybeValidated<Block>,
         requested_missing_chunks: bool,
     ) -> Result<(), Error> {
         if self.orphans.contains(block.hash()) {
             return Ok(());
         }
-        if let Err(e) =
-            Chain::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis, &block)
-        {
+        if let Err(e) = self.validate_block(&block) {
             byzantine_assert!(false);
             return Err(e.into());
         }
@@ -820,14 +817,22 @@ impl Chain {
         Ok(())
     }
 
-    /// Do Basic validation of a block upon receiving it. Check that header is valid
-    /// and block is well-formed (various roots match).
-    pub fn validate_block(&mut self, block: &Block) -> Result<(), Error> {
-        self.process_block_header(&block.header(), |_| {})?;
-        Self::check_block_validity(self.runtime_adapter.as_ref(), &self.genesis_block(), block)
+    /// Do basic validation of a block upon receiving it. Check that block is
+    /// well-formed (various roots match).
+    pub fn validate_block(&mut self, block: &MaybeValidated<Block>) -> Result<(), Error> {
+        block
+            .validate_with(|block| {
+                Chain::validate_block_impl(
+                    self.runtime_adapter.as_ref(),
+                    &self.genesis_block(),
+                    block,
+                )
+                .map(|_| true)
+            })
+            .map(|_| ())
     }
 
-    fn check_block_validity(
+    fn validate_block_impl(
         runtime_adapter: &dyn RuntimeAdapter,
         genesis_block: &Block,
         block: &Block,
@@ -889,7 +894,7 @@ impl Chain {
     pub fn process_block<F, F1, F2, F3>(
         &mut self,
         me: &Option<AccountId>,
-        block: Block,
+        block: MaybeValidated<Block>,
         provenance: Provenance,
         block_accepted: F,
         block_misses_chunks: F1,
@@ -1220,7 +1225,7 @@ impl Chain {
     fn process_block_single<F, F1, F2, F3>(
         &mut self,
         me: &Option<AccountId>,
-        block: Block,
+        block: MaybeValidated<Block>,
         provenance: Provenance,
         mut block_accepted: F,
         mut block_misses_chunks: F1,
@@ -3940,7 +3945,7 @@ impl<'a> ChainUpdate<'a> {
     fn process_block<F>(
         &mut self,
         me: &Option<AccountId>,
-        block: &Block,
+        block: &MaybeValidated<Block>,
         provenance: &Provenance,
         on_challenge: F,
     ) -> Result<(Option<Tip>, bool), Error>
@@ -4044,9 +4049,11 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidRandomnessBeaconOutput.into());
         }
 
-        if let Err(e) =
-            Chain::check_block_validity(self.runtime_adapter.as_ref(), self.genesis, block)
-        {
+        let res = block.validate_with(|block| {
+            Chain::validate_block_impl(self.runtime_adapter.as_ref(), &self.genesis, block)
+                .map(|_| true)
+        });
+        if let Err(e) = res {
             byzantine_assert!(false);
             return Err(e.into());
         }
@@ -4136,7 +4143,7 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.merge(epoch_manager_update);
 
         // Add validated block to the db, even if it's not the canonical fork.
-        self.chain_store_update.save_block(block.clone());
+        self.chain_store_update.save_block(block.clone().into_inner());
         self.chain_store_update.inc_block_refcount(block.header().prev_hash())?;
 
         // Update the chain head if it's the new tip

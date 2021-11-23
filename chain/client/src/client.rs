@@ -694,7 +694,7 @@ impl Client {
 
     pub fn process_block(
         &mut self,
-        block: Block,
+        block: MaybeValidated<Block>,
         provenance: Provenance,
     ) -> (Vec<AcceptedBlock>, Result<Option<Tip>, near_chain::Error>) {
         self.record_receive_block_timestamp(block.header().height());
@@ -782,7 +782,7 @@ impl Client {
         (unwrapped_accepted_blocks, result)
     }
 
-    pub fn rebroadcast_block(&mut self, block: Block) {
+    pub fn rebroadcast_block(&mut self, block: &Block) {
         if self.rebroadcasted_blocks.cache_get(&block.hash()).is_none() {
             self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Block { block: block.clone() },
