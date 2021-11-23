@@ -110,11 +110,11 @@ fn build_chain_with_orhpans() {
     );
     assert_eq!(chain.process_block_test(&None, block).unwrap_err().kind(), ErrorKind::Orphan);
     assert_eq!(
-        chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err().kind(),
+        chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err().kind(),
         ErrorKind::Orphan
     );
     assert_eq!(
-        chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err().kind(),
+        chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err().kind(),
         ErrorKind::Orphan
     );
     let res = chain.process_block_test(&None, blocks.pop().unwrap());
