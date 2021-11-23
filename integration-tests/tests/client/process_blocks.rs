@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use actix::System;
+use assert_matches::assert_matches;
 use futures::{future, FutureExt};
 use near_primitives::num_rational::Rational;
 
@@ -40,14 +41,12 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::runtime::config::RuntimeConfig;
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::ShardUId;
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
-use near_primitives::sharding::ShardChunkHeaderV2;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader};
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use near_primitives::sharding::{ShardChunkHeaderInner, ShardChunkHeaderV3};
+use near_primitives::sharding::{
+    EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderInner,
+    ShardChunkHeaderV3,
+};
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader, StatePartKey};
 use near_primitives::transaction::{
     Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
@@ -58,7 +57,6 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
@@ -68,7 +66,7 @@ use near_store::db::DBCol::ColStateParts;
 use near_store::get;
 use near_store::test_utils::create_test_store;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use nearcore::NEAR_BASE;
+use nearcore::{TrackedConfig, NEAR_BASE};
 use rand::Rng;
 
 pub fn set_block_protocol_version(
@@ -81,7 +79,7 @@ pub fn set_block_protocol_version(
         KeyType::ED25519,
         block_producer.as_ref(),
     );
-    block.mut_header().get_mut().inner_rest.latest_protocol_version = protocol_version;
+    block.mut_header().set_lastest_protocol_version(protocol_version);
     block.mut_header().resign(&validator_signer);
 }
 
@@ -337,13 +335,11 @@ fn receive_network_block() {
                 "test1",
             );
             block_merkle_tree.insert(last_block.header.hash);
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let block = Block::produce(
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
-                #[cfg(feature = "protocol_feature_block_header_v3")]
                 next_block_ordinal,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
@@ -352,7 +348,6 @@ fn receive_network_block() {
                 } else {
                     EpochId(last_block.header.next_epoch_id.clone())
                 },
-                #[cfg(feature = "protocol_feature_block_header_v3")]
                 None,
                 vec![],
                 Rational::from_integer(0),
@@ -415,13 +410,11 @@ fn produce_block_with_approvals() {
                 "test2",
             );
             block_merkle_tree.insert(last_block.header.hash);
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let block = Block::produce(
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
-                #[cfg(feature = "protocol_feature_block_header_v3")]
                 next_block_ordinal,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
@@ -430,7 +423,6 @@ fn produce_block_with_approvals() {
                 } else {
                     EpochId(last_block.header.next_epoch_id.clone())
                 },
-                #[cfg(feature = "protocol_feature_block_header_v3")]
                 None,
                 vec![],
                 Rational::from_integer(0),
@@ -606,13 +598,11 @@ fn invalid_blocks_common(is_requested: bool) {
                 "test",
             );
             block_merkle_tree.insert(last_block.header.hash);
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let valid_block = Block::produce(
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
-                #[cfg(feature = "protocol_feature_block_header_v3")]
                 next_block_ordinal,
                 last_block.chunks.iter().cloned().map(Into::into).collect(),
                 EpochId::default(),
@@ -621,7 +611,6 @@ fn invalid_blocks_common(is_requested: bool) {
                 } else {
                     EpochId(last_block.header.next_epoch_id.clone())
                 },
-                #[cfg(feature = "protocol_feature_block_header_v3")]
                 None,
                 vec![],
                 Rational::from_integer(0),
@@ -655,7 +644,6 @@ fn invalid_blocks_common(is_requested: bool) {
                 ShardChunkHeader::V2(chunk) => {
                     chunk.signature = some_signature;
                 }
-                #[cfg(feature = "protocol_feature_block_header_v3")]
                 ShardChunkHeader::V3(chunk) => {
                     chunk.signature = some_signature;
                 }
@@ -1224,26 +1212,14 @@ fn test_bad_orphan() {
             };
             let chunk = match &mut body.chunks[0] {
                 ShardChunkHeader::V1(_) => unreachable!(),
-                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-                ShardChunkHeader::V2(chunk) => chunk,
-                #[cfg(feature = "protocol_feature_block_header_v3")]
                 ShardChunkHeader::V2(_) => unreachable!(),
-                #[cfg(feature = "protocol_feature_block_header_v3")]
                 ShardChunkHeader::V3(chunk) => chunk,
             };
-            #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-            {
-                chunk.inner.outcome_root = CryptoHash([1; 32]);
-                chunk.hash = ShardChunkHeaderV2::compute_hash(&chunk.inner);
+            match &mut chunk.inner {
+                ShardChunkHeaderInner::V1(inner) => inner.outcome_root = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V2(inner) => inner.outcome_root = CryptoHash([1; 32]),
             }
-            #[cfg(feature = "protocol_feature_block_header_v3")]
-            {
-                match &mut chunk.inner {
-                    ShardChunkHeaderInner::V1(inner) => inner.outcome_root = CryptoHash([1; 32]),
-                    ShardChunkHeaderInner::V2(inner) => inner.outcome_root = CryptoHash([1; 32]),
-                }
-                chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
-            }
+            chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
         }
         block.mut_header().get_mut().prev_hash = CryptoHash([3; 32]);
         block.mut_header().resign(&*signer);
@@ -1272,22 +1248,11 @@ fn test_bad_orphan() {
             };
             let chunk = match &mut body.chunks[0] {
                 ShardChunkHeader::V1(_) => unreachable!(),
-                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-                ShardChunkHeader::V2(chunk) => chunk,
-                #[cfg(feature = "protocol_feature_block_header_v3")]
                 ShardChunkHeader::V2(_) => unreachable!(),
-                #[cfg(feature = "protocol_feature_block_header_v3")]
                 ShardChunkHeader::V3(chunk) => chunk,
             };
             chunk.signature = some_signature;
-            #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-            {
-                chunk.hash = ShardChunkHeaderV2::compute_hash(&chunk.inner);
-            }
-            #[cfg(feature = "protocol_feature_block_header_v3")]
-            {
-                chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
-            }
+            chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
         }
         block.mut_header().get_mut().prev_hash = CryptoHash([4; 32]);
         block.mut_header().resign(&*signer);
@@ -1789,7 +1754,7 @@ fn test_gc_tail_update() {
     store_update.commit().unwrap();
     env.clients[1]
         .chain
-        .reset_heads_post_state_sync(&None, *sync_block.hash(), |_| {}, |_| {}, |_| {})
+        .reset_heads_post_state_sync(&None, *sync_block.hash(), |_| {}, |_| {}, |_| {}, |_| {})
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
     assert_eq!(env.clients[1].chain.store().tail().unwrap(), prev_sync_height);
@@ -2571,9 +2536,6 @@ fn test_refund_receipts_processing() {
     assert_eq!(processed_refund_receipt_ids, refund_receipt_ids);
 }
 
-// This test cannot be enabled at the same time as `protocol_feature_block_header_v3`.
-// Otherwise we hit an assert: https://github.com/near/nearcore/pull/4934#issuecomment-935863800
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 #[test]
 fn test_wasmer2_upgrade() {
     let mut capture = near_logger_utils::TracingCapture::enable();
@@ -3043,7 +3005,6 @@ fn test_node_shutdown_with_old_protocol_version() {
     env.produce_block(0, 11);
 }
 
-#[cfg(feature = "protocol_feature_block_header_v3")]
 #[test]
 fn test_block_ordinal() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
@@ -3197,7 +3158,6 @@ fn test_validator_stake_host_function() {
 }
 
 // Check that we can't call a contract exceeding functions number limit after upgrade.
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 #[test]
 fn test_limit_contract_functions_number_upgrade() {
     let functions_number_limit: u32 = 10_000;
@@ -3218,6 +3178,7 @@ fn test_limit_contract_functions_number_upgrade() {
                 Path::new("."),
                 create_test_store(),
                 &genesis,
+                TrackedConfig::new_empty(),
                 RuntimeConfigStore::new(None),
             ))];
         let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
@@ -3423,9 +3384,134 @@ mod access_key_nonce_range_tests {
             NetworkClientResponses::InvalidTx(InvalidTxError::InvalidAccessKeyError(_))
         ));
     }
+
+    #[test]
+    /// This test tests the logic regarding requesting chunks for orphan.
+    /// The test tests the following scenario, there is one validator(test0) and one non-validator node(test1)
+    /// test0 produces and processes 20 blocks and test1 processes these blocks with some delays. We
+    /// want to test that test1 requests missing chunks for orphans ahead of time.
+    ///
+    /// - test1 processes blocks 1, 2 successfully
+    /// - test1 processes blocks 3, 4, ..., 20, but it doesn't have chunks for these blocks, so block 3
+    ///         will be put to the missing chunks pool while block 4 - 20 will be orphaned
+    /// - check that test1 sends missing chunk requests for block 4 - 7
+    /// - test1 processes partial chunk responses for block 4 - 7
+    /// - test1 processes partial chunk responses for block 3
+    /// - check that block 3 - 7 are accepted, this confirms that the missing chunk requests are sent
+    ///   and processed successfully for block 4 - 7
+    /// - check that test1 sends missing chunk requests for block 9, because now it satisfies the requirements
+    ///   for requesting chunks for orphans
+    /// - check that test1 does not send missing chunk requests for block 10, because it breaks
+    ///   the requirement that the block must be in the same epoch as the next block after its accepted ancestor
+    /// - test1 processes partial chunk responses for block 8 and 9
+    /// - check that test1 sends missing chunk requests for block 11 to 15, since now they satisfy the
+    ///   the requirements for requesting chunks for orphans
+    fn test_request_chunks_for_orphan() {
+        init_test_logger();
+
+        let num_clients = 2;
+        let num_validators = 1;
+        let epoch_length = 10;
+
+        let accounts: Vec<AccountId> =
+            (0..num_clients).map(|i| format!("test{}", i).to_string().parse().unwrap()).collect();
+        let mut genesis = Genesis::test(accounts, num_validators);
+        genesis.config.epoch_length = epoch_length;
+        let chain_genesis = ChainGenesis::from(&genesis);
+        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = (0..2)
+            .map(|_| {
+                Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
+                    Path::new("."),
+                    create_test_store(),
+                    &genesis,
+                    TrackedConfig::AllShards,
+                    RuntimeConfigStore::test(),
+                )) as Arc<dyn RuntimeAdapter>
+            })
+            .collect();
+        let mut env = TestEnv::builder(chain_genesis)
+            .clients_count(num_clients)
+            .validator_seats(num_validators as usize)
+            .runtime_adapters(runtimes)
+            .build();
+
+        let mut blocks = vec![];
+        // produce 20 blocks
+        for i in 1..=20 {
+            let block = env.clients[0].produce_block(i).unwrap().unwrap();
+            blocks.push(block.clone());
+            env.process_block(0, block, Provenance::PRODUCED);
+        }
+
+        env.clients[1].process_block(blocks[0].clone().into(), Provenance::NONE).1.unwrap();
+        // process blocks 1, 2 successfully
+        for i in 1..3 {
+            let (_, res) = env.clients[1].process_block(blocks[i].clone().into(), Provenance::NONE);
+            run_catchup(&mut env.clients[1], &vec![]).unwrap();
+            assert_matches!(res, Err(e) => {
+                assert_matches!(e.kind(), near_chain::ErrorKind::ChunksMissing(_));
+            });
+            env.process_partial_encoded_chunks_requests(1);
+        }
+
+        // process blocks 3 to 15 without processing missing chunks
+        // block 3 will be put into the blocks_with_missing_chunks pool
+        let (_, res) = env.clients[1].process_block(blocks[3].clone().into(), Provenance::NONE);
+        assert_matches!(res, Err(e) => {
+            assert_matches!(e.kind(), near_chain::ErrorKind::ChunksMissing(_));
+        });
+        // remove the missing chunk request from the network queue because we want to process it later
+        let missing_chunk_request = env.network_adapters[1].pop().unwrap();
+        // block 4-20 will be put to the orphan pool
+        for i in 4..20 {
+            let (_, res) = env.clients[1].process_block(blocks[i].clone().into(), Provenance::NONE);
+            assert_matches!(res, Err(e) => {
+                assert_eq!(e.kind(), near_chain::ErrorKind::Orphan);
+            });
+        }
+        // check that block 4-7 requested partial encoded chunks already
+        for i in 4..8 {
+            assert!(
+                env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[i].hash()),
+                "{}",
+                i
+            );
+        }
+        assert!(!env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[8].hash()));
+        assert!(!env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[9].hash()));
+        // process all the partial encoded chunk requests for block 4 - 7
+        env.process_partial_encoded_chunks_requests(1);
+
+        // process partial encoded chunk request for block 3, which will unlock block 4-7
+        env.process_partial_encoded_chunk_request(1, missing_chunk_request);
+        assert_eq!(&env.clients[1].chain.head().unwrap().last_block_hash, blocks[7].hash());
+
+        // check that `check_orphans` will request PartialChunks for new orphans as new blocks are processed
+        assert!(env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[9].hash()));
+        // blocks[10] is at the new epoch, so we can't request partial chunks for it yet
+        assert!(!env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[10].hash()));
+
+        // process missing chunks for block 8 and 9
+        let request = env.network_adapters[1].pop().unwrap();
+        env.process_partial_encoded_chunk_request(1, request);
+        let request = env.network_adapters[1].pop().unwrap();
+        env.process_partial_encoded_chunk_request(1, request);
+        assert_eq!(&env.clients[1].chain.head().unwrap().last_block_hash, blocks[9].hash());
+
+        assert!(env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[11].hash()));
+        assert!(env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[12].hash()));
+        assert!(env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[13].hash()));
+        assert!(env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[14].hash()));
+        assert!(!env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[15].hash()));
+
+        for i in 10..=15 {
+            let request = env.network_adapters[1].pop().unwrap();
+            env.process_partial_encoded_chunk_request(1, request);
+            assert_eq!(&env.clients[1].chain.head().unwrap().last_block_hash, blocks[i].hash());
+        }
+    }
 }
 
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 mod protocol_feature_restore_receipts_after_fix_tests {
     use super::*;
     use near_primitives::runtime::migration_data::MigrationData;
@@ -3565,9 +3651,6 @@ mod protocol_feature_restore_receipts_after_fix_tests {
     }
 }
 
-// This test cannot be enabled at the same time as `protocol_feature_block_header_v3`.
-// Otherwise `get_mut` for block header will panic.
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 mod storage_usage_fix_tests {
     use super::*;
     use borsh::BorshDeserialize;
@@ -3662,7 +3745,6 @@ mod storage_usage_fix_tests {
     }
 }
 
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 #[cfg(test)]
 mod cap_max_gas_price_tests {
     use super::*;
