@@ -10,6 +10,8 @@ use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, MailboxError, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
 use conqueue::QueueSender;
+#[cfg(feature = "deepsize_feature")]
+use deepsize::DeepSizeOf;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 #[cfg(feature = "test_features")]
@@ -46,6 +48,7 @@ use strum::AsStaticStr;
 
 const ERROR_UNEXPECTED_LENGTH_OF_INPUT: &str = "Unexpected length of input";
 
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum HandshakeFailureReason {
     ProtocolVersionMismatch { version: u32, oldest_supported_version: u32 },
@@ -61,6 +64,7 @@ impl fmt::Display for HandshakeFailureReason {
 
 impl std::error::Error for HandshakeFailureReason {}
 
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
     pub(crate) version: u32,
@@ -165,6 +169,7 @@ impl From<HandshakeAutoDes> for Handshake {
 }
 
 // TODO: Remove Handshake V2 in next iteration
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
 pub struct HandshakeV2 {
     pub(crate) version: u32,
@@ -270,6 +275,7 @@ impl From<HandshakeV2> for Handshake {
     }
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct SyncData {
     pub(crate) edges: Vec<Edge>,
@@ -293,6 +299,7 @@ impl SyncData {
 /// Warning, position of each message type in this enum defines the protocol due to serialization.
 /// DO NOT MOVE, REORDER, DELETE items from the list. Only add new items to the end.
 /// If need to remove old items - replace with `None`.
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -342,12 +349,14 @@ pub enum PeerMessage {
 }
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum RoutingSyncV2 {
     Version2(RoutingVersion2),
 }
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct PartialSync {
     pub(crate) ibf_level: ValidIBFLevel,
@@ -355,6 +364,7 @@ pub struct PartialSync {
 }
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum RoutingState {
     PartialSync(PartialSync),
@@ -365,6 +375,7 @@ pub enum RoutingState {
 }
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutingVersion2 {
     pub(crate) known_edges: u64,
@@ -458,10 +469,24 @@ pub struct Consolidate {
     pub(crate) peer_protocol_version: ProtocolVersion,
 }
 
+/// Addr<PeerActor> doesn't implement `DeepSizeOf` waiting for `deepsize` > 0.2.0.
+#[cfg(feature = "deepsize_feature")]
+impl deepsize::DeepSizeOf for Consolidate {
+    fn deep_size_of_children(&self, context: &mut deepsize::Context) -> usize {
+        self.peer_info.deep_size_of_children(context)
+            + self.peer_type.deep_size_of_children(context)
+            + self.chain_info.deep_size_of_children(context)
+            + self.this_edge_info.deep_size_of_children(context)
+            + self.other_edge_info.deep_size_of_children(context)
+            + self.peer_protocol_version.deep_size_of_children(context)
+    }
+}
+
 impl Message for Consolidate {
     type Result = ConsolidateResponse;
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Clone, Debug)]
 pub struct GetPeerId {}
 
@@ -475,6 +500,7 @@ pub struct GetPeerIdResult {
     pub(crate) peer_id: PeerId,
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Debug)]
 pub struct GetRoutingTable {}
 
@@ -482,12 +508,14 @@ impl Message for GetRoutingTable {
     type Result = GetRoutingTableResult;
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Clone, Debug)]
 #[cfg(feature = "test_features")]
 pub struct StartRoutingTableSync {
     pub peer_id: PeerId,
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Clone, Debug)]
 #[cfg(feature = "test_features")]
 pub struct SetAdvOptions {
@@ -515,6 +543,7 @@ pub enum ConsolidateResponse {
 }
 
 /// Unregister message from Peer to PeerManager.
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
 pub struct Unregister {
@@ -536,6 +565,20 @@ pub enum PeerRequest {
     ReceivedMessage(PeerId, Instant),
 }
 
+#[cfg(feature = "deepsize_feature")]
+impl deepsize::DeepSizeOf for PeerRequest {
+    fn deep_size_of_children(&self, context: &mut deepsize::Context) -> usize {
+        match self {
+            PeerRequest::UpdateEdge(x) => x.deep_size_of_children(context),
+            PeerRequest::RouteBack(x, y) => {
+                x.deep_size_of_children(context) + y.deep_size_of_children(context)
+            }
+            PeerRequest::UpdatePeerInfo(x) => x.deep_size_of_children(context),
+            PeerRequest::ReceivedMessage(x, _) => x.deep_size_of_children(context),
+        }
+    }
+}
+
 impl Message for PeerRequest {
     type Result = PeerResponse;
 }
@@ -547,6 +590,7 @@ pub enum PeerResponse {
 }
 
 /// Requesting peers from peer manager to communicate to a peer.
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Clone, Debug)]
 pub struct PeersRequest {}
 
@@ -555,6 +599,7 @@ impl Message for PeersRequest {
 }
 
 /// Received new peers from another peer.
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Message, Debug, Clone)]
 #[rtype(result = "()")]
 pub struct PeersResponse {
@@ -564,6 +609,7 @@ pub struct PeersResponse {
 /// List of all messages, which PeerManagerActor accepts through Actix. There is also another list
 /// which contains reply for each message to PeerManager.
 /// There is 1 to 1 mapping between an entry in `PeerManagerMessageRequest` and `PeerManagerMessageResponse`.
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Debug)]
 pub enum PeerManagerMessageRequest {
     RoutedMessageFrom(RoutedMessageFrom),
@@ -684,6 +730,7 @@ impl PeerManagerMessageResponse {
 }
 
 // TODO(#1313): Use Box
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkRequests {
@@ -1026,6 +1073,7 @@ impl PeerManagerAdapter for NetworkRecipient {
     }
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub struct SetRoutingTable {
