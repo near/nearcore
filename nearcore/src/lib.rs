@@ -20,8 +20,7 @@ use near_network::PeerManagerActor;
 use near_primitives::network::PeerId;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use near_store::migrations::migrate_18_to_new_validator_stake;
+use near_store::migrations::migrate_29_to_30;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
     migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_21_to_22,
@@ -252,14 +251,15 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         info!(target: "near", "Migrate DB from version 28 to 29");
         migrate_28_to_29(&path);
     }
+    if db_version <= 29 {
+        // version 29 => 30: migrate all structures that use ValidatorStake to versionized version
+        info!(target: "near", "Migrate DB from version 29 to 30");
+        migrate_29_to_30(&path);
+    }
+
     #[cfg(feature = "nightly_protocol")]
     {
         let store = create_store(&path);
-
-        #[cfg(feature = "protocol_feature_block_header_v3")]
-        if db_version <= 18 {
-            migrate_18_to_new_validator_stake(&store);
-        }
 
         // set some dummy value to avoid conflict with other migrations from nightly features
         set_store_version(&store, 10000);

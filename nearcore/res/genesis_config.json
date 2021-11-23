@@ -62,5 +62,9 @@
     }
   },
   "simple_nightshade_shard_layout": null,
+  "minimum_stake_ratio": [
+    1,
+    6250
+  ],
   "records": []
 }
