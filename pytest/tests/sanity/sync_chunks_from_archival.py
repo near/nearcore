@@ -195,8 +195,8 @@ if __name__ == '__main__':
 
     logging.info("Waiting for the new nodes to sync")
     while True:
-        if not node2.get_status()['sync_info'][
-                'syncing'] and not node3.get_status()['sync_info']['syncing']:
+        if (not node2.get_status()['sync_info']['syncing'] and
+                not node3.get_status()['sync_info']['syncing']):
             break
         time.sleep(1)
 
