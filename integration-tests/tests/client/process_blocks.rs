@@ -3483,10 +3483,10 @@ mod access_key_nonce_range_tests {
             env.process_block(0, block, Provenance::PRODUCED);
         }
 
-        env.clients[1].process_block(blocks[0].clone(), Provenance::NONE).1.unwrap();
+        env.clients[1].process_block(blocks[0].clone().into(), Provenance::NONE).1.unwrap();
         // process blocks 1, 2 successfully
         for i in 1..3 {
-            let (_, res) = env.clients[1].process_block(blocks[i].clone(), Provenance::NONE);
+            let (_, res) = env.clients[1].process_block(blocks[i].clone().into(), Provenance::NONE);
             run_catchup(&mut env.clients[1], &vec![]).unwrap();
             assert_matches!(res, Err(e) => {
                 assert_matches!(e.kind(), near_chain::ErrorKind::ChunksMissing(_));
@@ -3496,7 +3496,7 @@ mod access_key_nonce_range_tests {
 
         // process blocks 3 to 15 without processing missing chunks
         // block 3 will be put into the blocks_with_missing_chunks pool
-        let (_, res) = env.clients[1].process_block(blocks[3].clone(), Provenance::NONE);
+        let (_, res) = env.clients[1].process_block(blocks[3].clone().into(), Provenance::NONE);
         assert_matches!(res, Err(e) => {
             assert_matches!(e.kind(), near_chain::ErrorKind::ChunksMissing(_));
         });
@@ -3504,7 +3504,7 @@ mod access_key_nonce_range_tests {
         let missing_chunk_request = env.network_adapters[1].pop().unwrap();
         // block 4-20 will be put to the orphan pool
         for i in 4..20 {
-            let (_, res) = env.clients[1].process_block(blocks[i].clone(), Provenance::NONE);
+            let (_, res) = env.clients[1].process_block(blocks[i].clone().into(), Provenance::NONE);
             assert_matches!(res, Err(e) => {
                 assert_eq!(e.kind(), near_chain::ErrorKind::Orphan);
             });
