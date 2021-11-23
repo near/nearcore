@@ -10,10 +10,8 @@ use near_primitives::challenge::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::sharding::{
-    ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkHeaderV2,
+    ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkHeaderV2, ShardChunkHeaderV3,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -38,7 +36,6 @@ pub fn validate_chunk_proofs(
         ShardChunk::V2(chunk) => match &chunk.header {
             ShardChunkHeader::V1(header) => ShardChunkHeaderV1::compute_hash(&header.inner),
             ShardChunkHeader::V2(header) => ShardChunkHeaderV2::compute_hash(&header.inner),
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             ShardChunkHeader::V3(header) => ShardChunkHeaderV3::compute_hash(&header.inner),
         },
     };

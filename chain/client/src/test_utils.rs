@@ -53,8 +53,8 @@ use near_chain::types::AcceptedBlock;
 use near_client_primitives::types::Error;
 use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network_primitives::types::{
-    AccountOrPeerIdOrHash, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfoV2,
-    PeerInfo,
+    AccountOrPeerIdOrHash, NetworkViewClientMessages, NetworkViewClientResponses,
+    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo,
 };
 use near_primitives::network::PeerId;
 use near_primitives::runtime::config::RuntimeConfig;
@@ -1338,6 +1338,61 @@ impl TestEnv {
         }
     }
 
+    /// Process all PartialEncodedChunkRequests in the network queue for a client
+    /// `id`: id for the client
+    pub fn process_partial_encoded_chunks_requests(&mut self, id: usize) {
+        while let Some(request) = self.network_adapters[id].pop() {
+            self.process_partial_encoded_chunk_request(id, request);
+        }
+    }
+
+    /// Send the PartialEncodedChunkRequest to the target client, get response and process the response
+    pub fn process_partial_encoded_chunk_request(
+        &mut self,
+        id: usize,
+        request: PeerManagerMessageRequest,
+    ) {
+        if let PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::PartialEncodedChunkRequest { target, request },
+        ) = request
+        {
+            let target_id = self.account_to_client_index[&target.account_id.unwrap()];
+            let response = self.get_partial_encoded_chunk_response(target_id, request);
+            let accepted_blocks =
+                self.clients[id].process_partial_encoded_chunk_response(response).unwrap();
+            for block in accepted_blocks {
+                self.clients[id].on_block_accepted(block.hash, block.status, block.provenance);
+            }
+        } else {
+            panic!("The request is not a PartialEncodedChunk request {:?}", request);
+        }
+    }
+
+    fn get_partial_encoded_chunk_response(
+        &mut self,
+        id: usize,
+        request: PartialEncodedChunkRequestMsg,
+    ) -> PartialEncodedChunkResponseMsg {
+        let client = &mut self.clients[id];
+        client.shards_mgr.process_partial_encoded_chunk_request(
+            request,
+            CryptoHash::default(),
+            client.chain.mut_store(),
+        );
+        let response = self.network_adapters[id].pop().unwrap();
+        if let PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::PartialEncodedChunkResponse { route_back: _, response },
+        ) = response
+        {
+            return response;
+        } else {
+            panic!(
+                "did not find PartialEncodedChunkResponse from the network queue {:?}",
+                response
+            );
+        }
+    }
+
     pub fn send_money(&mut self, id: usize) -> NetworkClientResponses {
         let account_id = self.get_client_id(0);
         let signer =
@@ -1539,14 +1594,10 @@ pub fn create_chunk(
         PROTOCOL_VERSION,
         &last_block.header(),
         next_height,
-        #[cfg(feature = "protocol_feature_block_header_v3")]
-        {
-            last_block.header().block_ordinal() + 1
-        },
+        last_block.header().block_ordinal() + 1,
         vec![chunk.cloned_header()],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
-        #[cfg(feature = "protocol_feature_block_header_v3")]
         None,
         vec![],
         Rational::from_integer(0),

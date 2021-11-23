@@ -456,7 +456,6 @@ pub struct ApprovalStake {
     pub stake_next_epoch: Balance,
 }
 
-#[cfg(feature = "protocol_feature_block_header_v3")]
 pub mod validator_stake {
     use crate::types::ApprovalStake;
     use borsh::{BorshDeserialize, BorshSerialize};
@@ -574,9 +573,9 @@ pub mod validator_stake {
                 Self::V1(v1) => v1,
                 #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 Self::V2(v2) => {
-                    // This function should never be called on a V2 variant, it
-                    // is only for backwards compatibility purposes.
-                    debug_assert!(false);
+                    // This function is called on V2 variant if
+                    // protocol_feature_chunk_only_producers is enabled, but current protocol
+                    // version is lower than required for block headers v3.
                     ValidatorStakeV1 {
                         account_id: v2.account_id,
                         public_key: v2.public_key,
@@ -586,7 +585,6 @@ pub mod validator_stake {
             }
         }
 
-        #[cfg(feature = "protocol_feature_block_header_v3")]
         #[inline]
         pub fn is_chunk_only(&self) -> bool {
             match self {
@@ -679,107 +677,6 @@ pub mod validator_stake {
     }
 }
 
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
-pub mod validator_stake {
-    use crate::types::ApprovalStake;
-    use near_crypto::PublicKey;
-    use near_primitives_core::types::{AccountId, Balance};
-
-    pub use super::ValidatorStakeV1;
-    pub type ValidatorStake = ValidatorStakeV1;
-
-    pub struct ValidatorStakeIter<'a> {
-        inner: std::slice::Iter<'a, ValidatorStake>,
-        len: usize,
-    }
-
-    impl<'a> ValidatorStakeIter<'a> {
-        pub fn empty() -> Self {
-            Self { inner: (&[]).iter(), len: 0 }
-        }
-
-        pub fn v1(collection: &'a [ValidatorStakeV1]) -> Self {
-            Self::new(collection)
-        }
-
-        pub fn new(collection: &'a [ValidatorStake]) -> Self {
-            Self { inner: collection.iter(), len: collection.len() }
-        }
-
-        pub fn len(&self) -> usize {
-            self.len
-        }
-    }
-
-    impl<'a> Iterator for ValidatorStakeIter<'a> {
-        type Item = ValidatorStake;
-
-        fn next(&mut self) -> Option<Self::Item> {
-            self.inner.next().cloned()
-        }
-    }
-
-    impl ValidatorStake {
-        pub fn new(account_id: AccountId, public_key: PublicKey, stake: Balance) -> Self {
-            ValidatorStake { account_id, public_key, stake }
-        }
-
-        #[inline]
-        pub fn account_and_stake(self) -> (AccountId, Balance) {
-            (self.account_id, self.stake)
-        }
-
-        #[inline]
-        pub fn destructure(self) -> (AccountId, PublicKey, Balance) {
-            (self.account_id, self.public_key, self.stake)
-        }
-
-        #[inline]
-        pub fn into_v1(self) -> ValidatorStakeV1 {
-            self
-        }
-
-        #[inline]
-        pub fn take_account_id(self) -> AccountId {
-            self.account_id
-        }
-
-        #[inline]
-        pub fn account_id(&self) -> &AccountId {
-            &self.account_id
-        }
-
-        #[inline]
-        pub fn take_public_key(self) -> PublicKey {
-            self.public_key
-        }
-
-        #[inline]
-        pub fn public_key(&self) -> &PublicKey {
-            &self.public_key
-        }
-
-        #[inline]
-        pub fn stake(&self) -> Balance {
-            self.stake
-        }
-
-        #[inline]
-        pub fn stake_mut(&mut self) -> &mut Balance {
-            &mut self.stake
-        }
-
-        pub fn get_approval_stake(&self, is_next_epoch: bool) -> ApprovalStake {
-            ApprovalStake {
-                account_id: self.account_id.clone(),
-                public_key: self.public_key.clone(),
-                stake_this_epoch: if is_next_epoch { 0 } else { self.stake },
-                stake_next_epoch: if is_next_epoch { self.stake } else { 0 },
-            }
-        }
-    }
-}
-
 /// Stores validator and its stake.
 #[cfg_attr(feature = "deepsize", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -799,7 +696,6 @@ pub struct BlockExtra {
     pub challenges_result: ChallengesResult,
 }
 
-#[cfg(feature = "protocol_feature_block_header_v3")]
 pub mod chunk_extra {
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::StateRoot;
@@ -909,76 +805,6 @@ pub mod chunk_extra {
                 Self::V1(v1) => v1.balance_burnt,
                 Self::V2(v2) => v2.balance_burnt,
             }
-        }
-    }
-}
-
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
-pub mod chunk_extra {
-    use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
-    use crate::types::StateRoot;
-    use near_primitives_core::hash::CryptoHash;
-    use near_primitives_core::types::{Balance, Gas};
-
-    pub use super::ChunkExtraV1;
-    pub type ChunkExtra = ChunkExtraV1;
-
-    impl ChunkExtra {
-        pub fn new_with_only_state_root(state_root: &StateRoot) -> Self {
-            Self::new(state_root, CryptoHash::default(), vec![], 0, 0, 0)
-        }
-
-        pub fn new(
-            state_root: &StateRoot,
-            outcome_root: CryptoHash,
-            validator_proposals: Vec<ValidatorStake>,
-            gas_used: Gas,
-            gas_limit: Gas,
-            balance_burnt: Balance,
-        ) -> Self {
-            Self {
-                state_root: state_root.clone(),
-                outcome_root,
-                validator_proposals,
-                gas_used,
-                gas_limit,
-                balance_burnt,
-            }
-        }
-
-        #[inline]
-        pub fn outcome_root(&self) -> &StateRoot {
-            &self.outcome_root
-        }
-
-        #[inline]
-        pub fn state_root(&self) -> &StateRoot {
-            &self.state_root
-        }
-
-        #[inline]
-        pub fn state_root_mut(&mut self) -> &mut StateRoot {
-            &mut self.state_root
-        }
-
-        #[inline]
-        pub fn validator_proposals(&self) -> ValidatorStakeIter {
-            ValidatorStakeIter::new(&self.validator_proposals)
-        }
-
-        #[inline]
-        pub fn gas_limit(&self) -> Gas {
-            self.gas_limit
-        }
-
-        #[inline]
-        pub fn gas_used(&self) -> Gas {
-            self.gas_used
-        }
-
-        #[inline]
-        pub fn balance_burnt(&self) -> Balance {
-            self.balance_burnt
         }
     }
 }
