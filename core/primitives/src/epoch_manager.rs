@@ -54,7 +54,7 @@ pub struct EpochConfig {
     pub protocol_upgrade_num_epochs: EpochHeight,
     /// Shard layout of this epoch, may change from epoch to epoch
     pub shard_layout: ShardLayout,
-    #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
+    /// Additional config for validator selection algorithm
     pub validator_selection_config: ValidatorSelectionConfig,
 }
 
@@ -434,9 +434,7 @@ pub mod epoch_info {
     use smart_default::SmartDefault;
     use std::collections::{BTreeMap, HashMap};
 
-    #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
     use crate::{checked_feature, epoch_manager::RngSeed, rand::WeightedIndex};
-    #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
     use near_primitives_core::{
         hash::hash,
         types::{BlockHeight, ShardId},
@@ -450,7 +448,6 @@ pub mod epoch_info {
     pub enum EpochInfo {
         V1(EpochInfoV1),
         V2(EpochInfoV2),
-        #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
         V3(EpochInfoV3),
     }
 
@@ -498,7 +495,6 @@ pub mod epoch_info {
 
     // V2 -> V3: Structures for randomly selecting validators at each height based on new
     // block producer and chunk producer selection algorithm.
-    #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
     #[cfg_attr(feature = "deepsize", derive(DeepSizeOf))]
     #[derive(SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
     pub struct EpochInfoV3 {
@@ -524,42 +520,6 @@ pub mod epoch_info {
     }
 
     impl EpochInfo {
-        #[cfg(not(feature = "protocol_feature_new_validator_selection_algorithm"))]
-        pub fn new(
-            epoch_height: EpochHeight,
-            validators: Vec<ValidatorStake>,
-            validator_to_index: HashMap<AccountId, ValidatorId>,
-            block_producers_settlement: Vec<ValidatorId>,
-            chunk_producers_settlement: Vec<Vec<ValidatorId>>,
-            hidden_validators_settlement: Vec<ValidatorWeight>,
-            fishermen: Vec<ValidatorStake>,
-            fishermen_to_index: HashMap<AccountId, ValidatorId>,
-            stake_change: BTreeMap<AccountId, Balance>,
-            validator_reward: HashMap<AccountId, Balance>,
-            validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
-            minted_amount: Balance,
-            seat_price: Balance,
-            protocol_version: ProtocolVersion,
-        ) -> Self {
-            Self::V2(EpochInfoV2 {
-                epoch_height,
-                validators,
-                fishermen,
-                validator_to_index,
-                block_producers_settlement,
-                chunk_producers_settlement,
-                hidden_validators_settlement,
-                stake_change,
-                validator_reward,
-                validator_kickout,
-                fishermen_to_index,
-                minted_amount,
-                seat_price,
-                protocol_version,
-            })
-        }
-
-        #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
         pub fn new(
             epoch_height: EpochHeight,
             validators: Vec<ValidatorStake>,
@@ -578,7 +538,7 @@ pub mod epoch_info {
             rng_seed: RngSeed,
         ) -> Self {
             checked_feature!(
-                "protocol_feature_new_validator_selection_algorithm",
+                "stable",
                 AliasValidatorSelectionAlgorithm,
                 protocol_version,
                 {
@@ -639,7 +599,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => &mut v1.epoch_height,
                 Self::V2(v2) => &mut v2.epoch_height,
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => &mut v3.epoch_height,
             }
         }
@@ -649,7 +608,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => v1.epoch_height,
                 Self::V2(v2) => v2.epoch_height,
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => v3.epoch_height,
             }
         }
@@ -659,7 +617,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => v1.seat_price,
                 Self::V2(v2) => v2.seat_price,
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => v3.seat_price,
             }
         }
@@ -669,7 +626,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => v1.minted_amount,
                 Self::V2(v2) => v2.minted_amount,
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => v3.minted_amount,
             }
         }
@@ -679,7 +635,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => &v1.block_producers_settlement,
                 Self::V2(v2) => &v2.block_producers_settlement,
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => &v3.block_producers_settlement,
             }
         }
@@ -689,7 +644,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => &v1.chunk_producers_settlement,
                 Self::V2(v2) => &v2.chunk_producers_settlement,
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => &v3.chunk_producers_settlement,
             }
         }
@@ -699,7 +653,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => &v1.validator_kickout,
                 Self::V2(v2) => &v2.validator_kickout,
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => &v3.validator_kickout,
             }
         }
@@ -709,7 +662,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => v1.protocol_version,
                 Self::V2(v2) => v2.protocol_version,
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => v3.protocol_version,
             }
         }
@@ -719,7 +671,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => &v1.stake_change,
                 Self::V2(v2) => &v2.stake_change,
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => &v3.stake_change,
             }
         }
@@ -729,7 +680,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => &v1.validator_reward,
                 Self::V2(v2) => &v2.validator_reward,
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => &v3.validator_reward,
             }
         }
@@ -739,7 +689,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => ValidatorStakeIter::v1(&v1.validators),
                 Self::V2(v2) => ValidatorStakeIter::new(&v2.validators),
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => ValidatorStakeIter::new(&v3.validators),
             }
         }
@@ -749,7 +698,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => ValidatorStakeIter::v1(&v1.fishermen),
                 Self::V2(v2) => ValidatorStakeIter::new(&v2.fishermen),
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => ValidatorStakeIter::new(&v3.fishermen),
             }
         }
@@ -759,7 +707,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => v1.validators[validator_id as usize].stake,
                 Self::V2(v2) => v2.validators[validator_id as usize].stake(),
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => v3.validators[validator_id as usize].stake(),
             }
         }
@@ -769,7 +716,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => &v1.validators[validator_id as usize].account_id,
                 Self::V2(v2) => v2.validators[validator_id as usize].account_id(),
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => v3.validators[validator_id as usize].account_id(),
             }
         }
@@ -779,7 +725,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => v1.validator_to_index.contains_key(account_id),
                 Self::V2(v2) => v2.validator_to_index.contains_key(account_id),
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => v3.validator_to_index.contains_key(account_id),
             }
         }
@@ -788,7 +733,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => v1.validator_to_index.get(account_id),
                 Self::V2(v2) => v2.validator_to_index.get(account_id),
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => v3.validator_to_index.get(account_id),
             }
         }
@@ -802,7 +746,6 @@ pub mod epoch_info {
                     .validator_to_index
                     .get(account_id)
                     .map(|validator_id| v2.validators[*validator_id as usize].clone()),
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => v3
                     .validator_to_index
                     .get(account_id)
@@ -815,7 +758,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => ValidatorStake::V1(v1.validators[validator_id as usize].clone()),
                 Self::V2(v2) => v2.validators[validator_id as usize].clone(),
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => v3.validators[validator_id as usize].clone(),
             }
         }
@@ -825,7 +767,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => v1.fishermen_to_index.contains_key(account_id),
                 Self::V2(v2) => v2.fishermen_to_index.contains_key(account_id),
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => v3.fishermen_to_index.contains_key(account_id),
             }
         }
@@ -839,7 +780,6 @@ pub mod epoch_info {
                     .fishermen_to_index
                     .get(account_id)
                     .map(|validator_id| v2.fishermen[*validator_id as usize].clone()),
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => v3
                     .fishermen_to_index
                     .get(account_id)
@@ -852,7 +792,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => ValidatorStake::V1(v1.fishermen[fisherman_id as usize].clone()),
                 Self::V2(v2) => v2.fishermen[fisherman_id as usize].clone(),
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => v3.fishermen[fisherman_id as usize].clone(),
             }
         }
@@ -862,12 +801,10 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => v1.validators.len(),
                 Self::V2(v2) => v2.validators.len(),
-                #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
                 Self::V3(v3) => v3.validators.len(),
             }
         }
 
-        #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
         pub fn sample_block_producer(&self, height: BlockHeight) -> ValidatorId {
             match &self {
                 Self::V1(v1) => {
@@ -890,7 +827,6 @@ pub mod epoch_info {
             }
         }
 
-        #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
         pub fn sample_chunk_producer(&self, height: BlockHeight, shard_id: ShardId) -> ValidatorId {
             match &self {
                 Self::V1(v1) => {

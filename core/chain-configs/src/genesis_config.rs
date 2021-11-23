@@ -56,7 +56,6 @@ fn default_shard_layout() -> ShardLayout {
     ShardLayout::default()
 }
 
-#[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
 fn default_minimum_stake_ratio() -> Rational {
     Rational::new(160, 1_000_000)
 }
@@ -178,7 +177,6 @@ pub struct GenesisConfig {
     pub minimum_validators_per_shard: NumSeats,
     /// The lowest ratio s/s_total any block producer can have.
     /// See https://github.com/near/NEPs/pull/167 for details
-    #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
     #[serde(default = "default_minimum_stake_ratio")]
     #[default(Rational::new(160, 1_000_000))]
     pub minimum_stake_ratio: Rational,
@@ -202,7 +200,6 @@ impl From<&GenesisConfig> for EpochConfig {
             protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
             minimum_stake_divisor: config.minimum_stake_divisor,
             shard_layout: config.shard_layout.clone(),
-            #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
             validator_selection_config: near_primitives::epoch_manager::ValidatorSelectionConfig {
                 #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 num_chunk_only_producer_seats: config.num_chunk_only_producer_seats,
