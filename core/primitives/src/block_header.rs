@@ -383,7 +383,7 @@ impl BlockHeader {
             block_merkle_root,
         };
         let last_header_v2_version =
-            Some(crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1);
+            crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1;
         if protocol_version <= 29 {
             let chunks_included = chunk_mask.iter().map(|val| *val as u64).sum::<u64>();
             let inner_rest = BlockHeaderInnerRest {
@@ -415,9 +415,7 @@ impl BlockHeader {
                 signature,
                 hash,
             }))
-        } else if last_header_v2_version.is_none()
-            || protocol_version <= last_header_v2_version.unwrap()
-        {
+        } else if protocol_version <= last_header_v2_version {
             let inner_rest = BlockHeaderInnerRestV2 {
                 chunk_receipts_root,
                 chunk_headers_root,
@@ -507,7 +505,7 @@ impl BlockHeader {
             block_merkle_root: CryptoHash::default(),
         };
         let last_header_v2_version =
-            Some(crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1);
+            crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1;
         if genesis_protocol_version <= 29 {
             let inner_rest = BlockHeaderInnerRest {
                 chunk_receipts_root,
@@ -538,9 +536,7 @@ impl BlockHeader {
                 signature: Signature::empty(KeyType::ED25519),
                 hash,
             }))
-        } else if last_header_v2_version.is_none()
-            || genesis_protocol_version <= last_header_v2_version.unwrap()
-        {
+        } else if genesis_protocol_version <= last_header_v2_version {
             let inner_rest = BlockHeaderInnerRestV2 {
                 chunk_receipts_root,
                 chunk_headers_root,
