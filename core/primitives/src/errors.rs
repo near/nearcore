@@ -748,7 +748,10 @@ impl Display for ActionErrorKind {
 pub enum EpochError {
     /// Error calculating threshold from given stakes for given number of seats.
     /// Only should happened if calling code doesn't check for integer value of stake > number of seats.
-    ThresholdError { stake_sum: Balance, num_seats: u64 },
+    ThresholdError {
+        stake_sum: Balance,
+        num_seats: u64,
+    },
     /// Requesting validators for an epoch that wasn't computed yet.
     EpochOutOfBounds(EpochId),
     /// Missing block hash in the storage (means there is some structural issue).
@@ -759,8 +762,10 @@ pub enum EpochError {
     NotAValidator(AccountId, EpochId),
     /// Error getting information for a shard
     ShardingError(String),
-    #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
-    NotEnoughValidators { num_validators: u64, num_shards: u64 },
+    NotEnoughValidators {
+        num_validators: u64,
+        num_shards: u64,
+    },
 }
 
 impl std::error::Error for EpochError {}
@@ -782,7 +787,6 @@ impl Display for EpochError {
                 write!(f, "{} is not a validator in epoch {:?}", account_id, epoch_id)
             }
             EpochError::ShardingError(err) => write!(f, "Sharding Error: {}", err),
-            #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
             EpochError::NotEnoughValidators { num_shards, num_validators } => {
                 write!(f, "There were not enough validator proposals to fill all shards. num_proposals: {}, num_shards: {}", num_validators, num_shards)
             }
@@ -803,7 +807,6 @@ impl Debug for EpochError {
                 write!(f, "NotAValidator({}, {:?})", account_id, epoch_id)
             }
             EpochError::ShardingError(err) => write!(f, "ShardingError({})", err),
-            #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
             EpochError::NotEnoughValidators { num_shards, num_validators } => {
                 write!(f, "NotEnoughValidators({}, {})", num_validators, num_shards)
             }

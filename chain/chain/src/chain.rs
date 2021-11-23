@@ -39,8 +39,6 @@ use near_primitives::types::{
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
@@ -395,22 +393,13 @@ impl Chain {
         last_known_hash: &CryptoHash,
     ) -> Result<CryptoHash, Error> {
         let bps = runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
-        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-        {
+        let protocol_version = runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
+        if checked_feature!("stable", BlockHeaderV3, protocol_version) {
             let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect();
             Chain::compute_collection_hash(validator_stakes)
-        }
-        #[cfg(feature = "protocol_feature_block_header_v3")]
-        {
-            let protocol_version = runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
-            let block_header_v3_version = ProtocolFeature::BlockHeaderV3.protocol_version();
-            if protocol_version < block_header_v3_version {
-                let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
-                Chain::compute_collection_hash(validator_stakes)
-            } else {
-                let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect();
-                Chain::compute_collection_hash(validator_stakes)
-            }
+        } else {
+            let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
+            Chain::compute_collection_hash(validator_stakes)
         }
     }
 
@@ -1539,7 +1528,6 @@ impl Chain {
                     prev_chunk_header.and_then(|prev_header| match prev_header {
                         ShardChunkHeader::V1(header) => Some(header),
                         ShardChunkHeader::V2(_) => None,
-                        #[cfg(feature = "protocol_feature_block_header_v3")]
                         ShardChunkHeader::V3(_) => None,
                     });
                 ShardStateSyncResponseHeader::V1(ShardStateSyncResponseHeaderV1 {
@@ -3742,7 +3730,6 @@ impl<'a> ChainUpdate<'a> {
             }
             block.check_validity()?;
             // TODO: enable after #3729 and #3863
-            // #[cfg(feature = "protocol_feature_block_header_v3")]
             // self.verify_orphan_header_approvals(&block.header())?;
             return Err(ErrorKind::Orphan.into());
         }
@@ -4046,7 +4033,6 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidChunkMask.into());
         }
 
-        #[cfg(feature = "protocol_feature_block_header_v3")]
         if let Some(prev_height) = header.prev_height() {
             if prev_height != prev_header.height() {
                 return Err(ErrorKind::Other("Invalid prev_height".to_string()).into());
@@ -4120,7 +4106,6 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    #[cfg(feature = "protocol_feature_block_header_v3")]
     #[allow(dead_code)]
     fn verify_orphan_header_approvals(&mut self, header: &BlockHeader) -> Result<(), Error> {
         let prev_hash = header.prev_hash();
