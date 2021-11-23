@@ -63,6 +63,16 @@ impl<T> MaybeValidated<T> {
     /// Creates new MaybeValidated object marking payload as validated.  No
     /// verification is performed; it’s caller’s responsibility to make sure the
     /// payload has indeed been validated.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use near_primitives::utils::MaybeValidated;
+    ///
+    /// let value = MaybeValidated::from_validated(42);
+    /// assert!(value.is_validated());
+    /// assert_eq!(Ok(true), value.validate_with::<(), _>(|_| panic!()));
+    /// ```
     pub fn from_validated(payload: T) -> Self {
         Self { validated: std::cell::Cell::new(true), payload }
     }
@@ -79,7 +89,11 @@ impl<T> MaybeValidated<T> {
     /// use near_primitives::utils::MaybeValidated;
     ///
     /// let value = MaybeValidated::from(42);
+    /// assert_eq!(Err(()), value.validate_with(|_| Err(())));
+    /// assert_eq!(Ok(false), value.validate_with::<(), _>(|v| Ok(*v == 24)));
+    /// assert!(!value.is_validated());
     /// assert_eq!(Ok(true), value.validate_with::<(), _>(|v| Ok(*v == 42)));
+    /// assert!(value.is_validated());
     /// assert_eq!(Ok(true), value.validate_with::<(), _>(|_| panic!()));
     /// ```
     pub fn validate_with<E, F: FnOnce(&T) -> Result<bool, E>>(
@@ -104,6 +118,15 @@ impl<T> MaybeValidated<T> {
     /// Applies function to the payload (whether it’s been validated or not) and
     /// returns new object with result of the function as payload.  Validated
     /// state is not changed.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use near_primitives::utils::MaybeValidated;
+    ///
+    /// let value = MaybeValidated::from(42);
+    /// assert_eq!("42", value.map(|v| v.to_string()).into_inner());
+    /// ```
     pub fn map<U, F: FnOnce(T) -> U>(self, validator: F) -> MaybeValidated<U> {
         MaybeValidated { validated: self.validated, payload: validator(self.payload) }
     }
@@ -111,8 +134,25 @@ impl<T> MaybeValidated<T> {
     /// Returns a new object storing reference to this object’s payload.  Note
     /// that the two objects do not share the validated state so calling
     /// `validate_with` on one of them does not affect the other.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use near_primitives::utils::MaybeValidated;
+    ///
+    /// let value = MaybeValidated::from(42);
+    /// let value_as_ref = value.as_ref();
+    /// assert_eq!(Ok(true), value_as_ref.validate_with::<(), _>(|&&v| Ok(v == 42)));
+    /// assert!(value_as_ref.is_validated());
+    /// assert!(!value.is_validated());
+    /// ```
     pub fn as_ref(&self) -> MaybeValidated<&T> {
         MaybeValidated { validated: self.validated.clone(), payload: &self.payload }
+    }
+
+    /// Returns whether the payload has been validated.
+    pub fn is_validated(&self) -> bool {
+        self.validated.get()
     }
 
     /// Extracts the payload whether or not it’s been validated.
