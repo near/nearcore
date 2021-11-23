@@ -575,7 +575,7 @@ pub mod validator_stake {
                 Self::V2(v2) => {
                     // This function is called on V2 variant if
                     // protocol_feature_chunk_only_producers is enabled, but current protocol
-                    // version is lower than required for bloch headers v3.
+                    // version is lower than required for block headers v3.
                     ValidatorStakeV1 {
                         account_id: v2.account_id,
                         public_key: v2.public_key,
