@@ -16,7 +16,7 @@ pub struct Version {
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 29;
+pub const DB_VERSION: DbVersion = 30;
 
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
@@ -123,19 +123,17 @@ pub enum ProtocolFeature {
     /// Limit number of wasm functions in one contract. See
     /// <https://github.com/near/nearcore/pull/4954> for more details.
     LimitContractFunctionsNumber,
+    BlockHeaderV3,
+    /// Changes how we select validators for epoch and how we select validators within epoch. See
+    /// https://github.com/near/NEPs/pull/167 for general description, note that we would not
+    /// introduce chunk-only validators with this feature
+    AliasValidatorSelectionAlgorithm,
 
     // nightly features
-    #[cfg(feature = "protocol_feature_block_header_v3")]
-    BlockHeaderV3,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128,
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     ChunkOnlyProducers,
-    /// Changes how we select validators for epoch and how we select validators within epoch. See
-    /// https://github.com/near/NEPs/pull/167 for general description, note that we would not
-    /// introduce chunk-only validators with this feature
-    #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
-    AliasValidatorSelectionAlgorithm,
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingExchangeAlgorithm,
 }
@@ -172,17 +170,15 @@ impl ProtocolFeature {
             | ProtocolFeature::LowerRegularOpCost
             | ProtocolFeature::SimpleNightshade => 48,
             ProtocolFeature::LowerRegularOpCost2
-            | ProtocolFeature::LimitContractFunctionsNumber => 49,
+            | ProtocolFeature::LimitContractFunctionsNumber
+            | ProtocolFeature::BlockHeaderV3
+            | ProtocolFeature::AliasValidatorSelectionAlgorithm => 49,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
             ProtocolFeature::AltBn128 => 105,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
-            ProtocolFeature::BlockHeaderV3 => 109,
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
             ProtocolFeature::ChunkOnlyProducers => 124,
-            #[cfg(feature = "protocol_feature_new_validator_selection_algorithm")]
-            ProtocolFeature::AliasValidatorSelectionAlgorithm => 123,
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
         }
