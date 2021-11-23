@@ -109,7 +109,8 @@ fn peer_id_type_field_len(enum_var: u8) -> Option<usize> {
 
 /// Checks `bytes` represents `PeerMessage::Routed(RoutedMessage)`,
 /// and `RoutedMessage.body` has type of `RoutedMessageBody::ForwardTx`.
-/// This is done manually as a hack, to avoid having to run expensive `PeerMessage::try_from_slice(bytes)`.
+///
+/// This is done to avoid expensive borsch-deserializing.
 pub(crate) fn is_forward_tx(bytes: &[u8]) -> Option<bool> {
     // PeerMessage::Routed variant == 13
     let peer_message_variant = *bytes.get(0)?;
