@@ -810,13 +810,13 @@ pub fn check_expected_connections(
                     .map_err(|_| ())
                     .and_then(move |res| {
                         let left = if let Some(expected_connections_lo) = expected_connections_lo {
-                            expected_connections_lo <= res.num_active_peers
+                            expected_connections_lo <= res.num_connected_peers
                         } else {
                             true
                         };
 
                         let right = if let Some(expected_connections_hi) = expected_connections_hi {
-                            res.num_active_peers <= expected_connections_hi
+                            res.num_connected_peers <= expected_connections_hi
                         } else {
                             true
                         };

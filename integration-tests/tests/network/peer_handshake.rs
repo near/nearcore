@@ -86,7 +86,7 @@ fn peer_handshake() {
             Box::new(move |_| {
                 actix::spawn(pm1.send(GetInfo {}).then(move |res| {
                     let info = res.unwrap();
-                    if info.num_active_peers == 1 {
+                    if info.num_connected_peers == 1 {
                         System::current().stop();
                     }
                     future::ready(())
@@ -121,7 +121,7 @@ fn peers_connect_all() {
                     let flags1 = flags.clone();
                     actix::spawn(peers[i].send(GetInfo {}).then(move |res| {
                         let info = res.unwrap();
-                        if info.num_active_peers > num_peers - 1
+                        if info.num_connected_peers > num_peers - 1
                             && (flags1.load(Ordering::Relaxed) >> i) % 2 == 0
                         {
                             flags1.fetch_add(1 << i, Ordering::Relaxed);
@@ -172,7 +172,7 @@ fn peer_recover() {
                         let flag1 = flag.clone();
                         actix::spawn(pm0.send(GetInfo {}).then(move |res| {
                             if let Ok(info) = res {
-                                if info.active_peers.len() == 1 {
+                                if info.connected_peers.len() == 1 {
                                     flag1.clone().store(true, Ordering::Relaxed);
                                 }
                             }
@@ -192,7 +192,7 @@ fn peer_recover() {
                     // Wait until node2 is connected with node0
                     actix::spawn(pm2.send(GetInfo {}).then(|res| {
                         if let Ok(info) = res {
-                            if info.active_peers.len() == 1 {
+                            if info.connected_peers.len() == 1 {
                                 System::current().stop();
                             }
                         }

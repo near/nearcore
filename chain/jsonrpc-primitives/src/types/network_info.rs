@@ -22,8 +22,8 @@ pub enum RpcNetworkInfoError {
 impl From<near_client_primitives::types::NetworkInfoResponse> for RpcNetworkInfoResponse {
     fn from(network_info_response: near_client_primitives::types::NetworkInfoResponse) -> Self {
         Self {
-            active_peers: network_info_response.active_peers,
-            num_active_peers: network_info_response.num_active_peers,
+            active_peers: network_info_response.connected_peers,
+            num_active_peers: network_info_response.num_connected_peers,
             peer_max_count: network_info_response.peer_max_count,
             sent_bytes_per_sec: network_info_response.sent_bytes_per_sec,
             received_bytes_per_sec: network_info_response.received_bytes_per_sec,

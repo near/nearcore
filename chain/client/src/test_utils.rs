@@ -582,8 +582,8 @@ pub fn setup_mock_all_validators(
                             .collect();
                         let peers2 = peers.clone();
                         let info = NetworkInfo {
-                            active_peers: peers,
-                            num_active_peers: key_pairs1.len(),
+                            connected_peers: peers,
+                            num_connected_peers: key_pairs1.len(),
                             peer_max_count: key_pairs1.len() as u32,
                             highest_height_peers: peers2,
                             sent_bytes_per_sec: 0,
