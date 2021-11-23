@@ -23,9 +23,9 @@ class Key(object):
         return Key(j['account_id'], j['public_key'], j['secret_key'])
 
     @classmethod
-    def from_json_file(self, jf):
-        with open(jf) as f:
-            return Key.from_json(json.loads(f.read()))
+    def from_json_file(self, json_file):
+        with open(json_file) as rd:
+            return Key.from_json(json.load(rd))
 
     def to_json(self):
         return {

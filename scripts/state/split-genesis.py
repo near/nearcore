@@ -11,12 +11,14 @@ import sys
 from collections import OrderedDict
 
 filename = sys.argv[1]
-q = json.loads(open(filename).read(), object_pairs_hook=OrderedDict)
+with open(filename) as fd:
+    q = json.load(fd, object_pairs_hook=OrderedDict)
 
 records = q['records']
 q['records'] = []
 
-open(os.path.join(os.path.dirname(filename), 'genesis_config.json'),
-     'w').write(json.dumps(q, indent=2))
-open(os.path.join(os.path.dirname(filename), '_genesis_records.json'),
-     'w').write(json.dumps(records, indent=2))
+dirname = os.path.dirname(filename)
+with open(os.path.join(dirname, 'genesis_config.json'), 'w') as fd:
+    json.dump(q, fd, indent=2)
+with open(os.path.join(dirname, '_genesis_records.json'), 'w') as fd:
+    json.dump(records, fd, indent=2)
