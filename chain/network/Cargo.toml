@@ -25,6 +25,7 @@ tokio = { version = "1.1", features = ["full"] }
 tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.6", features = ["codec"] }
 tracing = "0.1.13"
+deepsize = { version = "0.2.0", optional = true }
 
 delay-detector = { path = "../../tools/delay_detector", optional = true}
 near-crypto = { path = "../../core/crypto" }
@@ -33,7 +34,7 @@ near-network-primitives = { path = "../network-primitives" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
 near-primitives = { path = "../../core/primitives" }
-near-rate-limiter = {path = "../../utils/near-rate-limiter" }
+near-rate-limiter = { path = "../../utils/near-rate-limiter" }
 near-stable-hasher = { path = "../../utils/near-stable-hasher" }
 near-store = { path = "../../core/store" }
 
@@ -50,6 +51,7 @@ performance_stats = ["near-performance-metrics/performance_stats"]
 protocol_feature_routing_exchange_algorithm = ["near-primitives/protocol_feature_routing_exchange_algorithm"]
 sandbox = ["near-network-primitives/sandbox"]
 test_features = ["near-network-primitives/test_features", "serde"]
+deepsize_feature = ["deepsize", "near-primitives/deepsize_feature", "near-crypto/deepsize_feature", "near-network-primitives/deepsize_feature"]
 
 [[bench]]
 name = "graph"
