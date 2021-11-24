@@ -1,6 +1,8 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
+#[cfg(feature = "deepsize_feature")]
+use deepsize::DeepSizeOf;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::Digest;
 
@@ -8,6 +10,7 @@ use crate::borsh::BorshSerialize;
 use crate::logging::pretty_hash;
 use crate::serialize::{from_base, to_base, BaseDecode};
 
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, derive_more::AsRef, derive_more::AsMut)]
 #[as_ref(forward)]
 #[as_mut(forward)]

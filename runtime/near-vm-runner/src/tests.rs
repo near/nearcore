@@ -3,11 +3,12 @@ mod contract_preload;
 mod rs_contract;
 mod runtime_errors;
 mod ts_contract;
+mod wasm_validation;
+
+use crate::vm_kind::VMKind;
 
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-
-use crate::{run_vm, VMKind};
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
@@ -69,7 +70,8 @@ fn make_simple_contract_call_with_gas_vm(
     let promise_results = vec![];
 
     let code = ContractCode::new(code.to_vec(), None);
-    run_vm(
+    let runtime = vm_kind.runtime().expect("runtime has not been compiled");
+    runtime.run(
         &code,
         method_name,
         &mut fake_external,
@@ -77,7 +79,6 @@ fn make_simple_contract_call_with_gas_vm(
         &config,
         &fees,
         &promise_results,
-        vm_kind,
         LATEST_PROTOCOL_VERSION,
         None,
     )
@@ -95,11 +96,11 @@ fn make_simple_contract_call_with_protocol_version_vm(
     let runtime_config = runtime_config_store.get_config(protocol_version);
     let config = &runtime_config.wasm_config;
     let fees = &runtime_config.transaction_costs;
+    let runtime = vm_kind.runtime().expect("runtime has not been compiled");
 
     let promise_results = vec![];
-
     let code = ContractCode::new(code.to_vec(), None);
-    run_vm(
+    runtime.run(
         &code,
         method_name,
         &mut fake_external,
@@ -107,7 +108,6 @@ fn make_simple_contract_call_with_protocol_version_vm(
         &config,
         fees,
         &promise_results,
-        vm_kind,
         protocol_version,
         None,
     )
@@ -135,8 +135,9 @@ fn make_cached_contract_call_vm(
     let promise_results = vec![];
     context.prepaid_gas = prepaid_gas;
     let code = ContractCode::new(code.to_vec(), None);
+    let runtime = vm_kind.runtime().expect("runtime has not been compiled");
 
-    run_vm(
+    runtime.run(
         &code,
         method_name,
         &mut fake_external,
@@ -144,7 +145,6 @@ fn make_cached_contract_call_vm(
         &config,
         &fees,
         &promise_results,
-        vm_kind,
         LATEST_PROTOCOL_VERSION,
         Some(cache),
     )

@@ -1333,7 +1333,15 @@ mod test {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(prev, &*signer);
             chain
-                .process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+                .process_block(
+                    &None,
+                    block.into(),
+                    Provenance::PRODUCED,
+                    |_| {},
+                    |_| {},
+                    |_| {},
+                    |_| {},
+                )
                 .unwrap();
         }
         let (mut chain2, _, signer2) = setup();
@@ -1341,7 +1349,15 @@ mod test {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(&prev, &*signer2);
             chain2
-                .process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+                .process_block(
+                    &None,
+                    block.into(),
+                    Provenance::PRODUCED,
+                    |_| {},
+                    |_| {},
+                    |_| {},
+                    |_| {},
+                )
                 .unwrap();
         }
         let mut sync_status = SyncStatus::NoSync;
@@ -1462,12 +1478,10 @@ mod test {
                 PROTOCOL_VERSION,
                 &last_block.header(),
                 current_height,
-                #[cfg(feature = "protocol_feature_block_header_v3")]
-                (last_block.header().block_ordinal() + 1),
+                last_block.header().block_ordinal() + 1,
                 last_block.chunks().iter().cloned().collect(),
                 epoch_id,
                 next_epoch_id,
-                #[cfg(feature = "protocol_feature_block_header_v3")]
                 None,
                 approvals,
                 Ratio::new(0, 1),

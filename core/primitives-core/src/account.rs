@@ -1,4 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+#[cfg(feature = "deepsize_feature")]
+use deepsize::DeepSizeOf;
 use serde::{Deserialize, Serialize};
 use std::io;
 
@@ -148,6 +150,7 @@ impl BorshSerialize for Account {
 /// access keys. Access keys allow to act on behalf of the account by restricting transactions
 /// that can be issued.
 /// `account_id,public_key` is a key in the state
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug,
 )]
@@ -171,6 +174,7 @@ impl AccessKey {
 }
 
 /// Defines permissions for AccessKey
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug,
 )]
@@ -186,6 +190,7 @@ pub enum AccessKeyPermission {
 /// The permission can limit the allowed balance to be spent on the prepaid gas.
 /// It also restrict the account ID of the receiver for this function call.
 /// It also can restrict the method name for the allowed function calls.
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug,
 )]

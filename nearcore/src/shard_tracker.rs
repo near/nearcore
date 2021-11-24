@@ -182,7 +182,6 @@ mod tests {
             protocol_upgrade_stake_threshold: Rational::new(80, 100),
             protocol_upgrade_num_epochs: 2,
             shard_layout: ShardLayout::v0(num_shards, 0),
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
             validator_selection_config: Default::default(),
         };
         let reward_calculator = RewardCalculator {

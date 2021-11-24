@@ -1,0 +1,2 @@
+pytest rosetta/account-delete.py
+pytest rosetta/account-delete.py --features nightly_protocol,nightly_protocol_features

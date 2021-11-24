@@ -1,41 +1,36 @@
 #![doc = include_str!("../README.md")]
 
-#[cfg(test)]
-mod tests;
-
 mod cache;
 mod errors;
 mod imports;
 #[cfg(feature = "wasmer0_vm")]
 mod memory;
-mod vm_kind;
-
 mod preload;
 pub mod prepare;
 mod runner;
-
+#[cfg(test)]
+mod tests;
+mod vm_kind;
+#[cfg(feature = "wasmer2_vm")]
+mod wasmer2_runner;
 #[cfg(feature = "wasmer0_vm")]
 mod wasmer_runner;
-
 #[cfg(feature = "wasmtime_vm")]
 mod wasmtime_runner;
 
-#[cfg(feature = "wasmer2_vm")]
-mod wasmer2_runner;
-
 pub use near_vm_errors::VMError;
-pub use preload::{ContractCallPrepareRequest, ContractCallPrepareResult, ContractCaller};
-pub use runner::compile_module;
-pub use runner::run;
-
 pub use near_vm_logic::with_ext_cost_counter;
 
 pub use cache::get_contract_cache_key;
 pub use cache::precompile_contract;
 pub use cache::precompile_contract_vm;
 pub use cache::MockCompiledContractCache;
+pub use preload::{ContractCallPrepareRequest, ContractCallPrepareResult, ContractCaller};
+pub use runner::{run, VM};
 
-// These two are public for the standalone runner, but are an implementation
-// detail of `near-vm-runner`. Public API like `run` should not expose VMKind.
-pub use runner::run_vm;
-pub use vm_kind::VMKind;
+/// This is public for internal experimentation use only, and should otherwise be considered an
+/// implementation detail of `near-vm-runner`.
+#[doc(hidden)]
+pub mod internal {
+    pub use crate::vm_kind::VMKind;
+}

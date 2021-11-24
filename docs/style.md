@@ -74,6 +74,38 @@ in rust-analyzer
 
 **Rationale:** Consistency, matches existing practice.
 
+### Import Blocks
+
+Do not separate imports into groups with blank lines. Write a single block of
+imports and rely on `rustfmt` to sort them.
+
+```rust
+// GOOD
+use borsh::BorshSerialize;
+use crate::types::KnownPeerState;
+use near_primitives::utils::to_timestamp;
+use near_store::{ColPeers, Store};
+use rand::seq::SliceRandom;
+use std::collections::HashMap;
+use std::net::SocketAddr;
+
+// BAD -- several groups of imports
+use std::collections::HashMap;
+use std::net::SocketAddr;
+
+use borsh::BorshSerialize;
+use rand::seq::SliceRandom;
+
+use near_primitives::utils::to_timestamp;
+use near_store::{ColPeers, Store};
+
+use crate::types::KnownPeerState;
+```
+
+**Rationale:** Consistency, ease of automatic enforcement. Today stable rustfmt
+can't split imports into groups automatically, and doing that manually
+consistently is a chore.
+
 ## Documentation
 
 When writing documentation in `.md` files, wrap lines at approximately 80

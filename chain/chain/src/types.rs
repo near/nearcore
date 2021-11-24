@@ -35,7 +35,6 @@ use near_primitives::version::{
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
-#[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::DoomslugThresholdMode;
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
@@ -390,7 +389,6 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<bool, Error>;
 
     /// Verify approvals and check threshold, but ignore next epoch approvals and slashing
-    #[cfg(feature = "protocol_feature_block_header_v3")]
     fn verify_approvals_and_threshold_orphan(
         &self,
         epoch_id: &EpochId,
