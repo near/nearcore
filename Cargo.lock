@@ -3271,6 +3271,7 @@ dependencies = [
  "nearcore",
  "once_cell",
  "openssl-probe",
+ "state-viewer",
  "tikv-jemallocator",
  "tokio",
  "tracing",
@@ -4656,7 +4657,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "testlib",
- "tracing",
 ]
 
 [[package]]
