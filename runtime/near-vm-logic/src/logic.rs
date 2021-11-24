@@ -2043,16 +2043,11 @@ impl<'a> VMLogic<'a> {
     ///
     /// `base + log_base + log_byte + num_bytes + utf8 decoding cost`
     pub fn log_utf8(&mut self, len: u64, ptr: u64) -> Result<()> {
-        println!("a");
         self.gas_counter.pay_base(base)?;
-        println!("b");
         self.check_can_add_a_log_message()?;
-        println!("c");
         let message = self.get_utf8_string(len, ptr)?;
-        println!("d");
         self.gas_counter.pay_base(log_base)?;
         self.gas_counter.pay_per(log_byte, message.len() as u64)?;
-        println!("e");
         self.checked_push_log(message)
     }
 
