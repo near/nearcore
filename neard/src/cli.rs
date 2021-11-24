@@ -2,6 +2,7 @@ use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION}
 use clap::{AppSettings, Clap};
 use futures::future::FutureExt;
 use near_primitives::types::{Gas, NumSeats, NumShards};
+use near_state_viewer::StateViewerSubCommand;
 use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -57,6 +58,9 @@ impl NeardCmd {
                 info!(target: "neard", "Removing all data and config from {}", home_dir.to_string_lossy());
                 fs::remove_dir_all(home_dir).expect("Removing data and config failed.");
             }
+            NeardSubCommand::StateViewer(cmd) => {
+                cmd.run(&home_dir);
+            }
         }
     }
 }
@@ -98,6 +102,9 @@ pub(super) enum NeardSubCommand {
     /// config)
     #[clap(name = "unsafe_reset_data")]
     UnsafeResetData,
+    /// View DB state.
+    #[clap(name = "view_state")]
+    StateViewer(StateViewerSubCommand),
 }
 
 #[derive(Clap)]
