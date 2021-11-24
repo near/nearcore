@@ -1001,16 +1001,23 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
     return schedule
 
 
+prev_height = -1
+
+
 def upgrade_nodes(epoch_height, upgrade_schedule, all_nodes):
+    global prev_height
+    assert prev_height < epoch_height
+    prev_height = epoch_height
     logger.info(f'Upgrading nodes for epoch height {epoch_height}')
     for node in all_nodes:
         if upgrade_schedule.get(node.instance_name, 0) == epoch_height:
             upgrade_node(node)
 
 
-def get_epoch_height(rpc_nodes, epoch_length):
+def get_epoch_height(rpc_nodes, prev_epoch_height):
     nodes = rpc_nodes.copy()
     random.shuffle(nodes)
+    max_height = prev_epoch_height
     for node in nodes:
         (addr, port) = node.rpc_addr()
         j = {
@@ -1023,10 +1030,12 @@ def get_epoch_height(rpc_nodes, epoch_length):
             r = requests.post("http://%s:%s" % (addr, port), json=j, timeout=15)
             if r.ok:
                 response = r.json()
-                return int(response.get("result", {}).get("epoch_height", 0))
+                max_height = max(
+                    max_height,
+                    int(response.get("result", {}).get("epoch_height", 0)))
         except Exception as e:
             continue
-    return -1
+    return max_height
 
 
 def neard_restart_script(node):

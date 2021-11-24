@@ -172,7 +172,7 @@ if __name__ == '__main__':
                                         max_tps,
                                         get_node_key=True)
 
-        initial_epoch_height = mocknet.get_epoch_height(rpc_nodes, epoch_length)
+        initial_epoch_height = mocknet.get_epoch_height(rpc_nodes, -1)
         logger.info(f'initial_epoch_height: {initial_epoch_height}')
         assert initial_epoch_height >= 0
         initial_metrics = mocknet.get_metrics(archival_node)
@@ -180,23 +180,26 @@ if __name__ == '__main__':
         logger.info(
             f'Waiting for contracts to be deployed for {deploy_time} seconds.')
         prev_epoch_height = initial_epoch_height
+        EPOCH_HEIGHT_CHECK_DELAY = 30
         while time.time() - start_time < deploy_time:
-            epoch_height = mocknet.get_epoch_height(rpc_nodes, epoch_length)
+            epoch_height = mocknet.get_epoch_height(rpc_nodes,
+                                                    prev_epoch_height)
             if epoch_height > prev_epoch_height:
                 mocknet.upgrade_nodes(epoch_height - initial_epoch_height,
                                       upgrade_schedule, all_nodes)
                 prev_epoch_height = epoch_height
-            time.sleep(5)
+            time.sleep(EPOCH_HEIGHT_CHECK_DELAY)
 
         logger.info(
             f'Waiting for the loadtest to complete: {test_timeout} seconds')
         while time.time() - start_time < test_timeout:
-            epoch_height = mocknet.get_epoch_height(rpc_nodes, epoch_length)
-            if epoch_length > prev_epoch_height:
+            epoch_height = mocknet.get_epoch_height(rpc_nodes,
+                                                    prev_epoch_height)
+            if epoch_height > prev_epoch_height:
                 mocknet.upgrade_nodes(epoch_height - initial_epoch_height,
                                       upgrade_schedule, all_nodes)
                 prev_epoch_height = epoch_height
-            time.sleep(5)
+            time.sleep(EPOCH_HEIGHT_CHECK_DELAY)
 
         final_metrics = mocknet.get_metrics(archival_node)
         logger.info('All transaction types results:')
