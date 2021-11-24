@@ -10,7 +10,7 @@ actix = "=0.11.0-beta.2"
 borsh = { version = "0.9", features = ["rc"]}
 byteorder = "1.2"
 bytes = "1"
-bytesize = "1.0.1"
+bytesize = "1.1"
 cached = "0.23"
 chrono = { version = "0.4.4", features = ["serde"] }
 conqueue = "0.4.0"
