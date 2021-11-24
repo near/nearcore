@@ -3,6 +3,15 @@
 ## [unreleased]
 
 ### Protocol Changes
+
+* Further lower regular_op_cost from 2_207_874 to 822_756.
+* Limit number of wasm functions in one contract to 10_000. [#4954](https://github.com/near/nearcore/pull/4954)
+* Add block header v3, required by new validator selection algorithm
+* Move to new validator selection and sampling algorithm. Now we would be able to use all available seats. First step to enable chunk only producers. 
+
+## `1.22.0` [11-15-2021]
+
+### Protocol Changes
 * Upgrade from Wasmer 0 to Wasmer 2, bringing better performance and reliability. [#4934](https://github.com/near/nearcore/pull/4934)
 * Lower regular_op_cost (execution of a single WASM instruction) from 3_856_371 to 2_207_874. [#4979](https://github.com/near/nearcore/pull/4979)
 * Lower data receipt cost and base cost of `ecrecover` host function.

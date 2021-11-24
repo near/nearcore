@@ -12,7 +12,8 @@ use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMOutcome};
 
 use crate::cache::precompile_contract_vm;
 use crate::errors::ContractPrecompilatonResult;
-use crate::{run_vm, ContractCallPrepareRequest, ContractCaller, VMError, VMKind};
+use crate::vm_kind::VMKind;
+use crate::{ContractCallPrepareRequest, ContractCaller, VMError};
 
 fn default_vm_context() -> VMContext {
     return VMContext {
@@ -137,8 +138,9 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
             errs += err;
         }
     } else {
+        let runtime = vm_kind.runtime().expect("runtime is has not been compiled");
         for _ in 0..repeat {
-            let result1 = run_vm(
+            let result1 = runtime.run(
                 &code1,
                 method_name1,
                 &mut fake_external,
@@ -146,14 +148,13 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
                 &vm_config,
                 &fees,
                 &promise_results,
-                vm_kind,
                 ProtocolVersion::MAX,
                 cache.as_deref(),
             );
             let (ok, err) = test_result(result1, false);
             oks += ok;
             errs += err;
-            let result2 = run_vm(
+            let result2 = runtime.run(
                 &code2,
                 method_name1,
                 &mut fake_external,
@@ -161,7 +162,6 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
                 &vm_config,
                 &fees,
                 &promise_results,
-                vm_kind,
                 ProtocolVersion::MAX,
                 cache.as_deref(),
             );

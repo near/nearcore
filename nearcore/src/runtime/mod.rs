@@ -12,9 +12,7 @@ use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::{
     ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier,
 };
-use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use near_chain::{Doomslug, DoomslugThresholdMode};
+use near_chain::{BlockHeader, Doomslug, DoomslugThresholdMode, Error, ErrorKind, RuntimeAdapter};
 use near_chain_configs::{Genesis, GenesisConfig, ProtocolConfig};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::EpochManager;
@@ -218,21 +216,20 @@ impl NightshadeRuntime {
         home_dir: &Path,
         store: Arc<Store>,
         genesis: &Genesis,
+        tracked_config: TrackedConfig,
         runtime_config_store: RuntimeConfigStore,
     ) -> Self {
-        Self::new(
+        Self::new(home_dir, store, genesis, tracked_config, None, None, Some(runtime_config_store))
+    }
+
+    pub fn test(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
+        Self::test_with_runtime_config_store(
             home_dir,
             store,
             genesis,
             TrackedConfig::new_empty(),
-            None,
-            None,
-            Some(runtime_config_store),
+            RuntimeConfigStore::test(),
         )
-    }
-
-    pub fn test(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
-        Self::test_with_runtime_config_store(home_dir, store, genesis, RuntimeConfigStore::test())
     }
 
     fn get_epoch_height_from_prev_block(
@@ -922,7 +919,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    #[cfg(feature = "protocol_feature_block_header_v3")]
     fn verify_approvals_and_threshold_orphan(
         &self,
         epoch_id: &EpochId,
@@ -2048,12 +2044,47 @@ mod test {
             )
         }
 
+        pub fn new_with_minimum_stake_divisor(
+            prefix: &str,
+            validators: Vec<Vec<AccountId>>,
+            epoch_length: BlockHeightDelta,
+            has_reward: bool,
+            stake_divisor: u64,
+        ) -> Self {
+            Self::new_with_tracking_and_minimum_stake_divisor(
+                prefix,
+                validators,
+                epoch_length,
+                TrackedConfig::new_empty(),
+                has_reward,
+                Some(stake_divisor),
+            )
+        }
+
         pub fn new_with_tracking(
             prefix: &str,
             validators: Vec<Vec<AccountId>>,
             epoch_length: BlockHeightDelta,
             tracked_config: TrackedConfig,
             has_reward: bool,
+        ) -> Self {
+            Self::new_with_tracking_and_minimum_stake_divisor(
+                prefix,
+                validators,
+                epoch_length,
+                tracked_config,
+                has_reward,
+                None,
+            )
+        }
+
+        fn new_with_tracking_and_minimum_stake_divisor(
+            prefix: &str,
+            validators: Vec<Vec<AccountId>>,
+            epoch_length: BlockHeightDelta,
+            tracked_config: TrackedConfig,
+            has_reward: bool,
+            minimum_stake_divisor: Option<u64>,
         ) -> Self {
             let dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
             let store = create_store(&get_store_path(dir.path()));
@@ -2072,6 +2103,9 @@ mod test {
                 genesis.config.block_producer_kickout_threshold;
             if !has_reward {
                 genesis.config.max_inflation_rate = Rational::from_integer(0);
+            }
+            if let Some(minimum_stake_divisor) = minimum_stake_divisor {
+                genesis.config.minimum_stake_divisor = minimum_stake_divisor;
             }
             let genesis_total_supply = genesis.config.total_supply;
             let genesis_protocol_version = genesis.config.protocol_version;
@@ -2670,75 +2704,6 @@ mod test {
         assert_eq!(account.locked, TESTING_INIT_STAKE);
     }
 
-    /// Test two shards: the first shard has 2 validators (test1, test4) and the second shard
-    /// has 4 validators (test1, test2, test3, test4). Test that kickout and stake change
-    /// work properly.
-    // This test only makes sense with the old validator selection because it requires
-    // specific control over what validators are assigned to each shard.
-    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
-    #[test]
-    fn test_multiple_shards() {
-        init_test_logger();
-        let num_nodes = 4;
-        let first_shard_validators = (0..2)
-            .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
-            .collect::<Vec<_>>();
-        let second_shard_validators = (0..num_nodes)
-            .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
-            .collect::<Vec<_>>();
-        let validators = second_shard_validators.clone();
-        let mut env = TestEnv::new(
-            "test_multiple_shards",
-            vec![first_shard_validators, second_shard_validators],
-            4,
-            false,
-        );
-        let block_producers: Vec<_> = validators
-            .iter()
-            .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-            .collect();
-        let signer = InMemorySigner::from_seed(
-            validators[0].clone(),
-            KeyType::ED25519,
-            validators[0].as_ref(),
-        );
-        let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE - 1);
-        let first_account_shard_id = env
-            .runtime
-            .account_id_to_shard_id(&"test1".parse().unwrap(), &EpochId::default())
-            .unwrap();
-        let transactions = if first_account_shard_id == 0 {
-            vec![vec![staking_transaction], vec![]]
-        } else {
-            vec![vec![], vec![staking_transaction]]
-        };
-        // a validator from the first shard does not produce their chunk
-        env.step(transactions, vec![false, true], ChallengesResult::default());
-        for _ in 2..10 {
-            env.step(vec![vec![], vec![]], vec![true, true], ChallengesResult::default());
-        }
-        let account = env.view_account(block_producers[3].validator_id());
-        assert_eq!(account.locked, TESTING_INIT_STAKE);
-        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
-
-        let account = env.view_account(block_producers[0].validator_id());
-        assert_eq!(account.locked, TESTING_INIT_STAKE);
-
-        for _ in 10..14 {
-            env.step(vec![vec![], vec![]], vec![true, true], ChallengesResult::default());
-        }
-        // which validator is kicked out depends on which validator selection is used
-        let account = if cfg!(feature = "protocol_feature_chunk_only_producers") {
-            env.view_account(&block_producers[1].validator_id())
-        } else {
-            env.view_account(&block_producers[3].validator_id())
-        };
-        assert_eq!(account.locked, 0);
-
-        let account = env.view_account(block_producers[0].validator_id());
-        assert_eq!(account.locked, TESTING_INIT_STAKE - 1);
-    }
-
     #[test]
     fn test_get_validator_info() {
         let num_nodes = 2;
@@ -2906,22 +2871,21 @@ mod test {
             0,
             true
         ));
-        assert!(!env.runtime.cares_about_shard(
-            Some(&validators[0]),
-            &env.head.last_block_hash,
-            1,
-            true
-        ));
+        // which validator is selected to shard 1 sole validator seat depends on which validator
+        // selection algorithm is used
+        assert!(
+            env.runtime.cares_about_shard(Some(&validators[0]), &env.head.last_block_hash, 1, true)
+                ^ env.runtime.cares_about_shard(
+                    Some(&validators[1]),
+                    &env.head.last_block_hash,
+                    1,
+                    true
+                )
+        );
         assert!(env.runtime.cares_about_shard(
             Some(&validators[1]),
             &env.head.last_block_hash,
             0,
-            true
-        ));
-        assert!(env.runtime.cares_about_shard(
-            Some(&validators[1]),
-            &env.head.last_block_hash,
-            1,
             true
         ));
 
@@ -3184,7 +3148,19 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new("test_fishermen_stake", vec![validators.clone()], 4, false);
+        let mut env = if !cfg!(feature = "protocol_feature_chunk_only_producers") {
+            TestEnv::new_with_minimum_stake_divisor(
+                "test_fishermen_stake",
+                vec![validators.clone()],
+                4,
+                false,
+                // We need to be able to stake enough to be fisherman, but not enough to be
+                // validator
+                20000,
+            )
+        } else {
+            TestEnv::new("test_fishermen_stake", vec![validators.clone()], 4, false)
+        };
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -3193,11 +3169,7 @@ mod test {
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
             .collect();
-        let fishermen_stake = if cfg!(feature = "protocol_feature_chunk_only_producers") {
-            3200 * crate::NEAR_BASE + 1
-        } else {
-            TESTING_INIT_STAKE / 10 + 1
-        };
+        let fishermen_stake = 3200 * crate::NEAR_BASE + 1;
 
         let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
         let staking_transaction1 = stake(1, &signers[1], &block_producers[1], fishermen_stake);
@@ -3253,7 +3225,19 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new("test_fishermen_unstake", vec![validators.clone()], 2, false);
+        let mut env = if !cfg!(feature = "protocol_feature_chunk_only_producers") {
+            TestEnv::new_with_minimum_stake_divisor(
+                "test_fishermen_unstake",
+                vec![validators.clone()],
+                2,
+                false,
+                // We need to be able to stake enough to be fisherman, but not enough to be
+                // validator
+                20000,
+            )
+        } else {
+            TestEnv::new("test_fishermen_unstake", vec![validators.clone()], 2, false)
+        };
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -3262,11 +3246,7 @@ mod test {
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
             .collect();
-        let fishermen_stake = if cfg!(feature = "protocol_feature_chunk_only_producers") {
-            3200 * crate::NEAR_BASE + 1
-        } else {
-            TESTING_INIT_STAKE / 10 + 1
-        };
+        let fishermen_stake = 3200 * crate::NEAR_BASE + 1;
 
         let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
         env.step_default(vec![staking_transaction]);
@@ -3432,11 +3412,8 @@ mod test {
             .collect();
 
         let staking_transaction1 = stake(1, &signers[1], &block_producers[1], 100);
-        let staking_transaction2 = if cfg!(feature = "protocol_feature_chunk_only_producers") {
-            stake(2, &signers[1], &block_producers[1], 100 * crate::NEAR_BASE)
-        } else {
-            stake(2, &signers[1], &block_producers[1], TESTING_INIT_STAKE / 10 - 1)
-        };
+        let staking_transaction2 =
+            stake(2, &signers[1], &block_producers[1], 100 * crate::NEAR_BASE);
         env.step_default(vec![staking_transaction1, staking_transaction2]);
         assert!(env.last_proposals.is_empty());
         let staking_transaction3 = stake(3, &signers[1], &block_producers[1], 0);

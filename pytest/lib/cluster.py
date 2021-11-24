@@ -149,7 +149,7 @@ class BaseNode(object):
                              [base64.b64encode(signed_tx).decode('utf8')],
                              timeout=timeout)
 
-    def get_status(self, check_storage=True, timeout=2):
+    def get_status(self, check_storage=True, timeout=4):
         r = requests.get("http://%s:%s/status" % self.rpc_addr(),
                          timeout=timeout)
         r.raise_for_status()
@@ -291,8 +291,8 @@ class LocalNode(BaseNode):
         self.node_dir = node_dir
         self.binary_name = binary_name or 'neard'
         self.cleaned = False
-        with open(os.path.join(node_dir, "config.json")) as f:
-            config_json = json.loads(f.read())
+        with open(os.path.join(node_dir, 'config.json')) as fd:
+            config_json = json.load(fd)
         # assert config_json['network']['addr'] == '0.0.0.0:24567', config_json['network']['addr']
         # assert config_json['rpc']['addr'] == '0.0.0.0:3030', config_json['rpc']['addr']
         # just a sanity assert that the setting name didn't change
@@ -306,8 +306,8 @@ class LocalNode(BaseNode):
             config_json['consensus']['min_num_peers'] = 0
         else:
             config_json['consensus']['min_num_peers'] = 1
-        with open(os.path.join(node_dir, "config.json"), 'w') as f:
-            f.write(json.dumps(config_json, indent=2))
+        with open(os.path.join(node_dir, 'config.json'), 'w') as fd:
+            json.dump(config_json, fd, indent=2)
 
         self.validator_key = Key.from_json_file(
             os.path.join(node_dir, "validator_key.json"))
@@ -645,40 +645,41 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
 def apply_genesis_changes(node_dir, genesis_config_changes):
     # apply genesis.json changes
     fname = os.path.join(node_dir, 'genesis.json')
-    with open(fname) as f:
-        genesis_config = json.loads(f.read())
+    with open(fname) as fd:
+        genesis_config = json.load(fd)
     for change in genesis_config_changes:
         cur = genesis_config
         for s in change[:-2]:
             cur = cur[s]
         assert change[-2] in cur
         cur[change[-2]] = change[-1]
-    with open(fname, 'w') as f:
-        f.write(json.dumps(genesis_config, indent=2))
+    with open(fname, 'w') as fd:
+        json.dump(genesis_config, fd, indent=2)
 
 
 def apply_config_changes(node_dir, client_config_change):
     # apply config.json changes
     fname = os.path.join(node_dir, 'config.json')
-    with open(fname) as f:
-        config_json = json.loads(f.read())
+    with open(fname) as fd:
+        config_json = json.load(fd)
 
     # ClientConfig keys which are valid but may be missing from the config.json
-    # file.  At the moment it’s only max_gas_burnt_view which is an Option and
-    # None by default.  If None, the key is not present in the file.
-    allowed_missing_configs = ('max_gas_burnt_view',)
+    # file.  Those are usually Option<T> types which are not stored in JSON file
+    # when None.
+    allowed_missing_configs = ('max_gas_burnt_view', 'rosetta_rpc')
 
     for k, v in client_config_change.items():
-        assert k in allowed_missing_configs or k in config_json
-        if isinstance(v, dict):
+        if not (k in allowed_missing_configs or k in config_json):
+            raise ValueError(f'Unknown configuration option: {k}')
+        if k in config_json and isinstance(v, dict):
             for key, value in v.items():
                 assert key in config_json[k], key
                 config_json[k][key] = value
         else:
             config_json[k] = v
 
-    with open(fname, 'w') as f:
-        f.write(json.dumps(config_json, indent=2))
+    with open(fname, 'w') as fd:
+        json.dump(config_json, fd, indent=2)
 
 
 def start_cluster(num_nodes,
@@ -742,7 +743,7 @@ def start_cluster(num_nodes,
 
 DEFAULT_CONFIG = {
     'local': True,
-    'near_root': '../target/debug/',
+    'near_root': os.environ.get("NEAR_ROOT", '../target/debug/'),
     'binary_name': 'neard',
     'release': False,
 }

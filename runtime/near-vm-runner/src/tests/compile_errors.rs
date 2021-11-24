@@ -1,17 +1,13 @@
-#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
 use near_primitives::version::ProtocolFeature;
-#[cfg(not(feature = "protocol_feature_limit_contract_functions_number"))]
-use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_errors::{CompilationError, FunctionCallError, PrepareError, VMError};
 
-#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
 use assert_matches::assert_matches;
 
 use crate::tests::{
     make_simple_contract_call_vm, make_simple_contract_call_with_protocol_version_vm,
     with_vm_variants,
 };
-use crate::VMKind;
+use crate::vm_kind::VMKind;
 
 fn initializer_wrong_signature_contract() -> Vec<u8> {
     wat::parse_str(
@@ -156,18 +152,14 @@ fn test_evil_function_index() {
 #[test]
 fn test_limit_contract_functions_number() {
     with_vm_variants(|vm_kind: VMKind| {
-        #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
         let old_protocol_version =
             ProtocolFeature::LimitContractFunctionsNumber.protocol_version() - 1;
-        #[cfg(not(feature = "protocol_feature_limit_contract_functions_number"))]
-        let old_protocol_version = PROTOCOL_VERSION - 1;
-
         let new_protocol_version = old_protocol_version + 1;
 
         let functions_number_limit: u32 = 10_000;
         let method_name = "main";
 
-        let code = near_test_contracts::many_functions_contract(functions_number_limit + 10);
+        let code = near_test_contracts::many_functions_contract(functions_number_limit + 1);
         let (_, err) = make_simple_contract_call_with_protocol_version_vm(
             &code,
             method_name,
@@ -176,7 +168,7 @@ fn test_limit_contract_functions_number() {
         );
         assert_eq!(err, None);
 
-        let code = near_test_contracts::many_functions_contract(functions_number_limit - 10);
+        let code = near_test_contracts::many_functions_contract(functions_number_limit);
         let (_, err) = make_simple_contract_call_with_protocol_version_vm(
             &code,
             method_name,
@@ -185,16 +177,13 @@ fn test_limit_contract_functions_number() {
         );
         assert_eq!(err, None);
 
-        let code = near_test_contracts::many_functions_contract(functions_number_limit + 10);
+        let code = near_test_contracts::many_functions_contract(functions_number_limit + 1);
         let (_, err) = make_simple_contract_call_with_protocol_version_vm(
             &code,
             method_name,
             new_protocol_version,
             vm_kind,
         );
-        #[cfg(not(feature = "protocol_feature_limit_contract_functions_number"))]
-        assert_eq!(err, None);
-        #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
         assert_matches!(
             err,
             Some(VMError::FunctionCallError(FunctionCallError::CompilationError(

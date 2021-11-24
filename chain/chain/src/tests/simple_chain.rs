@@ -22,10 +22,10 @@ fn empty_chain() {
 
     assert_eq!(chain.head().unwrap().height, 0);
     let hash = chain.head().unwrap().last_block_hash;
-    #[cfg(feature = "protocol_feature_block_header_v3")]
+    #[cfg(feature = "nightly_protocol")]
     assert_eq!(hash, CryptoHash::from_str("DHFJfDH25yEPmEpKrUN9upXY3gFcCmsGyHMTk2sugyXd").unwrap());
-    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-    assert_eq!(hash, CryptoHash::from_str("4Fgb9xxzLcWuY7atxSB9yXxF4BKzTHvXMHrAkk88mEUp").unwrap());
+    #[cfg(not(feature = "nightly_protocol"))]
+    assert_eq!(hash, CryptoHash::from_str("BkrZeGCDnYJGAdc3G1fb1P8FMbnNDhBn6w5DjhQeNAdp").unwrap());
     assert_eq!(count_utc, 1);
     assert_eq!(count_instant, 0);
 }
@@ -41,15 +41,15 @@ fn build_chain() {
     let (mut chain, _, signer) = setup();
 
     let prev_hash = *chain.head_header().unwrap().hash();
-    #[cfg(feature = "protocol_feature_block_header_v3")]
+    #[cfg(feature = "nightly_protocol")]
     assert_eq!(
         prev_hash,
         CryptoHash::from_str("FrAMjjHhjJAB1N6BiDVpRfAMsjLHbTYZnkYKUs39JgEx").unwrap()
     );
-    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+    #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
         prev_hash,
-        CryptoHash::from_str("GZyFPBDNEaowcZRPGm3biD9Yh9rdWuYdR8cRjZBAZwVp").unwrap()
+        CryptoHash::from_str("6C474NRQK1cLkGYrdaCpeVPKbBbsTxGeB7ZZWkdbD3uL").unwrap()
     );
 
     for i in 0..4 {
@@ -64,15 +64,15 @@ fn build_chain() {
     let count_utc = Clock::utc_call_count();
     assert_eq!(count_utc, 5);
     assert_eq!(count_instant, 0);
-    #[cfg(feature = "protocol_feature_block_header_v3")]
+    #[cfg(feature = "nightly_protocol")]
     assert_eq!(
         chain.head().unwrap().last_block_hash,
         CryptoHash::from_str("2zngdBZU9YEZKvtfpkZb3vjjxf7j7szMdo5jtPLDcg5Z").unwrap()
     );
-    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+    #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
         chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("2V3sj9CRWkv1n2q8ByuQdrbMSuVKkcBwsYMJupG6XcDG").unwrap()
+        CryptoHash::from_str("5pXLqgQe98JSdhtQ66VQFjQzBRPdZaEiMaTpdGuziF4H").unwrap()
     );
 }
 
@@ -90,12 +90,10 @@ fn build_chain_with_orhpans() {
         PROTOCOL_VERSION,
         &last_block.header(),
         10,
-        #[cfg(feature = "protocol_feature_block_header_v3")]
-        (last_block.header().block_ordinal() + 1),
+        last_block.header().block_ordinal() + 1,
         last_block.chunks().iter().cloned().collect(),
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
-        #[cfg(feature = "protocol_feature_block_header_v3")]
         None,
         vec![],
         Rational::from_integer(0),
@@ -110,11 +108,11 @@ fn build_chain_with_orhpans() {
     );
     assert_eq!(chain.process_block_test(&None, block).unwrap_err().kind(), ErrorKind::Orphan);
     assert_eq!(
-        chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err().kind(),
+        chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err().kind(),
         ErrorKind::Orphan
     );
     assert_eq!(
-        chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err().kind(),
+        chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err().kind(),
         ErrorKind::Orphan
     );
     let res = chain.process_block_test(&None, blocks.pop().unwrap());
