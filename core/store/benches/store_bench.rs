@@ -6,10 +6,11 @@ use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::errors::StorageError;
 use near_store::db::DBCol::ColBlockMerkleTree;
 use near_store::{create_store, DBCol, Store};
-use rocksdb::DB;
 use std::time::{Duration, Instant};
 
-/// NOTE: works only for columns with `is_db() == false`
+/// Run a benchmark to generate `num_keys` keys, each of size `key_size`, then write then
+/// in random order to column `col` in store, and then read keys back from `col` in random order.
+/// Works only for column configured without reference counting, that is `.is_rc() == false`.
 fn benchmark_write_then_read_successful(
     bench: &mut Bencher,
     num_keys: usize,
@@ -54,7 +55,8 @@ fn generate_keys(count: usize, key_size: usize) -> Vec<Vec<u8>> {
     res
 }
 
-/// read from DB keys in random order
+/// Read from DB value for given `kyes` in random order for `col`.
+/// Works only for column configured without reference counting, that is `.is_rc() == false`.
 fn read_from_db(store: &Arc<Store>, keys: &Vec<Vec<u8>>, col: DBCol) -> usize {
     let mut read = 0;
     for _k in 0..keys.len() {
@@ -71,11 +73,13 @@ fn read_from_db(store: &Arc<Store>, keys: &Vec<Vec<u8>>, col: DBCol) -> usize {
     read
 }
 
-/// write a value of random size between 0..333 for each key to db.
+/// Write random value of size between `0` and `max_value_size` to given `keys` at specific column
+/// `col.`
+/// Works only for column configured without reference counting, that is `.is_rc() == false`.
 fn write_to_db(store: &Arc<Store>, keys: &[Vec<u8>], max_value_size: usize, col: DBCol) {
     let mut store_update = store.store_update();
     for key in keys.iter() {
-        let x: u32 = rand::random::<u32>() % max_value_size;
+        let x: usize = rand::random::<usize>() % max_value_size;
         let val: Vec<u8> = (0..x).map(|_| rand::random::<u8>()).collect();
         // NOTE:  this
         store_update.set(col, key.as_slice().clone(), &val);
