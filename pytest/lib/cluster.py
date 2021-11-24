@@ -149,7 +149,7 @@ class BaseNode(object):
                              [base64.b64encode(signed_tx).decode('utf8')],
                              timeout=timeout)
 
-    def get_status(self, check_storage=True, timeout=2):
+    def get_status(self, check_storage=True, timeout=4):
         r = requests.get("http://%s:%s/status" % self.rpc_addr(),
                          timeout=timeout)
         r.raise_for_status()
@@ -664,13 +664,14 @@ def apply_config_changes(node_dir, client_config_change):
         config_json = json.load(fd)
 
     # ClientConfig keys which are valid but may be missing from the config.json
-    # file.  At the moment it’s only max_gas_burnt_view which is an Option and
-    # None by default.  If None, the key is not present in the file.
-    allowed_missing_configs = ('max_gas_burnt_view',)
+    # file.  Those are usually Option<T> types which are not stored in JSON file
+    # when None.
+    allowed_missing_configs = ('max_gas_burnt_view', 'rosetta_rpc')
 
     for k, v in client_config_change.items():
-        assert k in allowed_missing_configs or k in config_json
-        if isinstance(v, dict):
+        if not (k in allowed_missing_configs or k in config_json):
+            raise ValueError(f'Unknown configuration option: {k}')
+        if k in config_json and isinstance(v, dict):
             for key, value in v.items():
                 assert key in config_json[k], key
                 config_json[k][key] = value
