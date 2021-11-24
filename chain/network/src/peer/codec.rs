@@ -10,8 +10,6 @@ use bytes::{Buf, BufMut, BytesMut};
 use bytesize::{GIB, MIB};
 use near_network_primitives::types::ReasonForBan;
 use near_performance_metrics::framed_write::EncoderCallBack;
-#[cfg(feature = "performance_stats")]
-use near_performance_metrics::stats_enabled::get_thread_stats_logger;
 use near_rust_allocator_proxy::allocator::get_tid;
 use std::io::{Error, ErrorKind};
 use tokio_util::codec::{Decoder, Encoder};
@@ -31,7 +29,7 @@ impl EncoderCallBack for Codec {
     fn drained(&mut self, bytes: usize, buf_len: usize, buf_capacity: usize) {
         #[cfg(feature = "performance_stats")]
         {
-            let stat = get_thread_stats_logger();
+            let stat = near_performance_metrics::stats_enabled::get_thread_stats_logger();
             stat.lock().unwrap().log_drain_write_buffer(bytes, buf_len, buf_capacity);
         }
     }
@@ -46,7 +44,7 @@ impl Encoder<Vec<u8>> for Codec {
         } else {
             #[cfg(feature = "performance_stats")]
             {
-                let stat = get_thread_stats_logger();
+                let stat = near_performance_metrics::stats_enabled::get_thread_stats_logger();
                 stat.lock().unwrap().log_add_write_buffer(
                     item.len() + 4,
                     buf.len(),
