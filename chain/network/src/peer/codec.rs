@@ -99,6 +99,10 @@ impl Decoder for Codec {
     }
 }
 
+/// Determines size of `PeerId` based on first byte of it's representation.
+/// Size of `PeerId` depends on type of `PublicMessage it stores`.
+/// PublicKey::ED25519 -> 1 + 32 bytes
+/// PublicKey::SECP256K1 -> 1 + 64 bytes
 fn peer_id_type_field_len(enum_var: u8) -> Option<usize> {
     // 1 byte for enum variant, then some number depending on the
     // public key type
