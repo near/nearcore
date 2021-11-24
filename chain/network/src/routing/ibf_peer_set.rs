@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 pub type SlotMapId = u64;
 
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Copy)]
 pub struct ValidIBFLevel(pub u64);
 

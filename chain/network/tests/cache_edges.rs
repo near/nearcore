@@ -1,3 +1,4 @@
+use actix::System;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
@@ -171,57 +172,83 @@ impl RoutingTableTest {
 
 #[test]
 fn empty() {
+    let _system = System::new();
+
     let mut test = RoutingTableTest::new();
     test.check(vec![], vec![], vec![]);
     assert_eq!(test.routing_table.next_available_component_nonce, 0);
+
+    System::current().stop();
 }
 
 #[test]
 fn one_edge() {
+    let _system = System::new();
+
     let mut test = RoutingTableTest::new();
     test.add_edge(0, 1, 1);
     test.check(vec![(0, 1, true)], vec![], vec![]);
+
+    System::current().stop();
 }
 
 #[test]
 fn active_old_edge() {
+    let _system = System::new();
+
     let mut test = RoutingTableTest::new();
     test.add_edge(0, 1, 1);
     test.set_times(vec![(1, 2)]);
     test.update_routing_table();
     test.check(vec![(0, 1, true)], vec![], vec![]);
+
+    System::current().stop();
 }
 
 #[test]
 fn inactive_old_edge() {
+    let _system = System::new();
+
     let mut test = RoutingTableTest::new();
     test.add_edge(0, 1, 2);
     test.set_times(vec![(1, 2)]);
     test.update_routing_table();
     test.check(vec![], vec![(0, vec![(0, 1, false)])], vec![(1, 0)]);
+
+    System::current().stop();
 }
 
 #[test]
 fn inactive_recent_edge() {
+    let _system = System::new();
+
     let mut test = RoutingTableTest::new();
     test.add_edge(0, 1, 2);
     test.set_times(vec![(1, 1)]);
     test.update_routing_table();
     test.check(vec![(0, 1, false)], vec![], vec![]);
+
+    System::current().stop();
 }
 
 #[test]
 fn load_component_nonce_on_start() {
+    let _system = System::new();
+
     let mut test = RoutingTableTest::new();
     test.add_edge(0, 1, 2);
     test.set_times(vec![(1, 2)]);
     test.update_routing_table();
     let routing_table = RoutingTableActor::new(random_peer_id(), test.store.clone());
     assert_eq!(routing_table.next_available_component_nonce, 2);
+
+    System::current().stop();
 }
 
 #[test]
 fn load_component_nonce_2_on_start() {
+    let _system = System::new();
+
     let mut test = RoutingTableTest::new();
     test.add_edge(0, 1, 2);
     test.set_times(vec![(1, 2)]);
@@ -236,10 +263,14 @@ fn load_component_nonce_2_on_start() {
     );
     let routing_table = RoutingTableActor::new(random_peer_id(), test.store.clone());
     assert_eq!(routing_table.next_available_component_nonce, 3);
+
+    System::current().stop();
 }
 
 #[test]
 fn two_components() {
+    let _system = System::new();
+
     let mut test = RoutingTableTest::new();
     test.add_edge(0, 1, 2);
     test.set_times(vec![(1, 2)]);
@@ -254,10 +285,14 @@ fn two_components() {
         vec![(2, vec![(0, 1, false), (0, 2, false), (1, 2, true)])],
         vec![(1, 2), (2, 2)],
     );
+
+    System::current().stop();
 }
 
 #[test]
 fn overwrite_edge() {
+    let _system = System::new();
+
     let mut test = RoutingTableTest::new();
     test.add_edge(0, 1, 2);
     test.set_times(vec![(1, 2)]);
@@ -270,4 +305,6 @@ fn overwrite_edge() {
     test.add_edge(0, 1, 3);
     test.update_routing_table();
     test.check(vec![(0, 1, true), (1, 2, true), (0, 2, false)], vec![], vec![]);
+
+    System::current().stop();
 }

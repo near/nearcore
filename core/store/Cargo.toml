@@ -8,7 +8,7 @@ edition = "2021"
 
 [dependencies]
 byteorder = "1.2"
-bytesize = "1"
+bytesize = "1.1"
 derive_more = "0.99.3"
 elastic-array = "0.11"
 lazy_static = "1.4"
