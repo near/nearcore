@@ -7,6 +7,8 @@ mod borsh;
 #[cfg(feature = "serde")]
 mod serde;
 
+#[cfg(feature = "deepsize_feature")]
+use deepsize::DeepSizeOf;
 pub use error::{ParseAccountError, ParseErrorKind};
 
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
@@ -15,6 +17,7 @@ pub const MAX_ACCOUNT_ID_LEN: usize = 64;
 /// Account identifier. Provides access to user's state.
 ///
 /// This guarantees all properly constructed AccountId's are valid for the NEAR network.
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Eq, Ord, Hash, Clone, Debug, PartialEq, PartialOrd)]
 pub struct AccountId(Box<str>);
 
@@ -57,7 +60,7 @@ impl AccountId {
 
             (!last_char_is_separator)
                 .then(|| ())
-                .ok_or(ParseAccountError(ParseErrorKind::Invalid, account_id.to_string()))
+                .ok_or_else(|| ParseAccountError(ParseErrorKind::Invalid, account_id.to_string()))
         }
     }
 
@@ -82,7 +85,7 @@ impl AccountId {
         self.len() >= MIN_ACCOUNT_ID_LEN
             && self.len() <= MAX_ACCOUNT_ID_LEN
             && self.as_ref() != "system"
-            && !self.as_ref().contains(".")
+            && !self.as_ref().contains('.')
     }
 
     /// Returns true if the signer_id can create a direct sub-account with the given account Id.

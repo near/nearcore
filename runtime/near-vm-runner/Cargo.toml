@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-runner"
-version = "3.0.0"
+version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 edition = "2021"
@@ -37,8 +37,8 @@ pwasm-utils = "0.12"
 parity-wasm = "0.41"
 wasmtime = { version = "0.25.0", default-features = false, optional = true }
 anyhow = { version = "1.0.19", optional = true }
-near-vm-logic = { path = "../near-vm-logic", version = "3.0.0", default-features = false, features = [] }
-near-vm-errors = { path = "../near-vm-errors", version = "3.0.0" }
+near-vm-logic = { path = "../near-vm-logic", default-features = false, features = [] }
+near-vm-errors = { path = "../near-vm-errors" }
 near-primitives = { path = "../../core/primitives" }
 near-stable-hasher = { path = "../../utils/near-stable-hasher" }
 cached = "0.23.0"
@@ -59,9 +59,9 @@ wasmtime_vm = [ "wasmtime", "anyhow"]
 wasmer2_vm = [ "wasmer", "wasmer-types", "wasmer-compiler-singlepass",  "wasmer-engine-universal", ]
 
 # Force usage of a specific wasm vm irrespective of protocol version.
-force_wasmer0 = []
-force_wasmtime = []
-force_wasmer2 = []
+force_wasmer0 = ["wasmer0_vm"]
+force_wasmtime = ["wasmtime_vm"]
+force_wasmer2 = ["wasmer2_vm"]
 
 lightbeam = ["wasmtime/lightbeam"]
 no_cpu_compatibility_checks = []
@@ -73,12 +73,8 @@ protocol_feature_alt_bn128 = [
     "near-primitives/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128"
 ]
-protocol_feature_limit_contract_functions_number = ["near-primitives/protocol_feature_limit_contract_functions_number", "near-vm-errors/protocol_feature_limit_contract_functions_number"]
 nightly_protocol = ["near-primitives/nightly_protocol"]
 
 [package.metadata.cargo-udeps.ignore]
 # `no_cache` feature leads to an unused `cached` crate
 normal = ["cached"]
-
-[package.metadata.workspaces]
-independent = true

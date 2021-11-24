@@ -156,7 +156,6 @@ impl<'a> ContractModule<'a> {
     }
 
     fn validate_functions_number(self) -> Result<Self, PrepareError> {
-        #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
         if let Some(max_functions_number) =
             self.config.limit_config.max_functions_number_per_contract
         {
@@ -186,12 +185,12 @@ impl<'a> ContractModule<'a> {
 /// The preprocessing includes injecting code for gas metering and metering the height of stack.
 pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u8>, PrepareError> {
     ContractModule::init(original_code, config)?
+        .validate_functions_number()?
         .standardize_mem()
         .ensure_no_internal_memory()?
         .inject_gas_metering()?
         .inject_stack_height_metering()?
         .scan_imports()?
-        .validate_functions_number()?
         .into_wasm_code()
 }
 

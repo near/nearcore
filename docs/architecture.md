@@ -42,7 +42,7 @@ This crate contains most of the types that are shared across different crates.
 
 ### `core/primitives-core`
 
-This crate contains types needed for runtime. 
+This crate contains types needed for runtime.
 
 **Architecture Invariant**: this crate needs to be published separately since near-sdk-rs depends on it.
 It cannot have any dependencies on other nearcore crates.
@@ -124,11 +124,11 @@ In `VMLogic`, interaction with NEAR blockchain happens in the following two ways
 
 ### `runtime/near-vm-runner`
 
-`run_vm` function in `runner.rs` is the entry point to the vm runner.
+`run` function in `runner.rs` is the entry point to the vm runner.
 This function essentially spins up the vm and executes some function in a contract.
-It supports different wasm compilers including wasmer0, wasmer2, and wasmtime through compile-time feature flags.
-However, currently we only use wasmer0 in production.
-The `imports` module exposes host functions defined in `near-vm-logic` to WASM code. 
+It supports different wasm compilers including wasmer0, wasmer2, and wasmtime through compile-time
+feature flags. Currently we use wasmer0 and wasmer2 in production.
+The `imports` module exposes host functions defined in `near-vm-logic` to WASM code.
 In other words, it defines the ABI of the contracts on NEAR.
 
 ### `neard`

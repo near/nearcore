@@ -1,9 +1,8 @@
-use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
-use std::time::{Duration, Instant};
-
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::time::Clock;
+use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
+use std::time::{Duration, Instant};
 
 /// default value for `capacity`
 const DEFAULT_CAPACITY: usize = 100_000;
@@ -209,9 +208,9 @@ impl RouteBackCache {
         }
     }
 
-    pub fn insert(&mut self, hash: CryptoHash, target: PeerId) -> bool {
+    pub fn insert(&mut self, hash: CryptoHash, target: PeerId) {
         if self.main.contains_key(&hash) {
-            return false;
+            return;
         }
 
         self.remove_evicted();
@@ -230,7 +229,6 @@ impl RouteBackCache {
 
         size += 1;
         self.size_per_target.insert((self.capacity - size, target));
-        true
     }
 }
 
