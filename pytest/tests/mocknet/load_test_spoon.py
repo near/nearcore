@@ -84,7 +84,9 @@ if __name__ == '__main__':
     parser.add_argument('--num-nodes', type=int, required=True)
     parser.add_argument('--max-tps', type=float, required=True)
     parser.add_argument('--increasing-stakes', type=float, default=0.0)
-    parser.add_argument('--progressive-upgrade', default=False, action='store_true')
+    parser.add_argument('--progressive-upgrade',
+                        default=False,
+                        action='store_true')
     parser.add_argument('--skip-load', default=False, action='store_true')
     parser.add_argument('--skip-setup', default=False, action='store_true')
     parser.add_argument('--skip-restart', default=False, action='store_true')
@@ -111,7 +113,10 @@ if __name__ == '__main__':
         f'Starting Load of {chain_id} test using {len(validator_nodes)} validator nodes and {len(rpc_nodes)} RPC nodes.'
     )
 
-    upgrade_schedule = mocknet.create_upgrade_schedule(rpc_nodes, validator_nodes, args.progressive_upgrade, args.increasing_stakes)
+    upgrade_schedule = mocknet.create_upgrade_schedule(rpc_nodes,
+                                                       validator_nodes,
+                                                       args.progressive_upgrade,
+                                                       args.increasing_stakes)
     logger.info(f'upgrade_schedule: %s' % str(upgrade_schedule))
 
     if not args.skip_setup:
@@ -120,21 +125,21 @@ if __name__ == '__main__':
                                           'add_and_delete_state.wasm')
         logger.info('Setting remote python environments -- done')
 
-
     if not args.skip_restart:
         # Make sure nodes are running by restarting them.
         mocknet.stop_nodes(all_nodes)
         time.sleep(10)
         node_pks = pmap(lambda node: mocknet.get_node_keys(node)[0],
                         validator_nodes)
-        mocknet.create_and_upload_genesis(validator_nodes,
-                                          genesis_template_filename=None,
-                                          rpc_nodes=rpc_nodes,
-                                          chain_id=chain_id,
-                                          update_genesis_on_machine=True,
-                                          epoch_length=epoch_length,
-                                          node_pks=node_pks,
-                                          increasing_stakes=args.increasing_stakes)
+        mocknet.create_and_upload_genesis(
+            validator_nodes,
+            genesis_template_filename=None,
+            rpc_nodes=rpc_nodes,
+            chain_id=chain_id,
+            update_genesis_on_machine=True,
+            epoch_length=epoch_length,
+            node_pks=node_pks,
+            increasing_stakes=args.increasing_stakes)
         mocknet.start_nodes(all_nodes, upgrade_schedule)
         time.sleep(60)
 
@@ -178,7 +183,8 @@ if __name__ == '__main__':
         while time.time() - start_time < deploy_time:
             epoch_height = mocknet.get_epoch_height(rpc_nodes, epoch_length)
             if epoch_height > prev_epoch_height:
-                mocknet.upgrade_nodes(epoch_height-initial_epoch_height,upgrade_schedule,all_nodes)
+                mocknet.upgrade_nodes(epoch_height - initial_epoch_height,
+                                      upgrade_schedule, all_nodes)
                 prev_epoch_height = epoch_height
             time.sleep(5)
 
@@ -187,7 +193,8 @@ if __name__ == '__main__':
         while time.time() - start_time < test_timeout:
             epoch_height = mocknet.get_epoch_height(rpc_nodes, epoch_length)
             if epoch_length > prev_epoch_height:
-                mocknet.upgrade_nodes(epoch_height-initial_epoch_height,upgrade_schedule,all_nodes)
+                mocknet.upgrade_nodes(epoch_height - initial_epoch_height,
+                                      upgrade_schedule, all_nodes)
                 prev_epoch_height = epoch_height
             time.sleep(5)
 

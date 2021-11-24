@@ -43,7 +43,6 @@ tmux kill-session -t near || true
 done
 '''
 
-
 PYTHON_DIR = '/home/ubuntu/.near/pytest/'
 
 PYTHON_SETUP_SCRIPT = f'''
@@ -61,10 +60,20 @@ cd {PYTHON_DIR}
 '''
 
 ONE_NEAR = 10**24
-MIN_STAKE = 64*(10**3)
-STAKE_STEP = 15*(10**3)
+MIN_STAKE = 64 * (10**3)
+STAKE_STEP = 15 * (10**3)
 OTHER_STAKE = 10**6
-MAINNET_STAKES = [43566361,20091202,19783811,18990335,18196731,12284685,10770734,10769428,9858038,9704977,8871933,8296476,7731153,7499051,7322703,7307458,6477856,6293083,6242196,6093107,6085802,5553788,5508664,5286843,5056137,4944414,4859235,4732286,4615542,4565243,4468179,4451510,4444888,4412264,4221909,4219451,4210541,4161553,4116102,4085627,4075090,3988387,3932601,3923842,3921959,3915353,3907857,3905980,3898791,3886957,3851553,3831536,3790646,3784485,3777647,3760931,3746129,3741225,3727313,3699201,3620341]
+MAINNET_STAKES = [
+    43566361, 20091202, 19783811, 18990335, 18196731, 12284685, 10770734,
+    10769428, 9858038, 9704977, 8871933, 8296476, 7731153, 7499051, 7322703,
+    7307458, 6477856, 6293083, 6242196, 6093107, 6085802, 5553788, 5508664,
+    5286843, 5056137, 4944414, 4859235, 4732286, 4615542, 4565243, 4468179,
+    4451510, 4444888, 4412264, 4221909, 4219451, 4210541, 4161553, 4116102,
+    4085627, 4075090, 3988387, 3932601, 3923842, 3921959, 3915353, 3907857,
+    3905980, 3898791, 3886957, 3851553, 3831536, 3790646, 3784485, 3777647,
+    3760931, 3746129, 3741225, 3727313, 3699201, 3620341
+]
+
 
 def get_node(hostname):
     instance_name = hostname
@@ -154,15 +163,8 @@ def start_load_test_helper_script(script, node_account_id, pk, sk, rpc_nodes,
     return s
 
 
-def start_load_test_helper(node,
-                           script,
-                           pk,
-                           sk,
-                           rpc_nodes,
-                           num_nodes,
-                           max_tps,
-                           lead_account_id,
-                           get_node_key):
+def start_load_test_helper(node, script, pk, sk, rpc_nodes, num_nodes, max_tps,
+                           lead_account_id, get_node_key):
     upk, usk = None, None
     if get_node_key:
         node_key_json = download_and_read_json(
@@ -494,7 +496,8 @@ def create_and_upload_genesis(validator_nodes,
                     node, 'genesis_updater.py', genesis_filename_in,
                     '/home/ubuntu/.near/genesis.json', chain_id,
                     validator_node_names, rpc_node_names, done_filename,
-                    epoch_length, node_pks, increasing_stakes), validator_nodes + rpc_nodes)
+                    epoch_length, node_pks, increasing_stakes),
+                validator_nodes + rpc_nodes)
             pmap(lambda node: wait_genesis_updater_done(node, done_filename),
                  validator_nodes + rpc_nodes)
 
@@ -605,7 +608,8 @@ def create_genesis_file(validator_node_names,
         account_id = node_account_name(node_name)
         logger.info(f'Adding account {account_id}')
         if increasing_stakes:
-            if i*5 < len(validator_node_names)*3 and i < len(MAINNET_STAKES):
+            if i * 5 < len(validator_node_names) * 3 and i < len(
+                    MAINNET_STAKES):
                 staked = MAINNET_STAKES[i] * ONE_NEAR
             elif prev_stake is None:
                 prev_stake = MIN_STAKE - STAKE_STEP
@@ -774,6 +778,7 @@ def start_nodes(nodes, upgrade_schedule):
 def stop_nodes(nodes):
     pmap(stop_node, nodes)
 
+
 def neard_start_script(node, upgrade_schedule, epoch_height):
     if upgrade_schedule.get(node.instance_name, 0) <= epoch_height:
         neard_binary = '/home/ubuntu/neard.upgrade'
@@ -787,6 +792,7 @@ def neard_start_script(node, upgrade_schedule, epoch_height):
         tmux send-keys -t near 'RUST_BACKTRACE=full RUST_LOG=debug,actix_web=info {neard_binary} run 2>&1 | tee -a {neard_binary}.log' C-m
     '''.format(neard_binary=shlex.quote(neard_binary))
 
+
 def start_node(node, upgrade_schedule):
     m = node.machine
     logger.info(f'Starting node {m.name}')
@@ -797,7 +803,9 @@ def start_node(node, upgrade_schedule):
         if pid != '':
             success = True
             break
-        start_process = m.run('sudo -u ubuntu -i', input=neard_start_script(node, upgrade_schedule, 0))
+        start_process = m.run('sudo -u ubuntu -i',
+                              input=neard_start_script(node, upgrade_schedule,
+                                                       0))
         if start_process.returncode == 0:
             success = True
             break
@@ -852,7 +860,8 @@ def start_genesis_updater_script(script, genesis_filename_in,
 
 def start_genesis_updater(node, script, genesis_filename_in,
                           genesis_filename_out, chain_id, validator_nodes,
-                          rpc_nodes, done_filename, epoch_length, node_pks, increasing_stakes):
+                          rpc_nodes, done_filename, epoch_length, node_pks,
+                          increasing_stakes):
     logger.info(f'Starting genesis_updater on {node.instance_name}')
     node.machine.run('bash',
                      input=start_genesis_updater_script(
@@ -911,15 +920,17 @@ def wait_node_up(node):
 def wait_all_nodes_up(all_nodes):
     pmap(lambda node: wait_node_up(node), all_nodes)
 
-def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade, increasing_stakes):
+
+def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
+                            increasing_stakes):
     schedule = {}
     if progressive_upgrade:
         # Re-create stakes assignment.
         stakes = []
         if increasing_stakes:
             prev_stake = None
-            for i,node in enumerate(validator_nodes):
-                if i*5 < len(validator_nodes)*3 and i < len(MAINNET_STAKES):
+            for i, node in enumerate(validator_nodes):
+                if i * 5 < len(validator_nodes) * 3 and i < len(MAINNET_STAKES):
                     staked = MAINNET_STAKES[i] * ONE_NEAR
                     logger.info(f'!1 {staked}')
                 elif prev_stake is None:
@@ -938,10 +949,10 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade, inc
 
         # Compute seats assignment.
         l = 0
-        r = max(stakes)+1
+        r = max(stakes) + 1
         seat_price = -1
-        while r-l > 1:
-            tmp_seat_price = (l+r)//2
+        while r - l > 1:
+            tmp_seat_price = (l + r) // 2
             num_seats = 0
             for i in range(len(stakes)):
                 num_seats += stakes[i] // tmp_seat_price
@@ -954,10 +965,10 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade, inc
 
         # Upgrade as many largest validators as possible without exceeding 80%.
         num_seats = 0
-        epoch_heights = [-1]*len(validator_nodes)
+        epoch_heights = [-1] * len(validator_nodes)
         seats = []
         for i in range(len(validator_nodes)):
-            seats.append(stakes[i]//seat_price)
+            seats.append(stakes[i] // seat_price)
         logger.info(f'create_upgrade_schedule seats: {seats}')
 
         for i in range(len(validator_nodes)):
@@ -969,9 +980,9 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade, inc
         logger.info(f'create_upgrade_schedule {epoch_heights}')
 
         # Upgrade the remaining validators during 4 epochs.
-        for i in range( len(validator_nodes)):
+        for i in range(len(validator_nodes)):
             if epoch_heights[i] < 0:
-                epoch_heights[i] = random.randint(1,4)
+                epoch_heights[i] = random.randint(1, 4)
         logger.info(f'create_upgrade_schedule {epoch_heights}')
 
         for i, node in enumerate(validator_nodes):
@@ -979,7 +990,7 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade, inc
             schedule[node.instance_name] = epoch_heights[i]
         # Start with 1 rpc node initially upgraded and upgrade one more RPC node per epoch.
         for node in rpc_nodes:
-            schedule[node.instance_name] = random.randint(0,4)
+            schedule[node.instance_name] = random.randint(0, 4)
     else:
         # Start all nodes upgraded.
         for node in rpc_nodes:
@@ -1002,15 +1013,21 @@ def get_epoch_height(rpc_nodes, epoch_length):
     random.shuffle(nodes)
     for node in nodes:
         (addr, port) = node.rpc_addr()
-        j = { 'method': 'validators', 'params': [None], 'id': 'dontcare', 'jsonrpc': '2.0' }
+        j = {
+            'method': 'validators',
+            'params': [None],
+            'id': 'dontcare',
+            'jsonrpc': '2.0'
+        }
         try:
-            r = requests.post("http://%s:%s" % (addr,port), json=j, timeout=15)
+            r = requests.post("http://%s:%s" % (addr, port), json=j, timeout=15)
             if r.ok:
                 response = r.json()
-                return int(response.get("result",{}).get("epoch_height",0))
+                return int(response.get("result", {}).get("epoch_height", 0))
         except Exception as e:
             continue
     return -1
+
 
 def neard_restart_script(node):
     neard_binary = '/home/ubuntu/neard.upgrade'
@@ -1021,16 +1038,20 @@ def neard_restart_script(node):
         tmux send-keys -t near 'RUST_BACKTRACE=full RUST_LOG=debug,actix_web=info {neard_binary} run 2>&1 | tee -a {neard_binary}.log' C-m
     '''.format(neard_binary=shlex.quote(neard_binary))
 
+
 def upgrade_node(node):
     logger.info(f'Upgrading node {node.instance_name}')
     attempt = 0
     success = False
     while attempt < 3:
-        start_process = node.machine.run('sudo -u ubuntu -i', input=neard_restart_script(node))
+        start_process = node.machine.run('sudo -u ubuntu -i',
+                                         input=neard_restart_script(node))
         if start_process.returncode == 0:
             success = True
             break
-        logger.warn(f'Failed to upgrade neard, returncode: {start_process.returncode}\n{node.instance_name}\n{start_process.stderr}')
+        logger.warn(
+            f'Failed to upgrade neard, returncode: {start_process.returncode}\n{node.instance_name}\n{start_process.stderr}'
+        )
         attempt += 1
         time.sleep(1)
     if not success:
