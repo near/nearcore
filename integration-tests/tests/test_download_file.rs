@@ -29,7 +29,7 @@ fn test_file_download() {
     let tmp_downloaded_file = tempfile::NamedTempFile::new().unwrap();
     let tmp_downloaded_file_path = tmp_downloaded_file.path();
     nearcore::config::download_file(
-        &format!("http://localhost:{}", port).into(),
+        &format!("http://localhost:{}", port),
         tmp_downloaded_file_path,
     )
     .unwrap();

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use actix;
-use hyper::body::HttpBody as _;
+use hyper::body::HttpBody;
 use near_primitives::time::Clock;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
@@ -1115,7 +1115,7 @@ pub enum FileDownloadError {
     RemoveTemporaryFileError(std::io::Error, Box<FileDownloadError>),
 }
 
-pub fn download_file(url: &String, path: &Path) -> Result<(), FileDownloadError> {
+pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     return actix::System::new().block_on(async move {
         let https_connector = hyper_tls::HttpsConnector::new();
         let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
