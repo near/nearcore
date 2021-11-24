@@ -26,13 +26,13 @@ class Key:
         return cls(account_id, pk, sk)
 
     @classmethod
-    def from_json(self, j: typing.Dict[str, str]):
-        return Key(j['account_id'], j['public_key'], j['secret_key'])
+    def from_json(cls, j: typing.Dict[str, str]):
+        return cls(j['account_id'], j['public_key'], j['secret_key'])
 
     @classmethod
-    def from_json_file(self, filename: str):
+    def from_json_file(cls, filename: str):
         with open(filename) as rd:
-            return Key.from_json(json.load(rd))
+            return cls.from_json(json.load(rd))
 
     def decoded_pk(self) -> bytes:
         key = self.pk.split(':')[1] if ':' in self.pk else self.pk
