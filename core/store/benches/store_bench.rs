@@ -5,20 +5,26 @@ use bencher::{black_box, Bencher};
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::errors::StorageError;
 use near_store::db::DBCol::ColBlockMerkleTree;
-use near_store::{create_store, Store};
+use near_store::{create_store, DBCol, Store};
+use rocksdb::DB;
 use std::time::{Duration, Instant};
 
-// try to write to db `10m` keys and then read all of them in random order
-fn benchmark_write_then_read_successful(bench: &mut Bencher) {
+/// NOTE: works only for columns with `is_db() == false`
+fn benchmark_write_then_read_successful(
+    bench: &mut Bencher,
+    num_keys: usize,
+    key_size: usize,
+    max_value_size: usize,
+    col: DBCol,
+) {
     let store = create_store_in_random_folder();
-    let num_keys = 10000000;
-    let keys = generate_keys(num_keys);
-    write_to_db(&store, &keys);
+    let keys = generate_keys(num_keys, key_size);
+    write_to_db(&store, &keys, max_value_size, col);
 
     bench.iter(move || {
         let start = Instant::now();
 
-        let read_records = read_from_db(&store, &keys);
+        let read_records = read_from_db(&store, &keys, col);
         let took = start.elapsed();
         println!(
             "took on avg {:?} op per sec {} got {}/{}",
@@ -30,34 +36,32 @@ fn benchmark_write_then_read_successful(bench: &mut Bencher) {
     });
 }
 
-// create `Store` in a random folder
+/// Create `Store` in a random folder.
 fn create_store_in_random_folder() -> Arc<Store> {
     let tmp_dir = tempfile::Builder::new().prefix("_test_clear_column").tempdir().unwrap();
     let store = create_store(tmp_dir.path());
     store
 }
 
-// generate `count` random 40 bytes keys
-fn generate_keys(count: usize) -> Vec<Vec<u8>> {
+/// Generate `count` keys of `key_size` length.
+fn generate_keys(count: usize, key_size: usize) -> Vec<Vec<u8>> {
     let mut res: Vec<Vec<u8>> = Vec::new();
     for _k in 0..count {
-        let key: Vec<u8> = (0..40).map(|_| rand::random::<u8>()).collect();
+        let key: Vec<u8> = (0..key_size).map(|_| rand::random::<u8>()).collect();
 
         res.push(key)
     }
     res
 }
 
-// read from DB keys in random order
-fn read_from_db(store: &Arc<Store>, keys: &Vec<Vec<u8>>) -> usize {
+/// read from DB keys in random order
+fn read_from_db(store: &Arc<Store>, keys: &Vec<Vec<u8>>, col: DBCol) -> usize {
     let mut read = 0;
     for _k in 0..keys.len() {
         let r = rand::random::<u32>() % (keys.len() as u32);
         let key = &keys[r as usize];
 
-        let val = store
-            .get(ColBlockMerkleTree, key.as_ref())
-            .map_err(|_| StorageError::StorageInternalError);
+        let val = store.get(col, key.as_ref()).map_err(|_| StorageError::StorageInternalError);
 
         if let Ok(Some(x)) = val {
             black_box(x);
@@ -67,17 +71,25 @@ fn read_from_db(store: &Arc<Store>, keys: &Vec<Vec<u8>>) -> usize {
     read
 }
 
-// write a value of random size between 0..333 for each key to db.
-fn write_to_db(store: &Arc<Store>, keys: &[Vec<u8>]) {
+/// write a value of random size between 0..333 for each key to db.
+fn write_to_db(store: &Arc<Store>, keys: &[Vec<u8>], max_value_size: usize, col: DBCol) {
     let mut store_update = store.store_update();
     for key in keys.iter() {
-        let x: u32 = rand::random::<u32>() % 333;
+        let x: u32 = rand::random::<u32>() % max_value_size;
         let val: Vec<u8> = (0..x).map(|_| rand::random::<u8>()).collect();
-        store_update.set(ColBlockMerkleTree, key.as_slice().clone(), &val);
+        // NOTE:  this
+        store_update.set(col, key.as_slice().clone(), &val);
     }
     store_update.commit().unwrap();
 }
 
-benchmark_group!(benches, benchmark_write_then_read_successful);
+fn benchmark_write_then_read_successful_10m(bench: &mut Bencher) {
+    // By adding logs, I've seen a lot of write to keys with size 40, an values with sizes
+    // between 10 .. 333.
+    // NOTE: ColBlockMerkleTree was chosen to be a column, where `.is_rc() == false`.
+    benchmark_write_then_read_successful(bench, 10_000_000, 40, 333, ColBlockMerkleTree);
+}
+
+benchmark_group!(benches, benchmark_write_then_read_successful_10m);
 
 benchmark_main!(benches);
