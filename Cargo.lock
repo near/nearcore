@@ -318,9 +318,21 @@ checksum = "61604a8f862e1d5c3229fdd78f8b02c68dcf73a4c4b05fd636d12240aaa242c1"
 
 [[package]]
 name = "arbitrary"
+version = "0.4.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db55d72333851e17d572bec876e390cd3b11eb1ef53ae821dd9f3b653d2b4569"
+dependencies = [
+ "derive_arbitrary 0.4.7",
+]
+
+[[package]]
+name = "arbitrary"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "577b08a4acd7b99869f863c50011b01eb73424ccc798ecd996f2e24817adfca7"
+dependencies = [
+ "derive_arbitrary 1.0.2",
+]
 
 [[package]]
 name = "arrayref"
@@ -1258,6 +1270,28 @@ version = "0.0.0"
 dependencies = [
  "cpu-time",
  "log",
+]
+
+[[package]]
+name = "derive_arbitrary"
+version = "0.4.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1a012b5e473dc912f0db0546a1c9c6a194ce8494feb66fa0237160926f9e0e6"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "derive_arbitrary"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b24629208e87a2d8b396ff43b15c4afb0a69cea3fbbaa9ed9b92b7c02f0aed73"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -2240,7 +2274,7 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "36a9a84a6e8b55dfefb04235e55edb2b9a2a18488fcae777a6bdaa6f06f1deb3"
 dependencies = [
- "arbitrary",
+ "arbitrary 1.0.2",
  "cc",
  "once_cell",
 ]
@@ -2533,7 +2567,7 @@ dependencies = [
  "near-pool",
  "near-primitives",
  "near-store",
- "num-rational",
+ "num-rational 0.3.2",
  "rand 0.7.3",
  "rayon",
  "serde",
@@ -2550,7 +2584,7 @@ dependencies = [
  "derive_more",
  "near-crypto",
  "near-primitives",
- "num-rational",
+ "num-rational 0.3.2",
  "serde",
  "serde_json",
  "sha2",
@@ -2635,7 +2669,7 @@ dependencies = [
  "near-telemetry",
  "near-test-contracts",
  "near-vm-runner",
- "num-rational",
+ "num-rational 0.3.2",
  "rand 0.7.3",
  "reed-solomon-erasure",
  "serde",
@@ -2703,7 +2737,7 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "near-store",
- "num-rational",
+ "num-rational 0.3.2",
  "primitive-types",
  "rand 0.6.5",
  "rand 0.7.3",
@@ -2785,6 +2819,27 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "near-jsonrpc-fuzz"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "actix_derive",
+ "arbitrary 0.4.7",
+ "awc",
+ "base64 0.13.0",
+ "lazy_static",
+ "libfuzzer-sys",
+ "near-jsonrpc",
+ "near-jsonrpc-tests",
+ "near-logger-utils",
+ "once_cell",
+ "rust-base58",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -2959,7 +3014,7 @@ dependencies = [
  "near-primitives-core",
  "near-rpc-error-macro",
  "near-vm-errors",
- "num-rational",
+ "num-rational 0.3.2",
  "primitive-types",
  "rand 0.7.3",
  "reed-solomon-erasure",
@@ -2979,7 +3034,7 @@ dependencies = [
  "deepsize",
  "derive_more",
  "near-account-id",
- "num-rational",
+ "num-rational 0.3.2",
  "serde",
  "serde_json",
  "sha2",
@@ -3196,7 +3251,7 @@ dependencies = [
  "near-test-contracts",
  "near-vm-logic",
  "near-vm-runner",
- "num-rational",
+ "num-rational 0.3.2",
  "serde",
  "serde_json",
  "strum",
@@ -3243,7 +3298,7 @@ dependencies = [
  "near-telemetry",
  "near-vm-runner",
  "node-runtime",
- "num-rational",
+ "num-rational 0.3.2",
  "primitive-types",
  "rand 0.7.3",
  "rayon",
@@ -3312,8 +3367,8 @@ dependencies = [
  "near-vm-errors",
  "near-vm-logic",
  "near-vm-runner",
- "num-bigint",
- "num-rational",
+ "num-bigint 0.3.3",
+ "num-rational 0.3.2",
  "num-traits",
  "rand 0.7.3",
  "rayon",
@@ -3345,6 +3400,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "num"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43db66d1170d347f9a065114077f7dccb00c1b9478c89384490a3425279a4606"
+dependencies = [
+ "num-bigint 0.4.3",
+ "num-complex",
+ "num-integer",
+ "num-iter",
+ "num-rational 0.4.0",
+ "num-traits",
+]
+
+[[package]]
 name = "num-bigint"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3352,6 +3421,26 @@ checksum = "5f6f7833f2cbf2360a6cfd58cd41a53aa7a90bd4c202f5b1c7dd2ed73c57b2c3"
 dependencies = [
  "autocfg 1.0.1",
  "num-integer",
+ "num-traits",
+]
+
+[[package]]
+name = "num-bigint"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f93ab6289c7b344a8a9f60f88d80aa20032336fe78da341afc91c8a2341fc75f"
+dependencies = [
+ "autocfg 1.0.1",
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
+name = "num-complex"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26873667bbbb7c5182d4a37c1add32cdf09f841af72da53318fdb81543c15085"
+dependencies = [
  "num-traits",
 ]
 
@@ -3366,16 +3455,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-iter"
+version = "0.1.42"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2021c8337a54d21aca0d59a92577a029af9431cb59b909b03252b9c164fad59"
+dependencies = [
+ "autocfg 1.0.1",
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
 name = "num-rational"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "12ac428b1cb17fce6f731001d307d351ec70a6d202fc2e60f7d4c5e42d8f4f07"
 dependencies = [
  "autocfg 1.0.1",
- "num-bigint",
+ "num-bigint 0.3.3",
  "num-integer",
  "num-traits",
  "serde",
+]
+
+[[package]]
+name = "num-rational"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d41702bd167c2df5520b384281bc111a4b5efcf7fbc4c9c222c815b07e0a6a6a"
+dependencies = [
+ "autocfg 1.0.1",
+ "num-bigint 0.4.3",
+ "num-integer",
+ "num-traits",
 ]
 
 [[package]]
@@ -4288,7 +4400,7 @@ dependencies = [
  "near-vm-runner",
  "nearcore",
  "node-runtime",
- "num-rational",
+ "num-rational 0.3.2",
  "num-traits",
  "once_cell",
  "rand 0.7.3",
@@ -4323,6 +4435,24 @@ dependencies = [
  "serde_json",
  "tempfile",
  "testlib",
+]
+
+[[package]]
+name = "runtime-tester-fuzz"
+version = "0.0.0"
+dependencies = [
+ "libfuzzer-sys",
+ "runtime-tester",
+ "serde_json",
+]
+
+[[package]]
+name = "rust-base58"
+version = "0.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b313b91fcdc6719ad41fa2dad2b7e810b03833fae4bf911950e15529a5f04439"
+dependencies = [
+ "num",
 ]
 
 [[package]]
@@ -4904,7 +5034,7 @@ dependencies = [
  "near-store",
  "near-test-contracts",
  "near-vm-errors",
- "num-rational",
+ "num-rational 0.3.2",
  "once_cell",
  "rand 0.7.3",
  "serde_json",
