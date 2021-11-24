@@ -94,6 +94,8 @@ const BROAD_CAST_EDGES_MAX_WORK_ALLOWED: Duration = Duration::from_millis(50);
 const WAIT_FOR_SYNC_DELAY: Duration = Duration::from_millis(1_000);
 /// How often should we update the routing table
 const UPDATE_ROUTING_TABLE_INTERVAL: Duration = Duration::from_millis(1_000);
+/// How often to report bandwidth stats.
+const REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL: Duration = Duration::from_millis(60_000);
 
 /// Max number of messages we received from peer, and they are in progress, before we start throttling.
 /// Disabled for now (TODO PUT UNDER FEATURE FLAG)
@@ -101,6 +103,10 @@ const MAX_MESSAGES_COUNT: usize = usize::MAX;
 /// Max total size of all messages that are in progress, before we start throttling.
 /// Disabled for now (TODO PUT UNDER FEATURE FLAG)
 const MAX_MESSAGES_TOTAL_SIZE: usize = usize::MAX;
+/// If we received more than `REPORT_BANDWIDTH_THRESHOLD_BYTES` of data from given peer it's bandwidth stats will be reported.
+const REPORT_BANDWIDTH_THRESHOLD_BYTES: usize = 1_000_000;
+/// If we received more than REPORT_BANDWIDTH_THRESHOLD_COUNT` of messages from given peer it's bandwidth stats will be reported.
+const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
 
 macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
     Ok(result) => result,
@@ -126,6 +132,8 @@ struct ActivePeer {
     connection_established_time: Instant,
     /// Who started connection. Inbound (other) or Outbound (us).
     peer_type: PeerType,
+    /// A helper data structure for limiting reading, reporting stats.
+    throttle_controller: ThrottleController,
 }
 
 /// Actor that manages peers connections.
@@ -356,6 +364,38 @@ impl PeerManagerActor {
         });
     }
 
+    /// Periodically prints bandwidth stats for each peer.
+    fn report_bandwidth_stats_trigger(&mut self, ctx: &mut Context<Self>, every: Duration) {
+        let mut total_bandwidth_used_by_all_peers: usize = 0;
+        let mut total_msg_received_count: usize = 0;
+        for (peer_id, active_peer) in self.active_peers.iter_mut() {
+            let bandwidth_used = active_peer.throttle_controller.consume_bandwidth_used();
+            let msg_received_count = active_peer.throttle_controller.consume_msg_seen();
+
+            if bandwidth_used > REPORT_BANDWIDTH_THRESHOLD_BYTES
+                || total_msg_received_count > REPORT_BANDWIDTH_THRESHOLD_COUNT
+            {
+                warn!(
+                    message = "Peer bandwidth exceeded threshold",
+                    ?peer_id,
+                    bandwidth_used,
+                    msg_received_count
+                );
+            }
+            total_bandwidth_used_by_all_peers += bandwidth_used;
+            total_msg_received_count += msg_received_count;
+        }
+
+        info!(
+            message = "Bandwidth stats",
+            total_bandwidth_used_by_all_peers, total_msg_received_count
+        );
+
+        near_performance_metrics::actix::run_later(ctx, every, move |act, ctx| {
+            act.report_bandwidth_stats_trigger(ctx, every);
+        });
+    }
+
     /// Receives list of edges that were verified, in a trigger every 20ms, and adds them to
     /// the routing table.
     fn broadcast_validated_edges_trigger(
@@ -535,6 +575,7 @@ impl PeerManagerActor {
                 last_time_received_message: Clock::instant(),
                 connection_established_time: Clock::instant(),
                 peer_type,
+                throttle_controller,
             },
         );
 
@@ -1551,6 +1592,9 @@ impl Actor for PeerManagerActor {
 
         // Periodically updates routing table and prune edges that are no longer reachable.
         self.update_routing_table_trigger(ctx, UPDATE_ROUTING_TABLE_INTERVAL);
+
+        // Periodically prints bandwidth stats for each peer.
+        self.report_bandwidth_stats_trigger(ctx, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
     }
 
     /// Try to gracefully disconnect from active peers.
@@ -2150,6 +2194,7 @@ impl PeerManagerActor {
             msg.peer_type,
             msg.actor,
             msg.peer_protocol_version,
+            msg.throttle_controller,
             ctx,
             throttle_controller,
         );
