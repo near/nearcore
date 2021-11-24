@@ -109,44 +109,64 @@ fn peer_id_type_field_len(enum_var: u8) -> Option<usize> {
     }
 }
 
+/// Checks `bytes` represents `PeerMessage::Routed(RoutedMessage)`,
+/// and `RoutedMessage.body` has type of `RoutedMessageBody::ForwardTx`.
+///
+/// This is done to avoid expensive borsch-deserializing.
 pub(crate) fn is_forward_tx(bytes: &[u8]) -> Option<bool> {
-    let peer_message_variant = *bytes.get(0)?;
-
     // PeerMessage::Routed variant == 13
+    let peer_message_variant = *bytes.get(0)?;
     if peer_message_variant != 13 {
         return Some(false);
     }
 
-    let target_field_variant = *bytes.get(1)?;
-    let target_field_len = if target_field_variant == 0 {
-        // PeerIdOrHash::PeerId
-        let peer_id_variant = *bytes.get(2)?;
-        peer_id_type_field_len(peer_id_variant)?
-    } else if target_field_variant == 1 {
-        // PeerIdOrHash::Hash is always 32 bytes
-        32
-    } else {
-        return None;
+    // target: PeerIdOrHash
+    let author_variant_idx = {
+        let target_field_len = {
+            let target_field_variant = *bytes.get(1)?;
+            if target_field_variant == 0 {
+                // PeerIdOrHash::PeerId
+                let peer_id_variant = *bytes.get(2)?;
+                peer_id_type_field_len(peer_id_variant)?
+            } else if target_field_variant == 1 {
+                // PeerIdOrHash::Hash is always 32 bytes
+                32
+            } else {
+                error!("Unsupported variant of PeerIdOrHash {}", target_field_variant);
+                return None;
+            }
+        };
+        2 + target_field_len
     };
 
-    let author_variant_idx = 2 + target_field_len;
-    let author_variant = *bytes.get(author_variant_idx)?;
-    let author_field_len = peer_id_type_field_len(author_variant)?;
+    // author: PeerId
+    let signature_variant_idx = {
+        let author_variant = *bytes.get(author_variant_idx)?;
+        let author_field_len = peer_id_type_field_len(author_variant)?;
 
-    let signature_variant_idx = author_variant_idx + author_field_len;
-    let signature_variant = *bytes.get(signature_variant_idx)?;
-    let signature_field_len = match signature_variant {
-        0 => 1 + 64, // Signature::ED25519
-        1 => 1 + 65, // Signature::SECP256K1
-        _ => {
-            return None;
-        }
+        author_variant_idx + author_field_len
     };
 
-    let ttl_idx = signature_variant_idx + signature_field_len;
+    // ttl: u8
+    let ttl_idx = {
+        let signature_variant = *bytes.get(signature_variant_idx)?;
+
+        // pub signature: Signature
+        let signature_field_len = match signature_variant {
+            0 => 1 + 64, // Signature::ED25519
+            1 => 1 + 65, // Signature::SECP256K1
+            _ => {
+                return None;
+            }
+        };
+        signature_variant_idx + signature_field_len
+    };
+
+    // pub ttl: u8
     let message_body_idx = ttl_idx + 1;
-    let message_body_variant = *bytes.get(message_body_idx)?;
 
+    // check if type is `RoutedMessageBody::ForwardTx`
+    let message_body_variant = *bytes.get(message_body_idx)?;
     Some(message_body_variant == 1)
 }
 
