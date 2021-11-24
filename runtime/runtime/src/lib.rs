@@ -224,7 +224,7 @@ impl Runtime {
     ) -> Result<(Receipt, ExecutionOutcomeWithId), RuntimeError> {
         let _span =
             tracing::debug_span!(target: "runtime", "Runtime::process_transaction").entered();
-        (metrics::TRANSACTION_PROCESSED_TOTAL.inc());
+        metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
         match verify_and_charge_transaction(
             &apply_state.config,
@@ -236,7 +236,7 @@ impl Runtime {
             apply_state.current_protocol_version,
         ) {
             Ok(verification_result) => {
-                (metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc());
+                metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
                 state_update.commit(StateChangeCause::TransactionProcessing {
                     tx_hash: signed_transaction.get_hash(),
                 });
@@ -279,7 +279,7 @@ impl Runtime {
                 Ok((receipt, outcome))
             }
             Err(e) => {
-                (metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc());
+                metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                 state_update.rollback();
                 return Err(e);
             }
@@ -333,7 +333,7 @@ impl Runtime {
         }
         match action {
             Action::CreateAccount(_) => {
-                (metrics::ACTION_CREATE_ACCOUNT_TOTAL.inc());
+                metrics::ACTION_CREATE_ACCOUNT_TOTAL.inc();
                 action_create_account(
                     &apply_state.config.transaction_costs,
                     &apply_state.config.account_creation_config,
@@ -345,7 +345,7 @@ impl Runtime {
                 );
             }
             Action::DeployContract(deploy_contract) => {
-                (metrics::ACTION_DEPLOY_CONTRACT_TOTAL.inc());
+                metrics::ACTION_DEPLOY_CONTRACT_TOTAL.inc();
                 action_deploy_contract(
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
@@ -356,7 +356,7 @@ impl Runtime {
                 )?;
             }
             Action::FunctionCall(function_call) => {
-                (metrics::ACTION_FUNCTION_CALL_TOTAL.inc());
+                metrics::ACTION_FUNCTION_CALL_TOTAL.inc();
                 action_function_call(
                     state_update,
                     apply_state,
@@ -374,7 +374,7 @@ impl Runtime {
                 )?;
             }
             Action::Transfer(transfer) => {
-                (metrics::ACTION_TRANSFER_TOTAL.inc());
+                metrics::ACTION_TRANSFER_TOTAL.inc();
                 if let Some(account) = account.as_mut() {
                     action_transfer(account, transfer)?;
                     // Check if this is a gas refund, then try to refund the access key allowance.
@@ -403,7 +403,7 @@ impl Runtime {
                 }
             }
             Action::Stake(stake) => {
-                (metrics::ACTION_STAKE_TOTAL.inc());
+                metrics::ACTION_STAKE_TOTAL.inc();
                 action_stake(
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
@@ -416,7 +416,7 @@ impl Runtime {
                 )?;
             }
             Action::AddKey(add_key) => {
-                (metrics::ACTION_ADD_KEY_TOTAL.inc());
+                metrics::ACTION_ADD_KEY_TOTAL.inc();
                 action_add_key(
                     apply_state,
                     state_update,
@@ -427,7 +427,7 @@ impl Runtime {
                 )?;
             }
             Action::DeleteKey(delete_key) => {
-                (metrics::ACTION_DELETE_KEY_TOTAL.inc());
+                metrics::ACTION_DELETE_KEY_TOTAL.inc();
                 action_delete_key(
                     &apply_state.config.transaction_costs,
                     state_update,
@@ -439,7 +439,7 @@ impl Runtime {
                 )?;
             }
             Action::DeleteAccount(delete_account) => {
-                (metrics::ACTION_DELETE_ACCOUNT_TOTAL.inc());
+                metrics::ACTION_DELETE_ACCOUNT_TOTAL.inc();
                 action_delete_account(
                     state_update,
                     account,

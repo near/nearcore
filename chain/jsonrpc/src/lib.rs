@@ -610,7 +610,7 @@ impl JsonRpcHandler {
         })
         .await
         .map_err(|_| {
-            (metrics::RPC_TIMEOUT_TOTAL.inc());
+            metrics::RPC_TIMEOUT_TOTAL.inc();
             tracing::warn!(
                 target: "jsonrpc", "Timeout: tx_exists method. tx_hash {:?} signer_account_id {:?}",
                 tx_hash,
@@ -665,7 +665,7 @@ impl JsonRpcHandler {
         })
         .await
         .map_err(|_| {
-            (metrics::RPC_TIMEOUT_TOTAL.inc());
+            metrics::RPC_TIMEOUT_TOTAL.inc();
             tracing::warn!(
                 target: "jsonrpc", "Timeout: tx_status_fetch method. tx_info {:?} fetch_receipt {:?}",
                 tx_info,
@@ -704,7 +704,7 @@ impl JsonRpcHandler {
         })
         .await
         .map_err(|_| {
-            (metrics::RPC_TIMEOUT_TOTAL.inc());
+            metrics::RPC_TIMEOUT_TOTAL.inc();
             tracing::warn!(
                 target: "jsonrpc", "Timeout: tx_polling method. tx_info {:?}",
                 tx_info,
@@ -1255,7 +1255,7 @@ fn rpc_handler(
 fn status_handler(
     handler: web::Data<JsonRpcHandler>,
 ) -> impl Future<Output = Result<HttpResponse, HttpError>> {
-    (metrics::HTTP_STATUS_REQUEST_COUNT.inc());
+    metrics::HTTP_STATUS_REQUEST_COUNT.inc();
 
     let response = async move {
         match handler.status().await {
@@ -1291,7 +1291,7 @@ fn network_info_handler(
 }
 
 pub async fn prometheus_handler() -> Result<HttpResponse, HttpError> {
-    (metrics::PROMETHEUS_REQUEST_COUNT.inc());
+    metrics::PROMETHEUS_REQUEST_COUNT.inc();
 
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
