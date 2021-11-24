@@ -26,7 +26,6 @@ use near_network_primitives::types::{
     ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
     UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
-use near_performance_metrics;
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
@@ -685,10 +684,10 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
         self.on_receive_message();
 
         self.network_metrics
-            .inc(NetworkMetrics::peer_message_total_rx(&peer_msg.msg_variant()).as_ref());
+            .inc(NetworkMetrics::peer_message_total_rx(peer_msg.msg_variant()).as_ref());
 
         self.network_metrics.inc_by(
-            NetworkMetrics::peer_message_bytes_rx(&peer_msg.msg_variant()).as_ref(),
+            NetworkMetrics::peer_message_bytes_rx(peer_msg.msg_variant()).as_ref(),
             msg.len() as u64,
         );
 
@@ -786,14 +785,13 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 }
 
                 // Check that received nonce on handshake match our proposed nonce.
-                if self.peer_type == PeerType::Outbound {
-                    if handshake.edge_info.nonce
+                if self.peer_type == PeerType::Outbound
+                    && handshake.edge_info.nonce
                         != self.edge_info.as_ref().map(|edge_info| edge_info.nonce).unwrap()
-                    {
-                        warn!(target: "network", "Received invalid nonce on handshake. Disconnecting peer {}", handshake.peer_id);
-                        ctx.stop();
-                        return;
-                    }
+                {
+                    warn!(target: "network", "Received invalid nonce on handshake. Disconnecting peer {}", handshake.peer_id);
+                    ctx.stop();
+                    return;
                 }
 
                 let peer_info = PeerInfo {
