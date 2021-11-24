@@ -294,7 +294,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 ),
                             );
                             let (accepted_blocks, _) =
-                                self.client.process_block(block, Provenance::PRODUCED);
+                                self.client.process_block(block.into(), Provenance::PRODUCED);
                             for accepted_block in accepted_blocks {
                                 self.client.on_block_accepted(
                                     accepted_block.hash,
@@ -381,16 +381,17 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
                         if let Ok(header) = self.client.chain.get_block_header(sync_hash) {
                             if block.hash() == header.prev_hash() {
-                                if let Err(e) = self.client.chain.save_block(block) {
+                                if let Err(e) = self.client.chain.save_block(block.into()) {
                                     error!(target: "client", "Failed to save a block during state sync: {}", e);
                                 }
-                                return NetworkClientResponses::NoResponse;
                             } else if block.hash() == sync_hash {
-                                if let Err(e) = self.client.chain.save_orphan(block) {
+                                // This is the immediate block after a state sync
+                                // We can afford to delay requesting missing chunks for this one block
+                                if let Err(e) = self.client.chain.save_orphan(block.into(), false) {
                                     error!(target: "client", "Received an invalid block during state sync: {}", e);
                                 }
-                                return NetworkClientResponses::NoResponse;
                             }
+                            return NetworkClientResponses::NoResponse;
                         }
                     }
                     self.receive_block(block, peer_id, was_requested);
@@ -945,12 +946,17 @@ impl ClientActor {
         match self.client.produce_block(next_height) {
             Ok(Some(block)) => {
                 let peer_id = self.node_id.clone();
+                // We’ve produced the block so that counts as validated block.
+                let block = MaybeValidated::from_validated(block);
                 let res = self.process_block(block, Provenance::PRODUCED, &peer_id);
                 match &res {
                     Ok(_) => Ok(()),
                     Err(e) => match e.kind() {
-                        // missing chunks were already dealt with in client.process_block
-                        near_chain::ErrorKind::ChunksMissing(_) => Ok(()),
+                        near_chain::ErrorKind::ChunksMissing(_) => {
+                            // missing chunks were already handled in Client::process_block, we don't need to
+                            // do anything here
+                            Ok(())
+                        }
                         _ => {
                             error!(target: "client", "Failed to process freshly produced block: {:?}", res);
                             byzantine_assert!(false);
@@ -985,7 +991,7 @@ impl ClientActor {
     /// Process block and execute callbacks.
     fn process_block(
         &mut self,
-        block: Block,
+        block: MaybeValidated<Block>,
         provenance: Provenance,
         peer_id: &PeerId,
     ) -> Result<(), near_chain::Error> {
@@ -994,10 +1000,16 @@ impl ClientActor {
         // before sending it out.
         if provenance == Provenance::PRODUCED {
             self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::Block { block: block.clone() },
+                NetworkRequests::Block { block: block.as_ref().into_inner().clone() },
             ));
+            // If we produced it, we don’t need to validate it.  Mark the block
+            // as valid.
+            block.mark_as_valid();
         } else {
-            match self.client.chain.validate_block(&block) {
+            let chain = &mut self.client.chain;
+            let res = chain.process_block_header(&block.header(), |_| {});
+            let res = res.and_then(|_| chain.validate_block(&block));
+            match res {
                 Ok(_) => {
                     let head = self.client.chain.head()?;
                     // do not broadcast blocks that are too far back.
@@ -1006,7 +1018,7 @@ impl ClientActor {
                         && provenance == Provenance::NONE
                         && !self.client.sync_status.is_syncing()
                     {
-                        self.client.rebroadcast_block(block.clone());
+                        self.client.rebroadcast_block(block.as_ref().into_inner());
                     }
                 }
                 Err(e) => {
@@ -1045,7 +1057,7 @@ impl ClientActor {
         let prev_hash = *block.header().prev_hash();
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
-        match self.process_block(block, provenance, &peer_id) {
+        match self.process_block(block.into(), provenance, &peer_id) {
             Ok(_) => {}
             Err(ref err) if err.is_bad_data() => {
                 warn!(target: "client", "receive bad block: {}", err);
@@ -1404,6 +1416,7 @@ impl ClientActor {
                         info!(target: "sync", "State sync: all shards are done");
 
                         let accepted_blocks = Arc::new(RwLock::new(vec![]));
+                        let orphans_missing_chunks = Arc::new(RwLock::new(vec![]));
                         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
                         let challenges = Arc::new(RwLock::new(vec![]));
 
@@ -1416,6 +1429,9 @@ impl ClientActor {
                             |missing_chunks| {
                                 blocks_missing_chunks.write().unwrap().push(missing_chunks)
                             },
+                            |orphan_missing_chunks| {
+                                orphans_missing_chunks.write().unwrap().push(orphan_missing_chunks);
+                            },
                             |challenge| challenges.write().unwrap().push(challenge)
                         ));
 
@@ -1425,7 +1441,8 @@ impl ClientActor {
                             accepted_blocks.write().unwrap().drain(..).collect(),
                         );
 
-                        self.client.request_missing_chunks(blocks_missing_chunks);
+                        self.client
+                            .request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
 
                         self.client.sync_status =
                             SyncStatus::BodySync { current_height: 0, highest_height: 0 };

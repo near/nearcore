@@ -3,6 +3,8 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+#[cfg(feature = "deepsize_feature")]
+use deepsize::DeepSizeOf;
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
@@ -11,12 +13,14 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, EpochId};
 
 /// Peer id is the public key.
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
 pub struct PeerId(Arc<PeerIdInner>);
 
 /// Peer id is the public key.
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash,
 )]
@@ -81,6 +85,7 @@ impl fmt::Debug for PeerId {
 }
 
 /// Account announcement information
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccount {
     /// AccountId to be announced.

@@ -6,7 +6,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::AccountId;
-use near_vm_runner::VMKind;
+use near_vm_runner::internal::VMKind;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::os::raw::c_void;

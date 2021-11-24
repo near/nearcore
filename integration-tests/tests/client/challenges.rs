@@ -51,12 +51,10 @@ fn test_verify_block_double_sign_challenge() {
         PROTOCOL_VERSION,
         genesis.header(),
         2,
-        #[cfg(feature = "protocol_feature_block_header_v3")]
-        (genesis.header().block_ordinal() + 1),
+        genesis.header().block_ordinal() + 1,
         genesis.chunks().iter().cloned().collect(),
         b1.header().epoch_id().clone(),
         b1.header().next_epoch_id().clone(),
-        #[cfg(feature = "protocol_feature_block_header_v3")]
         None,
         vec![],
         Rational::from_integer(0),
@@ -106,7 +104,7 @@ fn test_verify_block_double_sign_challenge() {
     assert!(validate_challenge(&*runtime_adapter, &epoch_id, &genesis.hash(), &invalid_challenge,)
         .is_err());
 
-    let (_, result) = env.clients[0].process_block(b2, Provenance::SYNC);
+    let (_, result) = env.clients[0].process_block(b2.into(), Provenance::SYNC);
     assert!(result.is_ok());
     let mut last_message = env.network_adapters[0].pop().unwrap().as_network_requests();
     if let NetworkRequests::Block { .. } = last_message {
@@ -354,12 +352,10 @@ fn test_verify_chunk_invalid_state_challenge() {
         PROTOCOL_VERSION,
         &last_block.header(),
         last_block.header().height() + 1,
-        #[cfg(feature = "protocol_feature_block_header_v3")]
-        (last_block.header().block_ordinal() + 1),
+        last_block.header().block_ordinal() + 1,
         vec![invalid_chunk.cloned_header()],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
-        #[cfg(feature = "protocol_feature_block_header_v3")]
         None,
         vec![],
         Rational::from_integer(0),
@@ -437,7 +433,7 @@ fn test_verify_chunk_invalid_state_challenge() {
 
     // Process the block with invalid chunk and make sure it's marked as invalid at the end.
     // And the same challenge created and sent out.
-    let (_, tip) = client.process_block(block, Provenance::NONE);
+    let (_, tip) = client.process_block(block.into(), Provenance::NONE);
     assert!(tip.is_err());
 
     let last_message = env.network_adapters[0].pop().unwrap().as_network_requests();
@@ -470,7 +466,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
             client.chain.mut_store()
         )
         .is_err());
-    let (_, result) = client.process_block(block.clone(), Provenance::NONE);
+    let (_, result) = client.process_block(block.clone().into(), Provenance::NONE);
     // We have declined block with invalid chunk.
     assert!(result.is_err());
     assert_eq!(client.chain.head().unwrap().height, 1);
@@ -658,7 +654,7 @@ fn test_challenge_in_different_epoch() {
     fork_blocks.push(fork2_block);
     for block in fork_blocks {
         let height = block.header().height();
-        let (_, result) = env.clients[0].process_block(block, Provenance::NONE);
+        let (_, result) = env.clients[0].process_block(block.into(), Provenance::NONE);
         match run_catchup(&mut env.clients[0], &vec![]) {
             Ok(accepted_blocks) => {
                 for accepted_block in accepted_blocks {
