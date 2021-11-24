@@ -173,7 +173,7 @@ impl RouteBackCache {
     }
 
     pub fn get(&self, hash: &CryptoHash) -> Option<&PeerId> {
-        self.main.get(&hash).map(|(_, target)| target)
+        self.main.get(hash).map(|(_, target)| target)
     }
 
     pub fn remove(&mut self, hash: &CryptoHash) -> Option<PeerId> {
@@ -188,7 +188,7 @@ impl RouteBackCache {
 
             // Remove current hash from the list associated with `record_par_target`
             if let Some(records) = self.record_per_target.get_mut(&target) {
-                records.remove(&(time, hash.clone()));
+                records.remove(&(time, *hash));
             }
 
             // Calculate new size
@@ -247,7 +247,7 @@ mod test {
         for (neg_size, target) in cache.size_per_target.iter() {
             let size = cache.capacity - neg_size;
             assert!(size > 0);
-            assert_eq!(size, cache.record_per_target.get(&target).map(|x| x.len()).unwrap());
+            assert_eq!(size, cache.record_per_target.get(target).map(|x| x.len()).unwrap());
         }
 
         let mut total = 0;
@@ -256,7 +256,7 @@ mod test {
             total += records.len();
 
             for (time, record) in records.iter() {
-                assert_eq!(cache.main.get(&record).unwrap(), &(*time, target.clone()));
+                assert_eq!(cache.main.get(record).unwrap(), &(*time, target.clone()));
             }
         }
 
@@ -277,7 +277,7 @@ mod test {
         cache.insert(hash0, peer0.clone());
         check_consistency(&cache);
         assert_eq!(cache.get(&hash0), Some(&peer0));
-        assert_eq!(cache.remove(&hash0), Some(peer0.clone()));
+        assert_eq!(cache.remove(&hash0), Some(peer0));
         check_consistency(&cache);
         assert_eq!(cache.get(&hash0), None);
     }
@@ -341,11 +341,11 @@ mod test {
         let (_, hash2) = create_message(2);
         let (peer3, hash3) = create_message(3);
 
-        cache.insert(hash0, peer0.clone());
+        cache.insert(hash0, peer0);
         thread::sleep(Duration::from_millis(1100));
         cache.insert(hash1, peer1.clone());
-        cache.insert(hash2, peer1.clone());
-        cache.insert(hash3, peer3.clone());
+        cache.insert(hash2, peer1);
+        cache.insert(hash3, peer3);
         check_consistency(&cache);
 
         assert!(cache.get(&hash0).is_none()); // This is removed because it was evicted
@@ -364,11 +364,11 @@ mod test {
         let (_, hash2) = create_message(2);
         let (peer3, hash3) = create_message(3);
 
-        cache.insert(hash0, peer0.clone());
+        cache.insert(hash0, peer0);
         thread::sleep(Duration::from_millis(1000));
         cache.insert(hash1, peer1.clone());
-        cache.insert(hash2, peer1.clone());
-        cache.insert(hash3, peer3.clone());
+        cache.insert(hash2, peer1);
+        cache.insert(hash3, peer3);
         check_consistency(&cache);
 
         assert!(cache.get(&hash0).is_some());
@@ -387,11 +387,11 @@ mod test {
         let (_, hash2) = create_message(2);
         let (peer3, hash3) = create_message(3);
 
-        cache.insert(hash0, peer0.clone());
+        cache.insert(hash0, peer0);
         thread::sleep(Duration::from_millis(1000));
         cache.insert(hash1, peer1.clone());
-        cache.insert(hash2, peer1.clone());
-        cache.insert(hash3, peer3.clone());
+        cache.insert(hash2, peer1);
+        cache.insert(hash3, peer3);
         check_consistency(&cache);
 
         assert!(cache.get(&hash0).is_some());
