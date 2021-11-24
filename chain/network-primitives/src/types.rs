@@ -13,8 +13,6 @@ use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
     PartialEncodedChunkWithArcReceipts, ReceiptProof, ShardChunkHeader,
 };
-#[cfg(feature = "sandbox")]
-use near_primitives::state_record::StateRecord;
 use near_primitives::syncing::{
     EpochSyncFinalizationResponse, EpochSyncResponse, ShardStateSyncResponse,
     ShardStateSyncResponseV1,
@@ -892,7 +890,7 @@ pub enum NetworkAdversarialMessage {
 #[cfg(feature = "sandbox")]
 #[derive(Debug)]
 pub enum NetworkSandboxMessage {
-    SandboxPatchState(Vec<StateRecord>),
+    SandboxPatchState(Vec<near_primitives::state_record::StateRecord>),
     SandboxPatchStateStatus,
 }
 
