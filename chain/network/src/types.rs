@@ -855,6 +855,7 @@ pub struct EdgeList {
     pub(crate) sender: QueueSender<Edge>,
     #[cfg(feature = "test_features")]
     pub(crate) adv_disable_edge_signature_verification: bool,
+    pub(crate) peer_id: PeerId,
 }
 
 impl Message for EdgeList {
