@@ -149,7 +149,7 @@ class BaseNode(object):
                              [base64.b64encode(signed_tx).decode('utf8')],
                              timeout=timeout)
 
-    def get_status(self, check_storage=True, timeout=2):
+    def get_status(self, check_storage=True, timeout=4):
         r = requests.get("http://%s:%s/status" % self.rpc_addr(),
                          timeout=timeout)
         r.raise_for_status()

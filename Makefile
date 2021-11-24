@@ -8,8 +8,12 @@ export RUSTFLAGS = -D warnings
 all: release
 
 
+# TODO All three of these commands - docker-nearcore, docker-nearcore-sandbox, and docker-nearcore-nightly - should use the same Dockerfile, with a build ARG
 docker-nearcore:
 	docker build -t nearcore -f Dockerfile --progress=plain .
+
+docker-nearcore-sandbox:
+	docker build -t nearcore-sandbox -f Dockerfile.sandbox --progress=plain .
 
 docker-nearcore-nightly:
 	docker build -t nearcore-nightly -f Dockerfile.nightly --progress=plain .
