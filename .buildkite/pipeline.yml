@@ -2,7 +2,7 @@ steps:
   - label: "cargo test"
     command: |
       source ~/.cargo/env && set -eux
-      RUSTFLAGS='-D warnings' cargo test --locked --workspace
+      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --locked --workspace
 
     timeout: 60
     agents:
@@ -12,7 +12,7 @@ steps:
   - label: "cargo test nightly"
     command: |
       source ~/.cargo/env && set -eux
-      RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features
+      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features,test_features
 
     timeout: 60
     agents:
@@ -119,7 +119,6 @@ steps:
     command: |
       source ~/.cargo/env && set -eux
       cd runtime/runtime-params-estimator/test-contract
-      rustup target add wasm32-unknown-unknown
       ./build.sh
       cd ..
       RUSTFLAGS='-D warnings' cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 --metric time

@@ -1,6 +1,7 @@
 //! Readonly view of the chain and state of the database.
 //! Useful for querying from RPC.
 
+use near_primitives::time::Clock;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -26,13 +27,14 @@ use near_client_primitives::types::{
     GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, QueryError, TxStatus,
     TxStatusError,
 };
+use near_network::types::PeerManagerMessageRequest;
+use near_network::types::{NetworkRequests, PeerManagerAdapter};
 #[cfg(feature = "test_features")]
-use near_network::types::NetworkAdversarialMessage;
-use near_network::types::{
-    NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerMessageRequest, ReasonForBan,
-    StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
+use near_network_primitives::types::NetworkAdversarialMessage;
+use near_network_primitives::types::{
+    NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
+    StateResponseInfoV1, StateResponseInfoV2,
 };
-use near_network::{NetworkRequests, PeerManagerAdapter};
 use near_performance_metrics_macros::perf;
 use near_performance_metrics_macros::perf_with_debug;
 use near_primitives::block::{Block, BlockHeader, GenesisId, Tip};
@@ -161,7 +163,7 @@ impl ViewClientActor {
     }
 
     fn need_request<K: Hash + Eq + Clone>(key: K, cache: &mut SizedCache<K, Instant>) -> bool {
-        let now = Instant::now();
+        let now = Clock::instant();
         let need_request = match cache.cache_get(&key) {
             Some(time) => now - *time > Duration::from_millis(REQUEST_WAIT_TIME),
             None => true,
@@ -510,7 +512,7 @@ impl ViewClientActor {
 
     fn check_state_sync_request(&self) -> bool {
         let mut cache = self.state_request_cache.lock().expect(POISONED_LOCK_ERR);
-        let now = Instant::now();
+        let now = Clock::instant();
         let cutoff = now - self.config.view_client_throttle_period;
         // Assume that time is linear. While in different threads there might be some small differences,
         // it should not matter in practice.
@@ -826,12 +828,12 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                 let epoch_id = self.chain.get_block(&outcome_proof.block_hash)?.header().epoch_id();
                 let target_shard_id =
                     self.runtime_adapter.account_id_to_shard_id(&account_id, epoch_id)?;
-                let next_block_hash = self
-                    .chain
-                    .get_next_block_hash_with_new_chunk(&outcome_proof.block_hash, target_shard_id)?
-                    .cloned();
-                match next_block_hash {
-                    Some(h) => {
+                let res = self.chain.get_next_block_hash_with_new_chunk(
+                    &outcome_proof.block_hash,
+                    target_shard_id,
+                )?;
+                match res {
+                    Some((h, target_shard_id)) => {
                         outcome_proof.block_hash = h;
                         // Here we assume the number of shards is small so this reconstruction
                         // should be fast

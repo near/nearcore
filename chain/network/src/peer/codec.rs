@@ -1,32 +1,30 @@
-use std::io::{Error, ErrorKind};
-
-use borsh::{BorshDeserialize, BorshSerialize};
+/// The purpose of this crate is to encode/decode messages on the network layer.
+/// Each message contains:
+///     - 4 bytes - length of the message as u32
+///     - the message itself, which is encoded with `borsh`
+///
+/// NOTES:
+///     - Code has an extra logic to ban peers if they sent messages that are too large.
+use crate::stats::metrics;
 use bytes::{Buf, BufMut, BytesMut};
 use bytesize::{GIB, MIB};
-use tokio_util::codec::{Decoder, Encoder};
-use tracing::error;
-
+use near_network_primitives::types::ReasonForBan;
 use near_performance_metrics::framed_write::EncoderCallBack;
 #[cfg(feature = "performance_stats")]
 use near_performance_metrics::stats_enabled::get_thread_stats_logger;
 use near_rust_allocator_proxy::allocator::get_tid;
+use std::io::{Error, ErrorKind};
+use tokio_util::codec::{Decoder, Encoder};
+use tracing::error;
 
-use crate::stats::metrics;
-use crate::types::{PeerMessage, ReasonForBan};
+/// Maximum size of network message in encoded format.
+/// The size of message is stored as `u32`, so the limit has type `u32`
+const NETWORK_MESSAGE_MAX_SIZE_BYTES: u32 = 512 * MIB as u32;
+/// Maximum capacity of write buffer in bytes.
+const MAX_WRITE_BUFFER_CAPACITY_BYTES: usize = GIB as usize;
 
-const NETWORK_MESSAGE_MAX_SIZE: u32 = 512 * MIB as u32;
-const MAX_CAPACITY: u64 = GIB;
-
-pub struct Codec {
-    max_length: u32,
-}
-
-#[allow(clippy::new_without_default)]
-impl Codec {
-    pub fn new() -> Self {
-        Codec { max_length: NETWORK_MESSAGE_MAX_SIZE as u32 }
-    }
-}
+#[derive(Default)]
+pub struct Codec {}
 
 impl EncoderCallBack for Codec {
     #[allow(unused)]
@@ -43,7 +41,7 @@ impl Encoder<Vec<u8>> for Codec {
     type Error = Error;
 
     fn encode(&mut self, item: Vec<u8>, buf: &mut BytesMut) -> Result<(), Error> {
-        if item.len() > self.max_length as usize {
+        if item.len() > NETWORK_MESSAGE_MAX_SIZE_BYTES as usize {
             Err(Error::new(ErrorKind::InvalidInput, "Input is too long"))
         } else {
             #[cfg(feature = "performance_stats")]
@@ -55,12 +53,12 @@ impl Encoder<Vec<u8>> for Codec {
                     buf.capacity(),
                 );
             }
-            if buf.capacity() >= MAX_CAPACITY as usize
+            if buf.capacity() >= MAX_WRITE_BUFFER_CAPACITY_BYTES
                 && item.len() + 4 + buf.len() > buf.capacity()
             {
                 error!(target: "network", "{} throwing away message, because buffer is full item.len(): {} buf.capacity: {}", get_tid(), item.len(), buf.capacity());
 
-                near_metrics::inc_counter_by(&metrics::DROPPED_MESSAGES_COUNT, 1);
+                metrics::DROPPED_MESSAGES_COUNT.inc_by(1);
                 return Err(Error::new(ErrorKind::Other, "Buf max capacity exceeded"));
             }
             // First four bytes is the length of the buffer.
@@ -85,8 +83,7 @@ impl Decoder for Codec {
         let mut len_bytes: [u8; 4] = [0; 4];
         len_bytes.copy_from_slice(&buf[0..4]);
         let len = u32::from_le_bytes(len_bytes);
-
-        if len > self.max_length {
+        if len > NETWORK_MESSAGE_MAX_SIZE_BYTES {
             // If this point is reached, abusive peer is banned.
             return Ok(Some(Err(ReasonForBan::Abusive)));
         }
@@ -102,14 +99,10 @@ impl Decoder for Codec {
     }
 }
 
-pub fn peer_message_to_bytes(peer_message: &PeerMessage) -> Result<Vec<u8>, std::io::Error> {
-    peer_message.try_to_vec()
-}
-
-pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error> {
-    PeerMessage::try_from_slice(bytes)
-}
-
+/// Determines size of `PeerId` based on first byte of it's representation.
+/// Size of `PeerId` depends on type of `PublicMessage it stores`.
+/// PublicKey::ED25519 -> 1 + 32 bytes
+/// PublicKey::SECP256K1 -> 1 + 64 bytes
 fn peer_id_type_field_len(enum_var: u8) -> Option<usize> {
     // 1 byte for enum variant, then some number depending on the
     // public key type
@@ -120,73 +113,95 @@ fn peer_id_type_field_len(enum_var: u8) -> Option<usize> {
     }
 }
 
-pub fn is_forward_tx(bytes: &[u8]) -> Option<bool> {
-    let peer_message_variant = *bytes.get(0)?;
-
+/// Checks `bytes` represents `PeerMessage::Routed(RoutedMessage)`,
+/// and `RoutedMessage.body` has type of `RoutedMessageBody::ForwardTx`.
+///
+/// This is done to avoid expensive borsch-deserializing.
+pub(crate) fn is_forward_tx(bytes: &[u8]) -> Option<bool> {
     // PeerMessage::Routed variant == 13
+    let peer_message_variant = *bytes.get(0)?;
     if peer_message_variant != 13 {
         return Some(false);
     }
 
-    let target_field_variant = *bytes.get(1)?;
-    let target_field_len = if target_field_variant == 0 {
-        // PeerIdOrHash::PeerId
-        let peer_id_variant = *bytes.get(2)?;
-        peer_id_type_field_len(peer_id_variant)?
-    } else if target_field_variant == 1 {
-        // PeerIdOrHash::Hash is always 32 bytes
-        32
-    } else {
-        return None;
+    // target: PeerIdOrHash
+    let author_variant_idx = {
+        let target_field_len = {
+            let target_field_variant = *bytes.get(1)?;
+            if target_field_variant == 0 {
+                // PeerIdOrHash::PeerId
+                let peer_id_variant = *bytes.get(2)?;
+                peer_id_type_field_len(peer_id_variant)?
+            } else if target_field_variant == 1 {
+                // PeerIdOrHash::Hash is always 32 bytes
+                32
+            } else {
+                error!("Unsupported variant of PeerIdOrHash {}", target_field_variant);
+                return None;
+            }
+        };
+        2 + target_field_len
     };
 
-    let author_variant_idx = 2 + target_field_len;
-    let author_variant = *bytes.get(author_variant_idx)?;
-    let author_field_len = peer_id_type_field_len(author_variant)?;
+    // author: PeerId
+    let signature_variant_idx = {
+        let author_variant = *bytes.get(author_variant_idx)?;
+        let author_field_len = peer_id_type_field_len(author_variant)?;
 
-    let signature_variant_idx = author_variant_idx + author_field_len;
-    let signature_variant = *bytes.get(signature_variant_idx)?;
-    let signature_field_len = match signature_variant {
-        0 => 1 + 64, // Signature::ED25519
-        1 => 1 + 65, // Signature::SECP256K1
-        _ => {
-            return None;
-        }
+        author_variant_idx + author_field_len
     };
 
-    let ttl_idx = signature_variant_idx + signature_field_len;
+    // ttl: u8
+    let ttl_idx = {
+        let signature_variant = *bytes.get(signature_variant_idx)?;
+
+        // pub signature: Signature
+        let signature_field_len = match signature_variant {
+            0 => 1 + 64, // Signature::ED25519
+            1 => 1 + 65, // Signature::SECP256K1
+            _ => {
+                return None;
+            }
+        };
+        signature_variant_idx + signature_field_len
+    };
+
+    // pub ttl: u8
     let message_body_idx = ttl_idx + 1;
-    let message_body_variant = *bytes.get(message_body_idx)?;
 
+    // check if type is `RoutedMessageBody::ForwardTx`
+    let message_body_variant = *bytes.get(message_body_idx)?;
     Some(message_body_variant == 1)
 }
 
 #[cfg(test)]
 mod test {
+    use crate::peer::codec::{is_forward_tx, Codec, NETWORK_MESSAGE_MAX_SIZE_BYTES};
+    use crate::routing::edge::EdgeInfo;
+    use crate::types::{Handshake, HandshakeFailureReason, HandshakeV2, PeerMessage, SyncData};
+    use crate::PeerInfo;
+    use borsh::BorshDeserialize;
+    use borsh::BorshSerialize;
+    use bytes::{BufMut, BytesMut};
     use near_crypto::{KeyType, PublicKey, SecretKey};
+    use near_network_primitives::types::{
+        PeerChainInfo, PeerChainInfoV2, PeerIdOrHash, ReasonForBan, RoutedMessage,
+        RoutedMessageBody,
+    };
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::{self, CryptoHash};
     use near_primitives::network::{AnnounceAccount, PeerId};
     use near_primitives::transaction::{SignedTransaction, Transaction};
-    use near_primitives::{
-        types::EpochId,
-        version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION},
-    };
-
-    use crate::types::{
-        Handshake, HandshakeFailureReason, HandshakeV2, PeerChainInfo, PeerChainInfoV2,
-        PeerIdOrHash, PeerInfo, RoutedMessage, RoutedMessageBody, SyncData,
-    };
-
-    use super::*;
-    use crate::routing::routing::EdgeInfo;
+    use near_primitives::types::EpochId;
+    use near_primitives::version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION};
+    use tokio_util::codec::{Decoder, Encoder};
 
     fn test_codec(msg: PeerMessage) {
-        let mut codec = Codec::new();
+        let mut codec = Codec::default();
         let mut buffer = BytesMut::new();
-        codec.encode(peer_message_to_bytes(&msg).unwrap(), &mut buffer).unwrap();
+        codec.encode(msg.try_to_vec().unwrap(), &mut buffer).unwrap();
         let decoded = codec.decode(&mut buffer).unwrap().unwrap().unwrap();
-        assert_eq!(bytes_to_peer_message(&decoded).unwrap(), msg);
+        assert_eq!(PeerMessage::try_from_slice(&decoded).unwrap(), msg);
     }
 
     #[derive(Debug, Copy, Clone)]
@@ -207,14 +222,14 @@ mod test {
             ForwardTxTargetType::Hash => PeerIdOrHash::Hash(hash::hash(b"peer_id_hash")),
             ForwardTxTargetType::PublicKey(key_type) => {
                 let secret_key = SecretKey::from_seed(key_type, "target_secret_key");
-                PeerIdOrHash::PeerId(PeerId(secret_key.public_key()))
+                PeerIdOrHash::PeerId(PeerId::new(secret_key.public_key()))
             }
         };
 
         let (author, signature) = {
             let secret_key = SecretKey::from_seed(schema.author, "author_secret_key");
             let public_key = secret_key.public_key();
-            let author = PeerId(public_key);
+            let author = PeerId::new(public_key);
             let msg_data = hash::hash(b"msg_data");
             let signature = secret_key.sign(msg_data.as_ref());
 
@@ -330,12 +345,12 @@ mod test {
         };
         let msg = PeerMessage::HandshakeV2(fake_handshake);
 
-        let mut codec = Codec::new();
+        let mut codec = Codec::default();
         let mut buffer = BytesMut::new();
-        codec.encode(peer_message_to_bytes(&msg).unwrap(), &mut buffer).unwrap();
+        codec.encode(msg.try_to_vec().unwrap(), &mut buffer).unwrap();
         let decoded = codec.decode(&mut buffer).unwrap().unwrap().unwrap();
 
-        let err = bytes_to_peer_message(&decoded).unwrap_err();
+        let err = PeerMessage::try_from_slice(&decoded).unwrap_err();
 
         assert_eq!(
             *err.get_ref()
@@ -366,7 +381,7 @@ mod test {
             edges: Vec::new(),
             accounts: vec![AnnounceAccount {
                 account_id: "test1".parse().unwrap(),
-                peer_id: network_sk.public_key().into(),
+                peer_id: PeerId::new(network_sk.public_key()),
                 epoch_id: EpochId::default(),
                 signature,
             }],
@@ -381,8 +396,8 @@ mod test {
         let signature = sk.sign(hash.as_ref());
 
         let msg = PeerMessage::Routed(RoutedMessage {
-            target: PeerIdOrHash::PeerId(sk.public_key().into()),
-            author: sk.public_key().into(),
+            target: PeerIdOrHash::PeerId(PeerId::new(sk.public_key())),
+            author: PeerId::new(sk.public_key()),
             signature: signature.clone(),
             ttl: 100,
             body: RoutedMessageBody::BlockApproval(Approval {
@@ -406,19 +421,19 @@ mod test {
 
     #[test]
     fn test_abusive() {
-        let mut codec = Codec::new();
+        let mut codec = Codec::default();
         let mut buffer = BytesMut::new();
         buffer.reserve(4);
-        buffer.put_u32_le(NETWORK_MESSAGE_MAX_SIZE + 1);
+        buffer.put_u32_le(NETWORK_MESSAGE_MAX_SIZE_BYTES + 1);
         assert_eq!(codec.decode(&mut buffer).unwrap(), Some(Err(ReasonForBan::Abusive)));
     }
 
     #[test]
     fn test_not_abusive() {
-        let mut codec = Codec::new();
+        let mut codec = Codec::default();
         let mut buffer = BytesMut::new();
         buffer.reserve(4);
-        buffer.put_u32_le(NETWORK_MESSAGE_MAX_SIZE);
+        buffer.put_u32_le(NETWORK_MESSAGE_MAX_SIZE_BYTES);
         assert_ne!(codec.decode(&mut buffer).unwrap(), Some(Err(ReasonForBan::Abusive)));
     }
 }

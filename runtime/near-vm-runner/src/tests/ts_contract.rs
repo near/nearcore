@@ -6,7 +6,7 @@ use near_vm_logic::types::ReturnData;
 use near_vm_logic::{External, VMConfig};
 
 use crate::tests::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
-use crate::{run_vm, VMKind};
+use crate::vm_kind::VMKind;
 
 #[test]
 pub fn test_ts_contract() {
@@ -15,12 +15,13 @@ pub fn test_ts_contract() {
         let mut fake_external = MockedExternal::new();
 
         let context = create_context(Vec::new());
-        let config = VMConfig::default();
+        let config = VMConfig::test();
         let fees = RuntimeFeesConfig::test();
 
         // Call method that panics.
         let promise_results = vec![];
-        let result = run_vm(
+        let runtime = vm_kind.runtime().expect("runtime has not been compiled");
+        let result = runtime.run(
             &code,
             "try_panic",
             &mut fake_external,
@@ -28,7 +29,6 @@ pub fn test_ts_contract() {
             &config,
             &fees,
             &promise_results,
-            vm_kind.clone(),
             LATEST_PROTOCOL_VERSION,
             None,
         );
@@ -41,20 +41,20 @@ pub fn test_ts_contract() {
 
         // Call method that writes something into storage.
         let context = create_context(b"foo bar".to_vec());
-        run_vm(
-            &code,
-            "try_storage_write",
-            &mut fake_external,
-            context,
-            &config,
-            &fees,
-            &promise_results,
-            vm_kind.clone(),
-            LATEST_PROTOCOL_VERSION,
-            None,
-        )
-        .0
-        .unwrap();
+        runtime
+            .run(
+                &code,
+                "try_storage_write",
+                &mut fake_external,
+                context,
+                &config,
+                &fees,
+                &promise_results,
+                LATEST_PROTOCOL_VERSION,
+                None,
+            )
+            .0
+            .unwrap();
         // Verify by looking directly into the storage of the host.
         {
             let res = fake_external.storage_get(b"foo");
@@ -66,7 +66,7 @@ pub fn test_ts_contract() {
 
         // Call method that reads the value from storage using registers.
         let context = create_context(b"foo".to_vec());
-        let result = run_vm(
+        let result = runtime.run(
             &code,
             "try_storage_read",
             &mut fake_external,
@@ -74,7 +74,6 @@ pub fn test_ts_contract() {
             &config,
             &fees,
             &promise_results,
-            vm_kind,
             LATEST_PROTOCOL_VERSION,
             None,
         );

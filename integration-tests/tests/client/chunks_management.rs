@@ -1,7 +1,7 @@
+use near_primitives::time::Instant;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use std::time::Instant;
 
 use actix::{Addr, System};
 use futures::{future, FutureExt};
@@ -16,8 +16,9 @@ use near_chunks::{
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, GetBlock, ViewClientActor};
 use near_logger_utils::init_test_logger;
-use near_network::types::{AccountIdOrPeerTrackingShard, PeerManagerMessageRequest};
-use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
+use near_network::types::PeerManagerMessageRequest;
+use near_network::types::{NetworkClientMessages, NetworkRequests, NetworkResponses};
+use near_network_primitives::types::{AccountIdOrPeerTrackingShard, PeerInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;

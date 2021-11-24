@@ -5,12 +5,12 @@ use std::mem::swap;
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use std::time::Instant;
 
 use actix::actors::mocker::Mocker;
 use actix::{Actor, Addr, AsyncContext, Context};
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use futures::{future, FutureExt};
+use near_primitives::time::Utc;
 use num_rational::Rational;
 use rand::{thread_rng, Rng};
 
@@ -20,22 +20,19 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
-use near_network::routing::routing::EdgeInfo;
+use near_network::routing::EdgeInfo;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
-    AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
-    PeerChainInfoV2, PeerManagerMessageRequest, PeerManagerMessageResponse,
-};
-use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRecipient, NetworkRequests,
-    NetworkResponses, PeerInfo, PeerManagerActor, PeerManagerAdapter,
+    NetworkResponses, PeerManagerAdapter,
 };
+use near_network::PeerManagerActor;
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
+use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, NumShards,
@@ -54,7 +51,14 @@ use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor}
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_chain::types::AcceptedBlock;
 use near_client_primitives::types::Error;
+use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
+use near_network_primitives::types::{
+    AccountOrPeerIdOrHash, NetworkViewClientMessages, NetworkViewClientResponses,
+    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo,
+};
+use near_primitives::network::PeerId;
 use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::time::{Clock, Instant};
 use near_primitives::utils::MaybeValidated;
 
 pub type PeerManagerMock = Mocker<PeerManagerActor>;
@@ -139,7 +143,7 @@ pub fn setup(
         config,
         chain_genesis,
         runtime,
-        PublicKey::empty(KeyType::ED25519).into(),
+        PeerId::new(PublicKey::empty(KeyType::ED25519)),
         network_adapter,
         Some(signer),
         telemetry,
@@ -282,7 +286,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
             false,
             network_adapter.clone(),
             transaction_validity_period,
-            Utc::now(),
+            Clock::utc(),
             ctx,
         );
         vca = Some(view_client_addr);
@@ -322,7 +326,7 @@ impl BlockStats {
             hash2depth: HashMap::new(),
             num_blocks: 0,
             max_chain_length: 0,
-            last_check: Instant::now(),
+            last_check: Clock::instant(),
             max_divergence: 0,
             last_hash: None,
             parent: HashMap::new(),
@@ -371,7 +375,7 @@ impl BlockStats {
     }
 
     pub fn check_stats(&mut self, force: bool) {
-        let now = Instant::now();
+        let now = Clock::instant();
         let diff = now.duration_since(self.last_check);
         if !force && diff.lt(&Duration::from_secs(60)) {
             return;
@@ -485,7 +489,7 @@ pub fn setup_mock_all_validators(
     let key_pairs = key_pairs;
 
     let addresses: Vec<_> = (0..key_pairs.len()).map(|i| hash(vec![i as u8].as_ref())).collect();
-    let genesis_time = Utc::now();
+    let genesis_time = Clock::utc();
     let mut ret = vec![];
 
     let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
@@ -1278,7 +1282,8 @@ impl TestEnv {
         should_run_catchup: bool,
         should_produce_chunk: bool,
     ) {
-        let (mut accepted_blocks, result) = self.clients[id].process_block(block, provenance);
+        let (mut accepted_blocks, result) =
+            self.clients[id].process_block(MaybeValidated::from(block), provenance);
         assert!(result.is_ok(), "{:?}", result);
         if should_run_catchup {
             let more_accepted_blocks = run_catchup(&mut self.clients[id], &vec![]).unwrap();
@@ -1324,12 +1329,67 @@ impl TestEnv {
                 ) = request
                 {
                     self.client(&account_id)
-                        .process_partial_encoded_chunk(MaybeValidated::NotValidated(
-                            partial_encoded_chunk.into(),
+                        .process_partial_encoded_chunk(MaybeValidated::from(
+                            PartialEncodedChunk::from(partial_encoded_chunk),
                         ))
                         .unwrap();
                 }
             }
+        }
+    }
+
+    /// Process all PartialEncodedChunkRequests in the network queue for a client
+    /// `id`: id for the client
+    pub fn process_partial_encoded_chunks_requests(&mut self, id: usize) {
+        while let Some(request) = self.network_adapters[id].pop() {
+            self.process_partial_encoded_chunk_request(id, request);
+        }
+    }
+
+    /// Send the PartialEncodedChunkRequest to the target client, get response and process the response
+    pub fn process_partial_encoded_chunk_request(
+        &mut self,
+        id: usize,
+        request: PeerManagerMessageRequest,
+    ) {
+        if let PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::PartialEncodedChunkRequest { target, request },
+        ) = request
+        {
+            let target_id = self.account_to_client_index[&target.account_id.unwrap()];
+            let response = self.get_partial_encoded_chunk_response(target_id, request);
+            let accepted_blocks =
+                self.clients[id].process_partial_encoded_chunk_response(response).unwrap();
+            for block in accepted_blocks {
+                self.clients[id].on_block_accepted(block.hash, block.status, block.provenance);
+            }
+        } else {
+            panic!("The request is not a PartialEncodedChunk request {:?}", request);
+        }
+    }
+
+    fn get_partial_encoded_chunk_response(
+        &mut self,
+        id: usize,
+        request: PartialEncodedChunkRequestMsg,
+    ) -> PartialEncodedChunkResponseMsg {
+        let client = &mut self.clients[id];
+        client.shards_mgr.process_partial_encoded_chunk_request(
+            request,
+            CryptoHash::default(),
+            client.chain.mut_store(),
+        );
+        let response = self.network_adapters[id].pop().unwrap();
+        if let PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::PartialEncodedChunkResponse { route_back: _, response },
+        ) = response
+        {
+            return response;
+        } else {
+            panic!(
+                "did not find PartialEncodedChunkResponse from the network queue {:?}",
+                response
+            );
         }
     }
 
@@ -1534,14 +1594,10 @@ pub fn create_chunk(
         PROTOCOL_VERSION,
         &last_block.header(),
         next_height,
-        #[cfg(feature = "protocol_feature_block_header_v3")]
-        {
-            last_block.header().block_ordinal() + 1
-        },
+        last_block.header().block_ordinal() + 1,
         vec![chunk.cloned_header()],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
-        #[cfg(feature = "protocol_feature_block_header_v3")]
         None,
         vec![],
         Rational::from_integer(0),

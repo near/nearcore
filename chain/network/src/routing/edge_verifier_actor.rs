@@ -1,10 +1,12 @@
-use std::cmp::max;
-
-use actix::{Actor, Handler, SyncContext, System};
-
-use near_performance_metrics_macros::perf;
-
+use crate::routing::edge::Edge;
 use crate::types::{EdgeList, StopMsg};
+use actix::{Actor, Handler, SyncContext, System};
+use conqueue::{QueueReceiver, QueueSender};
+use near_performance_metrics_macros::perf;
+use near_primitives::borsh::maybestd::collections::HashMap;
+use near_primitives::borsh::maybestd::sync::{Arc, Mutex};
+use near_primitives::network::PeerId;
+use std::cmp::max;
 
 pub(crate) struct EdgeVerifierActor {}
 
@@ -25,9 +27,9 @@ impl Handler<EdgeList> for EdgeVerifierActor {
     #[perf]
     fn handle(&mut self, msg: EdgeList, _ctx: &mut Self::Context) -> Self::Result {
         for edge in msg.edges {
-            let key = (edge.peer0.clone(), edge.peer1.clone());
-            if msg.edges_info_shared.lock().unwrap().get(&key).cloned().unwrap_or(0u64)
-                >= edge.nonce
+            let key = edge.key();
+            if msg.edges_info_shared.lock().unwrap().get(key).cloned().unwrap_or(0u64)
+                >= edge.nonce()
             {
                 continue;
             }
@@ -43,13 +45,32 @@ impl Handler<EdgeList> for EdgeVerifierActor {
             }
             {
                 let mut guard = msg.edges_info_shared.lock().unwrap();
-                let entry = guard.entry(key);
+                let entry = guard.entry(key.clone());
 
-                let cur_nonce = entry.or_insert(edge.nonce);
-                *cur_nonce = max(*cur_nonce, edge.nonce);
+                let cur_nonce = entry.or_insert(edge.nonce());
+                *cur_nonce = max(*cur_nonce, edge.nonce());
             }
             msg.sender.push(edge);
         }
         true
+    }
+}
+
+pub struct EdgeVerifierHelper {
+    /// Shared version of edges_info used by multiple threads
+    pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
+    /// Queue of edges verified, but not added yes
+    pub edges_to_add_receiver: QueueReceiver<Edge>,
+    pub edges_to_add_sender: QueueSender<Edge>,
+}
+
+impl Default for EdgeVerifierHelper {
+    fn default() -> Self {
+        let (tx, rx) = conqueue::Queue::unbounded::<Edge>();
+        Self {
+            edges_info_shared: Default::default(),
+            edges_to_add_sender: tx,
+            edges_to_add_receiver: rx,
+        }
     }
 }

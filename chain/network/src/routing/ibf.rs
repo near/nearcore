@@ -1,8 +1,7 @@
+use borsh::{BorshDeserialize, BorshSerialize};
 use std::cmp::{max, min};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
-
-use borsh::{BorshDeserialize, BorshSerialize};
 use tracing::error;
 
 /// Ibf consists of multiple boxes, this constant specified the number of unique boxes
@@ -16,6 +15,7 @@ const NUM_HASHES: usize = 3;
 /// The box considered to be empty if both xor of elements inserted and their hashes is equal to 0.
 /// To check whenever only one element is inside the box, we can check whenever hash of `xor_element`
 /// is equal to `xor_hash`.
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Default)]
 pub struct IbfBox {
     xor_elem: u64,

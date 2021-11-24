@@ -1,6 +1,6 @@
+use near_primitives::time::Instant;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
 
 use actix::actors::mocker::Mocker;
 use actix::{Actor, System};
@@ -10,12 +10,15 @@ use near_actix_test_utils::run_actix;
 use near_client::ClientActor;
 use near_logger_utils::init_integration_logger;
 
-use near_network::routing::routing_table_actor::start_routing_table_actor;
-use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeout};
+use near_network::routing::start_routing_table_actor;
+use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeoutActor};
 use near_network::types::{
-    NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerMessageRequest, SyncData,
+    NetworkClientResponses, NetworkRequests, PeerManagerMessageRequest, SyncData,
 };
-use near_network::{NetworkClientResponses, NetworkConfig, NetworkRequests, PeerManagerActor};
+use near_network::PeerManagerActor;
+use near_network_primitives::types::{
+    NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
+};
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_store::test_utils::create_test_store;
@@ -64,9 +67,9 @@ pub fn make_peer_manager(
 
     let net_config = NetworkConfig::from_seed(seed, port);
     let routing_table_addr =
-        start_routing_table_actor(net_config.public_key.clone().into(), store.clone());
+        start_routing_table_actor(PeerId::new(net_config.public_key.clone()), store.clone());
 
-    let peer_id = config.public_key.clone().into();
+    let peer_id = PeerId::new(config.public_key.clone());
     (
         PeerManagerActor::new(
             store,
@@ -116,7 +119,7 @@ fn test_infinite_loop() {
         let state = Arc::new(AtomicUsize::new(0));
         let start = Instant::now();
 
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_| {
                 let state_value = state.load(Ordering::SeqCst);
 
@@ -166,7 +169,7 @@ fn test_infinite_loop() {
                 } else if state_value == 4 {
                     assert_eq!(counter1.load(Ordering::SeqCst), 1);
                     assert_eq!(counter2.load(Ordering::SeqCst), 1);
-                    if Instant::now().duration_since(start).as_millis() > 800 {
+                    if Instant::now().saturating_duration_since(start).as_millis() > 800 {
                         System::current().stop();
                     }
                 }

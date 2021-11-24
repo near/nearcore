@@ -1,6 +1,6 @@
 [package]
 name = "near-client"
-version = "0.1.0"
+version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 edition = "2021"
@@ -41,6 +41,7 @@ near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
 near-vm-runner = { path = "../../runtime/near-vm-runner" }
 delay-detector = { path = "../../tools/delay_detector", optional = true }
+near-network-primitives = { path = "../network-primitives" }
 
 [dev-dependencies]
 near-logger-utils = { path = "../../test-utils/logger" }
@@ -53,9 +54,8 @@ byzantine_asserts = ["near-chain/byzantine_asserts"]
 expensive_tests = []
 test_features = ["near-network/test_features", "near-chain/test_features"]
 delay_detector = ["near-chain/delay_detector", "near-network/delay_detector", "delay-detector"]
-protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-store/protocol_feature_block_header_v3"]
-protocol_feature_chunk_only_producers = ["protocol_feature_block_header_v3", "near-primitives/protocol_feature_chunk_only_producers", "near-chain/protocol_feature_chunk_only_producers"]
+protocol_feature_chunk_only_producers = ["near-primitives/protocol_feature_chunk_only_producers", "near-chain/protocol_feature_chunk_only_producers"]
 protocol_feature_routing_exchange_algorithm = []
 nightly_protocol = []
-nightly_protocol_features = ["nightly_protocol", "near-chain/nightly_protocol_features", "protocol_feature_block_header_v3", "protocol_feature_routing_exchange_algorithm"]
+nightly_protocol_features = ["nightly_protocol", "near-chain/nightly_protocol_features", "protocol_feature_routing_exchange_algorithm"]
 sandbox = ["near-network/sandbox", "near-chain/sandbox"]

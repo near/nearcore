@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-errors"
-version = "3.0.0"
+version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -17,14 +17,11 @@ hex = "0.4"
 serde = { version = "1", features = ["derive"] }
 
 borsh = "0.9"
-
+deepsize = { version = "0.2.0", optional = true }
 near-account-id = { path = "../../core/account-id" }
-near-rpc-error-macro = { path = "../../tools/rpctypegen/macro", version = "0.1.0" }
+near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_alt_bn128 = []
-protocol_feature_limit_contract_functions_number = []
-
-[package.metadata.workspaces]
-independent = true
+deepsize_feature = ["deepsize", "near-account-id/deepsize_feature"]

@@ -6,21 +6,19 @@ use std::sync::Arc;
 use std::{ops::Add, time::Duration as TimeDuration};
 
 use ansi_term::Color::{Purple, Yellow};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration};
 use futures::{future, FutureExt};
 use log::{debug, error, info, warn};
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{thread_rng, Rng};
 
 use near_chain::{Chain, RuntimeAdapter};
-use near_network::types::{
-    AccountOrPeerIdOrHash, NetworkResponses, PeerManagerMessageRequest, ReasonForBan,
-};
-use near_network::{FullPeerInfo, NetworkRequests, PeerManagerAdapter};
+use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::syncing::get_num_state_parts;
+use near_primitives::time::{Clock, Utc};
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, EpochId, ShardId, StateRoot,
@@ -32,6 +30,8 @@ use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
 use near_client_primitives::types::{
     DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus,
 };
+use near_network::types::PeerManagerMessageRequest;
+use near_network_primitives::types::AccountOrPeerIdOrHash;
 use near_primitives::shard_layout::ShardUId;
 
 /// Maximum number of block headers send over the network.
@@ -121,7 +121,7 @@ impl EpochSync {
             next_epoch_id: genesis_next_epoch_id.clone(),
             next_block_producers: first_epoch_block_producers,
             requested_epoch_id: genesis_epoch_id,
-            last_request_time: Utc::now(),
+            last_request_time: Clock::utc(),
             last_request_peer_id: None,
             request_timeout: Duration::from_std(request_timeout).unwrap(),
             peer_timeout: Duration::from_std(peer_timeout).unwrap(),
@@ -160,7 +160,7 @@ impl HeaderSync {
         HeaderSync {
             network_adapter,
             history_locator: vec![],
-            prev_header_sync: (Utc::now(), 0, 0, 0),
+            prev_header_sync: (Clock::utc(), 0, 0, 0),
             syncing_peer: None,
             stalling_ts: None,
             initial_timeout: Duration::from_std(initial_timeout).unwrap(),
@@ -227,7 +227,7 @@ impl HeaderSync {
         header_head: &Tip,
         highest_height: BlockHeight,
     ) -> bool {
-        let now = Utc::now();
+        let now = Clock::utc();
         let (timeout, old_expected_height, prev_height, prev_highest_height) =
             self.prev_header_sync;
 
@@ -276,7 +276,7 @@ impl HeaderSync {
                                         PeerManagerMessageRequest::NetworkRequests(
                                             NetworkRequests::BanPeer {
                                                 peer_id: peer.peer_info.id.clone(),
-                                                ban_reason: ReasonForBan::HeightFraud,
+                                                ban_reason: near_network_primitives::types::ReasonForBan::HeightFraud,
                                             },
                                         ),
                                     );
@@ -537,8 +537,7 @@ impl BlockSync {
             },
         };
         let next_height = chain.get_block_header(&next_hash)?.height();
-
-        let request = BlockSyncRequest { height: next_height, hash: next_hash, when: Utc::now() };
+        let request = BlockSyncRequest { height: next_height, hash: next_hash, when: Clock::utc() };
 
         let head = chain.head()?;
         let header_head = chain.header_head()?;
@@ -576,7 +575,7 @@ impl BlockSync {
             None => Ok(true),
             Some(request) => Ok(chain.head()?.height >= request.height
                 || chain.is_chunk_orphan(&request.hash)
-                || Utc::now() - request.when > Duration::seconds(BLOCK_REQUEST_TIMEOUT)),
+                || Clock::utc() - request.when > Duration::seconds(BLOCK_REQUEST_TIMEOUT)),
         }
     }
 }
@@ -598,10 +597,10 @@ struct PendingRequestStatus {
 
 impl PendingRequestStatus {
     fn new(timeout: Duration) -> Self {
-        Self { missing_parts: 1, wait_until: Utc::now().add(timeout) }
+        Self { missing_parts: 1, wait_until: Clock::utc().add(timeout) }
     }
     fn expired(&self) -> bool {
-        Utc::now() > self.wait_until
+        Clock::utc() > self.wait_until
     }
 }
 
@@ -1173,7 +1172,7 @@ impl StateSync {
         state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<StateSyncResult, near_chain::Error> {
         let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
-        let now = Utc::now();
+        let now = Clock::utc();
 
         let (request_block, have_block) = self.sync_block_status(&prev_hash, chain, now)?;
 
@@ -1285,14 +1284,13 @@ mod test {
     use near_chain::{ChainGenesis, Provenance};
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
-    use near_network::types::PeerChainInfoV2;
-    use near_network::PeerInfo;
     use near_primitives::block::{Approval, Block, GenesisId};
     use near_primitives::network::PeerId;
 
     use super::*;
     use crate::test_utils::TestEnv;
-    use near_network::routing::routing::EdgeInfo;
+    use near_network::routing::EdgeInfo;
+    use near_network::PeerInfo;
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -1335,7 +1333,15 @@ mod test {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(prev, &*signer);
             chain
-                .process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+                .process_block(
+                    &None,
+                    block.into(),
+                    Provenance::PRODUCED,
+                    |_| {},
+                    |_| {},
+                    |_| {},
+                    |_| {},
+                )
                 .unwrap();
         }
         let (mut chain2, _, signer2) = setup();
@@ -1343,13 +1349,21 @@ mod test {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(&prev, &*signer2);
             chain2
-                .process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+                .process_block(
+                    &None,
+                    block.into(),
+                    Provenance::PRODUCED,
+                    |_| {},
+                    |_| {},
+                    |_| {},
+                    |_| {},
+                )
                 .unwrap();
         }
         let mut sync_status = SyncStatus::NoSync;
         let peer1 = FullPeerInfo {
             peer_info: PeerInfo::random(),
-            chain_info: PeerChainInfoV2 {
+            chain_info: near_network_primitives::types::PeerChainInfoV2 {
                 genesis_id: GenesisId {
                     chain_id: "unittest".to_string(),
                     hash: *chain.genesis().hash(),
@@ -1464,12 +1478,10 @@ mod test {
                 PROTOCOL_VERSION,
                 &last_block.header(),
                 current_height,
-                #[cfg(feature = "protocol_feature_block_header_v3")]
-                (last_block.header().block_ordinal() + 1),
+                last_block.header().block_ordinal() + 1,
                 last_block.chunks().iter().cloned().collect(),
                 epoch_id,
                 next_epoch_id,
-                #[cfg(feature = "protocol_feature_block_header_v3")]
                 None,
                 approvals,
                 Ratio::new(0, 1),

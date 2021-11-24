@@ -1,4 +1,5 @@
 use byteorder::{ByteOrder, LittleEndian};
+use once_cell::sync::Lazy;
 
 use near_chain_configs::Genesis;
 use near_primitives::account::Account;
@@ -20,9 +21,8 @@ pub fn x_dot_y_dot_alice_account() -> AccountId {
     "x.y.alice.near".parse().unwrap()
 }
 
-lazy_static::lazy_static! {
-    static ref DEFAULT_TEST_CONTRACT_HASH: CryptoHash = hash(near_test_contracts::rs_contract());
-}
+static DEFAULT_TEST_CONTRACT_HASH: Lazy<CryptoHash> =
+    Lazy::new(|| hash(near_test_contracts::rs_contract()));
 
 pub fn add_test_contract(genesis: &mut Genesis, account_id: &AccountId) {
     let mut is_account_record_found = false;

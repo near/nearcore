@@ -1,6 +1,7 @@
 use crate::cache::into_vm_result;
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
+use crate::prepare::WASM_FEATURES;
 use crate::{cache, imports};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -9,6 +10,9 @@ use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VM
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
 use wasmer_runtime::{ImportObject, Module};
+
+const WASMER_FEATURES: wasmer_runtime::Features =
+    wasmer_runtime::Features { threads: WASM_FEATURES.threads, simd: WASM_FEATURES.simd };
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     let info = module.info();
@@ -199,82 +203,6 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
     }
 }
 
-pub fn run_wasmer<'a>(
-    code: &ContractCode,
-    method_name: &str,
-    ext: &mut dyn External,
-    context: VMContext,
-    wasm_config: &'a VMConfig,
-    fees_config: &'a RuntimeFeesConfig,
-    promise_results: &'a [PromiseResult],
-    current_protocol_version: ProtocolVersion,
-    cache: Option<&'a dyn CompiledContractCache>,
-) -> (Option<VMOutcome>, Option<VMError>) {
-    let _span = tracing::debug_span!(target: "vm", "run_wasmer").entered();
-
-    if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
-        // TODO(#1940): Remove once NaN is standardized by the VM.
-        panic!(
-            "Execution of smart contracts is only supported for x86 and x86_64 CPU architectures."
-        );
-    }
-    #[cfg(not(feature = "no_cpu_compatibility_checks"))]
-    if !is_x86_feature_detected!("avx") {
-        panic!("AVX support is required in order to run Wasmer VM Singlepass backend.");
-    }
-    if method_name.is_empty() {
-        return (
-            None,
-            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                MethodResolveError::MethodEmptyName,
-            ))),
-        );
-    }
-
-    // TODO: consider using get_module() here, once we'll go via deployment path.
-    let module = cache::wasmer0_cache::compile_module_cached_wasmer0(code, wasm_config, cache);
-    let module = match into_vm_result(module) {
-        Ok(x) => x,
-        Err(err) => return (None, Some(err)),
-    };
-    let mut memory = WasmerMemory::new(
-        wasm_config.limit_config.initial_memory_pages,
-        wasm_config.limit_config.max_memory_pages,
-    )
-    .expect("Cannot create memory for a contract call");
-    // Note that we don't clone the actual backing memory, just increase the RC.
-    let memory_copy = memory.clone();
-
-    let mut logic = VMLogic::new_with_protocol_version(
-        ext,
-        context,
-        wasm_config,
-        fees_config,
-        promise_results,
-        &mut memory,
-        current_protocol_version,
-    );
-
-    // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
-    if logic.add_contract_compile_fee(code.code().len() as u64).is_err() {
-        return (
-            Some(logic.outcome()),
-            Some(VMError::FunctionCallError(FunctionCallError::HostError(
-                near_vm_errors::HostError::GasExceeded,
-            ))),
-        );
-    }
-
-    let import_object = imports::build_wasmer(memory_copy, &mut logic, current_protocol_version);
-
-    if let Err(e) = check_method(&module, method_name) {
-        return (None, Some(e));
-    }
-
-    let err = run_method(&module, &import_object, method_name).err();
-    (Some(logic.outcome()), err)
-}
-
 fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Result<(), VMError> {
     let _span = tracing::debug_span!(target: "vm", "run_method").entered();
 
@@ -338,11 +266,120 @@ pub(crate) fn run_wasmer0_module<'a>(
     (Some(logic.outcome()), err)
 }
 
-pub fn compile_wasmer0_module(code: &[u8]) -> bool {
-    wasmer_runtime::compile(code).is_ok()
-}
-
 pub(crate) fn wasmer0_vm_hash() -> u64 {
     // TODO: take into account compiler and engine used to compile the contract.
     42
+}
+
+pub(crate) struct Wasmer0VM;
+
+impl crate::runner::VM for Wasmer0VM {
+    fn run(
+        &self,
+        code: &ContractCode,
+        method_name: &str,
+        ext: &mut dyn External,
+        context: VMContext,
+        wasm_config: &VMConfig,
+        fees_config: &RuntimeFeesConfig,
+        promise_results: &[PromiseResult],
+        current_protocol_version: ProtocolVersion,
+        cache: Option<&dyn CompiledContractCache>,
+    ) -> (Option<VMOutcome>, Option<VMError>) {
+        let _span = tracing::debug_span!(
+            target: "vm",
+            "run_wasmer0",
+            "code.len" = code.code().len(),
+            %method_name
+        )
+        .entered();
+
+        if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
+            // TODO(#1940): Remove once NaN is standardized by the VM.
+            panic!(
+                "Execution of smart contracts is only supported for x86 and x86_64 CPU \
+                 architectures."
+            );
+        }
+        #[cfg(not(feature = "no_cpu_compatibility_checks"))]
+        if !is_x86_feature_detected!("avx") {
+            panic!("AVX support is required in order to run Wasmer VM Singlepass backend.");
+        }
+        if method_name.is_empty() {
+            return (
+                None,
+                Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                    MethodResolveError::MethodEmptyName,
+                ))),
+            );
+        }
+
+        // TODO: consider using get_module() here, once we'll go via deployment path.
+        let module = cache::wasmer0_cache::compile_module_cached_wasmer0(code, wasm_config, cache);
+        let module = match into_vm_result(module) {
+            Ok(x) => x,
+            Err(err) => return (None, Some(err)),
+        };
+        let mut memory = WasmerMemory::new(
+            wasm_config.limit_config.initial_memory_pages,
+            wasm_config.limit_config.max_memory_pages,
+        )
+        .expect("Cannot create memory for a contract call");
+        // Note that we don't clone the actual backing memory, just increase the RC.
+        let memory_copy = memory.clone();
+
+        let mut logic = VMLogic::new_with_protocol_version(
+            ext,
+            context,
+            wasm_config,
+            fees_config,
+            promise_results,
+            &mut memory,
+            current_protocol_version,
+        );
+
+        // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
+        if logic.add_contract_compile_fee(code.code().len() as u64).is_err() {
+            return (
+                Some(logic.outcome()),
+                Some(VMError::FunctionCallError(FunctionCallError::HostError(
+                    near_vm_errors::HostError::GasExceeded,
+                ))),
+            );
+        }
+
+        let import_object =
+            imports::build_wasmer(memory_copy, &mut logic, current_protocol_version);
+
+        if let Err(e) = check_method(&module, method_name) {
+            return (None, Some(e));
+        }
+
+        let err = run_method(&module, &import_object, method_name).err();
+        (Some(logic.outcome()), err)
+    }
+
+    fn precompile(
+        &self,
+        code: &[u8],
+        code_hash: &near_primitives::hash::CryptoHash,
+        wasm_config: &VMConfig,
+        cache: &dyn CompiledContractCache,
+    ) -> Option<VMError> {
+        let result = crate::cache::wasmer0_cache::compile_and_serialize_wasmer(
+            code,
+            wasm_config,
+            code_hash,
+            cache,
+        );
+        into_vm_result(result).err()
+    }
+
+    fn check_compile(&self, code: &Vec<u8>) -> bool {
+        wasmer_runtime::compile_with_config(
+            code,
+            wasmer_runtime::CompilerConfig { features: WASMER_FEATURES, ..Default::default() },
+        )
+        .is_ok()
+    }
 }

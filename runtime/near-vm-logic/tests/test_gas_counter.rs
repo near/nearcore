@@ -122,5 +122,5 @@ impl VMLogicBuilder {
 /// Given the limit in gas, compute the corresponding limit in wasm ops for use
 /// with [`VMLogic::gas`] function.
 fn op_limit(gas_limit: Gas) -> u32 {
-    (gas_limit / (VMConfig::default().regular_op_cost as u64)) as u32
+    (gas_limit / (VMConfig::test().regular_op_cost as u64)) as u32
 }

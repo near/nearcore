@@ -1,14 +1,15 @@
+use actix::System;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
 use borsh::de::BorshDeserialize;
+use near_primitives::time::Clock;
 
 use near_crypto::Signature;
-use near_network::routing::routing::{
-    Edge, EdgeType, RoutingTable, SAVE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME,
-};
+use near_network::routing::{Edge, EdgeType, Prune, DELETE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME};
 use near_network::test_utils::random_peer_id;
+use near_network::RoutingTableActor;
 use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
 use near_store::{ColComponentEdges, ColPeerComponent, Store};
@@ -24,7 +25,7 @@ impl EdgeDescription {
 }
 
 struct RoutingTableTest {
-    routing_table: RoutingTable,
+    routing_table: RoutingTableActor,
     store: Arc<Store>,
     peers: Vec<PeerId>,
     rev_peers: HashMap<PeerId, usize>,
@@ -35,17 +36,17 @@ impl RoutingTableTest {
     fn new() -> Self {
         let me = random_peer_id();
         let store = create_test_store();
-        let now = Instant::now();
+        let now = Clock::instant();
 
         Self {
-            routing_table: RoutingTable::new(me.clone(), store.clone()),
+            routing_table: RoutingTableActor::new(me.clone(), store.clone()),
             store,
             peers: vec![me.clone()],
             rev_peers: vec![(me, 0)].into_iter().collect(),
             times: vec![
-                now - (SAVE_PEERS_AFTER_TIME / 2),
-                now - (SAVE_PEERS_AFTER_TIME + SAVE_PEERS_MAX_TIME) / 2,
-                now - (SAVE_PEERS_MAX_TIME * 3 / 2 - SAVE_PEERS_AFTER_TIME / 2),
+                now - (DELETE_PEERS_AFTER_TIME / 2),
+                now - (DELETE_PEERS_AFTER_TIME + SAVE_PEERS_MAX_TIME) / 2,
+                now - (SAVE_PEERS_MAX_TIME * 3 / 2 - DELETE_PEERS_AFTER_TIME / 2),
             ],
         }
     }
@@ -68,8 +69,8 @@ impl RoutingTableTest {
     }
 
     fn get_edge_description(&self, edge: &Edge) -> EdgeDescription {
-        let peer0 = self.rev_peers.get(&edge.peer0).unwrap();
-        let peer1 = self.rev_peers.get(&edge.peer1).unwrap();
+        let peer0 = self.rev_peers.get(&edge.key().0).unwrap();
+        let peer1 = self.rev_peers.get(&edge.key().1).unwrap();
         let edge_type = edge.edge_type();
         EdgeDescription(*peer0, *peer1, edge_type)
     }
@@ -104,7 +105,7 @@ impl RoutingTableTest {
         for EdgeDescription(peer0, peer1, edge_type) in on_memory.iter() {
             let peer0 = self.get_peer(*peer0).clone();
             let peer1 = self.get_peer(*peer1).clone();
-            let (peer0, peer1) = Edge::key(peer0, peer1);
+            let (peer0, peer1) = Edge::make_key(peer0, peer1);
 
             let res = self.routing_table.edges_info.get(&(peer0, peer1));
             assert!(res.is_some());
@@ -164,63 +165,90 @@ impl RoutingTableTest {
     }
 
     fn update_routing_table(&mut self) {
-        self.routing_table.recalculate_routing_table(true, false, SAVE_PEERS_AFTER_TIME);
+        self.routing_table.recalculate_routing_table();
+        self.routing_table.prune_edges(Prune::PruneOncePerHour, DELETE_PEERS_AFTER_TIME);
     }
 }
 
 #[test]
 fn empty() {
+    let _system = System::new();
+
     let mut test = RoutingTableTest::new();
     test.check(vec![], vec![], vec![]);
     assert_eq!(test.routing_table.next_available_component_nonce, 0);
+
+    System::current().stop();
 }
 
 #[test]
 fn one_edge() {
+    let _system = System::new();
+
     let mut test = RoutingTableTest::new();
     test.add_edge(0, 1, 1);
     test.check(vec![(0, 1, true)], vec![], vec![]);
+
+    System::current().stop();
 }
 
 #[test]
 fn active_old_edge() {
+    let _system = System::new();
+
     let mut test = RoutingTableTest::new();
     test.add_edge(0, 1, 1);
     test.set_times(vec![(1, 2)]);
     test.update_routing_table();
     test.check(vec![(0, 1, true)], vec![], vec![]);
+
+    System::current().stop();
 }
 
 #[test]
 fn inactive_old_edge() {
+    let _system = System::new();
+
     let mut test = RoutingTableTest::new();
     test.add_edge(0, 1, 2);
     test.set_times(vec![(1, 2)]);
     test.update_routing_table();
     test.check(vec![], vec![(0, vec![(0, 1, false)])], vec![(1, 0)]);
+
+    System::current().stop();
 }
 
 #[test]
 fn inactive_recent_edge() {
+    let _system = System::new();
+
     let mut test = RoutingTableTest::new();
     test.add_edge(0, 1, 2);
     test.set_times(vec![(1, 1)]);
     test.update_routing_table();
     test.check(vec![(0, 1, false)], vec![], vec![]);
+
+    System::current().stop();
 }
 
 #[test]
 fn load_component_nonce_on_start() {
+    let _system = System::new();
+
     let mut test = RoutingTableTest::new();
     test.add_edge(0, 1, 2);
     test.set_times(vec![(1, 2)]);
     test.update_routing_table();
-    let routing_table = RoutingTable::new(random_peer_id(), test.store.clone());
-    assert_eq!(routing_table.next_available_component_nonce, 1);
+    let routing_table = RoutingTableActor::new(random_peer_id(), test.store.clone());
+    assert_eq!(routing_table.next_available_component_nonce, 2);
+
+    System::current().stop();
 }
 
 #[test]
 fn load_component_nonce_2_on_start() {
+    let _system = System::new();
+
     let mut test = RoutingTableTest::new();
     test.add_edge(0, 1, 2);
     test.set_times(vec![(1, 2)]);
@@ -233,12 +261,16 @@ fn load_component_nonce_2_on_start() {
         vec![(0, vec![(0, 1, false)]), (1, vec![(0, 2, false)])],
         vec![(1, 0), (2, 1)],
     );
-    let routing_table = RoutingTable::new(random_peer_id(), test.store.clone());
-    assert_eq!(routing_table.next_available_component_nonce, 2);
+    let routing_table = RoutingTableActor::new(random_peer_id(), test.store.clone());
+    assert_eq!(routing_table.next_available_component_nonce, 3);
+
+    System::current().stop();
 }
 
 #[test]
 fn two_components() {
+    let _system = System::new();
+
     let mut test = RoutingTableTest::new();
     test.add_edge(0, 1, 2);
     test.set_times(vec![(1, 2)]);
@@ -253,10 +285,14 @@ fn two_components() {
         vec![(2, vec![(0, 1, false), (0, 2, false), (1, 2, true)])],
         vec![(1, 2), (2, 2)],
     );
+
+    System::current().stop();
 }
 
 #[test]
 fn overwrite_edge() {
+    let _system = System::new();
+
     let mut test = RoutingTableTest::new();
     test.add_edge(0, 1, 2);
     test.set_times(vec![(1, 2)]);
@@ -269,4 +305,6 @@ fn overwrite_edge() {
     test.add_edge(0, 1, 3);
     test.update_routing_table();
     test.check(vec![(0, 1, true), (1, 2, true), (0, 2, false)], vec![], vec![]);
+
+    System::current().stop();
 }

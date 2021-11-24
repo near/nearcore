@@ -6,7 +6,7 @@ use crate::script::Script;
 use clap::Clap;
 use near_vm_logic::VMOutcome;
 use near_vm_logic::{mocks::mock_external::Receipt, ProtocolVersion};
-use near_vm_runner::VMKind;
+use near_vm_runner::internal::VMKind;
 use serde::{
     de::{MapAccess, Visitor},
     ser::SerializeMap,

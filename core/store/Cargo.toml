@@ -1,6 +1,6 @@
 [package]
 name = "near-store"
-version = "2.2.0"
+version = "0.0.0"
 license = "MIT OR Apache-2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
@@ -41,10 +41,6 @@ harness = false
 default = []
 no_cache = []
 test_features = []
-protocol_feature_block_header_v3 = []
-protocol_feature_chunk_only_producers = ["protocol_feature_block_header_v3"]
+protocol_feature_chunk_only_producers = []
 nightly_protocol = []
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_block_header_v3"]
-
-[package.metadata.workspaces]
-independent = true
+nightly_protocol_features = ["nightly_protocol", "protocol_feature_chunk_only_producers"]

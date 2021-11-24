@@ -1,6 +1,6 @@
 #[test]
 fn test_overflow() {
-    let a = std::u64::MAX;
+    let a = u64::MAX;
     let b = 5u64;
     std::panic::catch_unwind(move || {
         let c = u128::from(a + b);

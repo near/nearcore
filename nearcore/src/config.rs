@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use actix;
-use chrono::Utc;
+use near_primitives::time::Clock;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -18,9 +18,8 @@ use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
-use near_network::types::ROUTED_MESSAGE_TTL;
-use near_network::utils::blacklist_from_iter;
-use near_network::NetworkConfig;
+use near_network_primitives::types::{NetworkConfig, ROUTED_MESSAGE_TTL};
+use near_network_primitives::utils::blacklist_from_iter;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -535,7 +534,7 @@ impl Genesis {
         add_protocol_account(&mut records);
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
-            genesis_time: Utc::now(),
+            genesis_time: Clock::utc(),
             chain_id: random_chain_id(),
             num_block_producer_seats: num_validator_seats,
             num_block_producer_seats_per_shard: num_validator_seats_per_shard.clone(),
@@ -945,7 +944,7 @@ pub fn init_configs(
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
-                genesis_time: Utc::now(),
+                genesis_time: Clock::utc(),
                 chain_id,
                 genesis_height: 0,
                 num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,

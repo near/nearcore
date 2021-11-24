@@ -8,7 +8,8 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMOutcome};
-use near_vm_runner::{run_vm, MockCompiledContractCache, VMError, VMKind};
+use near_vm_runner::internal::VMKind;
+use near_vm_runner::{MockCompiledContractCache, VMError};
 
 use crate::State;
 
@@ -43,10 +44,12 @@ pub struct ScriptResults {
 impl Default for Script {
     fn default() -> Self {
         let protocol_version = PROTOCOL_VERSION;
+        let config_store = RuntimeConfigStore::new(None);
+        let runtime_config = config_store.get_config(protocol_version).as_ref();
         Script {
             contracts: Vec::new(),
             vm_kind: VMKind::for_protocol_version(protocol_version),
-            vm_config: VMConfig::default(),
+            vm_config: runtime_config.wasm_config.clone(),
             protocol_version,
             contract_cache: None,
             initial_state: None,
@@ -116,22 +119,26 @@ impl Script {
         let config_store = RuntimeConfigStore::new(None);
         let runtime_fees_config = &config_store.get_config(self.protocol_version).transaction_costs;
         let mut outcomes = Vec::new();
-        for step in &self.steps {
-            for _ in 0..step.repeat {
-                let res = run_vm(
-                    &self.contracts[step.contract.0],
-                    &step.method,
-                    &mut external,
-                    step.vm_context.clone(),
-                    &self.vm_config,
-                    runtime_fees_config,
-                    &step.promise_results,
-                    self.vm_kind,
-                    self.protocol_version,
-                    self.contract_cache.as_deref(),
-                );
-                outcomes.push(res);
+        if let Some(runtime) = self.vm_kind.runtime() {
+            for step in &self.steps {
+                for _ in 0..step.repeat {
+                    let res = runtime.run(
+                        &self.contracts[step.contract.0],
+                        &step.method,
+                        &mut external,
+                        step.vm_context.clone(),
+                        &self.vm_config,
+                        runtime_fees_config,
+                        &step.promise_results,
+                        self.protocol_version,
+                        self.contract_cache.as_deref(),
+                    );
+                    outcomes.push(res);
+                }
             }
+        } else {
+            // TODO(nagisa): this probably could be reported to the user in a better way.
+            panic!("the {:?} runtime has not been enabled at compile time", self.vm_kind);
         }
         ScriptResults { outcomes, state: external }
     }

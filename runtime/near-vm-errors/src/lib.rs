@@ -3,6 +3,8 @@
 use std::fmt::{self, Error, Formatter};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+#[cfg(feature = "deepsize_feature")]
+use deepsize::DeepSizeOf;
 use near_account_id::AccountId;
 use near_rpc_error_macro::RpcError;
 use serde::{Deserialize, Serialize};
@@ -46,6 +48,7 @@ pub enum FunctionCallError {
 /// add new variants at the end (but do that very carefully). This type must be never used
 /// directly, and must be converted to `ContractCallError` instead using `into()` converter.
 /// It describes stable serialization format, and only used by serialization logic.
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 pub enum FunctionCallErrorSer {
     /// Wasm compilation error
@@ -74,6 +77,7 @@ pub enum CacheError {
     SerializationError { hash: [u8; 32] },
 }
 /// A kind of a trap happened during execution of a binary
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
@@ -98,6 +102,7 @@ pub enum WasmTrap {
     GenericTrap,
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
@@ -107,6 +112,7 @@ pub enum MethodResolveError {
     MethodInvalidSignature,
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
@@ -117,6 +123,7 @@ pub enum CompilationError {
     UnsupportedCompiler { msg: String },
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
@@ -144,10 +151,10 @@ pub enum PrepareError {
     /// Error creating memory.
     Memory,
     /// Contract contains too many functions.
-    #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
     TooManyFunctions,
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
@@ -294,7 +301,6 @@ impl fmt::Display for PrepareError {
             StackHeightInstrumentation => write!(f, "Stack instrumentation failed."),
             Instantiate => write!(f, "Error happened during instantiation."),
             Memory => write!(f, "Error creating memory."),
-            #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
             TooManyFunctions => write!(f, "Too many functions in contract."),
         }
     }
