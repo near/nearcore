@@ -2757,7 +2757,6 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
- "validator",
 ]
 
 [[package]]
@@ -2777,7 +2776,6 @@ name = "near-jsonrpc-client"
 version = "0.0.0"
 dependencies = [
  "actix-http",
- "actix-web",
  "awc",
  "futures",
  "near-jsonrpc-primitives",
