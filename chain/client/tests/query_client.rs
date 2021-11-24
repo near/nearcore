@@ -10,8 +10,9 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{NetworkClientMessages, NetworkClientResponses};
-use near_network_primitives::types::NetworkViewClientResponses;
-use near_network_primitives::types::{NetworkViewClientMessages, PeerInfo};
+use near_network_primitives::types::{
+    NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo,
+};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::time::Utc;
 use near_primitives::transaction::SignedTransaction;
