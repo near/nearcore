@@ -3124,6 +3124,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-wasi"
+version = "0.0.0"
+dependencies = [
+ "near-vm-logic",
+]
+
+[[package]]
 name = "nearcore"
 version = "0.0.0"
 dependencies = [

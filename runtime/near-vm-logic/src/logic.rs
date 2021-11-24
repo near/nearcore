@@ -82,7 +82,7 @@ enum Promise {
 
 macro_rules! memory_get {
     ($_type:ty, $name:ident) => {
-        fn $name(&mut self, offset: u64) -> Result<$_type> {
+        pub fn $name(&mut self, offset: u64) -> Result<$_type> {
             let mut array = [0u8; size_of::<$_type>()];
             self.memory_get_into(offset, &mut array)?;
             Ok(<$_type>::from_le_bytes(array))
@@ -92,7 +92,7 @@ macro_rules! memory_get {
 
 macro_rules! memory_set {
     ($_type:ty, $name:ident) => {
-        fn $name(&mut self, offset: u64, value: $_type) -> Result<()> {
+        pub fn $name(&mut self, offset: u64, value: $_type) -> Result<()> {
             self.memory_set_slice(offset, &value.to_le_bytes())
         }
     };
@@ -198,7 +198,7 @@ impl<'a> VMLogic<'a> {
         }
     }
 
-    fn memory_set_slice(&mut self, offset: u64, buf: &[u8]) -> Result<()> {
+    pub fn memory_set_slice(&mut self, offset: u64, buf: &[u8]) -> Result<()> {
         self.gas_counter.pay_base(write_memory_base)?;
         self.gas_counter.pay_per(write_memory_byte, buf.len() as _)?;
         self.try_fit_mem(offset, buf.len() as _)?;
@@ -206,6 +206,7 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
+    memory_set!(u64, memory_set_u64);
     memory_set!(u128, memory_set_u128);
 
     // #################

@@ -1,0 +1,17 @@
+[package]
+name = "near-wasi"
+version = "0.0.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+publish = false
+edition = "2021"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+categories = ["wasm"]
+repository = "https://github.com/nearprotocol/nearcore"
+homepage = "https://github.com/nearprotocol/nearcore"
+description = """
+This crate implements WASI with stubs and near-vm-logics to run contracts compiled with wasm-wasi target.
+"""
+
+[dependencies]
+near-vm-logic = { path = "../near-vm-logic", default-features = false, features = [] }
