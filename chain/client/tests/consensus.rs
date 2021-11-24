@@ -12,8 +12,9 @@ mod tests {
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, ViewClientActor};
     use near_logger_utils::init_integration_logger;
-    use near_network::types::PeerManagerMessageRequest;
-    use near_network::types::{NetworkClientMessages, NetworkRequests, NetworkResponses};
+    use near_network::types::{
+        NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
+    };
     use near_network_primitives::types::PeerInfo;
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::types::{AccountId, BlockHeight};

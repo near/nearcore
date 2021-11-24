@@ -42,9 +42,8 @@ use near_primitives::utils::{to_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 
 use crate::chunks_delay_tracker::ChunksDelayTracker;
-use crate::metrics;
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
-use crate::SyncStatus;
+use crate::{metrics, SyncStatus};
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
 use near_network::types::PeerManagerMessageRequest;
 use near_network_primitives::types::{
