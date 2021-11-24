@@ -16,8 +16,10 @@ use near_client::{ClientActor, GetBlock, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
 use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
-use near_network::types::{NetworkClientMessages, NetworkRequests, NetworkResponses};
-use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
+use near_network::types::{
+    NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
+    PeerManagerMessageResponse,
+};
 use near_network_primitives::types::PeerInfo;
 use near_primitives::block::Block;
 use near_primitives::transaction::SignedTransaction;

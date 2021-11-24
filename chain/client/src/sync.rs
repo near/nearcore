@@ -1,9 +1,10 @@
 use near_chain::{near_chain_primitives, ChainStoreAccess, Error};
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
+use std::ops::Add;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::{ops::Add, time::Duration as TimeDuration};
+use std::time::Duration as TimeDuration;
 
 use ansi_term::Color::{Purple, Yellow};
 use chrono::{DateTime, Duration};
