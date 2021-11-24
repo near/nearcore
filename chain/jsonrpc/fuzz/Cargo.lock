@@ -1862,7 +1862,7 @@ checksum = "0debeb9fcf88823ea64d64e4a815ab1643f33127d995978e099942ce38f25238"
 
 [[package]]
 name = "near-account-id"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "borsh",
  "serde",
@@ -1870,7 +1870,7 @@ dependencies = [
 
 [[package]]
 name = "near-chain"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "actix",
  "borsh",
@@ -1898,7 +1898,7 @@ dependencies = [
 
 [[package]]
 name = "near-chain-configs"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "chrono",
  "derive_more",
@@ -1914,7 +1914,7 @@ dependencies = [
 
 [[package]]
 name = "near-chain-primitives"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "chrono",
  "failure",
@@ -1927,7 +1927,7 @@ dependencies = [
 
 [[package]]
 name = "near-chunks"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "actix",
  "borsh",
@@ -1939,6 +1939,7 @@ dependencies = [
  "near-chunks-primitives",
  "near-crypto",
  "near-network",
+ "near-network-primitives",
  "near-pool",
  "near-primitives",
  "near-store",
@@ -1949,14 +1950,14 @@ dependencies = [
 
 [[package]]
 name = "near-chunks-primitives"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "near-chain-primitives",
 ]
 
 [[package]]
 name = "near-client"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "actix",
  "actix-rt",
@@ -1975,6 +1976,7 @@ dependencies = [
  "near-crypto",
  "near-metrics",
  "near-network",
+ "near-network-primitives",
  "near-performance-metrics",
  "near-performance-metrics-macros",
  "near-pool",
@@ -1994,7 +1996,7 @@ dependencies = [
 
 [[package]]
 name = "near-client-primitives"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "actix",
  "chrono",
@@ -2011,7 +2013,7 @@ dependencies = [
 
 [[package]]
 name = "near-crypto"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "arrayref",
  "blake2",
@@ -2021,9 +2023,9 @@ dependencies = [
  "curve25519-dalek",
  "derive_more",
  "ed25519-dalek",
- "lazy_static",
  "libc",
  "near-account-id",
+ "once_cell",
  "parity-secp256k1",
  "primitive-types",
  "rand 0.7.3",
@@ -2036,22 +2038,23 @@ dependencies = [
 
 [[package]]
 name = "near-jsonrpc"
-version = "0.2.2"
+version = "0.0.0"
 dependencies = [
  "actix",
  "actix-cors",
  "actix-web",
  "easy-ext",
  "futures",
- "lazy_static",
  "near-chain-configs",
  "near-client",
  "near-jsonrpc-client",
  "near-jsonrpc-primitives",
  "near-metrics",
  "near-network",
+ "near-network-primitives",
  "near-primitives",
  "near-rpc-error-macro",
+ "once_cell",
  "prometheus",
  "serde",
  "serde_json",
@@ -2062,7 +2065,7 @@ dependencies = [
 
 [[package]]
 name = "near-jsonrpc-client"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "actix-http",
  "actix-web",
@@ -2089,6 +2092,7 @@ dependencies = [
  "near-jsonrpc",
  "near-jsonrpc-tests",
  "near-logger-utils",
+ "once_cell",
  "rust-base58",
  "serde",
  "serde_json",
@@ -2097,10 +2101,9 @@ dependencies = [
 
 [[package]]
 name = "near-jsonrpc-primitives"
-version = "0.2.0"
+version = "0.0.0"
 dependencies = [
  "actix",
- "lazy_static",
  "near-chain-configs",
  "near-client-primitives",
  "near-crypto",
@@ -2108,6 +2111,7 @@ dependencies = [
  "near-primitives",
  "near-primitives-core",
  "near-rpc-error-macro",
+ "once_cell",
  "serde",
  "serde_json",
  "thiserror",
@@ -2117,13 +2121,12 @@ dependencies = [
 
 [[package]]
 name = "near-jsonrpc-tests"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "actix",
  "awc",
  "borsh",
  "futures",
- "lazy_static",
  "near-chain-configs",
  "near-client",
  "near-crypto",
@@ -2131,13 +2134,14 @@ dependencies = [
  "near-jsonrpc-primitives",
  "near-network",
  "near-primitives",
+ "once_cell",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "near-logger-utils"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "tracing",
  "tracing-subscriber",
@@ -2145,7 +2149,7 @@ dependencies = [
 
 [[package]]
 name = "near-metrics"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "lazy_static",
  "log",
@@ -2154,7 +2158,7 @@ dependencies = [
 
 [[package]]
 name = "near-network"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "actix",
  "borsh",
@@ -2166,16 +2170,17 @@ dependencies = [
  "conqueue",
  "futures",
  "lazy_static",
- "near-chain-configs",
  "near-crypto",
  "near-metrics",
  "near-network-primitives",
  "near-performance-metrics",
  "near-performance-metrics-macros",
  "near-primitives",
+ "near-rate-limiter",
  "near-rust-allocator-proxy",
  "near-stable-hasher",
  "near-store",
+ "once_cell",
  "rand 0.7.3",
  "strum",
  "tokio",
@@ -2186,7 +2191,7 @@ dependencies = [
 
 [[package]]
 name = "near-network-primitives"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "actix",
  "borsh",
@@ -2201,7 +2206,7 @@ dependencies = [
 
 [[package]]
 name = "near-performance-metrics"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "actix",
  "bitflags",
@@ -2220,7 +2225,7 @@ dependencies = [
 
 [[package]]
 name = "near-performance-metrics-macros"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "quote",
  "syn",
@@ -2228,7 +2233,7 @@ dependencies = [
 
 [[package]]
 name = "near-pool"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "borsh",
  "near-crypto",
@@ -2238,7 +2243,7 @@ dependencies = [
 
 [[package]]
 name = "near-primitives"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "base64 0.13.0",
  "borsh",
@@ -2257,24 +2262,20 @@ dependencies = [
  "primitive-types",
  "rand 0.7.3",
  "reed-solomon-erasure",
- "regex",
  "serde",
  "serde_json",
  "sha2",
  "smart-default",
- "validator",
 ]
 
 [[package]]
 name = "near-primitives-core"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "base64 0.11.0",
  "borsh",
  "bs58",
  "derive_more",
- "hex",
- "lazy_static",
  "near-account-id",
  "num-rational 0.3.2",
  "serde",
@@ -2283,8 +2284,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-rate-limiter"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "log",
+ "pin-project-lite",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "near-rpc-error-core"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2294,7 +2307,7 @@ dependencies = [
 
 [[package]]
 name = "near-rpc-error-macro"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "near-rpc-error-core",
  "proc-macro2",
@@ -2319,11 +2332,11 @@ dependencies = [
 
 [[package]]
 name = "near-stable-hasher"
-version = "0.1.0"
+version = "0.0.0"
 
 [[package]]
 name = "near-store"
-version = "2.2.0"
+version = "0.0.0"
 dependencies = [
  "borsh",
  "byteorder",
@@ -2348,7 +2361,7 @@ dependencies = [
 
 [[package]]
 name = "near-telemetry"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "actix",
  "actix-web",
@@ -2364,7 +2377,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-errors"
-version = "3.0.0"
+version = "0.0.0"
 dependencies = [
  "borsh",
  "hex",
@@ -2375,7 +2388,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-logic"
-version = "3.0.0"
+version = "0.0.0"
 dependencies = [
  "base64 0.13.0",
  "borsh",
@@ -2394,11 +2407,12 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner"
-version = "3.0.0"
+version = "0.0.0"
 dependencies = [
  "anyhow",
  "borsh",
  "cached",
+ "memoffset",
  "near-primitives",
  "near-stable-hasher",
  "near-vm-errors",
@@ -2415,7 +2429,7 @@ dependencies = [
  "wasmer-runtime-near",
  "wasmer-types-near",
  "wasmer-vm-near",
- "wasmparser 0.51.4",
+ "wasmparser 0.78.2",
  "wasmtime",
 ]
 
@@ -3772,9 +3786,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.6.8"
+version = "0.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08d3725d3efa29485e87311c5b699de63cde14b00ed4d256b8318aa30ca452cd"
+checksum = "9e99e1983e5d376cd8eb4b66604d2e99e79f5bd988c3055891dcd8c9e2604cc0"
 dependencies = [
  "bytes",
  "futures-core",
@@ -4061,9 +4075,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-compiler-near"
-version = "2.0.1"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a031e2aa4c253cd1a0f61f9b66dc1fdbe5ef7ff79d5e9eace40c8cac2d9ce337"
+checksum = "7337099b0683652e52606b5630917a10f836dc210d4ee253bf3f83facff83b1a"
 dependencies = [
  "enumset",
  "loupe",
@@ -4080,15 +4094,16 @@ dependencies = [
 
 [[package]]
 name = "wasmer-compiler-singlepass-near"
-version = "2.0.1"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b36773b8efc498c764aa82ea0335a5d58e4578b451c1116cda3a7bbf42c74d1"
+checksum = "b878963f500ee97bb86b4c7cef3d55b536f5b14d1b49d9ab36f38be2158f4c0d"
 dependencies = [
  "byteorder",
  "dynasm",
  "dynasmrt",
  "lazy_static",
  "loupe",
+ "memoffset",
  "more-asserts",
  "rayon",
  "smallvec",
@@ -4099,9 +4114,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-derive-near"
-version = "2.0.1"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e784e640f63c09f8bb236e58469e136ebe6f46fbe5cc58e046efc4804a34da50"
+checksum = "5be5e7432ff6a7357c8a8c52d8d9af94e11e6dfe6b85026f7839556a1666e1b7"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -4154,9 +4169,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-engine-near"
-version = "2.0.1"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd68343185cb15bb3668a2d2f6103e474553cc35a33346a0d8abdab2467ddeb6"
+checksum = "0a44104129ff924c906c59adc4b12b4caa1867bbdb819cb0c1993597ec06db35"
 dependencies = [
  "backtrace",
  "lazy_static",
@@ -4175,9 +4190,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-engine-universal-near"
-version = "2.0.1"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d23b38bf74d16a4b00f9a26627ce008578b9c48b9a3ac7586b992f875cbf2b7"
+checksum = "94ef683f2e7236f91e20297d7dab6c82f3d1c09c45c95576af4bc4454be48f75"
 dependencies = [
  "cfg-if 1.0.0",
  "leb128",
@@ -4193,9 +4208,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-near"
-version = "2.0.1"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "595ddd94dbb327d564c14342ceebc48fae50f81a3ae4b65a0159e43c4e626d39"
+checksum = "7e92829f083cc2e319695ef1172cc114a13d45c8ef714f9cb3a7f9aabc4b10bd"
 dependencies = [
  "cfg-if 1.0.0",
  "indexmap",
@@ -4307,9 +4322,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-types-near"
-version = "2.0.1"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00310b8d7167ec0aa2df888d7803fa17239a958c6dee3137313e8d1b96036b61"
+checksum = "de952d66292b33d02350b89fcb434aba0fefd01da6507905d42ca1eb6759dc6a"
 dependencies = [
  "indexmap",
  "loupe",
@@ -4342,9 +4357,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-vm-near"
-version = "2.0.1"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e862c259e2acb433a9185dd4be9f43726d3ac45ada2d8432f29e0e0d65e33847"
+checksum = "1d55b8cf3d69904542534adf18370351b75fdc9bc451b7eb2dbe031d9e176c42"
 dependencies = [
  "backtrace",
  "cc",
