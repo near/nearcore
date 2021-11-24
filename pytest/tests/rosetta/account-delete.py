@@ -139,15 +139,14 @@ class RosettaRPC:
 
 
 def test_delete_implicit_account() -> None:
-    node = cluster.start_cluster(
-        1, 0, 1, {}, {}, {
-            0: {
-                'rosetta_rpc': {
-                    'addr': '0.0.0.0:5040',
-                    'cors_allowed_origins': ['*']
-                },
-            }
-        })[0]
+    node = cluster.start_cluster(1, 0, 1, {}, {}, {
+        0: {
+            'rosetta_rpc': {
+                'addr': '0.0.0.0:5040',
+                'cors_allowed_origins': ['*']
+            },
+        }
+    })[0]
     rosetta = RosettaRPC(host=node.rpc_addr()[0])
     validator = node.validator_key
     implicit = key.Key.implicit_account()
@@ -168,7 +167,6 @@ def test_delete_implicit_account() -> None:
     else:
         assert False, f'Account {implicit.account_id} wasn’t created:\n{result}'
 
-
     logger.info(f'Deleting implicit account: {implicit.account_id}')
     tx_hash = rosetta.delete_account(implicit, refund_to=validator)
     logger.info(f'Transaction: {tx_hash}')
@@ -177,7 +175,7 @@ def test_delete_implicit_account() -> None:
         time.sleep(1)
         result = node.get_account(implicit.account_id)
         if ('error' in result and
-            result['error']['cause']['name'] == 'UNKNOWN_ACCOUNT'):
+                result['error']['cause']['name'] == 'UNKNOWN_ACCOUNT'):
             break
     else:
         assert False, f'Account {implicit.account_id} wasn’t deleted:\n{result}'
