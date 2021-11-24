@@ -27,6 +27,10 @@ near-jsonrpc = { path = ".." }
 near-jsonrpc-tests = { path = "../jsonrpc-tests" }
 near-logger-utils = { path = "../../../test-utils/logger" }
 
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
 [[bin]]
 name = "fuzz_target_1"
 path = "fuzz_targets/fuzz_target_1.rs"
