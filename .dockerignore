@@ -11,3 +11,12 @@ ops/
 storage/
 keystore/
 tmp/
+sandbox/
+
+# Ignore Vim swapfiles
+*.swp
+
+# Docker files shouldn't invalidate the cache because Docker itself will use these appropriately
+.dockerignore
+Dockerfile
+Dockerfile.nightly
