@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate lazy_static;
-
 pub use near_client_primitives::types::{
     Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree, GetChunk,
     GetExecutionOutcome, GetExecutionOutcomeResponse, GetExecutionOutcomesForBlock, GetGasPrice,
@@ -22,4 +19,6 @@ mod info;
 mod metrics;
 pub mod sync;
 pub mod test_utils;
+#[cfg(test)]
+mod tests;
 mod view_client;

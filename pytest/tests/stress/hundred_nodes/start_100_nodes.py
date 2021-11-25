@@ -177,8 +177,8 @@ python2 scripts/start_stakewars.py --local --home {node_dir} --init --signer-key
 
 # Generate csv from jsons and ips
 def pk_from_file(path):
-    with open(path) as f:
-        return json.loads(f.read())['public_key']
+    with open(path) as rd:
+        return json.load(rd)['public_key']
 
 
 def get_validator_key(i):

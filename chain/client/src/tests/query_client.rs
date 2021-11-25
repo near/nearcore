@@ -1,17 +1,18 @@
 use actix::System;
 use futures::{future, FutureExt};
 
-use near_actix_test_utils::run_actix;
-use near_client::test_utils::{setup_no_network, setup_only_view};
-use near_client::{
+use crate::test_utils::{setup_no_network, setup_only_view};
+use crate::{
     GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, Status, TxStatus,
 };
+use near_actix_test_utils::run_actix;
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{NetworkClientMessages, NetworkClientResponses};
-use near_network_primitives::types::NetworkViewClientResponses;
-use near_network_primitives::types::{NetworkViewClientMessages, PeerInfo};
+use near_network_primitives::types::{
+    NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo,
+};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::time::Utc;
 use near_primitives::transaction::SignedTransaction;
