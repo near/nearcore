@@ -222,9 +222,7 @@ impl BorshDeserialize for HandshakeV2 {
 
         if OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION <= version && version <= PROTOCOL_VERSION {
             // If we support this version, then try to deserialize with custom deserializer
-            match version {
-                _ => HandshakeV2AutoDes::deserialize(buf).map(Into::into),
-            }
+            HandshakeV2AutoDes::deserialize(buf).map(Into::into)
         } else {
             Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -376,7 +374,7 @@ pub struct RoutingVersion2 {
 
 impl fmt::Display for PeerMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(format!("{}", self.msg_variant()).as_ref())
+        fmt::Display::fmt(self.msg_variant(), f)
     }
 }
 
