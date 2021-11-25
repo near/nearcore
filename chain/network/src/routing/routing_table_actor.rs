@@ -2,7 +2,7 @@ use crate::metrics;
 use crate::routing::edge::{Edge, EdgeType};
 use crate::routing::edge_verifier_actor::EdgeVerifierActor;
 use crate::routing::routing::{Graph, SAVE_PEERS_MAX_TIME};
-use crate::types::{EdgeListToValidate, StopMsg};
+use crate::types::{StopMsg, ValidateEdgeList};
 use actix::dev::MessageResponse;
 use actix::{
     Actor, ActorFuture, Addr, Context, ContextFutureSpawner, Handler, Message, Running,
@@ -414,11 +414,11 @@ impl Handler<StopMsg> for RoutingTableActor {
     }
 }
 
-impl Handler<EdgeListToValidate> for RoutingTableActor {
+impl Handler<ValidateEdgeList> for RoutingTableActor {
     type Result = bool;
 
     #[perf]
-    fn handle(&mut self, msg: EdgeListToValidate, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: ValidateEdgeList, ctx: &mut Self::Context) -> Self::Result {
         self.edge_verifier_requests_in_progress += 1;
         let mut msg = msg;
         msg.edges.retain(|x| self.is_edge_newer(x.key(), x.nonce()));

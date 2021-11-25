@@ -18,9 +18,9 @@ use crate::stats::metrics::NetworkMetrics;
 #[cfg(feature = "test_features")]
 use crate::types::SetAdvOptions;
 use crate::types::{
-    Consolidate, ConsolidateResponse, EdgeListToValidate, GetPeerId, GetPeerIdResult, NetworkInfo,
+    Consolidate, ConsolidateResponse, GetPeerId, GetPeerIdResult, NetworkInfo,
     PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerRequest, PeerResponse,
-    PeersRequest, PeersResponse, SendMessage, StopMsg, SyncData, Unregister,
+    PeersRequest, PeersResponse, SendMessage, StopMsg, SyncData, Unregister, ValidateEdgeList,
 };
 use crate::types::{FullPeerInfo, NetworkClientMessages, NetworkRequests, NetworkResponses};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -1196,7 +1196,7 @@ impl PeerManagerActor {
         if edges.is_empty() {
             return;
         }
-        self.routing_table_addr.do_send(EdgeListToValidate {
+        self.routing_table_addr.do_send(ValidateEdgeList {
             edges,
             edges_info_shared: self.routing_table_exchange_helper.edges_info_shared.clone(),
             sender: self.routing_table_exchange_helper.edges_to_add_sender.clone(),

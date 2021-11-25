@@ -1,5 +1,5 @@
 use crate::routing::edge::Edge;
-use crate::types::{EdgeListToValidate, StopMsg};
+use crate::types::{StopMsg, ValidateEdgeList};
 use actix::{Actor, Handler, SyncContext, System};
 use conqueue::{QueueReceiver, QueueSender};
 use near_performance_metrics_macros::perf;
@@ -27,11 +27,11 @@ impl Handler<StopMsg> for EdgeVerifierActor {
 ///
 /// TODO(#5230): This code needs to be rewritten to fix memory leak - there is a cache that stores
 ///              all edges `edges_info_shared` forever in memory.
-impl Handler<EdgeListToValidate> for EdgeVerifierActor {
+impl Handler<ValidateEdgeList> for EdgeVerifierActor {
     type Result = bool;
 
     #[perf]
-    fn handle(&mut self, msg: EdgeListToValidate, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: ValidateEdgeList, _ctx: &mut Self::Context) -> Self::Result {
         for edge in msg.edges {
             let key = edge.key();
             if msg.edges_info_shared.lock().unwrap().get(key).cloned().unwrap_or(0u64)
