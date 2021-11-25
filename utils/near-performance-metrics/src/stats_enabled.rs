@@ -1,3 +1,4 @@
+use bytesize::ByteSize;
 use futures;
 use futures::task::Context;
 use log::{info, warn};
@@ -13,8 +14,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::{Duration, Instant};
-
-use bytesize::ByteSize;
 use strum::AsStaticRef;
 
 static MEMORY_LIMIT: u64 = 512 * bytesize::MIB;
