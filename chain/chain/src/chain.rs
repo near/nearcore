@@ -4280,7 +4280,7 @@ impl<'a> ChainUpdate<'a> {
                 != &Chain::compute_bp_hash(
                     &*self.runtime_adapter,
                     header.next_epoch_id().clone(),
-                    prev_header.epoch_id().clone(),
+                    header.epoch_id().clone(),
                     &header.prev_hash(),
                 )?
             {
