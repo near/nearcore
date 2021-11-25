@@ -42,9 +42,8 @@ use near_primitives::utils::{to_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 
 use crate::chunks_delay_tracker::ChunksDelayTracker;
-use crate::metrics;
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
-use crate::SyncStatus;
+use crate::{metrics, SyncStatus};
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
 use near_network::types::PeerManagerMessageRequest;
 use near_network_primitives::types::{
@@ -512,7 +511,7 @@ impl Client {
             seen: to_timestamp(Clock::utc()),
         })?;
 
-        near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
+        metrics::BLOCK_PRODUCED_TOTAL.inc();
 
         Ok(Some(block))
     }
@@ -623,7 +622,7 @@ impl Client {
             encoded_chunk.chunk_hash().0,
         );
 
-        near_metrics::inc_counter(&metrics::CHUNK_PRODUCED_TOTAL);
+        metrics::CHUNK_PRODUCED_TOTAL.inc();
         Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
     }
 
@@ -1021,7 +1020,7 @@ impl Client {
             };
             self.chain.blocks_with_missing_chunks.prune_blocks_below_height(last_finalized_height);
             if !self.config.archive {
-                let timer = near_metrics::start_timer(&metrics::GC_TIME);
+                let timer = metrics::GC_TIME.start_timer();
                 if let Err(err) = self
                     .chain
                     .clear_data(self.runtime_adapter.get_tries(), self.config.gc_blocks_limit)
@@ -1029,7 +1028,7 @@ impl Client {
                     error!(target: "client", "Can't clear old data, {:?}", err);
                     debug_assert!(false);
                 };
-                near_metrics::stop_timer(timer);
+                timer.observe_duration();
             }
 
             if self.runtime_adapter.is_next_block_epoch_start(block.hash()).unwrap_or(false) {
