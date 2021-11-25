@@ -710,9 +710,7 @@ def apply_config_changes(node_dir, client_config_change):
         if not (k in allowed_missing_configs or k in config_json):
             raise ValueError(f'Unknown configuration option: {k}')
         if k in config_json and isinstance(v, dict):
-            for key, value in v.items():
-                assert key in config_json[k], key
-                config_json[k][key] = value
+            config_json[k].update(v)
         else:
             config_json[k] = v
 
