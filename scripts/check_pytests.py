@@ -65,23 +65,21 @@ def read_nayduck_tests(path: pathlib.Path) -> StrGenerator:
 
     def extract_name(line: str) -> StrGenerator:
         tokens = line.split()
-        try:
-            idx = 1 + (tokens[0] == '#')
-            idx += tokens[idx].startswith('--timeout')
+        idx = 1 + (tokens[0] == '#')
+        while idx < len(tokens) and tokens[idx].startswith('--'):
+            idx += 1
+        if idx < len(tokens):
             yield tokens[idx]
-        except ValueError:
-            pass
 
     found_todo = False
     for line in nayduck.read_tests_from_file(path, include_comments=True):
-        line = line.strip()
-        line = re.sub(r'\s+', ' ', line)
-        if re.search(r'^\s*(?:pytest|mocknet)\s+', line):
+        line = re.sub(r'\s+', ' ', line.strip())
+        if re.search(r'^(?:pytest|mocknet) ', line):
             found_todo = False
             yield from extract_name(line)
-        elif found_todo and re.search(r'^\s*#\s*(?:pytest|mocknet)\s+', line):
+        elif found_todo and re.search(r'^# ?(?:pytest|mocknet) ', line):
             yield from extract_name(line)
-        elif re.search(r'^\s*#\s*TO' r'DO.*#[0-9]{4,}', line):
+        elif re.search('^# ?TODO.*#[0-9]{4,}', line):
             found_todo = True
         elif not line.strip().startswith('#'):
             found_todo = False
