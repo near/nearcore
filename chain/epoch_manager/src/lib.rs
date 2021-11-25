@@ -126,6 +126,7 @@ impl EpochManager {
                 validator_reward,
                 0,
                 genesis_protocol_version,
+                genesis_protocol_version,
             )?;
             // Dummy block info.
             // Artificial block we add to simplify implementation: dummy block is the
@@ -419,6 +420,7 @@ impl EpochManager {
             validator_reward,
             minted_amount,
             next_version,
+            epoch_info.protocol_version(),
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError { stake_sum, num_seats }) => {

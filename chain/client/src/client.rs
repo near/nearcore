@@ -433,7 +433,12 @@ impl Client {
         let max_gas_price = self.chain.block_economics_config.max_gas_price(protocol_version);
 
         let next_bp_hash = if prev_epoch_id != epoch_id {
-            Chain::compute_bp_hash(&*self.runtime_adapter, next_epoch_id.clone(), &prev_hash)?
+            Chain::compute_bp_hash(
+                &*self.runtime_adapter,
+                next_epoch_id.clone(),
+                epoch_id.clone(),
+                &prev_hash,
+            )?
         } else {
             prev_next_bp_hash
         };
