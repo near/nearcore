@@ -114,7 +114,7 @@ impl RoutingTableActor {
         self.peer_ibf_set.remove_edge(&edge.to_simple_edge());
 
         let key = edge.key();
-        if self.edges_info.remove(&key).is_some() {
+        if self.edges_info.remove(key).is_some() {
             self.raw_graph.remove_edge(&edge.key().0, &edge.key().1);
             self.needs_routing_table_recalculation = true;
         }
@@ -124,7 +124,7 @@ impl RoutingTableActor {
     /// are valid (`signature0`, `signature`).
     fn add_verified_edge(&mut self, edge: Edge) -> bool {
         let key = edge.key();
-        if !self.is_edge_newer(&key, edge.nonce()) {
+        if !self.is_edge_newer(key, edge.nonce()) {
             // We already have a newer information about this edge. Discard this information.
             false
         } else {
@@ -231,7 +231,7 @@ impl RoutingTableActor {
     }
 
     fn my_peer_id(&self) -> &PeerId {
-        &self.raw_graph.my_peer_id()
+        self.raw_graph.my_peer_id()
     }
 
     /// Recalculate routing table and update list of reachable peers.
@@ -350,7 +350,7 @@ impl RoutingTableActor {
 
     /// Checks whenever given edge is newer than the one we already have.
     pub fn is_edge_newer(&self, key: &(PeerId, PeerId), nonce: u64) -> bool {
-        self.edges_info.get(&key).map_or(0, |x| x.nonce()) < nonce
+        self.edges_info.get(key).map_or(0, |x| x.nonce()) < nonce
     }
 
     /// Get edges stored in DB under `ColPeerComponent` column at `peer_id` key.
@@ -565,7 +565,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                         Vec::new()
                     };
                 // Only keep local edges
-                edges_removed.retain(|p| p.contains_peer(&self.my_peer_id()));
+                edges_removed.retain(|p| p.contains_peer(self.my_peer_id()));
 
                 let mut peers_to_ban = Vec::new();
                 swap(&mut peers_to_ban, &mut self.peers_to_ban);
