@@ -1,5 +1,4 @@
 use std::cmp;
-use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::{btree_map, hash_map, BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -898,11 +897,9 @@ impl ShardsManager {
     }
 
     fn pool_for_shard(&mut self, shard_id: ShardId) -> &mut TransactionPool {
-        match self.tx_pools.entry(shard_id) {
-            Vacant(entry) => entry
-                .insert(TransactionPool::new(ShardsManager::random_seed(&self.rng_seed, shard_id))),
-            Occupied(entry) => entry.into_mut(),
-        }
+        self.tx_pools.entry(shard_id).or_insert_with(|| {
+            TransactionPool::new(ShardsManager::random_seed(&self.rng_seed, shard_id))
+        })
     }
 
     pub fn reintroduce_transactions(
