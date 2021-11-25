@@ -238,6 +238,26 @@ mod tests {
     }
 
     #[test]
+    fn multiple_valid_memory_are_disabled() {
+        // Our preparation and sanitization pass assumes a single memory, so we should fail when
+        // there are multiple specified.
+        let r = parse_and_prepare_wat(
+            r#"(module
+          (import "env" "memory" (memory 1 2048))
+          (import "env" "memory" (memory 1 2048))
+        )"#,
+        );
+        assert_matches!(r, Err(_));
+        let r = parse_and_prepare_wat(
+            r#"(module
+          (import "env" "memory" (memory 1 2048))
+          (memory 1)
+        )"#,
+        );
+        assert_matches!(r, Err(_));
+    }
+
+    #[test]
     fn imports() {
         // nothing can be imported from non-"env" module for now.
         let r =
