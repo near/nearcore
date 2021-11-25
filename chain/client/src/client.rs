@@ -12,7 +12,7 @@ use near_primitives::time::Clock;
 
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
-    OrphanMissingChunks, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
+    StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
 };
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown};
@@ -712,7 +712,6 @@ impl Client {
         // TODO: replace to channels or cross beams here? we don't have multi-threading here so it's mostly to get around borrow checker.
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
-        let orphans_missing_chunks = Arc::new(RwLock::new(vec![]));
         let challenges = Arc::new(RwLock::new(vec![]));
 
         let result = {
@@ -728,9 +727,6 @@ impl Client {
                     accepted_blocks.write().unwrap().push(accepted_block);
                 },
                 |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks),
-                |orphan_missing_chunks| {
-                    orphans_missing_chunks.write().unwrap().push(orphan_missing_chunks);
-                },
                 |challenge| challenges.write().unwrap().push(challenge),
             )
         };
@@ -769,7 +765,7 @@ impl Client {
         }
 
         // Request any missing chunks
-        self.request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
+        self.request_missing_chunks(blocks_missing_chunks);
 
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
         (unwrapped_accepted_blocks, result)
@@ -884,7 +880,7 @@ impl Client {
                         let prev_hash = chunk_header.prev_block_hash();
                         self.shards_mgr.request_chunks(
                             iter::once(chunk_header),
-                            prev_hash,
+                            &prev_hash,
                             &self.chain.header_head()?,
                         );
                         Ok(vec![])
@@ -1182,28 +1178,13 @@ impl Client {
     pub fn request_missing_chunks(
         &mut self,
         blocks_missing_chunks: Arc<RwLock<Vec<BlockMissingChunks>>>,
-        orphans_missing_chunks: Arc<RwLock<Vec<OrphanMissingChunks>>>,
     ) {
         for BlockMissingChunks { prev_hash, missing_chunks } in
             blocks_missing_chunks.write().unwrap().drain(..)
         {
             self.shards_mgr.request_chunks(
                 missing_chunks,
-                prev_hash,
-                &self
-                    .chain
-                    .header_head()
-                    .expect("header_head must be available when processing a block"),
-            );
-        }
-
-        for OrphanMissingChunks { missing_chunks, epoch_id, ancestor_hash } in
-            orphans_missing_chunks.write().unwrap().drain(..)
-        {
-            self.shards_mgr.request_chunks_for_orphan(
-                missing_chunks,
-                &epoch_id,
-                ancestor_hash,
+                &prev_hash,
                 &self
                     .chain
                     .header_head()
@@ -1217,22 +1198,16 @@ impl Client {
     pub fn process_blocks_with_missing_chunks(&mut self) -> Vec<AcceptedBlock> {
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
-        let orphans_missing_chunks = Arc::new(RwLock::new(vec![]));
         let challenges = Arc::new(RwLock::new(vec![]));
         let me =
             self.validator_signer.as_ref().map(|validator_signer| validator_signer.validator_id());
-        self.chain.check_blocks_with_missing_chunks(
-            &me.map(|x| x.clone()),
-            |accepted_block| {
-                debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", accepted_block.hash);
-                accepted_blocks.write().unwrap().push(accepted_block);
-            },
-            |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks),
-            |orphan_missing_chunks| orphans_missing_chunks.write().unwrap().push(orphan_missing_chunks),
-            |challenge| challenges.write().unwrap().push(challenge));
+        self.chain.check_blocks_with_missing_chunks(&me.map(|x| x.clone()), |accepted_block| {
+            debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", accepted_block.hash);
+            accepted_blocks.write().unwrap().push(accepted_block);
+        }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks), |challenge| challenges.write().unwrap().push(challenge));
         self.send_challenges(challenges);
 
-        self.request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
+        self.request_missing_chunks(blocks_missing_chunks);
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
         unwrapped_accepted_blocks
     }
@@ -1720,7 +1695,6 @@ impl Client {
                     if blocks_catch_up_state.is_finished() {
                         let accepted_blocks = Arc::new(RwLock::new(vec![]));
                         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
-                        let orphans_missing_chunks = Arc::new(RwLock::new(vec![]));
                         let challenges = Arc::new(RwLock::new(vec![]));
 
                         self.chain.finish_catchup_blocks(
@@ -1732,16 +1706,13 @@ impl Client {
                             |missing_chunks| {
                                 blocks_missing_chunks.write().unwrap().push(missing_chunks)
                             },
-                            |orphan_missing_chunks| {
-                                orphans_missing_chunks.write().unwrap().push(orphan_missing_chunks)
-                            },
                             |challenge| challenges.write().unwrap().push(challenge),
                             &blocks_catch_up_state.done_blocks,
                         )?;
 
                         self.send_challenges(challenges);
 
-                        self.request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
+                        self.request_missing_chunks(blocks_missing_chunks);
 
                         return Ok(accepted_blocks.write().unwrap().drain(..).collect());
                     }
