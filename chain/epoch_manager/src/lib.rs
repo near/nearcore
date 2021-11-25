@@ -420,7 +420,7 @@ impl EpochManager {
             validator_reward,
             minted_amount,
             next_version,
-            epoch_info.protocol_version(),
+            epoch_protocol_version,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError { stake_sum, num_seats }) => {
