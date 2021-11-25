@@ -413,7 +413,7 @@ def kill_proccess_script(pid):
 
 def get_near_pid(machine):
     p = machine.run(
-        "ps aux | grep 'near.* run' | grep -v grep | awk '{print $2}'")
+        'ps aux | grep 'near.* run' | grep -v grep | awk '{print $2}'')
     return p.stdout.strip()
 
 
@@ -450,7 +450,8 @@ def create_and_upload_genesis(validator_nodes,
                               update_genesis_on_machine=False,
                               epoch_length=None,
                               node_pks=None,
-                              increasing_stakes=0.0):
+                              increasing_stakes=0.0,
+                              num_seats=100):
     logger.info(
         f'create_and_upload_genesis: validator_nodes: {validator_nodes}')
     assert chain_id
@@ -474,7 +475,8 @@ def create_and_upload_genesis(validator_nodes,
                                 rpc_node_names=rpc_node_names,
                                 epoch_length=epoch_length,
                                 node_pks=node_pks,
-                                increasing_stakes=increasing_stakes)
+                                increasing_stakes=increasing_stakes,
+                                num_seats=num_seats)
             # Save time and bandwidth by uploading a compressed file, which is 2% the size of the genesis file.
             compress_and_upload(validator_nodes + rpc_nodes,
                                 mocknet_genesis_filename,
@@ -496,7 +498,7 @@ def create_and_upload_genesis(validator_nodes,
                     node, 'genesis_updater.py', genesis_filename_in,
                     '/home/ubuntu/.near/genesis.json', chain_id,
                     validator_node_names, rpc_node_names, done_filename,
-                    epoch_length, node_pks, increasing_stakes),
+                    epoch_length, node_pks, increasing_stakes, num_seats),
                 validator_nodes + rpc_nodes)
             pmap(lambda node: wait_genesis_updater_done(node, done_filename),
                  validator_nodes + rpc_nodes)
@@ -511,7 +513,8 @@ def create_genesis_file(validator_node_names,
                         append=False,
                         epoch_length=None,
                         node_pks=None,
-                        increasing_stakes=0.0):
+                        increasing_stakes=0.0,
+                        num_seats=None):
     logger.info(
         f'create_genesis_file: validator_node_names: {validator_node_names}')
     logger.info(f'create_genesis_file: rpc_node_names: {rpc_node_names}')
@@ -602,13 +605,13 @@ def create_genesis_file(validator_node_names,
                 }
             })
 
-    genesis_config['validators'] = []
+    stakes = []
     prev_stake = None
     for i, node_name in enumerate(validator_node_names):
         account_id = node_account_name(node_name)
         logger.info(f'Adding account {account_id}')
         if increasing_stakes:
-            if i * 5 < len(validator_node_names) * 3 and i < len(
+            if i * 5 < num_seats * 3 and i < len(
                     MAINNET_STAKES):
                 staked = MAINNET_STAKES[i] * ONE_NEAR
             elif prev_stake is None:
@@ -619,6 +622,7 @@ def create_genesis_file(validator_node_names,
                 staked = prev_stake * ONE_NEAR
         else:
             staked = MIN_STAKE
+        stakes.append((staked, account_id))
         genesis_config['records'].append({
             'Account': {
                 'account_id': account_id,
@@ -640,11 +644,6 @@ def create_genesis_file(validator_node_names,
                     'permission': 'FullAccess'
                 }
             }
-        })
-        genesis_config['validators'].append({
-            'account_id': account_id,
-            'public_key': PUBLIC_KEY,
-            'amount': str(staked),
         })
         for i in range(NUM_ACCOUNTS):
             load_testing_account = load_testing_account_id(account_id, i)
@@ -697,6 +696,19 @@ def create_genesis_file(validator_node_names,
             }
         })
 
+    genesis_config['validators'] = []
+    seats = compute_seats(stakes, num_seats)
+    seats_taken = 0
+    for seats, staked, account_id in seats:
+        if seats + seats_taken > num_seats:
+            break
+        genesis_config['validators'].append({
+            'account_id': account_id,
+            'public_key': PUBLIC_KEY,
+            'amount': str(staked),
+        })
+        seats_taken += seats
+
     total_supply = 0
     for record in genesis_config['records']:
         account = record.get('Account', {}).get('account', {})
@@ -706,7 +718,7 @@ def create_genesis_file(validator_node_names,
     # Testing simple nightshade.
     genesis_config['protocol_version'] = 48
     genesis_config['epoch_length'] = epoch_length
-    genesis_config['num_block_producer_seats'] = len(validator_node_names)
+    genesis_config['num_block_producer_seats'] = num_seats
     # Loadtest helper signs all transactions using the same block.
     # Extend validity period to allow the same hash to be used for the whole duration of the test.
     genesis_config['transaction_validity_period'] = 10**9
@@ -840,11 +852,11 @@ def reset_data(node, retries=0):
 def start_genesis_updater_script(script, genesis_filename_in,
                                  genesis_filename_out, chain_id,
                                  validator_nodes, rpc_nodes, done_filename,
-                                 epoch_length, node_pks, increasing_stakes):
+                                 epoch_length, node_pks, increasing_stakes, num_seats):
     return '''
         cd {dir}
         rm -f {done_filename}
-        nohup ./venv/bin/python {script} {genesis_filename_in} {genesis_filename_out} {chain_id} {validator_nodes} {rpc_nodes} {done_filename} {epoch_length} {node_pks} {increasing_stakes} 1> genesis_updater.out 2> genesis_updater.err < /dev/null &
+        nohup ./venv/bin/python {script} {genesis_filename_in} {genesis_filename_out} {chain_id} {validator_nodes} {rpc_nodes} {done_filename} {epoch_length} {node_pks} {increasing_stakes} {num_seats} 1> genesis_updater.out 2> genesis_updater.err < /dev/null &
     '''.format(dir=shlex.quote(PYTHON_DIR),
                script=shlex.quote(script),
                genesis_filename_in=shlex.quote(genesis_filename_in),
@@ -855,19 +867,20 @@ def start_genesis_updater_script(script, genesis_filename_in,
                done_filename=shlex.quote(done_filename),
                epoch_length=shlex.quote(str(epoch_length)),
                node_pks=shlex.quote(','.join(node_pks)),
-               increasing_stakes=shlex.quote(str(increasing_stakes)))
+               increasing_stakes=shlex.quote(str(increasing_stakes)),
+               num_seats=shlex.quote(str(num_seats)))
 
 
 def start_genesis_updater(node, script, genesis_filename_in,
                           genesis_filename_out, chain_id, validator_nodes,
                           rpc_nodes, done_filename, epoch_length, node_pks,
-                          increasing_stakes):
+                          increasing_stakes, num_seats):
     logger.info(f'Starting genesis_updater on {node.instance_name}')
     node.machine.run('bash',
                      input=start_genesis_updater_script(
                          script, genesis_filename_in, genesis_filename_out,
                          chain_id, validator_nodes, rpc_nodes, done_filename,
-                         epoch_length, node_pks, increasing_stakes))
+                         epoch_length, node_pks, increasing_stakes, num_seats))
 
 
 def start_genesis_update_waiter_script(done_filename):
@@ -922,7 +935,7 @@ def wait_all_nodes_up(all_nodes):
 
 
 def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
-                            increasing_stakes):
+                            increasing_stakes, num_block_producer_seats):
     schedule = {}
     if progressive_upgrade:
         # Re-create stakes assignment.
@@ -930,7 +943,7 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
         if increasing_stakes:
             prev_stake = None
             for i, node in enumerate(validator_nodes):
-                if i * 5 < len(validator_nodes) * 3 and i < len(MAINNET_STAKES):
+                if i * 5 < num_block_producer_seats * 3 and i < len(MAINNET_STAKES):
                     staked = MAINNET_STAKES[i] * ONE_NEAR
                     logger.info(f'!1 {staked}')
                 elif prev_stake is None:
@@ -941,54 +954,27 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
                     prev_stake = prev_stake + STAKE_STEP
                     staked = prev_stake * ONE_NEAR
                     logger.info(f'!3 {staked}')
-                stakes.append(staked)
+                stakes.append((staked,node))
 
         else:
             staked = MIN_STAKE
         logger.info(f'create_upgrade_schedule {stakes}')
 
-        # Compute seats assignment.
-        l = 0
-        r = max(stakes) + 1
-        seat_price = -1
-        while r - l > 1:
-            tmp_seat_price = (l + r) // 2
-            num_seats = 0
-            for i in range(len(stakes)):
-                num_seats += stakes[i] // tmp_seat_price
-            if num_seats <= len(validator_nodes):
-                r = tmp_seat_price
-            else:
-                l = tmp_seat_price
-        seat_price = r
-        logger.info(f'create_upgrade_schedule seat_price: {seat_price}')
+        # Compute seat assignments.
+        seats = compute_seats(stakes, num_block_producer_seats)
 
-        # Upgrade as many largest validators as possible without exceeding 80%.
-        num_seats = 0
-        epoch_heights = [-1] * len(validator_nodes)
-        seats = []
-        for i in range(len(validator_nodes)):
-            seats.append(stakes[i] // seat_price)
-        logger.info(f'create_upgrade_schedule seats: {seats}')
-
-        for i in range(len(validator_nodes)):
-            logger.info(f'create_upgrade_schedule {num_seats + seats[i]}')
-            if (num_seats + seats[i]) * 5 > 4 * len(validator_nodes):
+        seats_upgraded = 0
+        for seat, stake, node in seats:
+            if (seats_upgraded + seat) * 5 > 4 * num_block_producer_seats:
                 break
-            epoch_heights[i] = 0
-            num_seats += seats[i]
-        logger.info(f'create_upgrade_schedule {epoch_heights}')
+            schedule[node.instance_name] = 0
+            seats_upgraded += seats[i]
 
         # Upgrade the remaining validators during 4 epochs.
-        for i in range(len(validator_nodes)):
-            if epoch_heights[i] < 0:
-                epoch_heights[i] = random.randint(1, 4)
-        logger.info(f'create_upgrade_schedule {epoch_heights}')
+        for node in validator_nodes:
+            if node.instance_name not in schedule:
+                schedule[node.instance_name] = random.randint(1, 4)
 
-        for i, node in enumerate(validator_nodes):
-            assert epoch_heights[i] >= 0
-            schedule[node.instance_name] = epoch_heights[i]
-        # Start with 1 rpc node initially upgraded and upgrade one more RPC node per epoch.
         for node in rpc_nodes:
             schedule[node.instance_name] = random.randint(0, 4)
     else:
@@ -1001,13 +987,36 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
     return schedule
 
 
-prev_height = -1
+def compute_seats(stakes, num_block_producer_seats):
+    max_stake = 0
+    for i in stakes:
+        max_stake = max(max_stake, i[0])
+
+    # Compute seats assignment.
+    l = 0
+    r = max_stake+1
+    seat_price = -1
+    while r - l > 1:
+        tmp_seat_price = (l + r) // 2
+        num_seats = 0
+        for i in range(len(stakes)):
+            num_seats += stakes[i][0] // tmp_seat_price
+        if num_seats <= num_block_producer_seats:
+            r = tmp_seat_price
+        else:
+            l = tmp_seat_price
+    seat_price = r
+    logger.info(f'compute_seats seat_price: {seat_price}')
+
+    seats = []
+    for stake,item in stakes:
+        seats.append(stake // seat_price, stake, item)
+    seats.sort(reverse=True)
+    return seats
+
 
 
 def upgrade_nodes(epoch_height, upgrade_schedule, all_nodes):
-    global prev_height
-    assert prev_height < epoch_height
-    prev_height = epoch_height
     logger.info(f'Upgrading nodes for epoch height {epoch_height}')
     for node in all_nodes:
         if upgrade_schedule.get(node.instance_name, 0) == epoch_height:
@@ -1027,12 +1036,12 @@ def get_epoch_height(rpc_nodes, prev_epoch_height):
             'jsonrpc': '2.0'
         }
         try:
-            r = requests.post("http://%s:%s" % (addr, port), json=j, timeout=15)
+            r = requests.post('http://%s:%s' % (addr, port), json=j, timeout=15)
             if r.ok:
                 response = r.json()
                 max_height = max(
                     max_height,
-                    int(response.get("result", {}).get("epoch_height", 0)))
+                    int(response.get('result', {}).get('epoch_height', 0)))
         except Exception as e:
             continue
     return max_height

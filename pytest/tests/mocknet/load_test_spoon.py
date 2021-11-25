@@ -91,6 +91,7 @@ if __name__ == '__main__':
     parser.add_argument('--skip-setup', default=False, action='store_true')
     parser.add_argument('--skip-restart', default=False, action='store_true')
     parser.add_argument('--script', required=True)
+    parser.add_argument('--num-seats', type=int, required=True)
 
     args = parser.parse_args()
 
@@ -116,7 +117,8 @@ if __name__ == '__main__':
     upgrade_schedule = mocknet.create_upgrade_schedule(rpc_nodes,
                                                        validator_nodes,
                                                        args.progressive_upgrade,
-                                                       args.increasing_stakes)
+                                                       args.increasing_stakes,
+                                                       args.num_seats)
     logger.info(f'upgrade_schedule: %s' % str(upgrade_schedule))
 
     if not args.skip_setup:
@@ -139,7 +141,8 @@ if __name__ == '__main__':
             update_genesis_on_machine=True,
             epoch_length=epoch_length,
             node_pks=node_pks,
-            increasing_stakes=args.increasing_stakes)
+            increasing_stakes=args.increasing_stakes,
+            num_seats=args.num_seats)
         mocknet.start_nodes(all_nodes, upgrade_schedule)
         time.sleep(60)
 
