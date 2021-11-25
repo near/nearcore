@@ -30,9 +30,9 @@ use near_crypto::Signature;
 #[cfg(feature = "sandbox")]
 use near_network::types::SandboxResponse;
 use near_network::types::{
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, PeerManagerAdapter,
+    NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
+    PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_network::types::{NetworkInfo, PeerManagerMessageRequest};
 #[cfg(feature = "test_features")]
 use near_network_primitives::types::NetworkAdversarialMessage;
 #[cfg(feature = "sandbox")]

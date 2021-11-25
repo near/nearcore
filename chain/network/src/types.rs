@@ -1,9 +1,5 @@
 use crate::peer::peer_actor::PeerActor;
 use crate::routing::edge::{Edge, EdgeInfo, SimpleEdge};
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::routing::ibf::IbfBox;
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::routing::ibf_peer_set::ValidIBFLevel;
 use crate::routing::routing::{GetRoutingTableResult, PeerRequestResult, RoutingTableInfo};
 use crate::PeerInfo;
 use actix::dev::{MessageResponse, ResponseChannel};
@@ -14,10 +10,6 @@ use conqueue::QueueSender;
 use deepsize::DeepSizeOf;
 use futures::future::BoxFuture;
 use futures::FutureExt;
-#[cfg(feature = "test_features")]
-use near_network_primitives::types::NetworkAdversarialMessage;
-#[cfg(feature = "sandbox")]
-use near_network_primitives::types::NetworkSandboxMessage;
 use near_network_primitives::types::{
     AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, InboundTcpConnect, KnownProducer,
     OutboundTcpConnect, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
@@ -38,8 +30,6 @@ use near_primitives::version::{
     ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
 use near_primitives::views::QueryRequest;
-#[cfg(feature = "test_features")]
-use serde::Serialize;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, Mutex, RwLock};
@@ -357,8 +347,8 @@ pub enum RoutingSyncV2 {
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct PartialSync {
-    pub(crate) ibf_level: ValidIBFLevel,
-    pub(crate) ibf: Vec<IbfBox>,
+    pub(crate) ibf_level: crate::routing::ibf_peer_set::ValidIBFLevel,
+    pub(crate) ibf: Vec<crate::routing::ibf::IbfBox>,
 }
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -493,7 +483,7 @@ impl Message for GetPeerId {
 }
 
 #[derive(MessageResponse, Debug)]
-#[cfg_attr(feature = "test_features", derive(Serialize))]
+#[cfg_attr(feature = "test_features", derive(serde::Serialize))]
 pub struct GetPeerIdResult {
     pub(crate) peer_id: PeerId,
 }
@@ -930,10 +920,10 @@ impl Message for NetworkRequests {
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientMessages {
     #[cfg(feature = "test_features")]
-    Adversarial(NetworkAdversarialMessage),
+    Adversarial(near_network_primitives::types::NetworkAdversarialMessage),
 
     #[cfg(feature = "sandbox")]
-    Sandbox(NetworkSandboxMessage),
+    Sandbox(near_network_primitives::types::NetworkSandboxMessage),
 
     /// Received transaction.
     Transaction {

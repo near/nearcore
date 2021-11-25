@@ -40,6 +40,7 @@ mod reward_calculator;
 #[cfg(feature = "protocol_feature_chunk_only_producers")]
 mod shard_assignment;
 pub mod test_utils;
+mod tests;
 mod types;
 mod validator_selection;
 
@@ -1461,7 +1462,7 @@ impl EpochManager {
 }
 
 #[cfg(test)]
-mod tests {
+mod tests2 {
     use num_rational::Rational;
 
     use near_primitives::challenge::SlashedValidator;
