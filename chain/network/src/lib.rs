@@ -13,4 +13,6 @@ mod peer_manager;
 pub mod routing;
 mod stats;
 pub mod test_utils;
+#[cfg(test)]
+mod tests;
 pub mod types;

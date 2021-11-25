@@ -24,10 +24,10 @@ use near_network_primitives::types::{
     ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
     UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
-use near_performance_metrics;
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
+use near_primitives::borsh::maybestd::io::Error;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::time::Clock;
@@ -56,7 +56,7 @@ const MAX_PEER_MSG_PER_MIN: u64 = u64::MAX;
 /// Maximum number of transaction messages we will accept between block messages.
 /// The purpose of this constant is to ensure we do not spend too much time deserializing and
 /// dispatching transactions when we should be focusing on consensus-related messages.
-const MAX_TXNS_PER_BLOCK_MESSAGE: usize = 1000;
+const MAX_TRANSACTIONS_PER_BLOCK_MESSAGE: usize = 1000;
 /// Limit cache size of 1000 messages
 pub const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
@@ -98,6 +98,7 @@ pub struct PeerActor {
     /// Dynamic Prometheus metrics
     network_metrics: NetworkMetrics,
     /// How many transactions we have received since the last block message
+    /// Note: Shared between multiple Peers.
     txns_since_last_block: Arc<AtomicUsize>,
     /// How many peer actors are created
     peer_counter: Arc<AtomicUsize>,
@@ -543,6 +544,52 @@ impl PeerActor {
             }
         }
     }
+
+    /// Update stats when receiving msg
+    fn update_stats_on_receiving_message(&mut self, msg_len: usize) {
+        metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg_len as u64);
+        metrics::PEER_MESSAGE_RECEIVED_TOTAL.inc();
+        self.tracker.increment_received(msg_len as u64);
+    }
+
+    /// Check whenever we exceeded number of transactions we got since last block.
+    /// If so, drop the transaction.
+    fn should_we_drop_msg_without_decoding(&self, msg: &Vec<u8>) -> bool {
+        if codec::is_forward_transaction(&msg).unwrap_or(false) {
+            let r = self.txns_since_last_block.load(Ordering::Acquire);
+            if r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE {
+                return true;
+            }
+        }
+        false
+    }
+
+    // Checks errors from decoding a message.
+    // We may send `HandshakeFailure` to the other peer.
+    fn handle_peer_message_decode_error(&mut self, msg: &Vec<u8>, err: Error) {
+        if let Some(version) = err
+            .get_ref()
+            .and_then(|err| err.downcast_ref::<HandshakeFailureReason>())
+            .and_then(|inner| {
+                if let HandshakeFailureReason::ProtocolVersionMismatch { version, .. } = *inner {
+                    Some(version)
+                } else {
+                    None
+                }
+            })
+        {
+            debug!(target: "network", "Received connection from node with unsupported version: {}", version);
+            self.send_message(&PeerMessage::HandshakeFailure(
+                self.node_info.clone(),
+                HandshakeFailureReason::ProtocolVersionMismatch {
+                    version: PROTOCOL_VERSION,
+                    oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
+                },
+            ));
+        } else {
+            info!(target: "network", "Received invalid data {:?} from {}: {}", logging::pretty_vec(&msg), self.peer_info, err);
+        }
+    }
 }
 
 impl Actor for PeerActor {
@@ -616,43 +663,16 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
         // TODO(#5155) We should change our code to track size of messages received from Peer
         // as long as it travels to PeerManager, etc.
 
-        metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg.len() as u64);
-        metrics::PEER_MESSAGE_RECEIVED_TOTAL.inc();
+        self.update_stats_on_receiving_message(msg.len());
 
-        self.tracker.increment_received(msg.len() as u64);
-        if codec::is_forward_tx(&msg).unwrap_or(false) {
-            let r = self.txns_since_last_block.load(Ordering::Acquire);
-            if r > MAX_TXNS_PER_BLOCK_MESSAGE {
-                return;
-            }
+        if self.should_we_drop_msg_without_decoding(&msg) {
+            return;
         }
         let mut peer_msg = match PeerMessage::try_from_slice(&msg) {
             Ok(peer_msg) => peer_msg,
             Err(err) => {
-                if let Some(version) = err
-                    .get_ref()
-                    .and_then(|err| err.downcast_ref::<HandshakeFailureReason>())
-                    .and_then(|inner| {
-                        if let HandshakeFailureReason::ProtocolVersionMismatch { version, .. } =
-                            *inner
-                        {
-                            Some(version)
-                        } else {
-                            None
-                        }
-                    })
-                {
-                    debug!(target: "network", "Received connection from node with unsupported version: {}", version);
-                    self.send_message(&PeerMessage::HandshakeFailure(
-                        self.node_info.clone(),
-                        HandshakeFailureReason::ProtocolVersionMismatch {
-                            version: PROTOCOL_VERSION,
-                            oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
-                        },
-                    ));
-                } else {
-                    info!(target: "network", "Received invalid data {:?} from {}: {}", logging::pretty_vec(&msg), self.peer_info, err);
-                }
+                // This may send `HandshakeFailure` to the other peer.
+                self.handle_peer_message_decode_error(&msg, err);
                 return;
             }
         };
@@ -683,10 +703,10 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
         self.on_receive_message();
 
         self.network_metrics
-            .inc(NetworkMetrics::peer_message_total_rx(&peer_msg.msg_variant()).as_ref());
+            .inc(NetworkMetrics::peer_message_total_rx(peer_msg.msg_variant()).as_ref());
 
         self.network_metrics.inc_by(
-            NetworkMetrics::peer_message_bytes_rx(&peer_msg.msg_variant()).as_ref(),
+            NetworkMetrics::peer_message_bytes_rx(peer_msg.msg_variant()).as_ref(),
             msg.len() as u64,
         );
 
@@ -784,14 +804,13 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 }
 
                 // Check that received nonce on handshake match our proposed nonce.
-                if self.peer_type == PeerType::Outbound {
-                    if handshake.edge_info.nonce
+                if self.peer_type == PeerType::Outbound
+                    && handshake.edge_info.nonce
                         != self.edge_info.as_ref().map(|edge_info| edge_info.nonce).unwrap()
-                    {
-                        warn!(target: "network", "Received invalid nonce on handshake. Disconnecting peer {}", handshake.peer_id);
-                        ctx.stop();
-                        return;
-                    }
+                {
+                    warn!(target: "network", "Received invalid nonce on handshake. Disconnecting peer {}", handshake.peer_id);
+                    ctx.stop();
+                    return;
                 }
 
                 let peer_info = PeerInfo {

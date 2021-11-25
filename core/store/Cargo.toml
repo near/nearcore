@@ -37,6 +37,10 @@ rand = "0.7"
 name = "trie_bench"
 harness = false
 
+[[bench]]
+name = "store_bench"
+harness = false
+
 [features]
 default = []
 no_cache = []

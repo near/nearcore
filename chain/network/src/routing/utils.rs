@@ -4,6 +4,5 @@ use std::hash::Hash;
 
 /// `cache_to_hashmap` - converts SizedCache<K, V> to HashMap<K, V>
 pub fn cache_to_hashmap<K: Hash + Eq + Clone, V: Clone>(cache: &SizedCache<K, V>) -> HashMap<K, V> {
-    let keys: Vec<_> = cache.key_order().cloned().collect();
-    keys.into_iter().zip(cache.value_order().cloned()).collect()
+    cache.key_order().cloned().zip(cache.value_order().cloned()).collect()
 }

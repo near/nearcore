@@ -1,6 +1,6 @@
+use crate::routing::RoutingTableView;
+use crate::test_utils::{random_epoch_id, random_peer_id};
 use near_crypto::Signature;
-use near_network::routing::RoutingTableView;
-use near_network::test_utils::{random_epoch_id, random_peer_id};
 use near_primitives::network::AnnounceAccount;
 use near_store::test_utils::create_test_store;
 

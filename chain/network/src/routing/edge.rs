@@ -17,9 +17,9 @@ pub struct EdgeInfo {
 impl EdgeInfo {
     pub fn new(peer0: &PeerId, peer1: &PeerId, nonce: u64, secret_key: &SecretKey) -> Self {
         let data = if peer0 < peer1 {
-            Edge::build_hash(&peer0, &peer1, nonce)
+            Edge::build_hash(peer0, peer1, nonce)
         } else {
-            Edge::build_hash(&peer1, &peer0, nonce)
+            Edge::build_hash(peer1, peer0, nonce)
         };
 
         let signature = secret_key.sign(data.as_ref());
@@ -114,7 +114,7 @@ impl Edge {
         } else {
             Edge::build_hash(&peer1, &peer0, edge_info.nonce)
         };
-        edge_info.signature.verify(data.as_ref(), &pk)
+        edge_info.signature.verify(data.as_ref(), pk)
     }
 
     /// Next nonce of valid addition edge.
@@ -159,8 +159,8 @@ impl Edge {
                 let data = self.hash();
 
                 self.removal_info().is_none()
-                    && self.signature0().verify(data.as_ref(), &self.key().0.public_key())
-                    && self.signature1().verify(data.as_ref(), &self.key().1.public_key())
+                    && self.signature0().verify(data.as_ref(), self.key().0.public_key())
+                    && self.signature1().verify(data.as_ref(), self.key().1.public_key())
             }
             EdgeType::Removed => {
                 // nonce should be an even positive number
@@ -170,8 +170,8 @@ impl Edge {
 
                 // Check referring added edge is valid.
                 let add_hash = self.prev_hash();
-                if !self.signature0().verify(add_hash.as_ref(), &self.key().0.public_key())
-                    || !self.signature1().verify(add_hash.as_ref(), &self.key().1.public_key())
+                if !self.signature0().verify(add_hash.as_ref(), self.key().0.public_key())
+                    || !self.signature1().verify(add_hash.as_ref(), self.key().1.public_key())
                 {
                     return false;
                 }
@@ -179,7 +179,7 @@ impl Edge {
                 if let Some((party, signature)) = self.removal_info() {
                     let peer = if *party { &self.key().0 } else { &self.key().1 };
                     let del_hash = self.hash();
-                    signature.verify(del_hash.as_ref(), &peer.public_key())
+                    signature.verify(del_hash.as_ref(), peer.public_key())
                 } else {
                     false
                 }

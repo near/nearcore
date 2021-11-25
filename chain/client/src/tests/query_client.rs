@@ -1,11 +1,11 @@
 use actix::System;
 use futures::{future, FutureExt};
 
-use near_actix_test_utils::run_actix;
-use near_client::test_utils::{setup_no_network, setup_only_view};
-use near_client::{
+use crate::test_utils::{setup_no_network, setup_only_view};
+use crate::{
     GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, Status, TxStatus,
 };
+use near_actix_test_utils::run_actix;
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::MockPeerManagerAdapter;
