@@ -4,9 +4,9 @@ use std::sync::{Arc, RwLock};
 use actix::{Addr, System};
 use futures::{future, FutureExt};
 
+use crate::test_utils::setup_mock_all_validators;
+use crate::{ClientActor, Query, ViewClientActor};
 use near_actix_test_utils::run_actix;
-use near_client::test_utils::setup_mock_all_validators;
-use near_client::{ClientActor, Query, ViewClientActor};
 use near_logger_utils::init_integration_logger;
 use near_network::types::{NetworkResponses, PeerManagerMessageRequest};
 use near_network_primitives::types::PeerInfo;
@@ -95,10 +95,10 @@ mod tests {
     use actix::{Addr, MailboxError, System};
     use futures::{future, FutureExt};
 
+    use crate::test_utils::{setup_mock_all_validators, BlockStats};
+    use crate::{ClientActor, Query, ViewClientActor};
     use near_actix_test_utils::run_actix;
     use near_chain::test_utils::account_id_to_shard_id;
-    use near_client::test_utils::{setup_mock_all_validators, BlockStats};
-    use near_client::{ClientActor, Query, ViewClientActor};
     use near_crypto::{InMemorySigner, KeyType};
     use near_logger_utils::init_integration_logger;
     use near_network::types::{
@@ -175,7 +175,7 @@ mod tests {
     }
 
     fn test_cross_shard_tx_callback(
-        res: Result<Result<QueryResponse, near_client::QueryError>, MailboxError>,
+        res: Result<Result<QueryResponse, crate::QueryError>, MailboxError>,
         account_id: AccountId,
         connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
         iteration: Arc<AtomicUsize>,
