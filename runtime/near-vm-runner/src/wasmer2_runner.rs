@@ -7,7 +7,7 @@ use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_vm_errors::{
-    CompilationError, FunctionCallError, HostError, MethodResolveError, PrepareError, VMError,
+    CompilationError, FunctionCallError, HostError, MethodResolveError, StringError, VMError,
     WasmTrap,
 };
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
@@ -97,9 +97,9 @@ impl IntoVMError for wasmer::InstantiationError {
                 VMError::FunctionCallError(FunctionCallError::LinkError { msg: e.to_string() })
             }
             wasmer::InstantiationError::Start(e) => e.into_vm_error(),
-            wasmer::InstantiationError::HostEnvInitialization(_) => {
+            wasmer::InstantiationError::HostEnvInitialization(e) => {
                 VMError::FunctionCallError(FunctionCallError::CompilationError(
-                    CompilationError::PrepareError(PrepareError::Instantiate),
+                    CompilationError::WasmerHostEnvInit(StringError::new(&e)),
                 ))
             }
         }

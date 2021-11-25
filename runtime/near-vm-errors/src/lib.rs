@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use std::fmt::{self, Error, Formatter};
+use std::fmt::{self, Error, Formatter, Write};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 #[cfg(feature = "deepsize")]
@@ -8,6 +8,29 @@ use deepsize::DeepSizeOf;
 use near_account_id::AccountId;
 use near_rpc_error_macro::RpcError;
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
+pub struct StringError(Box<str>);
+
+impl std::fmt::Display for StringError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for StringError {}
+
+impl StringError {
+    pub fn new<E: std::error::Error + ?Sized>(e: &E) -> StringError {
+        let mut string = e.to_string();
+        let mut source = e.source();
+        while let Some(this_src) = source {
+            write!(&mut string, ": {}", this_src).expect("writing to string can't fail");
+            source = this_src.source();
+        }
+        Self(string.into())
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VMError {
@@ -118,9 +141,10 @@ pub enum MethodResolveError {
 )]
 pub enum CompilationError {
     CodeDoesNotExist { account_id: AccountId },
-    PrepareError(PrepareError),
-    WasmerCompileError { msg: String },
+    Prepare(PrepareError),
+    WasmerCompile(StringError),
     UnsupportedCompiler { msg: String },
+    WasmerHostEnvInit(StringError),
 }
 
 #[cfg_attr(feature = "deepsize", derive(DeepSizeOf))]
@@ -130,9 +154,10 @@ pub enum CompilationError {
 /// Error that can occur while preparing or executing Wasm smart-contract.
 pub enum PrepareError {
     /// Error happened while serializing the module.
-    Serialization,
+    Serialization(StringError),
     /// Error happened while deserializing the module.
-    Deserialization,
+    Deserialization(StringError),
+
     /// Internal memory declaration has been found in the module.
     InternalMemoryDeclared,
     /// Gas instrumentation failed.
@@ -142,16 +167,15 @@ pub enum PrepareError {
     /// Stack instrumentation failed.
     ///
     /// This  most likely indicates the module isn't valid.
-    StackHeightInstrumentation,
-    /// Error happened during instantiation.
-    ///
-    /// This might indicate that `start` function trapped, or module isn't
-    /// instantiable and/or unlinkable.
-    Instantiate,
-    /// Error creating memory.
-    Memory,
+    StackHeightInstrumentation(StringError),
     /// Contract contains too many functions.
-    TooManyFunctions,
+    TooManyFunctions(u64),
+    /// Validation of the contract module has failed.
+    ContractValidation(StringError),
+    /// An import from an invalid module.
+    InvalidImport { module: Box<str> },
+    /// An import of a function has no signature.
+    FunctionWithoutSignature { module: Box<str>, field: Box<str> },
 }
 
 #[cfg_attr(feature = "deepsize", derive(DeepSizeOf))]
@@ -264,9 +288,9 @@ impl From<InconsistentStateError> for VMLogicError {
 
 impl From<PrepareError> for VMError {
     fn from(err: PrepareError) -> Self {
-        VMError::FunctionCallError(FunctionCallError::CompilationError(
-            CompilationError::PrepareError(err),
-        ))
+        VMError::FunctionCallError(FunctionCallError::CompilationError(CompilationError::Prepare(
+            err,
+        )))
     }
 }
 
@@ -292,17 +316,42 @@ impl fmt::Display for PrepareError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         use PrepareError::*;
         match self {
-            Serialization => write!(f, "Error happened while serializing the module."),
-            Deserialization => write!(f, "Error happened while deserializing the module."),
+            Serialization(_) => write!(f, "could not serialize the prepared module"),
+            Deserialization(_) => write!(f, "could not deserialize the module"),
             InternalMemoryDeclared => {
-                write!(f, "Internal memory declaration has been found in the module.")
+                write!(f, "module contains a declaration of internal memory")
             }
-            GasInstrumentation => write!(f, "Gas instrumentation failed."),
-            StackHeightInstrumentation => write!(f, "Stack instrumentation failed."),
-            Instantiate => write!(f, "Error happened during instantiation."),
-            Memory => write!(f, "Error creating memory."),
-            TooManyFunctions => write!(f, "Too many functions in contract."),
+            GasInstrumentation => write!(f, "could not instrument module for gas measurement"),
+            StackHeightInstrumentation(_) => {
+                write!(f, "could not instrument module for stack height measurement")
+            }
+            TooManyFunctions(cnt) => {
+                write!(f, "the contract contains too many ({}) functions", cnt)
+            }
+            ContractValidation(_) => write!(f, "could not validate the contract"),
+            InvalidImport { module } => write!(f, "imports from {} are invalid", module),
+            FunctionWithoutSignature { module, field } => {
+                write!(f, "function import from `{}.{}` has no signature", module, field)
+            }
         }
+    }
+}
+
+impl std::error::Error for PrepareError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        use PrepareError::*;
+        Some(match self {
+            Serialization(src) => src,
+            Deserialization(src) => src,
+            ContractValidation(src) => src,
+            StackHeightInstrumentation(src) => src,
+
+            InternalMemoryDeclared
+            | GasInstrumentation
+            | TooManyFunctions(_)
+            | InvalidImport { module: _ }
+            | FunctionWithoutSignature { module: _, field: _ } => return None,
+        })
     }
 }
 
@@ -347,18 +396,30 @@ impl fmt::Display for WasmTrap {
 
 impl fmt::Display for CompilationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        use CompilationError::*;
         match self {
-            CompilationError::CodeDoesNotExist { account_id } => {
+            CodeDoesNotExist { account_id } => {
                 write!(f, "cannot find contract code for account {}", account_id)
             }
-            CompilationError::PrepareError(p) => write!(f, "PrepareError: {}", p),
-            CompilationError::WasmerCompileError { msg } => {
-                write!(f, "Wasmer compilation error: {}", msg)
-            }
-            CompilationError::UnsupportedCompiler { msg } => {
-                write!(f, "Unsupported compiler: {}", msg)
-            }
+            // FIXME: stop formatting the source error here when `source`s are properly handled by
+            // the presentation layer(s).
+            Prepare(p) => write!(f, "could not prepare the contract: {}", p),
+            WasmerCompile(src) => write!(f, "Wasmer compilation error: {}", src),
+            UnsupportedCompiler { msg } => write!(f, "Unsupported compiler: {}", msg),
+            WasmerHostEnvInit(_) => write!(f, "wasmer host environment could not be initialized"),
         }
+    }
+}
+
+impl std::error::Error for CompilationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        use CompilationError::*;
+        Some(match self {
+            Prepare(src) => src,
+            WasmerCompile(src) => src,
+            WasmerHostEnvInit(src) => src,
+            CodeDoesNotExist { .. } | UnsupportedCompiler { .. } => return None,
+        })
     }
 }
 
@@ -460,7 +521,9 @@ pub mod hex_format {
 
 #[cfg(test)]
 mod tests {
-    use crate::{CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMError};
+    use crate::{
+        CompilationError, FunctionCallError, MethodResolveError, PrepareError, StringError, VMError,
+    };
 
     #[test]
     fn test_display() {
@@ -472,12 +535,15 @@ mod tests {
             .to_string(),
             "MethodInvalidSignature"
         );
+        let src: Box<dyn std::error::Error> = "".into();
         assert_eq!(
             VMError::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::PrepareError(PrepareError::StackHeightInstrumentation)
+                CompilationError::Prepare(PrepareError::StackHeightInstrumentation(
+                    StringError::new(&*src))
+                )
             ))
             .to_string(),
-            "PrepareError: Stack instrumentation failed."
+            "could not prepare the contract: could not instrument module for stack height measurement"
         );
     }
 }

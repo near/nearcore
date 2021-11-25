@@ -105,7 +105,7 @@ fn test_multiple_memories() {
         assert_eq!(result, None);
         match error {
             Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::WasmerCompileError { .. },
+                CompilationError::WasmerCompile { .. },
             ))) => match vm_kind {
                 VMKind::Wasmer0 | VMKind::Wasmer2 => {}
                 VMKind::Wasmtime => {
@@ -546,7 +546,7 @@ fn test_bad_import_1() {
             make_simple_contract_call_vm(&bad_import_global("wtf"), "hello", vm_kind),
             None,
             Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::PrepareError(PrepareError::Instantiate),
+                CompilationError::Prepare(PrepareError::InvalidImport { module: "wtf".into() }),
             ))),
         )
     });
@@ -559,7 +559,7 @@ fn test_bad_import_2() {
             make_simple_contract_call_vm(&bad_import_func("wtf"), "hello", vm_kind),
             None,
             Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::PrepareError(PrepareError::Instantiate),
+                CompilationError::Prepare(PrepareError::InvalidImport { module: "wtf".into() }),
             ))),
         );
     });

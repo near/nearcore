@@ -6,7 +6,9 @@ use crate::{cache, imports};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::{config::VMConfig, types::CompiledContractCache, version::ProtocolVersion};
-use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
+use near_vm_errors::{
+    CompilationError, FunctionCallError, MethodResolveError, StringError, VMError, WasmTrap,
+};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
 use wasmer_runtime::{ImportObject, Module};
@@ -40,7 +42,7 @@ impl IntoVMError for wasmer_runtime::error::Error {
         match self {
             Error::CompileError(err) => {
                 VMError::FunctionCallError(FunctionCallError::CompilationError(
-                    CompilationError::WasmerCompileError { msg: err.to_string() },
+                    CompilationError::WasmerCompile(StringError::new(&err)),
                 ))
             }
             Error::LinkError(err) => VMError::FunctionCallError(FunctionCallError::LinkError {

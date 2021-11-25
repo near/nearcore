@@ -25,12 +25,12 @@ fn initializer_wrong_signature_contract() -> Vec<u8> {
 #[test]
 fn test_initializer_wrong_signature_contract() {
     with_vm_variants(|vm_kind: VMKind| {
-        assert_eq!(
+        assert_matches!(
             make_simple_contract_call_vm(&initializer_wrong_signature_contract(), "hello", vm_kind),
             (
                 None,
                 Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                    CompilationError::PrepareError(PrepareError::Deserialization)
+                    CompilationError::Prepare(PrepareError::ContractValidation(_))
                 )))
             )
         );
@@ -51,12 +51,12 @@ fn function_not_defined_contract() -> Vec<u8> {
 /// StackHeightInstrumentation is weird but it's what we return for now
 fn test_function_not_defined_contract() {
     with_vm_variants(|vm_kind: VMKind| {
-        assert_eq!(
+        assert_matches!(
             make_simple_contract_call_vm(&function_not_defined_contract(), "hello", vm_kind),
             (
                 None,
                 Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                    CompilationError::PrepareError(PrepareError::Deserialization)
+                    CompilationError::Prepare(PrepareError::ContractValidation(_))
                 )))
             )
         );
@@ -78,12 +78,12 @@ fn function_type_not_defined_contract(bad_type: u64) -> Vec<u8> {
 #[test]
 fn test_function_type_not_defined_contract_1() {
     with_vm_variants(|vm_kind: VMKind| {
-        assert_eq!(
+        assert_matches!(
             make_simple_contract_call_vm(&function_type_not_defined_contract(1), "hello", vm_kind),
             (
                 None,
                 Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                    CompilationError::PrepareError(PrepareError::Deserialization)
+                    CompilationError::Prepare(PrepareError::ContractValidation(_))
                 )))
             )
         );
@@ -94,12 +94,12 @@ fn test_function_type_not_defined_contract_1() {
 // Weird case. It's not valid wasm (wat2wasm validate will fail), but wasmer allows it.
 fn test_function_type_not_defined_contract_2() {
     with_vm_variants(|vm_kind: VMKind| {
-        assert_eq!(
+        assert_matches!(
             make_simple_contract_call_vm(&function_type_not_defined_contract(0), "hello", vm_kind),
             (
                 None,
                 Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                    CompilationError::PrepareError(PrepareError::Deserialization)
+                    CompilationError::Prepare(PrepareError::ContractValidation(_))
                 )))
             )
         );
@@ -109,12 +109,12 @@ fn test_function_type_not_defined_contract_2() {
 #[test]
 fn test_garbage_contract() {
     with_vm_variants(|vm_kind: VMKind| {
-        assert_eq!(
+        assert_matches!(
             make_simple_contract_call_vm(&[], "hello", vm_kind),
             (
                 None,
                 Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                    CompilationError::PrepareError(PrepareError::Deserialization)
+                    CompilationError::Prepare(PrepareError::ContractValidation(_))
                 )))
             )
         );
@@ -137,12 +137,12 @@ fn evil_function_index() -> Vec<u8> {
 #[test]
 fn test_evil_function_index() {
     with_vm_variants(|vm_kind: VMKind| {
-        assert_eq!(
+        assert_matches!(
             make_simple_contract_call_vm(&evil_function_index(), "abort_with_zero", vm_kind),
             (
                 None,
                 Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                    CompilationError::PrepareError(PrepareError::Deserialization)
+                    CompilationError::Prepare(PrepareError::ContractValidation(_))
                 )))
             )
         );
@@ -187,7 +187,7 @@ fn test_limit_contract_functions_number() {
         assert_matches!(
             err,
             Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::PrepareError(PrepareError::TooManyFunctions)
+                CompilationError::Prepare(PrepareError::TooManyFunctions(_))
             )))
         );
     });

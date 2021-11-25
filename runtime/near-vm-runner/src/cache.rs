@@ -10,7 +10,7 @@ use cached::{cached_key, SizedCache};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::CompiledContractCache;
-use near_vm_errors::{CacheError, CompilationError, FunctionCallError, VMError};
+use near_vm_errors::{CacheError, CompilationError, FunctionCallError, StringError, VMError};
 use near_vm_logic::{ProtocolVersion, VMConfig};
 use std::collections::HashMap;
 use std::fmt;
@@ -128,15 +128,15 @@ pub mod wasmer0_cache {
         let _span = tracing::debug_span!(target: "vm", "compile_module").entered();
 
         let prepared_code =
-            prepare::prepare_contract(code, config).map_err(CompilationError::PrepareError)?;
+            prepare::prepare_contract(code, config).map_err(CompilationError::Prepare)?;
         wasmer_runtime::compile(&prepared_code).map_err(|err| match err {
             wasmer_runtime::error::CompileError::ValidationError { .. } => {
-                CompilationError::WasmerCompileError { msg: err.to_string() }
+                CompilationError::WasmerCompile(StringError::new(&err))
             }
             // NOTE: Despite the `InternalError` name, this failure occurs if
             // the input `code` is invalid wasm.
             wasmer_runtime::error::CompileError::InternalError { .. } => {
-                CompilationError::WasmerCompileError { msg: err.to_string() }
+                CompilationError::WasmerCompile(StringError::new(&err))
             }
         })
     }
@@ -254,25 +254,15 @@ pub mod wasmer2_cache {
         let _span = tracing::debug_span!(target: "vm", "compile_module_wasmer2").entered();
 
         let prepared_code =
-            prepare::prepare_contract(code, config).map_err(CompilationError::PrepareError)?;
+            prepare::prepare_contract(code, config).map_err(CompilationError::Prepare)?;
         wasmer::Module::new(&store, prepared_code).map_err(|err| match err {
-            wasmer::CompileError::Wasm(_) => {
-                CompilationError::WasmerCompileError { msg: err.to_string() }
-            }
-            wasmer::CompileError::Codegen(_) => {
-                CompilationError::WasmerCompileError { msg: err.to_string() }
-            }
-            wasmer::CompileError::Validate(_) => {
-                CompilationError::WasmerCompileError { msg: err.to_string() }
-            }
-            wasmer::CompileError::UnsupportedFeature(_) => {
-                CompilationError::WasmerCompileError { msg: err.to_string() }
-            }
-            wasmer::CompileError::UnsupportedTarget(_) => {
-                CompilationError::WasmerCompileError { msg: err.to_string() }
-            }
-            wasmer::CompileError::Resource(_) => {
-                CompilationError::WasmerCompileError { msg: err.to_string() }
+            wasmer::CompileError::Wasm(_)
+            | wasmer::CompileError::Codegen(_)
+            | wasmer::CompileError::Validate(_)
+            | wasmer::CompileError::UnsupportedFeature(_)
+            | wasmer::CompileError::UnsupportedTarget(_)
+            | wasmer::CompileError::Resource(_) => {
+                CompilationError::WasmerCompile(StringError::new(&err))
             }
         })
     }
