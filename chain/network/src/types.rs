@@ -384,7 +384,7 @@ pub struct RoutingVersion2 {
 
 impl fmt::Display for PeerMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.msg_variant().to_string().as_ref())
+        fmt::Display::fmt(self.msg_variant(), f)
     }
 }
 
