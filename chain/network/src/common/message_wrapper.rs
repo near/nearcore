@@ -23,12 +23,12 @@ impl<T> ActixMessageWrapper<T> {
 
     #[allow(unused)]
     pub fn into_inner(mut self) -> T {
-        return self.msg;
+        self.msg
     }
 
     #[allow(unused)]
     pub fn take(mut self) -> (T, ThrottleToken) {
-        return (self.msg, self.throttle_token);
+        (self.msg, self.throttle_token)
     }
 }
 
@@ -53,11 +53,11 @@ impl<T> ActixMessageResponse<T> {
 
     #[allow(unused)]
     pub fn into_inner(mut self) -> T {
-        return self.msg;
+        self.msg
     }
 
     #[allow(unused)]
     pub fn take(mut self) -> (T, ThrottleToken) {
-        return (self.msg, self.throttle_token);
+        (self.msg, self.throttle_token)
     }
 }
