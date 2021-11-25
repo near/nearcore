@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
+use crate::test_utils::TestEnv;
 use near_chain::ChainGenesis;
-use near_client::test_utils::TestEnv;
 use near_crypto::KeyType;
 use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::types::NetworkRequests;
