@@ -342,7 +342,7 @@ impl PeerManagerActor {
     /// - there are edges, that were supposed to be added, but are still in `EdgeVerifierActor,
     ///   waiting to have their signatures checked.
     /// - edge pruning may be disabled for unit testing.
-    fn update_routing_table_trigger(&mut self, ctx: &mut Context<Self>) {
+    fn update_routing_table_trigger(&mut self, ctx: &mut Context<Self>, interval: Duration) {
         let can_prune_edges = !self.adv_helper.adv_disable_edge_pruning();
 
         self.update_routing_table_and_prune_edges(
@@ -351,18 +351,18 @@ impl PeerManagerActor {
             DELETE_PEERS_AFTER_TIME,
         );
 
-        near_performance_metrics::actix::run_later(
-            ctx,
-            UPDATE_ROUTING_TABLE_INTERVAL,
-            move |act, ctx| {
-                act.update_routing_table_trigger(ctx);
-            },
-        );
+        near_performance_metrics::actix::run_later(ctx, interval, move |act, ctx| {
+            act.update_routing_table_trigger(ctx, interval);
+        });
     }
 
     /// Receives list of edges that were verified, in a trigger every 20ms, and adds them to
     /// the routing table.
-    fn broadcast_validated_edges_trigger(&mut self, ctx: &mut Context<PeerManagerActor>) {
+    fn broadcast_validated_edges_trigger(
+        &mut self,
+        ctx: &mut Context<PeerManagerActor>,
+        interval: Duration,
+    ) {
         let start = Clock::instant();
         let mut new_edges = Vec::new();
         while let Some(edge) = self.routing_table_exchange_helper.edges_to_add_receiver.pop() {
@@ -415,13 +415,9 @@ impl PeerManagerActor {
             self.add_verified_edges_to_routing_table(ctx, new_edges, true);
         };
 
-        near_performance_metrics::actix::run_later(
-            ctx,
-            BROADCAST_VALIDATED_EDGES_INTERVAL,
-            move |act, ctx| {
-                act.broadcast_validated_edges_trigger(ctx);
-            },
-        );
+        near_performance_metrics::actix::run_later(ctx, interval, move |act, ctx| {
+            act.broadcast_validated_edges_trigger(ctx, interval);
+        });
     }
 
     fn num_active_peers(&self) -> usize {
@@ -981,7 +977,7 @@ impl PeerManagerActor {
     }
 
     /// Periodically query peer actors for latest weight and traffic info.
-    fn monitor_peer_stats_trigger(&mut self, ctx: &mut Context<Self>) {
+    fn monitor_peer_stats_trigger(&mut self, ctx: &mut Context<Self>, interval: Duration) {
         for (peer_id, active_peer) in self.active_peers.iter() {
             let peer_id1 = peer_id.clone();
             active_peer
@@ -1009,13 +1005,9 @@ impl PeerManagerActor {
                 .spawn(ctx);
         }
 
-        near_performance_metrics::actix::run_later(
-            ctx,
-            self.config.peer_stats_period,
-            move |act, ctx| {
-                act.monitor_peer_stats_trigger(ctx);
-            },
-        );
+        near_performance_metrics::actix::run_later(ctx, interval, move |act, ctx| {
+            act.monitor_peer_stats_trigger(ctx, interval);
+        });
     }
 
     /// Select one peer and send signal to stop connection to it gracefully.
@@ -1109,7 +1101,7 @@ impl PeerManagerActor {
     ///  - bootstrap outbound connections from known peers,
     ///  - unban peers that have been banned for awhile,
     ///  - remove expired peers,
-    fn monitor_peers_trigger(&mut self, ctx: &mut Context<Self>) {
+    fn monitor_peers_trigger(&mut self, ctx: &mut Context<Self>, max_interval: Duration) {
         let mut to_unban = vec![];
         for (peer_id, peer_state) in self.peer_store.iter() {
             if let KnownPeerStatus::Banned(_, last_banned) = peer_state.status {
@@ -1164,7 +1156,7 @@ impl PeerManagerActor {
         // Reschedule the bootstrap peer task, starting of as quick as possible with exponential backoff.
         let wait = if self.monitor_peers_attempts >= EXPONENTIAL_BACKOFF_LIMIT {
             // This is expected to be 60 seconds
-            self.config.bootstrap_peers_period.as_millis() as u64
+            max_interval.as_millis() as u64
         } else {
             (10f64 * EXPONENTIAL_BACKOFF_RATIO.powf(self.monitor_peers_attempts as f64)) as u64
         };
@@ -1176,7 +1168,7 @@ impl PeerManagerActor {
             ctx,
             Duration::from_millis(wait),
             move |act, ctx| {
-                act.monitor_peers_trigger(ctx);
+                act.monitor_peers_trigger(ctx, max_interval);
             },
         );
     }
@@ -1454,18 +1446,14 @@ impl PeerManagerActor {
         }
     }
 
-    fn push_network_info_trigger(&mut self, ctx: &mut Context<Self>) {
+    fn push_network_info_trigger(&mut self, ctx: &mut Context<Self>, interval: Duration) {
         let network_info = self.get_network_info();
 
         let _ = self.client_addr.do_send(NetworkClientMessages::NetworkInfo(network_info));
 
-        near_performance_metrics::actix::run_later(
-            ctx,
-            self.config.push_info_period,
-            move |act, ctx| {
-                act.push_network_info_trigger(ctx);
-            },
-        );
+        near_performance_metrics::actix::run_later(ctx, interval, move |act, ctx| {
+            act.push_network_info_trigger(ctx, interval);
+        });
     }
 }
 
@@ -1528,19 +1516,19 @@ impl Actor for PeerManagerActor {
         }
 
         // Periodically push network information to client.
-        self.push_network_info_trigger(ctx);
+        self.push_network_info_trigger(ctx, self.config.push_info_period);
 
         // Periodically starts peer monitoring.
-        self.monitor_peers_trigger(ctx);
+        self.monitor_peers_trigger(ctx, self.config.bootstrap_peers_period);
 
         // Periodically starts active peer stats querying.
-        self.monitor_peer_stats_trigger(ctx);
+        self.monitor_peer_stats_trigger(ctx, self.config.peer_stats_period);
 
         // Periodically reads valid edges from `EdgesVerifierActor` and broadcast.
-        self.broadcast_validated_edges_trigger(ctx);
+        self.broadcast_validated_edges_trigger(ctx, BROADCAST_VALIDATED_EDGES_INTERVAL);
 
         // Periodically updates routing table and prune edges that are no longer reachable.
-        self.update_routing_table_trigger(ctx);
+        self.update_routing_table_trigger(ctx, UPDATE_ROUTING_TABLE_INTERVAL);
     }
 
     /// Try to gracefully disconnect from active peers.
