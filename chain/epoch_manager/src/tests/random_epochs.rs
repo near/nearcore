@@ -2,10 +2,10 @@ use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use near_epoch_manager::test_utils::{
+use crate::test_utils::{
     hash_range, record_block_with_slashes, setup_default_epoch_manager, stake,
 };
-use near_epoch_manager::EpochManager;
+use crate::EpochManager;
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;

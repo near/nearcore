@@ -27,3 +27,4 @@ near-account-id = { path = "../account-id" }
 default = []
 protocol_feature_alt_bn128 = []
 protocol_feature_routing_exchange_algorithm = []
+deepsize_feature = ["deepsize", "near-account-id/deepsize_feature"]

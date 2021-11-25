@@ -1,16 +1,35 @@
+use crate::common::message_wrapper::{ActixMessageResponse, ActixMessageWrapper};
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
+#[cfg(all(
+    feature = "test_features",
+    feature = "protocol_feature_routing_exchange_algorithm"
+))]
+use crate::routing::edge::SimpleEdge;
+use crate::routing::edge::{Edge, EdgeInfo, EdgeType};
+use crate::routing::edge_verifier_actor::EdgeVerifierHelper;
+use crate::routing::routing::{
+    PeerRequestResult, RoutingTableView, DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS,
+};
+use crate::routing::routing_table_actor::Prune;
 use crate::stats::metrics;
 use crate::stats::metrics::NetworkMetrics;
+#[cfg(feature = "test_features")]
+use crate::types::SetAdvOptions;
+use crate::types::{
+    Consolidate, ConsolidateResponse, EdgeList, GetPeerId, GetPeerIdResult, NetworkInfo,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerRequest, PeerResponse,
+    PeersRequest, PeersResponse, SendMessage, StopMsg, SyncData, Unregister,
+};
 use crate::types::{FullPeerInfo, NetworkClientMessages, NetworkRequests, NetworkResponses};
-use crate::{RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse};
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use crate::types::{RoutingSyncV2, RoutingVersion2};
+use crate::{PeerInfo, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse};
 use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
-    Recipient, Running, StreamHandler, SyncArbiter, WrapFuture,
+    Recipient, Running, StreamHandler, WrapFuture,
 };
-#[cfg(feature = "delay_detector")]
-use delay_detector::DelayDetector;
 use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
 use near_network_primitives::types::{
@@ -28,13 +47,12 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::time::Clock;
 use near_primitives::types::{AccountId, ProtocolVersion};
 use near_primitives::utils::from_timestamp;
+use near_rate_limiter::{ThrottleController, ThrottleToken, ThrottledFrameRead};
 use near_store::Store;
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::thread_rng;
 use std::cmp;
 use std::collections::{HashMap, HashSet};
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use std::mem::swap;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -44,29 +62,6 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
 use tokio_util::sync::PollSemaphore;
 use tracing::{debug, error, info, trace, warn};
-
-#[cfg(all(
-    feature = "test_features",
-    feature = "protocol_feature_routing_exchange_algorithm"
-))]
-use crate::routing::edge::SimpleEdge;
-use crate::routing::edge::{Edge, EdgeInfo, EdgeType};
-use crate::routing::edge_verifier_actor::{EdgeVerifierActor, EdgeVerifierHelper};
-use crate::routing::routing::{
-    PeerRequestResult, RoutingTableView, DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS,
-};
-use crate::routing::routing_table_actor::Prune;
-#[cfg(feature = "test_features")]
-use crate::types::SetAdvOptions;
-use crate::types::{
-    Consolidate, ConsolidateResponse, EdgeList, GetPeerId, GetPeerIdResult, NetworkInfo,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerRequest, PeerResponse,
-    PeersRequest, PeersResponse, SendMessage, StopMsg, SyncData, Unregister,
-};
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::types::{RoutingSyncV2, RoutingVersion2};
-use crate::PeerInfo;
-use near_rate_limiter::{ThrottleController, ThrottledFrameRead};
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: Duration = Duration::from_millis(60_000);
@@ -101,9 +96,11 @@ const WAIT_FOR_SYNC_DELAY: Duration = Duration::from_millis(1_000);
 const UPDATE_ROUTING_TABLE_INTERVAL: Duration = Duration::from_millis(1_000);
 
 /// Max number of messages we received from peer, and they are in progress, before we start throttling.
-const MAX_MESSAGES_COUNT: usize = 20;
+/// Disabled for now (TODO PUT UNDER FEATURE FLAG)
+const MAX_MESSAGES_COUNT: usize = usize::MAX;
 /// Max total size of all messages that are in progress, before we start throttling.
-const MAX_MESSAGES_TOTAL_SIZE: usize = 500_000_000;
+/// Disabled for now (TODO PUT UNDER FEATURE FLAG)
+const MAX_MESSAGES_TOTAL_SIZE: usize = usize::MAX;
 
 macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
     Ok(result) => result,
@@ -163,8 +160,6 @@ pub struct PeerManagerActor {
     local_peer_pending_update_nonce_request: HashMap<PeerId, u64>,
     /// Dynamic Prometheus metrics
     network_metrics: NetworkMetrics,
-    /// EdgeVerifierActor, which is responsible for veryfing edges.
-    edge_verifier_pool: Addr<EdgeVerifierActor>,
     /// RoutingTableActor, responsible for computing routing table, routing table exchange, etc.
     routing_table_addr: Addr<RoutingTableActor>,
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
@@ -174,9 +169,6 @@ pub struct PeerManagerActor {
     pending_incoming_connections_counter: Arc<AtomicUsize>,
     /// Number of active peers, used for rate limiting.
     peer_counter: Arc<AtomicUsize>,
-    /// Number of edge verifications in progress; We will not update routing table as long as
-    /// this number is non zero.
-    edge_verifier_requests_in_progress: u64,
     /// Used for testing, for disabling features.
     adv_helper: AdvHelper,
 }
@@ -229,8 +221,6 @@ impl PeerManagerActor {
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
         debug!(target: "network", "Blacklist: {:?}", config.blacklist);
 
-        let edge_verifier_pool = SyncArbiter::start(4, || EdgeVerifierActor {});
-
         let my_peer_id: PeerId = PeerId::new(config.public_key.clone());
         let routing_table = RoutingTableView::new(my_peer_id.clone(), store);
 
@@ -250,12 +240,10 @@ impl PeerManagerActor {
             started_connect_attempts: false,
             local_peer_pending_update_nonce_request: HashMap::new(),
             network_metrics: NetworkMetrics::new(),
-            edge_verifier_pool,
             routing_table_addr,
             txns_since_last_block,
             pending_incoming_connections_counter: Arc::new(AtomicUsize::new(0)),
             peer_counter: Arc::new(AtomicUsize::new(0)),
-            edge_verifier_requests_in_progress: 0,
             adv_helper: AdvHelper::default(),
         })
     }
@@ -269,13 +257,17 @@ impl PeerManagerActor {
         self.routing_table_addr
             .send(RoutingTableMessages::RoutingTableUpdate { prune, prune_edges_not_reachable_for })
             .into_actor(self)
-            .map(|response, act, _| match response {
+            .map(|response, act, ctx| match response {
                 Ok(RoutingTableMessagesResponse::RoutingTableUpdateResponse {
                     edges_to_remove,
                     peer_forwarding,
+                    peers_to_ban,
                 }) => {
                     act.routing_table_view.remove_edges(&edges_to_remove);
                     act.routing_table_view.peer_forwarding = peer_forwarding;
+                    for peer in peers_to_ban {
+                        act.ban_peer(ctx, &peer, ReasonForBan::InvalidEdge);
+                    }
                 }
                 _ => error!(target: "network", "expected RoutingTableUpdateResponse"),
             })
@@ -353,8 +345,7 @@ impl PeerManagerActor {
     ///   waiting to have their signatures checked.
     /// - edge pruning may be disabled for unit testing.
     fn update_routing_table_trigger(&mut self, ctx: &mut Context<Self>) {
-        let can_prune_edges = self.edge_verifier_requests_in_progress == 0
-            && !self.adv_helper.adv_disable_edge_pruning();
+        let can_prune_edges = !self.adv_helper.adv_disable_edge_pruning();
 
         self.update_routing_table_and_prune_edges(
             ctx,
@@ -773,7 +764,7 @@ impl PeerManagerActor {
                 MAX_MESSAGES_TOTAL_SIZE,
             );
             PeerActor::add_stream(
-                ThrottledFrameRead::new(read, Codec::new(), rate_limiter.clone(), semaphore)
+                ThrottledFrameRead::new(read, Codec::default(), rate_limiter.clone(), semaphore)
                     .take_while(|x| match x {
                         Ok(_) => future::ready(true),
                         Err(e) => {
@@ -790,7 +781,7 @@ impl PeerManagerActor {
                 remote_addr,
                 peer_info,
                 peer_type,
-                FramedWrite::new(write, Codec::new(), Codec::new(), ctx),
+                FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
                 handshake_timeout,
                 recipient,
                 client_addr,
@@ -850,8 +841,7 @@ impl PeerManagerActor {
             None => return vec![],
         };
         // Find all peers whose height is within `highest_peer_horizon` from max height peer(s).
-        let result = self
-            .active_peers
+        self.active_peers
             .values()
             .filter_map(|active_peer| {
                 if active_peer.full_peer_info.chain_info.height + self.config.highest_peer_horizon
@@ -862,23 +852,7 @@ impl PeerManagerActor {
                     None
                 }
             })
-            .collect::<Vec<_>>();
-
-        for peer in result.iter() {
-            if self
-                .routing_table_view
-                .peer_forwarding
-                .get(&peer.peer_info.id)
-                .unwrap_or(&Vec::new())
-                .is_empty()
-            {
-                // We suspect that there is an active peer to which we don't have a route to
-                // and that's causing a desync. More research is required.That shouldn't have happened!.
-                error!(target: "network", "returning peer to ClientActor to which we have no route: {}", &peer.peer_info.id);
-                break;
-            }
-        }
-        result
+            .collect::<Vec<_>>()
     }
 
     /// Returns bytes sent/received across all peers.
@@ -1209,33 +1183,22 @@ impl PeerManagerActor {
         );
     }
 
-    fn verify_edges(&mut self, ctx: &mut Context<Self>, peer_id: PeerId, edges: Vec<Edge>) {
+    fn verify_edges(&mut self, _ctx: &mut Context<Self>, peer_id: PeerId, edges: Vec<Edge>) {
         if edges.is_empty() {
             return;
         }
-        self.edge_verifier_requests_in_progress += 1;
-        self.edge_verifier_pool
-            .send(EdgeList {
-                edges,
-                edges_info_shared: self.routing_table_exchange_helper.edges_info_shared.clone(),
-                sender: self.routing_table_exchange_helper.edges_to_add_sender.clone(),
-                #[cfg(feature = "test_features")]
-                adv_disable_edge_signature_verification: self
-                    .adv_helper
-                    .adv_disable_edge_signature_verification,
-            })
-            .into_actor(self)
-            .then(move |response, act, ctx| {
-                act.edge_verifier_requests_in_progress -= 1;
-                match response {
-                    Ok(false) => act.try_ban_peer(ctx, &peer_id, ReasonForBan::InvalidEdge),
-                    Ok(true) => {}
-                    Err(err) => warn!(target: "network", "error validating edges: {}", err),
-                }
-                actix::fut::ready(())
-            })
-            .spawn(ctx);
+        self.routing_table_addr.do_send(EdgeList {
+            edges,
+            edges_info_shared: self.routing_table_exchange_helper.edges_info_shared.clone(),
+            sender: self.routing_table_exchange_helper.edges_to_add_sender.clone(),
+            #[cfg(feature = "test_features")]
+            adv_disable_edge_signature_verification: self
+                .adv_helper
+                .adv_disable_edge_signature_verification,
+            peer_id,
+        });
     }
+
     /// Broadcast message to all active peers.
     fn broadcast_message(&self, ctx: &mut Context<Self>, msg: SendMessage) {
         // TODO(MarX, #1363): Implement smart broadcasting. (MST)
@@ -1340,10 +1303,7 @@ impl PeerManagerActor {
                 // Remember if we expect a response for this message.
                 if msg.author == self.my_peer_id && msg.expect_response() {
                     trace!(target: "network", "initiate route back {:?}", msg);
-                    if !self.routing_table_view.add_route_back(msg.hash(), self.my_peer_id.clone())
-                    {
-                        warn!(target: "network", "We couldn't add message to add_route_back: {}", PeerMessage::Routed(msg.clone()));
-                    }
+                    self.routing_table_view.add_route_back(msg.hash(), self.my_peer_id.clone());
                 }
 
                 self.send_message(ctx, peer_id, PeerMessage::Routed(msg))
@@ -1584,12 +1544,6 @@ impl Actor for PeerManagerActor {
             active_peer.addr.do_send(msg.clone());
         }
 
-        self.edge_verifier_pool
-            .send(StopMsg {})
-            .into_actor(self)
-            .then(move |_, _, _| actix::fut::ready(()))
-            .spawn(ctx);
-
         self.routing_table_addr
             .send(StopMsg {})
             .into_actor(self)
@@ -1608,7 +1562,8 @@ impl PeerManagerActor {
         ctx: &mut Context<Self>,
     ) -> NetworkResponses {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new(format!("network request {}", msg.as_ref()).into());
+        let _d =
+            delay_detector::DelayDetector::new(format!("network request {}", msg.as_ref()).into());
         match msg {
             NetworkRequests::Block { block } => {
                 self.broadcast_message(ctx, SendMessage { message: PeerMessage::Block(block) });
@@ -2009,7 +1964,7 @@ impl PeerManagerActor {
     fn handle_msg_inbound_tcp_connect(&mut self, msg: InboundTcpConnect, ctx: &mut Context<Self>) {
         {
             #[cfg(feature = "delay_detector")]
-            let _d = DelayDetector::new("inbound tcp connect".into());
+            let _d = delay_detector::DelayDetector::new("inbound tcp connect".into());
         }
 
         if self.is_inbound_allowed() {
@@ -2037,7 +1992,7 @@ impl PeerManagerActor {
         ctx: &mut Context<Self>,
     ) {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("outbound tcp connect".into());
+        let _d = delay_detector::DelayDetector::new("outbound tcp connect".into());
         debug!(target: "network", "Trying to connect to {}", msg.peer_info);
         if let Some(addr) = msg.peer_info.addr {
             // The `connect` may take several minutes. This happens when the
@@ -2090,7 +2045,7 @@ impl PeerManagerActor {
         ctx: &mut Context<Self>,
     ) -> ConsolidateResponse {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("consolidate".into());
+        let _d = delay_detector::DelayDetector::new("consolidate".into());
 
         // Check if this is a blacklisted peer.
         if msg.peer_info.addr.as_ref().map_or(true, |addr| self.is_blacklisted(addr)) {
@@ -2174,14 +2129,14 @@ impl PeerManagerActor {
     #[perf]
     fn handle_msg_unregister(&mut self, msg: Unregister, ctx: &mut Context<Self>) {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("unregister".into());
+        let _d = delay_detector::DelayDetector::new("unregister".into());
         self.unregister_peer(ctx, msg.peer_id, msg.peer_type, msg.remove_from_peer_store);
     }
 
     #[perf]
     fn handle_msg_ban(&mut self, msg: Ban, ctx: &mut Context<Self>) {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("ban".into());
+        let _d = delay_detector::DelayDetector::new("ban".into());
         self.ban_peer(ctx, &msg.peer_id, msg.ban_reason);
     }
 
@@ -2192,19 +2147,37 @@ impl PeerManagerActor {
         _ctx: &mut Context<Self>,
     ) -> PeerRequestResult {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("peers request".into());
+        let _d = delay_detector::DelayDetector::new("peers request".into());
         PeerRequestResult { peers: self.peer_store.healthy_peers(self.config.max_send_peers) }
     }
 
     fn handle_msg_peers_response(&mut self, msg: PeersResponse, _ctx: &mut Context<Self>) {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("peers response".into());
+        let _d = delay_detector::DelayDetector::new("peers response".into());
         unwrap_or_error!(
             self.peer_store.add_indirect_peers(
                 msg.peers.into_iter().filter(|peer_info| peer_info.id != self.my_peer_id).collect()
             ),
             "Fail to update peer store"
         );
+    }
+}
+
+impl Handler<ActixMessageWrapper<PeerManagerMessageRequest>> for PeerManagerActor {
+    type Result = ActixMessageResponse<PeerManagerMessageResponse>;
+
+    fn handle(
+        &mut self,
+        msg: ActixMessageWrapper<PeerManagerMessageRequest>,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        // Unpack throttle controller
+        let (msg, throttle_token) = msg.take();
+
+        let result = self.handle(msg, ctx);
+
+        // TODO(#5155) Add support for DeepSizeOf to result
+        ActixMessageResponse::new(result, ThrottleToken::new(throttle_token.into_inner(), 0))
     }
 }
 
@@ -2285,16 +2258,14 @@ impl Handler<PeerManagerMessageRequest> for PeerManagerActor {
 impl PeerManagerActor {
     fn handle_msg_routed_from(&mut self, msg: RoutedMessageFrom, ctx: &mut Context<Self>) -> bool {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new(
+        let _d = delay_detector::DelayDetector::new(
             format!("routed message from {}", strum::AsStaticRef::as_static(&msg.msg.body)).into(),
         );
         let RoutedMessageFrom { mut msg, from } = msg;
 
         if msg.expect_response() {
             trace!(target: "network", "Received peer message that requires route back: {}", PeerMessage::Routed(msg.clone()));
-            if !self.routing_table_view.add_route_back(msg.hash(), from.clone()) {
-                warn!(target: "network", "We couldn't add message to add_route_back: {}", PeerMessage::Routed(msg.clone()));
-            }
+            self.routing_table_view.add_route_back(msg.hash(), from.clone());
         }
 
         if self.message_for_me(&msg.target) {
@@ -2325,7 +2296,8 @@ impl PeerManagerActor {
         ctx: &mut Context<Self>,
     ) -> PeerResponse {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new(format!("peer request {}", msg.as_ref()).into());
+        let _d =
+            delay_detector::DelayDetector::new(format!("peer request {}", msg.as_ref()).into());
         match msg {
             PeerRequest::UpdateEdge((peer, nonce)) => {
                 PeerResponse::UpdatedEdge(self.propose_edge(peer, Some(nonce)))
@@ -2364,7 +2336,7 @@ impl PeerManagerActor {
         addr: Addr<PeerActor>,
     ) {
         let mut edges: Vec<Edge> = Vec::new();
-        swap(&mut edges, &mut ibf_msg.edges);
+        std::mem::swap(&mut edges, &mut ibf_msg.edges);
         self.verify_edges(ctx, peer_id.clone(), edges);
         self.routing_table_addr
             .send(RoutingTableMessages::ProcessIbfMessage { peer_id: peer_id.clone(), ibf_msg })

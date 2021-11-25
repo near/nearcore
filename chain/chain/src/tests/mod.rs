@@ -1,5 +1,7 @@
 mod challenges;
+mod doomslug;
 mod simple_chain;
+mod sync_chain;
 
 use crate::types::Tip;
 use crate::{Block, Chain, Error, Provenance};
@@ -18,6 +20,7 @@ impl Chain {
             me,
             MaybeValidated::from(block),
             Provenance::PRODUCED,
+            |_| {},
             |_| {},
             |_| {},
             |_| {},
