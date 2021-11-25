@@ -32,12 +32,18 @@ to programmatically drive the runner for benchmarking or ad-hoc investigations.
 
 There's a bunch of unit-tests in this crate. You can run them with
 
-```bash
-cargo t -p near-vm-runner --features wasmer0_vm,wasmer2_vm,wasmtime_vm
+```console
+$ cargo t -p near-vm-runner --features wasmer0_vm,wasmer2_vm,wasmtime_vm
 ```
 
 The tests use either a short wasm snippets specified inline, or a couple of
 larger test contracts from the `near-test-contracts` crate.
+
+We also have fuzzing setup:
+
+```console
+$ cd runtime/near-vm-runner && RUSTC_BOOTSTRAP=1 cargo fuzz run runner
+```
 
 ## Profiling
 
