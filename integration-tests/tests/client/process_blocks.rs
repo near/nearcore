@@ -34,6 +34,7 @@ use near_primitives::block_header::BlockHeader;
 use near_network::routing::EdgeInfo;
 use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
+use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -677,6 +678,8 @@ fn invalid_blocks_common(is_requested: bool) {
     });
 }
 
+const TEST_SEED: RngSeed = [3; 32];
+
 #[test]
 fn test_invalid_blocks_not_requested() {
     invalid_blocks_common(false);
@@ -989,6 +992,7 @@ fn test_process_invalid_tx() {
         false,
         network_adapter,
         chain_genesis,
+        TEST_SEED,
     );
     let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     let tx = SignedTransaction::new(
@@ -1040,6 +1044,7 @@ fn test_time_attack() {
         false,
         network_adapter,
         chain_genesis,
+        TEST_SEED,
     );
     let signer =
         InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
@@ -1072,6 +1077,7 @@ fn test_invalid_approvals() {
         false,
         network_adapter,
         chain_genesis,
+        TEST_SEED,
     );
     let signer =
         InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
@@ -1126,6 +1132,7 @@ fn test_invalid_gas_price() {
         false,
         network_adapter,
         chain_genesis,
+        TEST_SEED,
     );
     let signer =
         InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
@@ -1288,6 +1295,7 @@ fn test_bad_chunk_mask() {
                 false,
                 Arc::new(MockPeerManagerAdapter::default()),
                 chain_genesis.clone(),
+                TEST_SEED,
             )
         })
         .collect();
@@ -1887,6 +1895,7 @@ fn test_incorrect_validator_key_produce_block() {
         Arc::new(MockPeerManagerAdapter::default()),
         Some(signer),
         false,
+        TEST_SEED,
     )
     .unwrap();
     let res = client.produce_block(1);
