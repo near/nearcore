@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
@@ -94,6 +96,7 @@ fn test_keyvalue_runtime_balances() {
     });
 }
 
+#[cfg(feature = "expensive_tests")]
 fn send_tx(
     num_validators: usize,
     connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
@@ -152,6 +155,7 @@ fn send_tx(
     );
 }
 
+#[cfg(feature = "expensive_tests")]
 fn test_cross_shard_tx_callback(
     res: Result<Result<QueryResponse, crate::QueryError>, MailboxError>,
     account_id: AccountId,
@@ -369,6 +373,7 @@ fn test_cross_shard_tx_callback(
     }
 }
 
+#[cfg(feature = "expensive_tests")]
 fn test_cross_shard_tx_common(
     num_iters: usize,
     rotate_validators: bool,
