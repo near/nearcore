@@ -299,7 +299,7 @@ impl crate::runner::VM for Wasmer0VM {
                  architectures."
             );
         }
-        near_primitives::cpu::ensure_cpu_compatibility(true);
+        near_primitives::cpu::ensure_cpu_compatibility(cfg!(feature = "cpu_compatibility_checks"));
 
         if method_name.is_empty() {
             return (

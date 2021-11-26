@@ -55,7 +55,7 @@ base64 = "0.13"
 
 [features]
 # all vms enabled for now
-default = ["wasmer0_vm", "wasmtime_vm", "wasmer2_vm"]
+default = ["wasmer0_vm", "wasmtime_vm", "wasmer2_vm", "cpu_compatibility_checks"]
 wasmer0_vm = [ "wasmer-runtime", "wasmer-runtime-core" ]
 wasmtime_vm = [ "wasmtime", "anyhow"]
 wasmer2_vm = [ "wasmer", "wasmer-types", "wasmer-compiler-singlepass",  "wasmer-engine-universal", ]
@@ -66,7 +66,7 @@ force_wasmtime = ["wasmtime_vm"]
 force_wasmer2 = ["wasmer2_vm"]
 
 lightbeam = ["wasmtime/lightbeam"]
-no_cpu_compatibility_checks = []
+cpu_compatibility_checks = []
 
 no_cache = []
 
