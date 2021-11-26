@@ -3,6 +3,7 @@ use near_crypto::{KeyType, SecretKey, Signature};
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use std::borrow::Borrow;
 
 /// Information that will be ultimately used to create a new edge.
 /// It contains nonce proposed for the edge with signature from peer.
@@ -64,8 +65,9 @@ impl Edge {
     }
 
     pub fn make_fake_edge(peer0: PeerId, peer1: PeerId, nonce: u64) -> Self {
+        let key = Edge::make_key(peer0, peer1);
         Self(Arc::new(EdgeInner {
-            key: (peer0, peer1),
+            key,
             nonce,
             signature0: Signature::empty(KeyType::ED25519),
             signature1: Signature::empty(KeyType::ED25519),
@@ -214,6 +216,12 @@ impl Edge {
         } else {
             None
         }
+    }
+}
+
+impl Borrow<(PeerId, PeerId)> for Edge {
+    fn borrow(&self) -> &(PeerId, PeerId) {
+        self.key()
     }
 }
 

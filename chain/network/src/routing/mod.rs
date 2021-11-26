@@ -7,6 +7,7 @@ pub(crate) mod ibf_peer_set;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 pub(crate) mod ibf_set;
 pub(crate) mod network_protocol;
+pub(crate) mod projected_hash_map;
 mod route_back_cache;
 pub use crate::network_protocol::{Edge, EdgeState, PartialEdgeInfo, SimpleEdge};
 #[cfg(feature = "test_features")]
