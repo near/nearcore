@@ -128,6 +128,7 @@ pub enum ProtocolFeature {
     /// https://github.com/near/NEPs/pull/167 for general description, note that we would not
     /// introduce chunk-only validators with this feature
     AliasValidatorSelectionAlgorithm,
+    AccessKeyNonceForImplicitAccounts,
 
     // nightly features
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -172,7 +173,8 @@ impl ProtocolFeature {
             ProtocolFeature::LowerRegularOpCost2
             | ProtocolFeature::LimitContractFunctionsNumber
             | ProtocolFeature::BlockHeaderV3
-            | ProtocolFeature::AliasValidatorSelectionAlgorithm => 49,
+            | ProtocolFeature::AliasValidatorSelectionAlgorithm
+            | ProtocolFeature::AccessKeyNonceForImplicitAccounts => 49,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]

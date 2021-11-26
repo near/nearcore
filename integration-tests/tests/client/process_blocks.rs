@@ -3321,6 +3321,103 @@ mod access_key_nonce_range_tests {
         assert!(matches!(res, NetworkClientResponses::InvalidTx(_)));
     }
 
+    /// Helper for checking that duplicate transactions from implicit accounts are properly rejected.
+    /// It creates implicit account, deletes it and creates again, so that nonce of the access
+    /// key is updated. Then it tries to send tx from implicit account with invalid nonce, which
+    /// should fail since the protocol upgrade.
+    fn get_result_transaction_hash_collision_for_implicit_account(
+        protocol_version: ProtocolVersion,
+    ) -> NetworkClientResponses {
+        let epoch_length = 5;
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        genesis.config.epoch_length = epoch_length;
+        genesis.config.protocol_version = protocol_version;
+        let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(nearcore::NightshadeRuntime::test(
+            Path::new("."),
+            create_test_store(),
+            &genesis,
+        ));
+        let mut env = TestEnv::builder(ChainGenesis::test())
+            .runtime_adapters(vec![runtime_adapter.clone()])
+            .build();
+        let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+
+        let signer1 =
+            InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+
+        let public_key = signer1.public_key.clone();
+        let raw_public_key = public_key.unwrap_as_ed25519().0.to_vec();
+        let implicit_account_id = AccountId::try_from(hex::encode(&raw_public_key)).unwrap();
+        let implicit_account_signer = InMemorySigner::from_secret_key(
+            implicit_account_id.clone(),
+            signer1.secret_key.clone(),
+        );
+
+        let send_money_tx = SignedTransaction::send_money(
+            1,
+            "test1".parse().unwrap(),
+            implicit_account_id.clone(),
+            &signer1,
+            10u128.pow(23),
+            *genesis_block.hash(),
+        );
+        let delete_account_tx = SignedTransaction::delete_account(
+            2,
+            "test1".parse().unwrap(),
+            implicit_account_id.clone(),
+            "test0".parse().unwrap(),
+            &signer1,
+            *genesis_block.hash(),
+        );
+        let send_money_again_tx = SignedTransaction::send_money(
+            3,
+            "test1".parse().unwrap(),
+            implicit_account_id.clone(),
+            &signer1,
+            10u128.pow(23),
+            *genesis_block.hash(),
+        );
+        let send_money_from_implicit_account_tx = SignedTransaction::send_money(
+            1,
+            implicit_account_id.clone(),
+            "test0".parse().unwrap(),
+            &implicit_account_signer,
+            100,
+            *genesis_block.hash(),
+        );
+
+        env.clients[0].process_tx(send_money_tx, false, false);
+        for i in 1..4 {
+            env.produce_block(0, i);
+        }
+
+        env.clients[0].process_tx(delete_account_tx, false, false);
+        env.clients[0].process_tx(send_money_again_tx, false, false);
+        env.clients[0].process_tx(send_money_from_implicit_account_tx, false, false)
+    }
+
+    /// Test that duplicate transactions from implicit accounts are properly rejected.
+    #[test]
+    fn test_transaction_hash_collision_for_implicit_account_fail() {
+        let protocol_version =
+            ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version();
+        let res = get_result_transaction_hash_collision_for_implicit_account(protocol_version);
+        assert!(matches!(
+            res,
+            NetworkClientResponses::InvalidTx(InvalidTxError::InvalidNonce { .. })
+        ));
+    }
+
+    /// Test that duplicate transactions from implicit accounts are not rejected until protocol upgrade.
+    #[test]
+    fn test_transaction_hash_collision_for_implicit_account_ok() {
+        let protocol_version =
+            ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
+        let res = get_result_transaction_hash_collision_for_implicit_account(protocol_version);
+        assert!(matches!(res, NetworkClientResponses::ValidTx));
+    }
+
     /// Test that chunks with transactions that have expired are considered invalid.
     #[test]
     fn test_chunk_transaction_validity() {

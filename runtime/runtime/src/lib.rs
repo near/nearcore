@@ -399,6 +399,8 @@ impl Runtime {
                         actor_id,
                         &receipt.receiver_id,
                         transfer,
+                        apply_state.block_index,
+                        apply_state.current_protocol_version,
                     );
                 }
             }
