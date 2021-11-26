@@ -1,18 +1,27 @@
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
-use actix::{Addr, System};
+use actix::{Addr, MailboxError, System};
 use futures::{future, FutureExt};
 
-use crate::test_utils::setup_mock_all_validators;
-use crate::{ClientActor, Query, ViewClientActor};
 use near_actix_test_utils::run_actix;
+use near_chain::test_utils::account_id_to_shard_id;
+use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_integration_logger;
-use near_network::types::{NetworkResponses, PeerManagerMessageRequest};
+use near_network::types::{
+    NetworkClientMessages, NetworkClientResponses, NetworkResponses,
+    PeerManagerMessageRequest, PeerManagerMessageResponse,
+};
 use near_network_primitives::types::PeerInfo;
-use near_primitives::types::BlockReference;
-use near_primitives::views::QueryRequest;
+use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, BlockReference};
 use near_primitives::views::QueryResponseKind::ViewAccount;
+use near_primitives::views::{QueryRequest, QueryResponse};
+
+use crate::test_utils::{setup_mock_all_validators, BlockStats};
+use crate::{ClientActor, Query, ViewClientActor};
 
 /// Tests that the KeyValueRuntime properly sets balances in genesis and makes them queriable
 #[test]
@@ -84,30 +93,6 @@ fn test_keyvalue_runtime_balances() {
         near_network::test_utils::wait_or_panic(5000);
     });
 }
-
-use std::collections::HashSet;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
-
-use actix::{Addr, MailboxError, System};
-use futures::{future, FutureExt};
-
-use crate::test_utils::{setup_mock_all_validators, BlockStats};
-use crate::{ClientActor, Query, ViewClientActor};
-use near_actix_test_utils::run_actix;
-use near_chain::test_utils::account_id_to_shard_id;
-use near_crypto::{InMemorySigner, KeyType};
-use near_logger_utils::init_integration_logger;
-use near_network::types::{
-    NetworkClientMessages, NetworkClientResponses, NetworkResponses, PeerManagerMessageRequest,
-    PeerManagerMessageResponse,
-};
-use near_network_primitives::types::PeerInfo;
-use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockReference};
-use near_primitives::views::QueryResponseKind::ViewAccount;
-use near_primitives::views::{QueryRequest, QueryResponse};
 
 fn send_tx(
     num_validators: usize,
