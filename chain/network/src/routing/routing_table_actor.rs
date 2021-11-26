@@ -1,5 +1,6 @@
 use crate::network_protocol::{Edge, EdgeState};
 use crate::private_actix::{StopMsg, ValidateEdgeList};
+use crate::routing::edge_set::EdgeSet;
 use crate::routing::edge_validator_actor::EdgeValidatorActor;
 use crate::routing::graph::Graph;
 use crate::routing::routing_table_view::SAVE_PEERS_MAX_TIME;
@@ -44,18 +45,20 @@ pub enum Prune {
 ///   - store removed edges to disk
 ///   - we currently don't store active edges to disk
 pub struct RoutingTableActor {
-    /// Data structure with all edges. It's guaranteed that `peer.0` < `peer.1`.
-    pub edges_info: HashMap<(PeerId, PeerId), Edge>,
+    /// Collection of edges representing P2P network.
+    /// It's indexed by `Edge::key()` key and can be search through by called `get()` function
+    /// with `(PeerId, PeerId)` as argument.
+    pub(crate) edges_info: EdgeSet,
     /// Data structure used for exchanging routing tables.
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    pub peer_ibf_set: crate::routing::ibf_peer_set::IbfPeerSet,
+    pub(crate) peer_ibf_set: crate::routing::ibf_peer_set::IbfPeerSet,
     /// Current view of the network represented by undirected graph.
     /// Nodes are Peers and edges are active connections.
-    pub raw_graph: Graph,
+    pub(crate) raw_graph: Graph,
     /// Active PeerId that are part of the shortest path to each PeerId.
-    pub peer_forwarding: Arc<HashMap<PeerId, Vec<PeerId>>>,
+    pub(crate) peer_forwarding: Arc<HashMap<PeerId, Vec<PeerId>>>,
     /// Last time a peer was reachable through active edges.
-    pub peer_last_time_reachable: HashMap<PeerId, Instant>,
+    pub(crate) peer_last_time_reachable: HashMap<PeerId, Instant>,
     /// Everytime a group of peers becomes unreachable at the same time; We store edges belonging to
     /// them in components. We remove all of those edges from memory, and save them to database,
     /// If any of them become reachable again, we re-add whole component.
@@ -69,7 +72,7 @@ pub struct RoutingTableActor {
     ///                          exists one it belongs to.
     store: Arc<Store>,
     /// First component nonce id that hasn't been used. Used for creating new components.
-    pub next_available_component_nonce: u64,
+    pub(crate) next_available_component_nonce: u64,
     /// True if edges were changed and we need routing table recalculation.
     pub needs_routing_table_recalculation: bool,
     /// EdgeValidatorActor, which is responsible for validating edges.
@@ -115,7 +118,7 @@ impl RoutingTableActor {
         self.peer_ibf_set.remove_edge(&edge.to_simple_edge());
 
         let key = edge.key();
-        if self.edges_info.remove(key).is_some() {
+        if self.edges_info.remove(key) {
             self.raw_graph.remove_edge(&edge.key().0, &edge.key().1);
             self.needs_routing_table_recalculation = true;
         }
@@ -140,7 +143,7 @@ impl RoutingTableActor {
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             self.peer_ibf_set.add_edge(&edge.to_simple_edge());
-            self.edges_info.insert(key.clone(), edge);
+            self.edges_info.insert(edge);
             true
         }
     }
@@ -326,8 +329,10 @@ impl RoutingTableActor {
         let edges_to_remove = self
             .edges_info
             .iter()
-            .filter_map(|(key, edge)| {
-                if peers_to_remove.contains(&key.0) || peers_to_remove.contains(&key.1) {
+            .filter_map(|edge| {
+                if peers_to_remove.contains(&edge.key().0)
+                    || peers_to_remove.contains(&edge.key().1)
+                {
                     Some(edge.clone())
                 } else {
                     None
@@ -375,7 +380,7 @@ impl RoutingTableActor {
     }
 
     pub fn get_all_edges(&self) -> Vec<Edge> {
-        self.edges_info.iter().map(|x| x.1.clone()).collect()
+        self.edges_info.iter().cloned().collect()
     }
 }
 
@@ -588,7 +593,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
             }
             RoutingTableMessages::RequestRoutingTable => {
                 RoutingTableMessagesResponse::RequestRoutingTableResponse {
-                    edges_info: self.edges_info.iter().map(|(_k, v)| v.clone()).collect(),
+                    edges_info: self.edges_info.iter().cloned().collect(),
                 }
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -656,7 +661,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                                 crate::types::RoutingVersion2 {
                                     known_edges: self.edges_info.len() as u64,
                                     seed,
-                                    edges: self.edges_info.iter().map(|x| x.1.clone()).collect(),
+                                    edges: self.edges_info.iter().cloned().collect(),
                                     routing_state: crate::types::RoutingState::RequestAllEdges,
                                 }
                             };

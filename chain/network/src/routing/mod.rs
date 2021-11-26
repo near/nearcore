@@ -1,3 +1,4 @@
+pub(crate) mod edge_set;
 pub(crate) mod edge_validator_actor;
 pub mod graph;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
