@@ -118,6 +118,7 @@ pub fn epoch_info_with_num_seats(
         minted_amount,
         seat_price,
         PROTOCOL_VERSION,
+        PROTOCOL_VERSION,
         [0; 32],
     )
 }

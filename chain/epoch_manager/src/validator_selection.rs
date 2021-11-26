@@ -24,6 +24,7 @@ pub fn proposals_to_epoch_info(
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
     next_version: ProtocolVersion,
+    last_version: ProtocolVersion,
 ) -> Result<EpochInfo, EpochError> {
     debug_assert!(
         proposals.iter().map(|stake| stake.account_id()).collect::<HashSet<_>>().len()
@@ -198,6 +199,7 @@ pub fn proposals_to_epoch_info(
         minted_amount,
         bp_stake_threshold,
         next_version,
+        last_version,
         rng_seed,
     ))
 }
@@ -384,6 +386,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
         )
         .unwrap();
 
@@ -456,6 +459,7 @@ mod tests {
             Default::default(),
             Default::default(),
             0,
+            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
         )
         .unwrap();
@@ -536,6 +540,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
         )
         .unwrap();
 
@@ -578,6 +583,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
         )
         .unwrap();
 
@@ -604,6 +610,7 @@ mod tests {
             Default::default(),
             Default::default(),
             0,
+            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
         )
         .unwrap();
@@ -662,6 +669,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
         )
         .unwrap();
 
@@ -704,6 +712,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
         )
         .unwrap();
 
@@ -732,6 +741,7 @@ mod tests {
             Default::default(),
             rewards_map,
             0,
+            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
         )
         .unwrap();

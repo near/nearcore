@@ -58,6 +58,7 @@ pub fn proposals_to_epoch_info(
             validator_reward,
             minted_amount,
             next_version,
+            last_epoch_version,
         );
     } else {
         return old_validator_selection::proposals_to_epoch_info(
@@ -69,6 +70,7 @@ pub fn proposals_to_epoch_info(
             validator_reward,
             minted_amount,
             next_version,
+            last_epoch_version,
         );
     }
 }
@@ -98,6 +100,7 @@ mod old_validator_selection {
         validator_reward: HashMap<AccountId, Balance>,
         minted_amount: Balance,
         next_version: ProtocolVersion,
+        last_version: ProtocolVersion,
     ) -> Result<EpochInfo, EpochError> {
         // Combine proposals with rollovers.
         let mut ordered_proposals = BTreeMap::new();
@@ -266,6 +269,7 @@ mod old_validator_selection {
             minted_amount,
             threshold,
             next_version,
+            last_version,
             rng_seed,
         ))
     }
