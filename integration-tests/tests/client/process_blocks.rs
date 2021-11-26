@@ -3340,13 +3340,8 @@ mod access_key_nonce_range_tests {
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = protocol_version;
-        let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(nearcore::NightshadeRuntime::test(
-            Path::new("."),
-            create_test_store(),
-            &genesis,
-        ));
         let mut env = TestEnv::builder(ChainGenesis::test())
-            .runtime_adapters(vec![runtime_adapter.clone()])
+            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
             .build();
         let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
 
@@ -3394,13 +3389,17 @@ mod access_key_nonce_range_tests {
             *genesis_block.hash(),
         );
 
+        // Send money to implicit account, invoking its creation.
         env.clients[0].process_tx(send_money_tx, false, false);
         for i in 1..4 {
             env.produce_block(0, i);
         }
 
+        // Delete implicit account.
         env.clients[0].process_tx(delete_account_tx, false, false);
+        // Send money to implicit account again, invoking its second creation.
         env.clients[0].process_tx(send_money_again_tx, false, false);
+        // Send money from implicit account with incorrect nonce.
         env.clients[0].process_tx(send_money_from_implicit_account_tx, false, false)
     }
 
