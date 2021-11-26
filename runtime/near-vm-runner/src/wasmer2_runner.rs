@@ -24,7 +24,6 @@ use near_vm_logic::gas_counter::FastGasCounter;
 use wasmer_compiler_singlepass::Singlepass;
 use wasmer_types::InstanceConfig;
 use wasmer_vm::TrapCode;
-use wasmer_wasi::WasiState;
 
 const WASMER_FEATURES: wasmer::Features = wasmer::Features {
     threads: WASM_FEATURES.threads,
@@ -345,8 +344,6 @@ pub(crate) fn run_wasmer2_module<'a>(
         current_protocol_version,
     );
 
-    // Temporary hack, start from wasmer wasi imports, will then replace impls by stubs and NEAR host function
-    // based implementations, aka "near-wasi"
     let import_object = near_wasi::generate_import_wasmer2(&store, memory_copy.clone(), &mut logic);
     let import = imports::build_wasmer2(store, memory_copy, &mut logic, current_protocol_version, &import_object);
 
@@ -436,8 +433,6 @@ impl crate::runner::VM for Wasmer2VM {
             );
         }
 
-        // Temporary hack, start from wasmer wasi imports, will then replace impls by stubs and NEAR host function
-        // based implementations, aka "near-wasi"
         let import_object = near_wasi::generate_import_wasmer2(&store, memory_copy.clone(), &mut logic);
         let import_object = imports::build_wasmer2(&store, memory_copy, &mut logic, current_protocol_version, &import_object);
 
