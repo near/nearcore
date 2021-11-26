@@ -246,7 +246,12 @@ impl Chain {
             chain_genesis.height,
             chain_genesis.min_gas_price,
             chain_genesis.total_supply,
-            Chain::compute_bp_hash(&*runtime_adapter, EpochId::default(), &CryptoHash::default())?,
+            Chain::compute_bp_hash(
+                &*runtime_adapter,
+                EpochId::default(),
+                EpochId::default(),
+                &CryptoHash::default(),
+            )?,
         );
         Ok(Chain {
             store,
@@ -284,7 +289,12 @@ impl Chain {
             chain_genesis.height,
             chain_genesis.min_gas_price,
             chain_genesis.total_supply,
-            Chain::compute_bp_hash(&*runtime_adapter, EpochId::default(), &CryptoHash::default())?,
+            Chain::compute_bp_hash(
+                &*runtime_adapter,
+                EpochId::default(),
+                EpochId::default(),
+                &CryptoHash::default(),
+            )?,
         );
 
         // Check if we have a head in the store, otherwise pick genesis block.
@@ -390,10 +400,11 @@ impl Chain {
     pub fn compute_bp_hash(
         runtime_adapter: &dyn RuntimeAdapter,
         epoch_id: EpochId,
+        prev_epoch_id: EpochId,
         last_known_hash: &CryptoHash,
     ) -> Result<CryptoHash, Error> {
         let bps = runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
-        let protocol_version = runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
+        let protocol_version = runtime_adapter.get_epoch_protocol_version(&prev_epoch_id)?;
         if checked_feature!("stable", BlockHeaderV3, protocol_version) {
             let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect();
             Chain::compute_collection_hash(validator_stakes)
@@ -4014,6 +4025,7 @@ impl<'a> ChainUpdate<'a> {
                 != &Chain::compute_bp_hash(
                     &*self.runtime_adapter,
                     header.next_epoch_id().clone(),
+                    header.epoch_id().clone(),
                     &header.prev_hash(),
                 )?
             {
