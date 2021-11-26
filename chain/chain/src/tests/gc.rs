@@ -2,10 +2,10 @@
 mod tests {
     use std::sync::Arc;
 
-    use near_chain::chain::Chain;
-    use near_chain::test_utils::KeyValueRuntime;
-    use near_chain::types::{ChainGenesis, Tip};
-    use near_chain::DoomslugThresholdMode;
+    use crate::chain::Chain;
+    use crate::test_utils::KeyValueRuntime;
+    use crate::types::{ChainGenesis, Tip};
+    use crate::DoomslugThresholdMode;
     use near_crypto::KeyType;
     use near_primitives::block::Block;
     use near_primitives::merkle::PartialMerkleTree;

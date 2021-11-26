@@ -6,10 +6,10 @@ use std::time::Instant;
 use borsh::de::BorshDeserialize;
 use near_primitives::time::Clock;
 
+use crate::routing::{Edge, EdgeType, Prune, DELETE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME};
+use crate::test_utils::random_peer_id;
+use crate::RoutingTableActor;
 use near_crypto::Signature;
-use near_network::routing::{Edge, EdgeType, Prune, DELETE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME};
-use near_network::test_utils::random_peer_id;
-use near_network::RoutingTableActor;
 use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
 use near_store::{ColComponentEdges, ColPeerComponent, Store};

@@ -12,6 +12,7 @@ use borsh::BorshSerialize;
 use chrono::DateTime;
 use log::{debug, error, info, trace, warn};
 use near_primitives::time::{Clock, Utc};
+use rand::Rng;
 
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
@@ -39,6 +40,7 @@ use near_network_primitives::types::NetworkAdversarialMessage;
 use near_network_primitives::types::NetworkSandboxMessage;
 use near_performance_metrics;
 use near_performance_metrics_macros::{perf, perf_with_debug};
+use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{BlockHeight, EpochId};
@@ -137,6 +139,7 @@ impl ClientActor {
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         telemetry_actor: Addr<TelemetryActor>,
         enable_doomslug: bool,
+        rng_seed: RngSeed,
         ctx: &Context<ClientActor>,
         #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,
     ) -> Result<Self, Error> {
@@ -162,6 +165,7 @@ impl ClientActor {
             network_adapter.clone(),
             validator_signer,
             enable_doomslug,
+            rng_seed,
         )?;
 
         let now = Utc::now();
@@ -385,9 +389,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                     error!(target: "client", "Failed to save a block during state sync: {}", e);
                                 }
                             } else if block.hash() == sync_hash {
-                                // This is the immediate block after a state sync
-                                // We can afford to delay requesting missing chunks for this one block
-                                if let Err(e) = self.client.chain.save_orphan(block.into(), false) {
+                                if let Err(e) = self.client.chain.save_orphan(block.into()) {
                                     error!(target: "client", "Received an invalid block during state sync: {}", e);
                                 }
                             }
@@ -952,11 +954,8 @@ impl ClientActor {
                 match &res {
                     Ok(_) => Ok(()),
                     Err(e) => match e.kind() {
-                        near_chain::ErrorKind::ChunksMissing(_) => {
-                            // missing chunks were already handled in Client::process_block, we don't need to
-                            // do anything here
-                            Ok(())
-                        }
+                        // missing chunks were already dealt with in client.process_block
+                        near_chain::ErrorKind::ChunksMissing(_) => Ok(()),
                         _ => {
                             error!(target: "client", "Failed to process freshly produced block: {:?}", res);
                             byzantine_assert!(false);
@@ -1416,7 +1415,6 @@ impl ClientActor {
                         info!(target: "sync", "State sync: all shards are done");
 
                         let accepted_blocks = Arc::new(RwLock::new(vec![]));
-                        let orphans_missing_chunks = Arc::new(RwLock::new(vec![]));
                         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
                         let challenges = Arc::new(RwLock::new(vec![]));
 
@@ -1429,9 +1427,6 @@ impl ClientActor {
                             |missing_chunks| {
                                 blocks_missing_chunks.write().unwrap().push(missing_chunks)
                             },
-                            |orphan_missing_chunks| {
-                                orphans_missing_chunks.write().unwrap().push(orphan_missing_chunks);
-                            },
                             |challenge| challenges.write().unwrap().push(challenge)
                         ));
 
@@ -1441,8 +1436,7 @@ impl ClientActor {
                             accepted_blocks.write().unwrap().drain(..).collect(),
                         );
 
-                        self.client
-                            .request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
+                        self.client.request_missing_chunks(blocks_missing_chunks);
 
                         self.client.sync_status =
                             SyncStatus::BodySync { current_height: 0, highest_height: 0 };
@@ -1642,6 +1636,13 @@ impl Handler<StateSplitResponse> for ClientActor {
     }
 }
 
+/// Returns random seed sampled from the current thread
+pub fn random_seed_from_thread() -> RngSeed {
+    let mut rng_seed: RngSeed = [0; 32];
+    rand::thread_rng().fill(&mut rng_seed);
+    rng_seed
+}
+
 /// Starts client in a separate Arbiter (thread).
 pub fn start_client(
     client_config: ClientConfig,
@@ -1664,6 +1665,7 @@ pub fn start_client(
             validator_signer,
             telemetry_actor,
             true,
+            random_seed_from_thread(),
             ctx,
             #[cfg(feature = "test_features")]
             adv,

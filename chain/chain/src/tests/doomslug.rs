@@ -7,7 +7,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
-    use near_chain::{Doomslug, DoomslugThresholdMode};
+    use crate::{Doomslug, DoomslugThresholdMode};
     use near_crypto::{KeyType, SecretKey};
     use near_primitives::block::Approval;
     use near_primitives::hash::{hash, CryptoHash};
