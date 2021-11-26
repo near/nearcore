@@ -338,6 +338,7 @@ fn receive_network_block() {
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let block = Block::produce(
                 PROTOCOL_VERSION,
+                PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 next_block_ordinal,
@@ -412,6 +413,7 @@ fn produce_block_with_approvals() {
             block_merkle_tree.insert(last_block.header.hash);
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let block = Block::produce(
+                PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -600,6 +602,7 @@ fn invalid_blocks_common(is_requested: bool) {
             block_merkle_tree.insert(last_block.header.hash);
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let valid_block = Block::produce(
+                PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
