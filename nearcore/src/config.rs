@@ -5,7 +5,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use actix;
 use hyper::body::HttpBody;
 use near_primitives::time::Clock;
 use num_rational::Rational;
@@ -1115,6 +1114,25 @@ pub enum FileDownloadError {
     RemoveTemporaryFileError(std::io::Error, Box<FileDownloadError>),
 }
 
+/// Downloads resource at given `uri` and saves it to `file`.  On failure,
+/// `file` may be left in inconsistent state (i.e. may contain partial data).
+async fn download_file_impl(
+    uri: hyper::Uri,
+    mut file: tokio::fs::File,
+) -> Result<(), FileDownloadError> {
+    let https_connector = hyper_tls::HttpsConnector::new();
+    let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
+    let mut resp = client.get(uri).await?;
+    while let Some(next_chunk_result) = resp.data().await {
+        let next_chunk = next_chunk_result?;
+        file.write_all(next_chunk.as_ref()).await.map_err(FileDownloadError::WriteError)?;
+    }
+    Ok(())
+}
+
+/// Downloads a resource at given `url` and saves it to `path`.  On success, if
+/// file at `path` exists it will be overwritten.  On failure, file at `path` is
+/// left unchanged (if it exists).
 pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     let uri = url.parse()?;
     let (tmp_file, tmp_path) = {
@@ -1122,17 +1140,13 @@ pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
         tempfile::NamedTempFile::new_in(tmp_dir).map_err(FileDownloadError::OpenError)?.into_parts()
     };
 
-    let result = actix::System::new().block_on(async move {
-        let https_connector = hyper_tls::HttpsConnector::new();
-        let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
-        let mut resp = client.get(uri).await?;
-        let mut tmp_file = tokio::fs::File::from_std(tmp_file);
-        while let Some(next_chunk_result) = resp.data().await {
-            let next_chunk = next_chunk_result?;
-            tmp_file.write_all(next_chunk.as_ref()).await.map_err(FileDownloadError::WriteError)?;
-        }
-        Ok(())
-    });
+    let result =
+        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(
+            async move {
+                let tmp_file = tokio::fs::File::from_std(tmp_file);
+                download_file_impl(uri, tmp_file).await
+            },
+        );
 
     let result = match result {
         Err(err) => Err((tmp_path, err)),
