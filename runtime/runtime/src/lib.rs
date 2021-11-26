@@ -399,7 +399,6 @@ impl Runtime {
                         actor_id,
                         &receipt.receiver_id,
                         transfer,
-                        #[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
                         apply_state.block_index,
                         apply_state.current_protocol_version,
                     );

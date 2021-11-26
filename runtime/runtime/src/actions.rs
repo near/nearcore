@@ -16,9 +16,7 @@ use near_primitives::transaction::{
     FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
-#[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
-use near_primitives::types::BlockHeight;
-use near_primitives::types::{AccountId, EpochInfoProvider};
+use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
@@ -394,8 +392,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
     actor_id: &mut AccountId,
     account_id: &AccountId,
     transfer: &TransferAction,
-    #[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
-    current_block_height: BlockHeight,
+    block_height: BlockHeight,
     current_protocol_version: ProtocolVersion,
 ) {
     // NOTE: The account_id is hex like, because we've checked the permissions before.
@@ -403,19 +400,16 @@ pub(crate) fn action_implicit_account_creation_transfer(
 
     *actor_id = account_id.clone();
 
-    #[cfg(not(feature = "protocol_feature_access_key_nonce_for_implicit_accounts"))]
-    let access_key = AccessKey::full_access();
-    #[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
     let mut access_key = AccessKey::full_access();
-    checked_feature!(
+    if checked_feature!(
         "protocol_feature_access_key_nonce_for_implicit_accounts",
         AccessKeyNonceForImplicitAccounts,
-        current_protocol_version,
-        {
-            access_key.nonce = (current_block_height - 1)
-                * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-        }
-    );
+        current_protocol_version
+    ) {
+        access_key.nonce = (block_height - 1)
+            * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+    }
+
     // 0 for ED25519
     let mut public_key_data = Vec::with_capacity(33);
     public_key_data.push(0u8);
