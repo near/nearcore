@@ -18,6 +18,9 @@ docker-nearcore-nightly:
 	docker build -t nearcore-nightly -f Dockerfile --build-arg=features=nightly_protocol,nightly_protocol_features --progress=plain .
 
 release: NEAR_RELEASE_BUILD=release
+release: RUSTFLAGS+= -Ctarget-feature=+avx,+cmpxchg16b,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2,+sse4a
+release: CFLAGS = -mavx -mpopcnt -msse3 -mssse3 -msse4.1 -msse4.2 -msse4a -mcx16
+release: CXXFLAGS = ${CFLAGS}
 release:
 	cargo build -p neard --release
 	cargo build -p state-viewer --release

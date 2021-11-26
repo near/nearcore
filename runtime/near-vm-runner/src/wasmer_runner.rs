@@ -299,10 +299,8 @@ impl crate::runner::VM for Wasmer0VM {
                  architectures."
             );
         }
-        #[cfg(not(feature = "no_cpu_compatibility_checks"))]
-        if !is_x86_feature_detected!("avx") {
-            panic!("AVX support is required in order to run Wasmer VM Singlepass backend.");
-        }
+        near_primitives::cpu::ensure_cpu_compatibility(true);
+
         if method_name.is_empty() {
             return (
                 None,

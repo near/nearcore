@@ -395,7 +395,6 @@ impl crate::runner::VM for Wasmer2VM {
             %method_name
         )
         .entered();
-
         if method_name.is_empty() {
             return (
                 None,
