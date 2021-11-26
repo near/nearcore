@@ -1,4 +1,5 @@
 mod challenges;
+#[cfg(feature = "expensive_tests")]
 mod doomslug;
 mod gc;
 mod simple_chain;
