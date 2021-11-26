@@ -1,5 +1,6 @@
 mod challenges;
 mod doomslug;
+mod gc;
 mod simple_chain;
 mod sync_chain;
 
