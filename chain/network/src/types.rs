@@ -439,27 +439,28 @@ pub struct SendMessage {
     pub(crate) message: PeerMessage,
 }
 
-/// Actor message to consolidate potential new peer.
-/// Returns if connection should be kept or dropped.
+/// Actor message which asks `PeerManagerActor` to register peer.
+/// Returns `RegisterPeerResult` with `Accepted` if connection should be kept
+/// or a reject response otherwise.
 #[derive(Clone, Debug)]
-pub struct Consolidate {
+pub struct RegisterPeer {
     pub(crate) actor: Addr<PeerActor>,
     pub(crate) peer_info: PeerInfo,
     pub(crate) peer_type: PeerType,
     pub(crate) chain_info: PeerChainInfoV2,
-    // Edge information from this node.
-    // If this is None it implies we are outbound connection, so we need to create our
-    // EdgeInfo part and send it to the other peer.
+    /// Edge information from this node.
+    /// If this is None it implies we are outbound connection, so we need to create our
+    /// EdgeInfo part and send it to the other peer.
     pub(crate) this_edge_info: Option<EdgeInfo>,
-    // Edge information from other node.
+    /// Edge information from other node.
     pub(crate) other_edge_info: EdgeInfo,
-    // Protocol version of new peer. May be higher than ours.
+    /// Protocol version of new peer. May be higher than ours.
     pub(crate) peer_protocol_version: ProtocolVersion,
 }
 
 /// Addr<PeerActor> doesn't implement `DeepSizeOf` waiting for `deepsize` > 0.2.0.
 #[cfg(feature = "deepsize_feature")]
-impl deepsize::DeepSizeOf for Consolidate {
+impl deepsize::DeepSizeOf for RegisterPeer {
     fn deep_size_of_children(&self, context: &mut deepsize::Context) -> usize {
         self.peer_info.deep_size_of_children(context)
             + self.peer_type.deep_size_of_children(context)
@@ -470,8 +471,15 @@ impl deepsize::DeepSizeOf for Consolidate {
     }
 }
 
-impl Message for Consolidate {
-    type Result = ConsolidateResponse;
+impl Message for RegisterPeer {
+    type Result = RegisterPeerResponse;
+}
+
+#[derive(MessageResponse, Debug)]
+pub enum RegisterPeerResponse {
+    Accept(Option<EdgeInfo>),
+    InvalidNonce(Box<Edge>),
+    Reject,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
@@ -521,13 +529,6 @@ impl Message for SetAdvOptions {
 #[cfg(feature = "test_features")]
 impl Message for StartRoutingTableSync {
     type Result = ();
-}
-
-#[derive(MessageResponse, Debug)]
-pub enum ConsolidateResponse {
-    Accept(Option<EdgeInfo>),
-    InvalidNonce(Box<Edge>),
-    Reject,
 }
 
 /// Unregister message from Peer to PeerManager.
@@ -602,7 +603,7 @@ pub struct PeersResponse {
 pub enum PeerManagerMessageRequest {
     RoutedMessageFrom(RoutedMessageFrom),
     NetworkRequests(NetworkRequests),
-    Consolidate(Consolidate),
+    RegisterPeer(RegisterPeer),
     PeersRequest(PeersRequest),
     PeersResponse(PeersResponse),
     PeerRequest(PeerRequest),
@@ -648,7 +649,7 @@ impl Message for PeerManagerMessageRequest {
 pub enum PeerManagerMessageResponse {
     RoutedMessageFrom(bool),
     NetworkResponses(NetworkResponses),
-    ConsolidateResponse(ConsolidateResponse),
+    RegisterPeerResponse(RegisterPeerResponse),
     PeerRequestResult(PeerRequestResult),
     PeersResponseResult(()),
     PeerResponse(PeerResponse),
@@ -684,8 +685,8 @@ impl PeerManagerMessageResponse {
         }
     }
 
-    pub fn as_consolidate_response(self) -> ConsolidateResponse {
-        if let PeerManagerMessageResponse::ConsolidateResponse(item) = self {
+    pub fn as_consolidate_response(self) -> RegisterPeerResponse {
+        if let PeerManagerMessageResponse::RegisterPeerResponse(item) = self {
             item
         } else {
             panic!("expected PeerMessageRequest::ConsolidateResponse(");
@@ -1092,7 +1093,7 @@ mod tests {
     #[test]
     fn test_enum_size() {
         assert_size!(HandshakeFailureReason);
-        assert_size!(ConsolidateResponse);
+        assert_size!(RegisterPeerResponse);
         assert_size!(PeerRequest);
         assert_size!(PeerResponse);
         assert_size!(NetworkRequests);
@@ -1108,7 +1109,7 @@ mod tests {
         assert_size!(Pong);
         assert_size!(SyncData);
         assert_size!(SendMessage);
-        assert_size!(Consolidate);
+        assert_size!(RegisterPeer);
         assert_size!(FullPeerInfo);
         assert_size!(NetworkInfo);
     }
