@@ -111,11 +111,10 @@ impl<'a> ContractModule<'a> {
         let mut imported_mem_type = None;
 
         for import in import_entries {
-            if import.module() != "env" {
+            if import.module() != "env" && import.module() != "wasi_snapshot_preview1" {
                 // This import tries to import something from non-"env" module,
-                // but all imports are located in "env" at the moment.
-                println!("out of env import: {}.{}", import.module(), import.field());
-                // return Err(PrepareError::Instantiate);
+                // but all imports are located in "env" or "wasi_snapshot_preview1" at the moment.
+                return Err(PrepareError::Instantiate);
             }
 
             let type_idx = match *import.external() {
