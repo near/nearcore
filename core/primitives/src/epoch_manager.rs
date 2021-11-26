@@ -533,10 +533,9 @@ pub mod epoch_info {
             minted_amount: Balance,
             seat_price: Balance,
             protocol_version: ProtocolVersion,
-            last_protocol_version: ProtocolVersion,
             rng_seed: RngSeed,
         ) -> Self {
-            if checked_feature!("stable", AliasValidatorSelectionAlgorithm, last_protocol_version) {
+            if checked_feature!("stable", AliasValidatorSelectionAlgorithm, protocol_version) {
                 let stake_weights = |ids: &[ValidatorId]| -> WeightedIndex {
                     WeightedIndex::new(
                         ids.iter()
