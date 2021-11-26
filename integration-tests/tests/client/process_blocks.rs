@@ -3398,6 +3398,7 @@ mod access_key_nonce_range_tests {
     }
 
     /// Test that duplicate transactions from implicit accounts are properly rejected.
+    #[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
     #[test]
     fn test_transaction_hash_collision_for_implicit_account_fail() {
         let protocol_version =
@@ -3412,8 +3413,11 @@ mod access_key_nonce_range_tests {
     /// Test that duplicate transactions from implicit accounts are not rejected until protocol upgrade.
     #[test]
     fn test_transaction_hash_collision_for_implicit_account_ok() {
+        #[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
         let protocol_version =
             ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
+        #[cfg(not(feature = "protocol_feature_access_key_nonce_for_implicit_accounts"))]
+        let protocol_version = PROTOCOL_VERSION;
         let res = get_result_transaction_hash_collision_for_implicit_account(protocol_version);
         assert!(matches!(res, NetworkClientResponses::ValidTx));
     }

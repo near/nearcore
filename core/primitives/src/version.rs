@@ -130,8 +130,6 @@ pub enum ProtocolFeature {
     /// https://github.com/near/NEPs/pull/167 for general description, note that we would not
     /// introduce chunk-only validators with this feature
     AliasValidatorSelectionAlgorithm,
-    /// Add `AccessKey` nonce range for implicit accounts, as in `AccessKeyNonceRange` feature.
-    AccessKeyNonceForImplicitAccounts,
 
     // nightly features
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -140,6 +138,9 @@ pub enum ProtocolFeature {
     ChunkOnlyProducers,
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingExchangeAlgorithm,
+    #[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
+    /// Add `AccessKey` nonce range for implicit accounts, as in `AccessKeyNonceRange` feature.
+    AccessKeyNonceForImplicitAccounts,
 }
 
 /// Current latest stable version of the protocol.
@@ -150,7 +151,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 49;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 124;
+pub const PROTOCOL_VERSION: ProtocolVersion = 125;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -176,8 +177,7 @@ impl ProtocolFeature {
             ProtocolFeature::LowerRegularOpCost2
             | ProtocolFeature::LimitContractFunctionsNumber
             | ProtocolFeature::BlockHeaderV3
-            | ProtocolFeature::AliasValidatorSelectionAlgorithm
-            | ProtocolFeature::AccessKeyNonceForImplicitAccounts => 49,
+            | ProtocolFeature::AliasValidatorSelectionAlgorithm => 49,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -186,6 +186,8 @@ impl ProtocolFeature {
             ProtocolFeature::ChunkOnlyProducers => 124,
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
+            #[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
+            ProtocolFeature::AccessKeyNonceForImplicitAccounts => 125,
         }
     }
 }

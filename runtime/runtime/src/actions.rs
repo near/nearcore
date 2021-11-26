@@ -392,7 +392,9 @@ pub(crate) fn action_implicit_account_creation_transfer(
     actor_id: &mut AccountId,
     account_id: &AccountId,
     transfer: &TransferAction,
-    block_height: BlockHeight,
+    #[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
+    current_block_height: BlockHeight,
+    #[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
     current_protocol_version: ProtocolVersion,
 ) {
     // NOTE: The account_id is hex like, because we've checked the permissions before.
@@ -400,9 +402,12 @@ pub(crate) fn action_implicit_account_creation_transfer(
 
     *actor_id = account_id.clone();
 
+    #[cfg(not(feature = "protocol_feature_access_key_nonce_for_implicit_accounts"))]
+    let access_key = AccessKey::full_access();
+    #[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
     let mut access_key = AccessKey::full_access();
-    if checked_feature!("stable", AccessKeyNonceForImplicitAccounts, current_protocol_version) {
-        access_key.nonce = (block_height - 1)
+    checked_feature!("nightly", AccessKeyNonceForImplicitAccounts, current_protocol_version) {
+        access_key.nonce = (current_block_height - 1)
             * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
     }
     // 0 for ED25519
