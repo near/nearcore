@@ -22,17 +22,11 @@ wasmparser = "0.78"
 memoffset = "0.6"
 
 # Use the following for development versions of Wasmer.
- wasmer = { package = "wasmer-near", git = "https://github.com/near/wasmer", rev = "d13fabd773401fd8757f15f4a2f435a6dc4ed48d", optional = true, default-features = false, features = ["singlepass", "universal"] }
- wasmer-types = { package = "wasmer-types-near", git = "https://github.com/near/wasmer", rev = "d13fabd773401fd8757f15f4a2f435a6dc4ed48d", optional = true }
- wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", git = "https://github.com/near/wasmer", rev = "d13fabd773401fd8757f15f4a2f435a6dc4ed48d", optional = true }
- wasmer-engine-universal = { package = "wasmer-engine-universal-near", git = "https://github.com/near/wasmer", rev = "d13fabd773401fd8757f15f4a2f435a6dc4ed48d", optional = true }
- wasmer-vm = { package = "wasmer-vm-near", git = "https://github.com/near/wasmer", rev = "d13fabd773401fd8757f15f4a2f435a6dc4ed48d" }
-#wasmer = { package = "wasmer-near", version = "=2.0.3", optional = true, default-features = false, features = ["singlepass", "universal"] }
-#wasmer-types = { package = "wasmer-types-near", version = "=2.0.3", optional = true }
-#wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.0.3", optional = true }
-#wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.0.3", optional = true }
-#wasmer-vm = { package = "wasmer-vm-near", version = "=2.0.3" }
-wasmer-wasi = { package = "wasmer-wasi", git = "https://github.com/near/wasmer", rev = "d13fabd773401fd8757f15f4a2f435a6dc4ed48d" }
+wasmer = { package = "wasmer-near", version = "=2.0.3", optional = true, default-features = false, features = ["singlepass", "universal"] }
+wasmer-types = { package = "wasmer-types-near", version = "=2.0.3", optional = true }
+wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.0.3", optional = true }
+wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.0.3", optional = true }
+wasmer-vm = { package = "wasmer-vm-near", version = "=2.0.3" }
 
 pwasm-utils = "0.12"
 parity-wasm = "0.41"
