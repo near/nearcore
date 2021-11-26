@@ -490,10 +490,14 @@ impl Client {
         // Get all the current challenges.
         // TODO(2445): Enable challenges when they are working correctly.
         // let challenges = self.challenges.drain().map(|(_, challenge)| challenge).collect();
-        let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&next_epoch_id)?;
+        let this_epoch_protocol_version =
+            self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
+        let next_epoch_protocol_version =
+            self.runtime_adapter.get_epoch_protocol_version(&next_epoch_id)?;
 
         let block = Block::produce(
-            protocol_version,
+            this_epoch_protocol_version,
+            next_epoch_protocol_version,
             &prev_header,
             next_height,
             block_ordinal,
