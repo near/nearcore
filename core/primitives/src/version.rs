@@ -86,6 +86,8 @@ pub enum ProtocolFeature {
     // stable features
     ForwardChunkParts,
     RectifyInflation,
+    /// Add `AccessKey` nonce range by setting nonce to `(block_height - 1) * 1e6`, see
+    /// <https://github.com/near/nearcore/pull/4064>.
     AccessKeyNonceRange,
     FixApplyChunks,
     LowerStorageCost,
@@ -128,6 +130,7 @@ pub enum ProtocolFeature {
     /// https://github.com/near/NEPs/pull/167 for general description, note that we would not
     /// introduce chunk-only validators with this feature
     AliasValidatorSelectionAlgorithm,
+    /// Add `AccessKey` nonce range for implicit accounts, as in `AccessKeyNonceRange` feature.
     AccessKeyNonceForImplicitAccounts,
 
     // nightly features
