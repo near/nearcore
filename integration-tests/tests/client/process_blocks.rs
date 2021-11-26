@@ -3374,7 +3374,10 @@ mod access_key_nonce_range_tests {
             signer1.secret_key.clone(),
         );
         let deposit_for_account_creation = 10u128.pow(23);
+        let mut height = 1;
+        let blocks_number = 5;
 
+        // Send money to implicit account, invoking its creation.
         let send_money_tx = SignedTransaction::send_money(
             1,
             "test1".parse().unwrap(),
@@ -3383,11 +3386,6 @@ mod access_key_nonce_range_tests {
             deposit_for_account_creation.clone(),
             *genesis_block.hash(),
         );
-
-        let mut height = 1;
-        let blocks_number = 5;
-
-        // Send money to implicit account, invoking its creation.
         height = check_tx_processing(&mut env, send_money_tx, height, blocks_number.clone());
         let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap().clone();
 
