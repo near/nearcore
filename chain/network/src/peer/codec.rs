@@ -175,7 +175,7 @@ pub(crate) fn is_forward_transaction(bytes: &[u8]) -> Option<bool> {
 #[cfg(test)]
 mod test {
     use crate::peer::codec::{is_forward_transaction, Codec, NETWORK_MESSAGE_MAX_SIZE_BYTES};
-    use crate::routing::edge::EdgeInfo;
+    use crate::routing::edge::PartialEdgeInfo;
     use crate::types::{Handshake, HandshakeFailureReason, HandshakeV2, PeerMessage, SyncData};
     use crate::PeerInfo;
     use borsh::BorshDeserialize;
@@ -289,18 +289,18 @@ mod test {
     fn test_peer_message_handshake() {
         let peer_info = PeerInfo::random();
         let fake_handshake = Handshake {
-            version: PROTOCOL_VERSION,
+            protocol_version: PROTOCOL_VERSION,
             oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
-            peer_id: peer_info.id.clone(),
+            sender_peer_id: peer_info.id.clone(),
             target_peer_id: peer_info.id,
-            listen_port: None,
-            chain_info: PeerChainInfoV2 {
+            sender_listen_port: None,
+            sender_chain_info: PeerChainInfoV2 {
                 genesis_id: Default::default(),
                 height: 0,
                 tracked_shards: vec![],
                 archival: false,
             },
-            edge_info: EdgeInfo::default(),
+            partial_edge_info: PartialEdgeInfo::default(),
         };
         let msg = PeerMessage::Handshake(fake_handshake);
         test_codec(msg);
@@ -310,17 +310,17 @@ mod test {
     fn test_peer_message_handshake_v2() {
         let peer_info = PeerInfo::random();
         let fake_handshake = HandshakeV2 {
-            version: PROTOCOL_VERSION,
+            protocol_version: PROTOCOL_VERSION,
             oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
-            peer_id: peer_info.id.clone(),
+            sender_peer_id: peer_info.id.clone(),
             target_peer_id: peer_info.id,
-            listen_port: None,
+            sender_listen_port: None,
             chain_info: PeerChainInfo {
                 genesis_id: Default::default(),
                 height: 0,
                 tracked_shards: vec![],
             },
-            edge_info: EdgeInfo::default(),
+            edge_info: PartialEdgeInfo::default(),
         };
         let msg = PeerMessage::HandshakeV2(fake_handshake);
         test_codec(msg);
@@ -329,17 +329,17 @@ mod test {
     #[test]
     fn test_peer_message_handshake_v2_00() {
         let fake_handshake = HandshakeV2 {
-            version: 0,
+            protocol_version: 0,
             oldest_supported_version: 0,
-            peer_id: PeerId::new(PublicKey::empty(KeyType::ED25519)),
+            sender_peer_id: PeerId::new(PublicKey::empty(KeyType::ED25519)),
             target_peer_id: PeerId::new(PublicKey::empty(KeyType::ED25519)),
-            listen_port: None,
+            sender_listen_port: None,
             chain_info: PeerChainInfo {
                 genesis_id: Default::default(),
                 height: 0,
                 tracked_shards: vec![],
             },
-            edge_info: EdgeInfo::default(),
+            edge_info: PartialEdgeInfo::default(),
         };
         let msg = PeerMessage::HandshakeV2(fake_handshake);
 
