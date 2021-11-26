@@ -7,10 +7,10 @@ mod tests {
     use actix::{Addr, System};
     use rand::{thread_rng, Rng};
 
+    use crate::test_utils::setup_mock_all_validators;
+    use crate::{ClientActor, ViewClientActor};
     use near_actix_test_utils::run_actix;
     use near_chain::Block;
-    use near_client::test_utils::setup_mock_all_validators;
-    use near_client::{ClientActor, ViewClientActor};
     use near_logger_utils::init_integration_logger;
     use near_network::types::{
         NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
