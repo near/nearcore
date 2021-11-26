@@ -1116,40 +1116,35 @@ pub enum FileDownloadError {
 }
 
 pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
-    return actix::System::new().block_on(async move {
+    let uri = url.parse()?;
+    let (tmp_file, tmp_path) = {
+        let tmp_dir = path.parent().unwrap_or(&Path::new("."));
+        tempfile::NamedTempFile::new_in(tmp_dir).map_err(FileDownloadError::OpenError)?.into_parts()
+    };
+
+    let result = actix::System::new().block_on(async move {
         let https_connector = hyper_tls::HttpsConnector::new();
         let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
-
-        let uri = url.parse()?;
         let mut resp = client.get(uri).await?;
-
-        // To avoid partially downloaded files, we first download the file to a temporary *.swp file
-        // and rename it once the download is finished.
-        let tmp_path = path.with_extension("swp");
-        let mut tmp_file =
-            tokio::fs::File::create(&tmp_path).await.map_err(FileDownloadError::OpenError)?;
-
-        // We run everything that interacts with the temporary *.swp file in a separate async block
-        // so that we can clean up and safely delete it if something went wrong.
-        let process_tmp_file = async {
-            while let Some(next_chunk_result) = resp.data().await {
-                let next_chunk = next_chunk_result?;
-                tmp_file
-                    .write_all(next_chunk.as_ref())
-                    .await
-                    .map_err(FileDownloadError::WriteError)?;
-            }
-            std::fs::rename(&tmp_path, path).map_err(FileDownloadError::RenameError)?;
-            Ok(())
-        };
-
-        process_tmp_file.await.map_err(|e| match std::fs::remove_file(tmp_path) {
-            Ok(_) => e,
-            Err(remove_file_error) => {
-                FileDownloadError::RemoveTemporaryFileError(remove_file_error, Box::new(e))
-            }
-        })
+        let mut tmp_file = tokio::fs::File::from_std(tmp_file);
+        while let Some(next_chunk_result) = resp.data().await {
+            let next_chunk = next_chunk_result?;
+            tmp_file.write_all(next_chunk.as_ref()).await.map_err(FileDownloadError::WriteError)?;
+        }
+        Ok(())
     });
+
+    let result = match result {
+        Err(err) => Err((tmp_path, err)),
+        Ok(()) => {
+            tmp_path.persist(path).map_err(|e| (e.path, FileDownloadError::RenameError(e.error)))
+        }
+    };
+
+    result.map_err(|(tmp_path, err)| match tmp_path.close() {
+        Ok(()) => err,
+        Err(close_err) => FileDownloadError::RemoveTemporaryFileError(close_err, Box::new(err)),
+    })
 }
 
 pub fn download_genesis(url: &String, path: &Path) {
