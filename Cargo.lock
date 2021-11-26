@@ -3085,6 +3085,7 @@ dependencies = [
  "near-test-contracts",
  "near-vm-errors",
  "near-vm-logic",
+ "near-wasi",
  "parity-wasm",
  "pwasm-utils",
  "serde",
@@ -3128,6 +3129,7 @@ name = "near-wasi"
 version = "0.0.0"
 dependencies = [
  "near-vm-logic",
+ "wasmer-near",
 ]
 
 [[package]]

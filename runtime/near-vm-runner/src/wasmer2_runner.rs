@@ -347,7 +347,7 @@ pub(crate) fn run_wasmer2_module<'a>(
 
     // Temporary hack, start from wasmer wasi imports, will then replace impls by stubs and NEAR host function
     // based implementations, aka "near-wasi"
-    let import_object = WasiState::new("hello").finalize().unwrap().import_object(&module).unwrap();
+    let import_object = near_wasi::generate_import_wasmer2(&store, memory_copy.clone(), &mut logic);
     let import = imports::build_wasmer2(store, memory_copy, &mut logic, current_protocol_version, &import_object);
 
     if let Err(e) = check_method(&module, method_name) {
@@ -438,7 +438,7 @@ impl crate::runner::VM for Wasmer2VM {
 
         // Temporary hack, start from wasmer wasi imports, will then replace impls by stubs and NEAR host function
         // based implementations, aka "near-wasi"
-        let import_object = WasiState::new("hello").finalize().unwrap().import_object(&module).unwrap();
+        let import_object = near_wasi::generate_import_wasmer2(&store, memory_copy.clone(), &mut logic);
         let import_object = imports::build_wasmer2(&store, memory_copy, &mut logic, current_protocol_version, &import_object);
 
         if let Err(e) = check_method(&module, method_name) {

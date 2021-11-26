@@ -15,3 +15,8 @@ This crate implements WASI with stubs and near-vm-logics to run contracts compil
 
 [dependencies]
 near-vm-logic = { path = "../near-vm-logic", default-features = false, features = [] }
+wasmer = { package = "wasmer-near", git = "https://github.com/near/wasmer", rev = "d13fabd773401fd8757f15f4a2f435a6dc4ed48d", optional = true, default-features = false, features = ["singlepass", "universal"] }
+
+[features]
+default = ["wasmer2_vm"]
+wasmer2_vm = [ "wasmer" ]
