@@ -6,16 +6,13 @@
 # edge pruning in order to eliminate those factors for sake of testing. In addition uses JsonRPC to add/remove edges
 # check current state of routing table on both sites.
 
-import sys, time
+import time
 
 import base58
 import ed25519
-
-sys.path.append('lib')
-
-from cluster import start_cluster
-from peer import logger
-from proxy import ProxyHandler
+from ...lib.cluster import start_cluster
+from ...lib.peer import logger
+from ...lib.proxy import ProxyHandler
 from multiprocessing import Value
 
 TIMEOUT = 300

@@ -19,7 +19,17 @@ import uuid
 from rc import gcloud
 from retrying import retry
 
-import network
+try:
+    # pytest tests/sanity/skip_epoch.py
+    # in python it's preferred to use relative imports, for example:
+    # from ...lib.cluster import start_cluster
+    from . import network
+except:
+    # A bad way to do imports:
+    # sys.path.append('lib')
+    # from cluster import start_cluster
+    import network
+
 from configured_logger import logger
 from key import Key
 from proxy import NodesProxy
