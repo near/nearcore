@@ -501,7 +501,9 @@ pub enum RoutingTableMessagesResponse {
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     StartRoutingTableSyncResponse(crate::types::PeerMessage),
     RoutingTableUpdateResponse {
-        edges_to_remove: Vec<Edge>,
+        /// PeerManager maintains list of local edges. We will notify `PeerManager`
+        /// to remove those edges.
+        local_edges_to_remove: Vec<Edge>,
         /// Active PeerId that are part of the shortest path to each PeerId.
         peer_forwarding: Arc<HashMap<PeerId, Vec<PeerId>>>,
         /// List of peers to ban for sending invalid edges.
@@ -571,9 +573,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                 swap(&mut peers_to_ban, &mut self.peers_to_ban);
 
                 RoutingTableMessagesResponse::RoutingTableUpdateResponse {
-                    // PeerManager maintains list of local edges. We will notify `PeerManager`
-                    // to remove those edges.
-                    edges_to_remove: edges_removed,
+                    local_edges_to_remove: edges_removed,
                     peer_forwarding: self.peer_forwarding.clone(),
                     peers_to_ban,
                 }

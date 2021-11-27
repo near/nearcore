@@ -259,7 +259,7 @@ impl PeerManagerActor {
             .into_actor(self)
             .map(|response, act, ctx| match response {
                 Ok(RoutingTableMessagesResponse::RoutingTableUpdateResponse {
-                    edges_to_remove,
+                    local_edges_to_remove: edges_to_remove,
                     peer_forwarding,
                     peers_to_ban,
                 }) => {
