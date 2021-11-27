@@ -13,9 +13,10 @@ import json
 import subprocess
 import shutil
 import re
+import pathlib
 from deepdiff import DeepDiff
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 import branches
 import cluster
