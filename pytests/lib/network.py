@@ -1,7 +1,12 @@
 import subprocess, sys
 
 sys.path.append('lib')
-from configured_logger import logger
+try:
+    # new style
+    from .configured_logger import logger
+except:
+    # old style
+    from configured_logger import logger
 
 
 def _run_process(cmd):

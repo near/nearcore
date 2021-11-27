@@ -1,5 +1,9 @@
-from messages.crypto import PublicKey, Signature, MerklePath, ShardProof
-from messages.tx import Receipt, SignedTransaction
+try:
+    from ..messages.crypto import PublicKey, Signature, MerklePath, ShardProof
+    from ..messages.tx import Receipt, SignedTransaction
+except:
+    from messages.crypto import PublicKey, Signature, MerklePath, ShardProof
+    from messages.tx import Receipt, SignedTransaction
 
 
 class Block:

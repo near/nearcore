@@ -5,12 +5,22 @@ import struct
 
 import base58
 
-from configured_logger import logger
-from messages import schema
-from messages.crypto import PublicKey, Signature
-from messages.network import (EdgeInfo, GenesisId, Handshake, PeerChainInfoV2,
-                              PeerMessage, RoutedMessage, PeerIdOrHash)
-from serializer import BinarySerializer
+try:
+    from .configured_logger import logger
+    from .messages import schema
+    from .messages.crypto import PublicKey, Signature
+    from .messages.network import (EdgeInfo, GenesisId, Handshake, PeerChainInfoV2,
+                                  PeerMessage, RoutedMessage, PeerIdOrHash)
+    from .serializer import BinarySerializer
+except:
+
+    from configured_logger import logger
+    from messages import schema
+    from messages.crypto import PublicKey, Signature
+    from messages.network import (EdgeInfo, GenesisId, Handshake, PeerChainInfoV2,
+                                  PeerMessage, RoutedMessage, PeerIdOrHash)
+    from serializer import BinarySerializer
+
 from nacl.signing import SigningKey
 from typing import Optional
 

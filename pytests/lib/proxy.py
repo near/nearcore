@@ -36,11 +36,19 @@ import struct
 import time
 import logging
 
-from configured_logger import logger
-from messages import schema
-from messages.crypto import PublicKey, Signature
-from messages.network import PeerIdOrHash, PeerMessage
-from serializer import BinarySerializer
+try:
+    from .configured_logger import logger
+    from .messages import schema
+    from .messages.crypto import PublicKey, Signature
+    from .messages.network import PeerIdOrHash, PeerMessage
+    from .serializer import BinarySerializer
+except:
+    from configured_logger import logger
+    from messages import schema
+    from messages.crypto import PublicKey, Signature
+    from messages.network import PeerIdOrHash, PeerMessage
+    from serializer import BinarySerializer
+
 
 MSG_TIMEOUT = 10
 _MY_PORT = [None]

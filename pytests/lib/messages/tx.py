@@ -1,4 +1,7 @@
-from messages.crypto import Signature, PublicKey, AccessKey
+try:
+    from ..messages.crypto import Signature, PublicKey, AccessKey
+except:
+    from messages.crypto import Signature, PublicKey, AccessKey
 
 
 class SignedTransaction:
