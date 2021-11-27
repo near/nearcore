@@ -839,12 +839,22 @@ pub enum NetworkRequests {
 }
 
 pub struct ValidateEdgeList {
+    /// List of Edges, which will be sent to `EdgeVerifierActor`.
     pub(crate) edges: Vec<Edge>,
+    /// A set of edges, which have been verified. This is used to avoid doing duplicated work by
+    /// `EdgeVerifierActor`, and is a source of memory leak.
+    /// TODO(#5254): Simplify this process.
     pub(crate) edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
+    /// A concurrent queue. After edge become validated. They will be sent from `EdgeVerifierActor` back to
+    /// `PeerManagetActor`, and then send to `RoutingTableActor`. And then `RoutingTableActor`
+    /// will add them.
+    /// TODO(#5254): Simplify this process.
     pub(crate) sender: QueueSender<Edge>,
     #[cfg(feature = "test_features")]
+    /// Feature to disable edge validation for purpose of testing.
     pub(crate) adv_disable_edge_signature_verification: bool,
-    pub(crate) peer_id: PeerId,
+    /// Peer that may be banned if any of the edges are found to be invalid.
+    pub(crate) source_peer_id: PeerId,
 }
 
 impl Message for ValidateEdgeList {
