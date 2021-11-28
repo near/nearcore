@@ -2858,7 +2858,6 @@ dependencies = [
  "deepsize",
  "delay-detector",
  "futures",
- "near-actix-test-utils",
  "near-crypto",
  "near-metrics",
  "near-network-primitives",
