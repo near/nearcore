@@ -896,6 +896,12 @@ pub enum NetworkSandboxMessage {
     SandboxPatchStateStatus,
 }
 
+#[cfg(feature = "sandbox")]
+#[derive(Eq, PartialEq, Debug)]
+pub enum SandboxResponse {
+    SandboxPatchStateFinished(bool),
+}
+
 #[derive(AsStaticStr)]
 pub enum NetworkViewClientMessages {
     #[cfg(feature = "test_features")]
@@ -1029,7 +1035,7 @@ pub struct PartialEncodedChunkResponseMsg {
 }
 
 /// Message for chunk part owners to forward their parts to validators tracking that shard.
-/// This reduces the number of requests a node tracking a shard needs to send to obtain enough
+// This reduces the number of requests a node tracking a shard needs to send to obtain enough
 /// parts to reconstruct the message (in the best case no such requests are needed).
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
