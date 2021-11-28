@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spin up one validator node and let it run for a while
 # Spin up another node that does state sync. Keep sending
 # transactions to that node and make sure it doesn't crash.

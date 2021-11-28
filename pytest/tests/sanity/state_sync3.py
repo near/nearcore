@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spin up one validating node and make it produce blocks for more than one epoch
 # spin up another node that tracks the shard, make sure that it can state sync into the first node
 

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Simulates routing table exchange with two nodes A, B. We are testing a few test cases depending on the number of
 # edges A, has but B doesn't and vise-versa. For each configuration, we simulate doing routing table exchange, and
 # we check whenever both have the same version of routing table at the end.
