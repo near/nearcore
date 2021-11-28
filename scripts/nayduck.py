@@ -72,10 +72,10 @@ FileReader = typing.Callable[[pathlib.Path], str]
 
 
 def read_tests_from_file(
-        path: pathlib.Path,
-        *,
-        include_comments: bool = False,
-        reader: FileReader = lambda path: path.read_text()
+    path: pathlib.Path,
+    *,
+    include_comments: bool = False,
+    reader: FileReader = lambda path: path.read_text()
 ) -> typing.Iterable[str]:
     """Reads lines from file handling `./<path>` includes.
 
@@ -113,9 +113,9 @@ def read_tests_from_file(
 
 
 def read_tests_from_stdin(
-        *,
-        include_comments: bool = False,
-        reader: FileReader = lambda path: path.read_text()
+    *,
+    include_comments: bool = False,
+    reader: FileReader = lambda path: path.read_text()
 ) -> typing.Iterable[str]:
     """Reads lines from standard input handling `./<path>` includes.
 
@@ -135,13 +135,14 @@ def read_tests_from_stdin(
 
 
 def __read_tests(
-        lines: typing.Iterable[str],
-        *,
-        filename: typing.Union[str, pathlib.Path],
-        dirpath: pathlib.Path,
-        include_comments: bool = False,
-        reader: FileReader = lambda path: path.read_text()
+    lines: typing.Iterable[str],
+    *,
+    filename: typing.Union[str, pathlib.Path],
+    dirpath: pathlib.Path,
+    include_comments: bool = False,
+    reader: FileReader = lambda path: path.read_text()
 ) -> typing.Iterable[str]:
+
     def impl(lines: typing.Iterable[str],
              filename: typing.Union[str, pathlib.Path],
              dirpath: pathlib.Path,
@@ -194,9 +195,16 @@ def run_locally(tests):
 
         if fields[0] == 'expensive':
             # TODO --test doesn't work
-            cmd = ('cargo', 'test', '-p', fields[1], # '--test', fields[2],
-                   '--features', 'expensive_tests', '--', '--exact',
-                   fields[3])
+            cmd = (
+                'cargo',
+                'test',
+                '-p',
+                fields[1],  # '--test', fields[2],
+                '--features',
+                'expensive_tests',
+                '--',
+                '--exact',
+                fields[3])
             cwd = None
         elif fields[0] in ('pytest', 'mocknet'):
             fields[0] = sys.executable
