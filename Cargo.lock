@@ -2096,7 +2096,6 @@ dependencies = [
  "futures",
  "hex",
  "hyper",
- "lazy_static",
  "log",
  "near-actix-test-utils",
  "near-chain",
@@ -2839,7 +2838,6 @@ dependencies = [
 name = "near-metrics"
 version = "0.0.0"
 dependencies = [
- "lazy_static",
  "log",
  "prometheus",
 ]
@@ -2860,7 +2858,6 @@ dependencies = [
  "deepsize",
  "delay-detector",
  "futures",
- "lazy_static",
  "near-actix-test-utils",
  "near-chain",
  "near-crypto",
@@ -3008,7 +3005,6 @@ dependencies = [
  "futures",
  "hex",
  "insta",
- "lazy_static",
  "near-account-id",
  "near-chain-configs",
  "near-client",
@@ -3076,7 +3072,6 @@ dependencies = [
  "derive_more",
  "elastic-array",
  "fs2",
- "lazy_static",
  "near-crypto",
  "near-primitives",
  "num_cpus",

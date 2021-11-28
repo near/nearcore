@@ -9,6 +9,5 @@ homepage = "https://github.com/near/nearcore"
 description = "A fork of the lighthouse_metrics crate used to implement prometheus"
 
 [dependencies]
-lazy_static = "1.4"
 prometheus = "0.11"
 log = "0.4"

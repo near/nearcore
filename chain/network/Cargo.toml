@@ -15,7 +15,6 @@ cached = "0.23"
 chrono = { version = "0.4.4", features = ["serde"] }
 conqueue = "0.4.0"
 futures = "0.3"
-lazy_static = "1.4"
 near-rust-allocator-proxy = "0.3.0"
 once_cell = "1.5.2"
 rand = "0.7"
