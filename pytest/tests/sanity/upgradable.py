@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 """Test if the node is backwards compatible with the latest release."""
 
 import base58

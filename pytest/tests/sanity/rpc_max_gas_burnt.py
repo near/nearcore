@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 """Test max_gas_burnt_view client configuration.
 
 Spins up two nodes with different max_gas_burnt_view client configuration,

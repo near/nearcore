@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 # Spins two block producers and two observers.
 # Wait several epochs and spin up another observer that
 # is blacklisted by both block producers.

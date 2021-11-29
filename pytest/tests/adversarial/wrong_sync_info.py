@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 # Runs two nodes, waits until they create some blocks.
 # Launches a third observing node, makes it connect to an
 # adversarial node that reports inflated sync info. Makes

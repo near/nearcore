@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 """
 Spawn a cluster with four nodes. Check that no node tries to
 connect to another node that is currently connected.

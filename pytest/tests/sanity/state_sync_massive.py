@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 # Survive massive state sync
 #
 # Create 3 nodes, 1 validator and 2 observers tracking the single shard 0.

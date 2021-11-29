@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 # Spins up a node, then waits for five+ epochs
 # and spins up another node
 # Makes sure that eventually the second node catches up

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 # Creates a genesis config with two block producers, and kills one right away after
 # launch. Makes sure that the other block producer can produce blocks with chunks and
 # process transactions. Makes large-ish number of block producers per shard to minimize

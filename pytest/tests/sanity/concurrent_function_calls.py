@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 # Spins up four nodes, deploy an smart contract to one node,
 # Call a smart contract method in another node
 

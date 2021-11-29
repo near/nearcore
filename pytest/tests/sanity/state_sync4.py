@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 # Spin up one node and create some accounts and make them stake
 # Spin up another node that syncs from the first node.
 # Check that the second node doesn't crash (with trie node missing)

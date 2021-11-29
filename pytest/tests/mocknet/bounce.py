@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 # Stop all mocknet nodes, wait 1s, then start all nodes again.
 # Nodes should be responsive again after this operation.
 

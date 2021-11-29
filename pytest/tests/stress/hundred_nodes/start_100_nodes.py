@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 from rc import run, gcloud, pmap
 import json
 import datetime

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 # Test for #3368
 #
 # Create a proxy that nullifies chunk signatures in blocks, test that blocks get rejected.

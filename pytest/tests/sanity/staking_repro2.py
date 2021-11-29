@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 # reproduces one of the bugs discovered by `staking2.py`
 
 from staking2 import doit

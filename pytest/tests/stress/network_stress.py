@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 import sys, random, time, base58, requests
 import pathlib
 

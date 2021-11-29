@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 """
 Generates transactions on a mocknet node.
 This file is uploaded to each mocknet node and run there.

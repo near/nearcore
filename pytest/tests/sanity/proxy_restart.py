@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 # Start two nodes. Proxify both nodes. Kill one of them, restart it
 # and wait until block at height >= 20.
 import sys, time

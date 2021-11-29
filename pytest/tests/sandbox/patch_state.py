@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 # Patch contract states in a sandbox node
 
 import sys, time

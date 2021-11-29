@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 """Deploy a smart contract on one node and call it on another."""
 
 import base58

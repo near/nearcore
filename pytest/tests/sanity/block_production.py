@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 # Spins up four nodes, and waits until they produce 50 blocks.
 # Ensures that the nodes remained in sync throughout the process
 # Sets epoch length to 10

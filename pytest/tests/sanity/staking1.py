@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 # Spins up with two validators, and one non-validator
 # Stakes for the non-validators, ensures it becomes a validator
 # Unstakes for them, makes sure they stop being a validator

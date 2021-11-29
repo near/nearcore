@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 # Spins up a node, wait until sharding is upgrade
 # and spins up another node
 # check that the node can't be started because it cannot state sync to the epoch

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 # This test is an example about how to use the proxy features.
 #
 # Create two nodes and add a proxy between them.

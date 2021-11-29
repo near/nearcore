@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 import sys, time
 import subprocess
 from rc import pmap

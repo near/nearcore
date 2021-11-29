@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 """Spins up a two-node cluster and wait for a few blocks to be produced."""
 
 import sys

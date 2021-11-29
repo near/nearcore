@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 import sys, time, random
 import multiprocessing
 import logging

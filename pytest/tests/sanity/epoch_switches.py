@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 # Spins up four nodes, and alternates [test1, test2] and [test3, test4] as block producers every epoch
 # Makes sure that before the epoch switch each block is signed by all four
 

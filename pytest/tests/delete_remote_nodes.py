@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 
 # When script exit with traceback, remote node is not deleted. This script is
 # to delete remote machines so test can be rerun

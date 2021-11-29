@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 """
 This script runs node from stable branch and from current branch and makes
 sure they are backward compatible.
