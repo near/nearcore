@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
 import sys
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import GCloudNode, RpcNode
 from configured_logger import logger
