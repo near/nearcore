@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up two validating nodes. Make one validator produce block every 100 seconds.
 # Let the validators produce blocks for a while and then shut one of them down, remove data and restart.
 # Check that it can sync to the validator through block sync.

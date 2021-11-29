@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import sys, random, time, base58, requests
 
 sys.path.append('lib')

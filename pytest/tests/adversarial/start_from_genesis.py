@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import sys, time
 
 sys.path.append('lib')

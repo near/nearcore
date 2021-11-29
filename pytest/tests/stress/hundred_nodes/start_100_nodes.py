@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from rc import run, gcloud, pmap
 import json
 import datetime

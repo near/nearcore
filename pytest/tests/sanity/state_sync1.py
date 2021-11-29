@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up two out of three validating nodes. Waits until they reach height 40.
 # Start the last validating node and check that the second node can sync up before
 # the end of epoch and produce blocks and chunks.

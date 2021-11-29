@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # test various ways of submitting transactions (broadcast_tx_async, broadcast_tx_sync, broadcast_tx_commit)
 
 import sys, time, base58, base64
