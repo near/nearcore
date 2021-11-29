@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up two validating nodes. The nodes start with 1 shard and will update to 4 shards
 # Stop one of them and make another one produce
 # sufficient number of blocks. Restart the stopped node and check that it can

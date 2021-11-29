@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spin up one validating node and one nonvalidating node
 # stop the nonvalidating node in the second epoch and
 # restart it in the fourth epoch to trigger state sync
