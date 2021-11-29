@@ -20,7 +20,8 @@ import os
 
 filename = os.path.join(os.path.dirname(os.path.realpath(__file__)),
                         '../../near/res/testnet.json')
-q = json.loads(open(filename).read())
+with open(filename) as fd:
+    q = json.load(rd)
 
 config_version = q.get('config_version', 0)
 
@@ -48,9 +49,11 @@ if config_version == 0:
 q['config_version'] = config_version
 
 # We overwrite the file instead of creating a new one.
-open(filename, 'w').write(json.dumps(q, indent=2, sort_keys=True))
+with open(filename, 'w') as fd:
+    json.dump(q, fd, indent=2, sort_keys=True)
 
 # Dump the config into a separate file for easier reviewing in the git.
 # It's not used for the reading genesis.
 del q['records']
-open(filename + '.config', 'w').write(json.dumps(q, indent=2, sort_keys=True))
+with open(filename + '.config', 'w') as fd:
+    json.dump(q, fd, indent=2, sort_keys=True)

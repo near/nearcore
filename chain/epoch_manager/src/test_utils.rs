@@ -2,9 +2,12 @@ use std::collections::{BTreeMap, HashMap};
 
 use num_rational::Rational;
 
+use crate::proposals::find_threshold;
+use crate::RewardCalculator;
+use crate::RngSeed;
+use crate::{BlockInfo, EpochManager};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::challenge::SlashedValidator;
-#[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::epoch_manager::block_info::BlockInfoV2;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardConfig, ValidatorWeight};
@@ -18,15 +21,12 @@ use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 
-use crate::proposals::find_threshold;
-use crate::RewardCalculator;
-use crate::{BlockInfo, EpochManager};
-
 use near_primitives::shard_layout::ShardLayout;
 use {crate::reward_calculator::NUM_NS_IN_SECOND, crate::NUM_SECONDS_IN_A_YEAR};
 
 pub const DEFAULT_GAS_PRICE: u128 = 100;
 pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
+pub const TEST_SEED: RngSeed = [3; 32];
 
 pub fn hash_range(num: usize) -> Vec<CryptoHash> {
     let mut result = vec![];
@@ -119,8 +119,7 @@ pub fn epoch_info_with_num_seats(
         minted_amount,
         seat_price,
         PROTOCOL_VERSION,
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        [0; 32],
+        TEST_SEED,
     )
 }
 
@@ -152,7 +151,6 @@ pub fn epoch_config(
         protocol_upgrade_stake_threshold: Rational::new(80, 100),
         protocol_upgrade_num_epochs: 2,
         minimum_stake_divisor: 1,
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
         validator_selection_config: Default::default(),
         shard_layout: ShardLayout::v0(num_shards, 0),
     };
@@ -341,35 +339,6 @@ pub fn record_block(
     record_block_with_slashes(epoch_manager, prev_h, cur_h, height, proposals, vec![]);
 }
 
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
-pub fn block_info(
-    hash: CryptoHash,
-    height: BlockHeight,
-    last_finalized_height: BlockHeight,
-    last_final_block_hash: CryptoHash,
-    prev_hash: CryptoHash,
-    epoch_first_block: CryptoHash,
-    chunk_mask: Vec<bool>,
-    total_supply: Balance,
-) -> BlockInfo {
-    BlockInfo {
-        hash,
-        height,
-        last_finalized_height,
-        last_final_block_hash,
-        prev_hash,
-        epoch_first_block,
-        epoch_id: Default::default(),
-        proposals: vec![],
-        chunk_mask,
-        latest_protocol_version: PROTOCOL_VERSION,
-        slashed: Default::default(),
-        total_supply,
-        timestamp_nanosec: height * NUM_NS_IN_SECOND,
-    }
-}
-
-#[cfg(feature = "protocol_feature_block_header_v3")]
 pub fn block_info(
     hash: CryptoHash,
     height: BlockHeight,

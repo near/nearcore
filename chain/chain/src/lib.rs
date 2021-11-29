@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate lazy_static;
-
 pub use chain::{collect_receipts, Chain, MAX_ORPHAN_SIZE};
 pub use doomslug::{Doomslug, DoomslugBlockProductionReadiness, DoomslugThresholdMode};
 pub use lightclient::{create_light_client_block_view, get_epoch_block_producers_view};
@@ -19,6 +16,8 @@ pub mod missing_chunks;
 mod store;
 pub mod store_validator;
 pub mod test_utils;
+#[cfg(test)]
+mod tests;
 pub mod types;
 pub mod validate;
 

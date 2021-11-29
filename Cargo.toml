@@ -28,6 +28,7 @@ members = [
     "chain/rosetta-rpc",
     "test-utils/actix-test-utils",
     "test-utils/runtime-tester",
+    "test-utils/runtime-tester/fuzz",
     "test-utils/state-viewer",
     "test-utils/store-validator",
     "test-utils/testlib",
@@ -44,6 +45,19 @@ members = [
     "tools/storage-usage-delta-calculator",
     "tools/restored-receipts-verifier",
     "integration-tests",
+    "utils/near-rate-limiter",
+]
+
+[workspace.metadata.workspaces]
+version = "0.10.0"
+exclude = [
+  # v0.0.0 {
+    "neard",
+    "nearcore",
+    "integration-tests",
+    "chain/jsonrpc/jsonrpc-tests",
+    "runtime/near-test-contracts",
+  # }
 ]
 
 [patch.crates-io]

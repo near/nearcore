@@ -10,11 +10,17 @@ use tracing::info;
 use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_test_logger_allow_panic;
+
+use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::{
-    convert_boot_nodes, make_ibf_routing_pool, open_port, GetInfo, StopSignal, WaitOrTimeout,
+    convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeoutActor,
 };
-use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
-use near_network::{NetworkClientResponses, NetworkConfig, PeerManagerActor};
+use near_network::types::NetworkClientResponses;
+use near_network::PeerManagerActor;
+use near_network_primitives::types::{
+    NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
+};
+use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
 
 type ClientMock = Mocker<ClientActor>;
@@ -43,13 +49,16 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
         }
     }))
     .start();
-    let ibf_routing_pool = make_ibf_routing_pool();
+    let net_config = NetworkConfig::from_seed(seed, port);
+    let routing_table_addr =
+        start_routing_table_actor(PeerId::new(net_config.public_key.clone()), store.clone());
+
     PeerManagerActor::new(
         store,
         config,
         client_addr.recipient(),
         view_client_addr.recipient(),
-        ibf_routing_pool,
+        routing_table_addr,
     )
     .unwrap()
 }
@@ -107,7 +116,7 @@ fn stress_test() {
         let flags: Vec<_> = (0..num_nodes).map(|_| Arc::new(AtomicBool::new(false))).collect();
         let round = Arc::new(AtomicUsize::new(0));
 
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |ctx| {
                 let s = state.load(Ordering::Relaxed);
                 if s == 0 {

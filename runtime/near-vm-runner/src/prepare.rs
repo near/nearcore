@@ -8,6 +8,21 @@ use pwasm_utils::{self, rules};
 use near_vm_errors::PrepareError;
 use near_vm_logic::VMConfig;
 
+pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatures {
+    reference_types: false,
+    // wasmer singlepass compiler most likely requires multi_value return values to be disabled.
+    multi_value: false,
+    bulk_memory: false,
+    module_linking: false,
+    simd: false,
+    threads: false,
+    tail_call: false,
+    deterministic_only: false,
+    multi_memory: false,
+    exceptions: false,
+    memory64: false,
+};
+
 struct ContractModule<'a> {
     module: elements::Module,
     config: &'a VMConfig,
@@ -15,7 +30,10 @@ struct ContractModule<'a> {
 
 impl<'a> ContractModule<'a> {
     fn init(original_code: &[u8], config: &'a VMConfig) -> Result<Self, PrepareError> {
-        wasmparser::validate(original_code, None).map_err(|_| PrepareError::Deserialization)?;
+        wasmparser::Validator::new()
+            .wasm_features(WASM_FEATURES)
+            .validate_all(original_code)
+            .map_err(|_| PrepareError::Deserialization)?;
         let module = elements::deserialize_buffer(original_code)
             .map_err(|_| PrepareError::Deserialization)?;
         Ok(ContractModule { module, config })
@@ -138,7 +156,6 @@ impl<'a> ContractModule<'a> {
     }
 
     fn validate_functions_number(self) -> Result<Self, PrepareError> {
-        #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
         if let Some(max_functions_number) =
             self.config.limit_config.max_functions_number_per_contract
         {
@@ -168,12 +185,12 @@ impl<'a> ContractModule<'a> {
 /// The preprocessing includes injecting code for gas metering and metering the height of stack.
 pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u8>, PrepareError> {
     ContractModule::init(original_code, config)?
+        .validate_functions_number()?
         .standardize_mem()
         .ensure_no_internal_memory()?
         .inject_gas_metering()?
         .inject_stack_height_metering()?
         .scan_imports()?
-        .validate_functions_number()?
         .into_wasm_code()
 }
 
@@ -185,7 +202,7 @@ mod tests {
 
     fn parse_and_prepare_wat(wat: &str) -> Result<Vec<u8>, PrepareError> {
         let wasm = wat::parse_str(wat).unwrap();
-        let config = VMConfig::default();
+        let config = VMConfig::test();
         prepare_contract(wasm.as_ref(), &config)
     }
 
@@ -198,7 +215,7 @@ mod tests {
     #[test]
     fn memory() {
         // This test assumes that maximum page number is configured to a certain number.
-        assert_eq!(VMConfig::default().limit_config.max_memory_pages, 2048);
+        assert_eq!(VMConfig::test().limit_config.max_memory_pages, 2048);
 
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 1)))"#);
         assert_matches!(r, Ok(_));
@@ -218,6 +235,26 @@ mod tests {
         // requested maximum exceed configured maximum
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 33)))"#);
         assert_matches!(r, Ok(_));
+    }
+
+    #[test]
+    fn multiple_valid_memory_are_disabled() {
+        // Our preparation and sanitization pass assumes a single memory, so we should fail when
+        // there are multiple specified.
+        let r = parse_and_prepare_wat(
+            r#"(module
+          (import "env" "memory" (memory 1 2048))
+          (import "env" "memory" (memory 1 2048))
+        )"#,
+        );
+        assert_matches!(r, Err(_));
+        let r = parse_and_prepare_wat(
+            r#"(module
+          (import "env" "memory" (memory 1 2048))
+          (memory 1)
+        )"#,
+        );
+        assert_matches!(r, Err(_));
     }
 
     #[test]

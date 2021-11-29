@@ -12,7 +12,7 @@ use near_client::{GetBlock, GetExecutionOutcome, GetValidatorInfo};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_logger_utils::init_integration_logger;
-use near_network::test_utils::WaitOrTimeout;
+use near_network::test_utils::WaitOrTimeoutActor;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{compute_root_from_path_and_item, verify_path};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -38,7 +38,7 @@ fn test_get_validator_info_rpc() {
         .set_genesis_height(0);
 
     cluster.exec_until_stop(|_, rpc_addrs, clients| async move {
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_ctx| {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let view_client = clients[0].1.clone();
@@ -130,7 +130,7 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
             )
         };
 
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_ctx| {
                 let client = new_client(&format!("http://{}", rpc_addrs[0]));
                 let bytes = transaction.try_to_vec().unwrap();

@@ -5,6 +5,7 @@ request a run of the tests.  Most notably, `nightly.txt` file contains
 all the tests that NayDuck runs once a day on the head of the master
 branch of the repository.
 
+Nightly build results are available on [NayDuck](http://nayduck.near.org/).
 
 ## List file format
 
@@ -13,19 +14,17 @@ with a hash are ignored.  The rest either specifies a test to run or
 a list file to include.  The general syntax of a line defining a test
 is:
 
-    <category> [--timeout=<timeout>] [--release] [--remote] <args>... [--features <features>]
+    <category> [--skip-build] [--timeout=<timeout>] [--release] [--remote] <args>... [--features <features>]
 
-`<category>` specifies the category of the test and can be one of
-`pytest`, `mocknet` or `expensive`.  The meaning of `<args>` depends
-on the test category.
+`<category>` specifies the category of the test and can be `pytest` or
+`expensive`.  The meaning of `<args>` depends on the test category.
 
-### pytest and mocknet tests
+### pytest tests
 
-The `pytest` and `mocknet` tests are run by executing a file within
-`pytest/tests` directory.  The file is executed via `python`
-interpreter (and confusingly not via `pytest` command) so it must
-actually run the tests rather than only defining them as test
-functions.
+The `pytest` tests are run by executing a file within `pytest/tests`
+directory.  The file is executed via `python` interpreter (and
+confusingly not via `pytest` command) so it must actually run the
+tests rather than only defining them as test functions.
 
 In the test specification path to the file needs to be given
 (excluding the `pytest/tests` prefix) and anything that follows is
@@ -33,14 +32,10 @@ passed as arguments to the script.  For example:
 
     pytest sanity/lightclnt.py
     pytest sanity/state_sync_routed.py manytx 115
-    mocknet mocknet/sanity.py
 
-The difference between `pytest` and `mocknet` tests is that the latter
-skips the build stage since it only ever talks with the existing
-mocknet cluster and does not need the `neard` binary to be run.  Other
-then that, `mocknet` test could be run as `pytest` and they would work
-the same way (they would just waste time and resources executing the
-build).
+Note: NayDuck also handles `mocknet` test category.  It is now
+deprecated and is treated like `pytest` with `--skip-build` flag
+implicitly set.
 
 ### expensive tests
 
@@ -67,14 +62,21 @@ match exactly an the test binary is called with `--exact` argument.
 
 As mentioned, there are additional arguments that can go between the
 test category and the test specification arguments.  Those are
-`--timeout`, `--release` and `--remote`.
+`--skip-build`, `--timeout`, `--release` and `--remote`.
 
-`--timeout=<timeout>` which specifies the timeout in seconds after
-which the test will be stopped.  If not given the default timeout is
-180 seconds (i.e. three minutes).  For example, the following
-increases timeout for a test to four minutes:
+`--skip-build` causes build step to be skipped for the test.  This
+means that the test doesn’t have access to build artefacts (located in
+`target/debug` or `target/release`) but also doesn’t need to wait for
+the build to finish and thus can start faster.  For example, the flag
+is used with fuzzing tests which need to build their own code.
 
-    pytest --timeout=240 sanity/restaked.py
+`--timeout=<timeout>` specifies the time after which the test will be
+stopped and considered failed.  `<timeout>` is an integer with an
+optional `s`, `m` or `h` suffix.  If no suffix is given, `s` is
+assumed.  The default timeout is three minutes.  For example, the
+following increases timeout for a test to four minutes:
+
+    pytest --timeout=4m sanity/restaked.py
 
 `--release` makes the build use a release profile rather than a dev
 profile.  In other words, all `cargo` invocations are passed
@@ -89,8 +91,12 @@ honest I can’t vouch whether it even works.
 Lastly, at the end of the test specification line additional features
 can be given in the form of `--features <features>` arguments.
 Similarly to `--release`, this results in given features being enabled
-in builds.  Note that the `test_features` feature is always enabled so
-there's no need to specify it explicitly.
+in builds.  Note that the `test_features` and `rosetta_rpc` features
+are always enabled so there's no need to specify it explicitly.
+
+Note that with `--skip-build` switch the `--release` and `--features`
+flags are essentially ignored since they only affect the build and are
+not passed to the test.
 
 ### Include directive
 
@@ -104,7 +110,6 @@ For example, `nightly.txt` file may just look as follows:
     ./sandbox.txt
     ./pytest.txt
     ./expensive.txt
-    ./mocknet.txt
 
 with individual tests listed in each of the referenced files.  This
 makes the files more tidy.

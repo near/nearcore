@@ -20,6 +20,7 @@ pub struct EncodedChunksCacheEntry {
 }
 
 pub struct EncodedChunksCache {
+    /// Largest seen height from the head of the chain
     largest_seen_height: BlockHeight,
 
     encoded_chunks: HashMap<ChunkHash, EncodedChunksCacheEntry>,

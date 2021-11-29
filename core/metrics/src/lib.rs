@@ -41,12 +41,15 @@
 //!
 //!
 //! fn main() {
+//!     let run_count: Result<IntCounter> = try_create_int_counter(&"RUN_COUNT", &"RUN_COUNT");
+//!     let run_time: Result<Histogram>  = try_create_histogram("RUN_TIME", &"RUN_TIME");
+//!     let current_value: Result<IntGauge>  = try_create_int_gauge("CURRENT_VALUE", "RUN_COUNT");
 //!     for i in 0..100 {
-//!         inc_counter(&RUN_COUNT);
-//!         let timer = start_timer(&RUN_TIME);
+//!         inc_counter(&run_count);
+//!         let timer = start_timer(&run_time);
 //!
 //!         for j in 0..10 {
-//!             set_gauge(&CURRENT_VALUE, j);
+//!             set_gauge(&current_value, j);
 //!             println!("Howdy partner");
 //!         }
 //!
@@ -228,5 +231,12 @@ pub fn dec_gauge(gauge: &Result<IntGauge>) {
         gauge.dec();
     } else {
         error!(target: "metrics", "Failed to fetch gauge");
+    }
+}
+pub fn get_gauge(gauge: &Result<IntGauge>) -> std::result::Result<i64, String> {
+    if let Ok(gauge) = gauge {
+        Ok(gauge.get())
+    } else {
+        Err("Failed to fetch gauge".to_string())
     }
 }

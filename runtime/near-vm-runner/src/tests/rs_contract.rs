@@ -11,7 +11,7 @@ use crate::tests::{
     create_context, with_vm_variants, CURRENT_ACCOUNT_ID, LATEST_PROTOCOL_VERSION,
     PREDECESSOR_ACCOUNT_ID, SIGNER_ACCOUNT_ID, SIGNER_ACCOUNT_PK,
 };
-use crate::{run_vm, VMKind};
+use crate::vm_kind::VMKind;
 
 fn test_contract() -> ContractCode {
     let code = if cfg!(feature = "protocol_feature_alt_bn128") {
@@ -56,11 +56,12 @@ pub fn test_read_write() {
         let mut fake_external = MockedExternal::new();
 
         let context = create_context(arr_u64_to_u8(&[10u64, 20u64]));
-        let config = VMConfig::default();
+        let config = VMConfig::test();
         let fees = RuntimeFeesConfig::test();
 
         let promise_results = vec![];
-        let result = run_vm(
+        let runtime = vm_kind.runtime().expect("runtime has not been compiled");
+        let result = runtime.run(
             &code,
             "write_key_value",
             &mut fake_external,
@@ -68,14 +69,13 @@ pub fn test_read_write() {
             &config,
             &fees,
             &promise_results,
-            vm_kind.clone(),
             LATEST_PROTOCOL_VERSION,
             None,
         );
         assert_run_result(result, 0);
 
         let context = create_context(arr_u64_to_u8(&[10u64]));
-        let result = run_vm(
+        let result = runtime.run(
             &code,
             "read_value",
             &mut fake_external,
@@ -83,7 +83,6 @@ pub fn test_read_write() {
             &config,
             &fees,
             &promise_results,
-            vm_kind,
             LATEST_PROTOCOL_VERSION,
             None,
         );
@@ -98,11 +97,12 @@ pub fn test_stablized_host_function() {
         let mut fake_external = MockedExternal::new();
 
         let context = create_context(vec![]);
-        let config = VMConfig::default();
+        let config = VMConfig::test();
         let fees = RuntimeFeesConfig::test();
 
         let promise_results = vec![];
-        let result = run_vm(
+        let runtime = vm_kind.runtime().expect("runtime has not been compiled");
+        let result = runtime.run(
             &code,
             "do_ripemd",
             &mut fake_external,
@@ -110,13 +110,12 @@ pub fn test_stablized_host_function() {
             &config,
             &fees,
             &promise_results,
-            vm_kind.clone(),
             LATEST_PROTOCOL_VERSION,
             None,
         );
         assert_eq!(result.1, None);
 
-        let result = run_vm(
+        let result = runtime.run(
             &code,
             "do_ripemd",
             &mut fake_external,
@@ -124,7 +123,6 @@ pub fn test_stablized_host_function() {
             &config,
             &fees,
             &promise_results,
-            vm_kind.clone(),
             ProtocolFeature::MathExtension.protocol_version() - 1,
             None,
         );
@@ -173,11 +171,12 @@ fn run_test_ext(
     let mut fake_external = MockedExternal::new();
     fake_external.validators =
         validators.into_iter().map(|(s, b)| (s.parse().unwrap(), b)).collect();
-    let config = VMConfig::default();
+    let config = VMConfig::test();
     let fees = RuntimeFeesConfig::test();
     let context = create_context(input.to_vec());
+    let runtime = vm_kind.runtime().expect("runtime has not been compiled");
 
-    let (outcome, err) = run_vm(
+    let (outcome, err) = runtime.run(
         &code,
         &method,
         &mut fake_external,
@@ -185,7 +184,6 @@ fn run_test_ext(
         &config,
         &fees,
         &[],
-        vm_kind,
         LATEST_PROTOCOL_VERSION,
         None,
     );
@@ -310,9 +308,10 @@ pub fn test_out_of_memory() {
         let context = create_context(Vec::new());
         let config = VMConfig::free();
         let fees = RuntimeFeesConfig::free();
+        let runtime = vm_kind.runtime().expect("runtime has not been compiled");
 
         let promise_results = vec![];
-        let result = run_vm(
+        let result = runtime.run(
             &code,
             "out_of_memory",
             &mut fake_external,
@@ -320,7 +319,6 @@ pub fn test_out_of_memory() {
             &config,
             &fees,
             &promise_results,
-            vm_kind,
             LATEST_PROTOCOL_VERSION,
             None,
         );

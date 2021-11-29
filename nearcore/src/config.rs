@@ -5,10 +5,11 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use actix;
-use chrono::Utc;
+use hyper::body::HttpBody;
+use near_primitives::time::Clock;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
+use tokio::io::AsyncWriteExt;
 use tracing::info;
 
 use near_chain_configs::{
@@ -18,9 +19,8 @@ use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
-use near_network::types::ROUTED_MESSAGE_TTL;
-use near_network::utils::blacklist_from_iter;
-use near_network::NetworkConfig;
+use near_network_primitives::types::{NetworkConfig, ROUTED_MESSAGE_TTL};
+use near_network_primitives::utils::blacklist_from_iter;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -535,7 +535,7 @@ impl Genesis {
         add_protocol_account(&mut records);
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
-            genesis_time: Utc::now(),
+            genesis_time: Clock::utc(),
             chain_id: random_chain_id(),
             num_block_producer_seats: num_validator_seats,
             num_block_producer_seats_per_shard: num_validator_seats_per_shard.clone(),
@@ -945,7 +945,7 @@ pub fn init_configs(
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
-                genesis_time: Utc::now(),
+                genesis_time: Clock::utc(),
                 chain_id,
                 genesis_height: 0,
                 num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,
@@ -1098,32 +1098,78 @@ pub fn get_config_url(chain_id: &String) -> String {
     )
 }
 
-pub fn download_file(url: &String, path: &Path, limit: usize) {
-    actix::System::new().block_on(async move {
-        let client = awc::Client::new();
-        let mut response = client.get(url).send().await.expect("Unable to download the file");
-        // IMPORTANT: limit specifies the maximum size of the genesis or config file
-        // In case where the genesis or config file is bigger than the specified
-        // limit Overflow Error is thrown
-        let body = response
-            .body()
-            .limit(limit)
-            .await
-            .expect("File is bigger than specified limit. Please make the limit higher.");
+#[derive(thiserror::Error, Debug)]
+pub enum FileDownloadError {
+    #[error("Failed to download the file: {0}")]
+    HttpError(#[from] hyper::Error),
+    #[error("Failed to open file: {0}")]
+    OpenError(std::io::Error),
+    #[error("Failed to write to file: {0}")]
+    WriteError(std::io::Error),
+    #[error("Failed to rename file: {0}")]
+    RenameError(std::io::Error),
+    #[error("Invalid URI: {0}")]
+    UriError(#[from] hyper::http::uri::InvalidUri),
+    #[error("Failed to remove the temporary file after failure: {0}, {1}")]
+    RemoveTemporaryFileError(std::io::Error, Box<FileDownloadError>),
+}
 
-        std::fs::write(&path, &body).expect("Failed to create / write a file.");
-    });
+/// Downloads resource at given `uri` and saves it to `file`.  On failure,
+/// `file` may be left in inconsistent state (i.e. may contain partial data).
+async fn download_file_impl(
+    uri: hyper::Uri,
+    mut file: tokio::fs::File,
+) -> Result<(), FileDownloadError> {
+    let https_connector = hyper_tls::HttpsConnector::new();
+    let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
+    let mut resp = client.get(uri).await?;
+    while let Some(next_chunk_result) = resp.data().await {
+        let next_chunk = next_chunk_result?;
+        file.write_all(next_chunk.as_ref()).await.map_err(FileDownloadError::WriteError)?;
+    }
+    Ok(())
+}
+
+/// Downloads a resource at given `url` and saves it to `path`.  On success, if
+/// file at `path` exists it will be overwritten.  On failure, file at `path` is
+/// left unchanged (if it exists).
+pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
+    let uri = url.parse()?;
+    let (tmp_file, tmp_path) = {
+        let tmp_dir = path.parent().unwrap_or(&Path::new("."));
+        tempfile::NamedTempFile::new_in(tmp_dir).map_err(FileDownloadError::OpenError)?.into_parts()
+    };
+
+    let result =
+        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(
+            async move {
+                let tmp_file = tokio::fs::File::from_std(tmp_file);
+                download_file_impl(uri, tmp_file).await
+            },
+        );
+
+    let result = match result {
+        Err(err) => Err((tmp_path, err)),
+        Ok(()) => {
+            tmp_path.persist(path).map_err(|e| (e.path, FileDownloadError::RenameError(e.error)))
+        }
+    };
+
+    result.map_err(|(tmp_path, err)| match tmp_path.close() {
+        Ok(()) => err,
+        Err(close_err) => FileDownloadError::RemoveTemporaryFileError(close_err, Box::new(err)),
+    })
 }
 
 pub fn download_genesis(url: &String, path: &Path) {
     info!(target: "near", "Downloading genesis file from: {} ...", url);
-    download_file(&url, &path, 10_000_000_000);
+    download_file(&url, &path).expect("Failed to download the genesis file");
     info!(target: "near", "Saved the genesis file to: {} ...", path.display());
 }
 
 pub fn download_config(url: &String, path: &Path) {
     info!(target: "near", "Downloading config file from: {} ...", url);
-    download_file(&url, &path, 10_000);
+    download_file(&url, &path).expect("Failed to download the configuration file");
     info!(target: "near", "Saved the config file to: {} ...", path.display());
 }
 

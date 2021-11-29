@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-runner"
-version = "3.0.0"
+version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 edition = "2021"
@@ -18,26 +18,27 @@ borsh = "0.9"
 serde = { version = "1", features = ["derive"] }
 wasmer-runtime = { version = "0.18.0", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near", optional = true }
 wasmer-runtime-core = { version = "0.18.2", package = "wasmer-runtime-core-near", optional = true}
-wasmparser = "0.51"
+wasmparser = "0.78"
+memoffset = "0.6"
 
 # Use the following for development versions of Wasmer.
 # wasmer = { package = "wasmer-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true, default-features = false, features = ["singlepass", "universal"] }
-# wasmer-types = { package = "wasmer-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
-# wasmer-compiler-singlepass = { package = "wasmer-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
-# wasmer-engine-universal = { package = "wasmer-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
-# wasmer-vm = { package = "wasmer-near", git = "https://github.com/near/wasmer", branch = "near-main" }
-wasmer = { package = "wasmer-near", version = "=2.0.2", optional = true, default-features = false, features = ["singlepass", "universal"] }
-wasmer-types = { package = "wasmer-types-near", version = "=2.0.2", optional = true }
-wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.0.2", optional = true }
-wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.0.2", optional = true }
-wasmer-vm = { package = "wasmer-vm-near", version = "=2.0.2" }
+# wasmer-types = { package = "wasmer-types-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
+# wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
+# wasmer-engine-universal = { package = "wasmer-engine-universal-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
+# wasmer-vm = { package = "wasmer-vm-near", git = "https://github.com/near/wasmer", branch = "near-main" }
+wasmer = { package = "wasmer-near", version = "=2.0.3", optional = true, default-features = false, features = ["singlepass", "universal"] }
+wasmer-types = { package = "wasmer-types-near", version = "=2.0.3", optional = true }
+wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.0.3", optional = true }
+wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.0.3", optional = true }
+wasmer-vm = { package = "wasmer-vm-near", version = "=2.0.3" }
 
 pwasm-utils = "0.12"
 parity-wasm = "0.41"
 wasmtime = { version = "0.25.0", default-features = false, optional = true }
 anyhow = { version = "1.0.19", optional = true }
-near-vm-logic = { path = "../near-vm-logic", version = "3.0.0", default-features = false, features = [] }
-near-vm-errors = { path = "../near-vm-errors", version = "3.0.0" }
+near-vm-logic = { path = "../near-vm-logic", default-features = false, features = [] }
+near-vm-errors = { path = "../near-vm-errors" }
 near-primitives = { path = "../../core/primitives" }
 near-stable-hasher = { path = "../../utils/near-stable-hasher" }
 cached = "0.23.0"
@@ -58,9 +59,9 @@ wasmtime_vm = [ "wasmtime", "anyhow"]
 wasmer2_vm = [ "wasmer", "wasmer-types", "wasmer-compiler-singlepass",  "wasmer-engine-universal", ]
 
 # Force usage of a specific wasm vm irrespective of protocol version.
-force_wasmer0 = []
-force_wasmtime = []
-force_wasmer2 = []
+force_wasmer0 = ["wasmer0_vm"]
+force_wasmtime = ["wasmtime_vm"]
+force_wasmer2 = ["wasmer2_vm"]
 
 lightbeam = ["wasmtime/lightbeam"]
 no_cpu_compatibility_checks = []
@@ -72,12 +73,8 @@ protocol_feature_alt_bn128 = [
     "near-primitives/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128"
 ]
-protocol_feature_limit_contract_functions_number = ["near-primitives/protocol_feature_limit_contract_functions_number", "near-vm-errors/protocol_feature_limit_contract_functions_number"]
 nightly_protocol = ["near-primitives/nightly_protocol"]
 
 [package.metadata.cargo-udeps.ignore]
 # `no_cache` feature leads to an unused `cached` crate
 normal = ["cached"]
-
-[package.metadata.workspaces]
-independent = true

@@ -6,7 +6,6 @@ use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::{
     account::{AccessKey, Account},
     borsh::BorshDeserialize,
-    config::VMLimitConfig,
     contract::ContractCode,
     hash::CryptoHash,
     receipt::ActionReceipt,
@@ -35,7 +34,10 @@ pub struct TrieViewer {
 
 impl Default for TrieViewer {
     fn default() -> Self {
-        Self { state_size_limit: None, max_gas_burnt_view: VMLimitConfig::default().max_gas_burnt }
+        let config_store = RuntimeConfigStore::new(None);
+        let latest_runtime_config = config_store.get_config(PROTOCOL_VERSION);
+        let max_gas_burnt = latest_runtime_config.wasm_config.limit_config.max_gas_burnt;
+        Self { state_size_limit: None, max_gas_burnt_view: max_gas_burnt }
     }
 }
 

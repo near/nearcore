@@ -1,26 +1,18 @@
-pub use peer::{EPOCH_SYNC_PEER_TIMEOUT_MS, EPOCH_SYNC_REQUEST_TIMEOUT_MS};
-pub use peer_manager::PeerManagerActor;
-pub use routing_table_actor::{
+pub use crate::peer_manager::peer_manager_actor::PeerManagerActor;
+pub use crate::peer_manager::peer_store::iter_peers_from_store;
+pub use crate::routing::routing_table_actor::{
     RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
 };
-pub use types::{
-    FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkConfig,
-    NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo,
-};
+pub use crate::stats::metrics;
+// TODO(#5307)
+pub use near_network_primitives::types::PeerInfo;
 
-mod cache;
-mod codec;
-mod edge_verifier;
-mod ibf;
-pub mod ibf_peer_set;
-pub mod ibf_set;
-pub mod metrics;
+pub(crate) mod common;
 mod peer;
 mod peer_manager;
-pub mod peer_store;
-mod rate_counter;
 pub mod routing;
-mod routing_table_actor;
+mod stats;
 pub mod test_utils;
+#[cfg(test)]
+mod tests;
 pub mod types;
-pub mod utils;

@@ -95,7 +95,7 @@ for node_dir in node_dirs:
 INTERMEDIATE_HEIGHT = 310
 SMALL_HEIGHT = 610
 LARGE_HEIGHT = 660
-TIMEOUT = 1450
+TIMEOUT = 3600
 start = time.time()
 
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0)

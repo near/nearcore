@@ -207,31 +207,6 @@ def load_test_contract(filename='test_contract_rs.wasm'):
     return load_binary_file('../runtime/near-test-contracts/res/' + filename)
 
 
-def compile_rust_contract(content):
-    tempdir = get_near_tempdir()
-    with tempfile.TemporaryDirectory(dir=tempdir) as build_dir:
-        build_dir = pathlib.Path(build_dir) / 'empty-contract-rs'
-        shutil.copytree(pathlib.Path(__file__).parent.parent /
-                        'empty-contract-rs',
-                        build_dir,
-                        symlinks=True)
-        (build_dir / 'src').mkdir(parents=True, exist_ok=True)
-        with open(build_dir / 'src' / 'lib.rs', 'w') as wr:
-            wr.write(content)
-        subprocess.check_call(('cargo', 'build', '--release', '--target',
-                               'wasm32-unknown-unknown'),
-                              cwd=build_dir)
-        wasm_src = (build_dir / 'target' / 'wasm32-unknown-unknown' /
-                    'release' / 'empty_contract_rs.wasm')
-        wasm_fno, wasm_path = tempfile.mkstemp(suffix='.wasm')
-        atexit.register(pathlib.Path.unlink,
-                        pathlib.Path(wasm_path),
-                        missing_ok=True)
-        with open(wasm_src, mode='rb') as rd, open(wasm_fno, mode='wb') as wr:
-            shutil.copyfileobj(rd, wr)
-    return wasm_path
-
-
 def user_name():
     username = os.getlogin()
     if username == 'root':  # digitalocean
