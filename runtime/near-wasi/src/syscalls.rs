@@ -6,6 +6,7 @@ pub type Pointer = u32;
 pub type Errno = u16;
 
 const WASI_EBADF: u16 = 8;
+pub const WASI_EINVAL: u16 = 28; // Invalid argument
 const WASI_ENOTSUP: u16 = 58;
 
 // All "wasi_snapshot_preview1" syscalls
@@ -23,18 +24,45 @@ pub fn args_sizes_get(vm_logic: &mut VMLogic, argc: Pointer, argv_buf_size: Poin
     0
 }
 
+
+pub const CLOCK_REALTIME: u32 = 0;
+pub const CLOCK_MONOTONIC: u32 = 1;
+pub const CLOCK_PROCESS_CPUTIME_ID: u32 = 2;
+pub const CLOCK_THREAD_CPUTIME_ID: u32 = 3;
+// Other CLOCK IDs are Linux specific
+
 /// "clock_res_get"
 /// Get the resolution of the specified clock
 pub fn clock_res_get(vm_logic: &mut VMLogic, clock_id: u32, resolution: Pointer) -> Errno {
-    // vm_logic.memory_set_u64(resolution as u64, TODO: what to put, 1ns in c time ns? check several host systems)
-    0
+    // Experimented in MacOS and Linux, choose lowest common multiples.
+    if clock_id == CLOCK_REALTIME || clock_id == CLOCK_MONOTONIC || clock_id == CLOCK_PROCESS_CPUTIME_ID {
+        // This can error due to run out of gas or memory access out bound. in both case, it should
+        // return control to the runner, e.g. Wasmer. Wasmer 2 does this automatically when the return
+        // impls std::error::Error. However, here Errno is just a type alias and cannot impls Error trait/
+        // So this must return an error code and let Wasm side code handle it. We can notify Wasm side
+        // code that, error had happened. If it's the case of run out of gas, it will execute a bit longer
+        // (in next injected `gas()` call).
+        vm_logic.memory_set_u64(resolution as u64, 1000).map_or(WASI_EINVAL, |_| 0)
+    } else if clock_id == CLOCK_THREAD_CPUTIME_ID {
+        vm_logic.memory_set_u64(resolution as u64, 42).map_or(WASI_EINVAL, |_| 0)
+    } else {
+        WASI_EINVAL
+    }
 }
 
 /// "clock_time_get"
 /// Get the time of the specified clock
 pub fn clock_time_get(vm_logic: &mut VMLogic, clock_id: u32, precision: u64, time: Pointer) -> Errno {
-    // TODO: use current block timestamp
-    0
+    if clock_id == CLOCK_REALTIME {
+        match vm_logic.block_timestamp() {
+            Ok(t) => {
+                vm_logic.memory_set_u64(time as u64, t).map_or(WASI_EINVAL, |_| 0)
+            },
+            _ => WASI_EINVAL
+        }
+    } else {
+        WASI_EINVAL
+    }
 }
 
 /// "environ_get"

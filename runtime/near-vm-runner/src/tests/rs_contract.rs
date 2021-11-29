@@ -23,6 +23,7 @@ fn test_contract() -> ContractCode {
 }
 
 fn assert_run_result((outcome, err): (Option<VMOutcome>, Option<VMError>), expected_value: u64) {
+    println!("{:?}", err);
     if let Some(_) = err {
         panic!("Failed execution");
     }
