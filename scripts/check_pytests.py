@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Checks whether all pytest tests are mentioned in NayDuck or Buildkite
 
 Lists all Python scripts inside of pytest/tests directory and checks whether
