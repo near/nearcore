@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Creates a genesis file from a template.
 This file is uploaded to each mocknet node and run on the node, producing identical genesis files across all nodes.

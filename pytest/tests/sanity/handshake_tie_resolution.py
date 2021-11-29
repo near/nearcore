@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Spawn a cluster with four nodes. Check that no node tries to
 connect to another node that is currently connected.
