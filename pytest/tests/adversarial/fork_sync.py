@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up four validating nodes. Wait until they produce 20 blocks.
 # Kill the first two nodes, let the rest two produce 30 blocks.
 # Kill the remaining two and restart the first two. Let them produce also 30 blocks

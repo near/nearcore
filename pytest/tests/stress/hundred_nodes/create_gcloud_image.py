@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from utils import user_name
 import sys
 import os
