@@ -66,6 +66,3 @@ pytest/.consent
 
 # logs from mocknet nodes
 /pytest/logs/
-
-# sandbox directory created by rust
-/sandbox/
