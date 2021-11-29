@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up two validating nodes. Stop one of them and make another one produce
 # sufficient number of blocks. Restart the stopped node and check that it can
 # still sync.

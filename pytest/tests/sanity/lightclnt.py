@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Generates three epochs worth of blocks
 # Requests next light client block until it reaches the last final block.
 # Verifies that the returned blocks are what we expect, and runs the validation on them

@@ -54,7 +54,7 @@ def send_some_tx(node):
 
 
 def main():
-    executables = branches.prepare_ab_test('master')
+    executables = branches.prepare_ab_test()
     node_root = get_near_tempdir('db_migration', clean=True)
 
     logging.info(f"The near root is {executables.stable.root}...")
