@@ -24,6 +24,7 @@ near-client-primitives = { path = "../client-primitives" }
 near-crypto = { path = "../../core/crypto" }
 near-metrics = { path = "../../core/metrics" }
 near-primitives = { path = "../../core/primitives" }
+near-network-primitives = { path = "../../chain/network-primitives" }
 near-primitives-core = { path = "../../core/primitives-core" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
