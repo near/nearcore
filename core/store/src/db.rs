@@ -57,13 +57,26 @@ pub enum DBCol {
     /// - *Content type*: cell specific.
     ColBlockMisc = 1,
     /// Column that stores Block content.
-    /// - *Rows*: block hash
+    /// - *Rows*: block hash (CryptHash)
     /// - *Content type*: [near_primitives::block::Block]
     ColBlock = 2,
+    /// Column that stores Block headers.
+    /// - *Rows*: block hash (CryptoHash)
+    /// - *Content type*: [near_primitives::block_header::BlockHeader]
     ColBlockHeader = 3,
+    /// Column that stores mapping from block height to block hash.
+    /// - *Rows*: height (u64)
+    /// - *Content type*: block hash (CryptoHash)
     ColBlockHeight = 4,
+    /// TODO: this is something related to garbage collection - no idea yet.
     ColState = 5,
+    /// Mapping from BlockChunk to ChunkExtra
+    /// - *Rows*: BlockChunk (block hash + shard id)
+    /// - *Content type*: [near_primitives::types::ChunkExtra]
     ColChunkExtra = 6,
+    /// Mapping from transaction outcome id (CryptoHash) to list of outcome ids with proofs.
+    /// - *Rows*: outcome id (CryptoHash)
+    /// - *Content type*: Vec of [near_primitives::transactions::ExecutionOutcomeWithIdAndProof]
     ColTransactionResult = 7,
     ColOutgoingReceipts = 8,
     ColIncomingReceipts = 9,
