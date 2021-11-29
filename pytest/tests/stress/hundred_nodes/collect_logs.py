@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from rc import gcloud, pmap
 from distutils.util import strtobool
 import sys

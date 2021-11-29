@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spin up a validator node and a nonvalidator node.
 # Stop the nonvalidator node and wait until the validator node reach height 100
 # sync the nonvalidator node with controlled message passing between nodes.

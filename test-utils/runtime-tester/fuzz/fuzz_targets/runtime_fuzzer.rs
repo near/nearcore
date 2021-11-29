@@ -8,8 +8,10 @@ fn do_fuzz(scenario: &Scenario) -> Result<(), String> {
     let stats = scenario.run().result.map_err(|e| format!("{}", e))?;
     for block_stats in stats.blocks_stats {
         if block_stats.block_production_time > Duration::from_secs(3) {
-            return Err(format!("block at height {} was produced in {:?}",
-                               block_stats.height, block_stats.block_production_time));
+            return Err(format!(
+                "block at height {} was produced in {:?}",
+                block_stats.height, block_stats.block_production_time
+            ));
         }
     }
     Ok(())
