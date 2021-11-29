@@ -7,11 +7,12 @@ import sys
 import time
 import typing
 import unittest
+import pathlib
 
 import ed25519
 import requests
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from configured_logger import logger
 import cluster

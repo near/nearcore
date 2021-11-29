@@ -10,8 +10,9 @@ import subprocess
 import time
 import base58
 import json
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 import branches
 import cluster
