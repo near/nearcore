@@ -31,7 +31,7 @@ near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
 near-vm-logic = { path = "../../runtime/near-vm-logic" }
-near-vm-runner = { path = "../../runtime/near-vm-runner", default-features = false }
+near-vm-runner = { path = "../../runtime/near-vm-runner" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
 
 [features]

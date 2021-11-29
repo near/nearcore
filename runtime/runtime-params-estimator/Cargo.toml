@@ -30,7 +30,7 @@ genesis-populate = { path = "../../genesis-tools/genesis-populate"}
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-vm-logic = {path = "../../runtime/near-vm-logic"  }
-near-vm-runner = {path = "../../runtime/near-vm-runner", default-features = false }
+near-vm-runner = {path = "../../runtime/near-vm-runner" }
 node-runtime = { path = "../../runtime/runtime" }
 near-store = { path = "../../core/store" }
 near-primitives = { path = "../../core/primitives" }
