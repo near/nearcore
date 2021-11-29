@@ -413,7 +413,7 @@ def kill_proccess_script(pid):
 
 def get_near_pid(machine):
     p = machine.run(
-        'ps aux | grep 'near.* run' | grep -v grep | awk '{print $2}'')
+        "ps aux | grep 'near.* run' | grep -v grep | awk '{print $2}'")
     return p.stdout.strip()
 
 
@@ -620,6 +620,7 @@ def create_genesis_file(validator_node_names,
             else:
                 prev_stake = prev_stake + STAKE_STEP
                 staked = prev_stake * ONE_NEAR
+            print(f'{account_id} {staked}')
         else:
             staked = MIN_STAKE
         stakes.append((staked, account_id))
@@ -717,8 +718,8 @@ def create_genesis_file(validator_node_names,
     genesis_config['total_supply'] = str(total_supply)
     # Testing simple nightshade.
     genesis_config['protocol_version'] = 48
-    genesis_config['epoch_length'] = epoch_length
-    genesis_config['num_block_producer_seats'] = num_seats
+    genesis_config['epoch_length'] = int(epoch_length)
+    genesis_config['num_block_producer_seats'] = int(num_seats)
     # Loadtest helper signs all transactions using the same block.
     # Extend validity period to allow the same hash to be used for the whole duration of the test.
     genesis_config['transaction_validity_period'] = 10**9
@@ -945,16 +946,14 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
             for i, node in enumerate(validator_nodes):
                 if i * 5 < num_block_producer_seats * 3 and i < len(MAINNET_STAKES):
                     staked = MAINNET_STAKES[i] * ONE_NEAR
-                    logger.info(f'!1 {staked}')
                 elif prev_stake is None:
                     prev_stake = MIN_STAKE - STAKE_STEP
                     staked = prev_stake * ONE_NEAR
-                    logger.info(f'!2 {staked}')
                 else:
                     prev_stake = prev_stake + STAKE_STEP
                     staked = prev_stake * ONE_NEAR
-                    logger.info(f'!3 {staked}')
                 stakes.append((staked,node))
+                print(f'{node_account_name(node.instance_name)} {staked}')
 
         else:
             staked = MIN_STAKE
@@ -968,7 +967,7 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
             if (seats_upgraded + seat) * 5 > 4 * num_block_producer_seats:
                 break
             schedule[node.instance_name] = 0
-            seats_upgraded += seats[i]
+            seats_upgraded += seat
 
         # Upgrade the remaining validators during 4 epochs.
         for node in validator_nodes:
@@ -1010,7 +1009,7 @@ def compute_seats(stakes, num_block_producer_seats):
 
     seats = []
     for stake,item in stakes:
-        seats.append(stake // seat_price, stake, item)
+        seats.append((stake // seat_price, stake, item))
     seats.sort(reverse=True)
     return seats
 
