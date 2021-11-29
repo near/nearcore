@@ -21,19 +21,24 @@ def current_branch():
 
 
 def __get_latest_deploy(chain_id: str) -> typing.Tuple[str, str]:
-    """Returns latest (release, deploy) for given chain."""
-    basehref = f'{_BASEHREF}/nearcore-deploy/{chain_id}'
+    """Returns latest (release, deploy) for given chain.
+
+    Gets latest release and deploy identifier from S3 for given chain.  Those
+    can be used to uniquely identify a neard executable running on the chain.
+    """
 
     def download(url: str) -> str:
         res = requests.get(url)
         res.raise_for_status()
         return res.text
 
-    release = download(basehref + '/latest_release')
+    basehref = f'{_BASEHREF}/nearcore-deploy/{chain_id}'
+    release = download(f'{basehref}/latest_release')
+    deploy = download(f'{basehref}/latest_deploy')
+
     if release != 'master':
         # Make sure it parses as a version
         release = str(semver.VersionInfo.parse(release).finalize_version())
-    deploy = download(basehref + '/latest_deploy')
 
     return release, deploy
 
@@ -129,8 +134,8 @@ def __download_binary(release: str, deploy: str) -> Executables:
     neard = outdir / f'neard-{release}-{deploy}'
     state_viewer = outdir / f'state-viewer-{release}-{deploy}'
     basehref = f'{_BASEHREF}/nearcore/{_UNAME}/{release}/{deploy}'
-    __download_file_if_missing(neard, basehref + '/neard')
-    __download_file_if_missing(state_viewer, basehref + '/state-viewer')
+    __download_file_if_missing(neard, f'{basehref}/neard')
+    __download_file_if_missing(state_viewer, f'{basehref}/state-viewer')
     return Executables(outdir, neard, state_viewer)
 
 
