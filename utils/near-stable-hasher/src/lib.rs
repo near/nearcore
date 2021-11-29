@@ -32,7 +32,7 @@ mod tests {
     fn test_stable_hasher() {
         let mut sh = StableHasher::new();
 
-        sh.write(vec![1, 2, 3, 4, 5].as_slice());
+        sh.write(&[1, 2, 3, 4, 5]);
         let finish = sh.finish();
         assert_eq!(finish, 12661990674860217757)
     }
