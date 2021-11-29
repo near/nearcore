@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # The test launches two validating node out of three validators.
 # Transfer some tokens between two accounts (thus changing state).
 # Query for no finality, doomslug finality

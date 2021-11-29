@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up four validating nodes, and kills one of them.
 # Starts a restaking service that keeps this node still as an active validator as it gets kicked out.
 # Ensures that this node is current validator after 5 epochs.

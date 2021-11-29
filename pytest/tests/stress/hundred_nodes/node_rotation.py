@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import base58
 from enum import Enum
 import os
