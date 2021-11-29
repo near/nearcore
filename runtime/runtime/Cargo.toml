@@ -31,18 +31,16 @@ near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
 near-vm-logic = { path = "../../runtime/near-vm-logic" }
-near-vm-runner = { path = "../../runtime/near-vm-runner" }
+near-vm-runner = { path = "../../runtime/near-vm-runner", default-features = false }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
 
 [features]
-default = ["cpu_compatibility_checks"]
+default = []
+cpu_compatibility_checks = ["near-vm-runner/cpu_compatibility_checks"]
 dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
 protocol_feature_chunk_only_producers = ["near-primitives/protocol_feature_chunk_only_producers", "near-store/protocol_feature_chunk_only_producers", "near-chain-configs/protocol_feature_chunk_only_producers"]
 protocol_feature_access_key_nonce_for_implicit_accounts = ["near-primitives/protocol_feature_access_key_nonce_for_implicit_accounts"]
-cpu_compatibility_checks = ["near-vm-runner/cpu_compatibility_checks"]
-
 no_cache = ["near-vm-runner/no_cache", "near-store/no_cache"]
-
 protocol_feature_alt_bn128 = [
     "near-primitives/protocol_feature_alt_bn128",
     "near-vm-logic/protocol_feature_alt_bn128",

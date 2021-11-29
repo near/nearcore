@@ -304,7 +304,6 @@ fn test_many_contracts_call_time() {
 fn test_many_contracts_call_icount() {
     // Use smth like
     // CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=./runner.sh cargo test --release \
-    // --features near-vm-runner/no_cpu_compatibility_checks \
     // --lib vm_estimator::test_many_contracts_call_icount --no-fail-fast -- --exact --nocapture
     // Where runner.sh is
     // /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \

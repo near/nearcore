@@ -305,7 +305,14 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         .args(&["--mount", "source=rust-emu-target-dir,target=/host/nearcore/target"])
         .args(&["--mount", "source=rust-emu-cargo-dir,target=/usr/local/cargo"])
         .args(&["--interactive", "--tty"])
-        .args(&["--env", "RUST_BACKTRACE=full"]);
+        .args(&["--env", "RUST_BACKTRACE=full"])
+        .args(&["--env", "CFLAGS=-mavx -mpopcnt -msse3 -mssse3 -msse4.1 -msse4.2 -msse4a -mcx16"])
+        .args(&["--env", "CXXFLAGS=-mavx -mpopcnt -msse3 -mssse3 -msse4.1 -msse4.2 -msse4a -mcx16"])
+        .args(&[
+            "--env",
+            "RUSTFLAGS=-D warnings -Ctarget-feature=\
+                       +avx,+cmpxchg16b,+popcnt,+sse3,+ssse3,+sse4.1,+sse4.2,+sse4a",
+        ]);
     if full {
         cmd.args(&["--env", "CARGO_PROFILE_RELEASE_LTO=fat"])
             .args(&["--env", "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1"]);

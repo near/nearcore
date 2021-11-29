@@ -48,6 +48,8 @@ protocol_feature_chunk_only_producers = ["nearcore/protocol_feature_chunk_only_p
 protocol_feature_routing_exchange_algorithm = ["nearcore/protocol_feature_routing_exchange_algorithm"]
 nightly_protocol_features = ["nearcore/nightly_protocol_features"]
 nightly_protocol = ["nearcore/nightly_protocol"]
+cpu_compatibility_checks = ["nearcore/cpu_compatibility_checks"]
+
 
 sandbox = ["nearcore/sandbox"]
 

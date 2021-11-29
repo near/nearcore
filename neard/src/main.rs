@@ -42,7 +42,14 @@ static ALLOC: MyAllocator<tikv_jemallocator::Jemalloc> =
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn main() {
-    near_primitives::cpu::ensure_cpu_compatibility(false);
+    if let Err(e) = near_primitives::cpu::verify_cpu_compatibility() {
+        if cfg!(feature = "cpu_compatibility_checks") {
+            eprintln!("error: {}\nnote: {}", e, near_primitives::cpu::Error::NOTE);
+            std::process::exit(1);
+        } else {
+            eprintln!("warning: {}\nnote: {}", e, near_primitives::cpu::Error::NOTE);
+        }
+    }
 
     // We use it to automatically search the for root certificates to perform HTTPS calls
     // (sending telemetry and downloading genesis)

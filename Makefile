@@ -22,7 +22,7 @@ release: RUSTFLAGS+= -Ctarget-feature=+avx,+cmpxchg16b,+popcnt,+sse3,+ssse3,+sse
 release: CFLAGS = -mavx -mpopcnt -msse3 -mssse3 -msse4.1 -msse4.2 -msse4a -mcx16
 release: CXXFLAGS = ${CFLAGS}
 release:
-	cargo build -p neard --release
+	cargo build -p neard --release --features cpu_compatibility_checks
 	cargo build -p state-viewer --release
 	cargo build -p store-validator --release
 	cargo build -p runtime-params-estimator --release
