@@ -13,7 +13,6 @@ description = "This crate hosts NEAR client-related error types"
 [dependencies]
 actix = "=0.11.0-beta.2"
 chrono = { version = "0.4.4", features = ["serde"] }
-serde = { version = "1", features = ["derive"] }
 strum = { version = "0.20", features = ["derive"] }
 thiserror = "1.0"
 
