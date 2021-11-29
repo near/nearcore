@@ -25,9 +25,8 @@ _EXECUTABLES = None
 def get_executables() -> branches.ABExecutables:
     global _EXECUTABLES
     if _EXECUTABLES is None:
-        branch = branches.latest_rc_branch()
-        logger.info(f"Latest rc release branch is {branch}")
-        _EXECUTABLES = branches.prepare_ab_test(branch)
+        _EXECUTABLES = branches.prepare_ab_test()
+        logger.info(f"Latest mainnet release is {_EXECUTABLES.release}")
     return _EXECUTABLES
 
 
