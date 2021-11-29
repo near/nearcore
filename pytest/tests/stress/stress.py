@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Chaos Monkey test. Simulates random events and failures and makes sure the blockchain continues operating as expected
 #
 #     _.-._         ..-..         _.-._

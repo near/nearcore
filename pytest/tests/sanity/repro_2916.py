@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up two nodes with two shards, waits for couple blocks, snapshots the
 # latest chunks, and requests both chunks from the first node, asking for
 # receipts for both shards in both requests. We expect the first node to

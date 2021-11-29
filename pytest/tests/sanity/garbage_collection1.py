@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up three validating nodes with stake distribution 11, 5, 5.
 # Stop the two nodes with stake 2
 # Wait for sufficient number of blocks.
