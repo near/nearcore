@@ -8,8 +8,9 @@ from rc import gcloud, pmap
 from distutils.util import strtobool
 from configured_logger import logger
 import sys
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from utils import user_name
 
 machines = gcloud.list()
