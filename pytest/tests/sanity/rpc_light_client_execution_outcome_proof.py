@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up two nodes, deploy a smart contract to one node,
 # Send a transaction to call a contract method. Check that
 # the transaction and receipts execution outcome proof for

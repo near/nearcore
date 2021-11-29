@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Tests a situation when in a given shard has all BPs offline
 # Two specific cases:
 #  - BPs never showed up to begin with, since genesis

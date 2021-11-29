@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # This file is uploaded to each mocknet node and run there.
 # It is responsible for making the node send many transactions
 # to itself.

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Spins up a two-node cluster and wait for a few blocks to be produced."""
 
 import sys

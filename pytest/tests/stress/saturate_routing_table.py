@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Saturate routing table with edges.
 
