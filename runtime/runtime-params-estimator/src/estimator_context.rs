@@ -33,9 +33,9 @@ impl<'c> EstimatorContext<'c> {
         Self { cached, config }
     }
 
-    pub(crate) fn test_bed(&mut self) -> TestBed<'_> {
+    pub(crate) fn testbed(&mut self) -> Testbed<'_> {
         let inner = RuntimeTestbed::from_state_dump(&self.config.state_dump_path);
-        TestBed {
+        Testbed {
             config: &self.config,
             inner,
             transaction_builder: TransactionBuilder::new(
@@ -48,13 +48,13 @@ impl<'c> EstimatorContext<'c> {
 /// A single isolated instance of runtime.
 ///
 /// We use it to time processing a bunch of blocks.
-pub(crate) struct TestBed<'c> {
+pub(crate) struct Testbed<'c> {
     pub(crate) config: &'c Config,
     inner: RuntimeTestbed,
     transaction_builder: TransactionBuilder,
 }
 
-impl<'c> TestBed<'c> {
+impl<'c> Testbed<'c> {
     pub(crate) fn transaction_builder(&mut self) -> &mut TransactionBuilder {
         &mut self.transaction_builder
     }
