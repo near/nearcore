@@ -1,7 +1,7 @@
 use near_network_primitives::types::{KnownProducer, PeerInfo};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct RpcNetworkInfoResponse {
     pub active_peers: Vec<PeerInfo>,
     pub num_active_peers: usize,
