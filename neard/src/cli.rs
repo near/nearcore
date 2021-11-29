@@ -2,6 +2,7 @@ use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION}
 use clap::{AppSettings, Clap};
 use futures::future::FutureExt;
 use near_primitives::types::{Gas, NumSeats, NumShards};
+use near_state_viewer::StateViewerSubCommand;
 use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -42,11 +43,12 @@ impl NeardCmd {
         }
 
         let home_dir = neard_cmd.opts.home;
+        let genesis_validation = !neard_cmd.opts.unsafe_skip_genesis_validation;
 
         match neard_cmd.subcmd {
             NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
             NeardSubCommand::Testnet(cmd) => cmd.run(&home_dir),
-            NeardSubCommand::Run(cmd) => cmd.run(&home_dir),
+            NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation),
 
             NeardSubCommand::UnsafeResetData => {
                 let store_path = get_store_path(&home_dir);
@@ -56,6 +58,9 @@ impl NeardCmd {
             NeardSubCommand::UnsafeResetAll => {
                 info!(target: "neard", "Removing all data and config from {}", home_dir.to_string_lossy());
                 fs::remove_dir_all(home_dir).expect("Removing data and config failed.");
+            }
+            NeardSubCommand::StateViewer(cmd) => {
+                cmd.run(&home_dir, genesis_validation);
             }
         }
     }
@@ -69,6 +74,11 @@ struct NeardOpts {
     /// Directory for config and data (default "~/.near").
     #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
     home: PathBuf,
+    /// UNSAFE! Genesis validation, among other things, needs to compare `total_supply` with the
+    /// account balances of accounts in the genesis records. This can take a lot of time. Use this
+    /// option to save time during incidents.
+    #[clap(long)]
+    unsafe_skip_genesis_validation: bool,
 }
 
 impl NeardOpts {
@@ -97,6 +107,9 @@ pub(super) enum NeardSubCommand {
     /// config)
     #[clap(name = "unsafe_reset_data")]
     UnsafeResetData,
+    /// View DB state.
+    #[clap(name = "view_state")]
+    StateViewer(StateViewerSubCommand),
 }
 
 #[derive(Clap)]
@@ -213,9 +226,9 @@ pub(super) struct RunCmd {
 }
 
 impl RunCmd {
-    pub(super) fn run(self, home_dir: &Path) {
+    pub(super) fn run(self, home_dir: &Path, genesis_validation: bool) {
         // Load configs from home.
-        let mut near_config = nearcore::config::load_config_without_genesis_records(home_dir);
+        let mut near_config = nearcore::config::load_config_without_genesis_records(home_dir, genesis_validation);
         // Set current version in client config.
         near_config.client_config.version = super::NEARD_VERSION.clone();
         // Override some parameters from command line.

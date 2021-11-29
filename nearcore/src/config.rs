@@ -562,7 +562,7 @@ impl Genesis {
             shard_layout,
             ..Default::default()
         };
-        Genesis::new(config, records.into())
+        Genesis::new(config, records.into(), true)
     }
 
     pub fn test(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
@@ -916,7 +916,7 @@ pub fn init_configs(
                     genesis.unwrap_or_else(|| panic!("Genesis file is required for {}.", &chain_id))
             }
 
-            let mut genesis = Genesis::from_file(&genesis_path_str);
+            let mut genesis = Genesis::from_file(&genesis_path_str, true);
             genesis.config.chain_id = chain_id.clone();
 
             genesis.to_file(&dir.join(config.genesis_file));
@@ -992,7 +992,7 @@ pub fn init_configs(
                 min_gas_price: MIN_GAS_PRICE,
                 ..Default::default()
             };
-            let genesis = Genesis::new(genesis_config, records.into());
+            let genesis = Genesis::new(genesis_config, records.into(), true);
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
         }
@@ -1172,7 +1172,7 @@ impl From<NodeKeyFile> for KeyFile {
     }
 }
 
-pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
+pub fn load_config_without_genesis_records(dir: &Path, genesis_validation: bool) -> NearConfig {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME));
     let genesis_config = GenesisConfig::from_file(&dir.join(&config.genesis_file));
     let genesis_records_file = if let Some(genesis_records_file) = &config.genesis_records_file {
@@ -1191,22 +1191,24 @@ pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
     let network_signer = NodeKeyFile::from_file(&dir.join(&config.node_key_file));
     NearConfig::new(
         config,
-        Genesis::new_with_path(genesis_config, genesis_records_file),
+        Genesis::new_with_path(genesis_config, genesis_records_file, genesis_validation),
         network_signer.into(),
         validator_signer,
     )
 }
 
-pub fn load_config(dir: &Path) -> NearConfig {
-    let mut near_config = load_config_without_genesis_records(dir);
+pub fn load_config(dir: &Path, genesis_validation: bool) -> NearConfig {
+    let mut near_config = load_config_without_genesis_records(dir, genesis_validation);
     near_config.genesis =
         if let Some(ref genesis_records_file) = near_config.config.genesis_records_file {
             Genesis::from_files(
                 &dir.join(&near_config.config.genesis_file),
                 &dir.join(genesis_records_file),
+                genesis_validation,
             )
         } else {
-            Genesis::from_file(&dir.join(&near_config.config.genesis_file))
+            Genesis::from_file(&dir.join(&near_config.config.genesis_file),
+            genesis_validation)
         };
     near_config
 }

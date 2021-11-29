@@ -26,7 +26,7 @@ fn main() {
         .value_of("additional-accounts-num")
         .map(|x| x.parse::<u64>().expect("Failed to parse number of additional accounts."))
         .unwrap();
-    let near_config = load_config(home_dir);
+    let near_config = load_config(home_dir, true);
 
     let store = create_store(&get_store_path(home_dir));
     GenesisBuilder::from_config_and_store(home_dir, Arc::new(near_config.genesis), store)

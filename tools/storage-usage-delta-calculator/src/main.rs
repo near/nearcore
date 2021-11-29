@@ -16,7 +16,7 @@ fn main() -> Result<(), Error> {
 
     debug!("Start");
 
-    let genesis = Genesis::from_file("output.json");
+    let genesis = Genesis::from_file("output.json", true);
     debug!("Genesis read");
 
     let config_store = RuntimeConfigStore::new(None);

@@ -16,7 +16,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Serializer;
 use sha2::digest::Digest;
 use smart_default::SmartDefault;
-use tracing::info;
+use tracing::{info,warn};
 
 use crate::genesis_validate::validate_genesis;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardConfig};
@@ -474,36 +474,48 @@ impl GenesisJsonHasher {
 }
 
 impl Genesis {
-    pub fn new(config: GenesisConfig, records: GenesisRecords) -> Self {
+    pub fn new(config: GenesisConfig, records: GenesisRecords, genesis_validation: bool) -> Self {
         let genesis = Self { config, records, records_file: PathBuf::new() };
-        validate_genesis(&genesis);
+        if genesis_validation {
+            validate_genesis(&genesis);
+        } else {
+            warn!("Skipping genesis validation");
+        }
         genesis
     }
 
-    pub fn new_with_path(config: GenesisConfig, records_file: PathBuf) -> Self {
+    pub fn new_with_path(config: GenesisConfig, records_file: PathBuf, genesis_validation: bool) -> Self {
         let genesis = Self { config, records: GenesisRecords(vec![]), records_file };
-        validate_genesis(&genesis);
+        if genesis_validation {
+            validate_genesis(&genesis);
+        } else {
+            warn!("Skipping genesis validation");
+        }
         genesis
     }
 
     /// Reads Genesis from a single file.
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
+    pub fn from_file<P: AsRef<Path>>(path: P, genesis_validation: bool) -> Self {
         let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
         let genesis: Genesis =
             serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.");
-        validate_genesis(&genesis);
+        if genesis_validation {
+            validate_genesis(&genesis);
+        } else {
+            warn!("Skipping genesis validation");
+        }
         genesis
     }
 
     /// Reads Genesis from config and records files.
-    pub fn from_files<P1, P2>(config_path: P1, records_path: P2) -> Self
+    pub fn from_files<P1, P2>(config_path: P1, records_path: P2, genesis_validation: bool) -> Self
     where
         P1: AsRef<Path>,
         P2: AsRef<Path>,
     {
         let config = GenesisConfig::from_file(config_path);
         let records = GenesisRecords::from_file(records_path);
-        Self::new(config, records)
+        Self::new(config, records, genesis_validation)
     }
 
     /// Writes Genesis to the file.

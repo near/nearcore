@@ -98,7 +98,7 @@ fn main() -> anyhow::Result<()> {
                 None,
             );
 
-            let near_config = load_config(&state_dump_path);
+            let near_config = load_config(&state_dump_path, true);
             let store = create_store(&get_store_path(&state_dump_path));
             GenesisBuilder::from_config_and_store(
                 &state_dump_path,
