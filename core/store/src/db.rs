@@ -103,8 +103,12 @@ pub enum DBCol {
     /// - *Rows*: ChunkHash (CryptoHash)
     /// - *Content type*: [near_primitives::sharding::ShardChunk]
     ColChunks = 13,
+    /// Storage for  PartialEncodedChunkV1 (seems that only for version V1 and not for V2).
+    /// - *Rows*: ChunkHash (CryptoHash)
+    /// - *Content type*: [near_primitives::sharding::PartialEncodedChunkV1]
     ColPartialChunks = 14,
     /// Blocks for which chunks need to be applied after the state is downloaded for a particular epoch
+    /// TODO: describe what is exactly inside the rows/cells.
     ColBlocksToCatchup = 15,
     /// Blocks for which the state is being downloaded
     ColStateDlInfos = 16,
