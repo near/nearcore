@@ -295,16 +295,23 @@ def main(argv):
     last_staking = 0
     STAKING_TIMEOUT = 60
     while time.time() - start_time < TEST_TIMEOUT:
+        # Repeat the staking transactions in case the validator selection algorithm changes.
         if time.time() - last_staking > STAKING_TIMEOUT:
             for attempt in range(3):
                 try:
                     stake_amount = node_account.get_amount_yoctonear()
-                    logger.info(f'Amount of {node_account.key.account_id} is {stake_amount}')
+                    logger.info(
+                        f'Amount of {node_account.key.account_id} is {stake_amount}'
+                    )
                     if stake_amount > (10**3) * (10**24):
-                        logger.info(f'Staking {stake_amount} for {node_account.key.account_id}')
+                        logger.info(
+                            f'Staking {stake_amount} for {node_account.key.account_id}'
+                        )
                         node_account.send_stake_tx(stake_amount)
                     last_staking = time.time()
-                    logger.info(f'Staked {stake_amount} for {node_account.key.account_id}')
+                    logger.info(
+                        f'Staked {stake_amount} for {node_account.key.account_id}'
+                    )
                     break
                 except Exception as e:
                     logger.info('Failed to stake')
