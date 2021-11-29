@@ -78,11 +78,30 @@ pub enum DBCol {
     /// - *Rows*: outcome id (CryptoHash)
     /// - *Content type*: Vec of [near_primitives::transactions::ExecutionOutcomeWithIdAndProof]
     ColTransactionResult = 7,
+    /// Mapping from Block + Shard to list of outgoing receipts.
+    /// - *Rows*: block + shard
+    /// - *Content type*: Vec of [near_primitives::receipt::Receipt]
     ColOutgoingReceipts = 8,
+    /// Mapping from Block + Shard to list of incoming receipt proofs.
+    /// Each proof might prove multiple receipts.
+    /// - *Rows*: block + shard
+    /// - *Content type*: Vec of [near_primitives::sharding::ReceiptProof]
     ColIncomingReceipts = 9,
+    /// Info about the peers that we are connected to. Mapping from peer_id to KnownPeerState.
+    /// - *Rows*: peer_id (PublicKey)
+    /// - *Content type*: [network_primitives::types::KnownPeerState]
     ColPeers = 10,
+    /// Mapping from EpochId to EpochInfo
+    /// - *Rows*: EpochId (CryptoHash)
+    /// - *Content type*: [near_primitives::epoch_manager::EpochInfo]
     ColEpochInfo = 11,
+    /// Mapping from BlockHash to BlockInfo
+    /// - *Rows*: BlockHash (CryptoHash)
+    /// - *Content type*: [near_primitives::epoch_manager::BlockInfo]
     ColBlockInfo = 12,
+    /// Mapping from ChunkHash to ShardChunk.
+    /// - *Rows*: ChunkHash (CryptoHash)
+    /// - *Content type*: [near_primitives::sharding::ShardChunk]
     ColChunks = 13,
     ColPartialChunks = 14,
     /// Blocks for which chunks need to be applied after the state is downloaded for a particular epoch
