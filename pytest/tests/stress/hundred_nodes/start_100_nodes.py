@@ -11,7 +11,7 @@ from tqdm import tqdm
 import shutil
 import sys
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from cluster import apply_config_changes, apply_genesis_changes
 from utils import user_name
 
