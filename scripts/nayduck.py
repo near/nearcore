@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """Runs integration tests in the cloud on NayDuck.
 
 To request a new run, use the following command:
