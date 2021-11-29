@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Survive massive state sync for validator
 

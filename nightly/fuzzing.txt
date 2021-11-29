@@ -1,1 +1,1 @@
-mocknet --timeout=7200 runtime/fuzz.py
+pytest --skip-build --timeout=2h runtime/fuzz.py

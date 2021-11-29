@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import base58
 import json
 import os

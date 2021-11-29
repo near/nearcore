@@ -420,6 +420,7 @@ impl Block {
     ) -> Self {
         Block::produce(
             PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
             prev.header(),
             height,
             prev.header().block_ordinal() + 1,

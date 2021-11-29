@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # The test launches two validating node and two observers
 # The first observer tracks no shards, the second observer tracks all shards
 # The second observer is used to query balances

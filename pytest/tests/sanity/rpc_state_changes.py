@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up four nodes, deploy a smart contract to one node,
 # and call various scenarios to trigger store changes.
 # Check that the key changes are observable via `changes` RPC call.
