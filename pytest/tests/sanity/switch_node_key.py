@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spin up two validating nodes. Stop one of them after one epoch, switch node key (peer id), and restart.
 # Make sure that both node can still produce blocks.
 

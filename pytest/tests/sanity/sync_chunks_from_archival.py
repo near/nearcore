@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up two nodes; Let's them build the chain for several epochs;
 # Spins up two more nodes, and makes the two new nodes to stake, and the old two to unstake;
 # Makes the two new nodes to build for couple more epochs;

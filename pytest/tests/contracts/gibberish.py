@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Experiments with deploying gibberish contracts. Specifically,
 # 1. Deploys completely gibberish contracts
 # 2. Gets an existing wasm contract, and tries to arbitrarily pertrurb bytes in it

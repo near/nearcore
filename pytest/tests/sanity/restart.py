@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up two nodes, and waits until they produce 20 blocks.
 # Kills the nodes, restarts them, makes sure they produce 20 more blocks
 # Sets epoch length to 10
