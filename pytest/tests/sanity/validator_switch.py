@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Starts three validating nodes and one non-validating node
 # Make the validating nodes unstake and the non-validating node stake
 # so that the next epoch block producers set is completely different

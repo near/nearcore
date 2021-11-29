@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import sys, time
 import socket, struct, multiprocessing
 

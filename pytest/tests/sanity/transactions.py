@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Consists of a small sanity test that verifies that a single transaction
 # gets properly processed (to simplify debugging when the code is completely
 # broken). If one transaction goes through, sends batches of transactions

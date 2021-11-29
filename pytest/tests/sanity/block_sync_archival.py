@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up one validating node and one non-validating node that is archival. Let the validating node run
 # for a while and make sure that the archival node will sync all blocks.
 
