@@ -87,7 +87,7 @@ pub enum ProtocolFeature {
     ForwardChunkParts,
     RectifyInflation,
     /// Add `AccessKey` nonce range by setting nonce to `(block_height - 1) * 1e6`, see
-    /// <https://github.com/near/nearcore/pull/4064>.
+    /// <https://github.com/near/nearcore/issues/3779>.
     AccessKeyNonceRange,
     FixApplyChunks,
     LowerStorageCost,

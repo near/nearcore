@@ -95,6 +95,8 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
         .collect()
 }
 
+/// Produce `blocks_number` block in the given environment, starting from the given height.
+/// Returns the first unoccupied height in the chain after this operation.
 fn produce_blocks_from_height(
     env: &mut TestEnv,
     blocks_number: u64,
@@ -3423,7 +3425,20 @@ mod access_key_nonce_range_tests {
             100,
             *block.hash(),
         );
-        env.clients[0].process_tx(send_money_from_implicit_account_tx, false, false)
+        let status = env.clients[0].process_tx(send_money_from_implicit_account_tx, false, false);
+
+        // Check that sending money from implicit account with correct nonce is still valid.
+        let send_money_from_implicit_account_tx = SignedTransaction::send_money(
+            (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER,
+            implicit_account_id.clone(),
+            "test0".parse().unwrap(),
+            &implicit_account_signer,
+            100,
+            *block.hash(),
+        );
+        check_tx_processing(&mut env, send_money_from_implicit_account_tx, height, blocks_number);
+
+        status
     }
 
     /// Test that duplicate transactions from implicit accounts are properly rejected.
