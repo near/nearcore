@@ -21,8 +21,7 @@ from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_pay
 
 def main():
     node_root = get_near_tempdir('backward', clean=True)
-    branch = branches.latest_rc_branch()
-    executables = branches.prepare_ab_test(branch)
+    executables = branches.prepare_ab_test()
 
     # Setup local network.
     subprocess.check_call([
