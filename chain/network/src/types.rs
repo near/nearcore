@@ -839,13 +839,13 @@ pub enum NetworkRequests {
 }
 
 pub struct ValidateEdgeList {
-    /// List of Edges, which will be sent to `EdgeVerifierActor`.
+    /// List of Edges, which will be sent to `EdgeValidatorActor`.
     pub(crate) edges: Vec<Edge>,
     /// A set of edges, which have been verified. This is used to avoid doing duplicated work by
-    /// `EdgeVerifierActor`, and is a source of memory leak.
+    /// `EdgeValidatorActor`, and is a source of memory leak.
     /// TODO(#5254): Simplify this process.
     pub(crate) edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
-    /// A concurrent queue. After edge become validated. They will be sent from `EdgeVerifierActor` back to
+    /// A concurrent queue. After edge become validated. They will be sent from `EdgeValidatorActor` back to
     /// `PeerManagetActor`, and then send to `RoutingTableActor`. And then `RoutingTableActor`
     /// will add them.
     /// TODO(#5254): Simplify this process.
