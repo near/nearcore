@@ -1,21 +1,26 @@
 [package]
 name = "near-network-primitives"
-version = "0.1.0"
+version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2018"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/near/nearcore"
+homepage = "https://github.com/near/nearcore"
+description = "This crate hosts NEAR network-related primitive types"
 
 [dependencies]
 actix = "=0.11.0-beta.2"
 tokio = { version = "1.1", features = ["full"] }
 chrono = { version = "0.4.4", features = ["serde"] }
 borsh = "0.9"
-serde = { version = "1", features = [ "derive" ] }
+serde = { version = "1", features = ["derive", "rc", "alloc"] }
 strum = { version = "0.20", features = ["derive"] }
 tracing = "0.1.13"
-
+deepsize = { version = "0.2.0", optional = true }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 
 [features]
 test_features = []
 sandbox = []
+deepsize_feature = ["deepsize", "near-primitives/deepsize_feature"]

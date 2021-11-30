@@ -1,10 +1,12 @@
+#!/usr/bin/env python3
 # Spin up one validator node and let it run for a while
 # Spin up another node that does state sync. Keep sending
 # transactions to that node and make sure it doesn't crash.
 
 import sys, time, base58
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster, Key
 from configured_logger import logger
@@ -44,7 +46,7 @@ while cur_height < target_height:
 genesis_block = nodes[0].json_rpc('block', [0])
 genesis_hash = genesis_block['result']['header']['hash']
 
-nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[1].start(boot_node=nodes[1])
 tracker = LogTracker(nodes[1])
 time.sleep(1)
 

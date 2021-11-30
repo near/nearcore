@@ -1,8 +1,10 @@
+#!/usr/bin/env python3
 # Start two nodes. Proxify both nodes. Kill one of them, restart it
 # and wait until block at height >= 20.
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
@@ -15,8 +17,7 @@ TARGET_HEIGHT = 20
 nodes = start_cluster(2, 0, 1, None, [], {}, ProxyHandler)
 
 nodes[1].kill()
-
-nodes[1].start(nodes[0].node_key.pk, nodes[0].addr())
+nodes[1].start(boot_node=nodes[0])
 started = time.time()
 
 while True:

@@ -1,7 +1,11 @@
 use std::cmp::max;
 
+use crate::time::{Clock, Utc};
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::{DateTime, Utc};
+
+use chrono::DateTime;
+#[cfg(feature = "deepsize_feature")]
+use deepsize::DeepSizeOf;
 use near_crypto::Signature;
 use num_rational::Rational;
 use primitive_types::U256;
@@ -18,14 +22,13 @@ use crate::sharding::{
     ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
     ShardChunkHeaderV1,
 };
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use crate::types::NumBlocks;
-use crate::types::{Balance, BlockHeight, EpochId, Gas, NumShards, StateRoot};
+use crate::types::{Balance, BlockHeight, EpochId, Gas, NumBlocks, NumShards, StateRoot};
 use crate::utils::to_timestamp;
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use std::ops::Index;
 
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct GenesisId {
     /// Chain Id
@@ -34,6 +37,7 @@ pub struct GenesisId {
     pub hash: CryptoHash,
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
 pub enum BlockValidityError {
     InvalidStateRoot,
@@ -44,6 +48,7 @@ pub enum BlockValidityError {
     InvalidChallengeRoot,
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockV1 {
     pub header: BlockHeader,
@@ -55,6 +60,7 @@ pub struct BlockV1 {
     pub vrf_proof: near_crypto::vrf::Proof,
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockV2 {
     pub header: BlockHeader,
@@ -68,6 +74,7 @@ pub struct BlockV2 {
 
 /// Versioned Block data structure.
 /// For each next version, document what are the changes between versions.
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub enum Block {
     BlockV1(Box<BlockV1>),
@@ -114,14 +121,14 @@ pub fn genesis_chunks(
 
 impl Block {
     fn block_from_protocol_version(
-        protocol_version: ProtocolVersion,
+        next_epoch_protocol_version: ProtocolVersion,
         header: BlockHeader,
         chunks: Vec<ShardChunkHeader>,
         challenges: Challenges,
         vrf_value: near_crypto::vrf::Value,
         vrf_proof: near_crypto::vrf::Proof,
     ) -> Block {
-        if protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
+        if next_epoch_protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
             let legacy_chunks = chunks
                 .into_iter()
                 .map(|chunk| match chunk {
@@ -129,7 +136,6 @@ impl Block {
                     ShardChunkHeader::V2(_) => panic!(
                         "Attempted to include VersionedShardChunkHeaderV2 in old protocol version"
                     ),
-                    #[cfg(feature = "protocol_feature_block_header_v3")]
                     ShardChunkHeader::V3(_) => panic!(
                         "Attempted to include VersionedShardChunkHeaderV3 in old protocol version"
                     ),
@@ -191,16 +197,15 @@ impl Block {
 
     /// Produces new block from header of previous block, current state root and set of transactions.
     pub fn produce(
-        protocol_version: ProtocolVersion,
+        this_epoch_protocol_version: ProtocolVersion,
+        next_epoch_protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
-        #[cfg(feature = "protocol_feature_block_header_v3")] block_ordinal: NumBlocks,
+        block_ordinal: NumBlocks,
         chunks: Vec<ShardChunkHeader>,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
-        #[cfg(feature = "protocol_feature_block_header_v3")] epoch_sync_data_hash: Option<
-            CryptoHash,
-        >,
+        epoch_sync_data_hash: Option<CryptoHash>,
         approvals: Vec<Option<Signature>>,
         gas_price_adjustment_rate: Rational,
         min_gas_price: Balance,
@@ -240,8 +245,7 @@ impl Block {
         );
 
         let new_total_supply = prev.total_supply() + minted_amount.unwrap_or(0) - balance_burnt;
-
-        let now = to_timestamp(Utc::now());
+        let now = to_timestamp(Clock::utc());
         let time = if now <= prev.raw_timestamp() { prev.raw_timestamp() + 1 } else { now };
 
         let (vrf_value, vrf_proof) = signer.compute_vrf_with_proof(prev.random_value().as_ref());
@@ -257,7 +261,6 @@ impl Block {
                 prev.last_final_block()
             };
 
-        #[cfg(feature = "protocol_feature_block_header_v3")]
         match prev {
             BlockHeader::BlockHeaderV1(_) => debug_assert_eq!(prev.block_ordinal(), 0),
             BlockHeader::BlockHeaderV2(_) => debug_assert_eq!(prev.block_ordinal(), 0),
@@ -267,7 +270,8 @@ impl Block {
         };
 
         let header = BlockHeader::new(
-            protocol_version,
+            this_epoch_protocol_version,
+            next_epoch_protocol_version,
             height,
             prev.hash().clone(),
             Block::compute_state_root(&chunks),
@@ -280,7 +284,6 @@ impl Block {
             random_value,
             validator_proposals,
             chunk_mask,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             block_ordinal,
             epoch_id,
             next_epoch_id,
@@ -290,17 +293,15 @@ impl Block {
             signer,
             last_final_block.clone(),
             last_ds_final_block.clone(),
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             epoch_sync_data_hash,
             approvals,
             next_bp_hash,
             block_merkle_root,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             prev.height(),
         );
 
         Self::block_from_protocol_version(
-            protocol_version,
+            next_epoch_protocol_version,
             header,
             chunks,
             challenges,

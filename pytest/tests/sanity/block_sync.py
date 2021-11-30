@@ -1,10 +1,12 @@
+#!/usr/bin/env python3
 # Spins up two validating nodes. Make one validator produce block every 100 seconds.
 # Let the validators produce blocks for a while and then shut one of them down, remove data and restart.
 # Check that it can sync to the validator through block sync.
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
@@ -60,7 +62,7 @@ nodes[0].kill()
 nodes[0].reset_data()
 
 logger.info("restart node 0")
-nodes[0].start(nodes[0].node_key.pk, nodes[0].addr())
+nodes[0].start(boot_node=nodes[0])
 time.sleep(3)
 
 node1_status = nodes[1].get_status()

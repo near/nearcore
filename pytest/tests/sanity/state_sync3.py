@@ -1,10 +1,12 @@
+#!/usr/bin/env python3
 # Spin up one validating node and make it produce blocks for more than one epoch
 # spin up another node that tracks the shard, make sure that it can state sync into the first node
 
 import sys, time
 import base58
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
@@ -45,7 +47,7 @@ while node0_height <= EPOCH_LENGTH * 2 + 1:
     status = nodes[0].get_status()
     node0_height = status['sync_info']['latest_block_height']
     time.sleep(5)
-nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[1].start(boot_node=nodes[1])
 time.sleep(2)
 
 logger.info("step 2")

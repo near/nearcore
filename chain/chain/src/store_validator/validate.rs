@@ -13,7 +13,7 @@ use near_primitives::syncing::{
 };
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::{
     ColBlock, ColBlockHeader, ColBlockHeight, ColBlockInfo, ColBlockMisc, ColBlockPerHeight,
@@ -54,7 +54,7 @@ macro_rules! get_parent_function_name {
 
 macro_rules! err {
     ($($x: tt),*) => (
-        return Err(StoreValidatorError::ValidationFailed { func_name: get_parent_function_name!(), error: format!($($x),*) } );
+        return Err(StoreValidatorError::ValidationFailed { func_name: get_parent_function_name!(), error: format!($($x),*) } )
     )
 }
 
@@ -81,7 +81,7 @@ macro_rules! unwrap_or_err {
                     reason: format!("{}, error: {}", format!($($x),*), e)
                 })
             }
-        };
+        }
     };
 }
 
@@ -101,7 +101,7 @@ macro_rules! unwrap_or_err_db {
                     reason: format!($($x),*)
                 })
             }
-        };
+        }
     };
 }
 
@@ -781,31 +781,6 @@ pub(crate) fn epoch_validity(
 ) -> Result<(), StoreValidatorError> {
     check_discrepancy!(sv.runtime_adapter.epoch_exists(epoch_id), true, "Invalid EpochInfo stored");
     Ok(())
-}
-
-pub(crate) fn last_block_chunk_included(
-    sv: &mut StoreValidator,
-    shard_id: &ShardId,
-    block_hash: &CryptoHash,
-) -> Result<(), StoreValidatorError> {
-    let block = unwrap_or_err_db!(
-        sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()),
-        "Can't get Block from DB"
-    );
-    for chunk_header in block.chunks().iter() {
-        if chunk_header.shard_id() == *shard_id {
-            // TODO #2893: Some Chunks missing
-            /*
-            unwrap_or_err_db!(
-                sv.store.get_ser::<ShardChunk>(ColChunks, chunk_header.chunk_hash().as_ref()),
-                "Can't get Chunk {:?} from storage",
-                chunk_header
-            );
-            */
-            return Ok(());
-        }
-    }
-    err!("ShardChunk is not included into Block {:?}", block)
 }
 
 pub(crate) fn gc_col_count(

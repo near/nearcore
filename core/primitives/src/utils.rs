@@ -1,9 +1,10 @@
 use std::cmp::max;
-use std::convert::{AsRef, TryFrom};
+use std::convert::AsRef;
 use std::fmt;
 
 use byteorder::{LittleEndian, WriteBytesExt};
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono;
+use chrono::{DateTime, NaiveDateTime};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde;
@@ -24,39 +25,146 @@ pub mod min_heap;
 /// Number of nano seconds in a second.
 const NS_IN_SECOND: u64 = 1_000_000_000;
 
-/// A data structure for tagging data as already being validated to prevent redundant work.
-pub enum MaybeValidated<T> {
-    Validated(T),
-    NotValidated(T),
+/// A data structure for tagging data as already being validated to prevent
+/// redundant work.
+///
+/// # Example
+///
+/// ```ignore
+/// struct Foo;
+/// struct Error;
+///
+/// /// Performs expensive validation of `foo`.
+/// fn validate_foo(foo: &Foo) -> Result<bool, Error>;
+///
+/// fn do_stuff(foo: Foo) {
+///     let foo = MaybeValidated::from(foo);
+///     do_stuff_with_foo(&foo);
+///     if foo.validate_with(validate_foo) {
+///         println!("^_^");
+///     }
+/// }
+///
+/// fn do_stuff_with_foo(foo: &MaybeValidated<Foo) {
+///     // …
+///     if maybe_do_something && foo.validate_with(validate_foo) {
+///         println!("@_@");
+///     }
+///     // …
+/// }
+/// ```
+#[derive(Clone)]
+pub struct MaybeValidated<T> {
+    validated: std::cell::Cell<bool>,
+    payload: T,
 }
 
 impl<T> MaybeValidated<T> {
-    pub fn validate_with<E, F: FnOnce(&T) -> Result<bool, E>>(&self, f: F) -> Result<bool, E> {
-        match &self {
-            Self::Validated(_) => Ok(true),
-            Self::NotValidated(t) => f(t),
+    /// Creates new MaybeValidated object marking payload as validated.  No
+    /// verification is performed; it’s caller’s responsibility to make sure the
+    /// payload has indeed been validated.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use near_primitives::utils::MaybeValidated;
+    ///
+    /// let value = MaybeValidated::from_validated(42);
+    /// assert!(value.is_validated());
+    /// assert_eq!(Ok(true), value.validate_with::<(), _>(|_| panic!()));
+    /// ```
+    pub fn from_validated(payload: T) -> Self {
+        Self { validated: std::cell::Cell::new(true), payload }
+    }
+
+    /// Validates payload with given `validator` function and returns result of
+    /// the validation.  If payload has already been validated returns
+    /// `Ok(true)`.  Note that this method changes the internal validated flag
+    /// so it’s probably incorrect to call it with different `validator`
+    /// functions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use near_primitives::utils::MaybeValidated;
+    ///
+    /// let value = MaybeValidated::from(42);
+    /// assert_eq!(Err(()), value.validate_with(|_| Err(())));
+    /// assert_eq!(Ok(false), value.validate_with::<(), _>(|v| Ok(*v == 24)));
+    /// assert!(!value.is_validated());
+    /// assert_eq!(Ok(true), value.validate_with::<(), _>(|v| Ok(*v == 42)));
+    /// assert!(value.is_validated());
+    /// assert_eq!(Ok(true), value.validate_with::<(), _>(|_| panic!()));
+    /// ```
+    pub fn validate_with<E, F: FnOnce(&T) -> Result<bool, E>>(
+        &self,
+        validator: F,
+    ) -> Result<bool, E> {
+        if self.validated.get() {
+            Ok(true)
+        } else {
+            let res = validator(&self.payload);
+            self.validated.set(*res.as_ref().unwrap_or(&false));
+            res
         }
     }
 
-    pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> MaybeValidated<U> {
-        match self {
-            Self::Validated(t) => MaybeValidated::Validated(f(t)),
-            Self::NotValidated(t) => MaybeValidated::NotValidated(f(t)),
-        }
+    /// Marks the payload as valid.  No verification is performed; it’s caller’s
+    /// responsibility to make sure the payload has indeed been validated.
+    pub fn mark_as_valid(&self) {
+        self.validated.set(true);
     }
 
+    /// Applies function to the payload (whether it’s been validated or not) and
+    /// returns new object with result of the function as payload.  Validated
+    /// state is not changed.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use near_primitives::utils::MaybeValidated;
+    ///
+    /// let value = MaybeValidated::from(42);
+    /// assert_eq!("42", value.map(|v| v.to_string()).into_inner());
+    /// ```
+    pub fn map<U, F: FnOnce(T) -> U>(self, validator: F) -> MaybeValidated<U> {
+        MaybeValidated { validated: self.validated, payload: validator(self.payload) }
+    }
+
+    /// Returns a new object storing reference to this object’s payload.  Note
+    /// that the two objects do not share the validated state so calling
+    /// `validate_with` on one of them does not affect the other.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use near_primitives::utils::MaybeValidated;
+    ///
+    /// let value = MaybeValidated::from(42);
+    /// let value_as_ref = value.as_ref();
+    /// assert_eq!(Ok(true), value_as_ref.validate_with::<(), _>(|&&v| Ok(v == 42)));
+    /// assert!(value_as_ref.is_validated());
+    /// assert!(!value.is_validated());
+    /// ```
     pub fn as_ref(&self) -> MaybeValidated<&T> {
-        match &self {
-            Self::Validated(ref t) => MaybeValidated::Validated(t),
-            Self::NotValidated(ref t) => MaybeValidated::NotValidated(t),
-        }
+        MaybeValidated { validated: self.validated.clone(), payload: &self.payload }
     }
 
-    pub fn extract(self) -> T {
-        match self {
-            Self::Validated(t) => t,
-            Self::NotValidated(t) => t,
-        }
+    /// Returns whether the payload has been validated.
+    pub fn is_validated(&self) -> bool {
+        self.validated.get()
+    }
+
+    /// Extracts the payload whether or not it’s been validated.
+    pub fn into_inner(self) -> T {
+        self.payload
+    }
+}
+
+impl<T> From<T> for MaybeValidated<T> {
+    /// Creates new MaybeValidated object marking payload as not validated.
+    fn from(payload: T) -> Self {
+        Self { validated: std::cell::Cell::new(false), payload }
     }
 }
 
@@ -64,10 +172,7 @@ impl<T: Sized> Deref for MaybeValidated<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        match &self {
-            Self::Validated(t) => t,
-            Self::NotValidated(t) => t,
-        }
+        &self.payload
     }
 }
 
@@ -313,18 +418,18 @@ macro_rules! unwrap_option_or_return {
 }
 
 /// Converts timestamp in ns into DateTime UTC time.
-pub fn from_timestamp(timestamp: u64) -> DateTime<Utc> {
+pub fn from_timestamp(timestamp: u64) -> DateTime<chrono::Utc> {
     DateTime::from_utc(
         NaiveDateTime::from_timestamp(
             (timestamp / NS_IN_SECOND) as i64,
             (timestamp % NS_IN_SECOND) as u32,
         ),
-        Utc,
+        chrono::Utc,
     )
 }
 
 /// Converts DateTime UTC time into timestamp in ns.
-pub fn to_timestamp(time: DateTime<Utc>) -> u64 {
+pub fn to_timestamp(time: DateTime<chrono::Utc>) -> u64 {
     time.timestamp_nanos() as u64
 }
 

@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use std::io::Result;
-use std::iter::FromIterator;
 use std::path::Path;
 
 use clap::{App, Arg};
@@ -8,7 +7,6 @@ use clap::{App, Arg};
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_store::create_store;
 use nearcore::migrations::load_migration_data;
 use nearcore::{get_default_home, get_store_path, load_config, NightshadeRuntime, TrackedConfig};
@@ -61,7 +59,7 @@ fn main() -> Result<()> {
         TrackedConfig::from_config(&near_config.client_config),
         None,
         near_config.client_config.max_gas_burnt_view,
-        RuntimeConfigStore::new(None),
+        None,
     );
 
     let mut receipts_missing = Vec::<Receipt>::new();

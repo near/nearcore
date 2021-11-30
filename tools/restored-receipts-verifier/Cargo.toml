@@ -1,9 +1,9 @@
 [package]
 name = "restored-receipts-verifier"
-version = "0.1.0"
+version = "0.0.0"
 authors = ["Aleksandr Logunov <alex.logunov@near.org>"]
 publish = false
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -16,4 +16,3 @@ nearcore = { path = "../../nearcore" }
 near-store = { path = "../../core/store" }
 near-chain = { path = "../../chain/chain" }
 near-jsonrpc = { path = "../../chain/jsonrpc" }
-

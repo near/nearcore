@@ -13,9 +13,10 @@ import json
 import subprocess
 import shutil
 import re
+import pathlib
 from deepdiff import DeepDiff
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 import branches
 import cluster
@@ -24,7 +25,7 @@ from utils import wait_for_blocks_or_timeout, get_near_tempdir
 
 def main():
     node_root = get_near_tempdir('state_migration', clean=True)
-    executables = branches.prepare_ab_test('beta')
+    executables = branches.prepare_ab_test('betanet')
 
     # Run stable node for few blocks.
     subprocess.call([
@@ -39,8 +40,7 @@ def main():
         'binary_name': "neard-%s" % stable_branch
     }
     stable_node = cluster.spin_up_node(config, near_root,
-                                       os.path.join(node_root, "test0"), 0,
-                                       None, None)
+                                       os.path.join(node_root, "test0"), 0)
 
     wait_for_blocks_or_timeout(stable_node, 20, 100)
     # TODO: we should make state more interesting to migrate by sending some tx / contracts.
@@ -81,8 +81,7 @@ def main():
     # Run new node and verify it runs for a few more blocks.
     config["binary_name"] = "neard-%s" % current_branch
     current_node = cluster.spin_up_node(config, near_root,
-                                        os.path.join(node_root, "test0"), 0,
-                                        None, None)
+                                        os.path.join(node_root, "test0"), 0)
 
     wait_for_blocks_or_timeout(current_node, 20, 100)
 

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from rc import run, gcloud, pmap
 import json
 import datetime
@@ -10,7 +11,7 @@ from tqdm import tqdm
 import shutil
 import sys
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from cluster import apply_config_changes, apply_genesis_changes
 from utils import user_name
 
@@ -177,8 +178,8 @@ python2 scripts/start_stakewars.py --local --home {node_dir} --init --signer-key
 
 # Generate csv from jsons and ips
 def pk_from_file(path):
-    with open(path) as f:
-        return json.loads(f.read())['public_key']
+    with open(path) as rd:
+        return json.load(rd)['public_key']
 
 
 def get_validator_key(i):

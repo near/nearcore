@@ -4,7 +4,7 @@ pub mod fuzzing;
 pub mod run_test;
 pub mod scenario_builder;
 
-pub use crate::run_test::{BlockConfig, NetworkConfig, Scenario, TransactionConfig};
+pub use crate::run_test::{BlockConfig, NetworkConfig, RuntimeConfig, Scenario, TransactionConfig};
 pub use crate::scenario_builder::ScenarioBuilder;
 
 #[test]
@@ -21,6 +21,11 @@ fn scenario_smoke_test() {
 
     let mut scenario = Scenario {
         network_config: NetworkConfig { seeds: seeds },
+        runtime_config: RuntimeConfig {
+            max_total_prepaid_gas: 300 * 10u64.pow(12),
+            gas_limit: 1_000_000_000_000_000,
+            epoch_length: 500,
+        },
         blocks: Vec::new(),
         use_in_memory_store: true,
     };

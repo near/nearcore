@@ -1,9 +1,9 @@
 [package]
 name = "near-indexer"
-version = "0.10.1"
+version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 actix = "=0.11.0-beta.2"

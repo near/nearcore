@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins two block producers and two observers.
 # Wait several epochs and spin up another observer that
 # is blacklisted by both block producers.
@@ -13,8 +14,9 @@
 #     makes sure the balances are correct at the end
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 if len(sys.argv) < 3:
     logger.info("python state_sync.py [notx, onetx, manytx] <launch_at_block>")
@@ -35,26 +37,47 @@ config = load_config()
 near_root, node_dirs = init_cluster(
     2, 3, 1, config,
     [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
-     ["block_producer_kickout_threshold", 80]], {4: {
-         "tracked_shards": [0]
-     }})
+     ["block_producer_kickout_threshold", 80]], {
+         0: {
+             "tracked_shards": [0]
+         },
+         1: {
+             "tracked_shards": [0]
+         },
+         2: {
+             "tracked_shards": [0]
+         },
+         3: {
+             "tracked_shards": [0]
+         },
+         4: {
+             "tracked_shards": [0]
+         },
+     })
 
 started = time.time()
 
 # First observer
-node2 = spin_up_node(config, near_root, node_dirs[2], 2, None, None)
+node2 = spin_up_node(config, near_root, node_dirs[2], 2)
 # Boot from observer since block producer will blacklist third observer
 boot_node = node2
 
 # Second observer
-node3 = spin_up_node(config, near_root, node_dirs[3], 3, boot_node.node_key.pk,
-                     boot_node.addr())
+node3 = spin_up_node(config, near_root, node_dirs[3], 3, boot_node=boot_node)
 
 # Spin up validators
-node0 = spin_up_node(config, near_root, node_dirs[0], 0, boot_node.node_key.pk,
-                     boot_node.addr(), [4])
-node1 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk,
-                     boot_node.addr(), [4])
+node0 = spin_up_node(config,
+                     near_root,
+                     node_dirs[0],
+                     0,
+                     boot_node=boot_node,
+                     blacklist=[4])
+node1 = spin_up_node(config,
+                     near_root,
+                     node_dirs[1],
+                     1,
+                     boot_node=boot_node,
+                     blacklist=[4])
 
 ctx = TxContext([0, 0], [node0, node1])
 
@@ -83,8 +106,12 @@ while observed_height < START_AT_BLOCK:
 if mode == 'onetx':
     assert ctx.get_balances() == ctx.expected_balances
 
-node4 = spin_up_node(config, near_root, node_dirs[4], 4, boot_node.node_key.pk,
-                     boot_node.addr(), [0, 1])
+node4 = spin_up_node(config,
+                     near_root,
+                     node_dirs[4],
+                     4,
+                     boot_node=boot_node,
+                     blacklist=[0, 1])
 tracker4 = LogTracker(node4)
 time.sleep(3)
 

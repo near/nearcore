@@ -1,13 +1,12 @@
 use crate::runtime::config::RuntimeConfig;
 use crate::types::ProtocolVersion;
 use std::collections::BTreeMap;
-use std::iter::FromIterator;
 use std::ops::Bound;
 use std::sync::Arc;
 
 macro_rules! include_config {
     ($file:expr) => {
-        include_bytes!(concat!("../../../../nearcore/res/runtime_configs/", $file))
+        include_bytes!(concat!("../../res/runtime_configs/", $file))
     };
 }
 
@@ -19,7 +18,10 @@ static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (0, include_config!("29.json")),
     (42, include_config!("42.json")),
     (48, include_config!("48.json")),
+    (49, include_config!("49.json")),
 ];
+
+pub static INITIAL_TESTNET_CONFIG: &[u8] = include_config!("29_testnet.json");
 
 /// Stores runtime config for each protocol version where it was updated.
 #[derive(Debug)]
@@ -54,13 +56,18 @@ impl RuntimeConfigStore {
     }
 
     /// Constructs test store.
+    pub fn with_one_config(runtime_config: RuntimeConfig) -> Self {
+        Self { store: BTreeMap::from_iter([(0, Arc::new(runtime_config))].iter().cloned()) }
+    }
+
+    /// Constructs test store.
     pub fn test() -> Self {
-        Self { store: BTreeMap::from_iter([(0, Arc::new(RuntimeConfig::test()))].iter().cloned()) }
+        Self::with_one_config(RuntimeConfig::test())
     }
 
     /// Constructs store with a single config with zero costs.
     pub fn free() -> Self {
-        Self { store: BTreeMap::from_iter([(0, Arc::new(RuntimeConfig::free()))].iter().cloned()) }
+        Self::with_one_config(RuntimeConfig::free())
     }
 
     /// Returns a `RuntimeConfig` for the corresponding protocol version.
@@ -106,9 +113,10 @@ mod tests {
     #[test]
     fn test_runtime_config_data() {
         let expected_hashes = vec![
-            "3VBfW1GkXwKNiThPhrtjm2qGupYv5oEEZWapduXkd2gY",
-            "BdCfuR4Gb5qgr2nhxUgGyDHesuhZg3Az5D3sEwQdQCvC",
-            "2AUtULBkjrfzTepo6zFFMp4ShtiKgjpoUjoyRXLpcxiw",
+            "FF2Qg5qSM6iWQjD5ZyzEhdAV2g5MyQKXGYh4kyt8mMcE",
+            "97UzHtVFBc4235jdur3DgNSUGNfGQfzRDLmAkYdZ19Re",
+            "C6uw6BoeXr3KoKpVP34hBA7TqoywMbwMtJgqbTpPCiSB",
+            "2cuq2HvuHT7Z27LUbgEtMxP2ejqrHK34J2V1GL1joiMn",
         ];
         let actual_hashes = CONFIGS
             .iter()

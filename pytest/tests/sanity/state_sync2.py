@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up two block producing nodes. Uses a large number of block producer seats to ensure
 # both block producers are validating both shards.
 # Gets to 105 blocks and nukes + wipes one of the block producers. Makes sure it can recover
@@ -5,8 +6,9 @@
 
 import sys, time
 import fcntl
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
@@ -48,7 +50,7 @@ logger.info("Got to %s blocks, rebooting the first node" % BLOCKS)
 nodes[0].kill()
 nodes[0].reset_data()
 tracker = LogTracker(nodes[0])
-nodes[0].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[0].start(boot_node=nodes[1])
 time.sleep(3)
 
 while True:

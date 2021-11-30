@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spin up one validating node and one nonvalidating node
 # stop the nonvalidating node in the second epoch and
 # restart it in the fourth epoch to trigger state sync
@@ -5,8 +6,9 @@
 # collected blocks.
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
@@ -57,7 +59,7 @@ while height < TARGET_HEIGHT2:
     height = status0['sync_info']['latest_block_height']
 
 logger.info('Restart node 1')
-nodes[1].start(nodes[0].node_key.pk, nodes[0].addr())
+nodes[1].start(boot_node=nodes[0])
 
 start = time.time()
 while height < TARGET_HEIGHT3:

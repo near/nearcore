@@ -1,8 +1,8 @@
 [package]
 name = "near-rpc-error-macro"
-version = "0.1.0"
+version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2018"
+edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/nearprotocol/nearcore"
 homepage = "https://github.com/nearprotocol/nearcore"
@@ -20,7 +20,7 @@ syn = { version = "1.0", features = ["full", "extra-traits"]}
 quote = "1.0"
 proc-macro2 = "1.0"
 
-near-rpc-error-core = { path = "../core", version = "0.1.0" }
+near-rpc-error-core = { path = "../core" }
 
 [features]
 test = []

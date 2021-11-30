@@ -10,13 +10,13 @@ use near_store::{ShardTries, ShardUId, StoreCompiledContractCache};
 use near_vm_logic::VMLimitConfig;
 use nearcore::get_store_path;
 use node_runtime::{ApplyState, Runtime};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 pub struct RuntimeTestbed {
     /// Directory where we temporarily keep the storage.
     #[allow(dead_code)]
-    workdir: tempfile::TempDir,
+    pub(crate) workdir: tempfile::TempDir,
     tries: ShardTries,
     root: MerkleHash,
     runtime: Runtime,
@@ -29,7 +29,6 @@ impl RuntimeTestbed {
     /// Copies dump from another directory and loads the state from it.
     pub fn from_state_dump(dump_dir: &Path) -> Self {
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-        println!("workdir {}", workdir.path().display());
         let store_path = get_store_path(workdir.path());
         let StateDump { store, roots } = StateDump::from_dir(dump_dir, &store_path);
         let tries = ShardTries::new(store.clone(), 0, 1);
@@ -41,6 +40,7 @@ impl RuntimeTestbed {
         let mut runtime_config =
             RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).as_ref().clone();
 
+        // Override vm limits config to simplify block processing.
         runtime_config.wasm_config.limit_config = VMLimitConfig {
             max_total_log_length: u64::MAX,
             max_number_registers: u64::MAX,
@@ -55,7 +55,7 @@ impl RuntimeTestbed {
             max_total_prepaid_gas: u64::MAX,
             max_number_bytes_method_names: u64::MAX,
 
-            ..Default::default()
+            ..VMLimitConfig::test()
         };
         runtime_config.account_creation_config.min_allowed_top_level_account_length = 0;
 
@@ -136,11 +136,5 @@ impl RuntimeTestbed {
         while !self.prev_receipts.is_empty() {
             self.process_block(&[], allow_failures);
         }
-    }
-
-    pub fn dump_state(&mut self) -> Result<PathBuf, Box<dyn std::error::Error>> {
-        let state_dump = StateDump { store: self.tries.get_store(), roots: vec![self.root] };
-        state_dump.save_to_dir(self.workdir.path().to_path_buf())?;
-        Ok(self.workdir.path().to_path_buf())
     }
 }

@@ -1,17 +1,19 @@
-use crate::{run_vm, ContractCallPrepareRequest, ContractCaller, VMError, VMKind};
-use near_primitives::contract::ContractCode;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMOutcome};
-
-use crate::cache::precompile_contract_vm;
-use crate::errors::ContractPrecompilatonResult;
-use near_primitives::types::CompiledContractCache;
-use near_vm_errors::VMError::FunctionCallError;
-use near_vm_logic::mocks::mock_external::MockedExternal;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
+
+use near_primitives::contract::ContractCode;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::types::CompiledContractCache;
+use near_vm_errors::VMError::FunctionCallError;
+use near_vm_logic::mocks::mock_external::MockedExternal;
+use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMOutcome};
+
+use crate::cache::precompile_contract_vm;
+use crate::errors::ContractPrecompilatonResult;
+use crate::vm_kind::VMKind;
+use crate::{ContractCallPrepareRequest, ContractCaller, VMError};
 
 fn default_vm_context() -> VMContext {
     return VMContext {
@@ -99,7 +101,7 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
     let mut fake_external = MockedExternal::new();
 
     let context = default_vm_context();
-    let vm_config = VMConfig::default();
+    let vm_config = VMConfig::test();
     let cache: Option<Arc<dyn CompiledContractCache>> =
         Some(Arc::new(MockCompiledContractCache::new(0)));
     let fees = RuntimeFeesConfig::test();
@@ -136,8 +138,9 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
             errs += err;
         }
     } else {
+        let runtime = vm_kind.runtime().expect("runtime is has not been compiled");
         for _ in 0..repeat {
-            let result1 = run_vm(
+            let result1 = runtime.run(
                 &code1,
                 method_name1,
                 &mut fake_external,
@@ -145,14 +148,13 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
                 &vm_config,
                 &fees,
                 &promise_results,
-                vm_kind,
                 ProtocolVersion::MAX,
                 cache.as_deref(),
             );
             let (ok, err) = test_result(result1, false);
             oks += ok;
             errs += err;
-            let result2 = run_vm(
+            let result2 = runtime.run(
                 &code2,
                 method_name1,
                 &mut fake_external,
@@ -160,7 +162,6 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
                 &vm_config,
                 &fees,
                 &promise_results,
-                vm_kind,
                 ProtocolVersion::MAX,
                 cache.as_deref(),
             );
@@ -193,7 +194,7 @@ pub fn test_run_preloaded() {
 fn test_precompile_vm(vm_kind: VMKind) {
     let mock_cache = MockCompiledContractCache::new(0);
     let cache: Option<&dyn CompiledContractCache> = Some(&mock_cache);
-    let vm_config = VMConfig::default();
+    let vm_config = VMConfig::test();
     let code1 = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
     let code2 = ContractCode::new(near_test_contracts::ts_contract().to_vec(), None);
 

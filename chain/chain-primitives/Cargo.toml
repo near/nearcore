@@ -1,8 +1,12 @@
 [package]
 name = "near-chain-primitives"
-version = "0.1.0"
+version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2018"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/near/nearcore"
+homepage = "https://github.com/near/nearcore"
+description = "This crate hosts NEAR chain-related error types"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

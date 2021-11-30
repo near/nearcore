@@ -8,9 +8,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::KeyType;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::epoch_info::EpochInfoV1;
+use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochInfoV1};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum};
@@ -22,7 +20,6 @@ use near_primitives::sharding::{
 use near_primitives::syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::trie_key::TrieKey;
-#[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{
@@ -181,15 +178,12 @@ pub fn migrate_9_to_10(path: &Path, is_archival: bool) {
             let chunk: ShardChunkV1 = BorshDeserialize::try_from_slice(&value)
                 .expect("Borsh deserialization should not fail");
             let ShardChunkV1 { chunk_hash, header, transactions, receipts } = chunk;
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             let proposals = header
                 .inner
                 .validator_proposals
                 .iter()
                 .map(|v| ValidatorStake::V1(v.clone()))
                 .collect();
-            #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-            let proposals = header.inner.validator_proposals.clone();
             let (encoded_chunk, merkle_paths) = EncodedShardChunk::new(
                 header.inner.prev_block_hash,
                 header.inner.prev_state_root,
@@ -570,8 +564,6 @@ pub fn migrate_14_to_15(path: &Path) {
 }
 
 pub fn migrate_17_to_18(path: &Path) {
-    use std::convert::TryFrom;
-
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::types::validator_stake::ValidatorStakeV1;
     use near_primitives::types::{BlockHeight, EpochId};
@@ -741,8 +733,17 @@ pub fn migrate_26_to_27(path: &Path, is_archival: bool) {
     set_store_version(&store, 27);
 }
 
-#[cfg(feature = "protocol_feature_block_header_v3")]
-pub fn migrate_18_to_new_validator_stake(store: &Store) {
+pub fn migrate_28_to_29(path: &Path) {
+    let store = create_store(path);
+    let mut store_update = store.store_update();
+    store_update.delete_all(DBCol::_ColNextBlockWithNewChunk);
+    store_update.delete_all(DBCol::_ColLastBlockWithNewChunk);
+    store_update.commit().unwrap();
+
+    set_store_version(&store, 29);
+}
+
+pub fn migrate_29_to_30(path: &Path) {
     use near_primitives::epoch_manager::block_info::{BlockInfo, BlockInfoV1};
     use near_primitives::epoch_manager::epoch_info::EpochSummary;
     use near_primitives::epoch_manager::AGGREGATOR_KEY;
@@ -753,6 +754,8 @@ pub fn migrate_18_to_new_validator_stake(store: &Store) {
         ValidatorKickoutReason, ValidatorStats,
     };
     use std::collections::BTreeMap;
+
+    let store = create_store(path);
 
     #[derive(BorshDeserialize)]
     pub struct OldEpochSummary {
@@ -823,5 +826,8 @@ pub fn migrate_18_to_new_validator_stake(store: &Store) {
             store_update.set_ser(col, key.as_ref(), &new_value).unwrap();
         }
     }
+
     store_update.finish().unwrap();
+
+    set_store_version(&store, 30);
 }

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up a node, then waits for couple epochs
 # and spins up another node
 # Makes sure that eventually the second node catches up
@@ -10,8 +11,9 @@
 #     makes sure the balances are correct at the end
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 if len(sys.argv) < 3:
     logger.info("python state_sync.py [notx, onetx, manytx] <launch_at_block>")
@@ -45,9 +47,8 @@ near_root, node_dirs = init_cluster(
 
 started = time.time()
 
-boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
-node1 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk,
-                     boot_node.addr())
+boot_node = spin_up_node(config, near_root, node_dirs[0], 0)
+node1 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node=boot_node)
 
 ctx = TxContext([0, 0], [boot_node, node1])
 
@@ -76,8 +77,7 @@ while observed_height < START_AT_BLOCK:
 if mode == 'onetx':
     assert ctx.get_balances() == ctx.expected_balances
 
-node2 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk,
-                     boot_node.addr())
+node2 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node=boot_node)
 tracker = LogTracker(node2)
 time.sleep(3)
 

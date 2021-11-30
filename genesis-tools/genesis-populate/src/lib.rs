@@ -3,7 +3,6 @@
 pub mod state_dump;
 
 use std::collections::BTreeMap;
-use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -18,7 +17,6 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -70,7 +68,7 @@ impl GenesisBuilder {
             TrackedConfig::new_empty(),
             None,
             None,
-            RuntimeConfigStore::new(Some(&genesis.config.runtime_config)),
+            None,
         );
         Self {
             home_dir: home_dir.to_path_buf(),
@@ -165,12 +163,12 @@ impl GenesisBuilder {
         }
         let mut state_update =
             self.state_updates.remove(&shard_idx).expect("State updates are always available");
+        let protocol_config = self.runtime.get_protocol_config(&EpochId::default())?;
+        let runtime_config = protocol_config.runtime_config;
 
         // Compute storage usage and update accounts.
-        for (account_id, storage_usage) in self
-            .runtime
-            .runtime
-            .compute_storage_usage(&records, &self.genesis.config.runtime_config)
+        for (account_id, storage_usage) in
+            self.runtime.runtime.compute_storage_usage(&records, &runtime_config)
         {
             let mut account =
                 get_account(&state_update, &account_id)?.expect("We should've created account");
@@ -205,7 +203,12 @@ impl GenesisBuilder {
             self.genesis.config.genesis_height,
             self.genesis.config.min_gas_price,
             self.genesis.config.total_supply,
-            Chain::compute_bp_hash(&self.runtime, EpochId::default(), &CryptoHash::default())?,
+            Chain::compute_bp_hash(
+                &self.runtime,
+                EpochId::default(),
+                EpochId::default(),
+                &CryptoHash::default(),
+            )?,
         );
 
         let mut store = ChainStore::new(self.store.clone(), self.genesis.config.genesis_height);

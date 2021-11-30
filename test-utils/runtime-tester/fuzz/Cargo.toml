@@ -1,10 +1,9 @@
-
 [package]
 name = "runtime-tester-fuzz"
 version = "0.0.0"
 authors = ["Automatically generated"]
 publish = false
-edition = "2018"
+edition = "2021"
 
 [package.metadata]
 cargo-fuzz = true
@@ -15,10 +14,6 @@ serde_json = "1"
 
 [dependencies.runtime-tester]
 path = ".."
-
-# Prevent this from interfering with workspaces
-[workspace]
-members = ["."]
 
 [[bin]]
 name = "runtime-fuzzer"

@@ -6,13 +6,12 @@ use serde::ser::{Serialize, Serializer};
 use serde_json::json;
 use tokio;
 
-use near_jsonrpc_test_utils as test_utils;
+use near_jsonrpc_tests as test_utils;
 
 static mut NODE_ADDR: Option<String> = None;
 static NODE_INIT: std::sync::Once = std::sync::Once::new();
 
-#[derive(Debug, arbitrary::Arbitrary, serde::Serialize)]
-#[serde(tag = "method", content = "params", rename_all = "snake_case")]
+#[derive(Debug, arbitrary::Arbitrary)]
 enum JsonRpcRequest {
     Query(RpcQueryRequest),
     Block(RpcBlockRequest),
@@ -105,12 +104,17 @@ enum RpcBroadcastTx {
 }
 
 impl JsonRpcRequest {
-    fn json(&self) -> serde_json::Value {
-        let mut request_data = serde_json::to_value(self).unwrap();
-        let request_data_obj = request_data.as_object_mut().unwrap();
-        request_data_obj.insert("jsonrpc".to_string(), json!("2.0"));
-        request_data_obj.insert("id".to_string(), json!("dontcare"));
-        request_data
+    fn method_and_params(&self) -> (&str, serde_json::Value) {
+        match self {
+            JsonRpcRequest::Query(request) => ("query", json!(request)),
+            JsonRpcRequest::Block(request) => ("block", json!(request)),
+            JsonRpcRequest::Chunk(request) => ("chunk", json!(request)),
+            JsonRpcRequest::Tx(request) => ("tx", json!(request)),
+            JsonRpcRequest::Validators(request) => ("validators", json!(request)),
+            JsonRpcRequest::GasPrice(request) => ("gas_price", json!(request)),
+            JsonRpcRequest::BroadcastTxAsync(request) => ("broadcast_tx_async", json!(request)),
+            JsonRpcRequest::BroadcastTxCommit(request) => ("broadcast_tx_commit", json!(request)),
+        }
     }
 }
 
@@ -132,29 +136,21 @@ impl Serialize for Base64String {
     }
 }
 
-lazy_static::lazy_static! {
-    static ref RUNTIME: std::sync::Mutex<tokio::runtime::Runtime> = {
+static RUNTIME: once_cell::sync::Lazy<std::sync::Mutex<tokio::runtime::Runtime>> =
+    once_cell::sync::Lazy::new(|| {
         std::sync::Mutex::new(
-            tokio::runtime::Builder::new()
-                .basic_scheduler()
-                .threaded_scheduler()
-                .enable_all()
-                .build()
-                .unwrap(),
+            tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap(),
         )
-    };
-}
+    });
 
 fuzz_target!(|requests: Vec<JsonRpcRequest>| {
     NODE_INIT.call_once(|| {
         std::thread::spawn(|| {
-            System::new()
-                .block_on(async {
-                    let (_view_client_addr, addr) =
-                        test_utils::start_all(test_utils::NodeType::NonValidator);
-                    unsafe { NODE_ADDR = Some(addr) }
-                })
-                .unwrap();
+            System::new().block_on(async {
+                let (_view_client_addr, addr) =
+                    test_utils::start_all(test_utils::NodeType::NonValidator);
+                unsafe { NODE_ADDR = Some(addr) }
+            });
         });
     });
 
@@ -168,19 +164,18 @@ fuzz_target!(|requests: Vec<JsonRpcRequest>| {
 
     RUNTIME.lock().unwrap().block_on(async move {
         for request in requests {
-            let post_data = request.json();
-            eprintln!("POST DATA: {:?} | {}", post_data, post_data.to_string());
-            let client = reqwest::Client::new();
-            let response = client
-                .post(&format!("http://{}", unsafe { NODE_ADDR.as_ref().unwrap() }))
-                .json(&post_data)
-                .send()
-                .await
-                .unwrap();
-            if response.status() != 200 {
-                return false;
-            }
-            let result_or_error: serde_json::Value = response.json().await.unwrap();
+            let (method, params) = request.method_and_params();
+            eprintln!("POST DATA: {{method = {}}} {{params = {}}}", method, params);
+
+            let client = awc::Client::new();
+            let result_or_error = test_utils::call_method::<serde_json::Value>(
+                &client,
+                unsafe { NODE_ADDR.as_ref().unwrap() },
+                method,
+                params,
+            )
+            .await
+            .unwrap();
             eprintln!("RESPONSE: {:#?}", result_or_error);
             assert!(result_or_error["error"] != serde_json::json!(null));
         }

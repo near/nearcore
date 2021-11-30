@@ -1,4 +1,6 @@
+#[cfg(feature = "protocol_feature_chunk_only_producers")]
 use crate::shard_assignment::assign_shards;
+use near_primitives::checked_feature;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{EpochConfig, RngSeed};
 use near_primitives::errors::EpochError;
@@ -8,8 +10,11 @@ use near_primitives::types::{
 };
 use num_rational::Ratio;
 use std::cmp::{self, Ordering};
-use std::collections::{hash_map, BTreeMap, BinaryHeap, HashMap, HashSet};
+#[cfg(feature = "protocol_feature_chunk_only_producers")]
+use std::collections::hash_map;
+use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
 
+/// Select validators for next epoch and generate epoch info
 pub fn proposals_to_epoch_info(
     epoch_config: &EpochConfig,
     rng_seed: RngSeed,
@@ -32,10 +37,6 @@ pub fn proposals_to_epoch_info(
         Ratio::new(*rational.numer() as u128, *rational.denom() as u128)
     };
     let max_bp_selected = epoch_config.num_block_producer_seats as usize;
-    let max_cp_selected = max_bp_selected
-        + (epoch_config.validator_selection_config.num_chunk_only_producer_seats as usize);
-    let minimum_validators_per_shard =
-        epoch_config.validator_selection_config.minimum_validators_per_shard as usize;
     let mut stake_change = BTreeMap::new();
     let mut fishermen = vec![];
     let proposals = proposals_with_rollover(
@@ -50,12 +51,24 @@ pub fn proposals_to_epoch_info(
         order_proposals(proposals.values().filter(|p| !p.is_chunk_only()).cloned());
     let (block_producers, bp_stake_threshold) =
         select_block_producers(&mut block_producer_proposals, max_bp_selected, min_stake_ratio);
-    let mut chunk_producer_proposals = order_proposals(proposals.into_iter().map(|(_, p)| p));
-    let (chunk_producers, cp_stake_threshold) = select_chunk_producers(
-        &mut chunk_producer_proposals,
-        max_cp_selected,
-        min_stake_ratio,
-        num_shards,
+    let (chunk_producer_proposals, chunk_producers, cp_stake_threshold) = checked_feature!(
+        "protocol_feature_chunk_only_producers",
+        ChunkOnlyProducers,
+        next_version,
+        {
+            let mut chunk_producer_proposals =
+                order_proposals(proposals.into_iter().map(|(_, p)| p));
+            let max_cp_selected = max_bp_selected
+                + (epoch_config.validator_selection_config.num_chunk_only_producer_seats as usize);
+            let (chunk_producers, cp_stake_treshold) = select_chunk_producers(
+                &mut chunk_producer_proposals,
+                max_cp_selected,
+                min_stake_ratio,
+                num_shards,
+            );
+            (chunk_producer_proposals, chunk_producers, cp_stake_treshold)
+        },
+        { (block_producer_proposals, block_producers.clone(), bp_stake_threshold) }
     );
 
     // since block producer proposals could become chunk producers, their actual stake threshold
@@ -97,39 +110,72 @@ pub fn proposals_to_epoch_info(
         all_validators.push(bp);
     }
 
-    let shard_assignment =
-        assign_shards(chunk_producers, num_shards as usize, minimum_validators_per_shard).map_err(
-            |_| EpochError::NotEnoughValidators {
-                num_validators: num_chunk_producers as u64,
-                num_shards,
-            },
-        )?;
+    let chunk_producers_settlement = checked_feature!(
+        "protocol_feature_chunk_only_producers",
+        ChunkOnlyProducers,
+        next_version,
+        {
+            let minimum_validators_per_shard =
+                epoch_config.validator_selection_config.minimum_validators_per_shard as usize;
+            let shard_assignment =
+                assign_shards(chunk_producers, num_shards as usize, minimum_validators_per_shard)
+                    .map_err(|_| EpochError::NotEnoughValidators {
+                    num_validators: num_chunk_producers as u64,
+                    num_shards,
+                })?;
 
-    let mut chunk_producers_settlement: Vec<Vec<ValidatorId>> =
-        shard_assignment.iter().map(|vs| Vec::with_capacity(vs.len())).collect();
-    let mut i = all_validators.len();
-    for (shard_validators, shard_validator_ids) in
-        shard_assignment.into_iter().zip(chunk_producers_settlement.iter_mut())
-    {
-        for validator in shard_validators {
-            debug_assert_eq!(i, all_validators.len());
-            match validator_to_index.entry(validator.account_id().clone()) {
-                hash_map::Entry::Vacant(entry) => {
-                    let validator_id = i as ValidatorId;
-                    entry.insert(validator_id);
-                    shard_validator_ids.push(validator_id);
-                    all_validators.push(validator);
-                    i += 1;
-                }
-                // Validators which have an entry in the validator_to_index map
-                // have already been inserted into `all_validators`.
-                hash_map::Entry::Occupied(entry) => {
-                    let validator_id = *entry.get();
-                    shard_validator_ids.push(validator_id);
+            let mut chunk_producers_settlement: Vec<Vec<ValidatorId>> =
+                shard_assignment.iter().map(|vs| Vec::with_capacity(vs.len())).collect();
+            let mut i = all_validators.len();
+            // Here we assign validator ids to all chunk only validators
+            for (shard_validators, shard_validator_ids) in
+                shard_assignment.into_iter().zip(chunk_producers_settlement.iter_mut())
+            {
+                for validator in shard_validators {
+                    debug_assert_eq!(i, all_validators.len());
+                    match validator_to_index.entry(validator.account_id().clone()) {
+                        hash_map::Entry::Vacant(entry) => {
+                            let validator_id = i as ValidatorId;
+                            entry.insert(validator_id);
+                            shard_validator_ids.push(validator_id);
+                            all_validators.push(validator);
+                            i += 1;
+                        }
+                        // Validators which have an entry in the validator_to_index map
+                        // have already been inserted into `all_validators`.
+                        hash_map::Entry::Occupied(entry) => {
+                            let validator_id = *entry.get();
+                            shard_validator_ids.push(validator_id);
+                        }
+                    }
                 }
             }
+            chunk_producers_settlement
+        },
+        {
+            if chunk_producers.is_empty() {
+                // All validators tried to unstake?
+                return Err(EpochError::NotEnoughValidators { num_validators: 0u64, num_shards });
+            }
+            let mut id = 0usize;
+            // Here we assign validators to chunks (we try to keep number of shards assigned for
+            // each validator as even as possible). Note that in prod configuration number of seats
+            // per shard is the same as maximal number of block producers, so normally all
+            // validators would be assigned to all chunks
+            (0usize..(num_shards as usize))
+                .map(|shard_id| {
+                    (0..epoch_config.num_block_producer_seats_per_shard[shard_id]
+                        .min(block_producers_settlement.len() as u64))
+                        .map(|_| {
+                            let res = block_producers_settlement[id];
+                            id = (id + 1) % block_producers_settlement.len();
+                            res
+                        })
+                        .collect()
+                })
+                .collect()
         }
-    }
+    );
 
     let fishermen_to_index = fishermen
         .iter()
@@ -156,6 +202,17 @@ pub fn proposals_to_epoch_info(
     ))
 }
 
+/// Generates proposals based on new proposals, last epoch validators/fishermen and validator
+/// kickouts
+/// For each account that was validator or fisherman in last epoch or made stake action last epoch
+/// we apply the following in the order of priority
+/// 1. If account is in validator_kickout it cannot be validator or fisherman for the next epoch,
+///        we will not include it in proposals or fishermen
+/// 2. If account made staking action last epoch, it will be included in proposals with stake
+///        adjusted by rewards from last epoch, if any
+/// 3. If account was validator last epoch, it will be included in proposals with the same stake
+///        as last epoch, adjusted by rewards from last epoch, if any
+/// 4. If account was fisherman last epoch, it is included in fishermen
 fn proposals_with_rollover(
     proposals: Vec<ValidatorStake>,
     prev_epoch_info: &EpochInfo,
@@ -224,6 +281,7 @@ fn select_block_producers(
     select_validators(block_producer_proposals, max_num_selected, min_stake_ratio)
 }
 
+#[cfg(feature = "protocol_feature_chunk_only_producers")]
 fn select_chunk_producers(
     all_proposals: &mut BinaryHeap<OrderedValidatorStake>,
     max_num_selected: usize,
@@ -343,10 +401,12 @@ mod tests {
 
         // Validators are split between chunks to make roughly equal stakes
         // (in this case shard 0 has 2000, while shard 1 has 1300).
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
         assert_eq!(epoch_info.chunk_producers_settlement(), &[vec![0], vec![1, 2]]);
     }
 
     #[test]
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     fn test_validator_assignment_with_chunk_only_producers() {
         // A more complex test. Here there are more BP proposals than spots, so some will
         // become chunk-only producers, along side the other chunk-only proposals.
@@ -456,7 +516,9 @@ mod tests {
             2,
             0,
             ValidatorSelectionConfig {
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 num_chunk_only_producer_seats: 0,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 minimum_validators_per_shard: 1,
                 minimum_stake_ratio: Rational::new(160, 1_000_000),
             },
@@ -488,6 +550,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     fn test_chunk_producer_sampling() {
         // When there is 1 CP per shard, they are chosen 100% of the time.
         let num_shards = 4;
@@ -571,7 +634,9 @@ mod tests {
             100,
             150,
             ValidatorSelectionConfig {
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 num_chunk_only_producer_seats: 300,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 minimum_validators_per_shard: 1,
                 // for example purposes, we choose a higher ratio than in production
                 minimum_stake_ratio: Rational::new(1, 10),
@@ -678,6 +743,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     fn stake_sum<'a, I: IntoIterator<Item = &'a u64>>(
         epoch_info: &EpochInfo,
         validator_ids: I,
@@ -740,6 +806,7 @@ mod tests {
     }
 
     #[derive(Debug, PartialEq, Eq, Copy, Clone)]
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     enum Proposal {
         BlockProducer,
         ChunkOnlyProducer,
@@ -755,6 +822,7 @@ mod tests {
                 self.parse().unwrap(),
                 PublicKey::empty(KeyType::ED25519),
                 100,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 false,
             )
         }
@@ -766,6 +834,7 @@ mod tests {
                 self.0.parse().unwrap(),
                 PublicKey::empty(KeyType::ED25519),
                 self.1,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 false,
             )
         }
@@ -777,11 +846,13 @@ mod tests {
                 self.0.parse().unwrap(),
                 PublicKey::empty(KeyType::ED25519),
                 self.1,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 false,
             )
         }
     }
 
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     impl IntoValidatorStake for (&str, Balance, Proposal) {
         fn into_validator_stake(self) -> ValidatorStake {
             let is_chunk_only = match self.2 {
@@ -797,6 +868,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     impl IntoValidatorStake for (String, Balance, Proposal) {
         fn into_validator_stake(self) -> ValidatorStake {
             let is_chunk_only = match self.2 {

@@ -12,8 +12,7 @@ use std::pin::Pin;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use bytesize::ByteSize;
 use strum::AsStaticRef;
@@ -83,13 +82,14 @@ impl ThreadStats {
     }
 
     pub fn log_add_write_buffer(&mut self, bytes: usize, buf_len: usize, buf_capacity: usize) {
-        self.write_buf_added = self.write_buf_added + ByteSize::b(bytes as u64);
+        self.write_buf_added += ByteSize::b(bytes as u64);
         self.write_buf_len = ByteSize::b(buf_len as u64);
+        self.write_buf_capacity = ByteSize::b(buf_capacity as u64);
         self.write_buf_capacity = ByteSize::b(buf_capacity as u64);
     }
 
     pub fn log_drain_write_buffer(&mut self, bytes: usize, buf_len: usize, buf_capacity: usize) {
-        self.write_buf_drained = self.write_buf_drained + ByteSize::b(bytes as u64);
+        self.write_buf_drained += ByteSize::b(bytes as u64);
         self.write_buf_len = ByteSize::b(buf_len as u64);
         self.write_buf_capacity = ByteSize::b(buf_capacity as u64);
     }
@@ -110,7 +110,7 @@ impl ThreadStats {
         self.in_progress_since = None;
         self.c_mem = get_c_memory_usage_cur_thread();
 
-        let took_since_last_check = min(took, max(self.last_check, now) - self.last_check);
+        let took_since_last_check = min(took, now.saturating_duration_since(self.last_check));
 
         let entry = self.stat.entry((msg, line, msg_text)).or_insert_with(|| Entry {
             cnt: 0,
@@ -135,7 +135,7 @@ impl ThreadStats {
         let mut ratio = self.time.as_nanos() as f64;
         if let Some(in_progress_since) = self.in_progress_since {
             let from = max(in_progress_since, self.last_check);
-            ratio += (max(now, from) - from).as_nanos() as f64;
+            ratio += (now.saturating_duration_since(from)).as_nanos() as f64;
         }
         ratio /= sleep_time.as_nanos() as f64;
 
@@ -172,7 +172,7 @@ impl ThreadStats {
             self.write_buf_drained = Default::default();
 
             let mut stat: Vec<_> = self.stat.iter().collect();
-            stat.sort_by(|x, y| (*x).0.cmp(&(*y).0));
+            stat.sort_by_key(|f| f.0);
 
             for entry in stat {
                 warn!(
@@ -253,7 +253,7 @@ impl Stats {
             MIN_OCCUPANCY_RATIO_THRESHOLD
         );
         let mut s: Vec<_> = self.stats.iter().collect();
-        s.sort_by(|x, y| (*x).0.cmp(&(*y).0));
+        s.sort_by_key(|f| f.0);
 
         let mut ratio = 0.0;
         let mut other_ratio = 0.0;
@@ -265,7 +265,7 @@ impl Stats {
                 entry.1.lock().unwrap().print_stats_and_clear(*entry.0, sleep_time, now);
             ratio += tmp_ratio;
             other_ratio += tmp_other_ratio;
-            other_memory_size = other_memory_size + tmp_other_memory_size;
+            other_memory_size += tmp_other_memory_size;
             other_memory_count += tmp_other_memory_count;
         }
         info!(
@@ -318,14 +318,14 @@ where
 
     reset_memory_usage_max();
     let initial_memory_usage = current_thread_memory_usage();
-    let now = Instant::now();
-    stat.lock().unwrap().pre_log(now);
+    let start = Instant::now();
+    stat.lock().unwrap().pre_log(start);
     let result = f(msg);
 
-    let took = now.elapsed();
+    let took = start.elapsed();
 
     let peak_memory =
-        ByteSize::b((current_thread_peak_memory_usage() - initial_memory_usage) as u64);
+        ByteSize::b(current_thread_peak_memory_usage().saturating_sub(initial_memory_usage) as u64);
 
     if peak_memory >= ByteSize::b(MEMORY_LIMIT) {
         warn!(
@@ -362,7 +362,7 @@ where
         }
     }
     let ended = Instant::now();
-    let took = ended - now;
+    let took = ended.saturating_duration_since(start);
     stat.lock().unwrap().log(
         class_name,
         std::any::type_name::<Message>(),
@@ -394,12 +394,12 @@ where
         let this = unsafe { self.get_unchecked_mut() };
 
         let stat = get_thread_stats_logger();
-        let now = Instant::now();
-        stat.lock().unwrap().pre_log(now);
+        let start = Instant::now();
+        stat.lock().unwrap().pre_log(start);
 
         let res = unsafe { Pin::new_unchecked(&mut this.f) }.poll(cx);
         let ended = Instant::now();
-        let took = ended - now;
+        let took = ended.saturating_duration_since(start);
         stat.lock().unwrap().log(this.class_name, this.file, this.line, took, ended, "");
 
         if took > SLOW_CALL_THRESHOLD {

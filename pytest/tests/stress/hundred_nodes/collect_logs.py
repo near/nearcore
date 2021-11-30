@@ -1,11 +1,13 @@
+#!/usr/bin/env python3
 from rc import gcloud, pmap
 from distutils.util import strtobool
 import sys
 import datetime
 import pathlib
 import tempfile
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
 from utils import user_name
 

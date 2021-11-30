@@ -40,8 +40,8 @@ mod reward_calculator;
 #[cfg(feature = "protocol_feature_chunk_only_producers")]
 mod shard_assignment;
 pub mod test_utils;
+mod tests;
 mod types;
-#[cfg(feature = "protocol_feature_chunk_only_producers")]
 mod validator_selection;
 
 const EPOCH_CACHE_SIZE: usize = if cfg!(feature = "no_cache") { 1 } else { 50 };
@@ -126,6 +126,7 @@ impl EpochManager {
                 HashMap::default(),
                 validator_reward,
                 0,
+                genesis_protocol_version,
                 genesis_protocol_version,
             )?;
             // Dummy block info.
@@ -420,6 +421,7 @@ impl EpochManager {
             validator_reward,
             minted_amount,
             next_version,
+            epoch_protocol_version,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError { stake_sum, num_seats }) => {
@@ -428,7 +430,6 @@ impl EpochManager {
                 *epoch_info.epoch_height_mut() += 1;
                 epoch_info
             }
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
             Err(EpochError::NotEnoughValidators { num_validators, num_shards }) => {
                 warn!(target: "epoch_manager", "Not enough validators for required number of shards (all validators tried to unstake?): num_validators={} num_shards={}", num_validators, num_shards);
                 let mut epoch_info = next_epoch_info.clone();
@@ -794,13 +795,13 @@ impl EpochManager {
         if self.will_shard_layout_change(parent_hash)? {
             let shard_layout = self.get_shard_layout(&next_epoch_id)?;
             let split_shards = shard_layout
-                .get_split_shards(shard_id)
+                .get_split_shard_ids(shard_id)
                 .expect("all shard layouts expect the first one must have a split map");
             for next_shard_id in split_shards {
                 if self.cares_about_shard_in_epoch(
                     next_epoch_id.clone(),
                     account_id,
-                    next_shard_id.shard_id(),
+                    next_shard_id,
                 )? {
                     return Ok(true);
                 }
@@ -1174,27 +1175,6 @@ impl EpochManager {
         Ok(false)
     }
 
-    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
-    pub(crate) fn block_producer_from_info(
-        epoch_info: &EpochInfo,
-        height: BlockHeight,
-    ) -> ValidatorId {
-        let bp_settlement = epoch_info.block_producers_settlement();
-        bp_settlement[(height as u64 % (bp_settlement.len() as u64)) as usize]
-    }
-
-    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
-    pub(crate) fn chunk_producer_from_info(
-        epoch_info: &EpochInfo,
-        height: BlockHeight,
-        shard_id: ShardId,
-    ) -> ValidatorId {
-        let cp_settlement = epoch_info.chunk_producers_settlement();
-        let shard_cps = &cp_settlement[shard_id as usize];
-        shard_cps[(height as u64 % (shard_cps.len() as u64)) as usize]
-    }
-
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[inline]
     pub(crate) fn block_producer_from_info(
         epoch_info: &EpochInfo,
@@ -1203,7 +1183,6 @@ impl EpochManager {
         epoch_info.sample_block_producer(height)
     }
 
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[inline]
     pub(crate) fn chunk_producer_from_info(
         epoch_info: &EpochInfo,
@@ -1485,7 +1464,7 @@ impl EpochManager {
 }
 
 #[cfg(test)]
-mod tests {
+mod tests2 {
     use num_rational::Rational;
 
     use near_primitives::challenge::SlashedValidator;
@@ -1494,8 +1473,6 @@ mod tests {
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
 
-    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
-    use crate::test_utils::epoch_info;
     use crate::test_utils::{
         block_info, change_stake, default_reward_calculator, epoch_config,
         epoch_info_with_num_seats, hash_range, record_block, record_block_with_final_block_hash,
@@ -3242,47 +3219,6 @@ mod tests {
         }
     }
 
-    // This test only makes sense with the old validator selection
-    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
-    #[test]
-    fn test_validator_consistency_not_all_same_stake() {
-        let stake_amount1 = 1_000;
-        let stake_amount2 = 500;
-        let validators = vec![
-            ("test1".parse().unwrap(), stake_amount1),
-            ("test2".parse().unwrap(), stake_amount2),
-            ("test3".parse().unwrap(), stake_amount2),
-        ];
-        // have two seats to that 500 would be the threshold
-        let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 2, 0, 90, 60);
-        let h = hash_range(5);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-        let epoch_id = epoch_manager.get_epoch_id(&h[0]).unwrap();
-        let epoch_info1 = epoch_manager.get_epoch_info(&epoch_id).unwrap();
-        assert_eq!(
-            epoch_info1,
-            &epoch_info(
-                1,
-                vec![
-                    ("test1".parse().unwrap(), stake_amount1),
-                    ("test3".parse().unwrap(), stake_amount2)
-                ],
-                vec![0, 1],
-                vec![vec![0, 1]],
-                vec![],
-                vec![("test2".parse().unwrap(), stake_amount2)],
-                change_stake(vec![
-                    ("test1".parse().unwrap(), stake_amount1),
-                    ("test2".parse().unwrap(), stake_amount2),
-                    ("test3".parse().unwrap(), stake_amount2)
-                ]),
-                vec![],
-                reward(vec![("near".parse().unwrap(), 0)]),
-                0,
-            )
-        );
-    }
-
     /// Test that when epoch length is larger than the cache size of block info cache, there is
     /// no unexpected error.
     #[test]
@@ -3724,17 +3660,11 @@ mod tests {
         check_kickout(&epoch_info3, &[("test1", NotEnoughBlocks { produced: 0, expected: 1 })]);
     }
 
-    #[cfg(feature = "protocol_feature_block_header_v3")]
     fn set_block_info_protocol_version(info: &mut BlockInfo, protocol_version: ProtocolVersion) {
         match info {
             BlockInfo::V1(v1) => v1.latest_protocol_version = protocol_version,
             BlockInfo::V2(v2) => v2.latest_protocol_version = protocol_version,
         }
-    }
-
-    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-    fn set_block_info_protocol_version(info: &mut BlockInfo, protocol_version: ProtocolVersion) {
-        info.latest_protocol_version = protocol_version;
     }
 
     #[test]
@@ -3872,7 +3802,6 @@ mod tests {
             protocol_upgrade_num_epochs: 2,
             minimum_stake_divisor: 1,
             shard_layout: ShardLayout::default(),
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
             validator_selection_config: Default::default(),
         };
         let config = AllEpochConfig::new(epoch_config, None);

@@ -1,10 +1,12 @@
+#!/usr/bin/env python3
 # Spins up two out of three validating nodes. Waits until they reach height 40.
 # Start the last validating node and check that the second node can sync up before
 # the end of epoch and produce blocks and chunks.
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
@@ -34,7 +36,7 @@ while cur_height < BLOCK_WAIT:
     status = nodes[0].get_status()
     cur_height = status['sync_info']['latest_block_height']
     time.sleep(2)
-nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[1].start(boot_node=nodes[1])
 time.sleep(2)
 
 logger.info("step 2")

@@ -10,10 +10,8 @@ use near_primitives::challenge::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::sharding::{
-    ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkHeaderV2,
+    ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkHeaderV2, ShardChunkHeaderV3,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -38,7 +36,6 @@ pub fn validate_chunk_proofs(
         ShardChunk::V2(chunk) => match &chunk.header {
             ShardChunkHeader::V1(header) => ShardChunkHeaderV1::compute_hash(&header.inner),
             ShardChunkHeader::V2(header) => ShardChunkHeaderV2::compute_hash(&header.inner),
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             ShardChunkHeader::V3(header) => ShardChunkHeaderV3::compute_hash(&header.inner),
         },
     };
@@ -241,9 +238,12 @@ fn validate_chunk_authorship(
     runtime_adapter: &dyn RuntimeAdapter,
     chunk_header: &ShardChunkHeader,
 ) -> Result<AccountId, Error> {
-    if runtime_adapter.verify_chunk_header_signature(chunk_header)? {
-        let epoch_id =
-            runtime_adapter.get_epoch_id_from_prev_block(&chunk_header.prev_block_hash())?;
+    let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(&chunk_header.prev_block_hash())?;
+    if runtime_adapter.verify_chunk_header_signature(
+        chunk_header,
+        &epoch_id,
+        &chunk_header.prev_block_hash(),
+    )? {
         let chunk_producer = runtime_adapter.get_chunk_producer(
             &epoch_id,
             chunk_header.height_created(),

@@ -43,12 +43,11 @@ impl NeardCmd {
         }
 
         let home_dir = neard_cmd.opts.home;
-        let genesis_validation = !neard_cmd.opts.unsafe_skip_genesis_validation;
 
         match neard_cmd.subcmd {
             NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
             NeardSubCommand::Testnet(cmd) => cmd.run(&home_dir),
-            NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation),
+            NeardSubCommand::Run(cmd) => cmd.run(&home_dir),
 
             NeardSubCommand::UnsafeResetData => {
                 let store_path = get_store_path(&home_dir);
@@ -60,7 +59,7 @@ impl NeardCmd {
                 fs::remove_dir_all(home_dir).expect("Removing data and config failed.");
             }
             NeardSubCommand::StateViewer(cmd) => {
-                cmd.run(&home_dir, genesis_validation);
+                cmd.run(&home_dir);
             }
         }
     }
@@ -68,17 +67,13 @@ impl NeardCmd {
 
 #[derive(Clap, Debug)]
 struct NeardOpts {
-    /// Verbose logging.
-    #[clap(long)]
+    /// Sets verbose logging for the given target, or for all targets
+    /// if "debug" is given.
+    #[clap(long, name = "target")]
     verbose: Option<String>,
-    /// Directory for config and data (default "~/.near").
+    /// Directory for config and data.
     #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
     home: PathBuf,
-    /// UNSAFE! Genesis validation, among other things, needs to compare `total_supply` with the
-    /// account balances of accounts in the genesis records. This can take a lot of time. Use this
-    /// option to save time during incidents.
-    #[clap(long)]
-    unsafe_skip_genesis_validation: bool,
 }
 
 impl NeardOpts {
@@ -226,10 +221,9 @@ pub(super) struct RunCmd {
 }
 
 impl RunCmd {
-    pub(super) fn run(self, home_dir: &Path, genesis_validation: bool) {
+    pub(super) fn run(self, home_dir: &Path) {
         // Load configs from home.
-        let mut near_config =
-            nearcore::config::load_config_without_genesis_records(home_dir, genesis_validation);
+        let mut near_config = nearcore::config::load_config_without_genesis_records(home_dir);
         // Set current version in client config.
         near_config.client_config.version = super::NEARD_VERSION.clone();
         // Override some parameters from command line.

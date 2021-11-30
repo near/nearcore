@@ -1,17 +1,18 @@
-use crate::cases::ratio_to_gas_signed;
+use crate::gas_cost::ratio_to_gas_signed;
 use crate::testbed_runners::{end_count, start_count, GasMetric};
 use near_primitives::contract::ContractCode;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::{CompiledContractCache, ProtocolVersion};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{create_store, StoreCompiledContractCache};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMOutcome};
-use near_vm_runner::{compile_module, precompile_contract_vm, prepare, run_vm, VMError, VMKind};
+use near_vm_runner::internal::VMKind;
+use near_vm_runner::{precompile_contract_vm, prepare, VMError};
 use nearcore::get_store_path;
 use num_rational::Ratio;
 use num_traits::ToPrimitive;
-use std::convert::TryFrom;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -43,17 +44,18 @@ pub(crate) fn create_context(input: Vec<u8>) -> VMContext {
     }
 }
 
-fn call(code: &[u8]) -> (Option<VMOutcome>, Option<VMError>) {
+fn call(code: &ContractCode) -> (Option<VMOutcome>, Option<VMError>) {
     let mut fake_external = MockedExternal::new();
     let context = create_context(vec![]);
-    let config = VMConfig::default();
-    let fees = RuntimeFeesConfig::test();
+    let config_store = RuntimeConfigStore::new(None);
+    let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
+    let config = runtime_config.wasm_config.clone();
+    let fees = runtime_config.transaction_costs.clone();
 
     let promise_results = vec![];
 
-    let code = ContractCode::new(code.to_vec(), None);
     near_vm_runner::run(
-        &code,
+        code,
         "cpu_ram_soak_test",
         &mut fake_external,
         context,
@@ -68,7 +70,11 @@ fn call(code: &[u8]) -> (Option<VMOutcome>, Option<VMError>) {
 const NUM_ITERATIONS: u64 = 10;
 
 /// Cost of the most CPU demanding operation.
-pub fn cost_per_op(gas_metric: GasMetric, code: &[u8]) -> Ratio<u64> {
+pub fn cost_per_op(gas_metric: GasMetric, code: &ContractCode) -> Ratio<u64> {
+    let config_store = RuntimeConfigStore::new(None);
+    let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
+    let vm_config = runtime_config.wasm_config.clone();
+
     // Call once for the warmup.
     let (outcome, _) = call(code);
     let outcome = outcome.unwrap();
@@ -91,27 +97,25 @@ pub fn cost_per_op(gas_metric: GasMetric, code: &[u8]) -> Ratio<u64> {
     // to the notion of 1M gas as nanosecond of computations.
     // So
     //   outcome.burnt_gas = wasm_insns(call) *
-    //       VMConfig::default().regular_op_cost
+    //       vm_config.regular_op_cost
     //   gas_cost_per_wasm_op = (measured * GAS_IN_MEASURE_UNIT *
-    //       VMConfig::default().regular_op_cost) /
+    //       vm_config.regular_op_cost) /
     //       (DIVISOR * NUM_ITERATIONS * outcome.burnt_gas)
     // Enough to return just
-    //    (measured * VMConfig::default().regular_op_cost) /
+    //    (measured * vm_config.regular_op_cost) /
     //       (outcome.burnt_gas * NUM_ITERATIONS),
     // as remaining can be computed with ratio_to_gas().
-    Ratio::new(
-        measured * (VMConfig::default().regular_op_cost as u64),
-        NUM_ITERATIONS * outcome.burnt_gas,
-    )
+    Ratio::new(measured * (vm_config.regular_op_cost as u64), NUM_ITERATIONS * outcome.burnt_gas)
 }
 
 type CompileCost = (u64, Ratio<u64>);
 
 fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> Option<CompileCost> {
+    let runtime = vm_kind.runtime().expect("runtime has not been enabled");
     let start = start_count(gas_metric);
     for _ in 0..NUM_ITERATIONS {
-        let prepared_code = prepare::prepare_contract(code, &VMConfig::default()).unwrap();
-        if compile_module(vm_kind, &prepared_code) {
+        let prepared_code = prepare::prepare_contract(code, &VMConfig::test()).unwrap();
+        if runtime.check_compile(&prepared_code) {
             return None;
         }
     }
@@ -139,7 +143,9 @@ fn measure_contract(
     contract: &ContractCode,
     cache: Option<&dyn CompiledContractCache>,
 ) -> u64 {
-    let vm_config = VMConfig::default();
+    let config_store = RuntimeConfigStore::new(None);
+    let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
+    let vm_config = runtime_config.wasm_config.clone();
     let start = start_count(gas_metric);
     let result = precompile_contract_vm(vm_kind, &contract, &vm_config, cache);
     let end = end_count(gas_metric, &start);
@@ -350,7 +356,7 @@ fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
     let store = create_store(&get_store_path(workdir.path()));
     let cache_store = Arc::new(StoreCompiledContractCache { store });
     let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
-    let vm_config = VMConfig::default();
+    let vm_config = VMConfig::test();
     for contract in &contracts {
         let result = precompile_contract_vm(vm_kind, contract, &vm_config, cache);
         assert!(result.is_ok());
@@ -360,21 +366,24 @@ fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
     let fees = RuntimeFeesConfig::test();
 
     let start = start_count(gas_metric);
-    for contract in &contracts {
-        let promise_results = vec![];
-        let result = run_vm(
-            contract,
-            "hello",
-            &mut fake_external,
-            fake_context.clone(),
-            &vm_config,
-            &fees,
-            &promise_results,
-            vm_kind,
-            ProtocolVersion::MAX,
-            cache,
-        );
-        assert!(result.1.is_none());
+    if let Some(runtime) = vm_kind.runtime() {
+        for contract in &contracts {
+            let promise_results = vec![];
+            let result = runtime.run(
+                contract,
+                "hello",
+                &mut fake_external,
+                fake_context.clone(),
+                &vm_config,
+                &fees,
+                &promise_results,
+                ProtocolVersion::MAX,
+                cache,
+            );
+            assert!(result.1.is_none());
+        }
+    } else {
+        panic!("the {:?} runtime has not been enabled at compile time", vm_kind);
     }
     let total_raw = end_count(gas_metric, &start) as i128;
 

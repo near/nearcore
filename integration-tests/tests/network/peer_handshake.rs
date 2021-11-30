@@ -12,11 +12,20 @@ use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_test_logger;
+
+use near_network::routing::start_routing_table_actor;
+
 use near_network::test_utils::{
-    convert_boot_nodes, make_ibf_routing_pool, open_port, GetInfo, StopSignal, WaitOrTimeout,
+    convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeoutActor,
 };
-use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
-use near_network::{NetworkClientResponses, NetworkConfig, PeerManagerActor};
+use near_network::types::NetworkClientResponses;
+use near_network::PeerManagerActor;
+use near_network_primitives::types::{
+    NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
+};
+#[cfg(test)]
+use near_primitives::network::PeerId;
+#[cfg(test)]
 use near_store::test_utils::create_test_store;
 
 type ClientMock = Mocker<ClientActor>;
@@ -52,13 +61,15 @@ fn make_peer_manager(
         }
     }))
     .start();
-    let ibf_routing_pool = make_ibf_routing_pool();
+    let routing_table_addr =
+        start_routing_table_actor(PeerId::new(config.public_key.clone()), store.clone());
+
     PeerManagerActor::new(
         store,
         config,
         client_addr.recipient(),
         view_client_addr.recipient(),
-        ibf_routing_pool,
+        routing_table_addr,
     )
     .unwrap()
 }
@@ -71,7 +82,7 @@ fn peer_handshake() {
         let (port1, port2) = (open_port(), open_port());
         let pm1 = make_peer_manager("test1", port1, vec![("test2", port2)], 10).start();
         let _pm2 = make_peer_manager("test2", port2, vec![("test1", port1)], 10).start();
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_| {
                 actix::spawn(pm1.send(GetInfo {}).then(move |res| {
                     let info = res.unwrap();
@@ -104,7 +115,7 @@ fn peers_connect_all() {
             peers.push(pm.start());
         }
         let flags = Arc::new(AtomicUsize::new(0));
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_| {
                 for i in 0..num_peers {
                     let flags1 = flags.clone();
@@ -146,7 +157,7 @@ fn peer_recover() {
         let state = Arc::new(AtomicUsize::new(0));
         let flag = Arc::new(AtomicBool::new(false));
 
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_ctx| {
                 if state.load(Ordering::Relaxed) == 0 {
                     // Wait a small timeout for connection to be active.
@@ -222,9 +233,7 @@ fn check_connection_with_new_identity() {
     runner.push(Action::Wait(2000));
 
     // Check the no node tried to connect to itself in this process.
-    runner.push_action(wait_for(|| {
-        near_metrics::get_counter(&near_network::metrics::RECEIVED_INFO_ABOUT_ITSELF) == Ok(0)
-    }));
+    runner.push_action(wait_for(|| near_network::metrics::RECEIVED_INFO_ABOUT_ITSELF.get() == 0));
 
     start_test(runner);
 }
@@ -252,7 +261,7 @@ fn connection_spam_security_test() {
         }
 
         let iter = Arc::new(AtomicUsize::new(0));
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_| {
                 let iter = iter.clone();
                 actix::spawn(pm.send(GetInfo {}).then(move |res| {

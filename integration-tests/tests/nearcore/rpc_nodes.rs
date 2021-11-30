@@ -12,14 +12,16 @@ use near_client::{GetBlock, GetExecutionOutcome, GetValidatorInfo};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_logger_utils::init_integration_logger;
-use near_network::test_utils::WaitOrTimeout;
+use near_network::test_utils::WaitOrTimeoutActor;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{compute_root_from_path_and_item, verify_path};
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::serialize::{from_base64, to_base64};
 use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
 use near_primitives::types::{
     BlockId, BlockReference, EpochId, EpochReference, Finality, TransactionOrReceiptId,
 };
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView};
 
 use crate::node_cluster::NodeCluster;
@@ -36,7 +38,7 @@ fn test_get_validator_info_rpc() {
         .set_genesis_height(0);
 
     cluster.exec_until_stop(|_, rpc_addrs, clients| async move {
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_ctx| {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let view_client = clients[0].1.clone();
@@ -128,7 +130,7 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
             )
         };
 
-        WaitOrTimeout::new(
+        WaitOrTimeoutActor::new(
             Box::new(move |_ctx| {
                 let client = new_client(&format!("http://{}", rpc_addrs[0]));
                 let bytes = transaction.try_to_vec().unwrap();
@@ -231,7 +233,7 @@ fn test_protocol_config_rpc() {
         .set_epoch_length(10)
         .set_genesis_height(0);
 
-    cluster.exec_until_stop(|genesis, rpc_addrs, _| async move {
+    cluster.exec_until_stop(|_, rpc_addrs, _| async move {
         let client = new_client(&format!("http://{}", rpc_addrs[0]));
         let config_response = client
             .EXPERIMENTAL_protocol_config(
@@ -243,13 +245,17 @@ fn test_protocol_config_rpc() {
             )
             .await
             .unwrap();
+
+        let runtime_config_store = RuntimeConfigStore::new(None);
+        let intial_runtime_config = runtime_config_store.get_config(ProtocolVersion::MIN);
+        let latest_runtime_config = runtime_config_store.get_config(ProtocolVersion::MAX);
         assert_ne!(
             config_response.config_view.runtime_config.storage_amount_per_byte,
-            genesis.config.runtime_config.storage_amount_per_byte
+            intial_runtime_config.storage_amount_per_byte
         );
         assert_eq!(
-            config_response.config_view.runtime_config.storage_amount_per_byte,
-            10u128.pow(19)
+            config_response.config_view.runtime_config,
+            latest_runtime_config.as_ref().clone()
         );
         System::current().stop();
     });

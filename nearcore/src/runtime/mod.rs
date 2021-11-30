@@ -12,9 +12,7 @@ use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::{
     ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier,
 };
-use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use near_chain::{Doomslug, DoomslugThresholdMode};
+use near_chain::{BlockHeader, Doomslug, DoomslugThresholdMode, Error, ErrorKind, RuntimeAdapter};
 use near_chain_configs::{Genesis, GenesisConfig, ProtocolConfig};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::EpochManager;
@@ -62,7 +60,7 @@ use crate::shard_tracker::{ShardTracker, TrackedConfig};
 use crate::migrations::load_migration_data;
 use crate::NearConfig;
 use errors::FromStateViewerErrors;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_primitives::runtime::config_store::{RuntimeConfigStore, INITIAL_TESTNET_CONFIG};
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
@@ -146,18 +144,6 @@ pub struct NightshadeRuntime {
 }
 
 impl NightshadeRuntime {
-    pub fn test(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
-        Self::new(
-            home_dir,
-            store,
-            genesis,
-            TrackedConfig::new_empty(),
-            None,
-            None,
-            RuntimeConfigStore::test(),
-        )
-    }
-
     pub fn with_config(
         home_dir: &Path,
         store: Arc<Store>,
@@ -172,7 +158,7 @@ impl NightshadeRuntime {
             TrackedConfig::from_config(&config.client_config),
             trie_viewer_state_size_limit,
             max_gas_burnt_view,
-            RuntimeConfigStore::new(Some(&config.genesis.config.runtime_config)),
+            None,
         )
     }
 
@@ -183,8 +169,13 @@ impl NightshadeRuntime {
         tracked_config: TrackedConfig,
         trie_viewer_state_size_limit: Option<u64>,
         max_gas_burnt_view: Option<Gas>,
-        runtime_config_store: RuntimeConfigStore,
+        runtime_config_store: Option<RuntimeConfigStore>,
     ) -> Self {
+        let runtime_config_store = match runtime_config_store {
+            Some(store) => store,
+            None => NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id),
+        };
+
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
         let genesis_config = genesis.config.clone();
@@ -221,6 +212,27 @@ impl NightshadeRuntime {
         }
     }
 
+    pub fn test_with_runtime_config_store(
+        home_dir: &Path,
+        store: Arc<Store>,
+        genesis: &Genesis,
+        runtime_config_store: RuntimeConfigStore,
+    ) -> Self {
+        Self::new(
+            home_dir,
+            store,
+            genesis,
+            TrackedConfig::new_empty(),
+            None,
+            None,
+            Some(runtime_config_store),
+        )
+    }
+
+    pub fn test(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
+        Self::test_with_runtime_config_store(home_dir, store, genesis, RuntimeConfigStore::test())
+    }
+
     fn get_epoch_height_from_prev_block(
         &self,
         prev_block_hash: &CryptoHash,
@@ -233,6 +245,23 @@ impl NightshadeRuntime {
     pub fn get_epoch_id(&self, hash: &CryptoHash) -> Result<EpochId, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         epoch_manager.get_epoch_id(hash).map_err(Error::from)
+    }
+
+    /// Create store of runtime configs for the given chain id.
+    ///
+    /// For mainnet and other chains except testnet we don't need to override runtime config for
+    /// first protocol versions.
+    /// For testnet, runtime config for genesis block was (incorrectly) different, that's why we
+    /// need to override it specifically to preserve compatibility.
+    fn create_runtime_config_store(chain_id: &str) -> RuntimeConfigStore {
+        match chain_id {
+            "testnet" => {
+                let genesis_runtime_config =
+                    serde_json::from_slice(INITIAL_TESTNET_CONFIG).unwrap();
+                RuntimeConfigStore::new(Some(&genesis_runtime_config))
+            }
+            _ => RuntimeConfigStore::new(None),
+        }
     }
 
     fn genesis_state_from_dump(store: Arc<Store>, home_dir: &Path) -> Vec<StateRoot> {
@@ -274,6 +303,10 @@ impl NightshadeRuntime {
         let tries =
             ShardTries::new(store.clone(), genesis.config.shard_layout.version(), num_shards);
         let runtime = Runtime::new();
+        let runtime_config_store =
+            NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id);
+        let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
+
         for shard_id in 0..num_shards {
             let validators = genesis
                 .config
@@ -297,7 +330,7 @@ impl NightshadeRuntime {
                 shard_id,
                 &validators,
                 &genesis,
-                &genesis.config.runtime_config,
+                &runtime_config,
                 shard_account_ids[shard_id as usize].clone(),
             ));
         }
@@ -336,11 +369,7 @@ impl NightshadeRuntime {
         genesis: &Genesis,
     ) -> Vec<StateRoot> {
         let has_records = !genesis.records.as_ref().is_empty();
-        let has_dump = {
-            let mut state_dump = home_dir.to_path_buf();
-            state_dump.push(STATE_DUMP_FILE);
-            state_dump.exists()
-        };
+        let has_dump = home_dir.join(STATE_DUMP_FILE).exists();
         if has_dump {
             if has_records {
                 warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
@@ -872,16 +901,16 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         chunk_hash: &ChunkHash,
         signature: &Signature,
-        prev_block_hash: &CryptoHash,
+        epoch_id: &EpochId,
+        last_known_hash: &CryptoHash,
         height_created: BlockHeight,
         shard_id: ShardId,
     ) -> Result<bool, Error> {
-        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         if let Ok(chunk_producer) =
-            epoch_manager.get_chunk_producer_info(&epoch_id, height_created, shard_id)
+            epoch_manager.get_chunk_producer_info(epoch_id, height_created, shard_id)
         {
-            let slashed = epoch_manager.get_slashed_validators(prev_block_hash)?;
+            let slashed = epoch_manager.get_slashed_validators(last_known_hash)?;
             if slashed.contains_key(chunk_producer.account_id()) {
                 return Ok(false);
             }
@@ -891,7 +920,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    #[cfg(feature = "protocol_feature_block_header_v3")]
     fn verify_approvals_and_threshold_orphan(
         &self,
         epoch_id: &EpochId,
@@ -1174,18 +1202,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
-        let genesis_height = self.genesis_config.genesis_height;
-        macro_rules! unwrap_result_or_return {
-            ($obj: expr) => {
-                match $obj {
-                    Ok(value) => value,
-                    Err(_) => {
-                        return genesis_height;
-                    }
-                }
-            };
-        }
-        let get_gc_stop_height_inner = || -> Result<BlockHeight, Error> {
+        (|| -> Result<BlockHeight, Error> {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
             // an epoch must have a first block.
             let epoch_first_block = *epoch_manager.get_block_info(block_hash)?.epoch_first_block();
@@ -1201,8 +1218,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
             }
             Ok(epoch_start_height)
-        };
-        unwrap_result_or_return!(get_gc_stop_height_inner())
+        }())
+        .unwrap_or(self.genesis_config.genesis_height)
     }
 
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
@@ -1651,7 +1668,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let trie = self.tries.get_view_trie_for_shard(shard_uid);
         let shard_id = shard_uid.shard_id();
         let new_shards = next_epoch_shard_layout
-            .get_split_shards(shard_id)
+            .get_split_shard_uids(shard_id)
             .ok_or(ErrorKind::InvalidShardId(shard_id))?;
         let mut state_roots: HashMap<_, _> =
             new_shards.iter().map(|shard_uid| (*shard_uid, StateRoot::default())).collect();
@@ -1788,18 +1805,20 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
-        let mut config = self.genesis_config.clone();
-        config.protocol_version = protocol_version;
-        config.runtime_config = (**self.runtime_config_store.get_config(protocol_version)).clone();
+        let mut genesis_config = self.genesis_config.clone();
+        genesis_config.protocol_version = protocol_version;
         let shard_config = {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
             epoch_manager.get_shard_config(epoch_id)?
         };
-        config.num_block_producer_seats_per_shard = shard_config.num_block_producer_seats_per_shard;
-        config.avg_hidden_validator_seats_per_shard =
+        genesis_config.num_block_producer_seats_per_shard =
+            shard_config.num_block_producer_seats_per_shard;
+        genesis_config.avg_hidden_validator_seats_per_shard =
             shard_config.avg_hidden_validator_seats_per_shard;
-        config.shard_layout = shard_config.shard_layout;
-        Ok(config)
+        genesis_config.shard_layout = shard_config.shard_layout;
+        let runtime_config =
+            self.runtime_config_store.get_config(protocol_version).as_ref().clone();
+        Ok(ProtocolConfig { genesis_config, runtime_config })
     }
 
     fn get_prev_epoch_id_from_prev_block(
@@ -1917,7 +1936,6 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 #[cfg(test)]
 mod test {
     use std::collections::BTreeSet;
-    use std::convert::{TryFrom, TryInto};
 
     use num_rational::Rational;
 
@@ -1933,7 +1951,7 @@ mod test {
     };
     use near_store::create_store;
 
-    use crate::config::{mainnet_genesis, GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+    use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::get_store_path;
 
     use super::*;
@@ -2027,12 +2045,47 @@ mod test {
             )
         }
 
+        pub fn new_with_minimum_stake_divisor(
+            prefix: &str,
+            validators: Vec<Vec<AccountId>>,
+            epoch_length: BlockHeightDelta,
+            has_reward: bool,
+            stake_divisor: u64,
+        ) -> Self {
+            Self::new_with_tracking_and_minimum_stake_divisor(
+                prefix,
+                validators,
+                epoch_length,
+                TrackedConfig::new_empty(),
+                has_reward,
+                Some(stake_divisor),
+            )
+        }
+
         pub fn new_with_tracking(
             prefix: &str,
             validators: Vec<Vec<AccountId>>,
             epoch_length: BlockHeightDelta,
             tracked_config: TrackedConfig,
             has_reward: bool,
+        ) -> Self {
+            Self::new_with_tracking_and_minimum_stake_divisor(
+                prefix,
+                validators,
+                epoch_length,
+                tracked_config,
+                has_reward,
+                None,
+            )
+        }
+
+        fn new_with_tracking_and_minimum_stake_divisor(
+            prefix: &str,
+            validators: Vec<Vec<AccountId>>,
+            epoch_length: BlockHeightDelta,
+            tracked_config: TrackedConfig,
+            has_reward: bool,
+            minimum_stake_divisor: Option<u64>,
         ) -> Self {
             let dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
             let store = create_store(&get_store_path(dir.path()));
@@ -2052,6 +2105,9 @@ mod test {
             if !has_reward {
                 genesis.config.max_inflation_rate = Rational::from_integer(0);
             }
+            if let Some(minimum_stake_divisor) = minimum_stake_divisor {
+                genesis.config.minimum_stake_divisor = minimum_stake_divisor;
+            }
             let genesis_total_supply = genesis.config.total_supply;
             let genesis_protocol_version = genesis.config.protocol_version;
             let runtime = NightshadeRuntime::new(
@@ -2061,7 +2117,7 @@ mod test {
                 tracked_config,
                 None,
                 None,
-                RuntimeConfigStore::free(),
+                Some(RuntimeConfigStore::free()),
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&vec![0]);
@@ -2649,75 +2705,6 @@ mod test {
         assert_eq!(account.locked, TESTING_INIT_STAKE);
     }
 
-    /// Test two shards: the first shard has 2 validators (test1, test4) and the second shard
-    /// has 4 validators (test1, test2, test3, test4). Test that kickout and stake change
-    /// work properly.
-    // This test only makes sense with the old validator selection because it requires
-    // specific control over what validators are assigned to each shard.
-    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
-    #[test]
-    fn test_multiple_shards() {
-        init_test_logger();
-        let num_nodes = 4;
-        let first_shard_validators = (0..2)
-            .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
-            .collect::<Vec<_>>();
-        let second_shard_validators = (0..num_nodes)
-            .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
-            .collect::<Vec<_>>();
-        let validators = second_shard_validators.clone();
-        let mut env = TestEnv::new(
-            "test_multiple_shards",
-            vec![first_shard_validators, second_shard_validators],
-            4,
-            false,
-        );
-        let block_producers: Vec<_> = validators
-            .iter()
-            .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-            .collect();
-        let signer = InMemorySigner::from_seed(
-            validators[0].clone(),
-            KeyType::ED25519,
-            validators[0].as_ref(),
-        );
-        let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE - 1);
-        let first_account_shard_id = env
-            .runtime
-            .account_id_to_shard_id(&"test1".parse().unwrap(), &EpochId::default())
-            .unwrap();
-        let transactions = if first_account_shard_id == 0 {
-            vec![vec![staking_transaction], vec![]]
-        } else {
-            vec![vec![], vec![staking_transaction]]
-        };
-        // a validator from the first shard does not produce their chunk
-        env.step(transactions, vec![false, true], ChallengesResult::default());
-        for _ in 2..10 {
-            env.step(vec![vec![], vec![]], vec![true, true], ChallengesResult::default());
-        }
-        let account = env.view_account(block_producers[3].validator_id());
-        assert_eq!(account.locked, TESTING_INIT_STAKE);
-        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
-
-        let account = env.view_account(block_producers[0].validator_id());
-        assert_eq!(account.locked, TESTING_INIT_STAKE);
-
-        for _ in 10..14 {
-            env.step(vec![vec![], vec![]], vec![true, true], ChallengesResult::default());
-        }
-        // which validator is kicked out depends on which validator selection is used
-        let account = if cfg!(feature = "protocol_feature_chunk_only_producers") {
-            env.view_account(&block_producers[1].validator_id())
-        } else {
-            env.view_account(&block_producers[3].validator_id())
-        };
-        assert_eq!(account.locked, 0);
-
-        let account = env.view_account(block_producers[0].validator_id());
-        assert_eq!(account.locked, TESTING_INIT_STAKE - 1);
-    }
-
     #[test]
     fn test_get_validator_info() {
         let num_nodes = 2;
@@ -2885,22 +2872,21 @@ mod test {
             0,
             true
         ));
-        assert!(!env.runtime.cares_about_shard(
-            Some(&validators[0]),
-            &env.head.last_block_hash,
-            1,
-            true
-        ));
+        // which validator is selected to shard 1 sole validator seat depends on which validator
+        // selection algorithm is used
+        assert!(
+            env.runtime.cares_about_shard(Some(&validators[0]), &env.head.last_block_hash, 1, true)
+                ^ env.runtime.cares_about_shard(
+                    Some(&validators[1]),
+                    &env.head.last_block_hash,
+                    1,
+                    true
+                )
+        );
         assert!(env.runtime.cares_about_shard(
             Some(&validators[1]),
             &env.head.last_block_hash,
             0,
-            true
-        ));
-        assert!(env.runtime.cares_about_shard(
-            Some(&validators[1]),
-            &env.head.last_block_hash,
-            1,
             true
         ));
 
@@ -3163,7 +3149,19 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new("test_fishermen_stake", vec![validators.clone()], 4, false);
+        let mut env = if !cfg!(feature = "protocol_feature_chunk_only_producers") {
+            TestEnv::new_with_minimum_stake_divisor(
+                "test_fishermen_stake",
+                vec![validators.clone()],
+                4,
+                false,
+                // We need to be able to stake enough to be fisherman, but not enough to be
+                // validator
+                20000,
+            )
+        } else {
+            TestEnv::new("test_fishermen_stake", vec![validators.clone()], 4, false)
+        };
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -3172,11 +3170,7 @@ mod test {
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
             .collect();
-        let fishermen_stake = if cfg!(feature = "protocol_feature_chunk_only_producers") {
-            3200 * crate::NEAR_BASE + 1
-        } else {
-            TESTING_INIT_STAKE / 10 + 1
-        };
+        let fishermen_stake = 3200 * crate::NEAR_BASE + 1;
 
         let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
         let staking_transaction1 = stake(1, &signers[1], &block_producers[1], fishermen_stake);
@@ -3232,7 +3226,19 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new("test_fishermen_unstake", vec![validators.clone()], 2, false);
+        let mut env = if !cfg!(feature = "protocol_feature_chunk_only_producers") {
+            TestEnv::new_with_minimum_stake_divisor(
+                "test_fishermen_unstake",
+                vec![validators.clone()],
+                2,
+                false,
+                // We need to be able to stake enough to be fisherman, but not enough to be
+                // validator
+                20000,
+            )
+        } else {
+            TestEnv::new("test_fishermen_unstake", vec![validators.clone()], 2, false)
+        };
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -3241,11 +3247,7 @@ mod test {
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
             .collect();
-        let fishermen_stake = if cfg!(feature = "protocol_feature_chunk_only_producers") {
-            3200 * crate::NEAR_BASE + 1
-        } else {
-            TESTING_INIT_STAKE / 10 + 1
-        };
+        let fishermen_stake = 3200 * crate::NEAR_BASE + 1;
 
         let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
         env.step_default(vec![staking_transaction]);
@@ -3411,30 +3413,13 @@ mod test {
             .collect();
 
         let staking_transaction1 = stake(1, &signers[1], &block_producers[1], 100);
-        let staking_transaction2 = if cfg!(feature = "protocol_feature_chunk_only_producers") {
-            stake(2, &signers[1], &block_producers[1], 100 * crate::NEAR_BASE)
-        } else {
-            stake(2, &signers[1], &block_producers[1], TESTING_INIT_STAKE / 10 - 1)
-        };
+        let staking_transaction2 =
+            stake(2, &signers[1], &block_producers[1], 100 * crate::NEAR_BASE);
         env.step_default(vec![staking_transaction1, staking_transaction2]);
         assert!(env.last_proposals.is_empty());
         let staking_transaction3 = stake(3, &signers[1], &block_producers[1], 0);
         env.step_default(vec![staking_transaction3]);
         assert_eq!(env.last_proposals.len(), 1);
         assert_eq!(env.last_proposals[0].stake(), 0);
-    }
-
-    #[test]
-    fn test_runtime_configs_similarity_mainnet() {
-        let genesis = mainnet_genesis();
-        let genesis_runtime_config = genesis.config.runtime_config;
-
-        let overridden_store = RuntimeConfigStore::new(Some(&genesis_runtime_config));
-        let store = RuntimeConfigStore::new(None);
-        for protocol_version in [29u32, 34u32, 42u32, 50u32].iter() {
-            let old_config = overridden_store.get_config(protocol_version.clone());
-            let new_config = store.get_config(protocol_version.clone());
-            assert_eq!(old_config, new_config);
-        }
     }
 }

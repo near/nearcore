@@ -1,11 +1,13 @@
+#!/usr/bin/env python3
 # Spin up one node and create some accounts and make them stake
 # Spin up another node that syncs from the first node.
 # Check that the second node doesn't crash (with trie node missing)
 # during state sync.
 
 import sys, time, base58
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
@@ -75,7 +77,7 @@ while cur_height < target_height:
     time.sleep(1)
 
 logger.info('restart node1')
-nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[1].start(boot_node=nodes[1])
 logger.info('node1 restarted')
 time.sleep(3)
 

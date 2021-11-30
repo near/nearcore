@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Builds the following graph:
 # -------
 #    \
@@ -10,8 +11,9 @@
 
 import sys, time
 import random
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
@@ -47,7 +49,7 @@ while cur_height < NUM_BLOCKS_TOTAL:
         #res = nodes[1].json_rpc('adv_switch_to_height', [new_height])
         #assert 'result' in res, res
 
-        nodes[1].start(nodes[0].node_key.pk, nodes[0].addr())
+        nodes[1].start(boot_node=nodes[0])
         res = nodes[1].json_rpc('adv_disable_doomslug', [])
         assert 'result' in res, res
 

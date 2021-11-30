@@ -10,8 +10,9 @@ import subprocess
 import time
 import base58
 import json
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 import branches
 import cluster
@@ -21,8 +22,7 @@ from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_pay
 
 def main():
     node_root = get_near_tempdir('backward', clean=True)
-    branch = branches.latest_rc_branch()
-    executables = branches.prepare_ab_test(branch)
+    executables = branches.prepare_ab_test()
 
     # Setup local network.
     subprocess.check_call([
@@ -33,12 +33,13 @@ def main():
     # Run both binaries at the same time.
     config = executables.stable.node_config()
     stable_node = cluster.spin_up_node(config, executables.stable.root,
-                                       str(node_root / 'test0'), 0, None, None)
+                                       str(node_root / 'test0'), 0)
     config = executables.current.node_config()
-    current_node = cluster.spin_up_node(config, executables.current.root,
-                                        str(node_root / 'test1'), 1,
-                                        stable_node.node_key.pk,
-                                        stable_node.addr())
+    current_node = cluster.spin_up_node(config,
+                                        executables.current.root,
+                                        str(node_root / 'test1'),
+                                        1,
+                                        boot_node=stable_node)
 
     # Check it all works.
     BLOCKS = 100

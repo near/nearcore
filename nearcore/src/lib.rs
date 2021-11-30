@@ -13,16 +13,19 @@ use near_chain::ChainGenesis;
 #[cfg(feature = "test_features")]
 use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
-use near_network::{NetworkRecipient, PeerManagerActor};
+
+use near_network::routing::start_routing_table_actor;
+use near_network::types::NetworkRecipient;
+use near_network::PeerManagerActor;
+use near_primitives::network::PeerId;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use near_store::migrations::migrate_18_to_new_validator_stake;
+use near_store::migrations::migrate_29_to_30;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
     migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_21_to_22,
-    migrate_25_to_26, migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10,
-    set_store_version,
+    migrate_25_to_26, migrate_28_to_29, migrate_6_to_7, migrate_7_to_8, migrate_8_to_9,
+    migrate_9_to_10, set_store_version,
 };
 use near_store::migrations::{migrate_20_to_21, migrate_26_to_27};
 use near_store::{create_store, Store};
@@ -35,7 +38,6 @@ use crate::migrations::{
 };
 pub use crate::runtime::NightshadeRuntime;
 pub use crate::shard_tracker::TrackedConfig;
-use near_network::test_utils::make_ibf_routing_pool;
 
 pub mod append_only_map;
 pub mod config;
@@ -244,14 +246,20 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         let store = create_store(&path);
         set_store_version(&store, 28);
     }
+    if db_version <= 28 {
+        // version 28 => 29: delete ColNextBlockWithNewChunk, ColLastBlockWithNewChunk
+        info!(target: "near", "Migrate DB from version 28 to 29");
+        migrate_28_to_29(&path);
+    }
+    if db_version <= 29 {
+        // version 29 => 30: migrate all structures that use ValidatorStake to versionized version
+        info!(target: "near", "Migrate DB from version 29 to 30");
+        migrate_29_to_30(&path);
+    }
+
     #[cfg(feature = "nightly_protocol")]
     {
         let store = create_store(&path);
-
-        #[cfg(feature = "protocol_feature_block_header_v3")]
-        if db_version <= 18 {
-            migrate_18_to_new_validator_stake(&store);
-        }
 
         // set some dummy value to avoid conflict with other migrations from nightly features
         set_store_version(&store, 10000);
@@ -295,10 +303,23 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
         config.client_config.max_gas_burnt_view,
     ));
 
+    // Make view_client use a different runtime so prevent it from blocking transaction processing
+    // If they share the same runtime, they will use the same set of cache objects (epoch_manager/shard_tries).
+    // Even though view_client only read from these caches, that will still block all other
+    // accesses.
+    // A more long term solution would to make the caches not read-blocking.
+    let view_client_runtime = Arc::new(NightshadeRuntime::with_config(
+        home_dir,
+        Arc::clone(&store),
+        &config,
+        config.client_config.trie_viewer_state_size_limit,
+        config.client_config.max_gas_burnt_view,
+    ));
+
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::from(&config.genesis);
 
-    let node_id = config.network_config.public_key.clone().into();
+    let node_id = PeerId::new(config.network_config.public_key.clone().into());
     let network_adapter = Arc::new(NetworkRecipient::new());
     #[cfg(feature = "test_features")]
     let adv = Arc::new(std::sync::RwLock::new(AdversarialControls::default()));
@@ -306,7 +327,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
-        runtime.clone(),
+        view_client_runtime,
         network_adapter.clone(),
         config.client_config.clone(),
         #[cfg(feature = "test_features")]
@@ -331,12 +352,19 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     let view_client1 = view_client.clone().recipient();
     config.network_config.verify();
     let network_config = config.network_config;
-    let ibf_routing_pool = make_ibf_routing_pool();
+    let routing_table_addr =
+        start_routing_table_actor(PeerId::new(network_config.public_key.clone()), store.clone());
     #[cfg(all(feature = "json_rpc", feature = "test_features"))]
-    let ibf_routing_pool2 = ibf_routing_pool.clone();
+    let routing_table_addr2 = routing_table_addr.clone();
     let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
-        PeerManagerActor::new(store, network_config, client_actor1, view_client1, ibf_routing_pool)
-            .unwrap()
+        PeerManagerActor::new(
+            store,
+            network_config,
+            client_actor1,
+            view_client1,
+            routing_table_addr,
+        )
+        .unwrap()
     });
 
     #[cfg(feature = "json_rpc")]
@@ -349,7 +377,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
             #[cfg(feature = "test_features")]
             network_actor.clone(),
             #[cfg(feature = "test_features")]
-            ibf_routing_pool2,
+            routing_table_addr2,
         ));
     }
 

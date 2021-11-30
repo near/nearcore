@@ -49,18 +49,10 @@ pub trait ValuePtr {
 
 /// An external blockchain interface for the Runtime logic
 pub trait External {
-    /// Write to the storage trie of the current account
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - a key for a new value
-    /// * `value` - a new value to be set
-    ///
-    /// # Errors
-    ///
-    /// This function could return HostErrorOrStorageError::StorageError on underlying DB failure
+    /// Write `value` to the `key` of the storage trie associated with the current account.
     ///
     /// # Example
+    ///
     /// ```
     /// # use near_vm_logic::mocks::mock_external::MockedExternal;
     /// # use near_vm_logic::External;
@@ -72,19 +64,19 @@ pub trait External {
     /// ```
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<()>;
 
-    /// Reads from the storage trie of the current account
+    /// Read `key` from the storage trie associated with the current account.
     ///
     /// # Arguments
     ///
-    /// * `key` - a key to read
+    /// * `key` - the key to read
     ///
     /// # Errors
     ///
-    /// This function could return HostErrorOrStorageError::StorageError on underlying DB failure
+    /// This function could return [`VMError::ExternalError`].
     ///
     /// # Example
     /// ```
-    /// # use near_vm_logic::mocks::mock_external::{MockedExternal};
+    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
     /// # use near_vm_logic::{External, ValuePtr};
     ///
     /// # let mut external = MockedExternal::new();
@@ -95,15 +87,13 @@ pub trait External {
     /// ```
     fn storage_get<'a>(&'a self, key: &[u8]) -> Result<Option<Box<dyn ValuePtr + 'a>>>;
 
-    /// Removes the key from the storage
+    /// Removes the `key` from the storage trie associated with the current account.
+    ///
+    /// The operation will succeed even if the `key` does not exist.
     ///
     /// # Arguments
     ///
-    /// * `key` - a key to remove
-    ///
-    /// # Errors
-    ///
-    /// This function could return HostErrorOrStorageError::StorageError on underlying DB failure
+    /// * `key` - the key to remove
     ///
     /// # Example
     /// ```
@@ -119,7 +109,8 @@ pub trait External {
     /// ```
     fn storage_remove(&mut self, key: &[u8]) -> Result<()>;
 
-    /// Removes all keys under given suffix in the storage.
+    /// Removes all keys with a given `prefix` from the storage trie associated with current
+    /// account.
     ///
     /// # Arguments
     ///
@@ -127,7 +118,7 @@ pub trait External {
     ///
     /// # Errors
     ///
-    /// This function could return HostErrorOrStorageError::StorageError on underlying DB failure
+    /// This function could return [`VMError`].
     ///
     /// # Example
     /// ```
@@ -143,7 +134,9 @@ pub trait External {
     /// ```
     fn storage_remove_subtree(&mut self, prefix: &[u8]) -> Result<()>;
 
-    /// Check whether key exists. Returns Ok(true) if key exists or Ok(false) otherwise
+    /// Check whether the `key` is present in the storage trie associated with the current account.
+    ///
+    /// Returns `Ok(true)` if key is present, `Ok(false)` if the key is not present.
     ///
     /// # Arguments
     ///
@@ -151,7 +144,7 @@ pub trait External {
     ///
     /// # Errors
     ///
-    /// This function could return HostErrorOrStorageError::StorageError on underlying DB failure
+    /// This function could return [`VMError::RuntimeError`].
     ///
     /// # Example
     /// ```
@@ -167,7 +160,11 @@ pub trait External {
     /// ```
     fn storage_has_key(&mut self, key: &[u8]) -> Result<bool>;
 
-    /// Creates a receipt which will be executed after `receipt_indices`
+    /// Create a receipt which will be executed after all the receipts identified by
+    /// `receipt_indices` are complete.
+    ///
+    /// If any of the [`RecepitIndex`]es do not refer to a known receipt, this function will fail
+    /// with an error.
     ///
     /// # Arguments
     ///
@@ -183,16 +180,13 @@ pub trait External {
     /// let receipt_index_two = external.create_receipt(vec![receipt_index_one], "bob.near".parse().unwrap());
     ///
     /// ```
-    ///
-    /// # Panics
-    /// Panics if one of `receipt_indices` is missing
     fn create_receipt(
         &mut self,
         receipt_indices: Vec<ReceiptIndex>,
         receiver_id: AccountId,
     ) -> Result<ReceiptIndex>;
 
-    /// Attaches an `Action::CreateAccount` action to an existing receipt
+    /// Attach the [`CreateAccountAction`] action to an existing receipt.
     ///
     /// # Arguments
     ///
@@ -210,10 +204,11 @@ pub trait External {
     /// ```
     ///
     /// # Panics
-    /// Panics if `receipt_index` is missing
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
     fn append_action_create_account(&mut self, receipt_index: ReceiptIndex) -> Result<()>;
 
-    /// Attaches an `Action::DeployContract` action to an existing receipt
+    /// Attach the [`DeployContractAction`] action to an existing receipt.
     ///
     /// # Arguments
     ///
@@ -221,6 +216,7 @@ pub trait External {
     /// * `code` - a Wasm code to attach
     ///
     /// # Example
+    ///
     /// ```
     /// # use near_vm_logic::mocks::mock_external::MockedExternal;
     /// # use near_vm_logic::External;
@@ -228,18 +224,18 @@ pub trait External {
     /// # let mut external = MockedExternal::new();
     /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
     /// external.append_action_deploy_contract(receipt_index, b"some valid Wasm code".to_vec()).unwrap();
-    ///
     /// ```
     ///
     /// # Panics
-    /// Panics if `receipt_index` is missing
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
     fn append_action_deploy_contract(
         &mut self,
         receipt_index: ReceiptIndex,
         code: Vec<u8>,
     ) -> Result<()>;
 
-    /// Attaches an `Action::FunctionCall` action to an existing receipt
+    /// Attach the [`FunctionCallAction`] action to an existing receipt.
     ///
     /// # Arguments
     ///
@@ -250,6 +246,7 @@ pub trait External {
     /// * `prepaid_gas` - amount of prepaid gas to attach to the call
     ///
     /// # Example
+    ///
     /// ```
     /// # use near_vm_logic::mocks::mock_external::MockedExternal;
     /// # use near_vm_logic::External;
@@ -263,11 +260,11 @@ pub trait External {
     ///     100000u128,
     ///     100u64
     /// ).unwrap();
-    ///
     /// ```
     ///
     /// # Panics
-    /// Panics if `receipt_index` is missing
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
     fn append_action_function_call(
         &mut self,
         receipt_index: ReceiptIndex,
@@ -277,7 +274,7 @@ pub trait External {
         prepaid_gas: Gas,
     ) -> Result<()>;
 
-    /// Attaches an `TransferAction` action to an existing receipt
+    /// Attach the [`TransferAction`] action to an existing receipt.
     ///
     /// # Arguments
     ///
@@ -285,6 +282,7 @@ pub trait External {
     /// * `amount` - amount of tokens to transfer
     ///
     /// # Example
+    ///
     /// ```
     /// # use near_vm_logic::mocks::mock_external::MockedExternal;
     /// # use near_vm_logic::External;
@@ -295,18 +293,18 @@ pub trait External {
     ///     receipt_index,
     ///     100000u128,
     /// ).unwrap();
-    ///
     /// ```
     ///
     /// # Panics
-    /// Panics if `receipt_index` is missing
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
     fn append_action_transfer(
         &mut self,
         receipt_index: ReceiptIndex,
         amount: Balance,
     ) -> Result<()>;
 
-    /// Attaches an `StakeAction` action to an existing receipt
+    /// Attach the [`StakeAction`] action to an existing receipt.
     ///
     /// # Arguments
     ///
@@ -315,6 +313,7 @@ pub trait External {
     /// * `public_key` - a validator public key
     ///
     /// # Example
+    ///
     /// ```
     /// # use near_vm_logic::mocks::mock_external::MockedExternal;
     /// # use near_vm_logic::External;
@@ -326,11 +325,11 @@ pub trait External {
     ///     100000u128,
     ///     b"some public key".to_vec()
     /// ).unwrap();
-    ///
     /// ```
     ///
     /// # Panics
-    /// Panics if `receipt_index` is missing
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
     fn append_action_stake(
         &mut self,
         receipt_index: ReceiptIndex,
@@ -338,7 +337,7 @@ pub trait External {
         public_key: PublicKey,
     ) -> Result<()>;
 
-    /// Attaches an `AddKeyAction` action to an existing receipt
+    /// Attach the [`AddKeyAction`] action to an existing receipt.
     ///
     /// # Arguments
     ///
@@ -347,6 +346,7 @@ pub trait External {
     /// * `nonce` - a nonce
     ///
     /// # Example
+    ///
     /// ```
     /// # use near_vm_logic::mocks::mock_external::MockedExternal;
     /// # use near_vm_logic::External;
@@ -358,11 +358,11 @@ pub trait External {
     ///     b"some public key".to_vec(),
     ///     0u64
     /// ).unwrap();
-    ///
     /// ```
     ///
     /// # Panics
-    /// Panics if `receipt_index` is missing
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
     fn append_action_add_key_with_full_access(
         &mut self,
         receipt_index: ReceiptIndex,
@@ -370,7 +370,10 @@ pub trait External {
         nonce: u64,
     ) -> Result<()>;
 
-    /// Attaches an `AddKeyAction` action to an existing receipt with `AccessKeyPermission::FunctionCall`
+    /// Attach the [`AddKeyAction`] action an existing receipt.
+    ///
+    /// The access key associated with the action will have the
+    /// [`AccessKeyPermission::FunctionCall`] permission scope.
     ///
     /// # Arguments
     ///
@@ -382,6 +385,7 @@ pub trait External {
     /// * `method_names` - a list of method names is allowed to call with this access key (empty = any method)
     ///
     /// # Example
+    ///
     /// ```
     /// # use near_vm_logic::mocks::mock_external::MockedExternal;
     /// # use near_vm_logic::External;
@@ -396,11 +400,11 @@ pub trait External {
     ///     "bob.near".parse().unwrap(),
     ///     vec![b"foo".to_vec(), b"bar".to_vec()]
     /// ).unwrap();
-    ///
     /// ```
     ///
     /// # Panics
-    /// Panics if `receipt_index` is missing
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
     fn append_action_add_key_with_function_call(
         &mut self,
         receipt_index: ReceiptIndex,
@@ -411,7 +415,7 @@ pub trait External {
         method_names: Vec<Vec<u8>>,
     ) -> Result<()>;
 
-    /// Attaches an `DeleteKeyAction` action to an existing receipt
+    /// Attach the [`DeleteKeyAction`] action to an existing receipt.
     ///
     /// # Arguments
     ///
@@ -419,6 +423,7 @@ pub trait External {
     /// * `public_key` - a public key for an access key to delete
     ///
     /// # Example
+    ///
     /// ```
     /// # use near_vm_logic::mocks::mock_external::MockedExternal;
     /// # use near_vm_logic::External;
@@ -429,18 +434,18 @@ pub trait External {
     ///     receipt_index,
     ///     b"some public key".to_vec()
     /// ).unwrap();
-    ///
     /// ```
     ///
     /// # Panics
-    /// Panics if `receipt_index` is missing
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
     fn append_action_delete_key(
         &mut self,
         receipt_index: ReceiptIndex,
         public_key: PublicKey,
     ) -> Result<()>;
 
-    /// Attaches an `DeleteAccountAction` action to an existing receipt
+    /// Attach the [`DeleteAccountAction`] action to an existing receipt
     ///
     /// # Arguments
     ///
@@ -448,6 +453,7 @@ pub trait External {
     /// * `beneficiary_id` - an account id to which the rest of the funds of the removed account will be transferred
     ///
     /// # Example
+    ///
     /// ```
     /// # use near_vm_logic::mocks::mock_external::MockedExternal;
     /// # use near_vm_logic::External;
@@ -458,11 +464,11 @@ pub trait External {
     ///     receipt_index,
     ///     "sam".parse().unwrap()
     /// ).unwrap();
-    ///
     /// ```
     ///
     /// # Panics
-    /// Panics if `receipt_index` is missing
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
     fn append_action_delete_account(
         &mut self,
         receipt_index: ReceiptIndex,

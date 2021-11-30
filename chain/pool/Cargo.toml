@@ -1,10 +1,10 @@
 [package]
 name = "near-pool"
-version = "0.1.0"
+version = "0.0.0"
 license = "MIT OR Apache-2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 rand = "0.7"

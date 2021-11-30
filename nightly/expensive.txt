@@ -1,34 +1,32 @@
 # catchup tests
-expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_third_epoch
-expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_third_epoch --features nightly_protocol,nightly_protocol_features
-expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_last_block
-expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_last_block --features nightly_protocol,nightly_protocol_features
-expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_distant_epoch
-expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_distant_epoch --features nightly_protocol,nightly_protocol_features
-expensive --timeout=1800 near-client catching_up tests::test_catchup_random_single_part_sync
-expensive --timeout=1800 near-client catching_up tests::test_catchup_random_single_part_sync --features nightly_protocol,nightly_protocol_features
-expensive --timeout=1800 near-client catching_up tests::test_catchup_random_single_part_sync_skip_15
-expensive --timeout=1800 near-client catching_up tests::test_catchup_random_single_part_sync_skip_15 --features nightly_protocol,nightly_protocol_features
-expensive --timeout=1800 near-client catching_up tests::test_catchup_random_single_part_sync_send_15
-expensive --timeout=1800 near-client catching_up tests::test_catchup_random_single_part_sync_send_15 --features nightly_protocol,nightly_protocol_features
-expensive --timeout=1800 near-client catching_up tests::test_catchup_random_single_part_sync_non_zero_amounts
-expensive --timeout=1800 near-client catching_up tests::test_catchup_random_single_part_sync_non_zero_amounts --features nightly_protocol,nightly_protocol_features
-expensive --timeout=1800 near-client catching_up tests::test_catchup_random_single_part_sync_height_6
-expensive --timeout=1800 near-client catching_up tests::test_catchup_random_single_part_sync_height_6 --features nightly_protocol,nightly_protocol_features
-expensive --timeout=1800 near-client catching_up tests::test_catchup_sanity_blocks_produced
-expensive --timeout=1800 near-client catching_up tests::test_catchup_sanity_blocks_produced --features nightly_protocol,nightly_protocol_features
-expensive --timeout=3600 near-client catching_up tests::test_all_chunks_accepted_1000
-expensive --timeout=3600 near-client catching_up tests::test_all_chunks_accepted_1000 --features nightly_protocol,nightly_protocol_features
-# expensive --timeout=7200 near-client catching_up tests::test_all_chunks_accepted_1000_slow
-# expensive --timeout=7200 near-client catching_up tests::test_all_chunks_accepted_1000_slow --features nightly_protocol,nightly_protocol_features
-expensive --timeout=1800 near-client catching_up tests::test_all_chunks_accepted_1000_rare_epoch_changing
-expensive --timeout=1800 near-client catching_up tests::test_all_chunks_accepted_1000_rare_epoch_changing --features nightly_protocol,nightly_protocol_features
-expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_hold
-expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_hold --features nightly_protocol,nightly_protocol_features
-# TODO(#4618): Those tests are currently broken.  Comment out while we’re
-# working on a fix / deciding whether to remove them.
-# expensive --timeout=1800 near-client catching_up tests::test_chunk_grieving
-# expensive --timeout=1800 near-client catching_up tests::test_chunk_grieving --features nightly_protocol,nightly_protocol_features
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_third_epoch
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_third_epoch --features nightly_protocol,nightly_protocol_features
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_last_block
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_last_block --features nightly_protocol,nightly_protocol_features
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_distant_epoch
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_distant_epoch --features nightly_protocol,nightly_protocol_features
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync --features nightly_protocol,nightly_protocol_features
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_skip_15
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_skip_15 --features nightly_protocol,nightly_protocol_features
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_send_15
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_send_15 --features nightly_protocol,nightly_protocol_features
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_non_zero_amounts
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_non_zero_amounts --features nightly_protocol,nightly_protocol_features
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_height_6
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_height_6 --features nightly_protocol,nightly_protocol_features
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_sanity_blocks_produced
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_sanity_blocks_produced --features nightly_protocol,nightly_protocol_features
+expensive --timeout=3600 near-client near_client tests::catching_up::test_all_chunks_accepted_1000
+expensive --timeout=3600 near-client near_client tests::catching_up::test_all_chunks_accepted_1000 --features nightly_protocol,nightly_protocol_features
+expensive --timeout=7200 near-client near_client tests::catching_up::test_all_chunks_accepted_1000_slow
+expensive --timeout=7200 near-client near_client tests::catching_up::test_all_chunks_accepted_1000_slow --features nightly_protocol,nightly_protocol_features
+expensive --timeout=1800 near-client near_client tests::catching_up::test_all_chunks_accepted_1000_rare_epoch_changing
+expensive --timeout=1800 near-client near_client tests::catching_up::test_all_chunks_accepted_1000_rare_epoch_changing --features nightly_protocol,nightly_protocol_features
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_hold
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_hold --features nightly_protocol,nightly_protocol_features
+expensive --timeout=1800 near-client near_client tests::catching_up::test_chunk_grieving
+expensive --timeout=1800 near-client near_client tests::catching_up::test_chunk_grieving --features nightly_protocol,nightly_protocol_features
 
 expensive integration-tests test_catchup test_catchup
 expensive integration-tests test_catchup test_catchup --features nightly_protocol,nightly_protocol_features
@@ -36,26 +34,26 @@ expensive integration-tests test_catchup test_catchup --features nightly_protoco
 # cross-shard transactions tests
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re
 # working on a fix / deciding whether to remove them.
-# expensive --timeout=3000 near-client cross_shard_tx tests::test_cross_shard_tx
-# expensive --timeout=3000 near-client cross_shard_tx tests::test_cross_shard_tx --features nightly_protocol,nightly_protocol_features
-expensive --timeout=3000 near-client cross_shard_tx tests::test_cross_shard_tx_doomslug
-expensive --timeout=3000 near-client cross_shard_tx tests::test_cross_shard_tx_doomslug --features nightly_protocol,nightly_protocol_features
-expensive --timeout=3000 near-client cross_shard_tx tests::test_cross_shard_tx_drop_chunks
-expensive --timeout=3000 near-client cross_shard_tx tests::test_cross_shard_tx_drop_chunks --features nightly_protocol,nightly_protocol_features
+# expensive --timeout=3000 near-client near_client tests::cross_shard_tx::test_cross_shard_tx
+# expensive --timeout=3000 near-client near_client tests::cross_shard_tx::test_cross_shard_tx --features nightly_protocol,nightly_protocol_features
+expensive --timeout=3000 near-client near_client tests::cross_shard_tx::test_cross_shard_tx_doomslug
+expensive --timeout=3000 near-client near_client tests::cross_shard_tx::test_cross_shard_tx_doomslug --features nightly_protocol,nightly_protocol_features
+expensive --timeout=3000 near-client near_client tests::cross_shard_tx::test_cross_shard_tx_drop_chunks
+expensive --timeout=3000 near-client near_client tests::cross_shard_tx::test_cross_shard_tx_drop_chunks --features nightly_protocol,nightly_protocol_features
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re
 # working on a fix / deciding whether to remove them.
-# expensive --timeout=5400 near-client cross_shard_tx tests::test_cross_shard_tx_with_validator_rotation_1
-# expensive --timeout=5400 near-client cross_shard_tx tests::test_cross_shard_tx_with_validator_rotation_1 --features nightly_protocol,nightly_protocol_features
-# expensive --timeout=5400 near-client cross_shard_tx tests::test_cross_shard_tx_with_validator_rotation_2
-# expensive --timeout=5400 near-client cross_shard_tx tests::test_cross_shard_tx_with_validator_rotation_2 --features nightly_protocol,nightly_protocol_features
-# expensive --timeout=4800 near-client cross_shard_tx tests::test_cross_shard_tx_8_iterations
-# expensive --timeout=4800 near-client cross_shard_tx tests::test_cross_shard_tx_8_iterations_drop_chunks
+# expensive --timeout=5400 near-client near_client tests::cross_shard_tx::test_cross_shard_tx_with_validator_rotation_1
+# expensive --timeout=5400 near-client near_client tests::cross_shard_tx::test_cross_shard_tx_with_validator_rotation_1 --features nightly_protocol,nightly_protocol_features
+# expensive --timeout=5400 near-client near_client tests::cross_shard_tx::test_cross_shard_tx_with_validator_rotation_2
+# expensive --timeout=5400 near-client near_client tests::cross_shard_tx::test_cross_shard_tx_with_validator_rotation_2 --features nightly_protocol,nightly_protocol_features
+# expensive --timeout=4800 near-client near_client tests::cross_shard_tx::test_cross_shard_tx_8_iterations
+# expensive --timeout=4800 near-client near_client tests::cross_shard_tx::test_cross_shard_tx_8_iterations_drop_chunks
 
 # consensus tests
-expensive --timeout=3000 near-chain doomslug tests::test_fuzzy_doomslug_liveness_and_safety
-expensive --timeout=3000 near-chain doomslug tests::test_fuzzy_doomslug_liveness_and_safety --features nightly_protocol,nightly_protocol_features
-expensive --timeout=500 near-client consensus tests::test_consensus_with_epoch_switches
-expensive --timeout=500 near-client consensus tests::test_consensus_with_epoch_switches --features nightly_protocol,nightly_protocol_features
+expensive --timeout=3000 near-chain near_chain tests::doomslug::test_fuzzy_doomslug_liveness_and_safety
+expensive --timeout=3000 near-chain near_chain tests::doomslug::test_fuzzy_doomslug_liveness_and_safety --features nightly_protocol,nightly_protocol_features
+expensive --timeout=500 near-client near_client tests::consensus::test_consensus_with_epoch_switches
+expensive --timeout=500 near-client near_client tests::consensus::test_consensus_with_epoch_switches --features nightly_protocol,nightly_protocol_features
 
 # testnet rpc
 expensive nearcore test_tps_regression test::test_highload
@@ -119,23 +117,21 @@ expensive integration-tests standard_cases rpc::test::test_upload_contract_testn
 expensive integration-tests standard_cases rpc::test::test_upload_contract_testnet --features nightly_protocol,nightly_protocol_features
 
 # GC tests
-expensive --timeout=900 near-chain gc tests::test_gc_remove_fork_large
-expensive --timeout=900 near-chain gc tests::test_gc_remove_fork_large --features nightly_protocol,nightly_protocol_features
-expensive --timeout=1200 near-chain gc tests::test_gc_not_remove_fork_large
-expensive --timeout=1200 near-chain gc tests::test_gc_not_remove_fork_large --features nightly_protocol,nightly_protocol_features
-expensive --timeout=1200 near-chain gc tests::test_gc_boundaries_large
-expensive --timeout=1200 near-chain gc tests::test_gc_boundaries_large --features nightly_protocol,nightly_protocol_features
-expensive --timeout=900 near-chain gc tests::test_gc_random_large
-expensive --timeout=900 near-chain gc tests::test_gc_random_large --features nightly_protocol,nightly_protocol_features
-expensive --timeout=600 near-chain gc tests::test_gc_pine
-expensive --timeout=600 near-chain gc tests::test_gc_pine --features nightly_protocol,nightly_protocol_features
-expensive --timeout=700 near-chain gc tests::test_gc_star_large
-expensive --timeout=700 near-chain gc tests::test_gc_star_large --features nightly_protocol,nightly_protocol_features
+expensive --timeout=900 near-chain near_chain tests::gc::test_gc_remove_fork_large
+expensive --timeout=900 near-chain near_chain tests::gc::test_gc_remove_fork_large --features nightly_protocol,nightly_protocol_features
+expensive --timeout=1200 near-chain near_chain tests::gc::test_gc_not_remove_fork_large
+expensive --timeout=1200 near-chain near_chain tests::gc::test_gc_not_remove_fork_large --features nightly_protocol,nightly_protocol_features
+expensive --timeout=1200 near-chain near_chain tests::gc::test_gc_boundaries_large
+expensive --timeout=1200 near-chain near_chain tests::gc::test_gc_boundaries_large --features nightly_protocol,nightly_protocol_features
+expensive --timeout=900 near-chain near_chain tests::gc::test_gc_random_large
+expensive --timeout=900 near-chain near_chain tests::gc::test_gc_random_large --features nightly_protocol,nightly_protocol_features
+expensive --timeout=600 near-chain near_chain tests::gc::test_gc_pine
+expensive --timeout=600 near-chain near_chain tests::gc::test_gc_pine --features nightly_protocol,nightly_protocol_features
+expensive --timeout=700 near-chain near_chain tests::gc::test_gc_star_large
+expensive --timeout=700 near-chain near_chain tests::gc::test_gc_star_large --features nightly_protocol,nightly_protocol_features
 
-# TODO(#4618): Those tests are currently broken.  Comment out while we’re
-# working on a fix / deciding whether to remove them.
-# expensive integration-tests client process_blocks::test_gc_after_state_sync
-# expensive integration-tests client process_blocks::test_gc_after_state_sync --features nightly_protocol,nightly_protocol_features
+expensive integration-tests client process_blocks::test_gc_after_state_sync
+expensive integration-tests client process_blocks::test_gc_after_state_sync --features nightly_protocol,nightly_protocol_features
 
 # other tests
 expensive near-chunks near_chunks test::test_seal_removal

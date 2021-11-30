@@ -1,25 +1,22 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+"""Runs integration tests in the cloud on NayDuck.
 
-# This script runs integration tests in the cloud.  You can see the runs here:
-#
-#     http://nayduck.eastus.cloudapp.azure.com:3000/
-#
-# To request a run, use the following command:
-#
-#    python3 scripts/nayduck.py      \
-#        --branch    <your_branch>   \
-#        --test_file <test_file>.txt
-#
-# See README.md in nightly directory for documentation of the test suite file
-# format.  Note that you must be a member of the Near or Near Protocol
-# organisation on GitHub to authenticate:
-#
-#    https://github.com/orgs/near/people
-#
-# The source code for NayDuck itself is here:
-#
-#    https://github.com/near/nayduck
+To request a new run, use the following command:
 
+   python3 scripts/nayduck.py      \
+       --branch    <your_branch>   \
+       --test_file <test_file>.txt
+
+Scheduled runs can be seen at <http://nayduck.near.org/>.
+
+See README.md in nightly directory for documentation of the test suite file
+format.  Note that you must be a member of the Near or Near Protocol
+organisation on GitHub to authenticate (<https://github.com/orgs/near/people>).
+
+The source code for NayDuck itself is at <https://github.com/near/nayduck>.
+"""
+
+import getpass
 import json
 import os
 import pathlib
@@ -53,6 +50,10 @@ def _parse_args():
                        '-i',
                        action='store_true',
                        help='Read test set from standard input.')
+    parser.add_argument('--run-locally',
+                        '-l',
+                        action='store_true',
+                        help='Run tests locally.')
     args = parser.parse_args()
 
     return args
@@ -170,27 +171,62 @@ def __read_tests(
 def github_auth(code_path: pathlib.Path):
     print('Go to the following link in your browser:\n\n{}/login/cli\n'.format(
         NAYDUCK_BASE_HREF))
-    code = input('Enter authorisation code: ')
+    code = getpass.getpass('Enter authorisation code: ')
     code_path.parent.mkdir(parents=True, exist_ok=True)
     code_path.write_text(code)
     return code
 
 
-def main():
+def run_locally(tests):
+    for test in tests:
+        # See nayduck specs at https://github.com/near/nayduck/blob/master/lib/testspec.py
+        fields = test.split()
+
+        index = 1
+        while len(fields) > index and fields[index].startswith('--'):
+            index += 1
+
+        ignored = fields[1:index]
+        del fields[1:index]
+        message = f'Running ‘{"".join(fields)}’'
+        if ignored:
+            message = f'{message} (ignoring flags ‘{"".join(ignored)}`)'
+        print(message)
+
+        if fields[0] == 'expensive':
+            # TODO --test doesn't work
+            cmd = (
+                'cargo',
+                'test',
+                '-p',
+                fields[1],  # '--test', fields[2],
+                '--features',
+                'expensive_tests',
+                '--',
+                '--exact',
+                fields[3])
+            cwd = None
+        elif fields[0] in ('pytest', 'mocknet'):
+            fields[0] = sys.executable
+            fields[1] = os.path.join('tests', fields[1])
+            cmd = fields
+            cwd = 'pytest'
+        else:
+            print(f'Unrecognised test category ‘{fields[0]}’', file=sys.stderr)
+            continue
+        print("RUNNING COMMAND cwd=%s cmd = %s", (cwd, cmd))
+        subprocess.check_call(cmd, cwd=cwd)
+
+
+def run_remotely(args, tests):
+    import requests
+
     try:
         import colorama
         styles = (colorama.Fore.RED, colorama.Fore.GREEN,
                   colorama.Style.RESET_ALL)
     except ImportError:
         styles = ('', '', '')
-    import requests
-
-    args = _parse_args()
-
-    if args.stdin:
-        tests = list(read_tests_from_stdin())
-    else:
-        tests = list(read_tests_from_file(pathlib.Path(args.test_file)))
 
     code_path = pathlib.Path(
         os.environ.get('XDG_CONFIG_HOME') or
@@ -205,7 +241,6 @@ def main():
         'sha': args.sha or get_curent_sha().strip(),
         'tests': list(tests)
     }
-
     while True:
         print('Sending request ...')
         res = requests.post(NAYDUCK_BASE_HREF + '/api/run/new',
@@ -215,17 +250,29 @@ def main():
             break
         print(f'{styles[0]}Unauthorised.{styles[2]}\n')
         code = github_auth(code_path)
-
     if res.status_code == 200:
         json_res = json.loads(res.text)
         print(styles[json_res['code'] == 0] + json_res['response'] + styles[2])
     else:
         print(f'{styles[0]}Got status code {res.status_code}:{styles[2]}\n')
         print(res.text)
-
     code = res.cookies.get('nay-code')
     if code:
         code_path.write_text(code)
+
+
+def main():
+    args = _parse_args()
+
+    if args.stdin:
+        tests = list(read_tests_from_stdin())
+    else:
+        tests = list(read_tests_from_file(pathlib.Path(args.test_file)))
+
+    if args.run_locally:
+        run_locally(tests)
+    else:
+        run_remotely(args, tests)
 
 
 if __name__ == "__main__":

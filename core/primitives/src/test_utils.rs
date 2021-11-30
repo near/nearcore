@@ -3,14 +3,11 @@ use std::collections::HashMap;
 use num_rational::Rational;
 
 use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
+use near_primitives_core::types::ProtocolVersion;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
-use crate::block_header::BlockHeader;
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
-use crate::block_header::BlockHeaderV2;
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use crate::block_header::BlockHeaderV3;
+use crate::block_header::{BlockHeader, BlockHeaderV3};
 use crate::errors::{EpochError, TxExecutionError};
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
@@ -259,7 +256,6 @@ impl SignedTransaction {
 }
 
 impl BlockHeader {
-    #[cfg(feature = "protocol_feature_block_header_v3")]
     pub fn get_mut(&mut self) -> &mut BlockHeaderV3 {
         match self {
             BlockHeader::BlockHeaderV1(_) | BlockHeader::BlockHeaderV2(_) => {
@@ -269,11 +265,17 @@ impl BlockHeader {
         }
     }
 
-    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-    pub fn get_mut(&mut self) -> &mut BlockHeaderV2 {
+    pub fn set_lastest_protocol_version(&mut self, latest_protocol_version: ProtocolVersion) {
         match self {
-            BlockHeader::BlockHeaderV1(_) => panic!("old header should not appear in tests"),
-            BlockHeader::BlockHeaderV2(header) => header,
+            BlockHeader::BlockHeaderV1(header) => {
+                header.inner_rest.latest_protocol_version = latest_protocol_version;
+            }
+            BlockHeader::BlockHeaderV2(header) => {
+                header.inner_rest.latest_protocol_version = latest_protocol_version;
+            }
+            BlockHeader::BlockHeaderV3(header) => {
+                header.inner_rest.latest_protocol_version = latest_protocol_version;
+            }
         }
     }
 
@@ -283,9 +285,20 @@ impl BlockHeader {
             &self.inner_lite_bytes(),
             &self.inner_rest_bytes(),
         );
-        let mut header = self.get_mut();
-        header.hash = hash;
-        header.signature = signature;
+        match self {
+            BlockHeader::BlockHeaderV1(header) => {
+                header.hash = hash;
+                header.signature = signature;
+            }
+            BlockHeader::BlockHeaderV2(header) => {
+                header.hash = hash;
+                header.signature = signature;
+            }
+            BlockHeader::BlockHeaderV3(header) => {
+                header.hash = hash;
+                header.signature = signature;
+            }
+        }
     }
 }
 
@@ -307,7 +320,6 @@ impl Block {
                         ShardChunkHeader::V2(_) => {
                             panic!("Attempted to set V1 block chunks with V2")
                         }
-                        #[cfg(feature = "protocol_feature_block_header_v3")]
                         ShardChunkHeader::V3(_) => {
                             panic!("Attempted to set V1 block chunks with V3")
                         }
@@ -408,14 +420,13 @@ impl Block {
     ) -> Self {
         Block::produce(
             PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
             prev.header(),
             height,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
-            (prev.header().block_ordinal() + 1),
+            prev.header().block_ordinal() + 1,
             prev.chunks().iter().cloned().collect(),
             epoch_id,
             next_epoch_id,
-            #[cfg(feature = "protocol_feature_block_header_v3")]
             None,
             approvals,
             Rational::from_integer(0),

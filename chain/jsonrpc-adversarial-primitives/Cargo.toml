@@ -1,9 +1,9 @@
 [package]
 name = "near-jsonrpc-adversarial-primitives"
-version = "0.2.0"
+version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 serde = { version = "1", features = ["derive"], optional = true }
@@ -12,7 +12,7 @@ near-primitives = { path = "../../core/primitives" }
 
 near-jsonrpc-primitives = { path = "../jsonrpc-primitives", optional = true }
 near-network = { path = "../network" }
-
+deepsize = { version = "0.2.0", optional = true }
 
 [features]
 ser_de = [
@@ -21,3 +21,4 @@ ser_de = [
   "near-jsonrpc-primitives",
   "near-network/test_features"
 ]
+deepsize_feature = ["deepsize", "near-primitives/deepsize_feature"]

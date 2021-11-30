@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Chaos Monkey test. Simulates random events and failures and makes sure the blockchain continues operating as expected
 #
 #     _.-._         ..-..         _.-._
@@ -26,9 +27,10 @@
 # This test also completely disables rewards, which simplifies ensuring total supply invariance and balance invariances
 
 import sys, time, base58, random, inspect, traceback, requests, logging
+import pathlib
 from multiprocessing import Process, Value, Lock
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import init_cluster, spin_up_node, load_config
 from configured_logger import logger
@@ -142,7 +144,7 @@ def monkey_node_set(stopped, error, nodes, nonces):
                 # for simplicity just boot from the observer node
                 # `node_restart` doesn't boot from the observer, increasing coverage
                 boot_node = nodes[-1]
-                node.start(boot_node.node_key.pk, boot_node.addr())
+                node.start(boot_node=boot_node)
             else:
                 node.kill()
                 wipe = False
@@ -187,7 +189,7 @@ def monkey_node_restart(stopped, error, nodes, nonces):
 
         if wait_if_restart:
             time.sleep(7)
-        node.start(boot_node.node_key.pk, boot_node.addr())
+        node.start(boot_node=boot_node)
         logging.info("NODE %s IS BACK UP" % node_idx)
 
         _, new_height = get_recent_hash(node, restart_sync_timeout)
@@ -634,13 +636,7 @@ def doit(s, n, N, k, monkeys, timeout):
 
     started = time.time()
 
-    boot_node = spin_up_node(config,
-                             near_root,
-                             node_dirs[0],
-                             0,
-                             None,
-                             None,
-                             proxy=proxy)
+    boot_node = spin_up_node(config, near_root, node_dirs[0], 0, proxy=proxy)
     boot_node.stop_checking_store()
     boot_node.mess_with = False
     nodes = [boot_node]
@@ -650,8 +646,7 @@ def doit(s, n, N, k, monkeys, timeout):
                             near_root,
                             node_dirs[i],
                             i,
-                            boot_node.node_key.pk,
-                            boot_node.addr(),
+                            boot_node=boot_node,
                             proxy=proxy)
         node.stop_checking_store()
         nodes.append(node)

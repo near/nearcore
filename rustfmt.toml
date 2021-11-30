@@ -1,5 +1,7 @@
 use_small_heuristics = "Max"
 reorder_imports = true
-edition = "2018"
+edition = "2021"
+# This option will merge imports, however it's only available in +nightly.
+# imports_granularity = "Module"
 # fn_args_density = "Compressed"
 # overflow_delimited_expr = "true"

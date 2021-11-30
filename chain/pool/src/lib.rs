@@ -3,10 +3,10 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use crate::types::{PoolIterator, PoolKey, TransactionGroup};
 use borsh::BorshSerialize;
 use near_crypto::PublicKey;
+use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
-use rand::RngCore;
 use std::ops::Bound;
 
 pub mod types;
@@ -20,15 +20,15 @@ pub struct TransactionPool {
     /// Set of all hashes to quickly check if the given transaction is in the pool.
     pub unique_transactions: HashSet<CryptoHash>,
     /// A uniquely generated key seed to randomize PoolKey order.
-    key_seed: Vec<u8>,
+    key_seed: RngSeed,
     /// The key after which the pool iterator starts. Doesn't have to be present in the pool.
     last_used_key: PoolKey,
 }
 
 impl TransactionPool {
-    pub fn new() -> Self {
+    pub fn new(key_seed: RngSeed) -> Self {
         Self {
-            key_seed: rand::thread_rng().next_u64().to_le_bytes().to_vec(),
+            key_seed,
             transactions: BTreeMap::new(),
             unique_transactions: HashSet::new(),
             last_used_key: CryptoHash::default(),
@@ -203,7 +203,6 @@ impl<'a> Drop for PoolIteratorWrapper<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::convert::TryFrom;
     use std::sync::Arc;
 
     use rand::seq::SliceRandom;
@@ -213,6 +212,8 @@ mod tests {
 
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::Balance;
+
+    const TEST_SEED: RngSeed = [3; 32];
 
     fn generate_transactions(
         signer_id: &str,
@@ -241,7 +242,7 @@ mod tests {
         mut transactions: Vec<SignedTransaction>,
         expected_weight: u32,
     ) -> (Vec<u64>, TransactionPool) {
-        let mut pool = TransactionPool::new();
+        let mut pool = TransactionPool::new(TEST_SEED);
         let mut rng = thread_rng();
         transactions.shuffle(&mut rng);
         for tx in transactions {
@@ -352,7 +353,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let mut pool = TransactionPool::new();
+        let mut pool = TransactionPool::new(TEST_SEED);
         let mut rng = thread_rng();
         transactions.shuffle(&mut rng);
         for tx in transactions.clone() {

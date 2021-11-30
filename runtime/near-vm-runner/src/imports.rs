@@ -3,7 +3,7 @@ use near_vm_logic::VMLogic;
 
 use std::ffi::c_void;
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct ImportReference(pub *mut c_void);
 unsafe impl Send for ImportReference {}
 unsafe impl Sync for ImportReference {}
@@ -16,6 +16,22 @@ use wasmer::{Memory, WasmerEnv};
 pub struct NearWasmerEnv {
     pub memory: Memory,
     pub logic: ImportReference,
+}
+
+const fn str_eq(s1: &str, s2: &str) -> bool {
+    let s1 = s1.as_bytes();
+    let s2 = s2.as_bytes();
+    if s1.len() != s2.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < s1.len() {
+        if s1[i] != s2[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
 }
 
 // Wasm has only i32/i64 types, so Wasmtime 0.17 only accepts
@@ -36,16 +52,23 @@ macro_rules! rust2wasm {
 }
 
 macro_rules! wrapped_imports {
-        ( $($(#[$feature_name:tt, $feature:ident])* $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
+        ( $($(#[$stable_feature:ident])? $(#[$feature_name:literal, $feature:ident])* $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
             #[cfg(feature = "wasmer0_vm")]
             pub mod wasmer_ext {
                 use near_vm_logic::VMLogic;
                 use wasmer_runtime::Ctx;
+                use crate::imports::str_eq;
                 type VMResult<T> = ::std::result::Result<T, near_vm_logic::VMLogicError>;
                 $(
                     #[allow(unused_parens)]
                     $(#[cfg(feature = $feature_name)])*
                     pub fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> VMResult<($( $returns ),*)> {
+                        const IS_GAS: bool = str_eq(stringify!($func), "gas");
+                        let _span = if IS_GAS {
+                            None
+                        } else {
+                            Some(tracing::debug_span!(target: "host-function", stringify!($func)).entered())
+                        };
                         let logic: &mut VMLogic<'_> = unsafe { &mut *(ctx.data as *mut VMLogic<'_>) };
                         logic.$func( $( $arg_name, )* )
                     }
@@ -56,12 +79,19 @@ macro_rules! wrapped_imports {
             pub mod wasmer2_ext {
             use near_vm_logic::VMLogic;
             use crate::imports::NearWasmerEnv;
+            use crate::imports::str_eq;
 
             type VMResult<T> = ::std::result::Result<T, near_vm_logic::VMLogicError>;
             $(
                 #[allow(unused_parens)]
                 $(#[cfg(feature = $feature_name)])*
                 pub fn $func(env: &NearWasmerEnv, $( $arg_name: $arg_type ),* ) -> VMResult<($( $returns ),*)> {
+                    const IS_GAS: bool = str_eq(stringify!($func), "gas");
+                    let _span = if IS_GAS {
+                        None
+                    } else {
+                        Some(tracing::debug_span!(target: "host-function", stringify!($func)).entered())
+                    };
                     let logic: &mut VMLogic = unsafe { &mut *(env.logic.0 as *mut VMLogic<'_>) };
                     logic.$func( $( $arg_name, )* )
                 }
@@ -74,6 +104,7 @@ macro_rules! wrapped_imports {
                 use std::ffi::c_void;
                 use std::cell::{RefCell, UnsafeCell};
                 use wasmtime::Trap;
+                use crate::imports::str_eq;
 
                 thread_local! {
                     pub static CALLER_CONTEXT: UnsafeCell<*mut c_void> = UnsafeCell::new(0 as *mut c_void);
@@ -85,6 +116,12 @@ macro_rules! wrapped_imports {
                     #[allow(unused_parens)]
                     #[cfg(all(feature = "wasmtime_vm" $(, feature = $feature_name)*))]
                     pub fn $func( $( $arg_name: rust2wasm!($arg_type) ),* ) -> VMResult<($( rust2wasm!($returns)),*)> {
+                        const IS_GAS: bool = str_eq(stringify!($func), "gas");
+                        let _span =if IS_GAS {
+                            None
+                        } else {
+                            Some(tracing::debug_span!(target: "host-function", stringify!($func)).entered())
+                        };
                         let data = CALLER_CONTEXT.with(|caller_context| {
                             unsafe {
                                 *caller_context.get()
@@ -116,6 +153,7 @@ macro_rules! wrapped_imports {
                 let raw_ptr = logic as *mut _ as *mut c_void;
                 let import_reference = ImportReference(raw_ptr);
                 let mut import_object = wasmer_runtime::ImportObject::new_with_data(move || {
+                    let import_reference = import_reference;
                     let dtor = (|_: *mut c_void| {}) as fn(*mut c_void);
                     (import_reference.0, dtor)
                 });
@@ -124,7 +162,7 @@ macro_rules! wrapped_imports {
                 ns.insert("memory", memory);
                 $({
                     $(#[cfg(feature = $feature_name)])*
-                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* {
+                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* $(&& near_primitives::checked_feature!("stable", $stable_feature, protocol_version))? {
                         ns.insert(stringify!($func), wasmer_runtime::func!(wasmer_ext::$func));
                     }
                 })*
@@ -147,7 +185,7 @@ macro_rules! wrapped_imports {
                 namespace.insert("memory", memory);
                 $({
                     $(#[cfg(feature = $feature_name)])*
-                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* {
+                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* $(&& near_primitives::checked_feature!("stable", $stable_feature, protocol_version))? {
                         namespace.insert(stringify!($func), wasmer::Function::new_native_with_env(&store, env.clone(), wasmer2_ext::$func));
                     }
                 })*
@@ -171,7 +209,7 @@ macro_rules! wrapped_imports {
                 linker.define("env", "memory", memory).expect("cannot define memory");
                 $({
                     $(#[cfg(feature = $feature_name)])*
-                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* {
+                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* $(&& near_primitives::checked_feature!("stable", $stable_feature, protocol_version))? {
                         linker.func("env", stringify!($func), wasmtime_ext::$func).expect("cannot link external");
                     }
                 })*
@@ -221,8 +259,8 @@ wrapped_imports! {
     sha256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak512<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    ripemd160<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    ecrecover<[hash_len: u64, hash_ptr: u64, sign_len: u64, sig_ptr: u64, v: u64, malleability_flag: u64, register_id: u64] -> [u64]>,
+    #[MathExtension] ripemd160<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #[MathExtension] ecrecover<[hash_len: u64, hash_ptr: u64, sign_len: u64, sig_ptr: u64, v: u64, malleability_flag: u64, register_id: u64] -> [u64]>,
     // #####################
     // # Miscellaneous API #
     // #####################

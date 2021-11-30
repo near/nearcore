@@ -1,19 +1,18 @@
-use crate::cases::ratio_to_gas_signed;
+use crate::gas_cost::ratio_to_gas_signed;
 use crate::testbed_runners::{end_count, start_count, GasMetric};
 use crate::vm_estimator::{create_context, least_squares_method};
-use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::types::{CompiledContractCache, ProtocolVersion};
 use near_store::{create_store, StoreCompiledContractCache};
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_runner::{run_vm, VMKind};
+use near_vm_runner::internal::VMKind;
 use nearcore::get_store_path;
+use num_rational::Ratio;
 use std::fmt::Write;
 use std::sync::Arc;
 
-#[allow(dead_code)]
-fn test_function_call(metric: GasMetric, vm_kind: VMKind) {
+pub(crate) fn test_function_call(metric: GasMetric, vm_kind: VMKind) -> (Ratio<i128>, Ratio<i128>) {
     let mut xs = vec![];
     let mut ys = vec![];
     const REPEATS: u64 = 50;
@@ -27,18 +26,17 @@ fn test_function_call(metric: GasMetric, vm_kind: VMKind) {
 
     // Regression analysis only makes sense for additive metrics.
     if metric == GasMetric::Time {
-        return;
+        return (0.into(), 0.into());
     }
 
     let (cost_base, cost_byte, _) = least_squares_method(&xs, &ys);
-
+    let gas_cost_base = ratio_to_gas_signed(metric, cost_base);
+    let gas_cost_byte = ratio_to_gas_signed(metric, cost_byte);
     println!(
         "{:?} {:?} function call base {} gas, per byte {} gas",
-        vm_kind,
-        metric,
-        ratio_to_gas_signed(metric, cost_base),
-        ratio_to_gas_signed(metric, cost_byte),
+        vm_kind, metric, gas_cost_base, gas_cost_byte,
     );
+    (cost_base, cost_byte)
 }
 
 #[test]
@@ -99,19 +97,23 @@ pub fn compute_function_call_cost(
     repeats: u64,
     contract: &ContractCode,
 ) -> u64 {
+    let runtime = vm_kind.runtime().expect("runtime has not been enabled");
     let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
     let store = create_store(&get_store_path(workdir.path()));
     let cache_store = Arc::new(StoreCompiledContractCache { store });
     let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
-    let vm_config = VMConfig::default();
+    let protocol_version = ProtocolVersion::MAX;
+    let config_store = RuntimeConfigStore::new(None);
+    let runtime_config = config_store.get_config(protocol_version).as_ref();
+    let vm_config = runtime_config.wasm_config.clone();
+    let fees = runtime_config.transaction_costs.clone();
     let mut fake_external = MockedExternal::new();
     let fake_context = create_context(vec![]);
-    let fees = RuntimeFeesConfig::test();
     let promise_results = vec![];
 
     // Warmup.
     if repeats != 1 {
-        let result = run_vm(
+        let result = runtime.run(
             &contract,
             "hello0",
             &mut fake_external,
@@ -119,8 +121,7 @@ pub fn compute_function_call_cost(
             &vm_config,
             &fees,
             &promise_results,
-            vm_kind,
-            ProtocolVersion::MAX,
+            protocol_version,
             cache,
         );
         assert!(result.1.is_none());
@@ -128,7 +129,7 @@ pub fn compute_function_call_cost(
     // Run with gas metering.
     let start = start_count(gas_metric);
     for _ in 0..repeats {
-        let result = run_vm(
+        let result = runtime.run(
             &contract,
             "hello0",
             &mut fake_external,
@@ -136,8 +137,7 @@ pub fn compute_function_call_cost(
             &vm_config,
             &fees,
             &promise_results,
-            vm_kind,
-            ProtocolVersion::MAX,
+            protocol_version,
             cache,
         );
         assert!(result.1.is_none());

@@ -1,5 +1,6 @@
 import atexit
 import base64
+import collections
 import json
 import multiprocessing
 import os
@@ -13,12 +14,12 @@ import sys
 import threading
 import time
 import traceback
+import typing
 import uuid
 from rc import gcloud
 from retrying import retry
 
 import network
-from bridge import GanacheNode, RainbowBridge, alice, bob, carol
 from configured_logger import logger
 from key import Key
 from proxy import NodesProxy
@@ -65,6 +66,42 @@ def nretry(fn, timeout):
             delay *= 1.2
 
 
+BootNode = typing.Union[None, 'BaseNode', typing.Iterable['BaseNode']]
+
+
+def make_boot_nodes_arg(boot_node: BootNode) -> typing.Tuple[str]:
+    """Converts `boot_node` argument to `--boot-nodes` command line argument.
+
+    If the argument is `None` returns an empty tuple.  Otherwise, returns
+    a tuple representing arguments to be added to `neard` invocation for setting
+    boot nodes according to `boot_node` argument.
+
+    Apart from `None` as described above, `boot_node` can be a [`BaseNode`]
+    object, or an iterable (think list) of [`BaseNode`] objects.  The boot node
+    address of a BaseNode object is contstructed using [`BaseNode.addr_with_pk`]
+    method.
+
+    If iterable of nodes is given, the `neard` is going to be configured with
+    multiple boot nodes.
+
+    Args:
+        boot_node: Specification of boot node(s).
+    Returns:
+        A tuple to add to `neard` invocation specifying boot node(s) if any
+        specified.
+    """
+    if not boot_node:
+        return ()
+    try:
+        it = iter(boot_node)
+    except TypeError:
+        it = iter((boot_node,))
+    nodes = ','.join(node.addr_with_pk() for node in it)
+    if not nodes:
+        return ()
+    return ('--boot-nodes', nodes)
+
+
 class BaseNode(object):
 
     def __init__(self):
@@ -74,25 +111,58 @@ class BaseNode(object):
         self.store_tests = 0
         self.is_check_store = True
 
+    def change_config(self, overrides: typing.Dict[str, typing.Any]) -> None:
+        """Change client config.json of a node by applying given overrides.
+
+        Changes to the configuration need to be made while the node is stopped.
+        More precisely, while the changes may be made at any point, the node
+        reads the time at startup only.
+
+        The overrides are a dictionary specifying new values for configuration
+        keys.  Non-dictionary values are applied directly, while dictionaries
+        are non-recursively merged.  For example if the original config is:
+
+            {
+                'foo': 42,
+                'bar': {'a': 1, 'b': 2, 'c': {'A': 3}},
+            }
+
+        and overrides are:
+
+            {
+                'foo': 24,
+                'bar': {'a': -1, 'c': {'D': 3}, 'd': 1},
+            }
+
+        then resulting configuration file will be:
+
+            {
+                'foo': 24,
+                'bar': {'a': -1, 'b': 2, 'c': {'D': 3}, 'd': 1},
+            }
+
+        Args:
+            overrides: A dictionary of config overrides.  Non-dictionary values
+                are set as is, dictionaries are non-recursively merged.
+        Raises:
+            NotImplementedError: Currently changing the configuration is
+                supported on local node only.
+        """
+        name = type(self).__name__
+        raise NotImplementedError('change_config not supported by ' + name)
+
     def _get_command_line(self,
                           near_root,
                           node_dir,
-                          boot_key,
-                          boot_node_addr,
+                          boot_node: BootNode,
                           binary_name='neard'):
-        if boot_key is None:
-            assert boot_node_addr is None
-            return [
-                os.path.join(near_root, binary_name), "--home", node_dir, "run"
-            ]
-        else:
-            assert boot_node_addr is not None
-            boot_key = boot_key.split(':')[1]
-            return [
-                os.path.join(near_root, binary_name), "--home", node_dir, "run",
-                '--boot-nodes',
-                "%s@%s:%s" % (boot_key, boot_node_addr[0], boot_node_addr[1])
-            ]
+        cmd = (os.path.join(near_root, binary_name), '--home', node_dir, 'run')
+        return cmd + make_boot_nodes_arg(boot_node)
+
+    def addr_with_pk(self) -> str:
+        pk_hash = self.node_key.pk.split(':')[1]
+        host, port = self.addr()
+        return '{}@{}:{}'.format(pk_hash, host, port)
 
     def wait_for_rpc(self, timeout=1):
         nretry(lambda: self.get_status(), timeout=timeout)
@@ -119,7 +189,7 @@ class BaseNode(object):
                              [base64.b64encode(signed_tx).decode('utf8')],
                              timeout=timeout)
 
-    def get_status(self, check_storage=True, timeout=2):
+    def get_status(self, check_storage=True, timeout=4):
         r = requests.get("http://%s:%s/status" % self.rpc_addr(),
                          timeout=timeout)
         r.raise_for_status()
@@ -261,34 +331,32 @@ class LocalNode(BaseNode):
         self.node_dir = node_dir
         self.binary_name = binary_name or 'neard'
         self.cleaned = False
-        with open(os.path.join(node_dir, "config.json")) as f:
-            config_json = json.loads(f.read())
-        # assert config_json['network']['addr'] == '0.0.0.0:24567', config_json['network']['addr']
-        # assert config_json['rpc']['addr'] == '0.0.0.0:3030', config_json['rpc']['addr']
-        # just a sanity assert that the setting name didn't change
-        assert 0 <= config_json['consensus']['min_num_peers'] <= 3, config_json[
-            'consensus']['min_num_peers']
-        config_json['network']['addr'] = '0.0.0.0:%s' % port
-        config_json['network']['blacklist'] = blacklist
-        config_json['rpc']['addr'] = '0.0.0.0:%s' % rpc_port
-        config_json['rpc']['metrics_addr'] = '0.0.0.0:%s' % (rpc_port + 1000)
-        if single_node:
-            config_json['consensus']['min_num_peers'] = 0
-        else:
-            config_json['consensus']['min_num_peers'] = 1
-        with open(os.path.join(node_dir, "config.json"), 'w') as f:
-            f.write(json.dumps(config_json, indent=2))
-
         self.validator_key = Key.from_json_file(
             os.path.join(node_dir, "validator_key.json"))
         self.node_key = Key.from_json_file(
             os.path.join(node_dir, "node_key.json"))
         self.signer_key = Key.from_json_file(
             os.path.join(node_dir, "validator_key.json"))
-
         self.pid = multiprocessing.Value('i', 0)
 
+        self.change_config({
+            'network': {
+                'addr': f'0.0.0.0:{port}',
+                'blacklist': blacklist
+            },
+            'rpc': {
+                'addr': f'0.0.0.0:{rpc_port}',
+                'metrics_addr': f'0.0.0.0:{rpc_port + 1000}',
+            },
+            'consensus': {
+                'min_num_peers': int(not single_node)
+            },
+        })
+
         atexit.register(atexit_cleanup, self)
+
+    def change_config(self, overrides: typing.Dict[str, typing.Any]) -> None:
+        apply_config_changes(self.node_dir, overrides)
 
     def addr(self):
         return ("127.0.0.1", self.port)
@@ -300,7 +368,7 @@ class LocalNode(BaseNode):
         if self._start_proxy is not None:
             self._proxy_local_stopped = self._start_proxy()
 
-    def start(self, boot_key, boot_node_addr, skip_starting_proxy=False):
+    def start(self, *, boot_node: BootNode = None, skip_starting_proxy=False):
         if self._proxy_local_stopped is not None:
             while self._proxy_local_stopped.value != 2:
                 logger.info(f'Waiting for previous proxy instance to close')
@@ -315,8 +383,8 @@ class LocalNode(BaseNode):
         self.stderr_name = os.path.join(self.node_dir, 'stderr')
         self.stdout = open(self.stdout_name, 'a')
         self.stderr = open(self.stderr_name, 'a')
-        cmd = self._get_command_line(self.near_root, self.node_dir, boot_key,
-                                     boot_node_addr, self.binary_name)
+        cmd = self._get_command_line(self.near_root, self.node_dir, boot_node,
+                                     self.binary_name)
         self.pid.value = subprocess.Popen(cmd,
                                           stdout=self.stdout,
                                           stderr=self.stderr,
@@ -457,9 +525,10 @@ chmod +x neard
     def rpc_addr(self):
         return (self.ip, self.rpc_port)
 
-    def start(self, boot_key, boot_node_addr):
-        self.machine.run_detach_tmux("RUST_BACKTRACE=1 " + " ".join(
-            self._get_command_line('.', '.near', boot_key, boot_node_addr)))
+    def start(self, *, boot_node: BootNode = None):
+        self.machine.run_detach_tmux(
+            "RUST_BACKTRACE=1 " +
+            " ".join(self._get_command_line('.', '.near', boot_node)))
         self.wait_for_rpc(timeout=30)
 
     def kill(self):
@@ -512,91 +581,23 @@ chmod +x neard
                             f'/home/{self.machine.username}/.near/')
 
 
-class AzureNode(BaseNode):
-
-    def __init__(self, ip, token, node_dir, release):
-        super(AzureNode, self).__init__()
-        self.ip = ip
-        self.token = token
-        if release:
-            self.near_root = '/datadrive/testnodes/worker/nearcore/target/release'
-        else:
-            self.near_root = '/datadrive/testnodes/worker/nearcore/target/debug'
-        self.port = 24567
-        self.rpc_port = 3030
-        self.node_dir = node_dir
-        self._upload_config_files(node_dir)
-
-    def _upload_config_files(self, node_dir):
-        post = {'ip': self.ip, 'token': self.token}
-        res = requests.post('http://40.112.59.229:5000/cleanup', json=post)
-        for f in os.listdir(node_dir):
-            if f.endswith(".json"):
-                with open(os.path.join(node_dir, f), "r") as fl:
-                    cnt = fl.read()
-                post = {
-                    'ip': self.ip,
-                    'cnt': cnt,
-                    'fl_name': f,
-                    'token': self.token
-                }
-                res = requests.post('http://40.112.59.229:5000/upload',
-                                    json=post)
-                json_res = json.loads(res.text)
-                if json_res['stderr'] != '':
-                    logger.info(json_res['stderr'])
-                    sys.exit()
-        self.validator_key = Key.from_json_file(
-            os.path.join(node_dir, "validator_key.json"))
-        self.node_key = Key.from_json_file(
-            os.path.join(node_dir, "node_key.json"))
-        self.signer_key = Key.from_json_file(
-            os.path.join(node_dir, "validator_key.json"))
-
-    def start(self, boot_key, boot_node_addr, skip_starting_proxy):
-        cmd = ('RUST_BACKTRACE=1 ADVERSARY_CONSENT=1 ' + ' '.join(
-            self._get_command_line(self.near_root, '.near', boot_key,
-                                   boot_node_addr)))
-        post = {'ip': self.ip, 'cmd': cmd, 'token': self.token}
-        res = requests.post('http://40.112.59.229:5000/run_cmd', json=post)
-        json_res = json.loads(res.text)
-        if json_res['stderr'] != '':
-            logger.info(json_res['stderr'])
-            sys.exit()
-        self.wait_for_rpc(timeout=30)
-
-    def kill(self):
-        cmd = 'killall -9 neard'
-        post = {'ip': self.ip, 'cmd': cmd, 'token': self.token}
-        res = requests.post('http://40.112.59.229:5000/run_cmd', json=post)
-        json_res = json.loads(res.text)
-        if json_res['stderr'] != '':
-            logger.info(json_res['stderr'])
-        sys.exit()
-
-    def addr(self):
-        return (self.ip, self.port)
-
-    def rpc_addr(self):
-        return (self.ip, self.rpc_port)
-
-
 def spin_up_node(config,
                  near_root,
                  node_dir,
                  ordinal,
-                 boot_key,
-                 boot_addr,
+                 *,
+                 boot_node: BootNode = None,
                  blacklist=[],
                  proxy=None,
                  skip_starting_proxy=False,
                  single_node=False):
     is_local = config['local']
 
+    args = make_boot_nodes_arg(boot_node)
     logger.info("Starting node %s %s" %
-                (ordinal, ("as BOOT NODE" if boot_addr is None else
-                           ("with boot=%s@%s:%s" %
-                            (boot_key, boot_addr[0], boot_addr[1])))))
+                (ordinal,
+                 ('with ' + '='.join(args) if args else 'as BOOT NODE')))
+
     if is_local:
         blacklist = [
             "127.0.0.1:%s" % (24567 + 10 + bl_ordinal)
@@ -624,7 +625,7 @@ def spin_up_node(config,
     if proxy is not None:
         proxy.proxify_node(node)
 
-    node.start(boot_key, boot_addr, skip_starting_proxy)
+    node.start(boot_node=boot_node, skip_starting_proxy=skip_starting_proxy)
     time.sleep(3)
     logger.info(f"node {ordinal} started")
     return node
@@ -672,9 +673,9 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
     # apply config changes
     for i, node_dir in enumerate(node_dirs):
         apply_genesis_changes(node_dir, genesis_config_changes)
-        if i in client_config_changes:
-            client_config_change = client_config_changes[i]
-            apply_config_changes(node_dir, client_config_change)
+        overrides = client_config_changes.get(i)
+        if overrides:
+            apply_config_changes(node_dir, overrides)
 
     return near_root, node_dirs
 
@@ -682,40 +683,39 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
 def apply_genesis_changes(node_dir, genesis_config_changes):
     # apply genesis.json changes
     fname = os.path.join(node_dir, 'genesis.json')
-    with open(fname) as f:
-        genesis_config = json.loads(f.read())
+    with open(fname) as fd:
+        genesis_config = json.load(fd)
     for change in genesis_config_changes:
         cur = genesis_config
         for s in change[:-2]:
             cur = cur[s]
         assert change[-2] in cur
         cur[change[-2]] = change[-1]
-    with open(fname, 'w') as f:
-        f.write(json.dumps(genesis_config, indent=2))
+    with open(fname, 'w') as fd:
+        json.dump(genesis_config, fd, indent=2)
 
 
 def apply_config_changes(node_dir, client_config_change):
     # apply config.json changes
     fname = os.path.join(node_dir, 'config.json')
-    with open(fname) as f:
-        config_json = json.loads(f.read())
+    with open(fname) as fd:
+        config_json = json.load(fd)
 
     # ClientConfig keys which are valid but may be missing from the config.json
-    # file.  At the moment it’s only max_gas_burnt_view which is an Option and
-    # None by default.  If None, the key is not present in the file.
-    allowed_missing_configs = ('max_gas_burnt_view',)
+    # file.  Those are usually Option<T> types which are not stored in JSON file
+    # when None.
+    allowed_missing_configs = ('max_gas_burnt_view', 'rosetta_rpc')
 
     for k, v in client_config_change.items():
-        assert k in allowed_missing_configs or k in config_json
-        if isinstance(v, dict):
-            for key, value in v.items():
-                assert key in config_json[k], key
-                config_json[k][key] = value
+        if not (k in allowed_missing_configs or k in config_json):
+            raise ValueError(f'Unknown configuration option: {k}')
+        if k in config_json and isinstance(v, dict):
+            config_json[k].update(v)
         else:
             config_json[k] = v
 
-    with open(fname, 'w') as f:
-        f.write(json.dumps(config_json, indent=2))
+    with open(fname, 'w') as fd:
+        json.dump(config_json, fd, indent=2)
 
 
 def start_cluster(num_nodes,
@@ -745,27 +745,25 @@ def start_cluster(num_nodes,
     proxy = NodesProxy(message_handler) if message_handler is not None else None
     ret = []
 
-    def spin_up_node_and_push(i, boot_key, boot_addr):
+    def spin_up_node_and_push(i, boot_node: BootNode):
         single_node = (num_nodes == 1) and (num_observers == 0)
         node = spin_up_node(config,
                             near_root,
                             node_dirs[i],
                             i,
-                            boot_key,
-                            boot_addr, [],
-                            proxy,
+                            boot_node=boot_node,
+                            proxy=proxy,
                             skip_starting_proxy=True,
                             single_node=single_node)
         ret.append((i, node))
         return node
 
-    boot_node = spin_up_node_and_push(0, None, None)
+    boot_node = spin_up_node_and_push(0, None)
 
     handles = []
     for i in range(1, num_nodes + num_observers):
         handle = threading.Thread(target=spin_up_node_and_push,
-                                  args=(i, boot_node.node_key.pk,
-                                        boot_node.addr()))
+                                  args=(i, boot_node))
         handle.start()
         handles.append(handle)
 
@@ -779,68 +777,15 @@ def start_cluster(num_nodes,
     return nodes
 
 
-def start_bridge(nodes,
-                 start_local_ethereum=True,
-                 handle_contracts=True,
-                 handle_relays=True,
-                 config=None):
-    if not config:
-        config = load_config()
-
-    config['bridge']['bridge_dir'] = os.path.abspath(
-        os.path.expanduser(os.path.expandvars(config['bridge']['bridge_dir'])))
-    config['bridge']['config_dir'] = os.path.abspath(
-        os.path.expanduser(os.path.expandvars(config['bridge']['config_dir'])))
-
-    # Run bridge.__init__() here.
-    # It will create necessary folders, download repos and install services automatically.
-    bridge = RainbowBridge(config['bridge'], nodes[0])
-
-    ganache_node = None
-    if start_local_ethereum:
-        ganache_node = GanacheNode(config['bridge'])
-        ganache_node.start()
-        # TODO wait until ganache actually starts
-        time.sleep(2)
-
-    # Allow the Bridge to fill the blockchains with initial contracts
-    # such as ed25519, erc20, lockers, token factory, etc.
-    # If false, contracts initialization should be completed in the test explicitly.
-    if handle_contracts:
-        # TODO implement initialization to non-Ganache Ethereum node when required
-        assert start_local_ethereum
-        bridge.init_near_contracts()
-        bridge.init_eth_contracts()
-        bridge.init_near_token_factory()
-
-    # Initial test ERC20 tokens distribution
-    billion_tokens = 1000000000
-    bridge.mint_erc20_tokens(alice, billion_tokens)
-    bridge.mint_erc20_tokens(bob, billion_tokens)
-    bridge.mint_erc20_tokens(carol, billion_tokens)
-
-    # Allow the Bridge to start Relays and handle them in a proper way.
-    # If false, Relays handling should be provided in the test explicitly.
-    if handle_relays:
-        bridge.start_near2eth_block_relay()
-        bridge.start_eth2near_block_relay()
-
-    return (bridge, ganache_node)
-
+ROOT_DIR = pathlib.Path(__file__).resolve().parents[2]
+NEAR_ROOT = os.environ.get("NEAR_ROOT",
+                           str(os.path.join(ROOT_DIR, 'target/debug')))
 
 DEFAULT_CONFIG = {
     'local': True,
-    'near_root': '../target/debug/',
+    'near_root': NEAR_ROOT,
     'binary_name': 'neard',
     'release': False,
-    'bridge': {
-        'bridge_repo': 'https://github.com/near/rainbow-bridge.git',
-        'bridge_dir': '~/.rainbow-bridge',
-        'config_dir': '~/.rainbow',
-        'ganache_dir': 'testing/vendor/ganache',
-        'ganache_bin': 'testing/vendor/ganache/node_modules/.bin/ganache-cli',
-        'ganache_block_prod_time': 10,
-    }
 }
 
 CONFIG_ENV_VAR = 'NEAR_PYTEST_CONFIG'

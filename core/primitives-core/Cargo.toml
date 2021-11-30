@@ -1,8 +1,8 @@
 [package]
 name = "near-primitives-core"
-version = "0.1.0"
+version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2018"
+edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/nearprotocol/nearcore"
 homepage = "https://github.com/nearprotocol/nearcore"
@@ -14,13 +14,12 @@ This crate provides the core set of primitives used by other nearcore crates inc
 base64 = "0.11"
 borsh = "0.9"
 bs58 = "0.4"
-hex = "0.4"
 derive_more = "0.99.3"
 num-rational = { version = "0.3.1", features = ["serde"]}
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.9"
-lazy_static = "1.4"
+deepsize = { version = "0.2.0", optional = true }
 
 near-account-id = { path = "../account-id" }
 
@@ -28,3 +27,4 @@ near-account-id = { path = "../account-id" }
 default = []
 protocol_feature_alt_bn128 = []
 protocol_feature_routing_exchange_algorithm = []
+deepsize_feature = ["deepsize", "near-account-id/deepsize_feature"]

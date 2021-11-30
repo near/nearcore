@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Survive massive state sync
 #
 # Create 3 nodes, 1 validator and 2 observers tracking the single shard 0.
@@ -42,8 +43,9 @@
 import sys, time, requests, logging
 from subprocess import check_output
 from queue import Queue
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import init_cluster, spin_up_node, load_config
 from populate import genesis_populate_all, copy_genesis
@@ -88,12 +90,11 @@ for node_dir in node_dirs:
 
 SMALL_HEIGHT = 600
 LARGE_HEIGHT = 660
-TIMEOUT = 1450
+TIMEOUT = 3600
 start = time.time()
 
-boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
-observer = spin_up_node(config, near_root, node_dirs[1], 1,
-                        boot_node.node_key.pk, boot_node.addr())
+boot_node = spin_up_node(config, near_root, node_dirs[0], 0)
+observer = spin_up_node(config, near_root, node_dirs[1], 1, boot_node=boot_node)
 
 
 def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
@@ -133,8 +134,7 @@ def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
 
 wait_for_height(SMALL_HEIGHT, boot_node)
 
-observer = spin_up_node(config, near_root, node_dirs[2], 2,
-                        boot_node.node_key.pk, boot_node.addr())
+observer = spin_up_node(config, near_root, node_dirs[2], 2, boot_node=boot_node)
 tracker = LogTracker(observer)
 
 # Check that bps is not degraded

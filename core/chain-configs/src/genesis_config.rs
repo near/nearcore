@@ -3,7 +3,6 @@
 //! NOTE: chain-configs is not the best place for `GenesisConfig` since it
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
-use std::convert::TryInto;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -57,7 +56,6 @@ fn default_shard_layout() -> ShardLayout {
     ShardLayout::default()
 }
 
-#[cfg(feature = "protocol_feature_chunk_only_producers")]
 fn default_minimum_stake_ratio() -> Rational {
     Rational::new(160, 1_000_000)
 }
@@ -100,6 +98,7 @@ pub struct GenesisConfig {
     pub num_block_producer_seats: NumSeats,
     /// Defines number of shards and number of block producer seats per each shard at genesis.
     /// Note: not used with protocol_feature_chunk_only_producers -- replaced by minimum_validators_per_shard
+    /// Note: not used before as all block producers produce chunks for all shards
     pub num_block_producer_seats_per_shard: Vec<NumSeats>,
     /// Expected number of hidden validators per shard.
     pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
@@ -136,10 +135,6 @@ pub struct GenesisConfig {
     /// Gas price adjustment rate
     #[default(Rational::from_integer(0))]
     pub gas_price_adjustment_rate: Rational,
-    /// Runtime configuration (mostly economics constants).
-    /// TODO #4649: remove this field together with hacky default value setting
-    #[default(RuntimeConfig::test())]
-    pub runtime_config: RuntimeConfig,
     /// List of initial validators.
     pub validators: Vec<AccountInfo>,
     /// Number of blocks for which a given transaction is valid
@@ -182,7 +177,6 @@ pub struct GenesisConfig {
     pub minimum_validators_per_shard: NumSeats,
     /// The lowest ratio s/s_total any block producer can have.
     /// See https://github.com/near/NEPs/pull/167 for details
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[serde(default = "default_minimum_stake_ratio")]
     #[default(Rational::new(160, 1_000_000))]
     pub minimum_stake_ratio: Rational,
@@ -206,9 +200,10 @@ impl From<&GenesisConfig> for EpochConfig {
             protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
             minimum_stake_divisor: config.minimum_stake_divisor,
             shard_layout: config.shard_layout.clone(),
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
             validator_selection_config: near_primitives::epoch_manager::ValidatorSelectionConfig {
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 num_chunk_only_producer_seats: config.num_chunk_only_producer_seats,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 minimum_validators_per_shard: config.minimum_validators_per_shard,
                 minimum_stake_ratio: config.minimum_stake_ratio,
             },
@@ -624,38 +619,43 @@ pub struct ProtocolConfigView {
     pub minimum_stake_divisor: u64,
 }
 
-// This may be subject to change
-pub type ProtocolConfig = GenesisConfig;
+pub struct ProtocolConfig {
+    pub genesis_config: GenesisConfig,
+    pub runtime_config: RuntimeConfig,
+}
 
 impl From<ProtocolConfig> for ProtocolConfigView {
-    fn from(config: ProtocolConfig) -> Self {
+    fn from(protocol_config: ProtocolConfig) -> Self {
+        let ProtocolConfig { genesis_config, runtime_config } = protocol_config;
+
         ProtocolConfigView {
-            protocol_version: config.protocol_version,
-            genesis_time: config.genesis_time,
-            chain_id: config.chain_id,
-            genesis_height: config.genesis_height,
-            num_block_producer_seats: config.num_block_producer_seats,
-            num_block_producer_seats_per_shard: config.num_block_producer_seats_per_shard,
-            avg_hidden_validator_seats_per_shard: config.avg_hidden_validator_seats_per_shard,
-            dynamic_resharding: config.dynamic_resharding,
-            protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
-            epoch_length: config.epoch_length,
-            gas_limit: config.gas_limit,
-            min_gas_price: config.min_gas_price,
-            max_gas_price: config.max_gas_price,
-            block_producer_kickout_threshold: config.block_producer_kickout_threshold,
-            chunk_producer_kickout_threshold: config.chunk_producer_kickout_threshold,
-            online_min_threshold: config.online_min_threshold,
-            online_max_threshold: config.online_max_threshold,
-            gas_price_adjustment_rate: config.gas_price_adjustment_rate,
-            runtime_config: config.runtime_config,
-            transaction_validity_period: config.transaction_validity_period,
-            protocol_reward_rate: config.protocol_reward_rate,
-            max_inflation_rate: config.max_inflation_rate,
-            num_blocks_per_year: config.num_blocks_per_year,
-            protocol_treasury_account: config.protocol_treasury_account,
-            fishermen_threshold: config.fishermen_threshold,
-            minimum_stake_divisor: config.minimum_stake_divisor,
+            protocol_version: genesis_config.protocol_version,
+            genesis_time: genesis_config.genesis_time,
+            chain_id: genesis_config.chain_id,
+            genesis_height: genesis_config.genesis_height,
+            num_block_producer_seats: genesis_config.num_block_producer_seats,
+            num_block_producer_seats_per_shard: genesis_config.num_block_producer_seats_per_shard,
+            avg_hidden_validator_seats_per_shard: genesis_config
+                .avg_hidden_validator_seats_per_shard,
+            dynamic_resharding: genesis_config.dynamic_resharding,
+            protocol_upgrade_stake_threshold: genesis_config.protocol_upgrade_stake_threshold,
+            epoch_length: genesis_config.epoch_length,
+            gas_limit: genesis_config.gas_limit,
+            min_gas_price: genesis_config.min_gas_price,
+            max_gas_price: genesis_config.max_gas_price,
+            block_producer_kickout_threshold: genesis_config.block_producer_kickout_threshold,
+            chunk_producer_kickout_threshold: genesis_config.chunk_producer_kickout_threshold,
+            online_min_threshold: genesis_config.online_min_threshold,
+            online_max_threshold: genesis_config.online_max_threshold,
+            gas_price_adjustment_rate: genesis_config.gas_price_adjustment_rate,
+            runtime_config,
+            transaction_validity_period: genesis_config.transaction_validity_period,
+            protocol_reward_rate: genesis_config.protocol_reward_rate,
+            max_inflation_rate: genesis_config.max_inflation_rate,
+            num_blocks_per_year: genesis_config.num_blocks_per_year,
+            protocol_treasury_account: genesis_config.protocol_treasury_account,
+            fishermen_threshold: genesis_config.fishermen_threshold,
+            minimum_stake_divisor: genesis_config.minimum_stake_divisor,
         }
     }
 }

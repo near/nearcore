@@ -6,7 +6,7 @@ use crate::script::Script;
 use clap::Clap;
 use near_vm_logic::VMOutcome;
 use near_vm_logic::{mocks::mock_external::Receipt, ProtocolVersion};
-use near_vm_runner::VMKind;
+use near_vm_runner::internal::VMKind;
 use serde::{
     de::{MapAccess, Visitor},
     ser::SerializeMap,
@@ -102,7 +102,7 @@ struct CliArgs {
     protocol_version: Option<ProtocolVersion>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 struct StandaloneOutput {
     pub outcome: Option<VMOutcome>,
     pub err: Option<String>,
@@ -166,14 +166,13 @@ fn main() {
     let (outcome, err) = results.outcomes.pop().unwrap();
 
     println!(
-        "{}",
-        serde_json::to_string(&StandaloneOutput {
+        "{:#?}",
+        StandaloneOutput {
             outcome: outcome.clone(),
             err: err.map(|it| it.to_string()),
             receipts: results.state.get_receipt_create_calls().clone(),
             state: State(results.state.fake_trie),
-        })
-        .unwrap()
+        }
     );
 
     match &outcome {

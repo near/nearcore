@@ -11,10 +11,6 @@ fn main() {
 }
 
 fn try_main() -> io::Result<()> {
-    let mut cmd = Command::new("rustup");
-    cmd.args(&["target", "add", "wasm32-unknown-unknown"]);
-    check_status(cmd)?;
-
     build_contract("./test-contract-rs", &[], "test_contract_rs")?;
     build_contract(
         "./test-contract-rs",
@@ -22,6 +18,12 @@ fn try_main() -> io::Result<()> {
         "nightly_test_contract_rs",
     )?;
     build_contract("./tiny-contract-rs", &[], "tiny_contract_rs")?;
+    build_contract("./contract-for-fuzzing-rs", &[], "contract_for_fuzzing_rs")?;
+    build_contract(
+        "./test-contract-rs",
+        &["--features", "base_protocol"],
+        "test_contract_rs_base_protocol",
+    )?;
     Ok(())
 }
 

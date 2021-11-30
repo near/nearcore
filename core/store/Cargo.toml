@@ -1,14 +1,14 @@
 [package]
 name = "near-store"
-version = "2.2.0"
+version = "0.0.0"
 license = "MIT OR Apache-2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 byteorder = "1.2"
-bytesize = "1"
+bytesize = "1.1"
 derive_more = "0.99.3"
 elastic-array = "0.11"
 lazy_static = "1.4"
@@ -37,13 +37,14 @@ rand = "0.7"
 name = "trie_bench"
 harness = false
 
+[[bench]]
+name = "store_bench"
+harness = false
+
 [features]
 default = []
 no_cache = []
 test_features = []
-protocol_feature_block_header_v3 = []
+protocol_feature_chunk_only_producers = []
 nightly_protocol = []
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_block_header_v3"]
-
-[package.metadata.workspaces]
-independent = true
+nightly_protocol_features = ["nightly_protocol", "protocol_feature_chunk_only_producers"]

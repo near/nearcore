@@ -1,6 +1,6 @@
 use crate::context::VMContext;
 use crate::dependencies::{External, MemoryLike};
-use crate::gas_counter::GasCounter;
+use crate::gas_counter::{FastGasCounter, GasCounter};
 use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
 use crate::ValuePtr;
@@ -18,7 +18,6 @@ use near_primitives_core::types::{
 };
 use near_vm_errors::InconsistentStateError;
 use near_vm_errors::{HostError, VMLogicError};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::mem::size_of;
 
@@ -121,6 +120,7 @@ impl<'a> VMLogic<'a> {
         let gas_counter = GasCounter::new(
             config.ext_costs.clone(),
             max_gas_burnt,
+            config.regular_op_cost,
             context.prepaid_gas,
             context.is_view(),
         );
@@ -191,7 +191,7 @@ impl<'a> VMLogic<'a> {
     }
 
     fn get_vec_from_memory_or_register(&mut self, offset: u64, len: u64) -> Result<Vec<u8>> {
-        if len != std::u64::MAX {
+        if len != u64::MAX {
             self.memory_get_vec(offset, len)
         } else {
             self.internal_read_register(offset)
@@ -286,7 +286,7 @@ impl<'a> VMLogic<'a> {
     /// `base`
     pub fn register_len(&mut self, register_id: u64) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
-        Ok(self.registers.get(&register_id).map(|r| r.len() as _).unwrap_or(std::u64::MAX))
+        Ok(self.registers.get(&register_id).map(|r| r.len() as _).unwrap_or(u64::MAX))
     }
 
     /// Copies `data` from the guest memory into the register. If register is unused will initialize
@@ -334,7 +334,7 @@ impl<'a> VMLogic<'a> {
         let mut buf;
         let max_len =
             self.config.limit_config.max_total_log_length.saturating_sub(self.total_log_length);
-        if len != std::u64::MAX {
+        if len != u64::MAX {
             if len > max_len {
                 return Err(HostError::TotalLogLengthExceeded {
                     length: self.total_log_length.saturating_add(len),
@@ -385,7 +385,7 @@ impl<'a> VMLogic<'a> {
         let mut u16_buffer;
         let max_len =
             self.config.limit_config.max_total_log_length.saturating_sub(self.total_log_length);
-        if len != std::u64::MAX {
+        if len != u64::MAX {
             let input = self.memory_get_vec(ptr, len)?;
             if len % 2 != 0 {
                 return Err(HostError::BadUTF16.into());
@@ -1053,9 +1053,8 @@ impl<'a> VMLogic<'a> {
     /// * If passed gas amount somehow overflows internal gas counters returns `IntegerOverflow`;
     /// * If we exceed usage limit imposed on burnt gas returns `GasLimitExceeded`;
     /// * If we exceed the `prepaid_gas` then returns `GasExceeded`.
-    pub fn gas(&mut self, gas_amount: u32) -> Result<()> {
-        let value = Gas::from(gas_amount) * Gas::from(self.config.regular_op_cost);
-        self.gas_counter.pay_wasm_gas(value)
+    pub fn gas(&mut self, opcodes: u32) -> Result<()> {
+        self.gas_counter.pay_wasm_gas(opcodes)
     }
 
     // ################
@@ -2515,33 +2514,30 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(contract_compile_bytes, code_len)?;
         self.gas_counter.pay_base(contract_compile_base)
     }
+
+    /// Gets pointer to the fast gas counter.
+    pub fn gas_counter_pointer(&mut self) -> *mut FastGasCounter {
+        self.gas_counter.gas_counter_raw_ptr()
+    }
+
+    /// Properly handles gas limit exceeded error.
+    pub fn process_gas_limit(&mut self) -> HostError {
+        let new_burn_gas = self.gas_counter.burnt_gas();
+        let new_used_gas = self.gas_counter.used_gas();
+        self.gas_counter.process_gas_limit(new_burn_gas, new_used_gas)
+    }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Clone, PartialEq)]
 pub struct VMOutcome {
-    #[serde(with = "crate::serde_with::u128_dec_format")]
     pub balance: Balance,
     pub storage_usage: StorageUsage,
     pub return_data: ReturnData,
     pub burnt_gas: Gas,
     pub used_gas: Gas,
     pub logs: Vec<String>,
-    #[serde(skip)]
     /// Data collected from making a contract call
     pub profile: ProfileData,
-}
-
-// Compare VMOutcome skip profile data. Practically it's not possible to have burnt_gas and used_gas
-// same while profile doesn't match and this simplifies tests that compare VMOutcomes.
-impl PartialEq for VMOutcome {
-    fn eq(&self, other: &VMOutcome) -> bool {
-        self.balance == other.balance
-            && self.storage_usage == other.storage_usage
-            && self.return_data == other.return_data
-            && self.burnt_gas == other.burnt_gas
-            && self.used_gas == other.used_gas
-            && self.logs == other.logs
-    }
 }
 
 impl std::fmt::Debug for VMOutcome {

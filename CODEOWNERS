@@ -1,28 +1,28 @@
 # CODEOWNERS: https://help.github.com/articles/about-codeowners/
 
-/chain/ @bowenwang1996 @mzhangmzz
-/chain/client/src/view_client.rs @frol @khorolets @chefsale
-/chain/client-primitives/ @frol @khorolets @chefsale
-/chain/network/ @mfornet @bowenwang1996 @pmnoxx
-/chain/jsonrpc/ @frol @khorolets @chefsale
-/chain/jsonrpc-primitives/ @frol @khorolets @chefsale
-/chain/indexer/ @khorolets @frol
+/chain/ @bowenwang1996 @mzhangmzz @mm-near @yordanmadzhunkov
+/chain/client/src/view_client.rs @khorolets @chefsale
+/chain/client-primitives/ @khorolets @chefsale
+/chain/network/ @mm-near @bowenwang1996 @pmnoxx
+/chain/network-primitives/ @mm-near @pmnoxx
+/chain/jsonrpc/ @khorolets @chefsale
+/chain/jsonrpc-primitives/ @khorolets @miraclx @chefsale
+/chain/indexer/ @khorolets
 /chain/rosetta-rpc/ @frol
 
-/runtime/ @bowenwang1996 @EgorKulikov @mzhangmzz
+/runtime/ @bowenwang1996 @EgorKulikov @mzhangmzz @mm-near
 /runtime/runtime-params-estimator/ @olonho @matklad
 /runtime/near-test-contracts/ @olonho @ailisp @matklad
 /runtime/near-vm-runner-standalone/ @olonho @ailisp @matklad
 /runtime/near-vm-runner/ @olonho @ailisp @matklad
 
 /genesis-tools/ @ailisp
-/tools/rpctypegen/ @frol
-/tools/indexer/ @khorolets @frol
+/tools/indexer/ @khorolets
 
-/core/  @bowenwang1996 @frol @matklad
+/core/  @bowenwang1996 @matklad @mm-near
 /core/store/src/trie @mzhangmzz @longarithm
-/neard/ @bowenwang1996 @frol
-/nearcore/ @bowenwang1996 @frol
+/neard/ @bowenwang1996 @mm-near
+/nearcore/ @bowenwang1996 @mm-near
 /test-utils/state-viewer @nikurt
 /test-utils/runtime-tester @posvyatokum @matklad
 

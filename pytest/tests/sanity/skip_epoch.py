@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Tests a situation when in a given shard has all BPs offline
 # Two specific cases:
 #  - BPs never showed up to begin with, since genesis
@@ -5,8 +6,9 @@
 # Warn: this test may not clean up ~/.near if fails early
 
 import sys, time, base58
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import init_cluster, spin_up_node, load_config
 from configured_logger import logger
@@ -83,14 +85,11 @@ near_root, node_dirs = init_cluster(
 
 started = time.time()
 
-boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
+boot_node = spin_up_node(config, near_root, node_dirs[0], 0)
 boot_node.stop_checking_store()
-node3 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk,
-                     boot_node.addr())
-node4 = spin_up_node(config, near_root, node_dirs[3], 3, boot_node.node_key.pk,
-                     boot_node.addr())
-observer = spin_up_node(config, near_root, node_dirs[4], 4,
-                        boot_node.node_key.pk, boot_node.addr())
+node3 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node=boot_node)
+node4 = spin_up_node(config, near_root, node_dirs[3], 3, boot_node=boot_node)
+observer = spin_up_node(config, near_root, node_dirs[4], 4, boot_node=boot_node)
 observer.stop_checking_store()
 
 ctx = TxContext([4, 4, 4, 4, 4], [boot_node, None, node3, node4, observer])
@@ -100,7 +99,6 @@ total_supply = sum(initial_balances)
 logger.info("Initial balances: %s\nTotal supply: %s" %
             (initial_balances, total_supply))
 
-seen_boot_heights = set()
 sent_txs = False
 largest_height = 0
 
@@ -112,7 +110,6 @@ while True:
     status = observer.get_status()
     hash_ = status['sync_info']['latest_block_hash']
     new_height = status['sync_info']['latest_block_height']
-    seen_boot_heights.add(new_height)
     if new_height > largest_height:
         largest_height = new_height
         logger.info(new_height)
@@ -129,13 +126,8 @@ while True:
 logger.info("stage 1 done")
 
 # 2. Spin up the second node and make sure it gets to 35 as well, and doesn't diverge
-node2 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk,
-                     boot_node.addr())
+node2 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node=boot_node)
 node2.stop_checking_store()
-
-status = boot_node.get_status()
-new_height = status['sync_info']['latest_block_height']
-seen_boot_heights.add(new_height)
 
 while True:
     assert time.time() - started < TIMEOUT
@@ -145,16 +137,11 @@ while True:
     node2_syncing = status['sync_info']['syncing']
 
     status = boot_node.get_status()
-    new_height = status['sync_info']['latest_block_height']
-    seen_boot_heights.add(new_height)
-
     if new_height > largest_height:
         largest_height = new_height
         logger.info(new_height)
 
     if node2_height > TARGET_HEIGHT and not node2_syncing:
-        assert node2_height in seen_boot_heights, "%s not in %s" % (
-            node2_height, seen_boot_heights)
         break
 
     time.sleep(0.1)
@@ -219,7 +206,6 @@ ctx.nodes = [boot_node, node2, node3, node4, observer]
 ctx.act_to_val = [4, 4, 4, 4, 4]
 
 boot_node.kill()
-seen_boot_heights = set()
 sent_txs = False
 
 while True:
@@ -227,7 +213,6 @@ while True:
     status = observer.get_status()
     hash_ = status['sync_info']['latest_block_hash']
     new_height = status['sync_info']['latest_block_height']
-    seen_boot_heights.add(new_height)
     if new_height > largest_height:
         largest_height = new_height
         logger.info(new_height)

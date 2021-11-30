@@ -1,16 +1,19 @@
 [package]
 name = "state-viewer"
-version = "0.1.0"
+version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 ansi_term = "0.12"
 borsh = "0.9"
-clap = "2.33"
-tracing = "0.1"
+clap = "=3.0.0-beta.2"
+once_cell = "1.5.2"
 rayon = "1.5"
+serde = "1"
+serde_json = "1"
+tempfile = "3"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
@@ -25,7 +28,6 @@ near-epoch-manager = { path = "../../chain/epoch_manager" }
 
 
 [dev-dependencies]
-serde_json = "1"
 near-client = { path = "../../chain/client" }
 testlib = { path = "../../test-utils/testlib" }
 

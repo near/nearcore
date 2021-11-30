@@ -11,8 +11,9 @@ import sys
 import time
 import subprocess
 import base58
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 import branches
 import cluster
@@ -54,7 +55,7 @@ def send_some_tx(node):
 
 
 def main():
-    executables = branches.prepare_ab_test('master')
+    executables = branches.prepare_ab_test()
     node_root = get_near_tempdir('db_migration', clean=True)
 
     logging.info(f"The near root is {executables.stable.root}...")
@@ -72,7 +73,7 @@ def main():
     logging.info("Starting the stable node...")
     config = executables.stable.node_config()
     node = cluster.spin_up_node(config, executables.stable.root, str(node_root),
-                                0, None, None)
+                                0)
 
     logging.info("Running the stable node...")
     wait_for_blocks_or_timeout(node, 20, 100)
@@ -89,7 +90,7 @@ def main():
     logging.info("Starting the current node...")
     config = executables.current.node_config()
     node.binary_name = config['binary_name']
-    node.start(node.node_key.pk, node.addr())
+    node.start(boot_node=node)
 
     logging.info("Running the current node...")
     wait_for_blocks_or_timeout(node, 20, 100)
@@ -103,7 +104,7 @@ def main():
 
     logging.info("Restarting the current node...")
 
-    node.start(node.node_key.pk, node.addr())
+    node.start(boot_node=node)
     wait_for_blocks_or_timeout(node, 20, 100)
 
 

@@ -1,9 +1,9 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::prepare;
+use crate::vm_kind::VMKind;
 use crate::wasmer2_runner::{default_wasmer2_store, wasmer2_vm_hash};
 use crate::wasmer_runner::wasmer0_vm_hash;
 use crate::wasmtime_runner::wasmtime_vm_hash;
-use crate::VMKind;
 use borsh::{BorshDeserialize, BorshSerialize};
 #[cfg(not(feature = "no_cache"))]
 use cached::{cached_key, SizedCache};
@@ -125,6 +125,8 @@ pub mod wasmer0_cache {
         code: &[u8],
         config: &VMConfig,
     ) -> Result<wasmer_runtime::Module, CompilationError> {
+        let _span = tracing::debug_span!(target: "vm", "compile_module").entered();
+
         let prepared_code =
             prepare::prepare_contract(code, config).map_err(CompilationError::PrepareError)?;
         wasmer_runtime::compile(&prepared_code).map_err(|err| match err {
@@ -249,6 +251,8 @@ pub mod wasmer2_cache {
         config: &VMConfig,
         store: &wasmer::Store,
     ) -> Result<wasmer::Module, CompilationError> {
+        let _span = tracing::debug_span!(target: "vm", "compile_module_wasmer2").entered();
+
         let prepared_code =
             prepare::prepare_contract(code, config).map_err(CompilationError::PrepareError)?;
         wasmer::Module::new(&store, prepared_code).map_err(|err| match err {

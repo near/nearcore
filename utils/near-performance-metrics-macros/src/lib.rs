@@ -78,7 +78,7 @@ pub fn perf_with_debug(_attr: TokenStream, item: TokenStream) -> TokenStream {
 fn perf_internal(_attr: TokenStream, item: TokenStream, debug: bool) -> TokenStream {
     let item: syn::Item = syn::parse(item).expect("failed to parse input");
 
-    if let syn::Item::Fn(mut func) = item.clone() {
+    if let syn::Item::Fn(mut func) = item {
         let block = func.clone().block;
 
         let function_body = quote! { #block };

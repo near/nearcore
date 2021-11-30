@@ -1,4 +1,3 @@
-use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -16,8 +15,8 @@ use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock, Query, Status, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_integration_logger;
-use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
-use near_network::NetworkClientMessages;
+use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
+use near_network::types::NetworkClientMessages;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSeats};
@@ -133,7 +132,7 @@ fn test_stake_nodes() {
                     .map(drop),
             );
 
-            WaitOrTimeout::new(
+            WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     actix::spawn(
                         test_nodes[0].client.send(Status { is_health_check: false }).then(|res| {
@@ -226,7 +225,7 @@ fn test_validator_kickout() {
             let finalized_mark: Arc<Vec<_>> =
                 Arc::new((0..num_nodes).map(|_| Arc::new(AtomicBool::new(false))).collect());
 
-            WaitOrTimeout::new(
+            WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     let test_nodes = test_nodes.clone();
                     let test_node1 = test_nodes[(num_nodes / 2) as usize].clone();
@@ -389,7 +388,7 @@ fn test_validator_join() {
             let (done1, done2) =
                 (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
             let (done1_copy1, done2_copy1) = (done1.clone(), done2.clone());
-            WaitOrTimeout::new(
+            WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     let test_nodes = test_nodes.clone();
                     let test_node1 = test_nodes[0].clone();
@@ -492,7 +491,7 @@ fn test_inflation() {
             let (done1, done2) =
                 (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
             let (done1_copy1, done2_copy1) = (done1.clone(), done2.clone());
-            WaitOrTimeout::new(
+            WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
                     actix::spawn(test_nodes[0].view_client.send(GetBlock::latest()).then(

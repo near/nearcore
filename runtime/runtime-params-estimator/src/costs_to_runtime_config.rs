@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 use anyhow::Context;
 use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -9,7 +7,7 @@ use near_primitives::runtime::fees::{
 };
 use near_primitives::types::Gas;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_vm_logic::{ExtCostsConfig, VMConfig, VMLimitConfig};
+use near_vm_logic::{ExtCostsConfig, VMConfig};
 use node_runtime::config::RuntimeConfig;
 
 use crate::cost::Cost;
@@ -26,6 +24,13 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
         .get(Cost::WasmInstruction)
         .with_context(|| format!("undefined cost: {}", Cost::WasmInstruction))?;
 
+    // Take latest VM limit config, because estimation doesn't affect it.
+    // Note that if you run estimation against stable version, it doesn't catch updates of nightly
+    // version.
+    let config_store = RuntimeConfigStore::new(None);
+    let latest_runtime_config = config_store.get_config(PROTOCOL_VERSION);
+    let vm_limit_config = latest_runtime_config.wasm_config.limit_config.clone();
+
     let res = RuntimeConfig {
         // See https://nomicon.io/Economics/README.html#general-variables for how it was calculated.
         storage_amount_per_byte: 909 * 100_000_000_000_000_000,
@@ -34,7 +39,7 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
             ext_costs: ext_costs_config(cost_table)?,
             grow_mem_cost: 1,
             regular_op_cost: u32::try_from(regular_op_cost).unwrap(),
-            limit_config: VMLimitConfig::default(),
+            limit_config: vm_limit_config,
         },
         account_creation_config: AccountCreationConfig::default(),
     };

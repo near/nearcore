@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up four validating nodes. Wait until they produce 20 blocks.
 # Kill the first two nodes, let the rest two produce 30 blocks.
 # Kill the remaining two and restart the first two. Let them produce also 30 blocks
@@ -5,8 +6,9 @@
 # and produce blocks
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
@@ -51,7 +53,7 @@ for i in range(2, 4):
 logger.info("killing node 2 and 3")
 
 for i in range(2):
-    nodes[i].start(nodes[i].node_key.pk, nodes[i].addr())
+    nodes[i].start(boot_node=nodes[i])
     res = nodes[i].json_rpc('adv_disable_doomslug', [])
     assert 'result' in res, res
 
@@ -64,7 +66,7 @@ while fork2_height < FIRST_STEP_WAIT + SECOND_STEP_WAIT:
     time.sleep(0.9)
 
 for i in range(2, 4):
-    nodes[i].start(nodes[i].node_key.pk, nodes[i].addr())
+    nodes[i].start(boot_node=nodes[i])
     res = nodes[i].json_rpc('adv_disable_doomslug', [])
     assert 'result' in res, res
 

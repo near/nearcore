@@ -1,9 +1,11 @@
+#!/usr/bin/env python3
 # Spins up one validating node and one non-validating node that is archival. Let the validating node run
 # for a while and make sure that the archival node will sync all blocks.
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 
@@ -33,7 +35,7 @@ while node0_height < TARGET_HEIGHT:
     node0_height = status['sync_info']['latest_block_height']
     time.sleep(2)
 
-nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[1].start(boot_node=nodes[1])
 time.sleep(2)
 
 node1_height = 0

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up three validating nodes with stake distribution 11, 5, 5.
 # Stop the two nodes with stake 2
 # Wait for sufficient number of blocks.
@@ -5,8 +6,9 @@
 # Restart the other one. Make sure it can sync as well.
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
@@ -57,7 +59,7 @@ while node0_height < TARGET_HEIGHT:
     time.sleep(1)
 
 logger.info('Restart node 1')
-nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[1].start(boot_node=nodes[1])
 time.sleep(2)
 
 start_time = time.time()
@@ -74,7 +76,7 @@ while True:
     time.sleep(1)
 
 logger.info('Restart node 2')
-nodes[2].start(nodes[2].node_key.pk, nodes[2].addr())
+nodes[2].start(boot_node=nodes[2])
 time.sleep(2)
 
 status = nodes[0].get_status()

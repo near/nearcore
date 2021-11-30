@@ -2,6 +2,8 @@ use std::borrow::Borrow;
 use std::fmt;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+#[cfg(feature = "deepsize_feature")]
+use deepsize::DeepSizeOf;
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{KeyType, PublicKey};
@@ -15,6 +17,7 @@ use crate::types::{AccountId, Balance, ShardId};
 
 /// Receipts are used for a cross-shard communication.
 /// Receipts could be 2 types (determined by a `ReceiptEnum`): `ReceiptEnum::Action` of `ReceiptEnum::Data`.
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct Receipt {
     /// An issuer account_id of a particular receipt.
@@ -89,6 +92,7 @@ impl Receipt {
 }
 
 /// Receipt could be either ActionReceipt or DataReceipt
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ReceiptEnum {
     Action(ActionReceipt),
@@ -96,6 +100,7 @@ pub enum ReceiptEnum {
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ActionReceipt {
     /// A signer of the original transaction
@@ -119,6 +124,7 @@ pub struct ActionReceipt {
 
 /// An incoming (ingress) `DataReceipt` which is going to a Receipt's `receiver` input_data_ids
 /// Which will be converted to `PromiseResult::Successful(value)` or `PromiseResult::Failed`
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
 pub struct DataReceipt {
     pub data_id: CryptoHash,
@@ -128,6 +134,7 @@ pub struct DataReceipt {
 
 /// The outgoing (egress) data which will be transformed
 /// to a `DataReceipt` to be sent to a `receipt.receiver`
+#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, Hash, Clone, Debug, PartialEq, Eq,
 )]
@@ -163,7 +170,7 @@ impl fmt::Debug for ReceivedData {
 }
 
 /// Stores indices for a persistent queue for delayed receipts that didn't fit into a block.
-#[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
 pub struct DelayedReceiptIndices {
     // First inclusive index in the queue.
     pub first_index: u64,

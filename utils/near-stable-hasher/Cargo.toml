@@ -1,8 +1,6 @@
 [package]
 name = "near-stable-hasher"
-version = "0.1.0"
+version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>", "Piotr Mikulski <piotr@near.org"]
 publish = false
-edition = "2018"
-
-
+edition = "2021"

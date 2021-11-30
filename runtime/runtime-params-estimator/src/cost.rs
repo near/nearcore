@@ -1,4 +1,3 @@
-use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
 
@@ -17,6 +16,8 @@ pub enum Cost {
     ActionDeployContractPerByte,
     ActionFunctionCallBase,
     ActionFunctionCallPerByte,
+    ActionFunctionCallBaseV2,
+    ActionFunctionCallPerByteV2,
     ActionTransfer,
     ActionStake,
     ActionAddFullAccessKey,

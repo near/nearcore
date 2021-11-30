@@ -1,10 +1,12 @@
+#!/usr/bin/env python3
 # Spins up three validating nodes. Stop one of them and make another one produce
 # sufficient number of blocks. Restart the stopped node and check that it can
 # still sync. Repeat. Then check all old data is removed.
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 swap_nodes = False
 if "swap_nodes" in sys.argv:
@@ -52,7 +54,7 @@ while node0_height < TARGET_HEIGHT_1:
     time.sleep(2)
 
 logger.info('Restart node 1')
-nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[1].start(boot_node=nodes[1])
 time.sleep(3)
 
 start_time = time.time()
@@ -82,7 +84,7 @@ while node0_height < TARGET_HEIGHT_2:
     time.sleep(2)
 
 logger.info('Restart node 1')
-nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[1].start(boot_node=nodes[1])
 time.sleep(3)
 
 start_time = time.time()
