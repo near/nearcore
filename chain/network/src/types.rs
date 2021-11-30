@@ -841,6 +841,9 @@ pub enum NetworkRequests {
 /// List of `Edges`, which we received from `source_peer_id` gor purpose of validation.
 /// Those are list of edges received through `NetworkRequests::Sync` or `NetworkRequests::IbfMessage`.
 pub struct ValidateEdgeList {
+    /// The list of edges is provided by `source_peer_id`, that peer will be banned
+    ///if any of these edges are invalid.
+    pub(crate) source_peer_id: PeerId,
     /// List of Edges, which will be sent to `EdgeValidatorActor`.
     pub(crate) edges: Vec<Edge>,
     /// A set of edges, which have been verified. This is a cache with all verified edges.
@@ -855,9 +858,6 @@ pub struct ValidateEdgeList {
     #[cfg(feature = "test_features")]
     /// Feature to disable edge validation for purpose of testing.
     pub(crate) adv_disable_edge_signature_verification: bool,
-    /// The list of edges is provided by `source_peer_id`, that peer will be banned
-    ///if any of these edges are invalid.
-    pub(crate) source_peer_id: PeerId,
 }
 
 impl Message for ValidateEdgeList {
