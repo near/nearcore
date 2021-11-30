@@ -67,7 +67,7 @@ impl StandaloneRuntime {
                 ..Default::default()
             },
             GenesisRecords(state_records.to_vec()),
-            true
+            true,
         );
 
         let mut account_ids: HashSet<AccountId> = HashSet::new();

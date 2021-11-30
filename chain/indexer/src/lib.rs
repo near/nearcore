@@ -94,8 +94,10 @@ impl Indexer {
             indexer_config.home_dir.display()
         );
 
-        let near_config =
-            nearcore::config::load_config_without_genesis_records(&indexer_config.home_dir, genesis_validation);
+        let near_config = nearcore::config::load_config_without_genesis_records(
+            &indexer_config.home_dir,
+            genesis_validation,
+        );
 
         assert!(
             !&near_config.client_config.tracked_shards.is_empty(),

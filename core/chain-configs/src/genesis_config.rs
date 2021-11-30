@@ -16,7 +16,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Serializer;
 use sha2::digest::Digest;
 use smart_default::SmartDefault;
-use tracing::{info,warn};
+use tracing::{info, warn};
 
 use crate::genesis_validate::validate_genesis;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardConfig};
@@ -484,7 +484,11 @@ impl Genesis {
         genesis
     }
 
-    pub fn new_with_path(config: GenesisConfig, records_file: PathBuf, genesis_validation: bool) -> Self {
+    pub fn new_with_path(
+        config: GenesisConfig,
+        records_file: PathBuf,
+        genesis_validation: bool,
+    ) -> Self {
         let genesis = Self { config, records: GenesisRecords(vec![]), records_file };
         if genesis_validation {
             validate_genesis(&genesis);

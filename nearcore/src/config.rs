@@ -1207,8 +1207,7 @@ pub fn load_config(dir: &Path, genesis_validation: bool) -> NearConfig {
                 genesis_validation,
             )
         } else {
-            Genesis::from_file(&dir.join(&near_config.config.genesis_file),
-            genesis_validation)
+            Genesis::from_file(&dir.join(&near_config.config.genesis_file), genesis_validation)
         };
     near_config
 }

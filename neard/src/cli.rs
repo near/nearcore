@@ -228,7 +228,8 @@ pub(super) struct RunCmd {
 impl RunCmd {
     pub(super) fn run(self, home_dir: &Path, genesis_validation: bool) {
         // Load configs from home.
-        let mut near_config = nearcore::config::load_config_without_genesis_records(home_dir, genesis_validation);
+        let mut near_config =
+            nearcore::config::load_config_without_genesis_records(home_dir, genesis_validation);
         // Set current version in client config.
         near_config.client_config.version = super::NEARD_VERSION.clone();
         // Override some parameters from command line.
