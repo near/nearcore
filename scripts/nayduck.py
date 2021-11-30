@@ -227,7 +227,8 @@ def run_locally(tests):
                 'expensive_tests',
                 '--',
                 '--exact',
-                fields[3]]
+                fields[3]
+            ]
             cwd = None
         elif fields[0] in ('pytest', 'mocknet'):
             fields[0] = sys.executable
