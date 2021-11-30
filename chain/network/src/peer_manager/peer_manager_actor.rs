@@ -17,12 +17,12 @@ use crate::stats::metrics;
 use crate::stats::metrics::NetworkMetrics;
 #[cfg(feature = "test_features")]
 use crate::types::SetAdvOptions;
-use crate::types::{
-    Consolidate, ConsolidateResponse, GetPeerId, GetPeerIdResult, NetworkInfo,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerRequest, PeerResponse,
-    PeersRequest, PeersResponse, SendMessage, StopMsg, SyncData, Unregister, ValidateEdgeList,
-};
 use crate::types::{FullPeerInfo, NetworkClientMessages, NetworkRequests, NetworkResponses};
+use crate::types::{
+    GetPeerId, GetPeerIdResult, NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    PeerMessage, PeerRequest, PeerResponse, PeersRequest, PeersResponse, RegisterPeer,
+    RegisterPeerResponse, SendMessage, StopMsg, SyncData, Unregister, ValidateEdgeList,
+};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{RoutingSyncV2, RoutingVersion2};
 use crate::{PeerInfo, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse};
@@ -2037,29 +2037,29 @@ impl PeerManagerActor {
     }
 
     #[perf]
-    fn handle_msg_consolidate(
+    fn handle_msg_register_peer(
         &mut self,
-        msg: Consolidate,
+        msg: RegisterPeer,
         ctx: &mut Context<Self>,
-    ) -> ConsolidateResponse {
+    ) -> RegisterPeerResponse {
         #[cfg(feature = "delay_detector")]
         let _d = delay_detector::DelayDetector::new("consolidate".into());
 
         // Check if this is a blacklisted peer.
         if msg.peer_info.addr.as_ref().map_or(true, |addr| self.is_blacklisted(addr)) {
             debug!(target: "network", "Dropping connection from blacklisted peer or unknown address: {:?}", msg.peer_info);
-            return ConsolidateResponse::Reject;
+            return RegisterPeerResponse::Reject;
         }
 
         if self.peer_store.is_banned(&msg.peer_info.id) {
             debug!(target: "network", "Dropping connection from banned peer: {:?}", msg.peer_info.id);
-            return ConsolidateResponse::Reject;
+            return RegisterPeerResponse::Reject;
         }
 
         // We already connected to this peer.
         if self.active_peers.contains_key(&msg.peer_info.id) {
             debug!(target: "network", "Dropping handshake (Active Peer). {:?} {:?}", self.my_peer_id, msg.peer_info.id);
-            return ConsolidateResponse::Reject;
+            return RegisterPeerResponse::Reject;
         }
 
         // This is incoming connection but we have this peer already in outgoing.
@@ -2068,19 +2068,19 @@ impl PeerManagerActor {
             // We pick connection that has lower id.
             if msg.peer_info.id > self.my_peer_id {
                 debug!(target: "network", "Dropping handshake (Tied). {:?} {:?}", self.my_peer_id, msg.peer_info.id);
-                return ConsolidateResponse::Reject;
+                return RegisterPeerResponse::Reject;
             }
         }
 
         if msg.peer_type == PeerType::Inbound && !self.is_inbound_allowed() {
             // TODO(1896): Gracefully drop inbound connection for other peer.
             debug!(target: "network", "Inbound connection dropped (network at max capacity).");
-            return ConsolidateResponse::Reject;
+            return RegisterPeerResponse::Reject;
         }
 
         if msg.other_edge_info.nonce == 0 {
             debug!(target: "network", "Invalid nonce. It must be greater than 0. nonce={}", msg.other_edge_info.nonce);
-            return ConsolidateResponse::Reject;
+            return RegisterPeerResponse::Reject;
         }
 
         let last_edge =
@@ -2091,12 +2091,12 @@ impl PeerManagerActor {
         if last_nonce >= msg.other_edge_info.nonce {
             debug!(target: "network", "Too low nonce. ({} <= {}) {:?} {:?}", msg.other_edge_info.nonce, last_nonce, self.my_peer_id, msg.peer_info.id);
             // If the check fails don't allow this connection.
-            return ConsolidateResponse::InvalidNonce(last_edge.cloned().map(Box::new).unwrap());
+            return RegisterPeerResponse::InvalidNonce(last_edge.cloned().map(Box::new).unwrap());
         }
 
         if msg.other_edge_info.nonce >= Edge::next_nonce(last_nonce) + EDGE_NONCE_BUMP_ALLOWED {
             debug!(target: "network", "Too large nonce. ({} >= {} + {}) {:?} {:?}", msg.other_edge_info.nonce, last_nonce, EDGE_NONCE_BUMP_ALLOWED, self.my_peer_id, msg.peer_info.id);
-            return ConsolidateResponse::Reject;
+            return RegisterPeerResponse::Reject;
         }
 
         let require_response = msg.this_edge_info.is_none();
@@ -2121,7 +2121,7 @@ impl PeerManagerActor {
             ctx,
         );
 
-        ConsolidateResponse::Accept(edge_info_response)
+        RegisterPeerResponse::Accept(edge_info_response)
     }
 
     #[perf]
@@ -2192,9 +2192,9 @@ impl Handler<PeerManagerMessageRequest> for PeerManagerActor {
                     self.handle_msg_network_requests(msg, ctx),
                 )
             }
-            PeerManagerMessageRequest::Consolidate(msg) => {
-                PeerManagerMessageResponse::ConsolidateResponse(
-                    self.handle_msg_consolidate(msg, ctx),
+            PeerManagerMessageRequest::RegisterPeer(msg) => {
+                PeerManagerMessageResponse::RegisterPeerResponse(
+                    self.handle_msg_register_peer(msg, ctx),
                 )
             }
             PeerManagerMessageRequest::PeersRequest(msg) => {
