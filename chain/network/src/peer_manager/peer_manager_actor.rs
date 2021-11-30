@@ -408,11 +408,11 @@ impl PeerManagerActor {
                     if !self.routing_table_view.is_local_edge_newer(other_peer, edge.nonce()) {
                         continue;
                     }
-                    // We belong to this edge.
+                    // Check whether we belong to this edge.
                     if self.connected_peers.contains_key(other_peer) {
                         // This is an active connection.
                         if edge.edge_type() == EdgeState::Removed {
-                            self.maybe_remove_connected_peer(ctx, edge.clone(), other_peer);
+                            self.maybe_remove_connected_peer(ctx, edge, other_peer);
                         }
                     } else if edge.edge_type() == EdgeState::Active {
                         // We are not connected to this peer, but routing table contains
@@ -980,7 +980,12 @@ impl PeerManagerActor {
     // We will broadcast that edge to that peer, and if that peer doesn't reply within specific time,
     // that peer will be removed. However, the connected peer may gives us a new edge indicating
     // that we should in fact be connected to it.
-    fn maybe_remove_connected_peer(&mut self, ctx: &mut Context<Self>, edge: Edge, other: &PeerId) {
+    fn maybe_remove_connected_peer(
+        &mut self,
+        ctx: &mut Context<Self>,
+        edge: &Edge,
+        other: &PeerId,
+    ) {
         let nonce = edge.next();
 
         if let Some(last_nonce) = self.local_peer_pending_update_nonce_request.get(other) {
