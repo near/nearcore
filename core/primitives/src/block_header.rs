@@ -344,7 +344,8 @@ impl BlockHeader {
     }
 
     pub fn new(
-        protocol_version: ProtocolVersion,
+        this_epoch_protocol_version: ProtocolVersion,
+        next_epoch_protocol_version: ProtocolVersion,
         height: BlockHeight,
         prev_hash: CryptoHash,
         prev_state_root: MerkleHash,
@@ -384,7 +385,9 @@ impl BlockHeader {
         };
         let last_header_v2_version =
             crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1;
-        if protocol_version <= 29 {
+        // Previously we passed next_epoch_protocol_version here, which is incorrect, but we need
+        // to preserve this for archival nodes
+        if next_epoch_protocol_version <= 29 {
             let chunks_included = chunk_mask.iter().map(|val| *val as u64).sum::<u64>();
             let inner_rest = BlockHeaderInnerRest {
                 chunk_receipts_root,
@@ -415,7 +418,7 @@ impl BlockHeader {
                 signature,
                 hash,
             }))
-        } else if protocol_version <= last_header_v2_version {
+        } else if this_epoch_protocol_version <= last_header_v2_version {
             let inner_rest = BlockHeaderInnerRestV2 {
                 chunk_receipts_root,
                 chunk_headers_root,

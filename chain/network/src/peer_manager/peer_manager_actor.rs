@@ -838,7 +838,11 @@ impl PeerManagerActor {
         self.active_peers
             .values()
             .filter_map(|active_peer| {
-                if active_peer.full_peer_info.chain_info.height + self.config.highest_peer_horizon
+                if active_peer
+                    .full_peer_info
+                    .chain_info
+                    .height
+                    .saturating_add(self.config.highest_peer_horizon)
                     >= max_height
                 {
                     Some(active_peer.full_peer_info.clone())

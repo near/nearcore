@@ -48,6 +48,7 @@ fn create_block() -> Block {
     let signer = InMemoryValidatorSigner::from_random(AccountId::test_account(), KeyType::ED25519);
     Block::produce(
         PROTOCOL_VERSION,
+        PROTOCOL_VERSION,
         genesis.header(),
         10,
         genesis.header().block_ordinal() + 1,

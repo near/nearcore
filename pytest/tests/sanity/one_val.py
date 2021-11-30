@@ -1,11 +1,13 @@
+#!/usr/bin/env python3
 # Creates a genesis config with two block producers, and kills one right away after
 # launch. Makes sure that the other block producer can produce blocks with chunks and
 # process transactions. Makes large-ish number of block producers per shard to minimize
 # the chance of the second block producer occupying all the seats in one of the shards
 
 import sys, time, base58, random
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger

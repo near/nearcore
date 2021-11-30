@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up two nodes; Let's them build the chain for several epochs;
 # Spins up two more nodes, and makes the two new nodes to stake, and the old two to unstake;
 # Makes the two new nodes to build for couple more epochs;
@@ -9,10 +10,11 @@
 import sys, time, logging, base58
 import multiprocessing
 from functools import partial
+import pathlib
 
 from requests.api import request
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import init_cluster, spin_up_node, load_config
 from configured_logger import logger
