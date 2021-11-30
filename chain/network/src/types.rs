@@ -838,13 +838,26 @@ pub enum NetworkRequests {
     },
 }
 
+/// List of `Edges`, which we received from `source_peer_id` gor purpose of validation.
+/// Those are list of edges received through `NetworkRequests::Sync` or `NetworkRequests::IbfMessage`.
 pub struct ValidateEdgeList {
+    /// The list of edges is provided by `source_peer_id`, that peer will be banned
+    ///if any of these edges are invalid.
+    pub(crate) source_peer_id: PeerId,
+    /// List of Edges, which will be sent to `EdgeValidatorActor`.
     pub(crate) edges: Vec<Edge>,
+    /// A set of edges, which have been verified. This is a cache with all verified edges.
+    /// `EdgeValidatorActor`, and is a source of memory leak.
+    /// TODO(#5254): Simplify this process.
     pub(crate) edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
+    /// A concurrent queue. After edge become validated it will be sent from `EdgeValidatorActor` back to
+    /// `PeerManagetActor`, and then send to `RoutingTableActor`. And then `RoutingTableActor`
+    /// will add them.
+    /// TODO(#5254): Simplify this process.
     pub(crate) sender: QueueSender<Edge>,
     #[cfg(feature = "test_features")]
+    /// Feature to disable edge validation for purpose of testing.
     pub(crate) adv_disable_edge_signature_verification: bool,
-    pub(crate) peer_id: PeerId,
 }
 
 impl Message for ValidateEdgeList {
