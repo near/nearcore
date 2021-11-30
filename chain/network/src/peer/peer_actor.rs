@@ -4,10 +4,10 @@ use crate::peer::tracker::Tracker;
 use crate::routing::edge::{Edge, EdgeInfo};
 use crate::stats::metrics::{self, NetworkMetrics};
 use crate::types::{
-    Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
-    PeerManagerMessageRequest, PeerMessage, PeerRequest, PeerResponse, PeersRequest, PeersResponse,
-    SendMessage, Unregister,
+    Handshake, HandshakeFailureReason, HandshakeV2, NetworkClientMessages, NetworkClientResponses,
+    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerMessage, PeerRequest,
+    PeerResponse, PeersRequest, PeersResponse, RegisterPeer, RegisterPeerResponse, SendMessage,
+    Unregister,
 };
 use crate::{PeerInfo, PeerManagerActor};
 use actix::{
@@ -822,7 +822,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 };
                 self.chain_info = handshake.chain_info.clone();
                 self.peer_manager_addr
-                    .send(ActixMessageWrapper::new_without_size(PeerManagerMessageRequest::Consolidate(Consolidate {
+                    .send(ActixMessageWrapper::new_without_size(PeerManagerMessageRequest::RegisterPeer(RegisterPeer {
                         actor: ctx.address(),
                         peer_info: peer_info.clone(),
                         peer_type: self.peer_type,
@@ -834,7 +834,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     .into_actor(self)
                     .then(move |res, act, ctx| {
                         match res.map(|f|f.into_inner().as_consolidate_response()) {
-                            Ok(ConsolidateResponse::Accept(edge_info)) => {
+                            Ok(RegisterPeerResponse::Accept(edge_info)) => {
                                 act.peer_info = Some(peer_info).into();
                                 act.peer_status = PeerStatus::Ready;
                                 // Respond to handshake if it's inbound and connection was consolidated.
@@ -844,7 +844,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                                 }
                                 actix::fut::ready(())
                             },
-                            Ok(ConsolidateResponse::InvalidNonce(edge)) => {
+                            Ok(RegisterPeerResponse::InvalidNonce(edge)) => {
                                 debug!(target: "network", "{:?}: Received invalid nonce from peer {:?} sending evidence.", act.node_id(), act.peer_addr);
                                 act.send_message(&PeerMessage::LastEdge(*edge));
                                 actix::fut::ready(())

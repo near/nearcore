@@ -422,7 +422,7 @@ impl Handler<ValidateEdgeList> for RoutingTableActor {
         self.edge_validator_requests_in_progress += 1;
         let mut msg = msg;
         msg.edges.retain(|x| self.is_edge_newer(x.key(), x.nonce()));
-        let peer_id = msg.peer_id.clone();
+        let peer_id = msg.source_peer_id.clone();
         self.edge_validator_pool
             .send(msg)
             .into_actor(self)
