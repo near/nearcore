@@ -178,8 +178,6 @@ def github_auth(code_path: pathlib.Path):
 
 
 def _parse_timeout(timeout: typing.Optional[str]) -> typing.Optional[int]:
-    if not timeout:
-        return None
     """Parses timeout interval and converts it into number of seconds.
 
     Args:
@@ -188,6 +186,8 @@ def _parse_timeout(timeout: typing.Optional[str]) -> typing.Optional[int]:
     Returns:
         Interval in seconds.
     """
+    if not timeout:
+        return None
     mul_ary = {'h': 3600, 'm': 60, 's': 1}
     mul = mul_ary.get(timeout[-1])
     if mul:
