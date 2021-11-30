@@ -92,7 +92,7 @@ def _compile_current(branch: str) -> Executables:
     state_viewer = _OUT_DIR / f'state-viewer-{branch}'
     (_OUT_DIR / 'neard').rename(neard)
     (_OUT_DIR / 'state-viewer').rename(state_viewer)
-    return Executables(build_dir, neard, state_viewer)
+    return Executables(_OUT_DIR, neard, state_viewer)
 
 
 def __download_file_if_missing(filename: pathlib.Path, url: str) -> None:
