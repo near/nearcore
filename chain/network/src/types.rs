@@ -92,7 +92,7 @@ pub(crate) struct HandshakeAutoDes {
     /// Peer's chain information.
     pub(crate) chain_info: PeerChainInfoV2,
     /// Info for new edge.
-    pub(crate) edge_info: PartialEdgeInfo,
+    pub(crate) partial_edge_info: PartialEdgeInfo,
 }
 
 impl Handshake {
@@ -102,7 +102,7 @@ impl Handshake {
         target_peer_id: PeerId,
         listen_port: Option<u16>,
         chain_info: PeerChainInfoV2,
-        edge_info: PartialEdgeInfo,
+        partial_edge_info: PartialEdgeInfo,
     ) -> Self {
         Handshake {
             protocol_version: version,
@@ -111,7 +111,7 @@ impl Handshake {
             target_peer_id,
             sender_listen_port: listen_port,
             sender_chain_info: chain_info,
-            partial_edge_info: edge_info,
+            partial_edge_info,
         }
     }
 }
@@ -154,7 +154,7 @@ impl From<HandshakeAutoDes> for Handshake {
             target_peer_id: handshake.target_peer_id,
             sender_listen_port: handshake.listen_port,
             sender_chain_info: handshake.chain_info,
-            partial_edge_info: handshake.edge_info,
+            partial_edge_info: handshake.partial_edge_info,
         }
     }
 }
@@ -177,7 +177,7 @@ pub struct HandshakeV2 {
     /// Represents `peer`s `view about chain` from it's perspective.
     pub(crate) chain_info: PeerChainInfo,
     /// Represents `edge` with `nonce` and `Signature` from only of one peers.
-    pub(crate) edge_info: PartialEdgeInfo,
+    pub(crate) partial_edge_info: PartialEdgeInfo,
 }
 
 impl HandshakeV2 {
@@ -187,7 +187,7 @@ impl HandshakeV2 {
         target_peer_id: PeerId,
         sender_listen_port: Option<u16>,
         chain_info: PeerChainInfo,
-        edge_info: PartialEdgeInfo,
+        partial_edge_info: PartialEdgeInfo,
     ) -> Self {
         Self {
             protocol_version: version,
@@ -196,7 +196,7 @@ impl HandshakeV2 {
             target_peer_id,
             sender_listen_port,
             chain_info,
-            edge_info,
+            partial_edge_info,
         }
     }
 }
@@ -211,7 +211,7 @@ pub(crate) struct HandshakeV2AutoDes {
     pub(crate) target_peer_id: PeerId,
     pub(crate) listen_port: Option<u16>,
     pub(crate) chain_info: PeerChainInfo,
-    pub(crate) edge_info: PartialEdgeInfo,
+    pub(crate) partial_edge_info: PartialEdgeInfo,
 }
 
 // Use custom deserializer for HandshakeV2. Try to read version of the other peer from the header.
@@ -253,7 +253,7 @@ impl From<HandshakeV2AutoDes> for HandshakeV2 {
             target_peer_id: handshake.target_peer_id,
             sender_listen_port: handshake.listen_port,
             chain_info: handshake.chain_info,
-            edge_info: handshake.edge_info,
+            partial_edge_info: handshake.partial_edge_info,
         }
     }
 }
@@ -267,7 +267,7 @@ impl From<HandshakeV2> for Handshake {
             target_peer_id: handshake.target_peer_id,
             sender_listen_port: handshake.sender_listen_port,
             sender_chain_info: handshake.chain_info.into(),
-            partial_edge_info: handshake.edge_info,
+            partial_edge_info: handshake.partial_edge_info,
         }
     }
 }
@@ -878,7 +878,7 @@ impl Message for ValidateEdgeList {
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
     pub chain_info: PeerChainInfoV2,
-    pub edge_info: PartialEdgeInfo,
+    pub partial_edge_info: PartialEdgeInfo,
 }
 
 #[derive(Debug)]

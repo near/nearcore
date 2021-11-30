@@ -1357,7 +1357,7 @@ mod test {
                 tracked_shards: vec![],
                 archival: false,
             },
-            edge_info: PartialEdgeInfo::default(),
+            partial_edge_info: PartialEdgeInfo::default(),
         };
         let head = chain.head().unwrap();
         assert!(header_sync
@@ -1407,7 +1407,7 @@ mod test {
                     account_id: None,
                 },
                 chain_info: Default::default(),
-                edge_info: Default::default(),
+                partial_edge_info: Default::default(),
             });
             header_sync.syncing_peer.as_mut().unwrap().chain_info.height = highest_height;
         };
@@ -1561,7 +1561,7 @@ mod test {
                     account_id: None,
                 },
                 chain_info: Default::default(),
-                edge_info: Default::default(),
+                partial_edge_info: Default::default(),
             })
             .collect()
     }

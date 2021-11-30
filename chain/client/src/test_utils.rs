@@ -575,7 +575,7 @@ pub fn setup_mock_all_validators(
                                     tracked_shards: vec![],
                                     archival: true,
                                 },
-                                edge_info: PartialEdgeInfo::default(),
+                                partial_edge_info: PartialEdgeInfo::default(),
                             })
                             .collect();
                         let peers2 = peers.clone();

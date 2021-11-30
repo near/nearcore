@@ -487,7 +487,7 @@ impl PeerManagerActor {
     fn register_peer(
         &mut self,
         full_peer_info: FullPeerInfo,
-        edge_info: PartialEdgeInfo,
+        partial_edge_info: PartialEdgeInfo,
         peer_type: PeerType,
         addr: Addr<PeerActor>,
         peer_protocol_version: ProtocolVersion,
@@ -510,9 +510,9 @@ impl PeerManagerActor {
         let new_edge = Edge::new(
             self.my_peer_id.clone(),
             target_peer_id.clone(),
-            edge_info.nonce,
-            edge_info.signature,
-            full_peer_info.edge_info.signature.clone(),
+            partial_edge_info.nonce,
+            partial_edge_info.signature,
+            full_peer_info.partial_edge_info.signature.clone(),
         );
 
         self.active_peers.insert(
@@ -2112,7 +2112,7 @@ impl PeerManagerActor {
             FullPeerInfo {
                 peer_info: msg.peer_info,
                 chain_info: msg.chain_info,
-                edge_info: msg.other_edge_info,
+                partial_edge_info: msg.other_edge_info,
             },
             edge_info,
             msg.peer_type,

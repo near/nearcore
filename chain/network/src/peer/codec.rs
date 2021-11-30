@@ -320,7 +320,7 @@ mod test {
                 height: 0,
                 tracked_shards: vec![],
             },
-            edge_info: PartialEdgeInfo::default(),
+            partial_edge_info: PartialEdgeInfo::default(),
         };
         let msg = PeerMessage::HandshakeV2(fake_handshake);
         test_codec(msg);
@@ -339,7 +339,7 @@ mod test {
                 height: 0,
                 tracked_shards: vec![],
             },
-            edge_info: PartialEdgeInfo::default(),
+            partial_edge_info: PartialEdgeInfo::default(),
         };
         let msg = PeerMessage::HandshakeV2(fake_handshake);
 
