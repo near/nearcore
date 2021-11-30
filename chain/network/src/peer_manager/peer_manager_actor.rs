@@ -537,7 +537,7 @@ impl PeerManagerActor {
             peer_protocol_version,
             {
                 self.initialize_routing_table_exchange(peer_id, peer_type, addr.clone(), ctx);
-                self.send_sync(peer_type, addr, ctx, target_peer_id.clone(), new_edge, Vec::new());
+                self.send_sync(peer_type, addr, ctx, target_peer_id, new_edge, Vec::new());
                 return;
             }
         );
@@ -2231,20 +2231,19 @@ impl Handler<PeerManagerMessageRequest> for PeerManagerActor {
             #[cfg(feature = "test_features")]
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             PeerManagerMessageRequest::StartRoutingTableSync(msg) => {
-                PeerManagerMessageResponse::StartRoutingTableSync(
-                    self.handle_msg_start_routing_table_sync(msg, ctx),
-                )
+                self.handle_msg_start_routing_table_sync(msg, ctx);
+                PeerManagerMessageResponse::StartRoutingTableSync(())
             }
             #[cfg(feature = "test_features")]
             PeerManagerMessageRequest::SetAdvOptions(msg) => {
-                PeerManagerMessageResponse::SetAdvOptions(self.handle_msg_set_adv_options(msg, ctx))
+                self.handle_msg_set_adv_options(msg, ctx);
+                PeerManagerMessageResponse::SetAdvOptions(())
             }
             #[cfg(feature = "test_features")]
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             PeerManagerMessageRequest::SetRoutingTable(msg) => {
-                PeerManagerMessageResponse::SetRoutingTable(
-                    self.handle_msg_set_routing_table(msg, ctx),
-                )
+                self.handle_msg_set_routing_table(msg, ctx);
+                PeerManagerMessageResponse::SetRoutingTable(())
             }
         }
     }

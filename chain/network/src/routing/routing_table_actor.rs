@@ -530,7 +530,7 @@ impl RoutingTableActor {
         }
 
         let (edge_hashes, unknown_edges_count) = new_ibf.try_recover();
-        let (known, unknown_edges) = self.split_edges_for_peer(&peer_id, &edge_hashes);
+        let (known, unknown_edges) = self.split_edges_for_peer(peer_id, &edge_hashes);
 
         (known, unknown_edges, unknown_edges_count)
     }
@@ -605,8 +605,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             RoutingTableMessages::AddPeerIfMissing(peer_id, ibf_set) => {
-                let seed =
-                    self.peer_ibf_set.add_peer(peer_id.clone(), ibf_set, &mut self.edges_info);
+                let seed = self.peer_ibf_set.add_peer(peer_id, ibf_set, &mut self.edges_info);
                 RoutingTableMessagesResponse::AddPeerResponse { seed }
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -631,11 +630,11 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
 
                             let edges_for_peer = edges_for_peer
                                 .iter()
-                                .filter_map(|x| self.edges_info.get(&x.key()).cloned())
+                                .filter_map(|x| self.edges_info.get(x.key()).cloned())
                                 .collect();
                             // Prepare message
                             let ibf_msg = if unknown_edges_count == 0
-                                && unknown_edge_hashes.len() > 0
+                                && !unknown_edge_hashes.is_empty()
                             {
                                 crate::types::RoutingVersion2 {
                                     known_edges: self.edges_info.len() as u64,
@@ -645,38 +644,32 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                                         unknown_edge_hashes,
                                     ),
                                 }
-                            } else if unknown_edges_count == 0 && unknown_edge_hashes.len() == 0 {
+                            } else if unknown_edges_count == 0 && unknown_edge_hashes.is_empty() {
                                 crate::types::RoutingVersion2 {
                                     known_edges: self.edges_info.len() as u64,
                                     seed,
                                     edges: edges_for_peer,
                                     routing_state: crate::types::RoutingState::Done,
                                 }
+                            } else if let Some(new_ibf_level) = partial_sync.ibf_level.inc() {
+                                let ibf_vec = ibf_set.get_ibf_vec(new_ibf_level);
+                                crate::types::RoutingVersion2 {
+                                    known_edges: self.edges_info.len() as u64,
+                                    seed,
+                                    edges: edges_for_peer,
+                                    routing_state: crate::types::RoutingState::PartialSync(
+                                        crate::types::PartialSync {
+                                            ibf_level: new_ibf_level,
+                                            ibf: ibf_vec,
+                                        },
+                                    ),
+                                }
                             } else {
-                                if let Some(new_ibf_level) = partial_sync.ibf_level.inc() {
-                                    let ibf_vec = ibf_set.get_ibf_vec(new_ibf_level);
-                                    crate::types::RoutingVersion2 {
-                                        known_edges: self.edges_info.len() as u64,
-                                        seed,
-                                        edges: edges_for_peer,
-                                        routing_state: crate::types::RoutingState::PartialSync(
-                                            crate::types::PartialSync {
-                                                ibf_level: new_ibf_level,
-                                                ibf: ibf_vec,
-                                            },
-                                        ),
-                                    }
-                                } else {
-                                    crate::types::RoutingVersion2 {
-                                        known_edges: self.edges_info.len() as u64,
-                                        seed,
-                                        edges: self
-                                            .edges_info
-                                            .iter()
-                                            .map(|x| x.1.clone())
-                                            .collect(),
-                                        routing_state: crate::types::RoutingState::RequestAllEdges,
-                                    }
+                                crate::types::RoutingVersion2 {
+                                    known_edges: self.edges_info.len() as u64,
+                                    seed,
+                                    edges: self.edges_info.iter().map(|x| x.1.clone()).collect(),
+                                    routing_state: crate::types::RoutingState::RequestAllEdges,
                                 }
                             };
                             RoutingTableMessagesResponse::ProcessIbfMessageResponse {
@@ -722,7 +715,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
 
                         let edges_for_peer = edges_for_peer
                             .iter()
-                            .filter_map(|x| self.edges_info.get(&x.key()).cloned())
+                            .filter_map(|x| self.edges_info.get(x.key()).cloned())
                             .collect();
 
                         let ibf_msg = crate::types::RoutingVersion2 {
