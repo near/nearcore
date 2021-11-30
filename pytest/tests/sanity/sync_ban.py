@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spin up a validator node and a nonvalidator node.
 # Stop the nonvalidator node and wait until the validator node reach height 100
 # sync the nonvalidator node with controlled message passing between nodes.
@@ -7,8 +8,9 @@
 # validator node despite the slow connection.
 
 import sys, time, functools, asyncio
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger

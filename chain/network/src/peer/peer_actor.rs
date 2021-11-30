@@ -968,7 +968,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 ));
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-            (_, _state, PeerMessage::RoutingTableSyncV2(ibf_message)) => {
+            (_, PeerStatus::Ready, PeerMessage::RoutingTableSyncV2(ibf_message)) => {
                 // TODO(#5155) Add wrapper to be something like this for all messages.
                 // self.peer_manager_addr.do_send(ActixMessageWrapper<NetworkRequests>::new(
                 //        self.rate_limiter.clone, NetworkRequests::IbfMessage {

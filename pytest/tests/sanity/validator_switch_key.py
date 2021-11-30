@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Starts two validating nodes and one non-validating node
 # Set a new validator key that has the same account id as one of
 # the validating nodes. Stake that account with the new key
@@ -5,8 +6,9 @@
 # the non-validating node becomes a validator.
 
 import sys, time, base58
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from key import Key
