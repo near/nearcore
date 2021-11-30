@@ -182,20 +182,20 @@ def run_locally(tests):
         # See nayduck specs at https://github.com/near/nayduck/blob/master/lib/testspec.py
         fields = test.split()
 
-        timeout = ""
+        timeout = None
         index = 1
         ignored = []
         while len(fields) > index and fields[index].startswith('--'):
             if fields[index].startswith("--timeout="):
-                timeout = fields[index].split("=")[1]
-            else:
+                timeout = fields[index][10:]
+            elif fields[index] != '--skip-build':
                 ignored.append(fields[index])
             index += 1
 
         del fields[1:index]
         message = f'Running ‘{"".join(fields)}’'
         if ignored:
-            message = f'{message} (ignoring flags ‘{"".join(ignored)}`)'
+            message = f'{message} (ignoring flags ‘{" ".join(ignored)}`)'
         print(message)
 
         if fields[0] == 'expensive':
@@ -210,19 +210,17 @@ def run_locally(tests):
                 '--',
                 '--exact',
                 fields[3]]
-            if timeout:
-                cmd = ["timeout", int(timeout)] + cmd
             cwd = None
         elif fields[0] in ('pytest', 'mocknet'):
             fields[0] = sys.executable
             fields[1] = os.path.join('tests', fields[1])
             cmd = fields
-            if timeout:
-                cmd = ["timeout", timeout] + cmd
             cwd = 'pytest'
         else:
             print(f'Unrecognised test category ‘{fields[0]}’', file=sys.stderr)
             continue
+        if timeout:
+            cmd = ["timeout", "--verbose", timeout] + cmd
         print("RUNNING COMMAND cwd=%s cmd = %s", (cwd, cmd))
         subprocess.check_call(cmd, cwd=cwd)
 
