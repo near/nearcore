@@ -845,7 +845,7 @@ pub struct ValidateEdgeList {
     /// `EdgeValidatorActor`, and is a source of memory leak.
     /// TODO(#5254): Simplify this process.
     pub(crate) edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
-    /// A concurrent queue. After edge become validated. They will be sent from `EdgeValidatorActor` back to
+    /// A concurrent queue. After edge become validated it will be sent from `EdgeValidatorActor` back to
     /// `PeerManagetActor`, and then send to `RoutingTableActor`. And then `RoutingTableActor`
     /// will add them.
     /// TODO(#5254): Simplify this process.
