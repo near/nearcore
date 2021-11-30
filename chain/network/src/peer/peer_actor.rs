@@ -555,7 +555,7 @@ impl PeerActor {
     /// Check whenever we exceeded number of transactions we got since last block.
     /// If so, drop the transaction.
     fn should_we_drop_msg_without_decoding(&self, msg: &Vec<u8>) -> bool {
-        if codec::is_forward_transaction(&msg).unwrap_or(false) {
+        if codec::is_forward_transaction(msg).unwrap_or(false) {
             let r = self.txns_since_last_block.load(Ordering::Acquire);
             if r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE {
                 return true;
@@ -587,7 +587,7 @@ impl PeerActor {
                 },
             ));
         } else {
-            info!(target: "network", "Received invalid data {:?} from {}: {}", logging::pretty_vec(&msg), self.peer_info, err);
+            info!(target: "network", "Received invalid data {:?} from {}: {}", logging::pretty_vec(msg), self.peer_info, err);
         }
     }
 }
@@ -968,7 +968,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 ));
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-            (_, _state, PeerMessage::RoutingTableSyncV2(ibf_message)) => {
+            (_, PeerStatus::Ready, PeerMessage::RoutingTableSyncV2(ibf_message)) => {
                 // TODO(#5155) Add wrapper to be something like this for all messages.
                 // self.peer_manager_addr.do_send(ActixMessageWrapper<NetworkRequests>::new(
                 //        self.rate_limiter.clone, NetworkRequests::IbfMessage {

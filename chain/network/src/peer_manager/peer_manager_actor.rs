@@ -8,7 +8,7 @@ use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
 ))]
 use crate::routing::edge::SimpleEdge;
 use crate::routing::edge::{Edge, EdgeInfo, EdgeType};
-use crate::routing::edge_verifier_actor::EdgeVerifierHelper;
+use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::routing::{
     PeerRequestResult, RoutingTableView, DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS,
 };
@@ -150,8 +150,8 @@ pub struct PeerManagerActor {
     /// - account id
     /// Full routing table (that currently includes information about all edges in the graph) is now inside Routing Table.
     routing_table_view: RoutingTableView,
-    /// Fields used for communicating with EdgeVerifier
-    routing_table_exchange_helper: EdgeVerifierHelper,
+    /// Fields used for communicating with EdgeValidatorActor
+    routing_table_exchange_helper: EdgeValidatorHelper,
     /// Flag that track whether we started attempts to establish outbound connections.
     started_connect_attempts: bool,
     /// Monitor peers attempts, used for fast checking in the beginning with exponential backoff.
@@ -339,7 +339,7 @@ impl PeerManagerActor {
 
     /// `update_routing_table_trigger` schedule updating routing table to `RoutingTableActor`
     /// Usually we do edge pruning one an hour. However it may be disabled in following cases:
-    /// - there are edges, that were supposed to be added, but are still in `EdgeVerifierActor,
+    /// - there are edges, that were supposed to be added, but are still in EdgeValidatorActor,
     ///   waiting to have their signatures checked.
     /// - edge pruning may be disabled for unit testing.
     fn update_routing_table_trigger(&mut self, ctx: &mut Context<Self>, interval: Duration) {
@@ -537,7 +537,7 @@ impl PeerManagerActor {
             peer_protocol_version,
             {
                 self.initialize_routing_table_exchange(peer_id, peer_type, addr.clone(), ctx);
-                self.send_sync(peer_type, addr, ctx, target_peer_id.clone(), new_edge, Vec::new());
+                self.send_sync(peer_type, addr, ctx, target_peer_id, new_edge, Vec::new());
                 return;
             }
         );
@@ -838,7 +838,11 @@ impl PeerManagerActor {
         self.active_peers
             .values()
             .filter_map(|active_peer| {
-                if active_peer.full_peer_info.chain_info.height + self.config.highest_peer_horizon
+                if active_peer
+                    .full_peer_info
+                    .chain_info
+                    .height
+                    .saturating_add(self.config.highest_peer_horizon)
                     >= max_height
                 {
                     Some(active_peer.full_peer_info.clone())
@@ -1173,10 +1177,10 @@ impl PeerManagerActor {
         );
     }
 
-    /// Sends list of edges, from peer `peer_id` to check their signatures to `EdgeVerifierActor`.
+    /// Sends list of edges, from peer `peer_id` to check their signatures to `EdgeValidatorActor`.
     /// Bans peer `peer_id` if an invalid edge is found.
     /// `PeerManagerActor` periodically runs `broadcast_validated_edges_trigger`, which gets edges
-    /// from `EdgeVerifierActor` concurrent queue and sends edges to be added to `RoutingTableActor`.
+    /// from `EdgeValidatorActor` concurrent queue and sends edges to be added to `RoutingTableActor`.
     fn validate_edges_and_add_to_routing_table(
         &mut self,
         _ctx: &mut Context<Self>,
@@ -2227,20 +2231,19 @@ impl Handler<PeerManagerMessageRequest> for PeerManagerActor {
             #[cfg(feature = "test_features")]
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             PeerManagerMessageRequest::StartRoutingTableSync(msg) => {
-                PeerManagerMessageResponse::StartRoutingTableSync(
-                    self.handle_msg_start_routing_table_sync(msg, ctx),
-                )
+                self.handle_msg_start_routing_table_sync(msg, ctx);
+                PeerManagerMessageResponse::StartRoutingTableSync(())
             }
             #[cfg(feature = "test_features")]
             PeerManagerMessageRequest::SetAdvOptions(msg) => {
-                PeerManagerMessageResponse::SetAdvOptions(self.handle_msg_set_adv_options(msg, ctx))
+                self.handle_msg_set_adv_options(msg, ctx);
+                PeerManagerMessageResponse::SetAdvOptions(())
             }
             #[cfg(feature = "test_features")]
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             PeerManagerMessageRequest::SetRoutingTable(msg) => {
-                PeerManagerMessageResponse::SetRoutingTable(
-                    self.handle_msg_set_routing_table(msg, ctx),
-                )
+                self.handle_msg_set_routing_table(msg, ctx);
+                PeerManagerMessageResponse::SetRoutingTable(())
             }
         }
     }

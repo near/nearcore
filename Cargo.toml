@@ -9,6 +9,7 @@ members = [
     "core/metrics",
     "runtime/near-vm-logic",
     "runtime/near-vm-runner",
+    "runtime/near-vm-runner/fuzz",
     "runtime/near-vm-runner-standalone",
     "runtime/runtime",
     "runtime/runtime-params-estimator",
