@@ -769,6 +769,12 @@ fn address_overflow() -> Vec<u8> {
 #[test]
 fn test_address_overflow() {
     with_vm_variants(|vm_kind: VMKind| {
+        if let VMKind::Wasmer0 = vm_kind {
+            // Wasmtime and wasmer0 signal handlers stomp over each other in
+            // this case, so we skip one of them.
+            return;
+        }
+
         let actual = make_simple_contract_call_vm(&address_overflow(), "main", vm_kind);
         match vm_kind {
             VMKind::Wasmer2 | VMKind::Wasmtime => gas_and_error_match(
@@ -813,6 +819,12 @@ fn nan_sign() -> Vec<u8> {
 #[test]
 fn test_nan_sign() {
     with_vm_variants(|vm_kind: VMKind| {
+        if let VMKind::Wasmer0 = vm_kind {
+            // Wasmtime and wasmer0 signal handlers stomp over each other in
+            // this case, so we skip one of them.
+            return;
+        }
+
         let actual = make_simple_contract_call_vm(&nan_sign(), "main", vm_kind);
         match vm_kind {
             VMKind::Wasmer2 => gas_and_error_match(actual, Some(82291302), None),
