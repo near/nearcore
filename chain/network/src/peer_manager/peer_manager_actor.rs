@@ -7,7 +7,7 @@ use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
     feature = "protocol_feature_routing_exchange_algorithm"
 ))]
 use crate::routing::edge::SimpleEdge;
-use crate::routing::edge::{Edge, EdgeType, PartialEdgeInfo};
+use crate::routing::edge::{Edge, EdgeState, PartialEdgeInfo};
 use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::routing::{
     PeerRequestResult, RoutingTableView, DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS,
@@ -393,14 +393,14 @@ impl PeerManagerActor {
                     if self.active_peers.contains_key(other) {
                         // This is an active connection.
                         match edge.edge_type() {
-                            EdgeType::Removed => {
+                            EdgeState::Removed => {
                                 self.maybe_remove_connected_peer(ctx, edge.clone(), other);
                             }
                             _ => {}
                         }
                     } else {
                         match edge.edge_type() {
-                            EdgeType::Added => {
+                            EdgeState::Active => {
                                 // We are not connected to this peer, but routing table contains
                                 // information that we do. We should wait and remove that peer
                                 // from routing table
@@ -655,7 +655,7 @@ impl PeerManagerActor {
         if let Some(edge) =
             self.routing_table_view.get_edge(self.my_peer_id.clone(), peer_id.clone())
         {
-            if edge.edge_type() == EdgeType::Added {
+            if edge.edge_type() == EdgeState::Active {
                 let edge_update =
                     edge.remove_edge(self.my_peer_id.clone(), &self.config.secret_key);
                 self.add_verified_edges_to_routing_table(ctx, vec![edge_update.clone()], false);
@@ -1878,7 +1878,7 @@ impl PeerManagerActor {
                     if let Some(cur_edge) =
                         self.routing_table_view.get_edge(self.my_peer_id.clone(), peer_id.clone())
                     {
-                        if cur_edge.edge_type() == EdgeType::Added
+                        if cur_edge.edge_type() == EdgeState::Active
                             && cur_edge.nonce() >= edge_info.nonce
                         {
                             return NetworkResponses::EdgeUpdate(Box::new(cur_edge.clone()));

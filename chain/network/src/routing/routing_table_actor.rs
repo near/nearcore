@@ -1,6 +1,6 @@
 use crate::common::message_wrapper::{ActixMessageResponse, ActixMessageWrapper};
 use crate::metrics;
-use crate::routing::edge::{Edge, EdgeType};
+use crate::routing::edge::{Edge, EdgeState};
 use crate::routing::edge_validator_actor::EdgeValidatorActor;
 use crate::routing::routing::{Graph, SAVE_PEERS_MAX_TIME};
 use crate::types::{StopMsg, ValidateEdgeList};
@@ -132,10 +132,10 @@ impl RoutingTableActor {
         } else {
             self.needs_routing_table_recalculation = true;
             match edge.edge_type() {
-                EdgeType::Added => {
+                EdgeState::Active => {
                     self.raw_graph.add_edge(&key.0, &key.1);
                 }
-                EdgeType::Removed => {
+                EdgeState::Removed => {
                     self.raw_graph.remove_edge(&key.0, &key.1);
                 }
             }
