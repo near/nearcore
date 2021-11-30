@@ -33,4 +33,5 @@ pub use runner::{run, VM};
 #[doc(hidden)]
 pub mod internal {
     pub use crate::vm_kind::VMKind;
+    pub use wasmparser;
 }
