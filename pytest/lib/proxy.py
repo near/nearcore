@@ -212,6 +212,9 @@ async def bridge(reader, writer, handler_fn, global_stopped, local_stopped,
         while 0 == global_stopped.value and 0 >= local_stopped.value and 0 == error.value and 0 == bridge_stopped[
                 0]:
             header = await reader.read(4)
+            # It's possible that we will not read whole header at once, which can use a crash.
+            while len(header) < 4:
+                header += await reader.read(4 - len(header))
             if not header:
                 logging.debug(
                     f"Endpoint closed (Reader). port={_MY_PORT} bridge_id={bridge_id}"
