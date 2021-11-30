@@ -577,9 +577,9 @@ pub enum NetworkClientMessages {
     /// State response.
     StateResponse(StateResponseInfo),
     /// Epoch Sync response for light client block request
-    EpochSyncResponse(PeerId, EpochSyncResponse),
+    EpochSyncResponse(PeerId, Box<EpochSyncResponse>),
     /// Epoch Sync response for finalization request
-    EpochSyncFinalizationResponse(PeerId, EpochSyncFinalizationResponse),
+    EpochSyncFinalizationResponse(PeerId, Box<EpochSyncFinalizationResponse>),
 
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
