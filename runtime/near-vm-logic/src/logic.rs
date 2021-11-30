@@ -165,7 +165,7 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
-    fn memory_get_vec(&mut self, offset: u64, len: u64) -> Result<Vec<u8>> {
+    pub fn memory_get_vec(&mut self, offset: u64, len: u64) -> Result<Vec<u8>> {
         self.gas_counter.pay_base(read_memory_base)?;
         self.gas_counter.pay_per(read_memory_byte, len)?;
         self.try_fit_mem(offset, len)?;
@@ -587,6 +587,10 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(base)?;
 
         self.internal_write_register(register_id, self.context.input.clone())
+    }
+
+    pub fn internal_input(&mut self) -> Vec<u8> {
+        self.context.input.clone()
     }
 
     /// Returns the current block height.

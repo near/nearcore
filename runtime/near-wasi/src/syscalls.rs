@@ -5,9 +5,11 @@ use near_vm_logic::VMLogic;
 pub type Pointer = u32;
 pub type Errno = u16;
 
-const WASI_EBADF: u16 = 8;
+pub const WASI_EBADF: u16 = 8; // Bad file descriptor
+pub const WASI_EFAULT: u16 = 21; // Bad address
 pub const WASI_EINVAL: u16 = 28; // Invalid argument
-const WASI_ENOTSUP: u16 = 58;
+pub const WASI_EIO: u16 = 29; // I/O Error
+pub const WASI_ENOTSUP: u16 = 58;
 
 // All "wasi_snapshot_preview1" syscalls
 // https://github.com/WebAssembly/WASI/blob/main/phases/snapshot/witx/wasi_snapshot_preview1.witx
@@ -39,12 +41,12 @@ pub fn clock_res_get(vm_logic: &mut VMLogic, clock_id: u32, resolution: Pointer)
         // This can error due to run out of gas or memory access out bound. in both case, it should
         // return control to the runner, e.g. Wasmer. Wasmer 2 does this automatically when the return
         // impls std::error::Error. However, here Errno is just a type alias and cannot impls Error trait/
-        // So this must return an error code and let Wasm side code handle it. We can notify Wasm side
-        // code that, error had happened. If it's the case of run out of gas, it will execute a bit longer
-        // (in next injected `gas()` call).
-        vm_logic.memory_set_u64(resolution as u64, 1000).map_or(WASI_EINVAL, |_| 0)
+        // So this must return an error code and let Wasm side code handle it. If it's the case memory
+        // access out of bounds, caller received WASI_EFAULT knows how to handle it. If it's the case of
+        // run out of gas, it will execute a bit longer (in next injected `gas()` call in Wasm).
+        vm_logic.memory_set_u64(resolution as u64, 1000).map_or(WASI_EFAULT, |_| 0)
     } else if clock_id == CLOCK_THREAD_CPUTIME_ID {
-        vm_logic.memory_set_u64(resolution as u64, 42).map_or(WASI_EINVAL, |_| 0)
+        vm_logic.memory_set_u64(resolution as u64, 42).map_or(WASI_EFAULT, |_| 0)
     } else {
         WASI_EINVAL
     }
@@ -58,7 +60,7 @@ pub fn clock_time_get(vm_logic: &mut VMLogic, clock_id: u32, precision: u64, tim
             Ok(t) => {
                 vm_logic.memory_set_u64(time as u64, t).map_or(WASI_EINVAL, |_| 0)
             },
-            _ => WASI_EINVAL
+            _ => WASI_EFAULT
         }
     } else {
         WASI_EINVAL
@@ -137,10 +139,54 @@ pub fn fd_filestat_set_times(vm_logic: &mut VMLogic, fd: u32, st_atim: u64, st_m
     WASI_EBADF
 }
 
+use std::io::Read;
+fn read_stdin(vm_logic: &mut VMLogic, iovs: Pointer, iovs_len: u32, offset: u64, nread: Pointer) -> Result<(), Errno> {
+    let mut bytes_read = 0;
+    let mut raw_bytes: Vec<u8> = vec![0; 1024];
+    let mut iovs_arr = vec![];
+
+    let input = vm_logic.internal_input();
+    let mut input_slice = if offset < input.len() as u64 {
+        &input[(offset as usize)..]
+    } else {
+        return Err(WASI_EIO)
+    };
+
+    for i in 0..(iovs_len/2) {
+        let buf = vm_logic.memory_get_u32((iovs + i * 8) as u64).map_err(|_| WASI_EFAULT)?;
+        let buf_len = vm_logic.memory_get_u32((iovs + i * 8 + 4) as u64).map_err(|_| WASI_EFAULT)?;
+        iovs_arr.push(WasiIovec { buf, buf_len })
+    }
+
+    for iov in iovs_arr {
+        raw_bytes.clear();
+        raw_bytes.resize(iov.buf_len as usize, 0);
+
+        bytes_read += input_slice.read(&mut raw_bytes).map_err(|_| WASI_EIO)?;
+        vm_logic.memory_set_slice(iov.buf as u64, &raw_bytes).map_err(|_| WASI_EFAULT)?;
+    }
+    vm_logic.memory_set_u64(nread as u64, bytes_read as u64).map_err(|_| WASI_EFAULT)
+}
+
+pub const WASI_STDIN_FILENO: u32 = 0;
+pub const WASI_STDOUT_FILENO: u32 = 1;
+pub const WASI_STDERR_FILENO: u32 = 2;
+
 /// "fd_pread"
 /// Read from the file at the given offset without updating the file cursor.
 pub fn fd_pread(vm_logic: &mut VMLogic, fd: u32, iovs: Pointer, iovs_len: u32, offset: u64, nread: Pointer) -> Errno {
-    WASI_EBADF
+    // we can only read from vm_logic.input(), which considered as stdin
+    if fd != WASI_STDIN_FILENO {
+        return WASI_EBADF
+    }
+
+    read_stdin(vm_logic, iovs, iovs_len, offset, nread).map_or_else(|e| e, |_| 0)
+}
+
+#[repr(C)]
+pub struct WasiIovec {
+    pub buf: u32,
+    pub buf_len: u32,
 }
 
 /// "fd_prestat_get"
@@ -155,17 +201,39 @@ pub fn fd_prestat_dir_name(vm_logic: &mut VMLogic, fd: u32, path: Pointer, path_
     WASI_EBADF
 }
 
-/// "fd_pwrite"
+fn write_stdout(vm_logic: &mut VMLogic, iovs: Pointer, iovs_len: u32, nwritten: Pointer) -> Result<(), Errno> {
+    let mut bytes_written = 0;
+
+    for i in 0..(iovs_len/2) {
+        let buf = vm_logic.memory_get_u32((iovs + i * 8) as u64).map_err(|_| WASI_EFAULT)?;
+        let buf_len = vm_logic.memory_get_u32((iovs + i * 8 + 4) as u64).map_err(|_| WASI_EFAULT)?;
+        // TODO more dedicate error this line
+        let bytes = vm_logic.log_utf8(buf as u64, buf_len as u64).map_err(|e| WASI_EFAULT)?;
+        bytes_written += buf_len;
+    }
+
+    vm_logic.memory_set_u64(nwritten as u64, bytes_written as u64).map_err(|_| WASI_EFAULT)
+}
+
+    /// "fd_pwrite"
 /// Write to a file without adjusting its offset
 pub fn fd_pwrite(vm_logic: &mut VMLogic, fd: u32, iovs: Pointer, iovs_len: u32, offset: u64, nwritten: Pointer) -> Errno {
-    // TODO: if write to stderr, can be considered as vm_logic.log()
-    WASI_EBADF
+    if fd == WASI_STDOUT_FILENO {
+        return WASI_EBADF
+    }
+
+    write_stdout(vm_logic, iovs, iovs_len, nwritten).map_or_else(|e| e, |_| 0)
 }
 
 /// "fd_read"
 /// Read data from file descriptor
 pub fn fd_read(vm_logic: &mut VMLogic, fd: u32, iovs: Pointer, iovs_len: u32, nread: Pointer) -> Errno {
-    WASI_EBADF
+    // we can only read from vm_logic.input(), which considered as stdin
+    if fd != WASI_STDIN_FILENO {
+        return WASI_EBADF
+    }
+
+    read_stdin(vm_logic, iovs, iovs_len, 0, nread).map_or_else(|e| e, |_| 0)
 }
 
 /// "fd_readdir"
@@ -201,7 +269,11 @@ pub fn fd_tell(vm_logic: &mut VMLogic, fd: u32, offset: Pointer) -> Errno {
 /// "fd_write"
 /// Write data to the file descriptor
 pub fn fd_write(vm_logic: &mut VMLogic, fd: u32, iovs: Pointer, iovs_len: u32, nwritten: Pointer) -> Errno {
-    WASI_EBADF
+    if fd == WASI_STDOUT_FILENO {
+        return WASI_EBADF
+    }
+
+    write_stdout(vm_logic, iovs, iovs_len, nwritten).map_or_else(|e| e, |_| 0)
 }
 
 /// "path_create_directory"
