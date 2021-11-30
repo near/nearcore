@@ -1191,6 +1191,7 @@ impl PeerManagerActor {
             return;
         }
         self.routing_table_addr.do_send(ValidateEdgeList {
+            source_peer_id: peer_id,
             edges,
             edges_info_shared: self.routing_table_exchange_helper.edges_info_shared.clone(),
             sender: self.routing_table_exchange_helper.edges_to_add_sender.clone(),
@@ -1198,7 +1199,6 @@ impl PeerManagerActor {
             adv_disable_edge_signature_verification: self
                 .adv_helper
                 .adv_disable_edge_signature_verification,
-            source_peer_id: peer_id,
         });
     }
 
