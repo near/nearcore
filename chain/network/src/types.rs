@@ -77,8 +77,6 @@ pub struct Handshake {
 
 /// Struct describing the layout for Handshake.
 /// It is used to automatically derive BorshDeserialize.
-/// Struct describing the layout for Handshake.
-/// It is used to automatically derive BorshDeserialize.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub(crate) struct HandshakeAutoDes {
     /// Protocol version.
@@ -176,7 +174,7 @@ pub struct HandshakeV2 {
     pub(crate) target_peer_id: PeerId,
     /// Sender's listen port
     pub(crate) sender_listen_port: Option<u16>,
-    /// Represents `peers` view about chain.
+    /// Represents `peer`s `view about chain` from it's perspective.
     pub(crate) chain_info: PeerChainInfo,
     /// Represents `edge` with `nonce` and `Signature` from only of one peers.
     pub(crate) edge_info: PartialEdgeInfo,

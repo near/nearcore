@@ -212,7 +212,7 @@ impl PeerActor {
     }
 
     fn send_handshake(&mut self, ctx: &mut Context<PeerActor>) {
-        if self.target_peer_id().is_none() {
+        if self.other_peer_id().is_none() {
             error!(target: "network", "Sending handshake to an unknown peer");
             return;
         }
@@ -231,7 +231,7 @@ impl PeerActor {
                         39..=PROTOCOL_VERSION => PeerMessage::Handshake(Handshake::new(
                             act.protocol_version,
                             act.my_node_id().clone(),
-                            act.target_peer_id().unwrap().clone(),
+                            act.other_peer_id().unwrap().clone(),
                             act.my_node_info.addr_port(),
                             PeerChainInfoV2 { genesis_id, height, tracked_shards, archival },
                             act.edge_info.as_ref().unwrap().clone(),
@@ -239,7 +239,7 @@ impl PeerActor {
                         34..=38 => PeerMessage::HandshakeV2(HandshakeV2::new(
                             act.protocol_version,
                             act.my_node_id().clone(),
-                            act.target_peer_id().unwrap().clone(),
+                            act.other_peer_id().unwrap().clone(),
                             act.my_node_info.addr_port(),
                             PeerChainInfo { genesis_id, height, tracked_shards },
                             act.edge_info.as_ref().unwrap().clone(),
@@ -269,13 +269,13 @@ impl PeerActor {
         ctx.stop();
     }
 
-    /// `PeerId` of current node.
+    /// `PeerId` of the current node.
     fn my_node_id(&self) -> &PeerId {
         &self.my_node_info.id
     }
 
-    /// `PeerId` of target node.
-    fn target_peer_id(&self) -> Option<&PeerId> {
+    /// `PeerId` of the other node.
+    fn other_peer_id(&self) -> Option<&PeerId> {
         self.peer_info.as_ref().as_ref().map(|peer_info| &peer_info.id)
     }
 
@@ -398,7 +398,7 @@ impl PeerActor {
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
         metrics::PEER_CLIENT_MESSAGE_RECEIVED_TOTAL.inc();
-        let peer_id = unwrap_option_or_return!(self.target_peer_id()).clone();
+        let peer_id = unwrap_option_or_return!(self.other_peer_id()).clone();
 
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
@@ -407,11 +407,7 @@ impl PeerActor {
                 let block_hash = *block.hash();
                 self.tracker.push_received(block_hash);
                 self.chain_info.height = max(self.chain_info.height, block.header().height());
-                NetworkClientMessages::Block(
-                    block,
-                    peer_id.clone(),
-                    self.tracker.has_request(&block_hash),
-                )
+                NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(&block_hash))
             }
             PeerMessage::Transaction(transaction) => {
                 metrics::PEER_TRANSACTION_RECEIVED_TOTAL.inc();
@@ -422,7 +418,7 @@ impl PeerActor {
                 }
             }
             PeerMessage::BlockHeaders(headers) => {
-                NetworkClientMessages::BlockHeaders(headers, peer_id.clone())
+                NetworkClientMessages::BlockHeaders(headers, peer_id)
             }
             // All Routed messages received at this point are for us.
             PeerMessage::Routed(routed_message) => {
@@ -430,7 +426,7 @@ impl PeerActor {
 
                 match routed_message.body {
                     RoutedMessageBody::BlockApproval(approval) => {
-                        NetworkClientMessages::BlockApproval(approval, peer_id.clone())
+                        NetworkClientMessages::BlockApproval(approval, peer_id)
                     }
                     RoutedMessageBody::ForwardTx(transaction) => {
                         NetworkClientMessages::Transaction {
@@ -480,10 +476,10 @@ impl PeerActor {
             }
             PeerMessage::Challenge(challenge) => NetworkClientMessages::Challenge(challenge),
             PeerMessage::EpochSyncResponse(response) => {
-                NetworkClientMessages::EpochSyncResponse(peer_id.clone(), response)
+                NetworkClientMessages::EpochSyncResponse(peer_id, response)
             }
             PeerMessage::EpochSyncFinalizationResponse(response) => {
-                NetworkClientMessages::EpochSyncFinalizationResponse(peer_id.clone(), response)
+                NetworkClientMessages::EpochSyncFinalizationResponse(peer_id, response)
             }
             PeerMessage::Handshake(_)
             | PeerMessage::HandshakeV2(_)
@@ -539,7 +535,7 @@ impl PeerActor {
 
     /// Hook called on every valid message received from this peer from the network.
     fn on_receive_message(&mut self) {
-        if let Some(peer_id) = self.target_peer_id().cloned() {
+        if let Some(peer_id) = self.other_peer_id().cloned() {
             if self.last_time_received_message_update.elapsed()
                 > UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE
             {
@@ -882,7 +878,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 self.peer_manager_addr
                     .send(ActixMessageWrapper::new_without_size(
                         PeerManagerMessageRequest::PeerRequest(PeerRequest::UpdateEdge((
-                            self.target_peer_id().unwrap().clone(),
+                            self.other_peer_id().unwrap().clone(),
                             edge.next(),
                         ))),
                         self.throttle_controller.clone(),
@@ -901,7 +897,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     .spawn(ctx);
             }
             (_, PeerStatus::Ready, PeerMessage::Disconnect) => {
-                debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.target_peer_id());
+                debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
                 ctx.stop();
             }
             (_, PeerStatus::Ready, PeerMessage::Handshake(_)) => {
@@ -933,7 +929,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 .peer_manager_addr
                 .send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::RequestUpdateNonce(
-                        self.target_peer_id().unwrap().clone(),
+                        self.other_peer_id().unwrap().clone(),
                         edge_info,
                     ),
                 ))
@@ -970,7 +966,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             (_, PeerStatus::Ready, PeerMessage::RoutingTableSync(sync_data)) => {
                 self.peer_manager_addr.do_send(ActixMessageWrapper::new_without_size(
                     PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Sync {
-                        peer_id: self.target_peer_id().unwrap().clone(),
+                        peer_id: self.other_peer_id().unwrap().clone(),
                         sync_data,
                     }),
                     self.throttle_controller.clone(),
@@ -985,7 +981,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
 
                 self.peer_manager_addr.do_send(ActixMessageWrapper::new_without_size(
                     PeerManagerMessageRequest::NetworkRequests(NetworkRequests::IbfMessage {
-                        peer_id: self.target_peer_id().unwrap().clone(),
+                        peer_id: self.other_peer_id().unwrap().clone(),
                         ibf_msg: ibf_message,
                     }),
                     self.throttle_controller.clone(),
@@ -1002,7 +998,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         .send(ActixMessageWrapper::new_without_size(
                             PeerManagerMessageRequest::RoutedMessageFrom(RoutedMessageFrom {
                                 msg: routed_message.clone(),
-                                from: self.target_peer_id().unwrap().clone(),
+                                from: self.other_peer_id().unwrap().clone(),
                             }),
                             self.throttle_controller.clone(),
                         ))
