@@ -773,20 +773,20 @@ fn test_address_overflow() {
         match vm_kind {
             VMKind::Wasmer2 | VMKind::Wasmtime => gas_and_error_match(
                 actual,
-                Some(61754076),
+                Some(57635826),
                 Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
                     WasmTrap::MemoryOutOfBounds,
                 ))),
             ),
             // wasmer0 incorrectly doesn't catch overflow during address calculation
-            VMKind::Wasmer0 => gas_and_error_match(actual, Some(61754076), None),
+            VMKind::Wasmer0 => gas_and_error_match(actual, Some(57635826), None),
         };
     });
 }
 
 /// Uses `f32.copysign` to observe a sign of `NaN`.
 ///
-/// Wasmer specification allows different behaviors here:
+/// WASM specification allows different behaviors here:
 ///
 ///   https://github.com/WebAssembly/design/blob/main/Nondeterminism.md
 ///
