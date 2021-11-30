@@ -177,7 +177,7 @@ def github_auth(code_path: pathlib.Path):
     return code
 
 
-def _parse_timeout(timeout: typing.Optional[str]) -> int:
+def _parse_timeout(timeout: typing.Optional[str]) -> typing.Optional[int]:
     if not timeout:
         return None
     """Parses timeout interval and converts it into number of seconds.
