@@ -1,1 +1,2 @@
-pytest --skip-build --timeout=2h runtime/fuzz.py
+pytest --skip-build --timeout=2h runtime/fuzz_runtime.py
+pytest --skip-build --timeout=2h runtime/fuzz_wasm_vm.py

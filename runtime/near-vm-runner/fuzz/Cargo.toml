@@ -1,0 +1,25 @@
+[package]
+name = "near-vm-runner-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+wasm-smith = "0.8"
+wasmprinter = "0.2"
+arbitrary = "1"
+
+near-vm-runner = { path = ".." }
+near-vm-logic = { path = "../../near-vm-logic", default-features = false, features = [] }
+near-primitives = { path = "../../../core/primitives" }
+
+
+[[bin]]
+name = "runner"
+path = "fuzz_targets/runner.rs"
+test = false
+doc = false
