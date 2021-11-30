@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up four validating nodes, and kills one of them.
 # Starts a restaking service that keeps this node still as an active validator as it gets kicked out.
 # Ensures that this node is current validator after 5 epochs.
@@ -8,8 +9,9 @@ import os
 import subprocess
 import signal
 import atexit
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster, load_config
 from configured_logger import logger

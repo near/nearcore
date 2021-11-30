@@ -1,11 +1,13 @@
+#!/usr/bin/env python3
 # Starts three validating nodes and one non-validating node
 # Make the validating nodes unstake and the non-validating node stake
 # so that the next epoch block producers set is completely different
 # Make sure all nodes can still sync.
 
 import sys, time, base58
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Runs a loadtest on mocknet.
 
@@ -21,8 +22,9 @@ import sys
 import time
 import tempfile
 from rc import pmap
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from helpers import load_test_spoon_helper
 from helpers import load_testing_add_and_delete_helper

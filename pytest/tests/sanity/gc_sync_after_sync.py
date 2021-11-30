@@ -1,10 +1,12 @@
+#!/usr/bin/env python3
 # Spins up three validating nodes. Stop one of them and make another one produce
 # sufficient number of blocks. Restart the stopped node and check that it can
 # still sync. Repeat. Then check all old data is removed.
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 swap_nodes = False
 if "swap_nodes" in sys.argv:

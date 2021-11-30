@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Creates a genesis file from a template.
 This file is uploaded to each mocknet node and run on the node, producing identical genesis files across all nodes.
@@ -9,7 +10,7 @@ need at 4 hours.
 import pathlib
 import sys
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 import mocknet
 from configured_logger import logger
 

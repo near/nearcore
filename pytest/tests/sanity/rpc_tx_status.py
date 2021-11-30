@@ -1,9 +1,11 @@
+#!/usr/bin/env python3
 import base58
 import json
 import struct
 import sys
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from cluster import start_cluster, Key
 from utils import load_test_contract
 import transaction

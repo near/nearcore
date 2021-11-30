@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Handshake
 
@@ -9,8 +10,9 @@ import asyncio
 import socket
 import sys
 import time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 import base58
 import nacl.signing

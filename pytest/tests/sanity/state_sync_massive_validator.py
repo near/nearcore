@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Survive massive state sync for validator
 
@@ -42,8 +43,9 @@ python3 tests/sanity/state_sync_massive_validator.py ~/.near/backup_genesis
 import sys, time, requests, logging
 from subprocess import check_output
 from queue import Queue
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import init_cluster, spin_up_node, load_config
 from populate import genesis_populate_all, copy_genesis

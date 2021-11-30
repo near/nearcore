@@ -1,10 +1,12 @@
+#!/usr/bin/env python3
 # Spins up with two validators, and one non-validator
 # Stakes for the non-validators, ensures it becomes a validator
 # Unstakes for them, makes sure they stop being a validator
 
 import sys, time, base58, random, datetime
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
