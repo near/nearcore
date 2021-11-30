@@ -43,11 +43,12 @@ impl NeardCmd {
         }
 
         let home_dir = neard_cmd.opts.home;
+        let genesis_validation = !neard_cmd.opts.unsafe_fast_startup;
 
         match neard_cmd.subcmd {
             NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
             NeardSubCommand::Testnet(cmd) => cmd.run(&home_dir),
-            NeardSubCommand::Run(cmd) => cmd.run(&home_dir),
+            NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation),
 
             NeardSubCommand::UnsafeResetData => {
                 let store_path = get_store_path(&home_dir);
@@ -59,7 +60,7 @@ impl NeardCmd {
                 fs::remove_dir_all(home_dir).expect("Removing data and config failed.");
             }
             NeardSubCommand::StateViewer(cmd) => {
-                cmd.run(&home_dir);
+                cmd.run(&home_dir, genesis_validation);
             }
         }
     }
@@ -74,6 +75,8 @@ struct NeardOpts {
     /// Directory for config and data.
     #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
     home: PathBuf,
+    #[clap(long)]
+    pub unsafe_fast_startup: bool,
 }
 
 impl NeardOpts {
@@ -221,9 +224,10 @@ pub(super) struct RunCmd {
 }
 
 impl RunCmd {
-    pub(super) fn run(self, home_dir: &Path) {
+    pub(super) fn run(self, home_dir: &Path, genesis_validation: bool) {
         // Load configs from home.
-        let mut near_config = nearcore::config::load_config_without_genesis_records(home_dir);
+        let mut near_config =
+            nearcore::config::load_config_without_genesis_records(home_dir, genesis_validation);
         // Set current version in client config.
         near_config.client_config.version = super::NEARD_VERSION.clone();
         // Override some parameters from command line.

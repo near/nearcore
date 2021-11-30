@@ -94,7 +94,7 @@ pub fn state_dump(
         shard_config.num_block_producer_seats_per_shard;
     genesis_config.avg_hidden_validator_seats_per_shard =
         shard_config.avg_hidden_validator_seats_per_shard;
-    near_config.genesis = Genesis::new_with_path(genesis_config, records_path.to_path_buf());
+    near_config.genesis = Genesis::new_with_path(genesis_config, records_path.to_path_buf(), true);
     // Record only the filename of the records file.
     // Otherwise the absolute path is stored making it impossible to copy the dumped state to actually use it.
     near_config.config.genesis_records_file =
