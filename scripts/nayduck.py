@@ -177,6 +177,24 @@ def github_auth(code_path: pathlib.Path):
     return code
 
 
+def _parse_timeout(timeout: typing.Optional[str]) -> int:
+    if not timeout:
+        return None
+    """Parses timeout interval and converts it into number of seconds.
+
+    Args:
+        timeout: An integer with an optional ‘h’, ‘m’ or ‘s’ suffix which
+            multiply the integer by 3600, 60 and 1 respectively.
+    Returns:
+        Interval in seconds.
+    """
+    if timeout and (mul := {'h': 3600, 'm': 60, 's': 1}.get(timeout[-1])):
+        timeout = timeout[:-1]
+    else:
+        mul = 1
+    return int(timeout) * mul
+
+
 def run_locally(tests):
     for test in tests:
         # See nayduck specs at https://github.com/near/nayduck/blob/master/lib/testspec.py
@@ -219,10 +237,8 @@ def run_locally(tests):
         else:
             print(f'Unrecognised test category ‘{fields[0]}’', file=sys.stderr)
             continue
-        if timeout:
-            cmd = ["timeout", "--verbose", timeout] + cmd
         print("RUNNING COMMAND cwd=%s cmd = %s", (cwd, cmd))
-        subprocess.check_call(cmd, cwd=cwd)
+        subprocess.check_call(cmd, cwd=cwd, timeout=_parse_timeout(timeout))
 
 
 def run_remotely(args, tests):
