@@ -10,11 +10,11 @@ use near_primitives::network::PeerId;
 /// It contains nonce proposed for the edge with signature from peer.
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Clone, BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Default)]
-pub struct EdgeInfo {
+pub struct PartialEdgeInfo {
     pub nonce: u64,
     pub signature: Signature,
 }
-impl EdgeInfo {
+impl PartialEdgeInfo {
     pub fn new(peer0: &PeerId, peer1: &PeerId, nonce: u64, secret_key: &SecretKey) -> Self {
         let data = if peer0 < peer1 {
             Edge::build_hash(peer0, peer1, nonce)
@@ -107,7 +107,7 @@ impl Edge {
 
     /// Helper function when adding a new edge and we receive information from new potential peer
     /// to verify the signature.
-    pub fn partial_verify(peer0: PeerId, peer1: PeerId, edge_info: &EdgeInfo) -> bool {
+    pub fn partial_verify(peer0: PeerId, peer1: PeerId, edge_info: &PartialEdgeInfo) -> bool {
         let pk = peer1.public_key();
         let data = if peer0 < peer1 {
             Edge::build_hash(&peer0, &peer1, edge_info.nonce)
