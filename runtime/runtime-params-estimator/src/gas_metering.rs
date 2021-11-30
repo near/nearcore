@@ -1,4 +1,4 @@
-use crate::cases::ratio_to_gas_signed;
+use crate::gas_cost::ratio_to_gas_signed;
 use crate::testbed_runners::{end_count, start_count, GasMetric};
 use crate::vm_estimator::{create_context, least_squares_method};
 use near_primitives::config::VMConfig;
