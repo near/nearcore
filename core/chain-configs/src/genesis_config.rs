@@ -474,7 +474,7 @@ impl Genesis {
         if genesis_validation {
             validate_genesis(&genesis);
         } else {
-            warn!("Skipping genesis validation");
+            warn!("Skipped genesis validation");
         }
         genesis
     }
@@ -488,7 +488,7 @@ impl Genesis {
         if genesis_validation {
             validate_genesis(&genesis);
         } else {
-            warn!("Skipping genesis validation");
+            warn!("Skipped genesis validation");
         }
         genesis
     }
@@ -501,7 +501,7 @@ impl Genesis {
         if genesis_validation {
             validate_genesis(&genesis);
         } else {
-            warn!("Skipping genesis validation");
+            warn!("Skipped genesis validation");
         }
         genesis
     }
