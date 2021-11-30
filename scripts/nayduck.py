@@ -182,11 +182,16 @@ def run_locally(tests):
         # See nayduck specs at https://github.com/near/nayduck/blob/master/lib/testspec.py
         fields = test.split()
 
+        timeout = ""
         index = 1
+        ignored = []
         while len(fields) > index and fields[index].startswith('--'):
+            if fields[index].startswith("--timeout="):
+                timeout = fields[index].split("=")[1]
+            else:
+                ignored.append(fields[index])
             index += 1
 
-        ignored = fields[1:index]
         del fields[1:index]
         message = f'Running ‘{"".join(fields)}’'
         if ignored:
@@ -195,7 +200,7 @@ def run_locally(tests):
 
         if fields[0] == 'expensive':
             # TODO --test doesn't work
-            cmd = (
+            cmd = [
                 'cargo',
                 'test',
                 '-p',
@@ -204,12 +209,16 @@ def run_locally(tests):
                 'expensive_tests',
                 '--',
                 '--exact',
-                fields[3])
+                fields[3]]
+            if timeout:
+                cmd = ["timeout", int(timeout)] + cmd
             cwd = None
         elif fields[0] in ('pytest', 'mocknet'):
             fields[0] = sys.executable
             fields[1] = os.path.join('tests', fields[1])
             cmd = fields
+            if timeout:
+                cmd = ["timeout", timeout] + cmd
             cwd = 'pytest'
         else:
             print(f'Unrecognised test category ‘{fields[0]}’', file=sys.stderr)
