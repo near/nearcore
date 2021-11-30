@@ -711,7 +711,7 @@ impl PeerManagerActor {
         stream: TcpStream,
         peer_type: PeerType,
         peer_info: Option<PeerInfo>,
-        edge_info: Option<PartialEdgeInfo>,
+        partial_edge_info: Option<PartialEdgeInfo>,
     ) {
         let my_peer_id = self.my_peer_id.clone();
         let account_id = self.config.account_id.clone();
@@ -780,7 +780,7 @@ impl PeerManagerActor {
                 recipient,
                 client_addr,
                 view_client_addr,
-                edge_info,
+                partial_edge_info,
                 network_metrics,
                 txns_since_last_block,
                 peer_counter,

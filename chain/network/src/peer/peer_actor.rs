@@ -92,7 +92,7 @@ pub struct PeerActor {
     /// Latest chain info from the peer.
     chain_info: PeerChainInfoV2,
     /// Edge information needed to build the real edge. This is relevant for handshake.
-    edge_info: Option<PartialEdgeInfo>,
+    partial_edge_info: Option<PartialEdgeInfo>,
     /// Last time an update of received message was sent to PeerManager
     last_time_received_message_update: Instant,
     /// Dynamic Prometheus metrics
@@ -126,7 +126,7 @@ impl PeerActor {
         peer_manager_addr: Addr<PeerManagerActor>,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
-        edge_info: Option<PartialEdgeInfo>,
+        partial_edge_info: Option<PartialEdgeInfo>,
         network_metrics: NetworkMetrics,
         txns_since_last_block: Arc<AtomicUsize>,
         peer_counter: Arc<AtomicUsize>,
@@ -147,7 +147,7 @@ impl PeerActor {
             tracker: Default::default(),
             genesis_id: Default::default(),
             chain_info: Default::default(),
-            edge_info,
+            partial_edge_info,
             last_time_received_message_update: Clock::instant(),
             network_metrics,
             txns_since_last_block,
@@ -234,7 +234,7 @@ impl PeerActor {
                             act.other_peer_id().unwrap().clone(),
                             act.my_node_info.addr_port(),
                             PeerChainInfoV2 { genesis_id, height, tracked_shards, archival },
-                            act.edge_info.as_ref().unwrap().clone(),
+                            act.partial_edge_info.as_ref().unwrap().clone(),
                         )),
                         34..=38 => PeerMessage::HandshakeV2(HandshakeV2::new(
                             act.protocol_version,
@@ -242,7 +242,7 @@ impl PeerActor {
                             act.other_peer_id().unwrap().clone(),
                             act.my_node_info.addr_port(),
                             PeerChainInfo { genesis_id, height, tracked_shards },
-                            act.edge_info.as_ref().unwrap().clone(),
+                            act.partial_edge_info.as_ref().unwrap().clone(),
                         )),
                         _ => {
                             error!(target: "network", "Trying to talk with peer with no supported version: {}", act.protocol_version);
@@ -808,7 +808,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 // Check that received nonce on handshake match our proposed nonce.
                 if self.peer_type == PeerType::Outbound
                     && handshake.partial_edge_info.nonce
-                        != self.edge_info.as_ref().map(|edge_info| edge_info.nonce).unwrap()
+                        != self.partial_edge_info.as_ref().map(|edge_info| edge_info.nonce).unwrap()
                 {
                     warn!(target: "network", "Received invalid nonce on handshake. Disconnecting peer {}", handshake.sender_peer_id);
                     ctx.stop();
@@ -829,7 +829,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         peer_info: peer_info.clone(),
                         peer_type: self.peer_type,
                         chain_info: handshake.sender_chain_info.clone(),
-                        this_edge_info: self.edge_info.clone(),
+                        this_edge_info: self.partial_edge_info.clone(),
                         other_edge_info: handshake.partial_edge_info.clone(),
                         peer_protocol_version: self.protocol_version,
                     }), self.throttle_controller.clone()))
@@ -841,7 +841,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                                 act.peer_status = PeerStatus::Ready;
                                 // Respond to handshake if it's inbound and connection was consolidated.
                                 if act.peer_type == PeerType::Inbound {
-                                    act.edge_info = edge_info;
+                                    act.partial_edge_info = edge_info;
                                     act.send_handshake(ctx);
                                 }
                                 actix::fut::ready(())
@@ -887,7 +887,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     .then(|res, act, ctx| {
                         match res.map(|f| f.into_inner().as_peer_response()) {
                             Ok(PeerResponse::UpdatedEdge(edge_info)) => {
-                                act.edge_info = Some(edge_info);
+                                act.partial_edge_info = Some(edge_info);
                                 act.send_handshake(ctx);
                             }
                             _ => {}
