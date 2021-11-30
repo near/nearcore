@@ -188,7 +188,9 @@ def _parse_timeout(timeout: typing.Optional[str]) -> typing.Optional[int]:
     Returns:
         Interval in seconds.
     """
-    if timeout and (mul := {'h': 3600, 'm': 60, 's': 1}.get(timeout[-1])):
+    mul_ary = {'h': 3600, 'm': 60, 's': 1}
+    mul = mul_ary.get(timeout[-1])
+    if mul:
         timeout = timeout[:-1]
     else:
         mul = 1
