@@ -7,7 +7,7 @@ use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
     feature = "protocol_feature_routing_exchange_algorithm"
 ))]
 use crate::routing::edge::SimpleEdge;
-use crate::routing::edge::{Edge, EdgeInfo, EdgeType};
+use crate::routing::edge::{Edge, EdgeType, PartialEdgeInfo};
 use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::routing::{
     PeerRequestResult, RoutingTableView, DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS,
@@ -487,7 +487,7 @@ impl PeerManagerActor {
     fn register_peer(
         &mut self,
         full_peer_info: FullPeerInfo,
-        edge_info: EdgeInfo,
+        partial_edge_info: PartialEdgeInfo,
         peer_type: PeerType,
         addr: Addr<PeerActor>,
         peer_protocol_version: ProtocolVersion,
@@ -510,9 +510,9 @@ impl PeerManagerActor {
         let new_edge = Edge::new(
             self.my_peer_id.clone(),
             target_peer_id.clone(),
-            edge_info.nonce,
-            edge_info.signature,
-            full_peer_info.edge_info.signature.clone(),
+            partial_edge_info.nonce,
+            partial_edge_info.signature,
+            full_peer_info.partial_edge_info.signature.clone(),
         );
 
         self.active_peers.insert(
@@ -711,9 +711,9 @@ impl PeerManagerActor {
         stream: TcpStream,
         peer_type: PeerType,
         peer_info: Option<PeerInfo>,
-        edge_info: Option<EdgeInfo>,
+        partial_edge_info: Option<PartialEdgeInfo>,
     ) {
-        let peer_id = self.my_peer_id.clone();
+        let my_peer_id = self.my_peer_id.clone();
         let account_id = self.config.account_id.clone();
         let server_addr = self.config.addr;
         let handshake_timeout = self.config.handshake_timeout;
@@ -771,7 +771,7 @@ impl PeerManagerActor {
             );
 
             PeerActor::new(
-                PeerInfo { id: peer_id, addr: Some(server_addr), account_id },
+                PeerInfo { id: my_peer_id, addr: Some(server_addr), account_id },
                 remote_addr,
                 peer_info,
                 peer_type,
@@ -780,7 +780,7 @@ impl PeerManagerActor {
                 recipient,
                 client_addr,
                 view_client_addr,
-                edge_info,
+                partial_edge_info,
                 network_metrics,
                 txns_since_last_block,
                 peer_counter,
@@ -952,7 +952,7 @@ impl PeerManagerActor {
         self.send_message(
             ctx,
             other.clone(),
-            PeerMessage::RequestUpdateNonce(EdgeInfo::new(
+            PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
                 &self.my_peer_id,
                 other,
                 nonce,
@@ -1379,7 +1379,7 @@ impl PeerManagerActor {
         }
     }
 
-    fn propose_edge(&self, peer1: PeerId, with_nonce: Option<u64>) -> EdgeInfo {
+    fn propose_edge(&self, peer1: PeerId, with_nonce: Option<u64>) -> PartialEdgeInfo {
         let key = Edge::make_key(self.my_peer_id.clone(), peer1.clone());
 
         // When we create a new edge we increase the latest nonce by 2 in case we miss a removal
@@ -1390,7 +1390,7 @@ impl PeerManagerActor {
                 .map_or(1, |edge| edge.next())
         });
 
-        EdgeInfo::new(&key.0, &key.1, nonce, &self.config.secret_key)
+        PartialEdgeInfo::new(&key.0, &key.1, nonce, &self.config.secret_key)
     }
 
     // Ping pong useful functions.
@@ -2112,7 +2112,7 @@ impl PeerManagerActor {
             FullPeerInfo {
                 peer_info: msg.peer_info,
                 chain_info: msg.chain_info,
-                edge_info: msg.other_edge_info,
+                partial_edge_info: msg.other_edge_info,
             },
             edge_info,
             msg.peer_type,
