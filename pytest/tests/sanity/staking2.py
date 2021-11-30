@@ -6,8 +6,9 @@
 # each node. Before "real" txs it is the largest of the same value, and the last "fake" stake.
 
 import sys, time, base58, random
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger

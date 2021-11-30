@@ -7,12 +7,15 @@
 # edge pruning in order to eliminate those factors for sake of testing. In addition uses JsonRPC to add/remove edges
 # check current state of routing table on both sites.
 
-import sys, time
+import os
+import sys
+import time
+import pathlib
 
 import base58
 import ed25519
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from peer import logger

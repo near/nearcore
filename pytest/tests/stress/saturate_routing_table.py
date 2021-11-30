@@ -12,8 +12,9 @@ import sys
 import time
 import struct
 import hashlib
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 import nacl.signing
 from cluster import start_cluster

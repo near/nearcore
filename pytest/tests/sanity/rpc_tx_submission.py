@@ -2,8 +2,9 @@
 # test various ways of submitting transactions (broadcast_tx_async, broadcast_tx_sync, broadcast_tx_commit)
 
 import sys, time, base58, base64
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
