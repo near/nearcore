@@ -600,7 +600,7 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
 
     let mut run = || {
         let context = create_context(vec![]);
-        let (outcome, err) = near_vm_runner::run_vm(
+        let (outcome, err) = vm_kind.runtime().unwrap().run(
             &code,
             "cpu_ram_soak_test",
             &mut fake_external,
@@ -608,7 +608,6 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
             &config,
             &fees,
             &promise_results,
-            vm_kind,
             PROTOCOL_VERSION,
             Some(&cache),
         );
