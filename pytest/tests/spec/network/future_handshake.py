@@ -12,10 +12,10 @@ import time
 import random
 import pathlib
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
-
 import base58
 import nacl.signing
+
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[3] / 'lib'))
 from cluster import start_cluster
 from peer import ED_PREFIX, connect, create_handshake, sign_handshake, BinarySerializer, schema
 
