@@ -1,17 +1,7 @@
-use crate::cases::Metric;
-use crate::stats::Measurements;
-use crate::testbed::RuntimeTestbed;
-use indicatif::{ProgressBar, ProgressStyle};
-use near_crypto::{InMemorySigner, KeyType};
-use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::AccountId;
 use near_vm_runner::internal::VMKind;
-use rand::Rng;
-use std::collections::{HashMap, HashSet};
 use std::os::raw::c_void;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 /// Get account id from its index.
@@ -24,11 +14,7 @@ pub fn total_transactions(config: &Config) -> usize {
     config.block_sizes.iter().sum::<usize>() * config.iter_per_block
 }
 
-fn warmup_total_transactions(config: &Config) -> usize {
-    config.block_sizes.iter().sum::<usize>() * config.warmup_iters_per_block
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GasMetric {
     // If we measure gas in number of executed instructions, must run under simulator.
     ICount,
@@ -55,70 +41,6 @@ pub struct Config {
     pub vm_kind: VMKind,
     /// When non-none, only the specified metrics will be measured.
     pub metrics_to_measure: Option<Vec<String>>,
-}
-
-impl Config {
-    pub(crate) fn should_skip(&self, metric: Metric) -> bool {
-        if metric == Metric::warmup {
-            return false;
-        }
-
-        match &self.metrics_to_measure {
-            None => false,
-            Some(metrics) => !metrics.contains(&format!("{:?}", metric)),
-        }
-    }
-}
-
-/// Measure the speed of transactions containing certain simple actions.
-pub fn measure_actions(
-    metric: Metric,
-    measurements: &mut Measurements,
-    config: &Config,
-    testbed: Option<Arc<Mutex<RuntimeTestbed>>>,
-    actions: Vec<Action>,
-    sender_is_receiver: bool,
-    use_unique_accounts: bool,
-    nonces: &mut HashMap<usize, u64>,
-) -> Arc<Mutex<RuntimeTestbed>> {
-    let mut accounts_used = HashSet::new();
-    let mut f = || {
-        let account_idx = loop {
-            let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
-            if use_unique_accounts && accounts_used.contains(&x) {
-                continue;
-            }
-            break x;
-        };
-        let other_account_idx = loop {
-            if sender_is_receiver {
-                break account_idx;
-            }
-            let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
-            if use_unique_accounts && accounts_used.contains(&x) || x == account_idx {
-                continue;
-            }
-            break x;
-        };
-        accounts_used.insert(account_idx);
-        accounts_used.insert(other_account_idx);
-        let account_id = get_account_id(account_idx);
-        let other_account_id = get_account_id(other_account_idx);
-
-        let signer =
-            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
-        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
-
-        SignedTransaction::from_actions(
-            nonce as u64,
-            account_id,
-            other_account_id,
-            &signer,
-            actions.clone(),
-            CryptoHash::default(),
-        )
-    };
-    measure_transactions(metric, measurements, config, testbed, &mut f, false)
 }
 
 // We use several "magical" file descriptors to interact with the plugin in QEMU
@@ -188,76 +110,4 @@ pub fn end_count(metric: GasMetric, consumed: &Consumed) -> u64 {
         GasMetric::ICount => end_count_instructions(),
         GasMetric::Time => end_count_time(consumed),
     };
-}
-
-/// Measure the speed of the transactions, given a transactions-generator function.
-/// Returns testbed so that it can be reused.
-pub fn measure_transactions<F>(
-    metric: Metric,
-    measurements: &mut Measurements,
-    config: &Config,
-    testbed: Option<Arc<Mutex<RuntimeTestbed>>>,
-    f: &mut F,
-    allow_failures: bool,
-) -> Arc<Mutex<RuntimeTestbed>>
-where
-    F: FnMut() -> SignedTransaction,
-{
-    let testbed = match testbed.clone() {
-        Some(x) => {
-            println!("{:?}. Reusing testbed.", metric);
-            x
-        }
-        None => {
-            println!("{:?}. Preparing testbed. Loading state.", metric);
-            Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(&config.state_dump_path)))
-        }
-    };
-
-    if config.should_skip(metric) {
-        return testbed;
-    }
-
-    let testbed_clone = testbed.clone();
-
-    if config.warmup_iters_per_block > 0 {
-        let bar = ProgressBar::new(warmup_total_transactions(config) as _);
-        bar.set_style(ProgressStyle::default_bar().template(
-            "[elapsed {elapsed_precise} remaining {eta_precise}] Warm up {bar} {pos:>7}/{len:7} {msg}",
-        ));
-        for block_size in config.block_sizes.clone() {
-            for _ in 0..config.warmup_iters_per_block {
-                let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
-                let mut testbed_inner = testbed_clone.lock().unwrap();
-                testbed_inner.process_block(&block, allow_failures);
-                bar.inc(block_size as _);
-                bar.set_message(format!("Block size: {}", block_size).as_str());
-            }
-        }
-        let mut testbed_inner = testbed_clone.lock().unwrap();
-        testbed_inner.process_blocks_until_no_receipts(allow_failures);
-        bar.finish();
-    }
-
-    let bar = ProgressBar::new(total_transactions(config) as _);
-    bar.set_style(ProgressStyle::default_bar().template(
-        "[elapsed {elapsed_precise} remaining {eta_precise}] Measuring {bar} {pos:>7}/{len:7} {msg}",
-    ));
-    node_runtime::with_ext_cost_counter(|cc| cc.clear());
-    for _ in 0..config.iter_per_block {
-        for block_size in config.block_sizes.clone() {
-            let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
-            let mut testbed_inner = testbed_clone.lock().unwrap();
-            let start = start_count(config.metric);
-            testbed_inner.process_block(&block, allow_failures);
-            testbed_inner.process_blocks_until_no_receipts(allow_failures);
-            let measured = end_count(config.metric, &start);
-            measurements.record_measurement(metric.clone(), block_size, measured);
-            bar.inc(block_size as _);
-            bar.set_message(format!("Block size: {}", block_size).as_str());
-        }
-    }
-    bar.finish();
-    measurements.print();
-    testbed
 }
