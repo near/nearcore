@@ -1,4 +1,4 @@
-use crate::cases::ratio_to_gas_signed;
+use crate::gas_cost::ratio_to_gas_signed;
 use crate::testbed_runners::{end_count, start_count, GasMetric};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
