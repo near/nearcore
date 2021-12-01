@@ -1559,6 +1559,30 @@ fn test_gc_after_state_sync() {
 }
 
 #[test]
+fn test_blocks_in_storage() {
+    let epoch_length = 1024;
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::builder(chain_genesis)
+        .clients_count(2)
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 2))
+        .build();
+    // TODO - figured out how to change `num
+    for i in 1..epoch_length * 4 + 2 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        env.process_block(1, block, Provenance::NONE);
+    }
+    // Check whenever we got all 5 blocks
+    for i in 0..5 {
+        let sync_height = epoch_length * 4 + 1 - i;
+        env.clients[0].chain.get_block_by_height(sync_height).unwrap();
+    }
+}
+
+#[test]
 fn test_process_block_after_state_sync() {
     let epoch_length = 1024;
     // test with shard_version > 0
