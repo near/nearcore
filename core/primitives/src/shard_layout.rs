@@ -61,10 +61,12 @@ impl ShardLayout {
         Self::v0(1, 0)
     }
 
+    /// Return a V0 Shardlayout
     pub fn v0(num_shards: NumShards, version: ShardVersion) -> Self {
         Self::V0(ShardLayoutV0 { num_shards, version })
     }
 
+    /// Return a V1 Shardlayout
     pub fn v1(
         fixed_shards: Vec<AccountId>,
         boundary_accounts: Vec<AccountId>,
@@ -94,6 +96,7 @@ impl ShardLayout {
         })
     }
 
+    /// Returns a V1 ShardLayout. It is only used in tests
     pub fn v1_test() -> Self {
         ShardLayout::v1(
             vec!["test0"].into_iter().map(|s| s.parse().unwrap()).collect(),
@@ -103,12 +106,16 @@ impl ShardLayout {
         )
     }
 
+    /// Given a parent shard id, return the shard uids for the shards in the current shard layout that
+    /// are split from this parent shard. If this shard layout has no parent shard layout, return None
     pub fn get_split_shard_uids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
         self.get_split_shard_ids(parent_shard_id).map(|shards| {
             shards.into_iter().map(|id| ShardUId::from_shard_id_and_layout(id, &self)).collect()
         })
     }
 
+    /// Given a parent shard id, return the shard ids for the shards in the current shard layout that
+    /// are split from this parent shard. If this shard layout has no parent shard layout, return None
     pub fn get_split_shard_ids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardId>> {
         match self {
             Self::V0(_) => None,
@@ -119,6 +126,7 @@ impl ShardLayout {
         }
     }
 
+    /// Return the parent shard id for a given shard in the shard layout
     /// Only calls this function for shard layout that has parent shard layouts
     /// Returns error if `shard_id` is an invalid shard id in the current layout
     /// Panics if `self` has no parent shard layout
@@ -154,12 +162,13 @@ impl ShardLayout {
         }
     }
 
+    /// Returns shard uids for all shards in the shard layout
     pub fn get_shard_uids(&self) -> Vec<ShardUId> {
         (0..self.num_shards()).map(|x| ShardUId::from_shard_id_and_layout(x, self)).collect()
     }
 }
 
-/// Maps account_id to shard_id given a shard_layout
+/// Maps an account to the shard that it belongs to given a shard_layout
 /// For V0, maps according to hash of account id
 /// For V1, accounts are divided to ranges, each range of account is mapped to a shard.
 /// There are also some fixed shards, each of which is mapped to an account and all sub-accounts.
@@ -193,6 +202,7 @@ pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout
     }
 }
 
+/// Maps an account to the shard that it belongs to given a shard_layout
 pub fn account_id_to_shard_uid(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardUId {
     ShardUId::from_shard_id_and_layout(
         account_id_to_shard_id(account_id, shard_layout),
@@ -207,6 +217,7 @@ fn is_top_level_account(top_account: &AccountId, account: &AccountId) -> bool {
     }
 }
 
+/// ShardUId is an unique representation for shards from different shard layout
 #[derive(Hash, Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ShardUId {
     pub version: ShardVersion,
@@ -217,17 +228,22 @@ impl ShardUId {
     pub fn default() -> Self {
         Self { version: 0, shard_id: 0 }
     }
+
+    /// Byte representation of the shard uid
     pub fn to_bytes(&self) -> [u8; 8] {
         let mut res = [0; 8];
         res[0..4].copy_from_slice(&u32::to_le_bytes(self.version));
         res[4..].copy_from_slice(&u32::to_le_bytes(self.shard_id));
         res
     }
+
+    /// Constructs a shard uid from shard id and a shard layout
     pub fn from_shard_id_and_layout(shard_id: ShardId, shard_layout: &ShardLayout) -> Self {
         assert!(shard_id < shard_layout.num_shards());
         Self { shard_id: shard_id as u32, version: shard_layout.version() }
     }
 
+    /// Returns shard id
     pub fn shard_id(&self) -> ShardId {
         ShardId::from(self.shard_id)
     }
@@ -236,6 +252,7 @@ impl ShardUId {
 impl TryFrom<&[u8]> for ShardUId {
     type Error = Box<dyn std::error::Error>;
 
+    /// Deserialize `bytes` to shard uid
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() != 8 {
             return Err("incorrect length for ShardUId".into());
@@ -245,6 +262,8 @@ impl TryFrom<&[u8]> for ShardUId {
         Ok(Self { version, shard_id })
     }
 }
+
+/// Returns the byte representation for (block, shard_uid)
 pub fn get_block_shard_uid(block_hash: &CryptoHash, shard_uid: &ShardUId) -> Vec<u8> {
     let mut res = Vec::with_capacity(40);
     res.extend_from_slice(block_hash.as_ref());
@@ -252,6 +271,7 @@ pub fn get_block_shard_uid(block_hash: &CryptoHash, shard_uid: &ShardUId) -> Vec
     res
 }
 
+/// Deserialize from a byte representation to (block, shard_uid)
 #[allow(unused)]
 pub fn get_block_shard_uid_rev(
     key: &[u8],
