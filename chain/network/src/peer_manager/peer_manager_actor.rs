@@ -2172,7 +2172,11 @@ impl Handler<ActixMessageWrapper<PeerManagerMessageRequest>> for PeerManagerActo
         // Unpack throttle controller
         let (msg, throttle_token) = msg.take();
 
-        let result = self.handle(msg, ctx);
+        let result = self.handle_peer_manager_message(
+            msg,
+            ctx,
+            Some(throttle_token.throttle_controller().clone()),
+        );
 
         // TODO(#5155) Add support for DeepSizeOf to result
         ActixMessageResponse::new(result, ThrottleToken::new(throttle_token.into_inner(), 0))
@@ -2181,8 +2185,18 @@ impl Handler<ActixMessageWrapper<PeerManagerMessageRequest>> for PeerManagerActo
 
 impl Handler<PeerManagerMessageRequest> for PeerManagerActor {
     type Result = PeerManagerMessageResponse;
-
     fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
+        self.handle_peer_manager_message(msg, ctx, None)
+    }
+}
+
+impl PeerManagerActor {
+    fn handle_peer_manager_message(
+        &mut self,
+        msg: PeerManagerMessageRequest,
+        ctx: &mut Context<Self>,
+        throttle_controller: Option<ThrottleController>,
+    ) -> PeerManagerMessageResponse {
         match msg {
             PeerManagerMessageRequest::RoutedMessageFrom(msg) => {
                 PeerManagerMessageResponse::RoutedMessageFrom(self.handle_msg_routed_from(msg, ctx))

@@ -76,6 +76,10 @@ impl ThrottleToken {
     pub fn into_inner(&self) -> ThrottleController {
         self.throttle_controller.clone()
     }
+
+    pub fn throttle_controller(&self) -> &ThrottleController {
+        &self.throttle_controller
+    }
 }
 
 impl Drop for ThrottleToken {
