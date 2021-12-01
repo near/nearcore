@@ -2,7 +2,7 @@
 //!
 //! ## Usage
 //!
-//! ```rust
+//! ```
 //! use near_account_id::AccountId;
 //!
 //! let alice: AccountId = "alice.near".parse().unwrap();
@@ -31,6 +31,7 @@
 //!   - `root` ✔
 //!   - `alice.near` ✔
 //!   - `bob.stage.testnet` ✔
+//!   - `ƒelicia.near` ✗ (`ƒ` is not `f`)
 //! - Must not start or end with separators (`_`, `-` or `.`):
 //!   - `_alice.` ✗
 //!   - `.bob.near-` ✗
@@ -40,7 +41,7 @@
 //!   - `alice..near` ✗
 //!   - `not-_alice.near` ✗
 //!
-//! Learn more here: https://docs.near.org/docs/concepts/account#account-id-rules
+//! Learn more here: <https://docs.near.org/docs/concepts/account#account-id-rules>
 
 use std::{fmt, str::FromStr};
 
@@ -58,18 +59,68 @@ pub use error::{ParseAccountError, ParseErrorKind};
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
 pub const MAX_ACCOUNT_ID_LEN: usize = 64;
 
-/// Account identifier. Provides access to user's state.
+/// NEAR Account Identifier.
 ///
-/// This guarantees all properly constructed AccountId's are valid for the NEAR network.
+/// This is a unique, validated, human-readable account identifier on the NEAR network.
+///
+/// [See the crate-level docs for information about validation.](index.html#account-id-rules)
+///
+/// ## Example
+///
+/// ```
+/// use near_account_id::AccountId;
+///
+/// let alice: AccountId = "alice.near".parse().unwrap();
+///
+/// // Basic reports for why validation failed
+/// assert!(
+///   matches!(
+///     "z".parse::<AccountId>(),
+///     Err(err) if err.kind().is_too_short()
+///   )
+/// );
+///
+/// assert!(
+///   matches!(
+///     "bob__carol".parse::<AccountId>(),
+///     Err(err) if err.kind().is_invalid()
+///   )
+/// );
+/// ```
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Eq, Ord, Hash, Clone, Debug, PartialEq, PartialOrd)]
 pub struct AccountId(Box<str>);
 
 impl AccountId {
+    /// Returns the length of the account ID.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// let carol: AccountId = "carol.near".parse().unwrap();
+    /// assert_eq!(10, carol.len());
+    /// ```
+
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
+    /// Validates a string slice as a well-structured NEAR Account ID.
+    ///
+    /// Checks Account ID validity without constructing an AccountId instance.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// assert!(AccountId::validate("alice.near").is_ok());
+    ///
+    /// assert!(
+    ///   matches!(
+    ///     AccountId::validate("ƒelicia.near"), // fancy ƒ!
+    ///     Err(err) if err.kind().is_invalid()
+    ///   )
+    /// );
+    /// ```
     pub fn validate(account_id: &str) -> Result<(), ParseAccountError> {
         if account_id.len() < MIN_ACCOUNT_ID_LEN {
             Err(ParseAccountError(ParseErrorKind::TooShort, account_id.to_string()))
