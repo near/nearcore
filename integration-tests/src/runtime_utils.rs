@@ -54,7 +54,7 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
                 )
             })
             .collect::<Vec<_>>(),
-        &genesis,
+        genesis,
         &RuntimeConfig::test(),
         account_ids,
     );

@@ -55,13 +55,8 @@ pub fn setup_network_node(
 
     let num_validators = validators.len() as ValidatorId;
 
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators(
-        store.clone(),
-        vec![validators.clone()],
-        1,
-        1,
-        5,
-    ));
+    let runtime =
+        Arc::new(KeyValueRuntime::new_with_validators(store.clone(), vec![validators], 1, 1, 5));
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         account_id.clone(),
         KeyType::ED25519,
@@ -71,7 +66,7 @@ pub fn setup_network_node(
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.time = genesis_time;
 
-    let peer_manager = PeerManagerActor::create(move |ctx| {
+    PeerManagerActor::create(move |ctx| {
         let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true);
         client_config.archive = config.archive;
         client_config.ttl_account_id_router = config.ttl_account_id_router;
@@ -97,7 +92,7 @@ pub fn setup_network_node(
             config.account_id.clone(),
             chain_genesis.clone(),
             runtime.clone(),
-            network_adapter.clone(),
+            network_adapter,
             client_config,
             #[cfg(feature = "test_features")]
             adv.clone(),
@@ -114,9 +109,7 @@ pub fn setup_network_node(
             routing_table_addr,
         )
         .unwrap()
-    });
-
-    peer_manager
+    })
 }
 
 // TODO: Deprecate this in favor of separate functions.
@@ -201,7 +194,7 @@ impl StateMachine {
                           flag: Arc<AtomicBool>,
                           _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
-                        if can_write_log.swap(false, Ordering::Relaxed) == true {
+                        if can_write_log.swap(false, Ordering::Relaxed) {
                             debug!(target: "network", message = "runner.rs: Action", num_prev_actions, action = ?action_clone);
                         }
 
@@ -229,7 +222,7 @@ impl StateMachine {
                       flag: Arc<AtomicBool>,
                       _ctx: &mut Context<WaitOrTimeoutActor>,
                       _runner| {
-                    if can_write_log.swap(false, Ordering::Relaxed) == true {
+                    if can_write_log.swap(false, Ordering::Relaxed) {
                         debug!(target: "network", message = "runner.rs: Action", num_prev_actions, action = ?action_clone);
                     }
 
@@ -280,7 +273,7 @@ impl StateMachine {
                           flag: Arc<AtomicBool>,
                           _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
-                        if can_write_log.swap(false, Ordering::Relaxed) == true {
+                        if can_write_log.swap(false, Ordering::Relaxed) {
                             debug!(target: "network", message = "runner.rs: Action", num_prev_actions, action = ?action_clone);
                         }
 
@@ -323,7 +316,7 @@ impl StateMachine {
                           flag: Arc<AtomicBool>,
                           _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
-                        if can_write_log.swap(false, Ordering::Relaxed) == true {
+                        if can_write_log.swap(false, Ordering::Relaxed) {
                             debug!(target: "network", message = "runner.rs: Action", num_prev_actions, action = ?action_clone);
                         }
 
@@ -343,7 +336,7 @@ impl StateMachine {
                           flag: Arc<AtomicBool>,
                           _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
-                        if can_write_log.swap(false, Ordering::Relaxed) == true {
+                        if can_write_log.swap(false, Ordering::Relaxed) {
                             debug!(target: "network", message = "runner.rs: Action", num_prev_actions, action = ?action_clone);
                         }
 
@@ -370,7 +363,7 @@ impl StateMachine {
                           flag: Arc<AtomicBool>,
                           ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
-                        if can_write_log.swap(false, Ordering::Relaxed) == true {
+                        if can_write_log.swap(false, Ordering::Relaxed) {
                             debug!(target: "network", message = "runner.rs: Action", num_prev_actions, action = ?action_clone);
                         }
 
@@ -386,7 +379,7 @@ impl StateMachine {
                           flag: Arc<AtomicBool>,
                           _ctx: &mut Context<WaitOrTimeoutActor>,
                           _runner| {
-                        if can_write_log.swap(false, Ordering::Relaxed) == true {
+                        if can_write_log.swap(false, Ordering::Relaxed) {
                             debug!(target: "network", message = "runner.rs: Action", num_prev_actions, action = ?action_clone);
                         }
 
@@ -612,7 +605,7 @@ impl Runner {
 
     fn apply_all<F>(&mut self, mut apply: F)
     where
-        F: FnMut(&mut TestConfig) -> (),
+        F: FnMut(&mut TestConfig),
     {
         for test_config in self.test_config.iter_mut() {
             apply(test_config);
@@ -641,7 +634,7 @@ impl Runner {
         }));
 
         let mut network_config =
-            NetworkConfig::from_seed(accounts_id[node_id].as_ref(), ports[node_id].clone());
+            NetworkConfig::from_seed(accounts_id[node_id].as_ref(), ports[node_id]);
 
         network_config.ban_window = test_config.ban_window;
         network_config.max_num_peers = test_config.max_num_peers;
@@ -664,7 +657,7 @@ impl Runner {
         setup_network_node(
             accounts_id[node_id].clone(),
             self.validators.clone().unwrap(),
-            self.genesis_time.clone().unwrap(),
+            self.genesis_time.unwrap(),
             network_config,
         )
     }
@@ -675,8 +668,7 @@ impl Runner {
             .collect();
         let ports: Vec<_> = (0..self.num_nodes).map(|_| open_port()).collect();
 
-        let validators: Vec<_> =
-            accounts_id.iter().map(|x| x.clone()).take(self.num_validators).collect();
+        let validators: Vec<_> = accounts_id.iter().cloned().take(self.num_validators).collect();
 
         let mut peers_info =
             convert_boot_nodes(accounts_id.iter().map(|x| x.as_ref()).zip(ports.clone()).collect());
@@ -729,7 +721,7 @@ impl Actor for Runner {
         let can_write_log = Arc::new(AtomicBool::new(true));
         WaitOrTimeoutActor::new(
             Box::new(move |ctx| {
-                if can_write_log.swap(false, Ordering::Relaxed) == true {
+                if can_write_log.swap(false, Ordering::Relaxed) {
                     debug!(target: "network", "runner.rs: WaitOrTimeoutActor");
                 }
                 if flag.load(Ordering::Relaxed) {
@@ -796,7 +788,7 @@ pub fn check_expected_connections(
               flag: Arc<AtomicBool>,
               _ctx: &mut Context<WaitOrTimeoutActor>,
               _runner| {
-            if can_write_log.swap(false, Ordering::Relaxed) == true {
+            if can_write_log.swap(false, Ordering::Relaxed) {
                 debug!(target: "network", message = "runner.rs check_expected_connections", node_id, expected_connections_lo, ?expected_connections_hi);
             }
 
@@ -842,7 +834,7 @@ pub fn check_direct_connection(node_id: usize, target_id: usize) -> ActionFn {
               _runner| {
             let info = info.read().unwrap();
             let target_peer_id = info.peers_info[target_id].id.clone();
-            if can_write_log.swap(false, Ordering::Relaxed) == true {
+            if can_write_log.swap(false, Ordering::Relaxed) {
                 debug!(target: "network",  message = "runner.rs check_direct_connection", node_id, ?target_id);
             }
 
@@ -881,7 +873,7 @@ pub fn restart(node_id: usize) -> ActionFn {
               flag: Arc<AtomicBool>,
               _ctx: &mut Context<WaitOrTimeoutActor>,
               runner: Addr<Runner>| {
-            if can_write_log.swap(false, Ordering::Relaxed) == true {
+            if can_write_log.swap(false, Ordering::Relaxed) {
                 debug!(target: "network", message = "runner.rs restart", ?node_id);
             }
             actix::spawn(
@@ -906,7 +898,7 @@ pub fn ban_peer(target_peer: usize, banned_peer: usize) -> ActionFn {
               flag: Arc<AtomicBool>,
               _ctx: &mut Context<WaitOrTimeoutActor>,
               _runner| {
-            if can_write_log.swap(false, Ordering::Relaxed) == true {
+            if can_write_log.swap(false, Ordering::Relaxed) {
                 debug!(target: "network", message = "runner.rs ban_peer", target_peer, banned_peer);
             }
             let info = info.read().unwrap();
@@ -936,7 +928,7 @@ pub fn change_account_id(node_id: usize, account_id: AccountId) -> ActionFn {
               flag: Arc<AtomicBool>,
               _ctx: &mut Context<WaitOrTimeoutActor>,
               runner: Addr<Runner>| {
-            if can_write_log.swap(false, Ordering::Relaxed) == true {
+            if can_write_log.swap(false, Ordering::Relaxed) {
                 debug!(target: "network",  message = "runner.rs change_account_id", ?node_id, ?account_id);
             }
             actix::spawn(
@@ -964,7 +956,7 @@ where
               flag: Arc<AtomicBool>,
               _ctx: &mut Context<WaitOrTimeoutActor>,
               _runner: Addr<Runner>| {
-            if can_write_log.swap(false, Ordering::Relaxed) == true {
+            if can_write_log.swap(false, Ordering::Relaxed) {
                 debug!(target: "network", "runner.rs wait_for predicate");
             }
             if predicate() {

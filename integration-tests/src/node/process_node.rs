@@ -38,10 +38,7 @@ impl Node for ProcessNode {
     }
 
     fn account_id(&self) -> Option<AccountId> {
-        match &self.config.validator_signer {
-            Some(vs) => Some(vs.validator_id().clone()),
-            None => None,
-        }
+        self.config.validator_signer.as_ref().map(|vs| vs.validator_id().clone())
     }
 
     fn start(&mut self) {
@@ -132,7 +129,7 @@ impl ProcessNode {
 
     /// Side effect: writes chain spec file
     pub fn get_start_node_command(&self) -> Command {
-        if let Err(_) = std::env::var("NIGHTLY_RUNNER") {
+        if std::env::var("NIGHTLY_RUNNER").is_err() {
             let mut command = Command::new("cargo");
             command.args(&["run", "-p", "neard"]);
             #[cfg(feature = "nightly_protocol")]
