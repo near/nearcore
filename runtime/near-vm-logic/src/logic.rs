@@ -589,7 +589,7 @@ impl<'a> VMLogic<'a> {
         self.internal_write_register(register_id, self.context.input.clone())
     }
 
-    pub fn internal_input(&mut self) -> Vec<u8> {
+    pub fn internal_input(&self) -> Vec<u8> {
         self.context.input.clone()
     }
 
@@ -862,6 +862,10 @@ impl<'a> VMLogic<'a> {
     pub fn random_seed(&mut self, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         self.internal_write_register(register_id, self.context.random_seed.clone())
+    }
+
+    pub fn internal_random_seed(&self) -> Vec<u8> {
+        self.context.random_seed.clone()
     }
 
     /// Hashes the given value using sha256 and returns it into `register_id`.

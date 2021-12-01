@@ -5,11 +5,14 @@ use near_vm_logic::VMLogic;
 pub type Pointer = u32;
 pub type Errno = u16;
 
+pub const WASI_EACCES: u16 = 2; // Permission denied.
 pub const WASI_EBADF: u16 = 8; // Bad file descriptor
 pub const WASI_EFAULT: u16 = 21; // Bad address
 pub const WASI_EINVAL: u16 = 28; // Invalid argument
 pub const WASI_EIO: u16 = 29; // I/O Error
 pub const WASI_ENOTSUP: u16 = 58;
+pub const WASI_EPERM: u16 = 63; // Operation not permitted
+
 
 // All "wasi_snapshot_preview1" syscalls
 // https://github.com/WebAssembly/WASI/blob/main/phases/snapshot/witx/wasi_snapshot_preview1.witx
@@ -170,7 +173,6 @@ fn read_stdin(vm_logic: &mut VMLogic, iovs: Pointer, iovs_len: u32, offset: u64,
 
 pub const WASI_STDIN_FILENO: u32 = 0;
 pub const WASI_STDOUT_FILENO: u32 = 1;
-pub const WASI_STDERR_FILENO: u32 = 2;
 
 /// "fd_pread"
 /// Read from the file at the given offset without updating the file cursor.
@@ -279,61 +281,84 @@ pub fn fd_write(vm_logic: &mut VMLogic, fd: u32, iovs: Pointer, iovs_len: u32, n
 /// "path_create_directory"
 /// Create Directory at a path
 pub fn path_create_directory(vm_logic: &mut VMLogic, fd: u32, path: Pointer, path_len: u32) -> Errno {
-    WASI_EBADF
+    // POSIX mkdirat
+    // EPERM: The filesystem containing pathname does not support the creation of directories.
+    WASI_EPERM
 }
 
 /// "path_filestat_get"
 /// Access metadata about a file or directory
 pub fn path_filestat_get(vm_logic: &mut VMLogic, fd: u32, flags: u32, path: Pointer, path_len: u32, buf: Pointer) -> Errno {
-    WASI_EBADF
+    // POSIX fstatat. WASI document it as POSIX stat, but that's wrong
+    // EACCES: Search permission is denied for one of the directories in the path prefix of pathname.
+    WASI_EACCES
 }
 
 /// "path_filestat_set_times"
 /// Update time metadata on a file or directory
 pub fn path_filestat_set_times(vm_logic: &mut VMLogic, fd: u32, flags: u32, path: Pointer, path_len: u32, st_atim: u64, st_mtim: u64, fst_flags: u16) -> Errno {
-    WASI_EBADF
+    // POSIX utimensat
+    // EACCES: times is NULL, or both tv_nsec values are UTIME_NOW, and either:
+    // ...
+    //     *  the file is marked immutable (see chattr(1)).
+    WASI_EACCES
 }
 
 /// "path_link"
 /// Create a hard link
 pub fn path_link(vm_logic: &mut VMLogic, old_fd: u32, old_flags: u32, old_path: Pointer, old_path_len: u32, new_fd: u32, new_path: Pointer, new_path_len: u32) -> Errno {
-    WASI_EBADF
+    // POSIX linkat
+    // EPERM: The filesystem containing oldpath and newpath does not support the creation of hard links.
+    WASI_EPERM
 }
 
 /// "path_open"
 /// Open file located at the given path
 pub fn path_open(vm_logic: &mut VMLogic, dirfd: u32, dirflags: u32, path: Pointer, path_len: u32, o_flags: u16, fs_rights_base: u64, fs_rights_inheriting: u64, fs_flags: u16, fd: Pointer) -> Errno {
-    WASI_EBADF
+    // POSIX openat
+    // EACCES: The  requested  access to the file is not allowed, or search permission is denied for one of the directories in the
+    //     path prefix of pathname, or the file did not exist yet and write access to the parent  directory  is  not  allowed.
+    WASI_EACCES
 }
 
 /// "path_readlink"
 /// Open file located at the given path
 pub fn path_readlink(vm_logic: &mut VMLogic, dirfd: u8, path: Pointer, path_len: u32, buf: Pointer, buf_len: u32, buf_used: Pointer) -> Errno {
-    WASI_EBADF
+    // POSIX readlinkat
+    // EACCES: Search permission is denied for a component of the path prefix.
+    WASI_EACCES
 }
 
 /// "path_remove_directory"
 /// Remove the directory if it's empty
 pub fn path_remove_directory(vm_logic: &mut VMLogic, fd: u32, path: Pointer, path_len: u32) -> Errno {
-    WASI_EBADF
+    // POSIX unlinkat
+    // EPERM: The  system does not allow unlinking of directories ...
+    WASI_EPERM
 }
 
 /// "path_rename"
 /// Rename a file or directory
 pub fn path_rename(vm_logic: &mut VMLogic, old_fd: u32, old_path: Pointer, old_path_len: u32, new_fd: u32, new_path: Pointer, new_path_len: u32) -> Errno {
-    WASI_EBADF
+    // POSIX renameat
+    // EACCES: Write permission is denied for the directory containing oldpath or newpath ...
+    WASI_EACCES
 }
 
 /// "path_symlink"
 /// Create a symlink
 pub fn path_symlink(vm_logic: &mut VMLogic, old_path: Pointer, old_path_len: u32, fd: u32, new_path: Pointer, new_path_len: Pointer) -> Errno {
-    WASI_EBADF
+    // POSIX path_symlink
+    // EPERM: The filesystem containing linkpath does not support the creation of symbolic links.
+    WASI_EPERM
 }
 
 /// "path_unlink_file"
 /// Unlink a file, deleting if the number of hardlinks is 1
 pub fn path_unlink_file(vm_logic: &mut VMLogic, fd: u32, path: Pointer, path_len: u32) -> Errno {
-    WASI_EBADF
+    // POSIX unlinkat
+    // EPERM: The filesystem does not allow unlinking of files.
+    WASI_EPERM
 }
 
 /// "poll_oneoff"
@@ -344,25 +369,33 @@ pub fn poll_oneoff(vm_logic: &mut VMLogic, in_: Pointer, out_: Pointer, nsubscri
 
 /// "proc_exit"
 /// Exit the process
-pub fn proc_exit(vm_logic: &mut VMLogic, code: u32) {}
+pub fn proc_exit(vm_logic: &mut VMLogic, code: u32) {
+    // We have no way to let the wasmer or runtime exit here, GuestPanic will be ignored since this
+    // function doesn't return std::error::Error to trap the runtime. So it's just noop.
+}
 
 /// "proc_raise"
 /// Raise the given signal
 pub fn proc_raise(vm_logic: &mut VMLogic, sig: u8) -> Errno {
-    WASI_EBADF
+    WASI_EPERM
 }
 
 /// "random_get"
 /// Fill buffer with high-quality random data.  This function may be slow and block
 pub fn random_get(vm_logic: &mut VMLogic, buf: Pointer, buf_len: u32) -> Errno {
-    // TODO: use near's random seed
-    WASI_EBADF
+    let near_seed = vm_logic.internal_random_seed();
+    let mut seed = vec![0u8; buf_len as usize];
+    for i in 0..buf_len {
+        seed[i as usize] = near_seed[i as usize % near_seed.len()];
+    }
+    vm_logic.memory_set_slice(buf as u64, &seed).map_or(0, |_| WASI_EFAULT)
 }
 
 /// "sched_yield"
 /// Yields execution of the thread
 pub fn sched_yield(vm_logic: &mut VMLogic) -> Errno {
-    // TODO: use std::thread::yield_now()?
+    // This is meaningless in single thread runtime and shouldn't let host to yield execution of
+    // the runtime. So just noop.
     0
 }
 
