@@ -95,6 +95,23 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
         .collect()
 }
 
+pub fn create_nightshade_runtimes_with_num_epochs(
+    genesis: &Genesis,
+    n: usize,
+    num_epochs_to_keep_store_data: Option<u64>,
+) -> Vec<Arc<dyn RuntimeAdapter>> {
+    (0..n)
+        .map(|_| {
+            Arc::new(nearcore::NightshadeRuntime::test_with_num_epochs(
+                Path::new("."),
+                create_test_store(),
+                genesis,
+                num_epochs_to_keep_store_data,
+            )) as Arc<dyn RuntimeAdapter>
+        })
+        .collect()
+}
+
 /// Produce `blocks_number` block in the given environment, starting from the given height.
 /// Returns the first unoccupied height in the chain after this operation.
 fn produce_blocks_from_height(
@@ -1559,26 +1576,30 @@ fn test_gc_after_state_sync() {
 }
 
 #[test]
-fn test_blocks_in_storage() {
-    let epoch_length = 1024;
+fn test_num_blocks_in_storage_config_setting() {
+    let epoch_length = 128;
+    // TODO - figured out how to change `num_epochs_to_keep_store_data = 10`
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
+    let num_epochs_to_keep_store_data = 10;
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(2)
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 2))
+        .runtime_adapters(create_nightshade_runtimes_with_num_epochs(
+            &genesis,
+            2,
+            Some(num_epochs_to_keep_store_data),
+        ))
         .build();
-    // TODO - figured out how to change `num
-    for i in 1..epoch_length * 4 + 2 {
+    for i in 1..epoch_length * (num_epochs_to_keep_store_data - 1) + 2 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         env.process_block(1, block, Provenance::NONE);
     }
-    // Check whenever we got all 5 blocks
-    for i in 0..5 {
-        let sync_height = epoch_length * 4 + 1 - i;
-        env.clients[0].chain.get_block_by_height(sync_height).unwrap();
+    // Should crash, but doesn't?
+    for i in 4..epoch_length * (num_epochs_to_keep_store_data - 1) + 2 {
+        env.clients[0].chain.get_block_by_height(i).unwrap();
     }
 }
 
@@ -3231,6 +3252,7 @@ fn test_limit_contract_functions_number_upgrade() {
                 create_test_store(),
                 &genesis,
                 RuntimeConfigStore::new(None),
+                None,
             ))];
         let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
 

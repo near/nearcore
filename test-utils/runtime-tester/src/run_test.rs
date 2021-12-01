@@ -61,6 +61,7 @@ impl Scenario {
                 store,
                 &genesis,
                 runtime_config_store,
+                None,
             ))])
             .build();
 

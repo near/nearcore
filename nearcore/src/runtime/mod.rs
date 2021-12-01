@@ -221,6 +221,7 @@ impl NightshadeRuntime {
         store: Arc<Store>,
         genesis: &Genesis,
         runtime_config_store: RuntimeConfigStore,
+        num_epochs_to_keep_store_data: Option<u64>,
     ) -> Self {
         Self::new(
             home_dir,
@@ -230,12 +231,33 @@ impl NightshadeRuntime {
             None,
             None,
             Some(runtime_config_store),
-            MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA,
+            num_epochs_to_keep_store_data.unwrap_or(MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA),
         )
     }
 
     pub fn test(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
-        Self::test_with_runtime_config_store(home_dir, store, genesis, RuntimeConfigStore::test())
+        Self::test_with_runtime_config_store(
+            home_dir,
+            store,
+            genesis,
+            RuntimeConfigStore::test(),
+            None,
+        )
+    }
+
+    pub fn test_with_num_epochs(
+        home_dir: &Path,
+        store: Arc<Store>,
+        genesis: &Genesis,
+        num_epochs_to_keep_store_data: Option<u64>,
+    ) -> Self {
+        Self::test_with_runtime_config_store(
+            home_dir,
+            store,
+            genesis,
+            RuntimeConfigStore::test(),
+            num_epochs_to_keep_store_data,
+        )
     }
 
     fn get_epoch_height_from_prev_block(
