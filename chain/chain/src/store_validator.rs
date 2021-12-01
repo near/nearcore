@@ -96,7 +96,7 @@ impl StoreValidator {
             me,
             config,
             runtime_adapter,
-            store: store.clone(),
+            store,
             inner: StoreValidatorCache::new(),
             timeout: None,
             start_time: Clock::instant(),
@@ -108,7 +108,7 @@ impl StoreValidator {
         self.timeout = Some(timeout)
     }
     pub fn is_failed(&self) -> bool {
-        self.tests == 0 || self.errors.len() > 0
+        self.tests == 0 || !self.errors.is_empty()
     }
     pub fn get_gc_counters(&self) -> Vec<(String, u64)> {
         let mut res = vec![];
@@ -422,7 +422,7 @@ mod tests {
         let chain =
             Chain::new(runtime_adapter.clone(), &chain_genesis, DoomslugThresholdMode::NoApprovals)
                 .unwrap();
-        (chain, StoreValidator::new(None, genesis.clone(), runtime_adapter, store))
+        (chain, StoreValidator::new(None, genesis, runtime_adapter, store))
     }
 
     #[test]
@@ -461,7 +461,7 @@ mod tests {
     fn test_db_not_found() {
         let (mut chain, mut sv) = init();
         let block = chain.get_block_by_height(0).unwrap();
-        assert!(validate::block_header_exists(&mut sv, &block.hash(), block).is_ok());
+        assert!(validate::block_header_exists(&mut sv, block.hash(), block).is_ok());
         match validate::block_header_exists(&mut sv, &CryptoHash::default(), block) {
             Err(StoreValidatorError::DBNotFound { .. }) => {}
             _ => assert!(false),

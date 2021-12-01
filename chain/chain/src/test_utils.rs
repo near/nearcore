@@ -208,7 +208,7 @@ impl KeyValueRuntime {
             return Ok(Some(headers_cache.get(hash).unwrap().clone()));
         }
         if let Some(result) = self.store.get_ser(ColBlockHeader, hash.as_ref())? {
-            headers_cache.insert(hash.clone(), result);
+            headers_cache.insert(*hash, result);
             return Ok(Some(headers_cache.get(hash).unwrap().clone()));
         }
         Ok(None)
@@ -235,10 +235,7 @@ impl KeyValueRuntime {
         let prev_prev_hash = *prev_block_header.prev_hash();
         let prev_epoch = hash_to_epoch.get(&prev_prev_hash);
         let prev_next_epoch = hash_to_next_epoch.get(&prev_prev_hash).unwrap();
-        let prev_valset = match prev_epoch {
-            Some(prev_epoch) => Some(*hash_to_valset.get(&prev_epoch).unwrap()),
-            None => None,
-        };
+        let prev_valset = prev_epoch.map(|prev_epoch| *hash_to_valset.get(prev_epoch).unwrap());
 
         let prev_epoch_start = *epoch_start_map.get(&prev_prev_hash).unwrap();
 
@@ -277,7 +274,7 @@ impl KeyValueRuntime {
 
         hash_to_next_epoch.insert(prev_hash, next_epoch.clone());
         hash_to_epoch.insert(prev_hash, epoch.clone());
-        hash_to_next_epoch_approvals_req.insert(prev_hash.clone(), needs_next_epoch_approvals);
+        hash_to_next_epoch_approvals_req.insert(prev_hash, needs_next_epoch_approvals);
         hash_to_valset.insert(epoch.clone(), valset);
         hash_to_valset.insert(next_epoch.clone(), valset + 1);
         epoch_start_map.insert(prev_hash, epoch_start);
@@ -391,7 +388,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
         let message_to_sign = Approval::get_data_for_sig(
             &if prev_block_height + 1 == block_height {
-                ApprovalInner::Endorsement(prev_block_hash.clone())
+                ApprovalInner::Endorsement(*prev_block_hash)
             } else {
                 ApprovalInner::Skip(prev_block_height)
             },
@@ -426,8 +423,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         parent_hash: &CryptoHash,
     ) -> Result<Vec<(ApprovalStake, bool)>, Error> {
-        let (_cur_epoch, cur_valset, next_epoch) =
-            self.get_epoch_and_valset(parent_hash.clone())?;
+        let (_cur_epoch, cur_valset, next_epoch) = self.get_epoch_and_valset(*parent_hash)?;
         let mut validators = self.validators[cur_valset]
             .iter()
             .map(|x| x.get_approval_stake(false))
@@ -665,7 +661,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         assert!(!generate_storage_proof);
         let mut tx_results = vec![];
 
-        let mut state = self.state.read().unwrap().get(&state_root).cloned().unwrap();
+        let mut state = self.state.read().unwrap().get(state_root).cloned().unwrap();
 
         let mut balance_transfers = vec![];
 
@@ -811,8 +807,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         let data = state.try_to_vec()?;
         let state_size = data.len() as u64;
         let state_root = hash(&data);
-        self.state.write().unwrap().insert(state_root.clone(), state);
-        self.state_size.write().unwrap().insert(state_root.clone(), state_size);
+        self.state.write().unwrap().insert(state_root, state);
+        self.state_size.write().unwrap().insert(state_root, state_size);
 
         Ok(ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
@@ -820,7 +816,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                 ShardUId { version: 0, shard_id: shard_id as u32 },
                 TrieChanges::empty(state_root),
                 Default::default(),
-                block_hash.clone(),
+                *block_hash,
             ),
             new_root: state_root,
             outcomes: tx_results,
@@ -870,7 +866,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             QueryRequest::ViewAccount { account_id, .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::ViewAccount(
                     Account::new(
-                        self.state.read().unwrap().get(&state_root).map_or_else(
+                        self.state.read().unwrap().get(state_root).map_or_else(
                             || 0,
                             |state| *state.amounts.get(account_id).unwrap_or(&0),
                         ),
@@ -937,7 +933,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         if part_id != 0 {
             return Ok(vec![]);
         }
-        let state = self.state.read().unwrap().get(&state_root).unwrap().clone();
+        let state = self.state.read().unwrap().get(state_root).unwrap().clone();
         let data = state.try_to_vec().expect("should never fall");
         Ok(data)
     }
@@ -967,10 +963,10 @@ impl RuntimeAdapter for KeyValueRuntime {
             return Ok(());
         }
         let state = KVState::try_from_slice(data).unwrap();
-        self.state.write().unwrap().insert(state_root.clone(), state.clone());
+        self.state.write().unwrap().insert(*state_root, state.clone());
         let data = state.try_to_vec()?;
         let state_size = data.len() as u64;
-        self.state_size.write().unwrap().insert(state_root.clone(), state_size);
+        self.state_size.write().unwrap().insert(*state_root, state_size);
         Ok(())
     }
 
@@ -985,12 +981,12 @@ impl RuntimeAdapter for KeyValueRuntime {
                 .state
                 .read()
                 .unwrap()
-                .get(&state_root)
+                .get(state_root)
                 .unwrap()
                 .clone()
                 .try_to_vec()
                 .expect("should never fall"),
-            memory_usage: self.state_size.read().unwrap().get(&state_root).unwrap().clone(),
+            memory_usage: *self.state_size.read().unwrap().get(state_root).unwrap(),
         })
     }
 
@@ -1168,12 +1164,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         prev_block_hash: &CryptoHash,
     ) -> Result<EpochId, Error> {
-        let mut candidate_hash = prev_block_hash.clone();
+        let mut candidate_hash = *prev_block_hash;
         loop {
             let header = self
                 .get_block_header(&candidate_hash)?
                 .ok_or_else(|| ErrorKind::DBNotFoundErr(to_base(&candidate_hash)))?;
-            candidate_hash = header.prev_hash().clone();
+            candidate_hash = *header.prev_hash();
             if self.is_next_block_epoch_start(&candidate_hash)? {
                 break Ok(self.get_epoch_and_valset(candidate_hash)?.0);
             }
@@ -1322,7 +1318,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
             debug!("{: >3} {}", header.height(), format_hash(*header.hash()));
         } else {
             let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap().clone();
-            let maybe_block = chain_store.get_block(&header.hash()).ok().cloned();
+            let maybe_block = chain_store.get_block(header.hash()).ok().cloned();
             let epoch_id =
                 runtime_adapter.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
             let block_producer =

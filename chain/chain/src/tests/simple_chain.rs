@@ -1,6 +1,6 @@
 use crate::test_utils::setup;
 use crate::{Block, ChainStoreAccess, ErrorKind};
-use chrono;
+
 use chrono::TimeZone;
 use near_logger_utils::init_test_logger;
 use near_primitives::hash::CryptoHash;
@@ -55,7 +55,7 @@ fn build_chain() {
     for i in 0..4 {
         let prev_hash = *chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
-        let block = Block::empty(&prev, &*signer);
+        let block = Block::empty(prev, &*signer);
         let tip = chain.process_block_test(&None, block).unwrap();
         assert_eq!(tip.unwrap().height, i + 1);
     }
@@ -89,7 +89,7 @@ fn build_chain_with_orhpans() {
     let block = Block::produce(
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
-        &last_block.header(),
+        last_block.header(),
         10,
         last_block.header().block_ordinal() + 1,
         last_block.chunks().iter().cloned().collect(),
@@ -104,7 +104,7 @@ fn build_chain_with_orhpans() {
         vec![],
         vec![],
         &*signer,
-        last_block.header().next_bp_hash().clone(),
+        *last_block.header().next_bp_hash(),
         CryptoHash::default(),
     );
     assert_eq!(chain.process_block_test(&None, block).unwrap_err().kind(), ErrorKind::Orphan);
@@ -129,8 +129,8 @@ fn build_chain_with_skips_and_forks() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-    let b1 = Block::empty(&genesis, &*signer);
-    let b2 = Block::empty_with_height(&genesis, 2, &*signer);
+    let b1 = Block::empty(genesis, &*signer);
+    let b2 = Block::empty_with_height(genesis, 2, &*signer);
     let b3 = Block::empty_with_height(&b1, 3, &*signer);
     let b4 = Block::empty_with_height(&b2, 4, &*signer);
     let b5 = Block::empty(&b4, &*signer);
@@ -154,7 +154,7 @@ fn blocks_at_height() {
     let b_2 = Block::empty_with_height(&b_1, 2, &*signer);
     let b_3 = Block::empty_with_height(&b_2, 3, &*signer);
 
-    let c_1 = Block::empty_with_height(&genesis, 1, &*signer);
+    let c_1 = Block::empty_with_height(genesis, 1, &*signer);
     let c_3 = Block::empty_with_height(&c_1, 3, &*signer);
     let c_4 = Block::empty_with_height(&c_3, 4, &*signer);
     let c_5 = Block::empty_with_height(&c_4, 5, &*signer);
@@ -229,7 +229,7 @@ fn next_blocks() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-    let b1 = Block::empty(&genesis, &*signer);
+    let b1 = Block::empty(genesis, &*signer);
     let b2 = Block::empty_with_height(&b1, 2, &*signer);
     let b3 = Block::empty_with_height(&b1, 3, &*signer);
     let b4 = Block::empty_with_height(&b3, 4, &*signer);

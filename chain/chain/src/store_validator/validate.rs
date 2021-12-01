@@ -231,7 +231,7 @@ pub(crate) fn block_indexed_by_height(
     .flatten()
     .cloned()
     .collect();
-    if !block_hashes.contains(&block_hash) {
+    if !block_hashes.contains(block_hash) {
         err!("Block {:?} is not found in ColBlockPerHeight", block);
     }
     Ok(())
@@ -349,7 +349,7 @@ pub(crate) fn chunk_tx_exists(
     for tx in shard_chunk.transactions().iter() {
         let tx_hash = tx.get_hash();
         unwrap_or_err_db!(
-            sv.store.get_ser::<SignedTransaction>(DBCol::ColTransactions, &tx_hash.as_ref()),
+            sv.store.get_ser::<SignedTransaction>(DBCol::ColTransactions, tx_hash.as_ref()),
             "Can't get Tx from storage for Tx Hash {:?}",
             tx_hash
         );
@@ -366,13 +366,13 @@ pub(crate) fn block_chunks_exist(
         if chunk_header.height_included() == block.header().height() {
             if let Some(me) = &sv.me {
                 let cares_about_shard = sv.runtime_adapter.cares_about_shard(
-                    Some(&me),
+                    Some(me),
                     block.header().prev_hash(),
                     chunk_header.shard_id(),
                     true,
                 );
                 let will_care_about_shard = sv.runtime_adapter.will_care_about_shard(
-                    Some(&me),
+                    Some(me),
                     block.header().prev_hash(),
                     chunk_header.shard_id(),
                     true,
@@ -569,7 +569,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
     // If the trie_changes we are checking are for the next epoch during sharding upgrade,
     // skip the checks about ShardChunk because there is no corresponding chunk for this shard_uid
     let shard_layout = unwrap_or_err!(
-        sv.runtime_adapter.get_shard_layout(&block.header().epoch_id()),
+        sv.runtime_adapter.get_shard_layout(block.header().epoch_id()),
         "Error getting shard layout"
     );
     if shard_layout.version() != shard_uid.version {
@@ -659,7 +659,7 @@ pub(crate) fn outcome_by_outcome_id_exists(
             "Can't get TransactionResult from storage with Outcome id {:?}",
             outcome_id
         );
-        if outcomes.iter().find(|outcome| &outcome.block_hash == block_hash).is_none() {
+        if !outcomes.iter().any(|outcome| &outcome.block_hash == block_hash) {
             panic!("Invalid TransactionResult {:?} stored", outcomes);
         }
     }
@@ -790,10 +790,8 @@ pub(crate) fn gc_col_count(
 ) -> Result<(), StoreValidatorError> {
     if SHOULD_COL_GC[*col as usize] {
         sv.inner.gc_col[*col as usize] = *count;
-    } else {
-        if *count > 0 {
-            err!("DBCol is cleared by mistake")
-        }
+    } else if *count > 0 {
+        err!("DBCol is cleared by mistake")
     }
     Ok(())
 }
@@ -803,12 +801,12 @@ pub(crate) fn tx_refcount(
     tx_hash: &CryptoHash,
     refcount: &u64,
 ) -> Result<(), StoreValidatorError> {
-    let expected = sv.inner.tx_refcount.get(tx_hash).map(|&rc| rc).unwrap_or_default();
+    let expected = sv.inner.tx_refcount.get(tx_hash).copied().unwrap_or_default();
     if *refcount != expected {
         err!("Invalid tx refcount, expected {:?}, found {:?}", expected, refcount)
     } else {
         sv.inner.tx_refcount.remove(tx_hash);
-        return Ok(());
+        Ok(())
     }
 }
 
@@ -817,12 +815,12 @@ pub(crate) fn receipt_refcount(
     receipt_id: &CryptoHash,
     refcount: &u64,
 ) -> Result<(), StoreValidatorError> {
-    let expected = sv.inner.receipt_refcount.get(receipt_id).map(|&rc| rc).unwrap_or_default();
+    let expected = sv.inner.receipt_refcount.get(receipt_id).copied().unwrap_or_default();
     if *refcount != expected {
         err!("Invalid receipt refcount, expected {:?}, found {:?}", expected, refcount)
     } else {
         sv.inner.receipt_refcount.remove(receipt_id);
-        return Ok(());
+        Ok(())
     }
 }
 
@@ -913,7 +911,7 @@ pub(crate) fn gc_col_count_final(sv: &mut StoreValidator) -> Result<(), StoreVal
     }
     let mut gc_col_count = 0;
     for gc_col in SHOULD_COL_GC.iter() {
-        if *gc_col == true {
+        if *gc_col {
             gc_col_count += 1;
         }
     }

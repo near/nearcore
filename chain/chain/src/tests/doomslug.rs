@@ -94,7 +94,7 @@ fn one_iter(
 
     let mut is_done = false;
     while !is_done {
-        now = now + Duration::from_millis(25);
+        now += Duration::from_millis(25);
         let mut new_approval_queue = vec![];
         let mut new_block_queue = vec![];
 
@@ -136,7 +136,7 @@ fn one_iter(
 
                         let last_block = block_infos.last().unwrap();
                         let prev_block_info = hash_to_block_info
-                            .get(&hash_to_prev_hash.get(&last_block.2).unwrap())
+                            .get(hash_to_prev_hash.get(&last_block.2).unwrap())
                             .unwrap();
 
                         if prev_block_info.0 as BlockHeight <= ds.get_tip().1 {
@@ -181,7 +181,7 @@ fn one_iter(
                             0
                         } else {
                             let prev_prev_hash = hash_to_prev_hash.get(&parent_hash).unwrap();
-                            hash_to_block_info.get(&prev_prev_hash).unwrap().0
+                            hash_to_block_info.get(prev_prev_hash).unwrap().0
                         };
 
                         let is_final =
@@ -228,7 +228,7 @@ fn one_iter(
 
                         if is_final && target_height != 2 {
                             blocks_with_finality.push((
-                                hash_to_prev_hash.get(&parent_hash).unwrap().clone(),
+                                *hash_to_prev_hash.get(&parent_hash).unwrap(),
                                 target_height - 2,
                             ));
                         }
@@ -280,7 +280,7 @@ fn one_iter(
     // doomslug final blocks
     for (block_hash, (block_height, _, _)) in hash_to_block_info.iter() {
         let mut seen_hashes = HashSet::new();
-        let mut block_hash = block_hash.clone();
+        let mut block_hash = *block_hash;
         seen_hashes.insert(block_hash);
 
         loop {
