@@ -1,6 +1,6 @@
 use crate::metrics;
 use crate::routing::edge::{Edge, EdgeType};
-use crate::routing::edge_verifier_actor::EdgeVerifierActor;
+use crate::routing::edge_validator_actor::EdgeValidatorActor;
 use crate::routing::routing::{Graph, SAVE_PEERS_MAX_TIME};
 use crate::types::{StopMsg, ValidateEdgeList};
 use actix::dev::MessageResponse;
@@ -71,11 +71,11 @@ pub struct RoutingTableActor {
     pub next_available_component_nonce: u64,
     /// True if edges were changed and we need routing table recalculation.
     pub needs_routing_table_recalculation: bool,
-    /// EdgeVerifierActor, which is responsible for veryfing edges.
-    edge_verifier_pool: Addr<EdgeVerifierActor>,
-    /// Number of edge verifications in progress; We will not update routing table as long as
+    /// EdgeValidatorActor, which is responsible for validating edges.
+    edge_validator_pool: Addr<EdgeValidatorActor>,
+    /// Number of edge validations in progress; We will not update routing table as long as
     /// this number is non zero.
-    edge_verifier_requests_in_progress: u64,
+    edge_validator_requests_in_progress: u64,
     /// List of Peers to ban
     peers_to_ban: Vec<PeerId>,
 }
@@ -86,7 +86,7 @@ impl RoutingTableActor {
             .get_ser::<u64>(ColLastComponentNonce, &[])
             .unwrap_or(None)
             .map_or(0, |nonce| nonce + 1);
-        let edge_verifier_pool = SyncArbiter::start(4, || EdgeVerifierActor {});
+        let edge_validator_pool = SyncArbiter::start(4, || EdgeValidatorActor {});
         Self {
             edges_info: Default::default(),
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -97,8 +97,8 @@ impl RoutingTableActor {
             store,
             next_available_component_nonce: component_nonce,
             needs_routing_table_recalculation: Default::default(),
-            edge_verifier_pool,
-            edge_verifier_requests_in_progress: Default::default(),
+            edge_validator_pool,
+            edge_validator_requests_in_progress: Default::default(),
             peers_to_ban: Default::default(),
         }
     }
@@ -409,7 +409,7 @@ impl RoutingTableActor {
 impl Handler<StopMsg> for RoutingTableActor {
     type Result = ();
     fn handle(&mut self, _: StopMsg, _ctx: &mut Self::Context) -> Self::Result {
-        self.edge_verifier_pool.do_send(StopMsg {});
+        self.edge_validator_pool.do_send(StopMsg {});
         System::current().stop();
     }
 }
@@ -419,15 +419,15 @@ impl Handler<ValidateEdgeList> for RoutingTableActor {
 
     #[perf]
     fn handle(&mut self, msg: ValidateEdgeList, ctx: &mut Self::Context) -> Self::Result {
-        self.edge_verifier_requests_in_progress += 1;
+        self.edge_validator_requests_in_progress += 1;
         let mut msg = msg;
         msg.edges.retain(|x| self.is_edge_newer(x.key(), x.nonce()));
-        let peer_id = msg.peer_id.clone();
-        self.edge_verifier_pool
+        let peer_id = msg.source_peer_id.clone();
+        self.edge_validator_pool
             .send(msg)
             .into_actor(self)
             .map(move |res, act, _| {
-                act.edge_verifier_requests_in_progress -= 1;
+                act.edge_validator_requests_in_progress -= 1;
 
                 if let Ok(false) = res {
                     act.peers_to_ban.push(peer_id);
@@ -551,7 +551,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                 mut prune,
                 prune_edges_not_reachable_for,
             } => {
-                if prune == Prune::PruneOncePerHour && self.edge_verifier_requests_in_progress != 0
+                if prune == Prune::PruneOncePerHour && self.edge_validator_requests_in_progress != 0
                 {
                     prune = Prune::Disable;
                 }

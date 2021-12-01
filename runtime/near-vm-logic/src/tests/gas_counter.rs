@@ -1,12 +1,8 @@
-mod fixtures;
-mod helpers;
-mod vm_logic_builder;
-
-use fixtures::get_context;
-use helpers::*;
-use near_vm_logic::types::Gas;
-use near_vm_logic::{VMConfig, VMLogic};
-use vm_logic_builder::VMLogicBuilder;
+use crate::tests::fixtures::get_context;
+use crate::tests::helpers::*;
+use crate::tests::vm_logic_builder::VMLogicBuilder;
+use crate::types::Gas;
+use crate::{VMConfig, VMLogic};
 
 #[test]
 fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {

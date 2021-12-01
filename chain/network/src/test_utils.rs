@@ -76,7 +76,7 @@ pub fn wait_or_panic(max_wait_ms: u64) {
 ///
 /// # Example
 ///
-/// ```
+/// ```rust,ignore
 /// use actix::{System, Actor};
 /// use near_network::test_utils::WaitOrTimeoutActor;
 /// use std::time::{Instant, Duration};
