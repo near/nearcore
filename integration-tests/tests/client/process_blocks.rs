@@ -1592,13 +1592,16 @@ fn test_num_blocks_in_storage_config_setting() {
             Some(num_epochs_to_keep_store_data),
         ))
         .build();
-    for i in 1..epoch_length * (num_epochs_to_keep_store_data - 1) + 2 {
+    for i in 1..epoch_length * (num_epochs_to_keep_store_data) + 2 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         env.process_block(1, block, Provenance::NONE);
     }
     // Should crash, but doesn't?
-    for i in 4..epoch_length * (num_epochs_to_keep_store_data - 1) + 2 {
+    for i in 1..100 {
+        assert!(env.clients[0].chain.get_block_by_height(i).is_err());
+    }
+    for i in 101..epoch_length * (num_epochs_to_keep_store_data) + 2 {
         env.clients[0].chain.get_block_by_height(i).unwrap();
     }
 }
