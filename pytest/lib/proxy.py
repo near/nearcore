@@ -208,7 +208,10 @@ async def _read_exact(reader, length, *, allow_eof=False):
     data = await reader.read(length)
     if data or not allow_eof:
         while len(data) < length:
-            data += await reader.read(length - len(data))
+            new_data = await reader.read(length - len(data))
+            if not new_data:
+                break
+            data += new_data
     return data
 
 
