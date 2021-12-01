@@ -1,6 +1,6 @@
 use crate::metrics;
 use crate::routing::edge::{Edge, EdgeType};
-use crate::routing::edge_verifier_actor::EdgeVerifierActor;
+use crate::routing::edge_validator_actor::EdgeValidatorActor;
 use crate::routing::routing::{Graph, SAVE_PEERS_MAX_TIME};
 use crate::types::{StopMsg, ValidateEdgeList};
 use actix::dev::MessageResponse;
@@ -71,11 +71,11 @@ pub struct RoutingTableActor {
     pub next_available_component_nonce: u64,
     /// True if edges were changed and we need routing table recalculation.
     pub needs_routing_table_recalculation: bool,
-    /// EdgeVerifierActor, which is responsible for veryfing edges.
-    edge_verifier_pool: Addr<EdgeVerifierActor>,
-    /// Number of edge verifications in progress; We will not update routing table as long as
+    /// EdgeValidatorActor, which is responsible for validating edges.
+    edge_validator_pool: Addr<EdgeValidatorActor>,
+    /// Number of edge validations in progress; We will not update routing table as long as
     /// this number is non zero.
-    edge_verifier_requests_in_progress: u64,
+    edge_validator_requests_in_progress: u64,
     /// List of Peers to ban
     peers_to_ban: Vec<PeerId>,
 }
@@ -86,7 +86,7 @@ impl RoutingTableActor {
             .get_ser::<u64>(ColLastComponentNonce, &[])
             .unwrap_or(None)
             .map_or(0, |nonce| nonce + 1);
-        let edge_verifier_pool = SyncArbiter::start(4, || EdgeVerifierActor {});
+        let edge_validator_pool = SyncArbiter::start(4, || EdgeValidatorActor {});
         Self {
             edges_info: Default::default(),
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -97,8 +97,8 @@ impl RoutingTableActor {
             store,
             next_available_component_nonce: component_nonce,
             needs_routing_table_recalculation: Default::default(),
-            edge_verifier_pool,
-            edge_verifier_requests_in_progress: Default::default(),
+            edge_validator_pool,
+            edge_validator_requests_in_progress: Default::default(),
             peers_to_ban: Default::default(),
         }
     }
@@ -409,7 +409,7 @@ impl RoutingTableActor {
 impl Handler<StopMsg> for RoutingTableActor {
     type Result = ();
     fn handle(&mut self, _: StopMsg, _ctx: &mut Self::Context) -> Self::Result {
-        self.edge_verifier_pool.do_send(StopMsg {});
+        self.edge_validator_pool.do_send(StopMsg {});
         System::current().stop();
     }
 }
@@ -419,15 +419,15 @@ impl Handler<ValidateEdgeList> for RoutingTableActor {
 
     #[perf]
     fn handle(&mut self, msg: ValidateEdgeList, ctx: &mut Self::Context) -> Self::Result {
-        self.edge_verifier_requests_in_progress += 1;
+        self.edge_validator_requests_in_progress += 1;
         let mut msg = msg;
         msg.edges.retain(|x| self.is_edge_newer(x.key(), x.nonce()));
-        let peer_id = msg.peer_id.clone();
-        self.edge_verifier_pool
+        let peer_id = msg.source_peer_id.clone();
+        self.edge_validator_pool
             .send(msg)
             .into_actor(self)
             .map(move |res, act, _| {
-                act.edge_verifier_requests_in_progress -= 1;
+                act.edge_validator_requests_in_progress -= 1;
 
                 if let Ok(false) = res {
                     act.peers_to_ban.push(peer_id);
@@ -530,7 +530,7 @@ impl RoutingTableActor {
         }
 
         let (edge_hashes, unknown_edges_count) = new_ibf.try_recover();
-        let (known, unknown_edges) = self.split_edges_for_peer(&peer_id, &edge_hashes);
+        let (known, unknown_edges) = self.split_edges_for_peer(peer_id, &edge_hashes);
 
         (known, unknown_edges, unknown_edges_count)
     }
@@ -551,7 +551,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                 mut prune,
                 prune_edges_not_reachable_for,
             } => {
-                if prune == Prune::PruneOncePerHour && self.edge_verifier_requests_in_progress != 0
+                if prune == Prune::PruneOncePerHour && self.edge_validator_requests_in_progress != 0
                 {
                     prune = Prune::Disable;
                 }
@@ -605,8 +605,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             RoutingTableMessages::AddPeerIfMissing(peer_id, ibf_set) => {
-                let seed =
-                    self.peer_ibf_set.add_peer(peer_id.clone(), ibf_set, &mut self.edges_info);
+                let seed = self.peer_ibf_set.add_peer(peer_id, ibf_set, &mut self.edges_info);
                 RoutingTableMessagesResponse::AddPeerResponse { seed }
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -631,11 +630,11 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
 
                             let edges_for_peer = edges_for_peer
                                 .iter()
-                                .filter_map(|x| self.edges_info.get(&x.key()).cloned())
+                                .filter_map(|x| self.edges_info.get(x.key()).cloned())
                                 .collect();
                             // Prepare message
                             let ibf_msg = if unknown_edges_count == 0
-                                && unknown_edge_hashes.len() > 0
+                                && !unknown_edge_hashes.is_empty()
                             {
                                 crate::types::RoutingVersion2 {
                                     known_edges: self.edges_info.len() as u64,
@@ -645,38 +644,32 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                                         unknown_edge_hashes,
                                     ),
                                 }
-                            } else if unknown_edges_count == 0 && unknown_edge_hashes.len() == 0 {
+                            } else if unknown_edges_count == 0 && unknown_edge_hashes.is_empty() {
                                 crate::types::RoutingVersion2 {
                                     known_edges: self.edges_info.len() as u64,
                                     seed,
                                     edges: edges_for_peer,
                                     routing_state: crate::types::RoutingState::Done,
                                 }
+                            } else if let Some(new_ibf_level) = partial_sync.ibf_level.inc() {
+                                let ibf_vec = ibf_set.get_ibf_vec(new_ibf_level);
+                                crate::types::RoutingVersion2 {
+                                    known_edges: self.edges_info.len() as u64,
+                                    seed,
+                                    edges: edges_for_peer,
+                                    routing_state: crate::types::RoutingState::PartialSync(
+                                        crate::types::PartialSync {
+                                            ibf_level: new_ibf_level,
+                                            ibf: ibf_vec,
+                                        },
+                                    ),
+                                }
                             } else {
-                                if let Some(new_ibf_level) = partial_sync.ibf_level.inc() {
-                                    let ibf_vec = ibf_set.get_ibf_vec(new_ibf_level);
-                                    crate::types::RoutingVersion2 {
-                                        known_edges: self.edges_info.len() as u64,
-                                        seed,
-                                        edges: edges_for_peer,
-                                        routing_state: crate::types::RoutingState::PartialSync(
-                                            crate::types::PartialSync {
-                                                ibf_level: new_ibf_level,
-                                                ibf: ibf_vec,
-                                            },
-                                        ),
-                                    }
-                                } else {
-                                    crate::types::RoutingVersion2 {
-                                        known_edges: self.edges_info.len() as u64,
-                                        seed,
-                                        edges: self
-                                            .edges_info
-                                            .iter()
-                                            .map(|x| x.1.clone())
-                                            .collect(),
-                                        routing_state: crate::types::RoutingState::RequestAllEdges,
-                                    }
+                                crate::types::RoutingVersion2 {
+                                    known_edges: self.edges_info.len() as u64,
+                                    seed,
+                                    edges: self.edges_info.iter().map(|x| x.1.clone()).collect(),
+                                    routing_state: crate::types::RoutingState::RequestAllEdges,
                                 }
                             };
                             RoutingTableMessagesResponse::ProcessIbfMessageResponse {
@@ -722,7 +715,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
 
                         let edges_for_peer = edges_for_peer
                             .iter()
-                            .filter_map(|x| self.edges_info.get(&x.key()).cloned())
+                            .filter_map(|x| self.edges_info.get(x.key()).cloned())
                             .collect();
 
                         let ibf_msg = crate::types::RoutingVersion2 {

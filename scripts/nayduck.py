@@ -24,6 +24,8 @@ import subprocess
 import sys
 import typing
 
+REPO_DIR = pathlib.Path(__file__).resolve().parents[1]
+
 DEFAULT_TEST_FILE = 'nightly/nightly.txt'
 NAYDUCK_BASE_HREF = 'http://nayduck.near.org'
 
@@ -177,25 +179,50 @@ def github_auth(code_path: pathlib.Path):
     return code
 
 
+def _parse_timeout(timeout: typing.Optional[str]) -> typing.Optional[int]:
+    """Parses timeout interval and converts it into number of seconds.
+
+    Args:
+        timeout: An integer with an optional ‘h’, ‘m’ or ‘s’ suffix which
+            multiply the integer by 3600, 60 and 1 respectively.
+    Returns:
+        Interval in seconds.
+    """
+    if not timeout:
+        return None
+    mul_ary = {'h': 3600, 'm': 60, 's': 1}
+    mul = mul_ary.get(timeout[-1])
+    if mul:
+        timeout = timeout[:-1]
+    else:
+        mul = 1
+    return int(timeout) * mul
+
+
 def run_locally(tests):
     for test in tests:
         # See nayduck specs at https://github.com/near/nayduck/blob/master/lib/testspec.py
         fields = test.split()
 
+        timeout = None
         index = 1
+        ignored = []
         while len(fields) > index and fields[index].startswith('--'):
+            if fields[index].startswith("--timeout="):
+                timeout = fields[index][10:]
+            elif fields[index] != '--skip-build':
+                ignored.append(fields[index])
             index += 1
 
-        ignored = fields[1:index]
         del fields[1:index]
         message = f'Running ‘{"".join(fields)}’'
         if ignored:
-            message = f'{message} (ignoring flags ‘{"".join(ignored)}`)'
+            message = f'{message} (ignoring flags ‘{" ".join(ignored)}`)'
         print(message)
 
         if fields[0] == 'expensive':
             # TODO --test doesn't work
-            cmd = (
+            cmd = [
                 'cargo',
                 'test',
                 '-p',
@@ -204,18 +231,19 @@ def run_locally(tests):
                 'expensive_tests',
                 '--',
                 '--exact',
-                fields[3])
-            cwd = None
+                fields[3]
+            ]
+            cwd = REPO_DIR
         elif fields[0] in ('pytest', 'mocknet'):
             fields[0] = sys.executable
             fields[1] = os.path.join('tests', fields[1])
             cmd = fields
-            cwd = 'pytest'
+            cwd = REPO_DIR / 'pytest'
         else:
             print(f'Unrecognised test category ‘{fields[0]}’', file=sys.stderr)
             continue
         print("RUNNING COMMAND cwd=%s cmd = %s", (cwd, cmd))
-        subprocess.check_call(cmd, cwd=cwd)
+        subprocess.check_call(cmd, cwd=cwd, timeout=_parse_timeout(timeout))
 
 
 def run_remotely(args, tests):

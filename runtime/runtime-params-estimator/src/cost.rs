@@ -16,6 +16,8 @@ pub enum Cost {
     ActionDeployContractPerByte,
     ActionFunctionCallBase,
     ActionFunctionCallPerByte,
+    ActionFunctionCallBaseV2,
+    ActionFunctionCallPerByteV2,
     ActionTransfer,
     ActionStake,
     ActionAddFullAccessKey,
