@@ -223,7 +223,7 @@ async def bridge(reader, writer, handler_fn, global_stopped, local_stopped,
     try:
         while 0 == global_stopped.value and 0 >= local_stopped.value and 0 == error.value and 0 == bridge_stopped[
                 0]:
-            header = _read_exact(reader, 4)
+            header = await _read_exact(reader, 4)
             if not header:
                 logging.debug(
                     f"Endpoint closed (Reader). port={_MY_PORT} bridge_id={bridge_id}"
@@ -232,7 +232,7 @@ async def bridge(reader, writer, handler_fn, global_stopped, local_stopped,
 
             assert len(header) == 4, header
             raw_message_len = struct.unpack('I', header)[0]
-            raw_message = _read_exact(reader, raw_message_len)
+            raw_message = await _read_exact(reader, raw_message_len)
 
             logging.debug(
                 f"Message size={len(raw_message)} port={_MY_PORT} bridge_id={bridge_id}"
