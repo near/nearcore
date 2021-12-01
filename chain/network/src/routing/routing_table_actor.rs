@@ -481,6 +481,9 @@ pub enum RoutingTableMessages {
         prune: Prune,
         prune_edges_not_reachable_for: Duration,
     },
+    // Gets list of edges to validate from another peer.
+    // Those edges will be filtered, by removing exising edges, and then
+    // those edges will be sent to `EdgeValidatorActor`.
     ValidateEdgeList(ValidateEdgeList),
 }
 
