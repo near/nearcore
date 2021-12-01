@@ -305,6 +305,10 @@ fn default_gc_blocks_limit() -> NumBlocks {
     2
 }
 
+fn default_num_epochs_to_keep_store_data() -> u64 {
+    MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA
+}
+
 fn default_view_client_threads() -> usize {
     4
 }
@@ -434,8 +438,8 @@ pub struct Config {
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gas_burnt_view: Option<Gas>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    num_epochs_to_keep_store_data: Option<u64>,
+    #[serde(default = "default_num_epochs_to_keep_store_data")]
+    num_epochs_to_keep_store_data: u64,
 }
 
 impl Default for Config {
@@ -462,14 +466,14 @@ impl Default for Config {
             view_client_throttle_period: default_view_client_throttle_period(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
-            num_epochs_to_keep_store_data: Some(MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA),
+            num_epochs_to_keep_store_data: default_num_epochs_to_keep_store_data(),
         }
     }
 }
 
 impl Config {
     pub fn num_epochs_to_keep_store_data(&self) -> u64 {
-        max(MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA, self.num_epochs_to_keep_store_data.unwrap_or(0))
+        max(MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA, self.num_epochs_to_keep_store_data)
     }
 
     pub fn from_file(path: &Path) -> Self {
