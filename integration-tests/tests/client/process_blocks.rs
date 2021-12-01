@@ -1597,10 +1597,11 @@ fn test_num_blocks_in_storage_config_setting() {
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         env.process_block(1, block, Provenance::NONE);
     }
-    // Should crash, but doesn't?
+    // Check for GC'ed blocks.
     for i in 1..100 {
         assert!(env.clients[0].chain.get_block_by_height(i).is_err());
     }
+    // Check whenever we still keep blocks.
     for i in 101..epoch_length * (num_epochs_to_keep_store_data) + 2 {
         env.clients[0].chain.get_block_by_height(i).unwrap();
     }
