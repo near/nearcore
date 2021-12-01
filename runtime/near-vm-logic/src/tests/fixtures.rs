@@ -1,5 +1,5 @@
+use crate::{VMContext, VMLimitConfig};
 use near_primitives_core::config::ViewConfig;
-use near_vm_logic::{VMContext, VMLimitConfig};
 
 #[allow(dead_code)]
 pub fn get_context(input: Vec<u8>, is_view: bool) -> VMContext {

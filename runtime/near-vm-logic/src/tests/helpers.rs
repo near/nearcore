@@ -1,6 +1,6 @@
+use crate::{with_ext_cost_counter, VMLogic};
 use near_primitives_core::{config::ExtCosts, types::Gas};
 use near_vm_errors::VMLogicError;
-use near_vm_logic::{gas_counter::with_ext_cost_counter, VMLogic};
 use std::collections::HashMap;
 
 #[allow(dead_code)]
@@ -8,7 +8,7 @@ type Result<T> = ::std::result::Result<T, VMLogicError>;
 
 #[allow(dead_code)]
 pub fn promise_create(
-    logic: &mut VMLogic<'_>,
+    logic: &mut crate::VMLogic<'_>,
     account_id: &[u8],
     amount: u128,
     gas: Gas,
