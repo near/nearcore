@@ -24,6 +24,8 @@ import subprocess
 import sys
 import typing
 
+REPO_DIR = pathlib.Path(__file__).resolve().parents[1]
+
 DEFAULT_TEST_FILE = 'nightly/nightly.txt'
 NAYDUCK_BASE_HREF = 'http://nayduck.near.org'
 
@@ -231,12 +233,12 @@ def run_locally(tests):
                 '--exact',
                 fields[3]
             ]
-            cwd = None
+            cwd = REPO_DIR
         elif fields[0] in ('pytest', 'mocknet'):
             fields[0] = sys.executable
             fields[1] = os.path.join('tests', fields[1])
             cmd = fields
-            cwd = 'pytest'
+            cwd = REPO_DIR / 'pytest'
         else:
             print(f'Unrecognised test category ‘{fields[0]}’', file=sys.stderr)
             continue
