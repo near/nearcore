@@ -6,7 +6,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use near_primitives::time::Utc;
 use num_rational::Rational;
-use serde::Serialize;
 
 use near_chain_configs::{GenesisConfig, ProtocolConfig};
 use near_chain_primitives::Error;
@@ -797,7 +796,7 @@ pub trait RuntimeAdapter: Send + Sync {
 
 /// The last known / checked height and time when we have processed it.
 /// Required to keep track of skipped blocks and not fallback to produce blocks at lower height.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Default)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
 pub struct LatestKnown {
     pub height: BlockHeight,
     pub seen: u64,
