@@ -1947,6 +1947,7 @@ mod test {
                 false,
                 false,
                 false,
+                false,
             )
             .unwrap();
         let partial_encoded_chunk1 =
