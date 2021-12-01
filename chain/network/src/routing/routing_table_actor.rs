@@ -192,9 +192,7 @@ impl RoutingTableActor {
             if let Ok(edges) = self.get_and_remove_component_edges(component_nonce, &mut update) {
                 for edge in edges {
                     for &peer_id in vec![&edge.key().0, &edge.key().1].iter() {
-                        if peer_id == &my_peer_id
-                            || self.peer_last_time_reachable.contains_key(peer_id)
-                        {
+                        if peer_id == &my_peer_id {
                             continue;
                         }
 
@@ -203,8 +201,12 @@ impl RoutingTableActor {
                             // If `peer_id` belongs to current component
                             if cur_nonce == component_nonce {
                                 // Mark it as reachable and delete from database.
-                                self.peer_last_time_reachable
-                                    .insert(peer_id.clone(), Instant::now() - SAVE_PEERS_MAX_TIME);
+                                if !self.peer_last_time_reachable.contains_key(peer_id) {
+                                    self.peer_last_time_reachable.insert(
+                                        peer_id.clone(),
+                                        Instant::now() - SAVE_PEERS_MAX_TIME,
+                                    );
+                                }
                                 update.delete(
                                     ColPeerComponent,
                                     peer_id.try_to_vec().unwrap().as_ref(),
