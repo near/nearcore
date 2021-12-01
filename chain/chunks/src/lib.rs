@@ -449,6 +449,21 @@ impl ShardsManager {
             || self.runtime_adapter.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
     }
 
+    /// Send requests for a chunk
+    /// Depending on whether the node tracks the shard, it either downloads the full chunk
+    /// or only parts that it concerns, specifically, the part that should be owned by the node if
+    /// it is a validator, plus the parts that are sent to the shards that the node is tracking
+    ///
+    /// `height`: block height of the chunk
+    /// `parent_hash`: hash of the prev block of the block that includes the requested chunk
+    /// `shard_id`: shard id of the requested chunk
+    /// `chunk_hash`: chunk hash of the requested chunk
+    /// `force_request_full`: if it is true, the node will request the full chunk regardless whether
+    ///    it is tracking the shard
+    /// `request_from_single_source`: if it is true, the node requests all parts from a single node
+    ///                               instead of sending one request to each part owner
+    /// `request_own_parts_from_others`: whether we should request parts owned by us
+    /// `request_from_archival`: whether to request from archival nodes
     fn request_partial_encoded_chunk(
         &mut self,
         height: BlockHeight,
@@ -456,6 +471,7 @@ impl ShardsManager {
         shard_id: ShardId,
         chunk_hash: &ChunkHash,
         force_request_full: bool,
+        request_from_single_source: bool,
         request_own_parts_from_others: bool,
         request_from_archival: bool,
     ) -> Result<(), near_chain::Error> {
@@ -506,7 +522,7 @@ impl ShardsManager {
             };
 
             if need_to_fetch_part {
-                let fetch_from = if request_from_archival {
+                let fetch_from = if request_from_archival || request_from_single_source {
                     shard_representative_target.clone()
                 } else {
                     let part_owner = self.runtime_adapter.get_part_owner(&parent_hash, part_ord)?;
@@ -690,6 +706,17 @@ impl ShardsManager {
                     shard_id,
                     &chunk_hash,
                     false,
+                    // Request from a single node for missing chunks in old blocks
+                    // This is to save the number of requests a node sends
+                    // For old blocks, we can be reasonably sure that some peer has downloaded
+                    // the full chunk and we can get the chunk from them
+                    // TODO: when we enable challenges, this may break data availability
+                    //    if not many nodes receive the chunk before a block gets old (no longer the head)
+                    //    We leave this issue here for now because it is not a problem now when
+                    //    each shard is tracked by the majority of nodes in the network
+                    //    and we may change the way how chunks are distributed to non-validators
+                    //    https://github.com/near/nearcore/issues/3890
+                    old_block,
                     old_block,
                     fetch_from_archival,
                 );
@@ -746,6 +773,7 @@ impl ShardsManager {
                 &chunk_hash,
                 chunk_request.added.elapsed()
                     > self.requested_partial_encoded_chunks.switch_to_full_fetch_duration,
+                old_block,
                 old_block
                     || chunk_request.added.elapsed()
                         > self.requested_partial_encoded_chunks.switch_to_others_duration,
