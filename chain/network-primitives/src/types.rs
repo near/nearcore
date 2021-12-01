@@ -130,6 +130,7 @@ impl TryFrom<&str> for PeerInfo {
 /// TODO: Remove in next version
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
+/// Represents `peers` view about chain.
 pub struct PeerChainInfo {
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,
@@ -369,7 +370,7 @@ impl AccountOrPeerIdOrHash {
         match self {
             AccountOrPeerIdOrHash::AccountId(_) => None,
             AccountOrPeerIdOrHash::PeerId(peer_id) => Some(PeerIdOrHash::PeerId(peer_id.clone())),
-            AccountOrPeerIdOrHash::Hash(hash) => Some(PeerIdOrHash::Hash(hash.clone())),
+            AccountOrPeerIdOrHash::Hash(hash) => Some(PeerIdOrHash::Hash(*hash)),
         }
     }
 }
@@ -443,7 +444,7 @@ impl RoutedMessage {
     }
 
     pub fn verify(&self) -> bool {
-        self.signature.verify(self.hash().as_ref(), &self.author.public_key())
+        self.signature.verify(self.hash().as_ref(), self.author.public_key())
     }
 
     pub fn expect_response(&self) -> bool {

@@ -44,15 +44,7 @@ steps:
 
       python3 scripts/check_nightly.py
       python3 scripts/check_pytests.py
-      # TODO(near-ops#645): Remove pip install once yapf is bundled in the image.
-      python3 -m pip install --user yapf
-      if ! python3 -m yapf -pdr pytest scripts; then
-          set +x
-          echo 'Some of the Python files are not correctly formatted; please run'
-          echo '    python3 -m pip install -U yapf'
-          echo '    python3 -m yapf -pir pytest scripts'
-          exit 1
-      fi >&2
+      sh scripts/check_formatting.sh
       rm target/rpc_errors_schema.json
       RUSTFLAGS='-D warnings' cargo check -p near-jsonrpc --features dump_errors_schema
       if ! git --no-pager diff --no-index chain/jsonrpc/res/rpc_errors_schema.json target/rpc_errors_schema.json; then

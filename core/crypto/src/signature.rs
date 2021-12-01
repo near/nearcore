@@ -205,7 +205,9 @@ impl Ord for ED25519PublicKey {
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq)]
 pub enum PublicKey {
+    /// 256 bit elliptic curve based public-key.
     ED25519(ED25519PublicKey),
+    /// 512 bit elliptic curve based public-key used in Bitcoin's public-key cryptography.
     SECP256K1(Secp256K1PublicKey),
 }
 

@@ -50,7 +50,7 @@ impl fmt::Display for CostTable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for cost in Cost::all() {
             if let Some(gas) = self.get(cost) {
-                let gas = separate_thousands(gas);
+                let gas = format_gas(gas);
                 writeln!(f, "{:<35} {:>25}", cost.to_string(), gas)?
             }
         }
@@ -58,7 +58,7 @@ impl fmt::Display for CostTable {
     }
 }
 
-fn separate_thousands(mut n: u64) -> String {
+pub(crate) fn format_gas(mut n: Gas) -> String {
     let mut parts = Vec::new();
     while n >= 1000 {
         parts.push(format!("{:03?}", n % 1000));
@@ -71,8 +71,8 @@ fn separate_thousands(mut n: u64) -> String {
 
 #[test]
 fn test_separate_thousands() {
-    assert_eq!(separate_thousands(0).as_str(), "0");
-    assert_eq!(separate_thousands(999).as_str(), "999");
-    assert_eq!(separate_thousands(1000).as_str(), "1_000");
-    assert_eq!(separate_thousands(u64::MAX).as_str(), "18_446_744_073_709_551_615");
+    assert_eq!(format_gas(0).as_str(), "0");
+    assert_eq!(format_gas(999).as_str(), "999");
+    assert_eq!(format_gas(1000).as_str(), "1_000");
+    assert_eq!(format_gas(u64::MAX).as_str(), "18_446_744_073_709_551_615");
 }
