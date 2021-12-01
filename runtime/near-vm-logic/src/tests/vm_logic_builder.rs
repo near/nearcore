@@ -1,11 +1,10 @@
+use crate::mocks::mock_external::MockedExternal;
+use crate::mocks::mock_memory::MockedMemory;
+use crate::types::PromiseResult;
+use crate::VMContext;
+use crate::{VMConfig, VMLogic};
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
-use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::mocks::mock_memory::MockedMemory;
-use near_vm_logic::VMContext;
-use near_vm_logic::{VMConfig, VMLogic};
-
-use near_vm_logic::types::PromiseResult;
-use near_vm_logic::ProtocolVersion;
+use near_primitives_core::types::ProtocolVersion;
 
 pub(crate) const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;
 
