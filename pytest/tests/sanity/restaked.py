@@ -31,7 +31,7 @@ def start_restaked(node_dir, rpc_port, config):
         config = load_config()
     near_root = config['near_root']
     command = [
-        near_root + 'restaked',
+        os.path.join(near_root, 'restaked'),
         '--rpc-url=127.0.0.1:%d' % rpc_port, '--wait-period=1'
     ]
     if node_dir:
