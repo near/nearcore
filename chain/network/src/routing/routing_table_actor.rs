@@ -416,11 +416,13 @@ impl Handler<StopMsg> for RoutingTableActor {
     }
 }
 
-impl Handler<ValidateEdgeList> for RoutingTableActor {
-    type Result = bool;
-
+impl RoutingTableActor {
     #[perf]
-    fn handle(&mut self, msg: ValidateEdgeList, ctx: &mut Self::Context) -> Self::Result {
+    fn handle_validate_edge_list(
+        &mut self,
+        msg: ValidateEdgeList,
+        ctx: &mut Context<RoutingTableActor>,
+    ) -> bool {
         self.edge_validator_requests_in_progress += 1;
         let mut msg = msg;
         msg.edges.retain(|x| self.is_edge_newer(x.key(), x.nonce()));
@@ -479,6 +481,7 @@ pub enum RoutingTableMessages {
         prune: Prune,
         prune_edges_not_reachable_for: Duration,
     },
+    ValidateEdgeList(ValidateEdgeList),
 }
 
 impl Message for RoutingTableMessages {
@@ -542,8 +545,12 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
     type Result = RoutingTableMessagesResponse;
 
     #[perf]
-    fn handle(&mut self, msg: RoutingTableMessages, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: RoutingTableMessages, ctx: &mut Self::Context) -> Self::Result {
         match msg {
+            RoutingTableMessages::ValidateEdgeList(validate_edge_list) => {
+                self.handle_validate_edge_list(validate_edge_list, ctx);
+                RoutingTableMessagesResponse::Empty
+            }
             RoutingTableMessages::AddVerifiedEdges { edges } => {
                 RoutingTableMessagesResponse::AddVerifiedEdgesResponse(
                     self.add_verified_edges_to_routing_table(edges),
