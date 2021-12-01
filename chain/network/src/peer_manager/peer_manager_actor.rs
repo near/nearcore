@@ -2215,7 +2215,7 @@ impl Handler<ActixMessageWrapper<PeerManagerMessageRequest>> for PeerManagerActo
         // TODO(#5155) Add support for DeepSizeOf to result
         ActixMessageResponse::new(
             result,
-            ThrottleToken::new_without_size(throttle_token.into_inner()),
+            ThrottleToken::new_without_size(throttle_token.throttle_controller().cloned()),
         )
     }
 }

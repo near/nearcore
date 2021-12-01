@@ -773,7 +773,10 @@ impl Handler<ActixMessageWrapper<RoutingTableMessages>> for RoutingTableActor {
         let result = self.handle(msg, ctx);
 
         // TODO(#5155) Add support for DeepSizeOf to result
-        ActixMessageResponse::new(result, ThrottleToken::new(throttle_token.into_inner(), 0))
+        ActixMessageResponse::new(
+            result,
+            ThrottleToken::new(throttle_token.throttle_controller().cloned(), 0),
+        )
     }
 }
 
