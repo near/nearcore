@@ -189,12 +189,17 @@ impl RoutingTableActor {
             let mut update = self.store.store_update();
 
             // Load all edges that were persisted in database in the cell - and add them to the current graph.
+            let mut visited: HashSet<PeerId> = HashSet::new();
             if let Ok(edges) = self.get_and_remove_component_edges(component_nonce, &mut update) {
                 for edge in edges {
                     for &peer_id in vec![&edge.key().0, &edge.key().1].iter() {
                         if peer_id == &my_peer_id {
                             continue;
                         }
+                        if visited.contains(peer_id) {
+                            continue;
+                        }
+                        visited.insert(peer_id.clone());
 
                         // `edge = (peer_id, other_peer_id)` belongs to component that we loaded from database.
                         if let Ok(cur_nonce) = self.component_nonce_from_peer(peer_id) {
