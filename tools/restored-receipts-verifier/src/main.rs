@@ -30,11 +30,6 @@ fn get_differences_with_hashes_from_repo(
 }
 
 fn main() -> Result<()> {
-    // Script to verify that receipts being restored after apply_chunks fix were actually created.
-    // Because receipt hashes are unique, we only check for their presence.
-    // See https://github.com/near/nearcore/pull/4248/ for more details.
-    // Requirement: mainnet archival node dump.
-
     eprintln!("restored-receipts-verifier started");
 
     let default_home = get_default_home();
