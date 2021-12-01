@@ -77,7 +77,7 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::errors::Pa
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct Secp256K1PublicKey([u8; 64]);
 
 #[cfg(feature = "deepsize_feature")]
