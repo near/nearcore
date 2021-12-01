@@ -1,9 +1,6 @@
-mod fixtures;
-mod vm_logic_builder;
-
-use fixtures::get_context;
-use near_vm_logic::External;
-use vm_logic_builder::VMLogicBuilder;
+use crate::tests::fixtures::get_context;
+use crate::tests::vm_logic_builder::VMLogicBuilder;
+use crate::External;
 
 #[test]
 fn test_storage_write_with_register() {
