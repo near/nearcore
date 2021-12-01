@@ -1,7 +1,7 @@
 steps:
   - label: "cargo test"
     command: |
-      source ~/.cargo/env && set -eux
+      set -eux
       RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --locked --workspace
 
     timeout: 60
@@ -11,7 +11,7 @@ steps:
 
   - label: "cargo test nightly"
     command: |
-      source ~/.cargo/env && set -eux
+      set -eux
       RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features,test_features
 
     timeout: 60
@@ -21,7 +21,7 @@ steps:
 
   - label: "sanity checks"
     command: |
-      source ~/.cargo/env && set -eux
+      set -eux
       rustc --version && cargo --version
       if [ -e deny.toml ]; then
         cargo-deny --all-features check bans
@@ -60,9 +60,7 @@ steps:
 
   - label: "nearlib test"
     command: |
-      source ~/.cargo/env && set -eux
-      source ~/.nvm/nvm.sh
-      source ~/.yarn/yarn.sh
+      set -eux
       rustup default nightly-2020-05-15
       rustup target add wasm32-unknown-unknown
       scripts/test_nearlib.sh
@@ -73,7 +71,7 @@ steps:
 
   - label: "backward compatible"
     command: |
-      source ~/.cargo/env && set -eux
+      set -eux
       cd pytest
       pip3 install --user -r requirements.txt
       pwd
@@ -87,7 +85,7 @@ steps:
 
   - label: "upgradable"
     command: |
-      source ~/.cargo/env && set -eux
+      set -eux
       cd pytest
       pip3 install --user -r requirements.txt
       python3 tests/sanity/upgradable.py
@@ -98,7 +96,7 @@ steps:
 
   - label: "db migration"
     command: |
-      source ~/.cargo/env && set -eux
+      set -eux
       cd pytest
       pip3 install --user -r requirements.txt
       python3 tests/sanity/db_migration.py
@@ -109,7 +107,7 @@ steps:
 
   - label: "runtime params estimate"
     command: |
-      source ~/.cargo/env && set -eux
+      set -eux
       cd runtime/runtime-params-estimator/test-contract
       ./build.sh
       cd ..
@@ -123,23 +121,3 @@ steps:
   #- label: "near-sdk-rs tests"
   #  trigger: "near-sdk-rs"
   #  branches: "!master"
-
-  # Disable rainbow bridge tests as they are temporary broken
-  # - label: "rainbow-bridge test"
-  #   command: |
-  #    source ~/.cargo/env && set -eux
-  #    source ~/.nvm/nvm.sh
-
-  #    git clone https://github.com/near/rainbow-bridge
-  #    cd rainbow-bridge
-  #    source ci/e2e_ci_prepare_env.sh
-  #    source ci/e2e_ci_prepare_log.sh
-
-  #    LOCAL_CORE_SRC=.. ci/e2e.sh
-
-  #  timeout: 60
-  #  agents:
-  #  - "queue=default"
-  #  branches: "!master"
-  #  artifact_paths:
-  #  - "rainbow-bridge/logs/**/*.log"
