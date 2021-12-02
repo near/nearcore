@@ -396,7 +396,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
     current_protocol_version: ProtocolVersion,
 ) {
     // NOTE: The account_id is hex like, because we've checked the permissions before.
-    debug_assert!(AccountId::is_implicit(account_id.as_ref()));
+    debug_assert!(account_id.is_implicit());
 
     *actor_id = account_id.clone();
 
@@ -659,7 +659,7 @@ pub(crate) fn check_account_existence(
                 .into());
             } else {
                 if is_implicit_account_creation_enabled(current_protocol_version)
-                    && AccountId::is_implicit(account_id.as_ref())
+                    && account_id.is_implicit()
                 {
                     // If the account doesn't exist and it's 64-length hex account ID, then you
                     // should only be able to create it using single transfer action.
@@ -681,7 +681,7 @@ pub(crate) fn check_account_existence(
             if account.is_none() {
                 return if is_implicit_account_creation_enabled(current_protocol_version)
                     && is_the_only_action
-                    && AccountId::is_implicit(account_id.as_ref())
+                    && account_id.is_implicit()
                     && !is_refund
                 {
                     // OK. It's implicit account creation.
