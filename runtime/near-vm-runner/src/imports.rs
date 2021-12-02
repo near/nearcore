@@ -18,7 +18,7 @@
 //! The actual implementation is a bit more complicated, for two reasons. First,
 //! host functions have different signatures, so there isn't a trivial single
 //! type one can use to hold a host function. Second, we want to use direct
-//! calls in the jitted wasm, so we need to avoid dynamic dispatch and hand
+//! calls in the compiled WASM, so we need to avoid dynamic dispatch and hand
 //! functions as ZSTs to the WASM runtimes. This basically means that we need to
 //! code the above for-loop as a macro.
 //!
