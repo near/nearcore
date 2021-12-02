@@ -65,7 +65,7 @@ pub enum ShardLayout {
 /// `parent_shards` for `ShardLayoutV1` is always `None`, meaning it can only be the first shard layout
 /// a chain uses.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-struct ShardLayoutV0 {
+pub struct ShardLayoutV0 {
     /// Map accounts evenly across all shards
     num_shards: NumShards,
     /// Version of the shard layout, this is useful for uniquely identify the shard layout
@@ -79,7 +79,7 @@ struct ShardLayoutV0 {
 type ShardSplitMap = Vec<Vec<ShardId>>;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-struct ShardLayoutV1 {
+pub struct ShardLayoutV1 {
     /// num_shards = fixed_shards.len() + boundary_accounts.len() + 1
     /// Each account and all sub-accounts map to the shard of position in this array.
     fixed_shards: Vec<AccountId>,
