@@ -197,15 +197,14 @@ class RosettaTestCase(unittest.TestCase):
 
     def test_get_block(self) -> None:
         block_0 = self.rosetta.get_block(block_id=0)
-        # Genesis block’s parent is genesis block itself.
         block_0_id = block_0['block']['block_identifier']
-        self.assertEqual(block_0_id,
-                         block_0['block']['parent_block_identifier'])
         self.assertEqual(
-            block_0, {
+            block_0,
+            {
                 'block': {
                     'block_identifier':
                         block_0_id,
+                    # Genesis block’s parent is genesis block itself.
                     'parent_block_identifier':
                         block_0_id,
                     'timestamp':
