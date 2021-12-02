@@ -208,7 +208,9 @@ impl AccountId {
     /// let alice: AccountId = "alice.near".parse().unwrap();
     /// assert!(!alice.is_implicit());
     ///
-    /// let rando: AccountId = "98793cd91a3f870fb126f66285808c7e094afcfc4eda8a970f6648cdf0dbd6de".parse().unwrap();
+    /// let rando = "98793cd91a3f870fb126f66285808c7e094afcfc4eda8a970f6648cdf0dbd6de"
+    ///     .parse::<AccountId>()
+    ///     .unwrap();
     /// assert!(rando.is_implicit());
     /// ```
     pub fn is_implicit(&self) -> bool {
