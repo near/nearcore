@@ -21,6 +21,8 @@
 //!
 //! Learn more here: <https://docs.near.org/docs/concepts/account#account-id-rules>
 //!
+//! Also see [Error kind precedence](AccountId#error-kind-precedence).
+//!
 //! ## Usage
 //!
 //! ```
@@ -49,6 +51,8 @@ pub use errors::{ParseAccountError, ParseErrorKind};
 /// This is a unique, syntactically valid, human-readable account identifier on the NEAR network.
 ///
 /// [See the crate-level docs for information about validation.](index.html#account-id-rules)
+///
+/// Also see [Error kind precedence](AccountId#error-kind-precedence).
 ///
 /// ## Examples
 ///
@@ -183,8 +187,46 @@ impl AccountId {
     ///
     /// assert!(
     ///   matches!(
-    ///     AccountId::validate("MelissaCarver.near"), // no caps
-    ///     Err(err) if err.kind() == &ParseErrorKind::Invalid
+    ///     AccountId::validate("ƒelicia.near"), // fancy ƒ!
+    ///     Err(err) if err.kind() == &ParseErrorKind::InvalidChar
+    ///   )
+    /// );
+    /// ```
+    ///
+    /// ## Error kind precedence
+    ///
+    /// If an Account ID has multiple format violations, the first one would be reported.
+    ///
+    /// ### Examples
+    ///
+    /// ```
+    /// use near_account_id::{AccountId, ParseErrorKind};
+    ///
+    /// assert!(
+    ///   matches!(
+    ///     AccountId::validate("A__ƒƒluent."),
+    ///     Err(err) if err.kind() == &ParseErrorKind::InvalidChar // A
+    ///   )
+    /// );
+    ///
+    /// assert!(
+    ///   matches!(
+    ///     AccountId::validate("a__ƒƒluent."),
+    ///     Err(err) if err.kind() == &ParseErrorKind::RedundantSeparator // __
+    ///   )
+    /// );
+    ///
+    /// assert!(
+    ///   matches!(
+    ///     AccountId::validate("aƒƒluent."),
+    ///     Err(err) if err.kind() == &ParseErrorKind::InvalidChar // ƒ
+    ///   )
+    /// );
+    ///
+    /// assert!(
+    ///   matches!(
+    ///     AccountId::validate("affluent."),
+    ///     Err(err) if err.kind() == &ParseErrorKind::RedundantSeparator // .
     ///   )
     /// );
     /// ```
@@ -207,16 +249,16 @@ impl AccountId {
                 let current_char_is_separator = match c {
                     b'a'..=b'z' | b'0'..=b'9' => false,
                     b'-' | b'_' | b'.' => true,
-                    _ => return Err(ParseAccountError(ParseErrorKind::Invalid)),
+                    _ => return Err(ParseAccountError(ParseErrorKind::InvalidChar)),
                 };
                 if current_char_is_separator && last_char_is_separator {
-                    return Err(ParseAccountError(ParseErrorKind::Invalid));
+                    return Err(ParseAccountError(ParseErrorKind::RedundantSeparator));
                 }
                 last_char_is_separator = current_char_is_separator;
             }
 
             if last_char_is_separator {
-                return Err(ParseAccountError(ParseErrorKind::Invalid));
+                return Err(ParseAccountError(ParseErrorKind::RedundantSeparator));
             }
             Ok(())
         }
@@ -390,6 +432,37 @@ mod tests {
                 panic!("Invalid account id {:?} marked valid", account_id);
             }
         }
+    }
+
+    #[test]
+    fn test_err_kind_classification() {
+        let id = "ErinMoriarty.near".parse::<AccountId>();
+        debug_assert!(
+            matches!(id, Err(ref err) if err.kind() == &ParseErrorKind::InvalidChar),
+            "{:?}",
+            id
+        );
+
+        let id = "-KarlUrban.near".parse::<AccountId>();
+        debug_assert!(
+            matches!(id, Err(ref err) if err.kind() == &ParseErrorKind::RedundantSeparator),
+            "{:?}",
+            id
+        );
+
+        let id = "anthonystarr.".parse::<AccountId>();
+        debug_assert!(
+            matches!(id, Err(ref err) if err.kind() == &ParseErrorKind::RedundantSeparator),
+            "{:?}",
+            id
+        );
+
+        let id = "jack__Quaid.near".parse::<AccountId>();
+        debug_assert!(
+            matches!(id, Err(ref err) if err.kind() == &ParseErrorKind::RedundantSeparator),
+            "{:?}",
+            id
+        );
     }
 
     #[test]
