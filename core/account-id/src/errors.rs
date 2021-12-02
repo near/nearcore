@@ -33,17 +33,17 @@ pub enum ParseErrorKind {
 }
 
 impl ParseErrorKind {
-    /// Returns `true` if the Account Id was too long.
+    /// Returns `true` if the Account ID was too long.
     pub fn is_too_long(&self) -> bool {
         matches!(self, ParseErrorKind::TooLong)
     }
 
-    /// Returns `true` if the Account Id was too short.
+    /// Returns `true` if the Account ID was too short.
     pub fn is_too_short(&self) -> bool {
         matches!(self, ParseErrorKind::TooShort)
     }
 
-    /// Returns `true` if the Account Id was marked invalid.
+    /// Returns `true` if the Account ID was marked invalid.
     ///
     /// This can happen for the following reasons:
     ///

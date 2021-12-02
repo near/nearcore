@@ -63,7 +63,7 @@
 
 use std::{fmt, str::FromStr};
 
-mod error;
+mod errors;
 
 #[cfg(feature = "borsh")]
 mod borsh;
@@ -72,7 +72,7 @@ mod serde;
 
 #[cfg(feature = "deepsize_feature")]
 use deepsize::DeepSizeOf;
-pub use error::{ParseAccountError, ParseErrorKind};
+pub use errors::{ParseAccountError, ParseErrorKind};
 
 /// Smallest valid length for a NEAR Account ID.
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
@@ -139,7 +139,7 @@ impl AccountId {
     /// let carol: AccountId = "carol.near".parse().unwrap();
     /// assert_eq!(10, carol.len());
     /// ```
-
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.0.len()
     }
@@ -291,6 +291,7 @@ impl AccountId {
     /// You can use the [`AccountId::validate`] function sometime after its creation but before it's use.
     ///
     /// ## Examples
+    ///
     /// ```
     /// use near_account_id::AccountId;
     ///
