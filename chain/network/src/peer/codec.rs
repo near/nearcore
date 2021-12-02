@@ -100,7 +100,7 @@ impl Decoder for Codec {
 #[cfg(test)]
 mod test {
     use crate::peer::codec::{Codec, NETWORK_MESSAGE_MAX_SIZE_BYTES};
-    use crate::peer::utils::is_forward_transaction;
+
     use crate::routing::edge::PartialEdgeInfo;
     use crate::types::{Handshake, HandshakeFailureReason, HandshakeV2, PeerMessage, SyncData};
     use crate::PeerInfo;
@@ -113,9 +113,9 @@ mod test {
         RoutedMessageBody,
     };
     use near_primitives::block::{Approval, ApprovalInner};
-    use near_primitives::hash::{self, CryptoHash};
+    use near_primitives::hash::CryptoHash;
     use near_primitives::network::{AnnounceAccount, PeerId};
-    use near_primitives::transaction::{SignedTransaction, Transaction};
+
     use near_primitives::types::EpochId;
     use near_primitives::version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION};
     use tokio_util::codec::{Decoder, Encoder};
@@ -126,89 +126,6 @@ mod test {
         codec.encode(msg.try_to_vec().unwrap(), &mut buffer).unwrap();
         let decoded = codec.decode(&mut buffer).unwrap().unwrap().unwrap();
         assert_eq!(PeerMessage::try_from_slice(&decoded).unwrap(), msg);
-    }
-
-    #[derive(Debug, Copy, Clone)]
-    enum ForwardTxTargetType {
-        Hash,
-        PublicKey(KeyType),
-    }
-
-    #[derive(Debug, Copy, Clone)]
-    struct ForwardTxType {
-        target: ForwardTxTargetType,
-        author: KeyType,
-        tx: KeyType,
-    }
-
-    fn create_tx_forward(schema: ForwardTxType) -> PeerMessage {
-        let target = match schema.target {
-            ForwardTxTargetType::Hash => PeerIdOrHash::Hash(hash::hash(b"peer_id_hash")),
-            ForwardTxTargetType::PublicKey(key_type) => {
-                let secret_key = SecretKey::from_seed(key_type, "target_secret_key");
-                PeerIdOrHash::PeerId(PeerId::new(secret_key.public_key()))
-            }
-        };
-
-        let (author, signature) = {
-            let secret_key = SecretKey::from_seed(schema.author, "author_secret_key");
-            let public_key = secret_key.public_key();
-            let author = PeerId::new(public_key);
-            let msg_data = hash::hash(b"msg_data");
-            let signature = secret_key.sign(msg_data.as_ref());
-
-            (author, signature)
-        };
-
-        let tx = {
-            let secret_key = SecretKey::from_seed(schema.tx, "tx_secret_key");
-            let public_key = secret_key.public_key();
-            let tx_hash = hash::hash(b"this_great_tx_data");
-            let signature = secret_key.sign(tx_hash.as_ref());
-
-            SignedTransaction::new(
-                signature,
-                Transaction::new(
-                    "test_x".parse().unwrap(),
-                    public_key,
-                    "test_y".parse().unwrap(),
-                    7,
-                    tx_hash,
-                ),
-            )
-        };
-
-        PeerMessage::Routed(RoutedMessage {
-            target,
-            author,
-            signature,
-            ttl: 99,
-            body: RoutedMessageBody::ForwardTx(tx),
-        })
-    }
-
-    #[test]
-    fn test_tx_forward() {
-        let targets = [
-            ForwardTxTargetType::PublicKey(KeyType::ED25519),
-            ForwardTxTargetType::PublicKey(KeyType::SECP256K1),
-            ForwardTxTargetType::Hash,
-        ];
-        let authors = [KeyType::ED25519, KeyType::SECP256K1];
-        let txs_keys = [KeyType::ED25519, KeyType::SECP256K1];
-
-        let schemas = targets
-            .iter()
-            .flat_map(|target| authors.iter().map(move |author| (*target, *author)))
-            .flat_map(|(target, author)| {
-                txs_keys.iter().map(move |tx| ForwardTxType { target, author, tx: *tx })
-            });
-
-        schemas.for_each(|s| {
-            let msg = create_tx_forward(s);
-            let bytes = msg.try_to_vec().unwrap();
-            assert!(is_forward_transaction(&bytes).unwrap());
-        })
     }
 
     #[test]
