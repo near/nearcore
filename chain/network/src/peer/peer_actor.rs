@@ -749,7 +749,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                             PeerManagerMessageRequest::PeerRequest(PeerRequest::UpdatePeerInfo(
                                 peer_info,
                             )),
-                            self.throttle_controller.clone(),
+                            Some(self.throttle_controller.clone()),
                         ));
                     }
                 }
@@ -833,7 +833,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         this_edge_info: self.partial_edge_info.clone(),
                         other_edge_info: handshake.partial_edge_info.clone(),
                         peer_protocol_version: self.protocol_version,
-                    }), self.throttle_controller.clone()))
+                    }), Some(self.throttle_controller.clone())))
                     .into_actor(self)
                     .then(move |res, act, ctx| {
                         match res.map(|f|f.into_inner().as_consolidate_response()) {
@@ -882,7 +882,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                             self.other_peer_id().unwrap().clone(),
                             edge.next(),
                         ))),
-                        self.throttle_controller.clone(),
+                        Some(self.throttle_controller.clone()),
                     ))
                     .into_actor(self)
                     .then(|res, act, ctx| {
@@ -907,7 +907,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             }
             (_, PeerStatus::Ready, PeerMessage::PeersRequest) => {
                 self.peer_manager_addr.send(ActixMessageWrapper::new_without_size(PeerManagerMessageRequest::PeersRequest(PeersRequest {}),
-                                                                     self.throttle_controller.clone(),
+                                                                     Some(self.throttle_controller.clone()),
 
                 )).into_actor(self).then(|res, act, _ctx| {
                     if let Ok(peers) = res.map(|f|f.into_inner().as_peers_request_result()) {
@@ -923,7 +923,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
                 self.peer_manager_addr.do_send(ActixMessageWrapper::new_without_size(
                     PeerManagerMessageRequest::PeersResponse(PeersResponse { peers }),
-                    self.throttle_controller.clone(),
+                    Some(self.throttle_controller.clone()),
                 ));
             }
             (_, PeerStatus::Ready, PeerMessage::RequestUpdateNonce(edge_info)) => self
@@ -970,7 +970,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         peer_id: self.other_peer_id().unwrap().clone(),
                         sync_data,
                     }),
-                    self.throttle_controller.clone(),
+                    Some(self.throttle_controller.clone()),
                 ));
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -985,7 +985,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         peer_id: self.other_peer_id().unwrap().clone(),
                         ibf_msg: ibf_message,
                     }),
-                    self.throttle_controller.clone(),
+                    Some(self.throttle_controller.clone()),
                 ));
             }
             (_, PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
@@ -1001,7 +1001,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                                 msg: routed_message.clone(),
                                 from: self.other_peer_id().unwrap().clone(),
                             }),
-                            self.throttle_controller.clone(),
+                            Some(self.throttle_controller.clone()),
                         ))
                         .into_actor(self)
                         .then(move |res, act, ctx| {
