@@ -32,9 +32,11 @@ use std::collections::HashMap;
 /// `get_parent_shard_id` and `get_split_shard_ids`
 /// `ShardLayout` also includes information needed for splitting shards. In particular, it encodes
 /// which shards from the previous shard layout split to which shards in the following shard layout.
-/// We only allow adding new shards that are split from the existing shards.
-/// If shard B and C are split from shard A, we call shard A the parent shard of shard B and C.
-/// Parent/split shard information can be accessed through function
+/// If shard A in shard layout 0 splits to shard B and C in shard layout 1,
+/// we call shard A the parent shard of shard B and C.
+/// Note that a shard can only have one parent shard. For example, the following case will be prohibited,
+/// a shard C in shard layout 1 contains accounts in both shard A and B in shard layout 0.
+/// Parent/split shard information can be accessed through these two functions.
 ///
 /// `account_id_to_shard_id`
 ///  Maps an account to the shard that it belongs to given a shard_layout
