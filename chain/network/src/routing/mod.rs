@@ -11,7 +11,7 @@ pub(crate) mod routing;
 pub(crate) mod routing_table_actor;
 mod utils;
 
-pub use crate::routing::edge::{Edge, EdgeInfo, EdgeType, SimpleEdge};
+pub use crate::routing::edge::{Edge, EdgeType, PartialEdgeInfo, SimpleEdge};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 pub use crate::routing::ibf_peer_set::SlotMapId;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]

@@ -1,5 +1,5 @@
 use crate::peer::peer_actor::PeerActor;
-use crate::routing::edge::{Edge, EdgeInfo, SimpleEdge};
+use crate::routing::edge::{Edge, PartialEdgeInfo, SimpleEdge};
 use crate::routing::routing::{GetRoutingTableResult, PeerRequestResult, RoutingTableInfo};
 use crate::PeerInfo;
 use actix::dev::{MessageResponse, ResponseChannel};
@@ -56,24 +56,25 @@ impl std::error::Error for HandshakeFailureReason {}
 
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
+/// Structure representing handshake between peers.
+/// This replaces deprecated handshake `HandshakeV2`.
 pub struct Handshake {
-    pub(crate) version: u32,
+    /// Current protocol version.
+    pub(crate) protocol_version: u32,
     /// Oldest supported protocol version.
     pub(crate) oldest_supported_version: u32,
     /// Sender's peer id.
-    pub(crate) peer_id: PeerId,
+    pub(crate) sender_peer_id: PeerId,
     /// Receiver's peer id.
     pub(crate) target_peer_id: PeerId,
     /// Sender's listening addr.
-    pub(crate) listen_port: Option<u16>,
+    pub(crate) sender_listen_port: Option<u16>,
     /// Peer's chain information.
-    pub(crate) chain_info: PeerChainInfoV2,
-    /// Info for new edge.
-    pub(crate) edge_info: EdgeInfo,
+    pub(crate) sender_chain_info: PeerChainInfoV2,
+    /// Represents new `edge`. Contains only `none` and `Signature` from the sender.
+    pub(crate) partial_edge_info: PartialEdgeInfo,
 }
 
-/// Struct describing the layout for Handshake.
-/// It is used to automatically derive BorshDeserialize.
 /// Struct describing the layout for Handshake.
 /// It is used to automatically derive BorshDeserialize.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
@@ -91,7 +92,7 @@ pub(crate) struct HandshakeAutoDes {
     /// Peer's chain information.
     pub(crate) chain_info: PeerChainInfoV2,
     /// Info for new edge.
-    pub(crate) edge_info: EdgeInfo,
+    pub(crate) partial_edge_info: PartialEdgeInfo,
 }
 
 impl Handshake {
@@ -101,16 +102,16 @@ impl Handshake {
         target_peer_id: PeerId,
         listen_port: Option<u16>,
         chain_info: PeerChainInfoV2,
-        edge_info: EdgeInfo,
+        partial_edge_info: PartialEdgeInfo,
     ) -> Self {
         Handshake {
-            version,
+            protocol_version: version,
             oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
-            peer_id,
+            sender_peer_id: peer_id,
             target_peer_id,
-            listen_port,
-            chain_info,
-            edge_info,
+            sender_listen_port: listen_port,
+            sender_chain_info: chain_info,
+            partial_edge_info,
         }
     }
 }
@@ -147,13 +148,13 @@ impl BorshDeserialize for Handshake {
 impl From<HandshakeAutoDes> for Handshake {
     fn from(handshake: HandshakeAutoDes) -> Self {
         Self {
-            version: handshake.version,
+            protocol_version: handshake.version,
             oldest_supported_version: handshake.oldest_supported_version,
-            peer_id: handshake.peer_id,
+            sender_peer_id: handshake.peer_id,
             target_peer_id: handshake.target_peer_id,
-            listen_port: handshake.listen_port,
-            chain_info: handshake.chain_info,
-            edge_info: handshake.edge_info,
+            sender_listen_port: handshake.listen_port,
+            sender_chain_info: handshake.chain_info,
+            partial_edge_info: handshake.partial_edge_info,
         }
     }
 }
@@ -161,14 +162,22 @@ impl From<HandshakeAutoDes> for Handshake {
 // TODO: Remove Handshake V2 in next iteration
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
+/// Deprecated handshake for protocol versions in range `34..=38`.
 pub struct HandshakeV2 {
-    pub(crate) version: u32,
+    /// Protocol version defined in `PROTOCOL_VERSION`
+    pub(crate) protocol_version: u32,
+    /// Oldest supported protocol version.
     pub(crate) oldest_supported_version: u32,
-    pub(crate) peer_id: PeerId,
+    /// Current node's `PeerId`.
+    pub(crate) sender_peer_id: PeerId,
+    /// Target node's `PeerId`.
     pub(crate) target_peer_id: PeerId,
-    pub(crate) listen_port: Option<u16>,
+    /// Sender's listen port
+    pub(crate) sender_listen_port: Option<u16>,
+    /// Represents `peer`s `view about chain` from it's perspective.
     pub(crate) chain_info: PeerChainInfo,
-    pub(crate) edge_info: EdgeInfo,
+    /// Represents `edge` with `nonce` and `Signature` from only of one peers.
+    pub(crate) partial_edge_info: PartialEdgeInfo,
 }
 
 impl HandshakeV2 {
@@ -176,18 +185,18 @@ impl HandshakeV2 {
         version: ProtocolVersion,
         peer_id: PeerId,
         target_peer_id: PeerId,
-        listen_port: Option<u16>,
+        sender_listen_port: Option<u16>,
         chain_info: PeerChainInfo,
-        edge_info: EdgeInfo,
+        partial_edge_info: PartialEdgeInfo,
     ) -> Self {
         Self {
-            version,
+            protocol_version: version,
             oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
-            peer_id,
+            sender_peer_id: peer_id,
             target_peer_id,
-            listen_port,
+            sender_listen_port,
             chain_info,
-            edge_info,
+            partial_edge_info,
         }
     }
 }
@@ -202,7 +211,7 @@ pub(crate) struct HandshakeV2AutoDes {
     pub(crate) target_peer_id: PeerId,
     pub(crate) listen_port: Option<u16>,
     pub(crate) chain_info: PeerChainInfo,
-    pub(crate) edge_info: EdgeInfo,
+    pub(crate) partial_edge_info: PartialEdgeInfo,
 }
 
 // Use custom deserializer for HandshakeV2. Try to read version of the other peer from the header.
@@ -238,13 +247,13 @@ impl BorshDeserialize for HandshakeV2 {
 impl From<HandshakeV2AutoDes> for HandshakeV2 {
     fn from(handshake: HandshakeV2AutoDes) -> Self {
         Self {
-            version: handshake.version,
+            protocol_version: handshake.version,
             oldest_supported_version: handshake.oldest_supported_version,
-            peer_id: handshake.peer_id,
+            sender_peer_id: handshake.peer_id,
             target_peer_id: handshake.target_peer_id,
-            listen_port: handshake.listen_port,
+            sender_listen_port: handshake.listen_port,
             chain_info: handshake.chain_info,
-            edge_info: handshake.edge_info,
+            partial_edge_info: handshake.partial_edge_info,
         }
     }
 }
@@ -252,13 +261,13 @@ impl From<HandshakeV2AutoDes> for HandshakeV2 {
 impl From<HandshakeV2> for Handshake {
     fn from(handshake: HandshakeV2) -> Self {
         Self {
-            version: handshake.version,
+            protocol_version: handshake.protocol_version,
             oldest_supported_version: handshake.oldest_supported_version,
-            peer_id: handshake.peer_id,
+            sender_peer_id: handshake.sender_peer_id,
             target_peer_id: handshake.target_peer_id,
-            listen_port: handshake.listen_port,
-            chain_info: handshake.chain_info.into(),
-            edge_info: handshake.edge_info,
+            sender_listen_port: handshake.sender_listen_port,
+            sender_chain_info: handshake.chain_info.into(),
+            partial_edge_info: handshake.partial_edge_info,
         }
     }
 }
@@ -307,7 +316,7 @@ pub enum PeerMessage {
     LastEdge(Edge),
     /// Contains accounts and edge information.
     RoutingTableSync(SyncData),
-    RequestUpdateNonce(EdgeInfo),
+    RequestUpdateNonce(PartialEdgeInfo),
     ResponseUpdateNonce(Edge),
 
     PeersRequest,
@@ -451,9 +460,9 @@ pub struct RegisterPeer {
     /// Edge information from this node.
     /// If this is None it implies we are outbound connection, so we need to create our
     /// EdgeInfo part and send it to the other peer.
-    pub(crate) this_edge_info: Option<EdgeInfo>,
+    pub(crate) this_edge_info: Option<PartialEdgeInfo>,
     /// Edge information from other node.
-    pub(crate) other_edge_info: EdgeInfo,
+    pub(crate) other_edge_info: PartialEdgeInfo,
     /// Protocol version of new peer. May be higher than ours.
     pub(crate) peer_protocol_version: ProtocolVersion,
 }
@@ -477,7 +486,7 @@ impl Message for RegisterPeer {
 
 #[derive(MessageResponse, Debug)]
 pub enum RegisterPeerResponse {
-    Accept(Option<EdgeInfo>),
+    Accept(Option<PartialEdgeInfo>),
     InvalidNonce(Box<Edge>),
     Reject,
 }
@@ -575,7 +584,7 @@ impl Message for PeerRequest {
 #[derive(MessageResponse, Debug)]
 pub enum PeerResponse {
     NoResponse,
-    UpdatedEdge(EdgeInfo),
+    UpdatedEdge(PartialEdgeInfo),
 }
 
 /// Requesting peers from peer manager to communicate to a peer.
@@ -819,7 +828,7 @@ pub enum NetworkRequests {
         sync_data: SyncData,
     },
 
-    RequestUpdateNonce(PeerId, EdgeInfo),
+    RequestUpdateNonce(PeerId, PartialEdgeInfo),
     ResponseUpdateNonce(Edge),
 
     /// (Unit tests) Start ping to `PeerId` with `nonce`.
@@ -838,13 +847,32 @@ pub enum NetworkRequests {
     },
 }
 
+/// List of `Edges`, which we received from `source_peer_id` gor purpose of validation.
+/// Those are list of edges received through `NetworkRequests::Sync` or `NetworkRequests::IbfMessage`.
 pub struct ValidateEdgeList {
+    /// The list of edges is provided by `source_peer_id`, that peer will be banned
+    ///if any of these edges are invalid.
+    pub(crate) source_peer_id: PeerId,
+    /// List of Edges, which will be sent to `EdgeValidatorActor`.
     pub(crate) edges: Vec<Edge>,
+    /// A set of edges, which have been verified. This is a cache with all verified edges.
+    /// `EdgeValidatorActor`, and is a source of memory leak.
+    /// TODO(#5254): Simplify this process.
     pub(crate) edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
+    /// A concurrent queue. After edge become validated it will be sent from `EdgeValidatorActor` back to
+    /// `PeerManagetActor`, and then send to `RoutingTableActor`. And then `RoutingTableActor`
+    /// will add them.
+    /// TODO(#5254): Simplify this process.
     pub(crate) sender: QueueSender<Edge>,
     #[cfg(feature = "test_features")]
+    /// Feature to disable edge validation for purpose of testing.
     pub(crate) adv_disable_edge_signature_verification: bool,
-    pub(crate) peer_id: PeerId,
+}
+
+impl Debug for ValidateEdgeList {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("source_peer_id").finish()
+    }
 }
 
 impl Message for ValidateEdgeList {
@@ -856,7 +884,7 @@ impl Message for ValidateEdgeList {
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
     pub chain_info: PeerChainInfoV2,
-    pub edge_info: EdgeInfo,
+    pub partial_edge_info: PartialEdgeInfo,
 }
 
 #[derive(Debug)]

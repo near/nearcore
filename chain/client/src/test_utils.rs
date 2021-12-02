@@ -20,7 +20,7 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
-use near_network::routing::EdgeInfo;
+use near_network::routing::PartialEdgeInfo;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRecipient, NetworkRequests,
@@ -575,7 +575,7 @@ pub fn setup_mock_all_validators(
                                     tracked_shards: vec![],
                                     archival: true,
                                 },
-                                edge_info: EdgeInfo::default(),
+                                partial_edge_info: PartialEdgeInfo::default(),
                             })
                             .collect();
                         let peers2 = peers.clone();

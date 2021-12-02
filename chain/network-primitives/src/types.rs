@@ -130,6 +130,7 @@ impl TryFrom<&str> for PeerInfo {
 /// TODO: Remove in next version
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
+/// Represents `peers` view about chain.
 pub struct PeerChainInfo {
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,
