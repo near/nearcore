@@ -12,13 +12,13 @@ import sys
 import time
 import pathlib
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
-
 import nacl.signing
+
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[3] / 'lib'))
 from cluster import start_cluster
+from messages import schema
 from peer import ED_PREFIX, connect, run_handshake, create_peer_request
 from utils import obj_to_string
-from messages import schema
 
 nodes = start_cluster(1, 0, 4, None, [], {})
 

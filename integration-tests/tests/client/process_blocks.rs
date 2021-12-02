@@ -31,7 +31,7 @@ use near_network::types::{
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 
-use near_network::routing::EdgeInfo;
+use near_network::routing::PartialEdgeInfo;
 use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
 use near_primitives::epoch_manager::RngSeed;
@@ -957,7 +957,7 @@ fn client_sync_headers() {
                     tracked_shards: vec![],
                     archival: false,
                 },
-                edge_info: EdgeInfo::default(),
+                partial_edge_info: PartialEdgeInfo::default(),
             }],
             num_active_peers: 1,
             peer_max_count: 1,
@@ -969,7 +969,7 @@ fn client_sync_headers() {
                     tracked_shards: vec![],
                     archival: false,
                 },
-                edge_info: EdgeInfo::default(),
+                partial_edge_info: PartialEdgeInfo::default(),
             }],
             sent_bytes_per_sec: 0,
             received_bytes_per_sec: 0,
