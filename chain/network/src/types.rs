@@ -869,6 +869,12 @@ pub struct ValidateEdgeList {
     pub(crate) adv_disable_edge_signature_verification: bool,
 }
 
+impl Debug for ValidateEdgeList {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("source_peer_id").finish()
+    }
+}
+
 impl Message for ValidateEdgeList {
     type Result = bool;
 }

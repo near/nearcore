@@ -1,3 +1,4 @@
+use crate::common::message_wrapper::{ActixMessageResponse, ActixMessageWrapper};
 use crate::metrics;
 use crate::routing::edge::{Edge, EdgeType};
 use crate::routing::edge_validator_actor::EdgeValidatorActor;
@@ -12,6 +13,7 @@ use near_performance_metrics_macros::perf;
 use near_primitives::borsh::BorshSerialize;
 use near_primitives::network::PeerId;
 use near_primitives::utils::index_to_bytes;
+use near_rate_limiter::ThrottleToken;
 use near_store::db::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
 use near_store::{Store, StoreUpdate};
 use std::collections::{HashMap, HashSet};
@@ -414,11 +416,13 @@ impl Handler<StopMsg> for RoutingTableActor {
     }
 }
 
-impl Handler<ValidateEdgeList> for RoutingTableActor {
-    type Result = bool;
-
+impl RoutingTableActor {
     #[perf]
-    fn handle(&mut self, msg: ValidateEdgeList, ctx: &mut Self::Context) -> Self::Result {
+    fn handle_validate_edge_list(
+        &mut self,
+        msg: ValidateEdgeList,
+        ctx: &mut Context<RoutingTableActor>,
+    ) -> bool {
         self.edge_validator_requests_in_progress += 1;
         let mut msg = msg;
         msg.edges.retain(|x| self.is_edge_newer(x.key(), x.nonce()));
@@ -477,6 +481,10 @@ pub enum RoutingTableMessages {
         prune: Prune,
         prune_edges_not_reachable_for: Duration,
     },
+    // Gets list of edges to validate from another peer.
+    // Those edges will be filtered, by removing exising edges, and then
+    // those edges will be sent to `EdgeValidatorActor`.
+    ValidateEdgeList(ValidateEdgeList),
 }
 
 impl Message for RoutingTableMessages {
@@ -540,8 +548,12 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
     type Result = RoutingTableMessagesResponse;
 
     #[perf]
-    fn handle(&mut self, msg: RoutingTableMessages, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: RoutingTableMessages, ctx: &mut Self::Context) -> Self::Result {
         match msg {
+            RoutingTableMessages::ValidateEdgeList(validate_edge_list) => {
+                self.handle_validate_edge_list(validate_edge_list, ctx);
+                RoutingTableMessagesResponse::Empty
+            }
             RoutingTableMessages::AddVerifiedEdges { edges } => {
                 RoutingTableMessagesResponse::AddVerifiedEdgesResponse(
                     self.add_verified_edges_to_routing_table(edges),
@@ -744,6 +756,27 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                 }
             }
         }
+    }
+}
+
+impl Handler<ActixMessageWrapper<RoutingTableMessages>> for RoutingTableActor {
+    type Result = ActixMessageResponse<RoutingTableMessagesResponse>;
+
+    fn handle(
+        &mut self,
+        msg: ActixMessageWrapper<RoutingTableMessages>,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        // Unpack throttle controller
+        let (msg, throttle_token) = msg.take();
+
+        let result = self.handle(msg, ctx);
+
+        // TODO(#5155) Add support for DeepSizeOf to result
+        ActixMessageResponse::new(
+            result,
+            ThrottleToken::new(throttle_token.throttle_controller().cloned(), 0),
+        )
     }
 }
 
