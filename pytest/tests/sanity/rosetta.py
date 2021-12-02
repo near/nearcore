@@ -12,6 +12,7 @@ import unittest
 import base58
 import ed25519
 import requests
+import requests.exceptions
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -34,13 +35,13 @@ def block_identifier(block_id: BlockIdentifier) -> _Dict:
     raise TypeError(f'{type(block_id).__name__} is not a block identifier')
 
 
-def trans_identifier(block_id: TransIdentifier) -> _Dict:
-    if isinstance(block_id, str):
-        return {'hash': block_id}
+def trans_identifier(trans_id: TransIdentifier) -> _Dict:
+    if isinstance(trans_id, str):
+        return {'hash': trans_id}
     if isinstance(trans_id, dict):
-        return block_id
+        return trans_id
     raise TypeError(
-        f'{type(block_id).__name__} is not a transaction identifier')
+        f'{type(trans_id).__name__} is not a transaction identifier')
 
 
 class RosettaRPC:
@@ -196,42 +197,60 @@ class RosettaTestCase(unittest.TestCase):
         cls.node.cleanup()
 
     def test_get_block(self) -> None:
+        """Tests getting blocks and transactions.
+
+        Fetches the first and second blocks to see if the responses look as they
+        should.  Then fetches one transaction from each of those blocks to again
+        see if the returned data looks as expected.  Since the exact hashes
+        differ each time the test runs, those are assumed to be correct.
+        """
         block_0 = self.rosetta.get_block(block_id=0)
         block_0_id = block_0['block']['block_identifier']
+        trans_0_id = 'block:' + block_0_id['hash']
+        trans_0 = {
+            'metadata': {
+                'type': 'BLOCK'
+            },
+            'operations': [],
+            'transaction_identifier': {
+                'hash': trans_0_id
+            }
+        }
         self.assertEqual(
-            block_0,
             {
                 'block': {
-                    'block_identifier':
-                        block_0_id,
+                    'block_identifier': block_0_id,
                     # Genesis block’s parent is genesis block itself.
-                    'parent_block_identifier':
-                        block_0_id,
-                    'timestamp':
-                        block_0['block']['timestamp'],
-                    'transactions': [{
-                        'metadata': {
-                            'type': 'BLOCK'
-                        },
-                        'operations': [],
-                        'transaction_identifier': {
-                            'hash': 'block:' + block_0_id['hash']
-                        }
-                    }]
+                    'parent_block_identifier': block_0_id,
+                    'timestamp': block_0['block']['timestamp'],
+                    'transactions': [trans_0]
                 }
-            })
+            },
+            block_0)
 
         # Getting by hash should work and should return the exact same thing
-        self.assertEqual(self.rosetta.get_block(block_id=block_0_id['hash']),
-                         block_0)
+        self.assertEqual(block_0,
+                         self.rosetta.get_block(block_id=block_0_id['hash']))
+
+        # Get transaction from genesis block.
+        self.assertEqual({'transaction': trans_0},
+                         self.rosetta.get_transaction(block_id=block_0_id,
+                                                      trans_id=trans_0_id))
 
         # Block at height=1 should have genesis block as parent and only
         # validator update as a single operation.
         block_1 = self.rosetta.get_block(block_id=1)
         block_1_id = block_1['block']['block_identifier']
-        trans_id = {'hash': 'block-validators-update:' + block_1_id['hash']}
+        trans_1_id = {'hash': 'block-validators-update:' + block_1_id['hash']}
+        trans_1 = {
+            'metadata': {
+                'type': 'TRANSACTION'
+            },
+            'operations': [],
+            'transaction_identifier': trans_1_id,
+        }
         self.assertEqual(
-            block_1, {
+            {
                 'block': {
                     'block_identifier': {
                         'hash': block_1_id['hash'],
@@ -246,24 +265,62 @@ class RosettaTestCase(unittest.TestCase):
                             'type': 'TRANSACTION'
                         },
                         'operations': [],
-                        'transaction_identifier': trans_id
+                        'transaction_identifier': trans_1_id
                     }]
                 }
-            })
+            }, block_1)
 
         # Get transaction from the second block
-        trans = self.rosetta.get_transaction(block_id=block_1_id,
-                                             trans_id=trans_id)
-        self.assertEqual(
-            trans, {
-                'metadata': {
-                    'type': 'TRANSACTION'
-                },
-                'operations': [],
-                'transaction_identifier': trans_id,
-            })
+        self.assertEqual({'transaction': trans_1},
+                         self.rosetta.get_transaction(block_id=block_1_id,
+                                                      trans_id=trans_1_id))
+
+    def test_get_block_nonexistent(self) -> None:
+        """Tests querying non-existent blocks and transactions.
+
+        Queries for various blocks and transactions which do not exist on the
+        chain to see if responses are what they should be.
+        """
+        block_0 = self.rosetta.get_block(block_id=0)
+        block_0_id = block_0['block']['block_identifier']
+        trans_0_id = 'block:' + block_0_id['hash']
+
+        block_1 = self.rosetta.get_block(block_id=1)
+        block_1_id = block_1['block']['block_identifier']
+        trans_1_id = 'block:' + block_1_id['hash']
+
+        def test(want_code, callback, *args, **kw) -> _Dict:
+            with self.assertRaises(requests.exceptions.HTTPError) as err:
+                callback(*args, **kw)
+            self.assertEqual(500, err.exception.response.status_code)
+            resp = err.exception.response.json()
+            self.assertFalse(resp['retriable'])
+            self.assertEqual(want_code, resp['code'])
+            return resp
+
+        # Query for non-existent blocks
+        bogus_block_hash = 'GJ92SsB76CvfaHHdaC4Vsio6xSHT7fR3EEUoK84tFe99'
+        self.assertEqual({'block': None},
+                         self.rosetta.get_block(block_id=bogus_block_hash))
+
+        test(400, self.rosetta.get_block, block_id='malformed-hash')
+
+        # Query for non-existent transactions
+        test(404,
+             self.rosetta.get_transaction,
+             block_id=block_0_id,
+             trans_id=trans_1_id)
+        test(404,
+             self.rosetta.get_transaction,
+             block_id=block_1_id,
+             trans_id=trans_0_id)
 
     def test_delete_implicit_account(self) -> None:
+        """Tests creating and deleting implicit account
+
+        First sends some funds from validator’s account to an implicit account
+        and the deletes that account refunding the validator account.
+        """
         validator = self.node.validator_key
         implicit = key.Key.implicit_account()
 
@@ -280,7 +337,7 @@ class RosettaTestCase(unittest.TestCase):
                 result = result['result']
                 amount = result['amount']
                 logger.info(f'Account balance {amount}')
-                self.assertEqual(int(amount), 10**22, result)
+                self.assertEqual(10**22, int(amount), result)
                 break
         else:
             self.fail(f'Account {implicit.account_id} wasn’t created:\n'
