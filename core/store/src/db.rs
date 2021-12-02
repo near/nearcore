@@ -46,6 +46,9 @@ impl Into<io::Error> for DBError {
     }
 }
 
+/// This enum holds the information about the columns that we use within the RocksDB storage.
+/// You can think about our storage as 2-dimensional table (with key and column as indexes/coordinates).
+// TODO(mm-near): add info about the RC in the columns.
 #[derive(PartialEq, Debug, Copy, Clone, EnumIter, BorshDeserialize, BorshSerialize, Hash, Eq)]
 pub enum DBCol {
     /// Column to indicate which version of database this is.
@@ -71,7 +74,7 @@ pub enum DBCol {
     /// TODO: this is something related to garbage collection - no idea yet.
     ColState = 5,
     /// Mapping from BlockChunk to ChunkExtra
-    /// - *Rows*: BlockChunk (block hash + shard id)
+    /// - *Rows*: BlockChunk (block hash, shard id)
     /// - *Content type*: [near_primitives::types::ChunkExtra]
     ColChunkExtra = 6,
     /// Mapping from transaction outcome id (CryptoHash) to list of outcome ids with proofs.
@@ -84,7 +87,7 @@ pub enum DBCol {
     ColOutgoingReceipts = 8,
     /// Mapping from Block + Shard to list of incoming receipt proofs.
     /// Each proof might prove multiple receipts.
-    /// - *Rows*: block + shard
+    /// - *Rows*: (block, shard)
     /// - *Content type*: Vec of [near_primitives::sharding::ReceiptProof]
     ColIncomingReceipts = 9,
     /// Info about the peers that we are connected to. Mapping from peer_id to KnownPeerState.
@@ -129,20 +132,38 @@ pub enum DBCol {
     ColReceiptIdToShardId = 27,
     _ColNextBlockWithNewChunk = 28,
     _ColLastBlockWithNewChunk = 29,
-    /// Network related: Map each saved peer on disk with its component id (a.k.a. nonce).
+    /// Network storage:
+    ///   When given edge is removed (or we didn't get any ping from it for a while), we remove it from our 'in memory'
+    ///   view and persist into storage.
+    ///
+    ///   This is done, so that we prevent the attack, when someone tries to introduce the edge/peer again into the network,
+    ///   but with the 'old' nonce.
+    ///
+    ///   When we write things to storage, we do it in groups (here they are called 'components') - this naming is a little bit
+    ///   unfortunate, as the peers/edges that we persist don't need to be connected or form any other 'component' (in a graph theory sense).
+    ///
+    ///   Each such component gets a new identifier (here called 'nonce').
+    ///
+    ///   We store this info in the three columns below:
+    ///     - LastComponentNonce: keeps info on what is the next identifier (nonce) that can be used.
+    ///     - PeerComponent: keep information on mapping from the peer to the last component that it belonged to (so that if a new peer shows
+    ///         up we know which 'component' to load)
+    ///     - ComponentEdges: keep the info about the edges that were connecting these peers that were removed.
+
+    /// Map each saved peer on disk with its component id (a.k.a. nonce).
     /// - *Rows*: peer_id
-    /// - *Column type*:  u64
+    /// - *Column type*:  (nonce) u64
     ColPeerComponent = 30,
-    /// Network related: Map component id  (a.k.a. nonce) with all edges in this component.
+    /// Map component id  (a.k.a. nonce) with all edges in this component.
     /// These are all the edges that were purged and persisted to disk at the same time.
     /// - *Rows*: nonce
     /// - *Column type*: `Vec<near_network::routing::Edge>`
     ColComponentEdges = 31,
-    /// Network related: Biggest component id (a.k.a nonce) used.
+    /// Biggest component id (a.k.a nonce) used.
     /// - *Rows*: single row (empty row name)
-    /// - *Column type*: u64
+    /// - *Column type*: (nonce) u64
     ColLastComponentNonce = 32,
-    /// Map of transactions (key is transaction hash)
+    /// Map of transactions
     /// - *Rows*: transaction hash
     /// - *Column type*: SignedTransaction
     ColTransactions = 33,
