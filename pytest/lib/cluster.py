@@ -435,12 +435,6 @@ class LocalNode(BaseNode):
         except:
             logger.critical('Kill failed on cleanup!', exc_info=sys.exc_info())
 
-        if self._stdout:
-            self._stdout.close()
-            self._stderr.close()
-            self._stdout = None
-            self._stderr = None
-
         # move the node dir to avoid weird interactions with multiple serial test invocations
         target_path = self.node_dir + '_finished'
         if os.path.exists(target_path) and os.path.isdir(target_path):
