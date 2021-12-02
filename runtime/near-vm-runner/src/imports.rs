@@ -5,7 +5,7 @@ macro_rules! imports {
       $($(#[$stable_feature:ident])? $(#[$feature_name:literal, $feature:ident])*
         $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >,)*
     ) => {
-        macro_rules! for_each_import {
+        macro_rules! for_each_available_import {
             ($protocol_version:ident, $M:ident) => {$(
                 $(#[cfg(feature = $feature_name)])*
                 if true
@@ -217,7 +217,7 @@ pub(crate) mod wasmer {
                 ns.insert(stringify!($func), wasmer_runtime::func!($func));
             };
         }
-        for_each_import!(protocol_version, add_import);
+        for_each_available_import!(protocol_version, add_import);
 
         import_object.register("env", ns);
         import_object
@@ -269,7 +269,7 @@ pub(crate) mod wasmer2 {
                 namespace.insert(stringify!($func), wasmer::Function::new_native_with_env(&store, env.clone(), $func));
             };
         }
-        for_each_import!(protocol_version, add_import);
+        for_each_available_import!(protocol_version, add_import);
 
         import_object.register("env", namespace);
         import_object
@@ -348,7 +348,7 @@ pub(crate) mod wasmtime {
                 linker.func("env", stringify!($func), $func).expect("cannot link external");
             };
         }
-        for_each_import!(protocol_version, add_import);
+        for_each_available_import!(protocol_version, add_import);
     }
 
     pub(crate) fn last_error() -> Option<near_vm_logic::VMLogicError> {
