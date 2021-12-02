@@ -218,6 +218,25 @@ impl AccountId {
             && self.as_ref().as_bytes().iter().all(|b| matches!(b, b'a'..=b'f' | b'0'..=b'9'))
     }
 
+    /// Returns `true` if this `AccountId` is the system account.
+    ///
+    /// See [System account](https://nomicon.io/DataStructures/Account.html?highlight=system#system-account).
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use near_account_id::AccountId;
+    ///
+    /// let alice: AccountId = "alice.near".parse().unwrap();
+    /// assert!(!alice.is_system());
+    ///
+    /// let system: AccountId = "system".parse().unwrap();
+    /// assert!(system.is_system());
+    /// ```
+    pub fn is_system(&self) -> bool {
+        self.as_ref() == "system"
+    }
+
     /// Validates a string as a well-structured NEAR Account ID.
     ///
     /// Checks Account ID validity without constructing an `AccountId` instance.
@@ -307,18 +326,6 @@ impl AccountId {
     #[deprecated(since = "#4440", note = "AccountId construction without validation is illegal")]
     pub fn new_unvalidated(account_id: String) -> Self {
         Self(account_id.into())
-    }
-
-    pub fn is_system(&self) -> bool {
-        self.as_ref() == "system"
-    }
-
-    pub fn system_account() -> Self {
-        "system".parse().unwrap()
-    }
-
-    pub fn test_account() -> Self {
-        "test".parse().unwrap()
     }
 }
 
