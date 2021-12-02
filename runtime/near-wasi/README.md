@@ -17,6 +17,13 @@ would make the execution non-deterministic. To make libc and libraries built on 
 runtime, we made this NEAR-WASI library. It addresses the problem by:
 
 1. Provide most of I/O access, such as socks, files, etc. as stub;
-2. Provide some operation, such as random seed and system time by the deterministic ones provided by near-vm-logic;
+2. Provide some operation, such as print to stdout, random seed and system time by the deterministic ones provided by near-vm-logic;
 3. Provide a Rust API to build import for vm runners, so these WASI functions can be imported before run a NEAR contract. 
 
+## Roadmap
+- [x] Implement all as stub
+- [x] Rust API to build import for Wasmer 2
+- [x] QuickJS running on Wasmer 2
+- [x] Implement all possible WASI functions with near-vm-logic
+- [ ] Add tests to non-stub WASI functions
+- [ ] Rust API to build import for Wasmer 0 and Wasmtime
