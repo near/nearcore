@@ -211,9 +211,6 @@ impl RoutingTableActor {
                                     ColPeerComponent,
                                     peer_id.try_to_vec().unwrap().as_ref(),
                                 );
-                            } else {
-                                warn!("We expected `peer_id` to belong to component {}, but it belongs to {}",
-                                       component_nonce, cur_nonce);
                             }
                         }
                     }
