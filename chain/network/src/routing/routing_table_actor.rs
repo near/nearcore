@@ -215,9 +215,6 @@ impl RoutingTableActor {
                                 warn!("We expected `peer_id` to belong to component {}, but it belongs to {}",
                                        component_nonce, cur_nonce);
                             }
-                        } else {
-                            warn!("We expected `peer_id` to belong to a component {}, but it doesn't belong anywhere",
-                                       component_nonce);
                         }
                     }
                     self.add_verified_edge(edge);
