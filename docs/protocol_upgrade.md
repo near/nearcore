@@ -27,7 +27,7 @@ For example, when we introduce EVM as a new protocol change, suppose the current
 nightly_protocol = []
 nightly_protocol_features = [“protocol_features_evm”, ...]
 ```
-In `core/primitives/src/versions.rs`, we would change the protocol version by:
+In [core/primitives/src/version.rs](../core/primitives/src/version.rs), we would change the protocol version by:
 ```
 #[cfg(feature = “nightly_protocol”)]
 pub const PROTOCOL_VERSION: u32 = 100;
