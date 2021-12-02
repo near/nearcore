@@ -17,7 +17,7 @@ use tracing::{debug, error};
 
 /// Level of trust we have about a new (PeerId, Addr) pair.
 #[derive(Eq, PartialEq, Debug, Clone)]
-pub enum TrustLevel {
+pub(crate) enum TrustLevel {
     /// We learn about it from other peers.
     Indirect,
     /// Responding node at addr claims to possess PeerId.
@@ -52,7 +52,7 @@ pub struct PeerStore {
 }
 
 impl PeerStore {
-    pub fn new(
+    pub(crate) fn new(
         store: Arc<Store>,
         boot_nodes: &[PeerInfo],
     ) -> Result<Self, Box<dyn std::error::Error>> {
@@ -109,17 +109,17 @@ impl PeerStore {
         Ok(PeerStore { store, peer_states, addr_peers })
     }
 
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.peer_states.len()
     }
 
-    pub fn is_banned(&self, peer_id: &PeerId) -> bool {
+    pub(crate) fn is_banned(&self, peer_id: &PeerId) -> bool {
         self.peer_states
             .get(peer_id)
             .map_or(false, |known_peer_state| known_peer_state.status.is_banned())
     }
 
-    pub fn peer_connected(
+    pub(crate) fn peer_connected(
         &mut self,
         peer_info: &PeerInfo,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -132,7 +132,7 @@ impl PeerStore {
         store_update.commit().map_err(|err| err.into())
     }
 
-    pub fn peer_disconnected(
+    pub(crate) fn peer_disconnected(
         &mut self,
         peer_id: &PeerId,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -147,7 +147,7 @@ impl PeerStore {
         }
     }
 
-    pub fn peer_ban(
+    pub(crate) fn peer_ban(
         &mut self,
         peer_id: &PeerId,
         ban_reason: ReasonForBan,
@@ -163,7 +163,10 @@ impl PeerStore {
         }
     }
 
-    pub fn peer_unban(&mut self, peer_id: &PeerId) -> Result<(), Box<dyn std::error::Error>> {
+    pub(crate) fn peer_unban(
+        &mut self,
+        peer_id: &PeerId,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
             peer_state.status = KnownPeerStatus::NotConnected;
             let mut store_update = self.store.store_update();
@@ -192,7 +195,10 @@ impl PeerStore {
 
     /// Return unconnected or peers with unknown status that we can try to connect to.
     /// Peers with unknown addresses are filtered out.
-    pub fn unconnected_peers(&self, ignore_fn: impl Fn(&KnownPeerState) -> bool) -> Vec<PeerInfo> {
+    pub(crate) fn unconnected_peers(
+        &self,
+        ignore_fn: impl Fn(&KnownPeerState) -> bool,
+    ) -> Vec<PeerInfo> {
         self.find_peers(
             |p| {
                 (p.status == KnownPeerStatus::NotConnected || p.status == KnownPeerStatus::Unknown)
@@ -204,7 +210,7 @@ impl PeerStore {
     }
 
     /// Return healthy known peers up to given amount.
-    pub fn healthy_peers(&self, max_count: u32) -> Vec<PeerInfo> {
+    pub(crate) fn healthy_peers(&self, max_count: u32) -> Vec<PeerInfo> {
         self.find_peers(
             |p| match p.status {
                 KnownPeerStatus::Banned(_, _) => false,
@@ -215,12 +221,12 @@ impl PeerStore {
     }
 
     /// Return iterator over all known peers.
-    pub fn iter(&self) -> Iter<'_, PeerId, KnownPeerState> {
+    pub(crate) fn iter(&self) -> Iter<'_, PeerId, KnownPeerState> {
         self.peer_states.iter()
     }
 
     /// Removes peers that are not responding for expiration period.
-    pub fn remove_expired(
+    pub(crate) fn remove_expired(
         &mut self,
         config: &NetworkConfig,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -345,7 +351,7 @@ impl PeerStore {
         Ok(())
     }
 
-    pub fn add_indirect_peers(
+    pub(crate) fn add_indirect_peers(
         &mut self,
         peers: Vec<PeerInfo>,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -355,7 +361,7 @@ impl PeerStore {
         Ok(())
     }
 
-    pub fn add_trusted_peer(
+    pub(crate) fn add_trusted_peer(
         &mut self,
         peer_info: PeerInfo,
         trust_level: TrustLevel,
