@@ -241,7 +241,7 @@ impl SignedTransaction {
     }
 
     pub fn get_hash(&self) -> CryptoHash {
-        self.hash
+        self.hash.clone()
     }
 
     pub fn get_size(&self) -> u64 {
@@ -422,7 +422,7 @@ pub struct ExecutionOutcomeWithId {
 
 impl ExecutionOutcomeWithId {
     pub fn to_hashes(&self) -> Vec<CryptoHash> {
-        let mut result = vec![self.id];
+        let mut result = vec![self.id.clone()];
         result.extend(self.outcome.to_hashes());
         result
     }

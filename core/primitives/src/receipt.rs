@@ -40,7 +40,7 @@ impl Borrow<CryptoHash> for Receipt {
 impl Receipt {
     /// It's not a content hash, but receipt_id is unique.
     pub fn get_hash(&self) -> CryptoHash {
-        self.receipt_id
+        self.receipt_id.clone()
     }
 
     /// Generates a receipt with a transfer from system for a given balance without a receipt_id.

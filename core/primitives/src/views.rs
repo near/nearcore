@@ -115,7 +115,7 @@ impl From<Account> for AccountView {
 
 impl From<&AccountView> for Account {
     fn from(view: &AccountView) -> Self {
-        Account::new(view.amount, view.locked, view.code_hash, view.storage_usage)
+        Account::new(view.amount, view.locked, view.code_hash.clone(), view.storage_usage)
     }
 }
 
@@ -127,7 +127,7 @@ impl From<AccountView> for Account {
 
 impl From<ContractCode> for ContractCodeView {
     fn from(contract_code: ContractCode) -> Self {
-        let hash = *contract_code.hash();
+        let hash = contract_code.hash().clone();
         let code = contract_code.into_code();
         ContractCodeView { code, hash }
     }
@@ -405,8 +405,8 @@ impl From<BlockHeader> for BlockHeaderView {
         Self {
             height: header.height(),
             prev_height: header.prev_height(),
-            epoch_id: header.epoch_id().0,
-            next_epoch_id: header.next_epoch_id().0,
+            epoch_id: header.epoch_id().0.clone(),
+            next_epoch_id: header.next_epoch_id().0.clone(),
             hash: header.hash().clone(),
             prev_hash: header.prev_hash().clone(),
             prev_state_root: header.prev_state_root().clone(),
@@ -665,10 +665,10 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
         let inner = chunk.take_inner();
         ChunkHeaderView {
             chunk_hash: hash.0,
-            prev_block_hash: *inner.prev_block_hash(),
-            outcome_root: *inner.outcome_root(),
-            prev_state_root: *inner.prev_state_root(),
-            encoded_merkle_root: *inner.encoded_merkle_root(),
+            prev_block_hash: inner.prev_block_hash().clone(),
+            outcome_root: inner.outcome_root().clone(),
+            prev_state_root: inner.prev_state_root().clone(),
+            encoded_merkle_root: inner.encoded_merkle_root().clone(),
             encoded_length: inner.encoded_length(),
             height_created: inner.height_created(),
             height_included,
@@ -678,8 +678,8 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             rent_paid: 0,
             validator_reward: 0,
             balance_burnt: inner.balance_burnt(),
-            outgoing_receipts_root: *inner.outgoing_receipts_root(),
-            tx_root: *inner.tx_root(),
+            outgoing_receipts_root: inner.outgoing_receipts_root().clone().clone(),
+            tx_root: inner.tx_root().clone().clone(),
             validator_proposals: inner.validator_proposals().map(Into::into).collect(),
             signature,
         }

@@ -370,7 +370,7 @@ impl AccountOrPeerIdOrHash {
         match self {
             AccountOrPeerIdOrHash::AccountId(_) => None,
             AccountOrPeerIdOrHash::PeerId(peer_id) => Some(PeerIdOrHash::PeerId(peer_id.clone())),
-            AccountOrPeerIdOrHash::Hash(hash) => Some(PeerIdOrHash::Hash(*hash)),
+            AccountOrPeerIdOrHash::Hash(hash) => Some(PeerIdOrHash::Hash(hash.clone())),
         }
     }
 }
@@ -863,8 +863,8 @@ impl StateResponseInfo {
 
     pub fn sync_hash(&self) -> CryptoHash {
         match self {
-            Self::V1(info) => info.sync_hash,
-            Self::V2(info) => info.sync_hash,
+            Self::V1(info) => info.sync_hash.clone(),
+            Self::V2(info) => info.sync_hash.clone(),
         }
     }
 
@@ -1061,7 +1061,7 @@ impl PartialEncodedChunkForwardMsg {
     }
 
     pub fn is_valid_hash(&self) -> bool {
-        let correct_hash = combine_hash(self.inner_header_hash, self.merkle_root);
+        let correct_hash = combine_hash(self.inner_header_hash.clone(), self.merkle_root.clone());
         ChunkHash(correct_hash) == self.chunk_hash
     }
 }
