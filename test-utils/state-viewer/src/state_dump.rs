@@ -1,25 +1,25 @@
+use itertools::Itertools;
+use near_chain::RuntimeAdapter;
+use near_chain_configs::Genesis;
+use near_primitives::account::id::AccountId;
+use near_primitives::block::BlockHeader;
+use near_primitives::state_record::StateRecord;
+use near_primitives::types::{AccountInfo, Balance, StateRoot};
+use near_store::TrieIterator;
+use nearcore::config::NearConfig;
+use nearcore::NightshadeRuntime;
+use serde::ser::{SerializeSeq, Serializer};
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::path::Path;
-
-use serde::ser::{SerializeSeq, Serializer};
-
-use near_chain::RuntimeAdapter;
-use near_chain_configs::Genesis;
-use near_primitives::block::BlockHeader;
-use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountInfo, StateRoot};
-use near_store::TrieIterator;
-use nearcore::config::NearConfig;
-use nearcore::NightshadeRuntime;
 
 pub fn state_dump(
     runtime: NightshadeRuntime,
     state_roots: Vec<StateRoot>,
     last_block_header: BlockHeader,
     near_config: &NearConfig,
-    records_path: &Path,
+    records_path: Option<&Path>,
 ) -> NearConfig {
     println!(
         "Generating genesis from state data of #{} / {}",
@@ -42,16 +42,77 @@ pub fn state_dump(
         })
         .collect::<HashMap<_, _>>();
 
+    let mut near_config = near_config.clone();
+
+    let mut genesis_config = near_config.genesis.config.clone();
+    genesis_config.genesis_height = genesis_height;
+    genesis_config.validators = validators
+        .clone()
+        .into_iter()
+        .sorted()
+        .map(|(account_id, (public_key, amount))| AccountInfo { account_id, public_key, amount })
+        .collect();
+    // Record the protocol version of the latest block. Otherwise, the state
+    // dump ignores the fact that the nodes can be running a newer protocol
+    // version than the protocol version of the genesis.
+    genesis_config.protocol_version = last_block_header.latest_protocol_version();
+    let shard_config = runtime.get_shard_config(last_block_header.epoch_id()).unwrap();
+    genesis_config.shard_layout = shard_config.shard_layout;
+    genesis_config.num_block_producer_seats_per_shard =
+        shard_config.num_block_producer_seats_per_shard;
+    genesis_config.avg_hidden_validator_seats_per_shard =
+        shard_config.avg_hidden_validator_seats_per_shard;
+    // Record only the filename of the records file.
+    // Otherwise the absolute path is stored making it impossible to copy the dumped state to actually use it.
+    match records_path {
+        Some(records_path) => {
+            let mut records_path_dir = records_path.to_path_buf();
+            records_path_dir.pop();
+            fs::create_dir_all(&records_path_dir).unwrap_or_else(|_| {
+                panic!("Failed to create directory {}", records_path_dir.display())
+            });
+            let records_file = File::create(&records_path).unwrap();
+            let mut ser = serde_json::Serializer::new(records_file);
+            let mut seq = ser.serialize_seq(None).unwrap();
+            let total_supply =
+                get_records(runtime, state_roots, last_block_header, &validators, |sr| {
+                    seq.serialize_element(&sr).unwrap()
+                });
+            seq.end().unwrap();
+            // `total_supply` is expected to change due to the natural processes of burning tokens and
+            // minting tokens every epoch.
+            genesis_config.total_supply = total_supply;
+            near_config.genesis =
+                Genesis::new_with_path(genesis_config, records_path.to_path_buf());
+            near_config.config.genesis_records_file =
+                Some(records_path.file_name().unwrap().to_str().unwrap().to_string());
+        }
+        None => {
+            let mut records: Vec<StateRecord> = vec![];
+            let total_supply =
+                get_records(runtime, state_roots, last_block_header, &validators, |sr| {
+                    records.push(sr)
+                });
+            // `total_supply` is expected to change due to the natural processes of burning tokens and
+            // minting tokens every epoch.
+            genesis_config.total_supply = total_supply;
+            near_config.genesis = Genesis::new(genesis_config, records.into());
+        }
+    }
+    near_config
+}
+
+fn get_records<'a, F, X>(
+    runtime: NightshadeRuntime,
+    state_roots: Vec<StateRoot>,
+    last_block_header: BlockHeader,
+    validators: &'a HashMap<AccountId, (X, Balance)>,
+    mut callback: F,
+) -> Balance
+where
+    F: FnMut(StateRecord),
+{
     let mut total_supply = 0;
-
-    let mut records_path_dir = records_path.to_path_buf();
-    records_path_dir.pop();
-    fs::create_dir_all(&records_path_dir)
-        .unwrap_or_else(|_| panic!("Failed to create directory {}", records_path_dir.display()));
-    let records_file = File::create(&records_path).unwrap();
-    let mut ser = serde_json::Serializer::new(records_file);
-    let mut seq = ser.serialize_seq(None).unwrap();
-
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie =
             runtime.get_trie_for_shard(shard_id as u64, last_block_header.prev_hash()).unwrap();
@@ -67,39 +128,11 @@ pub fn state_dump(
                         account.set_locked(stake);
                     }
                 }
-                seq.serialize_element(&sr).unwrap();
+                callback(sr);
             }
         }
     }
-    seq.end().unwrap();
-
-    let mut near_config = near_config.clone();
-
-    let mut genesis_config = near_config.genesis.config.clone();
-    genesis_config.genesis_height = genesis_height;
-    genesis_config.validators = validators
-        .into_iter()
-        .map(|(account_id, (public_key, amount))| AccountInfo { account_id, public_key, amount })
-        .collect();
-    // Record the protocol version of the latest block. Otherwise, the state
-    // dump ignores the fact that the nodes can be running a newer protocol
-    // version than the protocol version of the genesis.
-    genesis_config.protocol_version = last_block_header.latest_protocol_version();
-    // `total_supply` is expected to change due to the natural processes of burning tokens and
-    // minting tokens every epoch.
-    genesis_config.total_supply = total_supply;
-    let shard_config = runtime.get_shard_config(last_block_header.epoch_id()).unwrap();
-    genesis_config.shard_layout = shard_config.shard_layout;
-    genesis_config.num_block_producer_seats_per_shard =
-        shard_config.num_block_producer_seats_per_shard;
-    genesis_config.avg_hidden_validator_seats_per_shard =
-        shard_config.avg_hidden_validator_seats_per_shard;
-    near_config.genesis = Genesis::new_with_path(genesis_config, records_path.to_path_buf());
-    // Record only the filename of the records file.
-    // Otherwise the absolute path is stored making it impossible to copy the dumped state to actually use it.
-    near_config.config.genesis_records_file =
-        Some(records_path.file_name().unwrap().to_str().unwrap().to_string());
-    near_config
+    total_supply
 }
 
 #[cfg(test)]
@@ -228,8 +261,48 @@ mod test {
             state_roots,
             last_block.header().clone(),
             &near_config,
-            &records_file.path().to_path_buf(),
+            Some(&records_file.path().to_path_buf()),
         );
+        let new_genesis = new_near_config.genesis;
+        assert_eq!(new_genesis.config.validators.len(), 2);
+        validate_genesis(&new_genesis);
+    }
+
+    /// Test that we preserve the validators from the epoch of the state dump.
+    #[test]
+    fn test_dump_state_preserve_validators_inmemory() {
+        let epoch_length = 4;
+        let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, None);
+        let genesis_hash = *env.clients[0].chain.genesis().hash();
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let tx = SignedTransaction::stake(
+            1,
+            "test1".parse().unwrap(),
+            &signer,
+            TESTING_INIT_STAKE,
+            signer.public_key.clone(),
+            genesis_hash,
+        );
+        env.clients[0].process_tx(tx, false, false);
+
+        safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
+
+        let head = env.clients[0].chain.head().unwrap();
+        let last_block_hash = head.last_block_hash;
+        let cur_epoch_id = head.epoch_id;
+        let block_producers = env.clients[0]
+            .runtime_adapter
+            .get_epoch_block_producers_ordered(&cur_epoch_id, &last_block_hash)
+            .unwrap();
+        assert_eq!(
+            block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
+            HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
+        );
+        let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
+        let new_near_config =
+            state_dump(runtime, state_roots, last_block.header().clone(), &near_config, None);
         let new_genesis = new_near_config.genesis;
         assert_eq!(new_genesis.config.validators.len(), 2);
         validate_genesis(&new_genesis);
@@ -266,7 +339,7 @@ mod test {
             state_roots,
             last_block.header().clone(),
             &near_config,
-            &records_file.path().to_path_buf(),
+            Some(&records_file.path().to_path_buf()),
         );
         let new_genesis = new_near_config.genesis;
         assert_eq!(
@@ -308,7 +381,7 @@ mod test {
             state_roots,
             last_block.header().clone(),
             &near_config,
-            &records_file.path().to_path_buf(),
+            Some(&records_file.path().to_path_buf()),
         );
         let new_genesis = new_near_config.genesis;
 
@@ -389,7 +462,7 @@ mod test {
             state_roots.clone(),
             last_block.header().clone(),
             &near_config,
-            &records_file.path().to_path_buf(),
+            Some(&records_file.path().to_path_buf()),
         );
     }
 
@@ -456,7 +529,7 @@ mod test {
             state_roots,
             last_block.header().clone(),
             &near_config,
-            &records_file.path().to_path_buf(),
+            Some(&records_file.path().to_path_buf()),
         );
         let new_genesis = new_near_config.genesis;
 

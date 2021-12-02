@@ -1,16 +1,13 @@
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
+use crate::commands::*;
 use clap::{AppSettings, Clap};
-use once_cell::sync::Lazy;
-
 use near_logger_utils::init_integration_logger;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{DB_VERSION, PROTOCOL_VERSION};
 use near_store::{create_store, Store};
 use nearcore::{get_default_home, get_store_path, load_config, NearConfig};
-
-use crate::commands::*;
+use once_cell::sync::Lazy;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(|| get_default_home());
 
@@ -104,13 +101,18 @@ impl StateViewerSubCommand {
 
 #[derive(Clap)]
 pub struct DumpStateCmd {
+    /// Optionally, can specify at which height to dump state.
     #[clap(long)]
     height: Option<BlockHeight>,
+    /// Use this mode if you want to dump state of networks like testnet and mainnet, this mode has
+    /// a much lower RAM requirements, but produces multiple files as the result.
+    #[clap(arg_enum, long, default_value = "in-memory")]
+    mode: DumpStateMode,
 }
 
 impl DumpStateCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
-        dump_state(self.height, home_dir, near_config, store);
+        dump_state(self.height, self.mode, home_dir, near_config, store);
     }
 }
 
