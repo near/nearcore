@@ -1,3 +1,53 @@
+//! Host function interface for smart contracts.
+//!
+//! Besides native WASM operations, smart contracts can call into runtime to
+//! gain access to extra functionality, like operations with store. Such
+//! "extras" are called "Host function", and play a role similar to syscalls. In
+//! this module, we integrate host functions with various wasm runtimes we
+//! support. The actual definitions of host functions live in the `vm-logic`
+//! crate.
+//!
+//! Basically, what the following code does is (in pseudo-code):
+//!
+//! ```ignore
+//! for host_fn in all_host_functions {
+//!    wasm_imports.define("env", host_fn.name, |args| host_fn(args))
+//! }
+//! ```
+//!
+//! The actual implementation is a bit more complicated, for two reasons. First,
+//! host functions have different signatures, so there isn't a trivial single
+//! type one can use to hold a host function. Second, we want to use direct
+//! calls in the jitted wasm, so we need to avoid dynamic dispatch and hand
+//! functions as ZSTs to the WASM runtimes. This basically means that we need to
+//! code the above for-loop as a macro.
+//!
+//! So, the `imports!` macro invocation is the main "public" API -- it just list
+//! all host functions with their signatures. `imports! { foo, bar, baz }`
+//! expands to roughly
+//!
+//! ```ignore
+//! macro_rules! for_each_available_import {
+//!    $($M:ident) => {
+//!        $M!(foo);
+//!        $M!(bar);
+//!        $M!(baz);
+//!    }
+//! }
+//! ```
+//!
+//! That is, `for_each_available_import` is a high-order macro which takes macro
+//! `M` as a parameter, and calls `M!` with each import. Each supported WASM
+//! runtime (see submodules of this module) then calls
+//! `for_each_available_import` with its own import definition logic.
+//!
+//! The real `for_each_available_import` takes one more argument --
+//! `protocol_version`. We can add new imports, but we must make sure that they
+//! are only available to contracts at a specific protocol version -- we can't
+//! make imports retroactively available to old transactions. So
+//! `for_each_available_import` takes care to invoke `M!` only for currently
+//! available imports.
+
 macro_rules! imports {
     (
       $($(#[$stable_feature:ident])? $(#[$feature_name:literal, $feature:ident])*
@@ -229,8 +279,13 @@ pub(crate) mod wasmer2 {
 
     #[derive(wasmer::WasmerEnv, Clone)]
     struct NearWasmerEnv {
-        pub memory: wasmer::Memory,
-        pub logic: *mut (),
+        memory: wasmer::Memory,
+        /// Hack to allow usage of non-'static VMLogic as an environment in host
+        /// functions. Strictly speaking, this is unsound, but this is only
+        /// accessible to `near_vm_runner` crate, where we ensure that `VMLogic`
+        /// reference does not dangle. Still, would be great to fix this properly
+        /// one day.
+        logic: *mut (),
     }
     unsafe impl Send for NearWasmerEnv {}
     unsafe impl Sync for NearWasmerEnv {}
@@ -280,8 +335,8 @@ pub(crate) mod wasmtime {
     use std::ffi::c_void;
 
     thread_local! {
-        pub static CALLER_CONTEXT: UnsafeCell<*mut c_void> = UnsafeCell::new(0 as *mut c_void);
-        pub static EMBEDDER_ERROR: RefCell<Option<VMLogicError>> = RefCell::new(None);
+        static CALLER_CONTEXT: UnsafeCell<*mut c_void> = UnsafeCell::new(0 as *mut c_void);
+        static EMBEDDER_ERROR: RefCell<Option<VMLogicError>> = RefCell::new(None);
     }
 
     // Wasm has only i32/i64 types, so Wasmtime 0.17 only accepts
@@ -352,7 +407,8 @@ pub(crate) mod wasmtime {
     }
 }
 
-/// Constant-time string equality, work-around for
+/// Constant-time string equality, work-around for `"foo" == "bar"` not working
+/// in const context yet.
 const fn str_eq(s1: &str, s2: &str) -> bool {
     let s1 = s1.as_bytes();
     let s2 = s2.as_bytes();
