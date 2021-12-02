@@ -162,7 +162,7 @@ pub struct GenesisConfig {
     pub minimum_stake_divisor: u64,
     /// Layout information regarding how to split accounts to shards
     #[serde(default = "default_shard_layout")]
-    #[default(ShardLayout::default())]
+    #[default(ShardLayout::single_shard())]
     pub shard_layout: ShardLayout,
     #[serde(default = "default_simple_nightshade_shard_layout")]
     pub simple_nightshade_shard_layout: Option<ShardLayout>,
