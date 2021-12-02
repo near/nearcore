@@ -337,8 +337,6 @@ class LocalNode(BaseNode):
             os.path.join(node_dir, "node_key.json"))
         self.signer_key = Key.from_json_file(
             os.path.join(node_dir, "validator_key.json"))
-        self._stdout = None
-        self._stderr = None
         self._process = None
 
         self.change_config({
@@ -381,15 +379,18 @@ class LocalNode(BaseNode):
         env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get(
             "RUST_LOG", "debug")
 
-        self._stdout = open(os.path.join(self.node_dir, 'stdout'), 'a')
-        self._stderr = open(os.path.join(self.node_dir, 'stderr'), 'a')
         cmd = self._get_command_line(self.near_root, self.node_dir, boot_node,
                                      self.binary_name)
-        self._process = subprocess.Popen(cmd,
-                                         stdout=self._stdout,
-                                         stderr=self._stderr,
-                                         env=env)
+        node_dir = pathlib.Path(self.node_dir)
+        stdout, stderr = node_dir / 'stdout', node_dir / 'stderr'
+        with open(stdout, 'ab') as stdout_fd, open(stderr, 'ab') as stderr_fd:
+            self._process = subprocess.Popen(cmd,
+                                             stdin=subprocess.DEVNULL,
+                                             stdout=stdout_fd,
+                                             stderr=stderr_fd,
+                                             env=env)
         self._pid = self._process.pid
+
         if not skip_starting_proxy:
             self.start_proxy_if_needed()
 
@@ -400,15 +401,9 @@ class LocalNode(BaseNode):
                 '=== failed to start node, rpc does not ready in 10 seconds')
             if os.environ.get('BUILDKITE'):
                 logger.info('=== stdout: ')
-                self._stdout.seek(0)
-                logger.info(self._stdout.read())
+                logger.info(stdout.read_text('utf-8', 'replace'))
                 logger.info('=== stderr: ')
-                self._stderr.seek(0)
-                logger.info(self._stdout.read())
-            self._stdout.close()
-            self._stderr.close()
-            self._stdout = None
-            self._stderr = None
+                logger.info(stderr.read_text('utf-8', 'replace'))
 
     def kill(self):
         if self._proxy_local_stopped is not None:

@@ -62,25 +62,39 @@ pub struct ThrottleController {
 /// Only one instance of this struct should exist, that's why there is no close.
 pub struct ThrottleToken {
     /// Represents limits for `PeerActorManager`
-    throttle_controller: ThrottleController,
+    throttle_controller: Option<ThrottleController>,
     /// Size of message tracked.
     msg_len: usize,
 }
 
 impl ThrottleToken {
-    pub fn new(throttle_controller: ThrottleController, msg_len: usize) -> Self {
-        throttle_controller.add_msg(msg_len);
+    /// Creates Token with specified `msg_len`.
+    pub fn new(mut throttle_controller: Option<ThrottleController>, msg_len: usize) -> Self {
+        if let Some(th) = throttle_controller.as_mut() {
+            th.add_msg(msg_len);
+        };
         Self { throttle_controller, msg_len }
     }
 
-    pub fn into_inner(&self) -> ThrottleController {
-        self.throttle_controller.clone()
+    /// Creates Token without specifying `msg_len`.
+    pub fn new_without_size(mut throttle_controller: Option<ThrottleController>) -> Self {
+        if let Some(th) = throttle_controller.as_mut() {
+            th.add_msg(0);
+        };
+        Self { throttle_controller, msg_len: 0 }
+    }
+
+    /// Gets ThrottleController associated with `ThrottleToken`.
+    pub fn throttle_controller(&self) -> Option<&ThrottleController> {
+        self.throttle_controller.as_ref()
     }
 }
 
 impl Drop for ThrottleToken {
     fn drop(&mut self) {
-        self.throttle_controller.remove_msg(self.msg_len)
+        if let Some(th) = self.throttle_controller.as_mut() {
+            th.remove_msg(self.msg_len);
+        };
     }
 }
 
