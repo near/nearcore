@@ -1,5 +1,3 @@
-use std::ffi::c_void;
-
 macro_rules! imports {
     (
       $($(#[$stable_feature:ident])? $(#[$feature_name:literal, $feature:ident])*
@@ -171,16 +169,16 @@ imports! {
     #["protocol_feature_alt_bn128", AltBn128] alt_bn128_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
 }
 
-#[derive(Clone, Copy)]
-pub struct ImportReference(pub *mut c_void);
-unsafe impl Send for ImportReference {}
-unsafe impl Sync for ImportReference {}
-
 #[cfg(feature = "wasmer0_vm")]
 pub(crate) mod wasmer {
-    use super::{str_eq, ImportReference};
+    use super::str_eq;
     use near_vm_logic::{ProtocolVersion, VMLogic, VMLogicError};
     use std::ffi::c_void;
+
+    #[derive(Clone, Copy)]
+    struct ImportReference(pub *mut c_void);
+    unsafe impl Send for ImportReference {}
+    unsafe impl Sync for ImportReference {}
 
     pub(crate) fn build(
         memory: wasmer_runtime::memory::Memory,
@@ -226,15 +224,16 @@ pub(crate) mod wasmer {
 
 #[cfg(feature = "wasmer2_vm")]
 pub(crate) mod wasmer2 {
-    use super::{str_eq, ImportReference};
+    use super::str_eq;
     use near_vm_logic::{ProtocolVersion, VMLogic, VMLogicError};
-    use std::ffi::c_void;
 
     #[derive(wasmer::WasmerEnv, Clone)]
-    pub struct NearWasmerEnv {
+    struct NearWasmerEnv {
         pub memory: wasmer::Memory,
-        pub logic: ImportReference,
+        pub logic: *mut (),
     }
+    unsafe impl Send for NearWasmerEnv {}
+    unsafe impl Sync for NearWasmerEnv {}
 
     pub(crate) fn build(
         store: &wasmer::Store,
@@ -242,10 +241,7 @@ pub(crate) mod wasmer2 {
         logic: &mut VMLogic<'_>,
         protocol_version: ProtocolVersion,
     ) -> wasmer::ImportObject {
-        let env = NearWasmerEnv {
-            logic: ImportReference(logic as *mut _ as *mut c_void),
-            memory: memory.clone(),
-        };
+        let env = NearWasmerEnv { logic: logic as *mut _ as *mut (), memory: memory.clone() };
         let mut import_object = wasmer::ImportObject::new();
         let mut namespace = wasmer::Exports::new();
         namespace.insert("memory", memory);
@@ -262,7 +258,7 @@ pub(crate) mod wasmer2 {
                     } else {
                         Some(tracing::debug_span!(target: "host-function", stringify!($func)).entered())
                     };
-                    let logic: &mut VMLogic = unsafe { &mut *(env.logic.0 as *mut VMLogic<'_>) };
+                    let logic: &mut VMLogic = unsafe { &mut *(env.logic as *mut VMLogic<'_>) };
                     logic.$func( $( $arg_name, )* )
                 }
 
