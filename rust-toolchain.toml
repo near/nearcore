@@ -1,4 +1,5 @@
 [toolchain]
+# Please update rust-version in **/Cargo.toml files when changing channel:
 channel = "1.56.0"
 components = [ "rustfmt" ]
 targets = [ "wasm32-unknown-unknown" ]
