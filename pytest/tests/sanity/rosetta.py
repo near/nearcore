@@ -255,11 +255,14 @@ class RosettaTestCase(unittest.TestCase):
         # Get transaction from the second block
         trans = self.rosetta.get_transaction(block_id=block_1_id,
                                              trans_id=trans_id)
-        self.assertEqual(trans, {
-            'metadata': {'type': 'TRANSACTION'},
-            'operations': [],
-            'transaction_identifier': trans_id,
-        })
+        self.assertEqual(
+            trans, {
+                'metadata': {
+                    'type': 'TRANSACTION'
+                },
+                'operations': [],
+                'transaction_identifier': trans_id,
+            })
 
     def test_delete_implicit_account(self) -> None:
         validator = self.node.validator_key
