@@ -119,7 +119,7 @@ fn store_partial_encoded_chunk_sanity() {
         parts: vec![],
         receipts: vec![],
     };
-    let block_hash = *env.clients[0].chain.genesis().hash();
+    let block_hash = env.clients[0].chain.genesis().hash().clone();
     let block = env.clients[0].chain.get_block(&block_hash).unwrap().clone();
     assert_eq!(env.clients[0].shards_mgr.pop_stored_partial_encoded_chunks(1).len(), 0);
     env.clients[0]

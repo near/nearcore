@@ -50,7 +50,7 @@ fn apply_block_at_height(
     let mut chain_store_update = ChainStoreUpdate::new(chain_store);
     let receipt_proof_response = chain_store_update.get_incoming_receipts_for_shard(
         shard_id,
-        block_hash,
+        block_hash.clone(),
         prev_block.chunks()[shard_id as usize].height_included(),
     )?;
     let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
@@ -77,7 +77,7 @@ fn apply_block_at_height(
             prev_block.header().gas_price(),
             chunk_header.gas_limit(),
             &block.header().challenges_result(),
-            *block.header().random_value(),
+            block.header().random_value().clone(),
             true,
             is_first_block_with_chunk_of_version,
             None,
@@ -87,8 +87,12 @@ fn apply_block_at_height(
 
     for (outcome_with_id, proof) in apply_result.outcomes.into_iter().zip(outcome_paths.into_iter())
     {
-        let id = outcome_with_id.id;
-        let outcome = vec![ExecutionOutcomeWithIdAndProof { proof, block_hash, outcome_with_id }];
+        let id = outcome_with_id.id.clone();
+        let outcome = vec![ExecutionOutcomeWithIdAndProof {
+            proof,
+            block_hash: block_hash.clone(),
+            outcome_with_id,
+        }];
         store_update.set_ser(DBCol::ColTransactionResult, id.as_ref(), &outcome)?;
     }
     Ok(())
@@ -242,7 +246,7 @@ pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
                             block.header().gas_price(),
                             new_extra.gas_limit(),
                             &block.header().challenges_result(),
-                            *block.header().random_value(),
+                            block.header().random_value().clone(),
                             // doesn't really matter here since the old blocks are on the old version
                             false,
                             false,
@@ -311,7 +315,7 @@ pub fn migrate_22_to_23(path: &Path, near_config: &NearConfig) {
                         block.header().gas_price(),
                         chunk_header.gas_limit(),
                         &block.header().challenges_result(),
-                        *block.header().random_value(),
+                        block.header().random_value().clone(),
                         true,
                         false,
                         None,

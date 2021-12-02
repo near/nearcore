@@ -191,7 +191,7 @@ impl HeaderSync {
                 debug!(target: "sync", "Sync: initial transition to Header sync. Header head {} at {}",
                     header_head.last_block_hash, header_head.height,
                 );
-                self.history_locator.retain(|&x| x.0 == 0);
+                self.history_locator.retain(|x| x.0 == 0);
                 true
             }
             SyncStatus::StateSync { .. } => false,
@@ -348,7 +348,7 @@ impl HeaderSync {
                 let last_loc = locator.last().unwrap().clone();
                 if let Ok(header) = chain.get_header_by_height(h) {
                     if header.height() != last_loc.0 {
-                        locator.push((header.height(), *header.hash()));
+                        locator.push((header.height(), header.hash().clone()));
                     }
                 }
             }
@@ -356,7 +356,7 @@ impl HeaderSync {
         locator.dedup_by(|a, b| a.0 == b.0);
         debug!(target: "sync", "Sync: locator: {:?}", locator);
         self.history_locator = locator.clone();
-        Ok(locator.iter().map(|x| x.1).collect())
+        Ok(locator.iter().map(|x| x.1.clone()).collect())
     }
 }
 
@@ -371,7 +371,7 @@ fn close_enough(locator: &Vec<(u64, CryptoHash)>, height: u64) -> Option<(u64, C
     }
     // Higher than first and first is within acceptable gap.
     if locator[0].0 < height && height.saturating_sub(127) < locator[0].0 {
-        return Some(locator[0]);
+        return Some(locator[0].clone());
     }
     for h in locator.windows(2) {
         if height <= h[0].0 && height > h[1].0 {
@@ -483,7 +483,7 @@ impl BlockSync {
         }
 
         let reference_hash = match &self.last_request {
-            Some(request) if chain.is_chunk_orphan(&request.hash) => request.hash,
+            Some(request) if chain.is_chunk_orphan(&request.hash) => request.hash.clone(),
             _ => chain.head()?.last_block_hash,
         };
 
@@ -492,7 +492,8 @@ impl BlockSync {
             // In practice the forks from the last final block are very short, so it is
             // acceptable to perform this on each request
             let header = chain.get_block_header(&reference_hash)?;
-            let mut candidate = (header.height(), *header.hash(), *header.prev_hash());
+            let mut candidate =
+                (header.height(), header.hash().clone(), header.prev_hash().clone());
 
             // First go back until we find the common block
             while match chain.get_header_by_height(candidate.0) {
@@ -503,7 +504,11 @@ impl BlockSync {
                 },
             } {
                 let prev_header = chain.get_block_header(&candidate.2)?;
-                candidate = (prev_header.height(), *prev_header.hash(), *prev_header.prev_hash());
+                candidate = (
+                    prev_header.height(),
+                    prev_header.hash().clone(),
+                    prev_header.prev_hash().clone(),
+                );
             }
 
             // Then go forward for as long as we known the next block
@@ -529,7 +534,7 @@ impl BlockSync {
         };
 
         let next_hash = match chain.mut_store().get_next_block_hash(&reference_hash) {
-            Ok(hash) => *hash,
+            Ok(hash) => hash.clone(),
             Err(e) => match e.kind() {
                 near_chain::ErrorKind::DBNotFoundErr(_) => {
                     return Ok(false);
@@ -538,7 +543,8 @@ impl BlockSync {
             },
         };
         let next_height = chain.get_block_header(&next_hash)?.height();
-        let request = BlockSyncRequest { height: next_height, hash: next_hash, when: Clock::utc() };
+        let request =
+            BlockSyncRequest { height: next_height, hash: next_hash.clone(), when: Clock::utc() };
 
         let head = chain.head()?;
         let header_head = chain.header_head()?;
@@ -559,7 +565,7 @@ impl BlockSync {
         if let Some(peer) = peer {
             self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::BlockRequest {
-                    hash: request.hash,
+                    hash: request.hash.clone(),
                     peer_id: peer.peer_info.id.clone(),
                 },
             ));
@@ -720,7 +726,8 @@ impl StateSync {
             match shard_sync_download.status {
                 ShardSyncStatus::StateDownloadHeader => {
                     if shard_sync_download.downloads[0].done {
-                        let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
+                        let shard_state_header =
+                            chain.get_state_header(shard_id, sync_hash.clone())?;
                         let state_num_parts =
                             get_num_state_parts(shard_state_header.state_root_node().memory_usage);
                         *shard_sync_download = ShardSyncDownload {
@@ -781,12 +788,12 @@ impl StateSync {
                     }
                 }
                 ShardSyncStatus::StateDownloadScheduling => {
-                    let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
+                    let shard_state_header = chain.get_state_header(shard_id, sync_hash.clone())?;
                     let state_num_parts =
                         get_num_state_parts(shard_state_header.state_root_node().memory_usage);
                     match chain.schedule_apply_state_parts(
                         shard_id,
-                        sync_hash,
+                        sync_hash.clone(),
                         state_num_parts,
                         state_parts_task_scheduler,
                     ) {
@@ -800,17 +807,21 @@ impl StateSync {
                         Err(e) => {
                             // Cannot finalize the downloaded state.
                             // The reasonable behavior here is to start from the very beginning.
-                            error!(target: "sync", "State sync finalizing error, shard = {}, hash = {}: {:?}", shard_id, sync_hash, e);
+                            error!(target: "sync", "State sync finalizing error, shard = {}, hash = {}: {:?}", shard_id, sync_hash.clone(), e);
                             update_sync_status = true;
                             *shard_sync_download = init_sync_download.clone();
-                            chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
+                            chain.clear_downloaded_parts(
+                                shard_id,
+                                sync_hash.clone(),
+                                state_num_parts,
+                            )?;
                         }
                     }
                 }
                 ShardSyncStatus::StateDownloadApplying => {
                     let result = self.state_parts_apply_results.remove(&shard_id);
                     if let Some(result) = result {
-                        match chain.set_state_finalize(shard_id, sync_hash, result) {
+                        match chain.set_state_finalize(shard_id, sync_hash.clone(), result) {
                             Ok(()) => {
                                 update_sync_status = true;
                                 *shard_sync_download = ShardSyncDownload {
@@ -825,13 +836,13 @@ impl StateSync {
                                 update_sync_status = true;
                                 *shard_sync_download = init_sync_download.clone();
                                 let shard_state_header =
-                                    chain.get_state_header(shard_id, sync_hash)?;
+                                    chain.get_state_header(shard_id, sync_hash.clone())?;
                                 let state_num_parts = get_num_state_parts(
                                     shard_state_header.state_root_node().memory_usage,
                                 );
                                 chain.clear_downloaded_parts(
                                     shard_id,
-                                    sync_hash,
+                                    sync_hash.clone(),
                                     state_num_parts,
                                 )?;
                             }
@@ -839,10 +850,10 @@ impl StateSync {
                     }
                 }
                 ShardSyncStatus::StateDownloadComplete => {
-                    let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
+                    let shard_state_header = chain.get_state_header(shard_id, sync_hash.clone())?;
                     let state_num_parts =
                         get_num_state_parts(shard_state_header.state_root_node().memory_usage);
-                    chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
+                    chain.clear_downloaded_parts(shard_id, sync_hash.clone(), state_num_parts)?;
                     if split_states {
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![],
@@ -863,7 +874,7 @@ impl StateSync {
                         shard_id,
                         state_split_scheduler,
                     )?;
-                    debug!(target: "sync", "State sync split scheduled: me {:?}, shard = {}, hash = {}", me, shard_id, sync_hash);
+                    debug!(target: "sync", "State sync split scheduled: me {:?}, shard = {}, hash = {}", me, shard_id, sync_hash.clone());
                     *shard_sync_download = ShardSyncDownload {
                         downloads: vec![],
                         status: ShardSyncStatus::StateSplitApplying,
@@ -924,7 +935,7 @@ impl StateSync {
                     shard_id,
                     chain,
                     runtime_adapter,
-                    sync_hash,
+                    sync_hash.clone(),
                     shard_sync_download.clone(),
                     highest_height_peers,
                 )?;
@@ -1074,7 +1085,7 @@ impl StateSync {
             shard_id,
             chain,
             runtime_adapter,
-            sync_hash,
+            sync_hash.clone(),
             highest_height_peers,
         )?;
 
@@ -1097,7 +1108,11 @@ impl StateSync {
                     std::any::type_name::<Self>(),
                     self.network_adapter
                         .send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::StateRequestHeader { shard_id, sync_hash, target },
+                            NetworkRequests::StateRequestHeader {
+                                shard_id,
+                                sync_hash: sync_hash.clone(),
+                                target,
+                            },
                         ))
                         .then(move |result| {
                             if let Ok(NetworkResponses::RouteNotFound) =
@@ -1125,7 +1140,12 @@ impl StateSync {
                     .filter(|(_, download)| download.run_me.load(Ordering::SeqCst))
                     .zip(possible_targets_sampler)
                 {
-                    self.sent_request_part(target.clone(), part_id as u64, shard_id, sync_hash);
+                    self.sent_request_part(
+                        target.clone(),
+                        part_id as u64,
+                        shard_id,
+                        sync_hash.clone(),
+                    );
                     download.run_me.store(false, Ordering::SeqCst);
                     download.state_requests_count += 1;
                     download.last_target = Some(target.clone());
@@ -1137,7 +1157,7 @@ impl StateSync {
                             .send(PeerManagerMessageRequest::NetworkRequests(
                                 NetworkRequests::StateRequestPart {
                                     shard_id,
-                                    sync_hash,
+                                    sync_hash: sync_hash.clone(),
                                     part_id: part_id as u64,
                                     target: target.clone(),
                                 },
@@ -1351,7 +1371,7 @@ mod test {
             chain_info: near_network_primitives::types::PeerChainInfoV2 {
                 genesis_id: GenesisId {
                     chain_id: "unittest".to_string(),
-                    hash: *chain.genesis().hash(),
+                    hash: chain.genesis().hash().clone(),
                 },
                 height: chain2.head().unwrap().height,
                 tracked_shards: vec![],
@@ -1372,7 +1392,7 @@ mod test {
             NetworkRequests::BlockHeadersRequest {
                 hashes: [3, 1, 0]
                     .iter()
-                    .map(|i| *chain.get_block_by_height(*i).unwrap().hash())
+                    .map(|i| chain.get_block_by_height(*i).unwrap().hash().clone())
                     .collect(),
                 peer_id: peer1.peer_info.id
             }
@@ -1441,7 +1461,7 @@ mod test {
                             account_id,
                         );
                         Approval::new(
-                            *last_block.hash(),
+                            last_block.hash().clone(),
                             last_block.header().height(),
                             current_height,
                             &signer,
@@ -1450,15 +1470,16 @@ mod test {
                     })
                 })
                 .collect();
-            let (epoch_id, next_epoch_id) =
-                if last_block.header().prev_hash() == &CryptoHash::default() {
-                    (last_block.header().next_epoch_id().clone(), EpochId(*last_block.hash()))
-                } else {
-                    (
-                        last_block.header().epoch_id().clone(),
-                        last_block.header().next_epoch_id().clone(),
-                    )
-                };
+            let (epoch_id, next_epoch_id) = if last_block.header().prev_hash()
+                == &CryptoHash::default()
+            {
+                (last_block.header().next_epoch_id().clone(), EpochId(last_block.hash().clone()))
+            } else {
+                (
+                    last_block.header().epoch_id().clone(),
+                    last_block.header().next_epoch_id().clone(),
+                )
+            };
             let block = Block::produce(
                 PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
@@ -1480,7 +1501,7 @@ mod test {
                 last_block.header().next_bp_hash().clone(),
                 block_merkle_tree.root(),
             );
-            block_merkle_tree.insert(*block.hash());
+            block_merkle_tree.insert(block.hash().clone());
 
             all_blocks.push(block);
 
@@ -1593,7 +1614,7 @@ mod test {
                 collect_hashes_from_network_adapter(network_adapter.clone());
             assert_eq!(
                 requested_block_hashes,
-                [block].iter().map(|x| *x.hash()).collect::<HashSet<_>>()
+                [block].iter().map(|x| x.hash().clone()).collect::<HashSet<_>>()
             );
 
             env.process_block(1, block.clone(), Provenance::NONE);
@@ -1640,7 +1661,7 @@ mod test {
         let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter.clone());
         assert_eq!(
             requested_block_hashes,
-            blocks.iter().take(1).map(|b| *b.hash()).collect::<HashSet<_>>()
+            blocks.iter().take(1).map(|b| b.hash().clone()).collect::<HashSet<_>>()
         );
     }
 }

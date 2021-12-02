@@ -51,7 +51,7 @@ fn test_pending_approvals() {
     let signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let parent_hash = hash(&[1]);
-    let approval = Approval::new(parent_hash, 0, 1, &signer);
+    let approval = Approval::new(parent_hash.clone(), 0, 1, &signer);
     let peer_id = PeerId::random();
     env.clients[0].collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id.clone()));
     let approvals =
@@ -81,7 +81,7 @@ fn test_invalid_approvals() {
     // Approval with invalid signature. Should be dropped
     let signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "random");
-    let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let genesis_hash = env.clients[0].chain.genesis().hash().clone();
     let approval = Approval::new(genesis_hash, 0, 1, &signer);
     env.clients[0].collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id));
     assert_eq!(env.clients[0].pending_approvals.cache_size(), 0);

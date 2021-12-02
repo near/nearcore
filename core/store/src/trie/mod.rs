@@ -124,7 +124,7 @@ impl TrieNode {
             RawTrieNode::Branch(children, value) => {
                 let mut new_children: Box<[Option<NodeHandle>; 16]> = Default::default();
                 for i in 0..children.len() {
-                    new_children[i] = children[i].map(NodeHandle::Hash);
+                    new_children[i] = children[i].clone().map(NodeHandle::Hash);
                 }
                 TrieNode::Branch(
                     new_children,
@@ -458,7 +458,12 @@ pub struct TrieChanges {
 
 impl TrieChanges {
     pub fn empty(old_root: StateRoot) -> Self {
-        TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
+        TrieChanges {
+            old_root: old_root.clone(),
+            new_root: old_root.clone(),
+            insertions: vec![],
+            deletions: vec![],
+        }
     }
 }
 
@@ -515,7 +520,7 @@ impl Trie {
         if self.storage.as_recording_storage().is_some() {
             return 0;
         }
-        let TrieNodeWithSize { node, memory_usage } = match handle {
+        let TrieNodeWithSize { node, memory_usage } = match handle.clone() {
             NodeHandle::InMemory(h) => memory.node_ref(h).clone(),
             NodeHandle::Hash(h) => self.retrieve_node(&h).expect("storage failure"),
         };
@@ -540,11 +545,11 @@ impl Trie {
             eprintln!("Correct is {}", memory_usage_naive);
             eprintln!("Computed is {}", memory_usage);
             match handle {
-                NodeHandle::InMemory(h) => {
+                NodeHandle::InMemory(ref h) => {
                     eprintln!("TRIE!!!!");
-                    eprintln!("{}", memory.node_ref(h).node.deep_to_string(memory));
+                    eprintln!("{}", memory.node_ref(h.clone()).node.deep_to_string(memory));
                 }
-                NodeHandle::Hash(_h) => {
+                NodeHandle::Hash(ref _h) => {
                     eprintln!("Bad node in storage!");
                 }
             };
@@ -561,7 +566,11 @@ impl Trie {
         match value {
             ValueHandle::HashAndSize(_, hash) => {
                 let bytes = self.storage.retrieve_raw_bytes(hash)?;
-                memory.refcount_changes.entry(*hash).or_insert_with(|| (bytes.to_vec(), 0)).1 -= 1;
+                memory
+                    .refcount_changes
+                    .entry(hash.clone())
+                    .or_insert_with(|| (bytes.to_vec(), 0))
+                    .1 -= 1;
             }
             ValueHandle::InMemory(_) => {
                 // do nothing
@@ -575,7 +584,7 @@ impl Trie {
         memory: &mut NodesStorage,
         hash: &CryptoHash,
     ) -> Result<StorageHandle, StorageError> {
-        if *hash == Trie::empty_root() {
+        if hash.clone() == Trie::empty_root() {
             Ok(memory.store(TrieNodeWithSize::empty()))
         } else {
             self.counter.increment();
@@ -585,7 +594,7 @@ impl Trie {
                     let result = memory.store(TrieNodeWithSize::from_raw(value));
                     memory
                         .refcount_changes
-                        .entry(*hash)
+                        .entry(hash.clone())
                         .or_insert_with(|| (bytes.to_vec(), 0))
                         .1 -= 1;
                     Ok(result)
@@ -599,7 +608,7 @@ impl Trie {
     }
 
     fn retrieve_node(&self, hash: &CryptoHash) -> Result<TrieNodeWithSize, StorageError> {
-        if *hash == Trie::empty_root() {
+        if hash.clone() == Trie::empty_root() {
             return Ok(TrieNodeWithSize::empty());
         }
         let bytes = self.retrieve_raw_bytes(hash)?;
@@ -639,7 +648,7 @@ impl Trie {
         root: &CryptoHash,
         mut key: NibbleSlice<'_>,
     ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
-        let mut hash = *root;
+        let mut hash = root.clone();
 
         loop {
             if hash == Trie::empty_root() {
@@ -800,14 +809,14 @@ mod tests {
         let value = vec![123, 245, 255];
         let value_length = 3;
         let value_hash = hash(&value);
-        let node = RawTrieNode::Leaf(vec![1, 2, 3], value_length, value_hash);
+        let node = RawTrieNode::Leaf(vec![1, 2, 3], value_length, value_hash.clone());
         let buf = node.encode().expect("Failed to serialize");
         let new_node = RawTrieNode::decode(&buf).expect("Failed to deserialize");
         assert_eq!(node, new_node);
 
         let mut children: [Option<CryptoHash>; 16] = Default::default();
         children[3] = Some(CryptoHash::default());
-        let node = RawTrieNode::Branch(children, Some((value_length, value_hash)));
+        let node = RawTrieNode::Branch(children, Some((value_length, value_hash.clone())));
         let buf = node.encode().expect("Failed to serialize");
         let new_node = RawTrieNode::decode(&buf).expect("Failed to deserialize");
         assert_eq!(node, new_node);

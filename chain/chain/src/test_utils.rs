@@ -219,7 +219,7 @@ impl KeyValueRuntime {
         prev_hash: CryptoHash,
     ) -> Result<(EpochId, usize, EpochId), Error> {
         if prev_hash == CryptoHash::default() {
-            return Ok((EpochId(prev_hash), 0, EpochId(prev_hash)));
+            return Ok((EpochId(prev_hash.clone()), 0, EpochId(prev_hash.clone())));
         }
         let prev_block_header = self
             .get_block_header(&prev_hash)?
@@ -232,7 +232,7 @@ impl KeyValueRuntime {
         let mut hash_to_valset = self.hash_to_valset.write().unwrap();
         let mut epoch_start_map = self.epoch_start.write().unwrap();
 
-        let prev_prev_hash = *prev_block_header.prev_hash();
+        let prev_prev_hash = prev_block_header.prev_hash().clone();
         let prev_epoch = hash_to_epoch.get(&prev_prev_hash);
         let prev_next_epoch = hash_to_next_epoch.get(&prev_prev_hash).unwrap();
         let prev_valset = match prev_epoch {
@@ -262,7 +262,7 @@ impl KeyValueRuntime {
             };
             (
                 prev_next_epoch.clone(),
-                EpochId(prev_hash),
+                EpochId(prev_hash.clone()),
                 new_valset,
                 prev_block_header.height() + 1,
             )
@@ -275,8 +275,8 @@ impl KeyValueRuntime {
             )
         };
 
-        hash_to_next_epoch.insert(prev_hash, next_epoch.clone());
-        hash_to_epoch.insert(prev_hash, epoch.clone());
+        hash_to_next_epoch.insert(prev_hash.clone(), next_epoch.clone());
+        hash_to_epoch.insert(prev_hash.clone(), epoch.clone());
         hash_to_next_epoch_approvals_req.insert(prev_hash.clone(), needs_next_epoch_approvals);
         hash_to_valset.insert(epoch.clone(), valset);
         hash_to_valset.insert(next_epoch.clone(), valset + 1);
@@ -351,8 +351,10 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 
     fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
-        let validators = &self.validators
-            [self.get_epoch_and_valset(*header.prev_hash()).map_err(|err| err.to_string())?.1];
+        let validators = &self.validators[self
+            .get_epoch_and_valset(header.prev_hash().clone())
+            .map_err(|err| err.to_string())?
+            .1];
         let validator = &validators[(header.height() as usize) % validators.len()];
         Ok(header.verify_block_producer(validator.public_key()))
     }
@@ -526,7 +528,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error> {
-        let validators = &self.validators[self.get_epoch_and_valset(*parent_hash)?.1];
+        let validators = &self.validators[self.get_epoch_and_valset(parent_hash.clone())?.1];
         // if we don't use data_parts and total_parts as part of the formula here, the part owner
         //     would not depend on height, and tests wouldn't catch passing wrong height here
         let idx = part_id as usize + self.num_data_parts() + self.num_total_parts();
@@ -543,7 +545,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         // This `unwrap` here tests that in all code paths we check that the epoch exists before
         //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
         //    the calling function.
-        let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
+        let epoch_valset = self.get_epoch_and_valset(parent_hash.clone()).unwrap();
         let validators = &self.validators[epoch_valset.1];
         assert_eq!((validators.len() as u64) % self.num_shards, 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
@@ -571,7 +573,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         // This `unwrap` here tests that in all code paths we check that the epoch exists before
         //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
         //    the calling function.
-        let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
+        let epoch_valset = self.get_epoch_and_valset(parent_hash.clone()).unwrap();
         let validators = &self.validators[(epoch_valset.1 + 1) % self.validators.len()];
         assert_eq!((validators.len() as u64) % self.num_shards, 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
@@ -676,7 +678,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     shard_id
                 );
                 if !state.receipt_nonces.contains(&receipt.receipt_id) {
-                    state.receipt_nonces.insert(receipt.receipt_id);
+                    state.receipt_nonces.insert(receipt.receipt_id.clone());
                     if let Action::Transfer(TransferAction { deposit }) = action.actions[0] {
                         balance_transfers.push((
                             receipt.get_hash(),
@@ -818,11 +820,11 @@ impl RuntimeAdapter for KeyValueRuntime {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
                 ShardUId { version: 0, shard_id: shard_id as u32 },
-                TrieChanges::empty(state_root),
+                TrieChanges::empty(state_root.clone()),
                 Default::default(),
                 block_hash.clone(),
             ),
-            new_root: state_root,
+            new_root: state_root.clone(),
             outcomes: tx_results,
             outgoing_receipts,
             validator_proposals: vec![],
@@ -881,7 +883,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     .into(),
                 ),
                 block_height,
-                block_hash: *block_hash,
+                block_hash: block_hash.clone(),
             }),
             QueryRequest::ViewCode { .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::ViewCode(ContractCodeView {
@@ -889,7 +891,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     hash: CryptoHash::default(),
                 }),
                 block_height,
-                block_hash: *block_hash,
+                block_hash: block_hash.clone(),
             }),
             QueryRequest::ViewAccessKeyList { .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::AccessKeyList(AccessKeyList {
@@ -899,12 +901,12 @@ impl RuntimeAdapter for KeyValueRuntime {
                     }],
                 }),
                 block_height,
-                block_hash: *block_hash,
+                block_hash: block_hash.clone(),
             }),
             QueryRequest::ViewAccessKey { .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::AccessKey(AccessKey::full_access().into()),
                 block_height,
-                block_hash: *block_hash,
+                block_hash: block_hash.clone(),
             }),
             QueryRequest::ViewState { .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::ViewState(ViewStateResult {
@@ -912,7 +914,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     proof: vec![],
                 }),
                 block_height,
-                block_hash: *block_hash,
+                block_hash: block_hash.clone(),
             }),
             QueryRequest::CallFunction { .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::CallResult(CallResult {
@@ -920,7 +922,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     logs: Default::default(),
                 }),
                 block_height,
-                block_hash: *block_hash,
+                block_hash: block_hash.clone(),
             }),
         }
     }
@@ -1013,24 +1015,24 @@ impl RuntimeAdapter for KeyValueRuntime {
                 parent_hash
             )))
         })?;
-        let prev_prev_hash = *prev_block_header.prev_hash();
-        Ok(self.get_epoch_and_valset(*parent_hash)?.0
+        let prev_prev_hash = prev_block_header.prev_hash().clone();
+        Ok(self.get_epoch_and_valset(parent_hash.clone())?.0
             != self.get_epoch_and_valset(prev_prev_hash)?.0)
     }
 
     fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
-        Ok(self.get_epoch_and_valset(*parent_hash)?.0)
+        Ok(self.get_epoch_and_valset(parent_hash.clone())?.0)
     }
 
     fn get_next_epoch_id_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
     ) -> Result<EpochId, Error> {
-        Ok(self.get_epoch_and_valset(*parent_hash)?.2)
+        Ok(self.get_epoch_and_valset(parent_hash.clone())?.2)
     }
 
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
-        let epoch_id = self.get_epoch_and_valset(*block_hash)?.0;
+        let epoch_id = self.get_epoch_and_valset(block_hash.clone())?.0;
         match self.get_block_header(&epoch_id.0)? {
             Some(block_header) => Ok(block_header.height()),
             None => Ok(0),
@@ -1319,7 +1321,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
     for header in headers {
         if header.prev_hash() == &CryptoHash::default() {
             // Genesis block.
-            debug!("{: >3} {}", header.height(), format_hash(*header.hash()));
+            debug!("{: >3} {}", header.height(), format_hash(header.hash().clone()));
         } else {
             let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap().clone();
             let maybe_block = chain_store.get_block(&header.hash()).ok().cloned();
@@ -1330,10 +1332,10 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
             debug!(
                 "{: >3} {} | {: >10} | parent: {: >3} {} | {}",
                 header.height(),
-                format_hash(*header.hash()),
+                format_hash(header.hash().clone()),
                 block_producer,
                 parent_header.height(),
-                format_hash(*parent_header.hash()),
+                format_hash(parent_header.hash().clone()),
                 if let Some(block) = &maybe_block {
                     format!("chunks: {}", block.chunks().len())
                 } else {

@@ -41,7 +41,7 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
 
     // degenerate case
     if len == 1 {
-        return (hashes[0], vec![vec![]]);
+        return (hashes[0].clone(), vec![vec![]]);
     }
     let mut arr_len = arr.len();
     let mut paths: Vec<MerklePath> = (0..arr_len)
@@ -49,14 +49,17 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
             if i % 2 == 0 {
                 if i + 1 < arr_len {
                     vec![MerklePathItem {
-                        hash: hashes[(i + 1) as usize],
+                        hash: hashes[(i + 1) as usize].clone(),
                         direction: Direction::Right,
                     }]
                 } else {
                     vec![]
                 }
             } else {
-                vec![MerklePathItem { hash: hashes[(i - 1) as usize], direction: Direction::Left }]
+                vec![MerklePathItem {
+                    hash: hashes[(i - 1) as usize].clone(),
+                    direction: Direction::Left,
+                }]
             }
         })
         .collect();
@@ -69,24 +72,30 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
             let hash = if 2 * i >= arr_len {
                 continue;
             } else if 2 * i + 1 >= arr_len {
-                hashes[2 * i]
+                hashes[2 * i.clone()].clone()
             } else {
-                combine_hash(hashes[2 * i], hashes[2 * i + 1])
+                combine_hash(hashes[2 * i].clone(), hashes[2 * i + 1].clone())
             };
-            hashes[i] = hash;
+            hashes[i] = hash.clone();
             if len > 1 {
                 if i % 2 == 0 {
                     for j in 0..counter {
                         let index = ((i + 1) * counter + j) as usize;
                         if index < arr.len() {
-                            paths[index].push(MerklePathItem { hash, direction: Direction::Left });
+                            paths[index].push(MerklePathItem {
+                                hash: hash.clone(),
+                                direction: Direction::Left,
+                            });
                         }
                     }
                 } else {
                     for j in 0..counter {
                         let index = ((i - 1) * counter + j) as usize;
                         if index < arr.len() {
-                            paths[index].push(MerklePathItem { hash, direction: Direction::Right });
+                            paths[index].push(MerklePathItem {
+                                hash: hash.clone(),
+                                direction: Direction::Right,
+                            });
                         }
                     }
                 }
@@ -94,7 +103,7 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
         }
         arr_len = (arr_len + 1) / 2;
     }
-    (hashes[0], paths)
+    (hashes[0].clone(), paths)
 }
 
 /// Verify merkle path for given item and corresponding path.
@@ -112,10 +121,10 @@ pub fn compute_root_from_path(path: &MerklePath, item_hash: MerkleHash) -> Merkl
     for item in path {
         match item.direction {
             Direction::Left => {
-                res = combine_hash(item.hash, res);
+                res = combine_hash(item.hash.clone(), res);
             }
             Direction::Right => {
-                res = combine_hash(res, item.hash);
+                res = combine_hash(res, item.hash.clone());
             }
         }
     }
@@ -149,10 +158,10 @@ impl PartialMerkleTree {
         if self.path.is_empty() {
             CryptoHash::default()
         } else {
-            let mut res = *self.path.last().unwrap();
+            let mut res = self.path.last().unwrap().clone();
             let len = self.path.len();
             for i in (0..len - 1).rev() {
-                res = combine_hash(self.path[i], res);
+                res = combine_hash(self.path[i].clone(), res);
             }
             res
         }
@@ -194,7 +203,7 @@ mod tests {
         let (root, paths) = merklize(&arr);
         assert_eq!(paths.len() as u32, n);
         for (i, item) in arr.iter().enumerate() {
-            assert!(verify_path(root, &paths[i], item));
+            assert!(verify_path(root.clone(), &paths[i], item));
         }
     }
 
@@ -212,7 +221,7 @@ mod tests {
         let items = vec![111, 222, 333];
         let (root, paths) = merklize(&items);
         for i in 0..items.len() {
-            assert!(!verify_path(root, &paths[(i + 1) % 3], &items[i]))
+            assert!(!verify_path(root.clone(), &paths[(i + 1) % 3], &items[i]))
         }
     }
 
@@ -230,7 +239,7 @@ mod tests {
         if hashes.is_empty() {
             CryptoHash::default()
         } else if hashes.len() == 1 {
-            hashes[0]
+            hashes[0].clone()
         } else {
             let len = hashes.len();
             let subtree_len = len.next_power_of_two() / 2;
@@ -247,8 +256,8 @@ mod tests {
         for i in 0..50 {
             assert_eq!(compute_root(&hashes), tree.root());
             let cur_hash = hash(&[i]);
-            hashes.push(cur_hash);
-            tree.insert(cur_hash);
+            hashes.push(cur_hash.clone());
+            tree.insert(cur_hash.clone());
         }
     }
 }

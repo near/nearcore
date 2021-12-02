@@ -77,9 +77,9 @@ pub(crate) fn execute_function_call(
         vec![]
     };
     let random_seed = create_random_seed(
-        apply_state.current_protocol_version,
-        *action_hash,
-        apply_state.random_seed,
+        apply_state.current_protocol_version.clone(),
+        action_hash.clone(),
+        apply_state.random_seed.clone(),
     );
     let context = VMContext {
         current_account_id: runtime_ext.account_id().clone(),
@@ -456,7 +456,7 @@ pub(crate) fn action_deploy_contract(
             ))
         })?,
     );
-    account.set_code_hash(*code.hash());
+    account.set_code_hash(code.hash().clone());
     set_code(state_update, account_id.clone(), &code);
     // Precompile the contract and store result (compiled code or error) in the database.
     // Note, that contract compilation costs are already accounted in deploy cost using
@@ -838,7 +838,7 @@ mod tests {
         storage_usage: u64,
         state_update: &mut TrieUpdate,
     ) -> ActionResult {
-        let mut account = Some(Account::new(100, 0, *code_hash, storage_usage));
+        let mut account = Some(Account::new(100, 0, code_hash.clone(), storage_usage));
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
         let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), 0);

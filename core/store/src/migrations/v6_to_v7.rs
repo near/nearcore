@@ -93,7 +93,10 @@ pub(crate) fn migrate_receipts_refcount(store: &Store, store_update: &mut StoreU
     let mut receipts: HashMap<CryptoHash, (Receipt, i64)> = HashMap::new();
     for chunk in chunks {
         for rx in chunk.receipts {
-            receipts.entry(rx.receipt_id).and_modify(|(_receipt, rc)| *rc += 1).or_insert((rx, 1));
+            receipts
+                .entry(rx.receipt_id.clone())
+                .and_modify(|(_receipt, rc)| *rc += 1)
+                .or_insert((rx, 1));
         }
     }
 

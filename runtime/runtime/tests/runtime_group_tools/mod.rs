@@ -118,7 +118,7 @@ impl StandaloneRuntime {
             .runtime
             .apply(
                 self.tries.get_trie_for_shard(ShardUId::default()),
-                self.root,
+                self.root.clone(),
                 &None,
                 &self.apply_state,
                 receipts,
@@ -211,7 +211,12 @@ impl RuntimeGroup {
             if (i as u64) < num_existing_accounts {
                 state_records.push(StateRecord::Account {
                     account_id: account_id.clone(),
-                    account: Account::new(TESTING_INIT_BALANCE, TESTING_INIT_STAKE, code_hash, 0),
+                    account: Account::new(
+                        TESTING_INIT_BALANCE,
+                        TESTING_INIT_STAKE,
+                        code_hash.clone(),
+                        0,
+                    ),
                 });
                 state_records.push(StateRecord::AccessKey {
                     account_id: account_id.clone(),

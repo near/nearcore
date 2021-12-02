@@ -119,7 +119,7 @@ fn send_tx(
                     to.clone(),
                     &signer,
                     amount,
-                    block_hash,
+                    block_hash.clone(),
                 ),
                 is_forwarded: false,
                 check_only: false,
@@ -262,7 +262,7 @@ fn test_cross_shard_tx_callback(
                     validators[to].clone(),
                     amount,
                     next_nonce as u64,
-                    block_hash,
+                    block_hash.clone(),
                 );
 
                 let connectors_ = connectors.write().unwrap();
@@ -287,6 +287,7 @@ fn test_cross_shard_tx_callback(
                     let presumable_epoch1 = presumable_epoch.clone();
                     let account_id1 = validators[i].clone();
                     let block_stats1 = block_stats.clone();
+                    let block_hash = block_hash.clone();
                     actix::spawn(
                         connectors_[account_id_to_shard_id(&validators[i], 8) as usize
                             + (*presumable_epoch.read().unwrap() * 8) % 24]
@@ -309,7 +310,7 @@ fn test_cross_shard_tx_callback(
                                     observed_balances1,
                                     presumable_epoch1,
                                     num_iters,
-                                    block_hash,
+                                    block_hash.clone(),
                                     block_stats1,
                                     min_ratio,
                                     max_ratio,
@@ -361,7 +362,7 @@ fn test_cross_shard_tx_callback(
                             observed_balances,
                             presumable_epoch1,
                             num_iters,
-                            block_hash,
+                            block_hash.clone(),
                             block_stats,
                             min_ratio,
                             max_ratio,
@@ -449,7 +450,7 @@ fn test_cross_shard_tx_common(
             ))),
         );
         *connectors.write().unwrap() = conn;
-        let block_hash = *genesis_block.hash();
+        let block_hash = genesis_block.hash().clone();
 
         let connectors_ = connectors.write().unwrap();
         let iteration = Arc::new(AtomicUsize::new(0));
@@ -470,6 +471,7 @@ fn test_cross_shard_tx_common(
             let presumable_epoch1 = presumable_epoch.clone();
             let account_id1 = flat_validators[i].clone();
             let block_stats1 = block_stats.clone();
+            let block_hash_clone = block_hash.clone();
             actix::spawn(
                 connectors_[account_id_to_shard_id(&flat_validators[i], 8) as usize
                     + *presumable_epoch.read().unwrap() * 8]
@@ -492,7 +494,7 @@ fn test_cross_shard_tx_common(
                             observed_balances1,
                             presumable_epoch1,
                             num_iters,
-                            block_hash,
+                            block_hash_clone,
                             block_stats1,
                             min_ratio,
                             max_ratio,

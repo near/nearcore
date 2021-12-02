@@ -50,7 +50,7 @@ pub fn get_contract_cache_key(
 ) -> CryptoHash {
     let _span = tracing::debug_span!(target: "vm", "get_key").entered();
     let key = ContractCacheKey::Version4 {
-        code_hash: *code.hash(),
+        code_hash: code.hash().clone(),
         vm_config_non_crypto_hash: config.non_crypto_hash(),
         vm_kind,
         vm_hash: vm_hash(vm_kind),
@@ -214,7 +214,7 @@ pub mod wasmer0_cache {
         MODULES: SizedCache<CryptoHash, Result<Result<wasmer_runtime::Module, CompilationError>, CacheError>>
             = SizedCache::with_size(CACHE_SIZE);
         Key = {
-            key
+            key.clone()
         };
 
         fn memcache_compile_module_cached_wasmer(
@@ -223,7 +223,7 @@ pub mod wasmer0_cache {
             config: &VMConfig,
             cache: Option<&dyn CompiledContractCache>
         ) -> Result<Result<wasmer_runtime::Module, CompilationError>, CacheError> = {
-            compile_module_cached_wasmer_impl(key, wasm_code, config, cache)
+            compile_module_cached_wasmer_impl(key.clone(), wasm_code, config, cache)
         }
     }
 
@@ -343,7 +343,7 @@ pub mod wasmer2_cache {
         MODULES: SizedCache<CryptoHash, Result<Result<wasmer::Module, CompilationError>, CacheError>>
             = SizedCache::with_size(CACHE_SIZE);
         Key = {
-            key
+            key.clone()
         };
 
         fn memcache_compile_module_cached_wasmer2(
@@ -353,7 +353,7 @@ pub mod wasmer2_cache {
             cache: Option<&dyn CompiledContractCache>,
             store: &wasmer::Store
         ) -> Result<Result<wasmer::Module, CompilationError>, CacheError> = {
-            compile_module_cached_wasmer2_impl(key, wasm_code, config, cache, store)
+            compile_module_cached_wasmer2_impl(key.clone(), wasm_code, config, cache, store)
         }
     }
 

@@ -142,12 +142,12 @@ pub struct BlockHeaderInfo {
 impl BlockHeaderInfo {
     pub fn new(header: &BlockHeader, last_finalized_height: u64) -> Self {
         Self {
-            hash: *header.hash(),
-            prev_hash: *header.prev_hash(),
+            hash: header.hash().clone(),
+            prev_hash: header.prev_hash().clone(),
             height: header.height(),
-            random_value: *header.random_value(),
+            random_value: header.random_value().clone(),
             last_finalized_height,
-            last_finalized_block_hash: *header.last_final_block(),
+            last_finalized_block_hash: header.last_final_block().clone(),
             proposals: header.validator_proposals().collect(),
             slashed_validators: vec![],
             chunk_mask: header.chunk_mask().to_vec(),
@@ -849,15 +849,15 @@ mod tests {
             KeyType::ED25519,
             "other2",
         );
-        let approvals = vec![Some(Approval::new(*b1.hash(), 1, 2, &other_signer).signature)];
+        let approvals = vec![Some(Approval::new(b1.hash().clone(), 1, 2, &other_signer).signature)];
         let b2 = Block::empty_with_approvals(
             &b1,
             2,
             b1.header().epoch_id().clone(),
-            EpochId(*genesis.hash()),
+            EpochId(genesis.hash().clone()),
             approvals,
             &signer,
-            *genesis.header().next_bp_hash(),
+            genesis.header().next_bp_hash().clone(),
             CryptoHash::default(),
         );
         b2.header().verify_block_producer(&signer.public_key());
@@ -892,7 +892,7 @@ mod tests {
         let outcomes = vec![outcome1, outcome2];
         let (outcome_root, paths) = ApplyTransactionResult::compute_outcomes_proof(&outcomes);
         for (outcome_with_id, path) in outcomes.into_iter().zip(paths.into_iter()) {
-            assert!(verify_path(outcome_root, &path, &outcome_with_id.to_hashes()));
+            assert!(verify_path(outcome_root.clone(), &path, &outcome_with_id.to_hashes()));
         }
     }
 }

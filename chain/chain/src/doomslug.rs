@@ -317,7 +317,7 @@ impl Doomslug {
 
     /// Returns the `(hash, height)` of the current tip. Currently is only used by tests.
     pub fn get_tip(&self) -> (CryptoHash, BlockHeight) {
-        (self.tip.block_hash, self.tip.height)
+        (self.tip.block_hash.clone(), self.tip.height)
     }
 
     /// Returns the largest height for which we have enough approvals to be theoretically able to
@@ -410,7 +410,7 @@ impl Doomslug {
 
     pub fn create_approval(&self, target_height: BlockHeight) -> Option<Approval> {
         self.signer.as_ref().map(|signer| {
-            Approval::new(self.tip.block_hash, self.tip.height, target_height, &**signer)
+            Approval::new(self.tip.block_hash.clone(), self.tip.height, target_height, &**signer)
         })
     }
 

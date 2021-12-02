@@ -1396,7 +1396,7 @@ impl PeerManagerActor {
         match target {
             PeerIdOrHash::PeerId(peer_id) => peer_id == &self.my_peer_id,
             PeerIdOrHash::Hash(hash) => {
-                self.routing_table_view.compare_route_back(*hash, &self.my_peer_id)
+                self.routing_table_view.compare_route_back(hash.clone(), &self.my_peer_id)
             }
         }
     }

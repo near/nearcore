@@ -119,7 +119,7 @@ fn test_stake_nodes() {
                 &*test_nodes[1].signer,
                 TESTING_INIT_STAKE,
                 test_nodes[1].config.validator_signer.as_ref().unwrap().public_key(),
-                test_nodes[1].genesis_hash,
+                test_nodes[1].genesis_hash.clone(),
             );
             actix::spawn(
                 test_nodes[0]
@@ -204,7 +204,7 @@ fn test_validator_kickout() {
                     &*signer,
                     stake,
                     test_node.config.validator_signer.as_ref().unwrap().public_key(),
-                    test_node.genesis_hash,
+                    test_node.genesis_hash.clone(),
                 )
             });
 
@@ -347,7 +347,7 @@ fn test_validator_join() {
                 &*signer,
                 0,
                 test_nodes[1].config.validator_signer.as_ref().unwrap().public_key(),
-                test_nodes[1].genesis_hash,
+                test_nodes[1].genesis_hash.clone(),
             );
 
             let signer = Arc::new(InMemorySigner::from_seed(
@@ -361,7 +361,7 @@ fn test_validator_join() {
                 &*signer,
                 TESTING_INIT_STAKE,
                 test_nodes[2].config.validator_signer.as_ref().unwrap().public_key(),
-                test_nodes[2].genesis_hash,
+                test_nodes[2].genesis_hash.clone(),
             );
 
             actix::spawn(

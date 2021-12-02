@@ -342,18 +342,18 @@ impl BlockStats {
 
         let mut result: u64 = 0;
         while dlhs > drhs {
-            lhs = *self.parent.get(&lhs).unwrap();
+            lhs = self.parent.get(&lhs).unwrap().clone();
             dlhs -= 1;
             result += 1;
         }
         while dlhs < drhs {
-            rhs = *self.parent.get(&rhs).unwrap();
+            rhs = self.parent.get(&rhs).unwrap().clone();
             drhs -= 1;
             result += 1;
         }
         while lhs != rhs {
-            lhs = *self.parent.get(&lhs).unwrap();
-            rhs = *self.parent.get(&rhs).unwrap();
+            lhs = self.parent.get(&lhs).unwrap().clone();
+            rhs = self.parent.get(&rhs).unwrap().clone();
             result += 2;
         }
         result
@@ -364,12 +364,12 @@ impl BlockStats {
             return;
         }
         let prev_height = self.hash2depth.get(block.header().prev_hash()).map(|v| *v).unwrap_or(0);
-        self.hash2depth.insert(*block.hash(), prev_height + 1);
+        self.hash2depth.insert(block.hash().clone(), prev_height + 1);
         self.num_blocks += 1;
         self.max_chain_length = max(self.max_chain_length, prev_height + 1);
-        self.parent.insert(*block.hash(), *block.header().prev_hash());
+        self.parent.insert(block.hash().clone(), block.header().prev_hash().clone());
 
-        if let Some(last_hash2) = self.last_hash {
+        if let Some(last_hash2) = self.last_hash.clone() {
             self.max_divergence =
                 max(self.max_divergence, self.calculate_distance(last_hash2, block.hash().clone()));
         }
@@ -617,13 +617,13 @@ pub fn setup_mock_all_validators(
                             hash_to_height1
                                 .write()
                                 .unwrap()
-                                .insert(*block.header().hash(), block.header().height());
+                                .insert(block.header().hash().clone(), block.header().height());
                         }
                         NetworkRequests::PartialEncodedChunkRequest { target, request } => {
                             let create_msg = || {
                                 NetworkClientMessages::PartialEncodedChunkRequest(
                                     request.clone(),
-                                    my_address,
+                                    my_address.clone(),
                                 )
                             };
                             send_chunks(
@@ -683,7 +683,7 @@ pub fn setup_mock_all_validators(
                                     actix::spawn(
                                         connectors1.read().unwrap()[i]
                                             .1
-                                            .send(NetworkViewClientMessages::BlockRequest(*hash))
+                                            .send(NetworkViewClientMessages::BlockRequest(hash.clone()))
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -814,7 +814,7 @@ pub fn setup_mock_all_validators(
                                             .1
                                             .send(NetworkViewClientMessages::StateRequestHeader {
                                                 shard_id: *shard_id,
-                                                sync_hash: *sync_hash,
+                                                sync_hash: sync_hash.clone(),
                                             })
                                             .then(move |response| {
                                                 let response = response.unwrap();
@@ -857,7 +857,7 @@ pub fn setup_mock_all_validators(
                                             .1
                                             .send(NetworkViewClientMessages::StateRequestPart {
                                                 shard_id: *shard_id,
-                                                sync_hash: *sync_hash,
+                                                sync_hash: sync_hash.clone(),
                                                 part_id: *part_id,
                                             })
                                             .then(move |response| {
@@ -1020,7 +1020,7 @@ pub fn setup_mock_all_validators(
     hash_to_height
         .write()
         .unwrap()
-        .insert(*genesis_block.read().unwrap().as_ref().unwrap().header().clone().hash(), 0);
+        .insert(genesis_block.read().unwrap().as_ref().unwrap().header().clone().hash().clone(), 0);
     *locked_connectors = ret.clone();
     let value = genesis_block.read().unwrap();
     (value.clone().unwrap(), ret, block_stats)
@@ -1486,7 +1486,7 @@ pub fn create_chunk_on_height_for_shard(
     let last_block = client.chain.get_block(&last_block_hash).unwrap().clone();
     client
         .produce_chunk(
-            last_block_hash,
+            last_block_hash.clone(),
             &client.runtime_adapter.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
             Chain::get_prev_chunk_header(&*client.runtime_adapter, &last_block, shard_id).unwrap(),
             next_height,
@@ -1522,7 +1522,7 @@ pub fn create_chunk(
     let next_height = last_block.header().height() + 1;
     let (mut chunk, mut merkle_paths, receipts) = client
         .produce_chunk(
-            *last_block.hash(),
+            last_block.hash().clone(),
             last_block.header().epoch_id(),
             last_block.chunks()[0].clone(),
             next_height,
@@ -1579,7 +1579,7 @@ pub fn create_chunk(
     }
     let mut block_merkle_tree =
         client.chain.mut_store().get_block_merkle_tree(&last_block.hash()).unwrap().clone();
-    block_merkle_tree.insert(*last_block.hash());
+    block_merkle_tree.insert(last_block.hash().clone());
     let block = Block::produce(
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
@@ -1598,7 +1598,7 @@ pub fn create_chunk(
         vec![],
         vec![],
         &*client.validator_signer.as_ref().unwrap().clone(),
-        *last_block.header().next_bp_hash(),
+        last_block.header().next_bp_hash().clone(),
         block_merkle_tree.root(),
     );
     (chunk, merkle_paths, receipts, block)

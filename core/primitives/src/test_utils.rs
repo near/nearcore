@@ -281,7 +281,7 @@ impl BlockHeader {
 
     pub fn resign(&mut self, signer: &dyn ValidatorSigner) {
         let (hash, signature) = signer.sign_block_header_parts(
-            *self.prev_hash(),
+            self.prev_hash().clone(),
             &self.inner_lite_bytes(),
             &self.inner_rest_bytes(),
         );
@@ -342,7 +342,7 @@ impl Block {
         signer: &dyn ValidatorSigner,
         block_merkle_tree: &mut PartialMerkleTree,
     ) -> Self {
-        block_merkle_tree.insert(*prev.hash());
+        block_merkle_tree.insert(prev.hash().clone());
         Self::empty_with_approvals(
             prev,
             height,
@@ -379,11 +379,11 @@ impl Block {
             height,
             prev.header().epoch_id().clone(),
             if prev.header().prev_hash() == &CryptoHash::default() {
-                EpochId(*prev.hash())
+                EpochId(prev.hash().clone())
             } else {
                 prev.header().next_epoch_id().clone()
             },
-            *prev.header().next_bp_hash(),
+            prev.header().next_bp_hash().clone(),
             signer,
             block_merkle_tree,
         )

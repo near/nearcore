@@ -174,7 +174,7 @@ impl ValidatorSigner for InMemoryValidatorSigner {
         inner_rest: &[u8],
     ) -> (CryptoHash, Signature) {
         let hash = BlockHeader::compute_hash(prev_hash, inner_lite, inner_rest);
-        (hash, self.signer.sign(hash.as_ref()))
+        (hash.clone(), self.signer.sign(hash.as_ref()))
     }
 
     fn sign_chunk_hash(&self, chunk_hash: &ChunkHash) -> Signature {

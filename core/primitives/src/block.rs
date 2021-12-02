@@ -402,7 +402,10 @@ impl Block {
     }
 
     pub fn compute_challenges_root(challenges: &Challenges) -> CryptoHash {
-        merklize(&challenges.iter().map(|challenge| challenge.hash).collect::<Vec<CryptoHash>>()).0
+        merklize(
+            &challenges.iter().map(|challenge| challenge.hash.clone()).collect::<Vec<CryptoHash>>(),
+        )
+        .0
     }
 
     pub fn compute_gas_used<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
@@ -437,7 +440,7 @@ impl Block {
         merkle_path: &MerklePath,
     ) -> bool {
         verify_path(
-            *chunk_root,
+            chunk_root.clone(),
             merkle_path,
             &ChunkHashHeight(chunk.chunk_hash(), chunk.height_included()),
         )

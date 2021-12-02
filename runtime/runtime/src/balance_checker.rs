@@ -143,13 +143,15 @@ pub(crate) fn check_balance(
         .map(|receipt| {
             let account_id = &receipt.receiver_id;
             match &receipt.receipt {
-                ReceiptEnum::Action(_) => Ok(Some((account_id.clone(), receipt.receipt_id))),
+                ReceiptEnum::Action(_) => {
+                    Ok(Some((account_id.clone(), receipt.receipt_id.clone())))
+                }
                 ReceiptEnum::Data(data_receipt) => {
                     if let Some(receipt_id) = get(
                         initial_state,
                         &TrieKey::PostponedReceiptId {
                             receiver_id: account_id.clone(),
-                            data_id: data_receipt.data_id,
+                            data_id: data_receipt.data_id.clone(),
                         },
                     )? {
                         Ok(Some((account_id.clone(), receipt_id)))
@@ -168,7 +170,7 @@ pub(crate) fn check_balance(
         Ok(all_potential_postponed_receipt_ids
             .iter()
             .map(|(account_id, receipt_id)| {
-                Ok(get_postponed_receipt(state, account_id, *receipt_id)?
+                Ok(get_postponed_receipt(state, account_id, receipt_id.clone())?
                     .map_or(Ok(0), |r| receipt_cost(&r))?)
             })
             .collect::<Result<Vec<Balance>, RuntimeError>>()?
@@ -247,8 +249,8 @@ mod tests {
     fn test_check_balance_no_op() {
         let tries = create_tries();
         let root = MerkleHash::default();
-        let initial_state = tries.new_trie_update(ShardUId::default(), root);
-        let final_state = tries.new_trie_update(ShardUId::default(), root);
+        let initial_state = tries.new_trie_update(ShardUId::default(), root.clone());
+        let final_state = tries.new_trie_update(ShardUId::default(), root.clone());
         let transaction_costs = RuntimeFeesConfig::test();
         check_balance(
             &transaction_costs,
@@ -268,7 +270,7 @@ mod tests {
     fn test_check_balance_unaccounted_refund() {
         let tries = create_tries();
         let root = MerkleHash::default();
-        let initial_state = tries.new_trie_update(ShardUId::default(), root);
+        let initial_state = tries.new_trie_update(ShardUId::default(), root.clone());
         let final_state = tries.new_trie_update(ShardUId::default(), root);
         let transaction_costs = RuntimeFeesConfig::test();
         let err = check_balance(
@@ -295,7 +297,7 @@ mod tests {
         let initial_balance = TESTING_INIT_BALANCE;
         let refund_balance = 1000;
 
-        let mut initial_state = tries.new_trie_update(ShardUId::default(), root);
+        let mut initial_state = tries.new_trie_update(ShardUId::default(), root.clone());
         let initial_account = account_new(initial_balance, hash(&[]));
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         initial_state.commit(StateChangeCause::NotWritableToDisk);
@@ -337,7 +339,7 @@ mod tests {
         let contract_reward = send_gas as u128 * *cfg.burnt_gas_reward.numer() as u128 * gas_price
             / (*cfg.burnt_gas_reward.denom() as u128);
         let total_validator_reward = send_gas as Balance * gas_price - contract_reward;
-        let mut initial_state = tries.new_trie_update(ShardUId::default(), root);
+        let mut initial_state = tries.new_trie_update(ShardUId::default(), root.clone());
         let initial_account = account_new(initial_balance, hash(&[]));
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         initial_state.commit(StateChangeCause::NotWritableToDisk);

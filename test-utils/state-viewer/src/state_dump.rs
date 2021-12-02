@@ -194,7 +194,7 @@ mod test {
     fn test_dump_state_preserve_validators() {
         let epoch_length = 4;
         let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, None);
-        let genesis_hash = *env.clients[0].chain.genesis().hash();
+        let genesis_hash = env.clients[0].chain.genesis().hash().clone();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
             1,
@@ -209,7 +209,7 @@ mod test {
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
 
         let head = env.clients[0].chain.head().unwrap();
-        let last_block_hash = head.last_block_hash;
+        let last_block_hash = head.last_block_hash.clone();
         let cur_epoch_id = head.epoch_id;
         let block_producers = env.clients[0]
             .runtime_adapter
@@ -240,7 +240,7 @@ mod test {
     fn test_dump_state_return_locked() {
         let epoch_length = 4;
         let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, None);
-        let genesis_hash = *env.clients[0].chain.genesis().hash();
+        let genesis_hash = env.clients[0].chain.genesis().hash().clone();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
             1,
@@ -342,7 +342,7 @@ mod test {
                 Arc::new(create_runtime(store2.clone())),
             ])
             .build();
-        let genesis_hash = *env.clients[0].chain.genesis().hash();
+        let genesis_hash = env.clients[0].chain.genesis().hash().clone();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::send_money(
             1,
@@ -409,7 +409,7 @@ mod test {
             .validator_seats(2)
             .runtime_adapters(vec![Arc::new(nightshade_runtime)])
             .build();
-        let genesis_hash = *env.clients[0].chain.genesis().hash();
+        let genesis_hash = env.clients[0].chain.genesis().hash().clone();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
             1,
@@ -437,7 +437,7 @@ mod test {
             ))),
         );
         let head = env.clients[0].chain.head().unwrap();
-        let last_block_hash = head.last_block_hash;
+        let last_block_hash = head.last_block_hash.clone();
         let cur_epoch_id = head.epoch_id;
         let block_producers = env.clients[0]
             .runtime_adapter

@@ -265,9 +265,9 @@ impl Runtime {
                 let outcome = ExecutionOutcomeWithId {
                     id: signed_transaction.get_hash(),
                     outcome: ExecutionOutcome {
-                        status: ExecutionStatus::SuccessReceiptId(receipt.receipt_id),
+                        status: ExecutionStatus::SuccessReceiptId(receipt.receipt_id.clone()),
                         logs: vec![],
-                        receipt_ids: vec![receipt.receipt_id],
+                        receipt_ids: vec![receipt.receipt_id.clone()],
                         gas_burnt: verification_result.gas_burnt,
                         tokens_burnt: verification_result.burnt_amount,
                         executor_id: transaction.signer_id.clone(),
@@ -491,15 +491,17 @@ impl Runtime {
             .input_data_ids
             .iter()
             .map(|data_id| {
-                let ReceivedData { data } = get_received_data(state_update, account_id, *data_id)?
-                    .ok_or_else(|| {
-                        StorageError::StorageInconsistentState(
-                            "received data should be in the state".to_string(),
-                        )
-                    })?;
+                let ReceivedData { data } =
+                    get_received_data(state_update, account_id, data_id.clone())?.ok_or_else(
+                        || {
+                            StorageError::StorageInconsistentState(
+                                "received data should be in the state".to_string(),
+                            )
+                        },
+                    )?;
                 state_update.remove(TrieKey::ReceivedData {
                     receiver_id: account_id.clone(),
-                    data_id: *data_id,
+                    data_id: data_id.clone(),
                 });
                 match data {
                     Some(value) => Ok(PromiseResult::Successful(value)),
@@ -697,7 +699,7 @@ impl Runtime {
                         receiver_id: data_receiver.receiver_id.clone(),
                         receipt_id: CryptoHash::default(),
                         receipt: ReceiptEnum::Data(DataReceipt {
-                            data_id: data_receiver.data_id,
+                            data_id: data_receiver.data_id.clone(),
                             data: data.clone(),
                         }),
                     },
@@ -719,7 +721,7 @@ impl Runtime {
                     receipt_index,
                 );
 
-                new_receipt.receipt_id = receipt_id;
+                new_receipt.receipt_id = receipt_id.clone();
                 let is_action = match &new_receipt.receipt {
                     ReceiptEnum::Action(_) => true,
                     _ => false,
@@ -751,7 +753,7 @@ impl Runtime {
         Self::print_log(&result.logs);
 
         Ok(ExecutionOutcomeWithId {
-            id: receipt.receipt_id,
+            id: receipt.receipt_id.clone(),
             outcome: ExecutionOutcome {
                 status,
                 logs: result.logs,
@@ -856,7 +858,7 @@ impl Runtime {
                 set_received_data(
                     state_update,
                     account_id.clone(),
-                    data_receipt.data_id,
+                    data_receipt.data_id.clone(),
                     &ReceivedData { data: data_receipt.data.clone() },
                 );
                 // Check if there is already a receipt that was postponed and was awaiting for the
@@ -866,19 +868,25 @@ impl Runtime {
                     state_update,
                     &TrieKey::PostponedReceiptId {
                         receiver_id: account_id.clone(),
-                        data_id: data_receipt.data_id,
+                        data_id: data_receipt.data_id.clone(),
                     },
-                )? {
+                )?
+                .clone()
+                {
                     // There is already a receipt that is awaiting for the just received data.
                     // Removing this pending data_id for the receipt from the state.
                     state_update.remove(TrieKey::PostponedReceiptId {
                         receiver_id: account_id.clone(),
-                        data_id: data_receipt.data_id,
+                        data_id: data_receipt.data_id.clone(),
                     });
                     // Checking how many input data items is pending for the receipt.
+                    let receipt_id: &CryptoHash = &receipt_id;
                     let pending_data_count: u32 = get(
                         state_update,
-                        &TrieKey::PendingDataCount { receiver_id: account_id.clone(), receipt_id },
+                        &TrieKey::PendingDataCount {
+                            receiver_id: account_id.clone(),
+                            receipt_id: receipt_id.clone(),
+                        },
                     )?
                     .ok_or_else(|| {
                         StorageError::StorageInconsistentState(
@@ -892,18 +900,18 @@ impl Runtime {
                         // Removing pending data count from the state.
                         state_update.remove(TrieKey::PendingDataCount {
                             receiver_id: account_id.clone(),
-                            receipt_id,
+                            receipt_id: receipt_id.clone(),
                         });
                         // Fetching the receipt itself.
                         let ready_receipt =
-                            get_postponed_receipt(state_update, account_id, receipt_id)?
+                            get_postponed_receipt(state_update, account_id, receipt_id.clone())?
                                 .ok_or_else(|| {
                                     StorageError::StorageInconsistentState(
                                         "pending receipt should be in the state".to_string(),
                                     )
                                 })?;
                         // Removing the receipt from the state.
-                        remove_postponed_receipt(state_update, account_id, receipt_id);
+                        remove_postponed_receipt(state_update, account_id, receipt_id.clone());
                         // Executing the receipt. It will read all the input data and clean it up
                         // from the state.
                         return self
@@ -924,7 +932,7 @@ impl Runtime {
                             state_update,
                             TrieKey::PendingDataCount {
                                 receiver_id: account_id.clone(),
-                                receipt_id,
+                                receipt_id: receipt_id.clone(),
                             },
                             &(pending_data_count.checked_sub(1).ok_or_else(|| {
                                 StorageError::StorageInconsistentState(
@@ -943,7 +951,7 @@ impl Runtime {
                 // If not, then we will postpone this receipt for later.
                 let mut pending_data_count: u32 = 0;
                 for data_id in &action_receipt.input_data_ids {
-                    if get_received_data(state_update, account_id, *data_id)?.is_none() {
+                    if get_received_data(state_update, account_id, data_id.clone())?.is_none() {
                         pending_data_count += 1;
                         // The data for a given data_id is not available, so we save a link to this
                         // receipt_id for the pending data_id into the state.
@@ -951,7 +959,7 @@ impl Runtime {
                             state_update,
                             TrieKey::PostponedReceiptId {
                                 receiver_id: account_id.clone(),
-                                data_id: *data_id,
+                                data_id: data_id.clone(),
                             },
                             &receipt.receipt_id,
                         )
@@ -978,7 +986,7 @@ impl Runtime {
                         state_update,
                         TrieKey::PendingDataCount {
                             receiver_id: account_id.clone(),
-                            receipt_id: receipt.receipt_id,
+                            receipt_id: receipt.receipt_id.clone(),
                         },
                         &pending_data_count,
                     );
@@ -1191,7 +1199,7 @@ impl Runtime {
         }
 
         let trie = Rc::new(trie);
-        let initial_state = TrieUpdate::new(trie.clone(), root);
+        let initial_state = TrieUpdate::new(trie.clone(), root.clone());
         let mut state_update = TrieUpdate::new(trie.clone(), root);
 
         let mut stats = ApplyStats::default();
@@ -1227,8 +1235,8 @@ impl Runtime {
             let (trie_changes, state_changes) = state_update.finalize()?;
             let proof = trie.recorded_storage();
             return Ok(ApplyResult {
-                state_root: trie_changes.new_root,
-                trie_changes,
+                state_root: trie_changes.new_root.clone(),
+                trie_changes: trie_changes,
                 validator_proposals: vec![],
                 outgoing_receipts: vec![],
                 outcomes: vec![],
@@ -1389,7 +1397,7 @@ impl Runtime {
             }
         }
 
-        let state_root = trie_changes.new_root;
+        let state_root = trie_changes.new_root.clone();
         let proof = trie.recorded_storage();
         Ok(ApplyResult {
             state_root,
@@ -1682,7 +1690,7 @@ mod tests {
             let apply_result = runtime
                 .apply(
                     tries.get_trie_for_shard(ShardUId::default()),
-                    root,
+                    root.clone(),
                     &None,
                     &apply_state,
                     prev_receipts,
@@ -1695,7 +1703,7 @@ mod tests {
                 tries.apply_all(&apply_result.trie_changes, ShardUId::default()).unwrap();
             root = new_root;
             store_update.commit().unwrap();
-            let state = tries.new_trie_update(ShardUId::default(), root);
+            let state = tries.new_trie_update(ShardUId::default(), root.clone());
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             let capped_i = std::cmp::min(i, n);
             assert_eq!(
@@ -1725,7 +1733,7 @@ mod tests {
             let apply_result = runtime
                 .apply(
                     tries.get_trie_for_shard(ShardUId::default()),
-                    root,
+                    root.clone(),
                     &None,
                     &apply_state,
                     prev_receipts,
@@ -1738,7 +1746,7 @@ mod tests {
                 tries.apply_all(&apply_result.trie_changes, ShardUId::default()).unwrap();
             root = new_root;
             store_update.commit().unwrap();
-            let state = tries.new_trie_update(ShardUId::default(), root);
+            let state = tries.new_trie_update(ShardUId::default(), root.clone());
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             let capped_i = std::cmp::min(i, n);
             assert_eq!(
@@ -1776,7 +1784,7 @@ mod tests {
             let apply_result = runtime
                 .apply(
                     tries.get_trie_for_shard(ShardUId::default()),
-                    root,
+                    root.clone(),
                     &None,
                     &apply_state,
                     prev_receipts,
@@ -1789,7 +1797,7 @@ mod tests {
                 tries.apply_all(&apply_result.trie_changes, ShardUId::default()).unwrap();
             root = new_root;
             store_update.commit().unwrap();
-            let state = tries.new_trie_update(ShardUId::default(), root);
+            let state = tries.new_trie_update(ShardUId::default(), root.clone());
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             let capped_i = std::cmp::min(i * 3, n);
             assert_eq!(
@@ -1836,7 +1844,7 @@ mod tests {
             let apply_result = runtime
                 .apply(
                     tries.get_trie_for_shard(ShardUId::default()),
-                    root,
+                    root.clone(),
                     &None,
                     &apply_state,
                     prev_receipts,
@@ -1849,7 +1857,7 @@ mod tests {
                 tries.apply_all(&apply_result.trie_changes, ShardUId::default()).unwrap();
             root = new_root;
             store_update.commit().unwrap();
-            let state = tries.new_trie_update(ShardUId::default(), root);
+            let state = tries.new_trie_update(ShardUId::default(), root.clone());
             num_receipts_processed += apply_result.outcomes.len() as u64;
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             assert_eq!(
@@ -1873,7 +1881,7 @@ mod tests {
                 Receipt {
                     predecessor_id: bob_account(),
                     receiver_id: alice_account(),
-                    receipt_id,
+                    receipt_id: receipt_id.clone(),
                     receipt: ReceiptEnum::Action(ActionReceipt {
                         signer_id: bob_account(),
                         signer_public_key: PublicKey::empty(KeyType::ED25519),
@@ -1953,7 +1961,7 @@ mod tests {
         store_update.commit().unwrap();
 
         assert_eq!(
-            apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
+            apply_result.outcomes.iter().map(|o| o.id.clone()).collect::<Vec<_>>(),
             vec![
                 local_transactions[0].get_hash(), // tx 0
                 local_transactions[1].get_hash(), // tx 1
@@ -2002,7 +2010,7 @@ mod tests {
         store_update.commit().unwrap();
 
         assert_eq!(
-            apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
+            apply_result.outcomes.iter().map(|o| o.id.clone()).collect::<Vec<_>>(),
             vec![
                 local_transactions[4].get_hash(), // tx 4
                 create_receipt_id_from_transaction(
@@ -2017,7 +2025,7 @@ mod tests {
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                 ), // receipt for tx 3
-                receipts[0].receipt_id,           // receipt #0
+                receipts[0].receipt_id.clone(),   // receipt #0
             ],
             "STEP #2 failed",
         );
@@ -2043,7 +2051,7 @@ mod tests {
         store_update.commit().unwrap();
 
         assert_eq!(
-            apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
+            apply_result.outcomes.iter().map(|o| o.id.clone()).collect::<Vec<_>>(),
             vec![
                 local_transactions[5].get_hash(), // tx 5
                 local_transactions[6].get_hash(), // tx 6
@@ -2092,10 +2100,10 @@ mod tests {
         store_update.commit().unwrap();
 
         assert_eq!(
-            apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
+            apply_result.outcomes.iter().map(|o| o.id.clone()).collect::<Vec<_>>(),
             vec![
-                receipts[1].receipt_id, // receipt #1
-                receipts[2].receipt_id, // receipt #2
+                receipts[1].receipt_id.clone(), // receipt #1
+                receipts[2].receipt_id.clone(), // receipt #2
                 create_receipt_id_from_transaction(
                     PROTOCOL_VERSION,
                     &local_transactions[8],
@@ -2123,11 +2131,11 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
+            apply_result.outcomes.iter().map(|o| o.id.clone()).collect::<Vec<_>>(),
             vec![
-                receipts[3].receipt_id, // receipt #3
-                receipts[4].receipt_id, // receipt #4
-                receipts[5].receipt_id, // receipt #5
+                receipts[3].receipt_id.clone(), // receipt #3
+                receipts[4].receipt_id.clone(), // receipt #4
+                receipts[5].receipt_id.clone(), // receipt #5
             ],
             "STEP #5 failed",
         );
@@ -2302,7 +2310,7 @@ mod tests {
         let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
             setup_runtime(to_yocto(1_000_000), initial_locked, 10u64.pow(15));
 
-        let state_update = tries.new_trie_update(ShardUId::default(), root);
+        let state_update = tries.new_trie_update(ShardUId::default(), root.clone());
         let initial_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
 
         let actions = vec![
@@ -2318,7 +2326,7 @@ mod tests {
         let apply_result = runtime
             .apply(
                 tries.get_trie_for_shard(ShardUId::default()),
-                root,
+                root.clone(),
                 &None,
                 &apply_state,
                 &receipts,
@@ -2331,7 +2339,7 @@ mod tests {
             tries.apply_all(&apply_result.trie_changes, ShardUId::default()).unwrap();
         store_update.commit().unwrap();
 
-        let state_update = tries.new_trie_update(ShardUId::default(), root);
+        let state_update = tries.new_trie_update(ShardUId::default(), root.clone());
         let final_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
 
         assert_eq!(initial_account_state.storage_usage(), final_account_state.storage_usage());

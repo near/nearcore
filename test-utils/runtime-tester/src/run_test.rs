@@ -165,7 +165,7 @@ impl TransactionConfig {
             self.receiver_id.clone(),
             &self.signer,
             self.actions.clone(),
-            *last_block.hash(),
+            last_block.hash().clone(),
         )
     }
 }

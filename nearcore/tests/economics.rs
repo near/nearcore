@@ -82,7 +82,7 @@ fn test_burn_mint() {
     let fee_helper = FeeHelper::new(transaction_costs, genesis.config.min_gas_price);
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let initial_total_supply = env.chain_genesis.total_supply;
-    let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let genesis_hash = env.clients[0].chain.genesis().hash().clone();
     env.clients[0].process_tx(
         SignedTransaction::send_money(
             1,

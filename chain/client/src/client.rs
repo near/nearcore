@@ -252,7 +252,7 @@ impl Client {
             }
         }
         for challenge in block.challenges().iter() {
-            self.challenges.insert(challenge.hash, challenge.clone());
+            self.challenges.insert(challenge.hash.clone(), challenge.clone());
         }
     }
 
@@ -353,11 +353,11 @@ impl Client {
             self.runtime_adapter.get_block_producer(&epoch_id, next_height)?;
 
         let prev = self.chain.get_block_header(&head.last_block_hash)?.clone();
-        let prev_hash = head.last_block_hash;
+        let prev_hash = head.last_block_hash.clone();
         let prev_height = head.height;
-        let prev_prev_hash = *prev.prev_hash();
+        let prev_prev_hash = prev.prev_hash().clone();
         let prev_epoch_id = prev.epoch_id().clone();
-        let prev_next_bp_hash = *prev.next_bp_hash();
+        let prev_next_bp_hash = prev.next_bp_hash().clone();
 
         // Check and update the doomslug tip here. This guarantees that our endorsement will be in the
         // doomslug witness. Have to do it before checking the ability to produce a block.
@@ -393,7 +393,7 @@ impl Client {
 
         let new_chunks = self.shards_mgr.prepare_chunks(&prev_hash);
         debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}, {} new chunks", validator_signer.validator_id(),
-               next_height, prev.height(), format_hash(head.last_block_hash), new_chunks.len());
+               next_height, prev.height(), format_hash(head.last_block_hash.clone()), new_chunks.len());
 
         // If we are producing empty blocks and there are no transactions.
         if !self.config.produce_empty_blocks && new_chunks.is_empty() {
@@ -449,7 +449,7 @@ impl Client {
         // Get block extra from previous block.
         let mut block_merkle_tree =
             self.chain.mut_store().get_block_merkle_tree(&prev_hash)?.clone();
-        block_merkle_tree.insert(prev_hash);
+        block_merkle_tree.insert(prev_hash.clone());
         let block_merkle_root = block_merkle_tree.root();
         // The number of leaves in Block Merkle Tree is the amount of Blocks on the Canonical Chain by construction.
         // The ordinal of the next Block will be equal to this amount plus one.
@@ -550,7 +550,7 @@ impl Client {
         }
 
         if self.runtime_adapter.is_next_block_epoch_start(&prev_block_hash)? {
-            let prev_prev_hash = *self.chain.get_block_header(&prev_block_hash)?.prev_hash();
+            let prev_prev_hash = self.chain.get_block_header(&prev_block_hash)?.prev_hash().clone();
             if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_block_hash)? {
                 // See comment in similar snipped in `produce_block`
                 debug!(target: "client", "Produce chunk: prev block is not caught up");
@@ -581,7 +581,7 @@ impl Client {
         let num_filtered_transactions = transactions.len();
         let (tx_root, _) = merklize(&transactions);
         let outgoing_receipts = self.chain.get_outgoing_receipts_for_shard(
-            prev_block_hash,
+            prev_block_hash.clone(),
             shard_id,
             last_header.height_included(),
         )?;
@@ -605,9 +605,9 @@ impl Client {
 
         let protocol_version = self.runtime_adapter.get_epoch_protocol_version(epoch_id)?;
         let (encoded_chunk, merkle_paths) = self.shards_mgr.create_encoded_shard_chunk(
-            prev_block_hash,
-            *chunk_extra.state_root(),
-            *chunk_extra.outcome_root(),
+            prev_block_hash.clone(),
+            chunk_extra.state_root().clone(),
+            chunk_extra.outcome_root().clone(),
             next_height,
             shard_id,
             chunk_extra.gas_used(),
@@ -658,7 +658,7 @@ impl Client {
                 chunk_extra.gas_limit(),
                 &next_epoch_id,
                 shard_id,
-                *chunk_extra.state_root(),
+                chunk_extra.state_root().clone(),
                 // while the height of the next block that includes the chunk might not be prev_height + 1,
                 // passing it will result in a more conservative check and will not accidentally allow
                 // invalid transactions to be included.
@@ -689,7 +689,7 @@ impl Client {
         if let Some(validator_signer) = self.validator_signer.as_ref() {
             for body in challenges.write().unwrap().drain(..) {
                 let challenge = Challenge::produce(body, &**validator_signer);
-                self.challenges.insert(challenge.hash, challenge.clone());
+                self.challenges.insert(challenge.hash.clone(), challenge.clone());
                 self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::Challenge(challenge),
                 ));
@@ -788,7 +788,7 @@ impl Client {
             self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Block { block: block.clone() },
             ));
-            self.rebroadcasted_blocks.cache_set(*block.hash(), ());
+            self.rebroadcasted_blocks.cache_set(block.hash().clone(), ());
         }
     }
 
@@ -926,8 +926,11 @@ impl Client {
 
         if tip.last_block_hash != self.doomslug.get_tip().0 {
             // We need to update the doomslug tip
-            let last_final_hash =
-                *self.chain.get_block_header(&tip.last_block_hash)?.last_final_block();
+            let last_final_hash = self
+                .chain
+                .get_block_header(&tip.last_block_hash.clone())?
+                .last_final_block()
+                .clone();
             let last_final_height = if last_final_hash == CryptoHash::default() {
                 self.chain.genesis().height()
             } else {
@@ -1078,7 +1081,7 @@ impl Client {
 
                     while remove_head.hash() != reintroduce_head.hash() {
                         while remove_head.height() > reintroduce_head.height() {
-                            to_remove.push(*remove_head.hash());
+                            to_remove.push(remove_head.hash().clone());
                             remove_head = self
                                 .chain
                                 .get_block_header(remove_head.prev_hash())
@@ -1089,7 +1092,7 @@ impl Client {
                             || reintroduce_head.height() == remove_head.height()
                                 && reintroduce_head.hash() != remove_head.hash()
                         {
-                            to_reintroduce.push(*reintroduce_head.hash());
+                            to_reintroduce.push(reintroduce_head.hash().clone());
                             reintroduce_head = self
                                 .chain
                                 .get_block_header(reintroduce_head.prev_hash())
@@ -1137,7 +1140,7 @@ impl Client {
 
                     if chunk_proposer == *validator_signer.validator_id() {
                         match self.produce_chunk(
-                            *block.hash(),
+                            block.hash().clone(),
                             &epoch_id,
                             Chain::get_prev_chunk_header(&*self.runtime_adapter, &block, shard_id)
                                 .unwrap(),
@@ -1302,7 +1305,7 @@ impl Client {
             ApprovalInner::Endorsement(parent_hash) => parent_hash.clone(),
             ApprovalInner::Skip(parent_height) => {
                 match self.chain.get_header_by_height(*parent_height) {
-                    Ok(header) => *header.hash(),
+                    Ok(header) => header.hash().clone(),
                     Err(e) => {
                         self.handle_process_approval_error(approval, approval_type, true, e);
                         return;
@@ -1527,7 +1530,7 @@ impl Client {
         {
             let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, &epoch_id)?;
             let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, &shard_uid) {
-                Ok(chunk_extra) => *chunk_extra.state_root(),
+                Ok(chunk_extra) => chunk_extra.state_root().clone(),
                 Err(_) => {
                     // Not being able to fetch a state root most likely implies that we haven't
                     //     caught up with the next epoch yet.
@@ -1668,7 +1671,7 @@ impl Client {
             let state_sync_timeout = self.config.state_sync_timeout;
             let epoch_id = self.chain.get_block(&sync_hash)?.header().epoch_id().clone();
             let (state_sync, new_shard_sync, blocks_catch_up_state) =
-                self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
+                self.catchup_state_syncs.entry(sync_hash.clone()).or_insert_with(|| {
                     (
                         StateSync::new(network_adapter1, state_sync_timeout),
                         new_shard_sync,
@@ -1683,7 +1686,7 @@ impl Client {
 
             match state_sync.run(
                 me,
-                sync_hash,
+                sync_hash.clone(),
                 new_shard_sync,
                 &mut self.chain,
                 &self.runtime_adapter,

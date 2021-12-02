@@ -120,7 +120,7 @@ impl GenesisBuilder {
                     *shard_idx,
                     self.runtime.get_tries().new_trie_update(
                         ShardUId { version: genesis_shard_version, shard_id: *shard_idx as u32 },
-                        *root,
+                        root.clone(),
                     ),
                 )
             })
@@ -263,7 +263,7 @@ impl GenesisBuilder {
         let account = Account::new(
             testing_init_balance,
             testing_init_stake,
-            self.additional_accounts_code_hash,
+            self.additional_accounts_code_hash.clone(),
             0,
         );
         set_account(&mut state_update, account_id.clone(), &account);

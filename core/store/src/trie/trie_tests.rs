@@ -38,7 +38,7 @@ impl TrieStorage for IncompletePartialStorage {
             .map_or_else(|| Err(StorageError::TrieNodeMissing), |val| Ok(val.clone()));
 
         if result.is_ok() {
-            self.visited_nodes.borrow_mut().insert(*hash);
+            self.visited_nodes.borrow_mut().insert(hash.clone());
         }
 
         if self.visited_nodes.borrow().len() > self.node_count_to_fail_after {
@@ -118,7 +118,7 @@ fn test_reads_with_incomplete_storage() {
             let key_prefix = &key[0..rng.gen_range(0, key.len() + 1)];
             println!("Testing TrieUpdateIterator over prefix {:?}", key_prefix);
             let trie_update_keys = |trie: Rc<Trie>| -> Result<_, StorageError> {
-                let trie_update = TrieUpdate::new(trie, state_root);
+                let trie_update = TrieUpdate::new(trie, state_root.clone());
                 let keys = trie_update.iter(key_prefix)?.collect::<Result<Vec<_>, _>>()?;
                 Ok(keys)
             };

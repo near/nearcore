@@ -638,7 +638,7 @@ fn test_shard_layout_upgrade_cross_contract_calls() {
             let trie_update = client
                 .runtime_adapter
                 .get_tries()
-                .new_trie_update_view(ShardUId::default(), *chunk_extra.state_root());
+                .new_trie_update_view(ShardUId::default(), chunk_extra.state_root().clone());
             let delayed_receipt_indices = get_delayed_receipt_indices(&trie_update).unwrap();
             assert_ne!(
                 delayed_receipt_indices.first_index,

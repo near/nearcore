@@ -142,7 +142,7 @@ fn one_iter(
                         if prev_block_info.0 as BlockHeight <= ds.get_tip().1 {
                             break;
                         }
-                        block_infos.push(*prev_block_info);
+                        block_infos.push(prev_block_info.clone());
                     }
 
                     for block_info in block_infos.into_iter().rev() {
@@ -213,18 +213,20 @@ fn one_iter(
                                 whom,
                                 last_final_height,
                                 get_msg_delivery_time(now, gst, delta),
-                                block_hash,
+                                block_hash.clone(),
                             );
                             block_queue.push(block_info);
                         }
 
-                        hash_to_block_info
-                            .insert(block_hash, (target_height, last_final_height, block_hash));
-                        hash_to_prev_hash.insert(block_hash, parent_hash);
+                        hash_to_block_info.insert(
+                            block_hash.clone(),
+                            (target_height, last_final_height, block_hash.clone()),
+                        );
+                        hash_to_prev_hash.insert(block_hash.clone(), parent_hash.clone());
 
                         assert!(chain_lengths.get(&block_hash).is_none());
                         let prev_length = *chain_lengths.get(&ds.get_tip().0).unwrap();
-                        chain_lengths.insert(block_hash, prev_length + 1);
+                        chain_lengths.insert(block_hash.clone(), prev_length + 1);
 
                         if is_final && target_height != 2 {
                             blocks_with_finality.push((
@@ -246,7 +248,7 @@ fn one_iter(
                         if block_ord + 1 == num_blocks_to_produce {
                             ds.set_tip(
                                 now,
-                                block_hash,
+                                block_hash.clone(),
                                 target_height as BlockHeight,
                                 last_final_height,
                             );
@@ -281,14 +283,14 @@ fn one_iter(
     for (block_hash, (block_height, _, _)) in hash_to_block_info.iter() {
         let mut seen_hashes = HashSet::new();
         let mut block_hash = block_hash.clone();
-        seen_hashes.insert(block_hash);
+        seen_hashes.insert(block_hash.clone());
 
         loop {
             match hash_to_prev_hash.get(&block_hash) {
                 None => break,
                 Some(prev_block_hash) => {
-                    block_hash = *prev_block_hash;
-                    seen_hashes.insert(block_hash);
+                    block_hash = prev_block_hash.clone();
+                    seen_hashes.insert(block_hash.clone());
                 }
             }
         }

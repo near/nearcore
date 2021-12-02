@@ -529,8 +529,8 @@ impl NightshadeRuntime {
 
         let apply_state = ApplyState {
             block_index: block_height,
-            prev_block_hash: *prev_block_hash,
-            block_hash: *block_hash,
+            prev_block_hash: prev_block_hash.clone(),
+            block_hash: block_hash.clone(),
             epoch_id,
             epoch_height,
             gas_price,
@@ -889,7 +889,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_manager.get_block_producer_info(&header.epoch_id(), header.height())?;
         let slashed = match epoch_manager.get_slashed_validators(header.prev_hash()) {
             Ok(slashed) => slashed,
-            Err(_) => return Err(EpochError::MissingBlock(*header.prev_hash()).into()),
+            Err(_) => return Err(EpochError::MissingBlock(header.prev_hash().clone()).into()),
         };
         if slashed.contains_key(block_producer.account_id()) {
             return Ok(false);
@@ -1205,17 +1205,20 @@ impl RuntimeAdapter for NightshadeRuntime {
         (|| -> Result<BlockHeight, Error> {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
             // an epoch must have a first block.
-            let epoch_first_block = *epoch_manager.get_block_info(block_hash)?.epoch_first_block();
+            let epoch_first_block =
+                epoch_manager.get_block_info(block_hash)?.epoch_first_block().clone();
             let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
             // maintain pointers to avoid cloning.
-            let mut last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
+            let mut last_block_in_prev_epoch = epoch_first_block_info.prev_hash().clone();
             let mut epoch_start_height = *epoch_first_block_info.height();
             for _ in 0..NUM_EPOCHS_TO_KEEP_STORE_DATA - 1 {
-                let epoch_first_block =
-                    *epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block();
+                let epoch_first_block = epoch_manager
+                    .get_block_info(&last_block_in_prev_epoch)?
+                    .epoch_first_block()
+                    .clone();
                 let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
                 epoch_start_height = *epoch_first_block_info.height();
-                last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
+                last_block_in_prev_epoch = epoch_first_block_info.prev_hash().clone();
             }
             Ok(epoch_start_height)
         }())
@@ -1364,7 +1367,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
         match self.process_state_update(
             trie,
-            *state_root,
+            state_root.clone(),
             shard_id,
             height,
             block_hash,
@@ -1413,7 +1416,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let trie = Trie::from_recorded_storage(partial_storage);
         self.process_state_update(
             trie,
-            *state_root,
+            state_root.clone(),
             shard_id,
             height,
             block_hash,
@@ -1446,28 +1449,28 @@ impl RuntimeAdapter for NightshadeRuntime {
         match request {
             QueryRequest::ViewAccount { account_id } => {
                 let account = self
-                    .view_account(&shard_uid, *state_root, account_id)
+                    .view_account(&shard_uid, state_root.clone(), account_id)
                     .map_err(|err| {
                     near_chain::near_chain_primitives::error::QueryError::from_view_account_error(
                         err,
                         block_height,
-                        *block_hash,
+                        block_hash.clone(),
                     )
                 })?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::ViewAccount(account.into()),
                     block_height,
-                    block_hash: *block_hash,
+                    block_hash: block_hash.clone(),
                 })
             }
             QueryRequest::ViewCode { account_id } => {
                 let contract_code = self
-                    .view_contract_code(&shard_uid,  *state_root, account_id)
-                    .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_view_contract_code_error(err, block_height, *block_hash))?;
+                    .view_contract_code(&shard_uid,  state_root.clone(), account_id)
+                    .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_view_contract_code_error(err, block_height, block_hash.clone()))?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::ViewCode(contract_code.into()),
                     block_height,
-                    block_hash: *block_hash,
+                    block_hash: block_hash.clone(),
                 })
             }
             QueryRequest::CallFunction { account_id, method_name, args } => {
@@ -1479,7 +1482,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         near_chain::near_chain_primitives::error::QueryError::from_epoch_error(
                             err,
                             block_height,
-                            *block_hash,
+                            block_hash.clone(),
                         )
                     })?;
                     (epoch_info.epoch_height(), epoch_info.protocol_version())
@@ -1488,7 +1491,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let call_function_result = self
                     .call_function(
                         &shard_uid,
-                        *state_root,
+                        state_root.clone(),
                         block_height,
                         block_timestamp,
                         prev_block_hash,
@@ -1502,39 +1505,39 @@ impl RuntimeAdapter for NightshadeRuntime {
                         &self.epoch_manager,
                         current_protocol_version,
                     )
-                    .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_call_function_error(err, block_height, *block_hash))?;
+                    .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_call_function_error(err, block_height, block_hash.clone()))?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::CallResult(CallResult {
                         result: call_function_result,
                         logs,
                     }),
                     block_height,
-                    block_hash: *block_hash,
+                    block_hash: block_hash.clone(),
                 })
             }
             QueryRequest::ViewState { account_id, prefix } => {
                 let view_state_result = self
-                    .view_state(&shard_uid, *state_root, account_id, prefix.as_ref())
+                    .view_state(&shard_uid, state_root.clone(), account_id, prefix.as_ref())
                     .map_err(|err| {
                         near_chain::near_chain_primitives::error::QueryError::from_view_state_error(
                             err,
                             block_height,
-                            *block_hash,
+                            block_hash.clone(),
                         )
                     })?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::ViewState(view_state_result),
                     block_height,
-                    block_hash: *block_hash,
+                    block_hash: block_hash.clone(),
                 })
             }
             QueryRequest::ViewAccessKeyList { account_id } => {
                 let access_key_list =
-                    self.view_access_keys(&shard_uid, *state_root, account_id).map_err(|err| {
+                    self.view_access_keys(&shard_uid, state_root.clone(), account_id).map_err(|err| {
                         near_chain::near_chain_primitives::error::QueryError::from_view_access_key_error(
                             err,
                             block_height,
-                            *block_hash,
+                            block_hash.clone(),
                         )
                     })?;
                 Ok(QueryResponse {
@@ -1548,23 +1551,23 @@ impl RuntimeAdapter for NightshadeRuntime {
                             .collect(),
                     ),
                     block_height,
-                    block_hash: *block_hash,
+                    block_hash: block_hash.clone(),
                 })
             }
             QueryRequest::ViewAccessKey { account_id, public_key } => {
                 let access_key = self
-                    .view_access_key(&shard_uid, *state_root, account_id, public_key)
+                    .view_access_key(&shard_uid, state_root.clone(), account_id, public_key)
                     .map_err(|err| {
                         near_chain::near_chain_primitives::error::QueryError::from_view_access_key_error(
                             err,
                             block_height,
-                            *block_hash,
+                            block_hash.clone(),
                         )
                     })?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::AccessKey(access_key.into()),
                     block_height,
-                    block_hash: *block_hash,
+                    block_hash: block_hash.clone(),
                 })
             }
         }
@@ -1647,7 +1650,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             .into_iter()
             .map(|(shard_uid, trie_changes)| ApplySplitStateResult {
                 shard_uid,
-                new_root: trie_changes.new_root,
+                new_root: trie_changes.new_root.clone(),
                 trie_changes: WrappedTrieChanges::new(
                     self.get_tries(),
                     shard_uid,
@@ -1754,7 +1757,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         if state_root == &CryptoHash::default() {
             return state_root_node == &StateRootNode::empty();
         }
-        if hash(&state_root_node.data) != *state_root {
+        if hash(&state_root_node.data) != state_root.clone() {
             false
         } else {
             match Trie::get_memory_usage_from_serialized(&state_root_node.data) {
@@ -1880,8 +1883,8 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         let view_state = ViewApplyState {
             block_height: height,
-            prev_block_hash: *prev_block_hash,
-            block_hash: *block_hash,
+            prev_block_hash: prev_block_hash.clone(),
+            block_hash: block_hash.clone(),
             epoch_id: epoch_id.clone(),
             epoch_height,
             block_timestamp,
@@ -2124,7 +2127,7 @@ mod test {
             runtime
                 .add_validator_proposals(BlockHeaderInfo {
                     prev_hash: CryptoHash::default(),
-                    hash: genesis_hash,
+                    hash: genesis_hash.clone(),
                     random_value: [0; 32].as_ref().try_into().unwrap(),
                     height: 0,
                     last_finalized_height: 0,
@@ -2190,12 +2193,12 @@ mod test {
             }
             self.runtime
                 .add_validator_proposals(BlockHeaderInfo {
-                    prev_hash: self.head.last_block_hash,
-                    hash: new_hash,
+                    prev_hash: self.head.last_block_hash.clone(),
+                    hash: new_hash.clone(),
                     random_value: [0; 32].as_ref().try_into().unwrap(),
                     height: self.head.height + 1,
                     last_finalized_height: self.head.height.saturating_sub(1),
-                    last_finalized_block_hash: self.head.last_block_hash,
+                    last_finalized_block_hash: self.head.last_block_hash.clone(),
                     proposals: self.last_proposals.clone(),
                     slashed_validators: challenges_result,
                     chunk_mask,
@@ -2217,8 +2220,8 @@ mod test {
             self.time += 10u64.pow(9);
 
             self.head = Tip {
-                last_block_hash: new_hash,
-                prev_block_hash: self.head.last_block_hash,
+                last_block_hash: new_hash.clone(),
+                prev_block_hash: self.head.last_block_hash.clone(),
                 height: self.head.height + 1,
                 epoch_id: self
                     .runtime
@@ -2241,7 +2244,7 @@ mod test {
                 self.runtime.account_id_to_shard_id(account_id, &self.head.epoch_id).unwrap();
             let shard_uid = self.runtime.shard_id_to_uid(shard_id, &self.head.epoch_id).unwrap();
             self.runtime
-                .view_account(&shard_uid, self.state_roots[shard_id as usize], &account_id)
+                .view_account(&shard_uid, self.state_roots[shard_id as usize].clone(), &account_id)
                 .unwrap()
                 .into()
         }
@@ -2656,12 +2659,12 @@ mod test {
             new_env
                 .runtime
                 .add_validator_proposals(BlockHeaderInfo {
-                    prev_hash,
-                    hash: cur_hash,
+                    prev_hash: prev_hash.clone(),
+                    hash: cur_hash.clone(),
                     random_value: [0; 32].as_ref().try_into().unwrap(),
                     height: i,
                     last_finalized_height: i.saturating_sub(2),
-                    last_finalized_block_hash: prev_hash,
+                    last_finalized_block_hash: prev_hash.clone(),
                     proposals: new_env.last_proposals,
                     slashed_validators: vec![],
                     chunk_mask: vec![true],
@@ -2673,8 +2676,8 @@ mod test {
                 .commit()
                 .unwrap();
             new_env.head.height = i;
-            new_env.head.last_block_hash = cur_hash;
-            new_env.head.prev_block_hash = prev_hash;
+            new_env.head.last_block_hash = cur_hash.clone();
+            new_env.head.prev_block_hash = prev_hash.clone();
             new_env.last_proposals = proposals;
             new_env.time += 10u64.pow(9);
         }
@@ -2781,7 +2784,9 @@ mod test {
         ];
         let response = env
             .runtime
-            .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(
+                env.head.last_block_hash.clone(),
+            ))
             .unwrap();
         assert_eq!(
             response,
@@ -2808,7 +2813,9 @@ mod test {
         update_expected_blocks(&mut env, &mut expected_blocks);
         let response = env
             .runtime
-            .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(
+                env.head.last_block_hash.clone(),
+            ))
             .unwrap();
 
         current_epoch_validator_info[0].num_produced_blocks = expected_blocks[0];
@@ -3186,7 +3193,9 @@ mod test {
         assert_eq!(account0.amount, TESTING_INIT_BALANCE - fishermen_stake);
         let response = env
             .runtime
-            .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(
+                env.head.last_block_hash.clone(),
+            ))
             .unwrap();
         assert_eq!(
             response
@@ -3213,7 +3222,9 @@ mod test {
         assert_eq!(account1.amount, TESTING_INIT_BALANCE);
         let response = env
             .runtime
-            .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(
+                env.head.last_block_hash.clone(),
+            ))
             .unwrap();
         assert!(response.current_fishermen.is_empty());
     }
@@ -3260,7 +3271,9 @@ mod test {
         assert_eq!(account0.amount, TESTING_INIT_BALANCE - fishermen_stake);
         let response = env
             .runtime
-            .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(
+                env.head.last_block_hash.clone(),
+            ))
             .unwrap();
         assert_eq!(
             response
@@ -3281,7 +3294,9 @@ mod test {
         assert_eq!(account0.amount, TESTING_INIT_BALANCE);
         let response = env
             .runtime
-            .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(
+                env.head.last_block_hash.clone(),
+            ))
             .unwrap();
         assert!(response.current_fishermen.is_empty());
     }

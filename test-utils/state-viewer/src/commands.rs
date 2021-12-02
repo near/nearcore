@@ -204,7 +204,7 @@ pub(crate) fn print_chain(
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
             let header = chain_store.get_block_header(&block_hash).unwrap().clone();
             if height == 0 {
-                println!("{: >3} {}", header.height(), format_hash(*header.hash()));
+                println!("{: >3} {}", header.height(), format_hash(header.hash().clone()));
             } else {
                 let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap();
                 let epoch_id = runtime.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
@@ -214,7 +214,7 @@ pub(crate) fn print_chain(
                     account_id_to_blocks = HashMap::new();
                     println!(
                         "Epoch {} Validators {:?}",
-                        format_hash(epoch_id.0),
+                        format_hash(epoch_id.0.clone()),
                         runtime
                             .get_epoch_block_producers_ordered(&epoch_id, &header.hash())
                             .unwrap()
@@ -229,10 +229,10 @@ pub(crate) fn print_chain(
                 println!(
                     "{: >3} {} | {: >10} | parent: {: >3} {}",
                     header.height(),
-                    format_hash(*header.hash()),
+                    format_hash(header.hash().clone()),
                     block_producer,
                     parent_header.height(),
-                    format_hash(*parent_header.hash()),
+                    format_hash(parent_header.hash().clone()),
                 );
             }
         } else {
@@ -309,7 +309,7 @@ pub(crate) fn apply_block_at_height(
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
                 shard_id,
-                block_hash,
+                block_hash.clone(),
                 prev_block.chunks()[shard_id as usize].height_included(),
             )
             .unwrap();
@@ -337,7 +337,7 @@ pub(crate) fn apply_block_at_height(
                 prev_block.header().gas_price(),
                 chunk_inner.gas_limit(),
                 &block.header().challenges_result(),
-                *block.header().random_value(),
+                block.header().random_value().clone(),
                 true,
                 is_first_block_with_chunk_of_version,
                 None,
@@ -361,7 +361,7 @@ pub(crate) fn apply_block_at_height(
                 block.header().gas_price(),
                 chunk_extra.gas_limit(),
                 &block.header().challenges_result(),
-                *block.header().random_value(),
+                block.header().random_value().clone(),
                 false,
                 false,
                 None,
@@ -537,8 +537,11 @@ fn load_trie_stop_at_height(
                         continue;
                     }
                 };
-                let last_final_block_hash =
-                    *chain_store.get_block_header(&cur_block_hash).unwrap().last_final_block();
+                let last_final_block_hash = chain_store
+                    .get_block_header(&cur_block_hash)
+                    .unwrap()
+                    .last_final_block()
+                    .clone();
                 let last_final_block = chain_store.get_block(&last_final_block_hash).unwrap();
                 if last_final_block.header().height() >= height {
                     break last_final_block.clone();

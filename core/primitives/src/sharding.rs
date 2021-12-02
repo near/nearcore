@@ -3,6 +3,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use deepsize::DeepSizeOf;
 use reed_solomon_erasure::galois_8::{Field, ReedSolomon};
 use serde::{Deserialize, Serialize};
+use std::hash::Hash;
 
 use near_crypto::Signature;
 
@@ -110,7 +111,7 @@ impl ShardChunkHeaderV2 {
         let inner_bytes = inner.try_to_vec().expect("Failed to serialize");
         let inner_hash = hash(&inner_bytes);
 
-        ChunkHash(combine_hash(inner_hash, inner.encoded_merkle_root))
+        ChunkHash(combine_hash(inner_hash, inner.encoded_merkle_root.clone()))
     }
 
     pub fn new(
@@ -175,7 +176,7 @@ impl ShardChunkHeaderV3 {
         let inner_bytes = inner.try_to_vec().expect("Failed to serialize");
         let inner_hash = hash(&inner_bytes);
 
-        ChunkHash(combine_hash(inner_hash, *inner.encoded_merkle_root()))
+        ChunkHash(combine_hash(inner_hash, inner.encoded_merkle_root().clone()))
     }
 
     pub fn new(
@@ -290,27 +291,27 @@ impl ShardChunkHeader {
     #[inline]
     pub fn prev_state_root(&self) -> StateRoot {
         match self {
-            Self::V1(header) => header.inner.prev_state_root,
-            Self::V2(header) => header.inner.prev_state_root,
-            Self::V3(header) => *header.inner.prev_state_root(),
+            Self::V1(header) => header.inner.prev_state_root.clone(),
+            Self::V2(header) => header.inner.prev_state_root.clone(),
+            Self::V3(header) => header.inner.prev_state_root().clone(),
         }
     }
 
     #[inline]
     pub fn prev_block_hash(&self) -> CryptoHash {
         match self {
-            Self::V1(header) => header.inner.prev_block_hash,
-            Self::V2(header) => header.inner.prev_block_hash,
-            Self::V3(header) => *header.inner.prev_block_hash(),
+            Self::V1(header) => header.inner.prev_block_hash.clone(),
+            Self::V2(header) => header.inner.prev_block_hash.clone(),
+            Self::V3(header) => header.inner.prev_block_hash().clone(),
         }
     }
 
     #[inline]
     pub fn encoded_merkle_root(&self) -> CryptoHash {
         match self {
-            Self::V1(header) => header.inner.encoded_merkle_root,
-            Self::V2(header) => header.inner.encoded_merkle_root,
-            Self::V3(header) => *header.inner.encoded_merkle_root(),
+            Self::V1(header) => header.inner.encoded_merkle_root.clone(),
+            Self::V2(header) => header.inner.encoded_merkle_root.clone(),
+            Self::V3(header) => header.inner.encoded_merkle_root().clone(),
         }
     }
 
@@ -362,27 +363,27 @@ impl ShardChunkHeader {
     #[inline]
     pub fn outgoing_receipts_root(&self) -> CryptoHash {
         match &self {
-            ShardChunkHeader::V1(header) => header.inner.outgoing_receipts_root,
-            ShardChunkHeader::V2(header) => header.inner.outgoing_receipts_root,
-            ShardChunkHeader::V3(header) => *header.inner.outgoing_receipts_root(),
+            ShardChunkHeader::V1(header) => header.inner.outgoing_receipts_root.clone(),
+            ShardChunkHeader::V2(header) => header.inner.outgoing_receipts_root.clone(),
+            ShardChunkHeader::V3(header) => header.inner.outgoing_receipts_root().clone(),
         }
     }
 
     #[inline]
     pub fn outcome_root(&self) -> CryptoHash {
         match &self {
-            ShardChunkHeader::V1(header) => header.inner.outcome_root,
-            ShardChunkHeader::V2(header) => header.inner.outcome_root,
-            ShardChunkHeader::V3(header) => *header.inner.outcome_root(),
+            ShardChunkHeader::V1(header) => header.inner.outcome_root.clone(),
+            ShardChunkHeader::V2(header) => header.inner.outcome_root.clone(),
+            ShardChunkHeader::V3(header) => header.inner.outcome_root().clone(),
         }
     }
 
     #[inline]
     pub fn tx_root(&self) -> CryptoHash {
         match &self {
-            ShardChunkHeader::V1(header) => header.inner.tx_root,
-            ShardChunkHeader::V2(header) => header.inner.tx_root,
-            ShardChunkHeader::V3(header) => *header.inner.tx_root(),
+            ShardChunkHeader::V1(header) => header.inner.tx_root.clone(),
+            ShardChunkHeader::V2(header) => header.inner.tx_root.clone(),
+            ShardChunkHeader::V3(header) => header.inner.tx_root().clone(),
         }
     }
 
@@ -705,7 +706,7 @@ impl ShardChunk {
     #[inline]
     pub fn prev_state_root(&self) -> StateRoot {
         match self {
-            Self::V1(chunk) => chunk.header.inner.prev_state_root,
+            Self::V1(chunk) => chunk.header.inner.prev_state_root.clone(),
             Self::V2(chunk) => chunk.header.prev_state_root(),
         }
     }
@@ -713,7 +714,7 @@ impl ShardChunk {
     #[inline]
     pub fn tx_root(&self) -> CryptoHash {
         match self {
-            Self::V1(chunk) => chunk.header.inner.tx_root,
+            Self::V1(chunk) => chunk.header.inner.tx_root.clone(),
             Self::V2(chunk) => chunk.header.tx_root(),
         }
     }
@@ -721,7 +722,7 @@ impl ShardChunk {
     #[inline]
     pub fn outgoing_receipts_root(&self) -> CryptoHash {
         match self {
-            Self::V1(chunk) => chunk.header.inner.outgoing_receipts_root,
+            Self::V1(chunk) => chunk.header.inner.outgoing_receipts_root.clone(),
             Self::V2(chunk) => chunk.header.outgoing_receipts_root(),
         }
     }
@@ -888,7 +889,7 @@ impl EncodedShardChunk {
     #[inline]
     pub fn encoded_merkle_root(&self) -> CryptoHash {
         match self {
-            Self::V1(chunk) => chunk.header.inner.encoded_merkle_root,
+            Self::V1(chunk) => chunk.header.inner.encoded_merkle_root.clone(),
             Self::V2(chunk) => chunk.header.encoded_merkle_root(),
         }
     }

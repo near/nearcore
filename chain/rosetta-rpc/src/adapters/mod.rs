@@ -30,14 +30,15 @@ async fn convert_genesis_records_to_transaction(
         }
     });
     let genesis_accounts = crate::utils::query_accounts(
-        &near_primitives::types::BlockId::Hash(block.header.hash).into(),
+        &near_primitives::types::BlockId::Hash(block.header.hash.clone()).into(),
         genesis_account_ids,
         &view_client_addr,
     )
     .await?;
-    let runtime_config = crate::utils::query_protocol_config(block.header.hash, &view_client_addr)
-        .await?
-        .runtime_config;
+    let runtime_config =
+        crate::utils::query_protocol_config(block.header.hash.clone(), &view_client_addr)
+            .await?
+            .runtime_config;
 
     let mut operations = Vec::new();
     for (account_id, account) in genesis_accounts {
@@ -109,7 +110,7 @@ pub(crate) async fn convert_block_to_transactions(
     block: &near_primitives::views::BlockView,
 ) -> Result<Vec<crate::models::Transaction>, crate::errors::ErrorKind> {
     let state_changes = view_client_addr
-        .send(near_client::GetStateChangesInBlock { block_hash: block.header.hash })
+        .send(near_client::GetStateChangesInBlock { block_hash: block.header.hash.clone() })
         .await?
         .unwrap();
 
@@ -125,7 +126,7 @@ pub(crate) async fn convert_block_to_transactions(
         .collect::<std::collections::HashSet<_>>();
 
     let prev_block_id = near_primitives::types::BlockReference::from(
-        near_primitives::types::BlockId::Hash(block.header.prev_hash),
+        near_primitives::types::BlockId::Hash(block.header.prev_hash.clone()),
     );
     let accounts_previous_state =
         crate::utils::query_accounts(&prev_block_id, touched_account_ids.iter(), &view_client_addr)
@@ -133,7 +134,7 @@ pub(crate) async fn convert_block_to_transactions(
 
     let accounts_changes = view_client_addr
         .send(near_client::GetStateChanges {
-            block_hash: block.header.hash,
+            block_hash: block.header.hash.clone(),
             state_changes_request:
                 near_primitives::views::StateChangesRequestView::AccountChanges {
                     account_ids: touched_account_ids.into_iter().collect(),
@@ -141,9 +142,10 @@ pub(crate) async fn convert_block_to_transactions(
         })
         .await??;
 
-    let runtime_config = crate::utils::query_protocol_config(block.header.hash, &view_client_addr)
-        .await?
-        .runtime_config;
+    let runtime_config =
+        crate::utils::query_protocol_config(block.header.hash.clone(), &view_client_addr)
+            .await?
+            .runtime_config;
     let transactions = convert_block_changes_to_transactions(
         &runtime_config,
         &block.header.hash,
@@ -933,7 +935,7 @@ mod tests {
             },
             near_primitives::views::StateChangeWithCauseView {
                 cause: near_primitives::views::StateChangeCauseView::ReceiptProcessing {
-                    receipt_hash: nfvalidator1_receipt_processing_hash,
+                    receipt_hash: nfvalidator1_receipt_processing_hash.clone(),
                 },
                 value: near_primitives::views::StateChangeValueView::AccountUpdate {
                     account_id: "nfvalidator1.near".parse().unwrap(),
@@ -961,7 +963,7 @@ mod tests {
             },
             near_primitives::views::StateChangeWithCauseView {
                 cause: near_primitives::views::StateChangeCauseView::ActionReceiptGasReward {
-                    receipt_hash: nfvalidator2_action_receipt_gas_reward_hash,
+                    receipt_hash: nfvalidator2_action_receipt_gas_reward_hash.clone(),
                 },
                 value: near_primitives::views::StateChangeValueView::AccountUpdate {
                     account_id: "nfvalidator2.near".parse().unwrap(),

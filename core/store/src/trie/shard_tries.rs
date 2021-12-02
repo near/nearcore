@@ -175,7 +175,7 @@ impl ShardTries {
                 &mut store_update,
             )?;
         }
-        Ok((store_update, trie_changes.new_root))
+        Ok((store_update, trie_changes.new_root.clone()))
     }
 
     pub fn apply_insertions(

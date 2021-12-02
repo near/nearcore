@@ -353,7 +353,7 @@ mod tests {
         shard_uid: &ShardUId,
         state_root: &StateRoot,
     ) -> Vec<Receipt> {
-        let state_update = &tries.new_trie_update(*shard_uid, *state_root);
+        let state_update = &tries.new_trie_update(*shard_uid, state_root.clone());
         let mut delayed_receipt_indices = get_delayed_receipt_indices(state_update).unwrap();
 
         let mut receipts = vec![];

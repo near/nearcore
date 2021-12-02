@@ -221,7 +221,7 @@ async fn block_details(
     } else {
         let parent_block = view_client_addr
             .send(near_client::GetBlock(
-                near_primitives::types::BlockId::Hash(block.header.prev_hash).into(),
+                near_primitives::types::BlockId::Hash(block.header.prev_hash.clone()).into(),
             ))
             .await?
             .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
@@ -370,7 +370,7 @@ async fn account_balance(
         .await?
         .map_err(|err| errors::ErrorKind::NotFound(err.to_string()))?;
     let runtime_config =
-        crate::utils::query_protocol_config(block.header.hash, view_client_addr.get_ref())
+        crate::utils::query_protocol_config(block.header.hash.clone(), view_client_addr.get_ref())
             .await?
             .runtime_config;
 

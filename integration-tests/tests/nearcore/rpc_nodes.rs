@@ -74,7 +74,9 @@ fn outcome_view_to_hashes(outcome: &ExecutionOutcomeView) -> Vec<CryptoHash> {
             PartialExecutionStatus::SuccessValue(from_base64(s).unwrap())
         }
         ExecutionStatusView::Failure(_) => PartialExecutionStatus::Failure,
-        ExecutionStatusView::SuccessReceiptId(id) => PartialExecutionStatus::SuccessReceiptId(*id),
+        ExecutionStatusView::SuccessReceiptId(id) => {
+            PartialExecutionStatus::SuccessReceiptId(id.clone())
+        }
     };
     let mut result = vec![hash(
         &(
@@ -106,7 +108,7 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
     cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = *genesis_block(&genesis).hash();
+        let genesis_hash = genesis_block(&genesis).hash().clone();
         let signer =
             InMemorySigner::from_seed("near.0".parse().unwrap(), KeyType::ED25519, "near.0");
         let transaction = if is_tx_successful {
@@ -352,7 +354,7 @@ fn test_tx_not_enough_balance_must_return_error() {
     cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = *genesis_block(&genesis).hash();
+        let genesis_hash = genesis_block(&genesis).hash().clone().clone();
         let signer =
             InMemorySigner::from_seed("near.0".parse().unwrap(), KeyType::ED25519, "near.0");
         let transaction = SignedTransaction::send_money(
@@ -414,7 +416,7 @@ fn test_send_tx_sync_returns_transaction_hash() {
     cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = *genesis_block(&genesis).hash();
+        let genesis_hash = genesis_block(&genesis).hash().clone().clone();
         let signer =
             InMemorySigner::from_seed("near.0".parse().unwrap(), KeyType::ED25519, "near.0");
         let transaction = SignedTransaction::send_money(
@@ -462,7 +464,7 @@ fn test_send_tx_sync_to_lightclient_must_be_routed() {
     cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = *genesis_block(&genesis).hash();
+        let genesis_hash = genesis_block(&genesis).hash().clone();
         let signer =
             InMemorySigner::from_seed("near.1".parse().unwrap(), KeyType::ED25519, "near.1");
         let transaction = SignedTransaction::send_money(
@@ -471,7 +473,7 @@ fn test_send_tx_sync_to_lightclient_must_be_routed() {
             "near.1".parse().unwrap(),
             &signer,
             10000,
-            genesis_hash,
+            genesis_hash.clone(),
         );
 
         let client = new_client(&format!("http://{}", rpc_addrs[1]));
@@ -520,7 +522,7 @@ fn test_check_unknown_tx_must_return_error() {
     cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = *genesis_block(&genesis).hash();
+        let genesis_hash = genesis_block(&genesis).hash().clone();
         let signer =
             InMemorySigner::from_seed("near.0".parse().unwrap(), KeyType::ED25519, "near.0");
         let transaction = SignedTransaction::send_money(
@@ -529,7 +531,7 @@ fn test_check_unknown_tx_must_return_error() {
             "near.0".parse().unwrap(),
             &signer,
             10000,
-            genesis_hash,
+            genesis_hash.clone(),
         );
 
         let client = new_client(&format!("http://{}", rpc_addrs[0]));
@@ -578,7 +580,7 @@ fn test_check_tx_on_lightclient_must_return_does_not_track_shard() {
     cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = *genesis_block(&genesis).hash();
+        let genesis_hash = genesis_block(&genesis).hash().clone();
         let signer = InMemorySigner::from_seed("near.1".parse().unwrap(), KeyType::ED25519, "near.1");
         let transaction = SignedTransaction::send_money(
             1,
@@ -586,7 +588,7 @@ fn test_check_tx_on_lightclient_must_return_does_not_track_shard() {
             "near.1".parse().unwrap(),
             &signer,
             10000,
-            genesis_hash,
+            genesis_hash.clone(),
         );
 
         let client = new_client(&format!("http://{}", rpc_addrs[1]));

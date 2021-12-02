@@ -96,7 +96,7 @@ pub(crate) async fn fetch_outcomes(
     for (shard_id, shard_outcomes) in outcomes {
         let mut outcomes_with_receipts: Vec<IndexerExecutionOutcomeWithOptionalReceipt> = vec![];
         for outcome in shard_outcomes {
-            let receipt = match fetch_receipt_by_id(&client, outcome.id).await {
+            let receipt = match fetch_receipt_by_id(&client, outcome.id.clone()).await {
                 Ok(res) => res,
                 Err(e) => {
                     warn!(

@@ -343,7 +343,7 @@ impl EpochManager {
         }
 
         let prev_epoch_last_block_hash =
-            *self.get_block_info(last_block_info.epoch_first_block())?.prev_hash();
+            self.get_block_info(last_block_info.epoch_first_block())?.prev_hash().clone();
         let prev_validator_kickout = next_epoch_info.validator_kickout();
 
         // Compute kick outs for validators who are offline.
@@ -397,7 +397,7 @@ impl EpochManager {
 
         let (validator_reward, minted_amount) = {
             let last_epoch_last_block_hash =
-                *self.get_block_info(block_info.epoch_first_block())?.prev_hash();
+                self.get_block_info(block_info.epoch_first_block())?.prev_hash().clone();
             let last_block_in_last_epoch = self.get_block_info(&last_epoch_last_block_hash)?;
             assert!(block_info.timestamp_nanosec() > last_block_in_last_epoch.timestamp_nanosec());
             let epoch_duration =
@@ -438,7 +438,7 @@ impl EpochManager {
             }
             Err(err) => return Err(err),
         };
-        let next_next_epoch_id = EpochId(*last_block_hash);
+        let next_next_epoch_id = EpochId(last_block_hash.clone());
         debug!(target: "epoch_manager", "next next epoch height: {}, id: {:?}, protocol version: {} shard layout: {:?}",
                next_next_epoch_info.epoch_height(),
                &next_next_epoch_id,
@@ -455,7 +455,7 @@ impl EpochManager {
         mut block_info: BlockInfo,
         rng_seed: RngSeed,
     ) -> Result<StoreUpdate, EpochError> {
-        let current_hash = *block_info.hash();
+        let current_hash = block_info.hash().clone();
         let mut store_update = self.store.store_update();
         // Check that we didn't record this block yet.
         if !self.has_block_info(&current_hash)? {
@@ -477,18 +477,19 @@ impl EpochManager {
                 if prev_block_info.prev_hash() == &CryptoHash::default() {
                     // This is first real block, starts the new epoch.
                     *block_info.epoch_id_mut() = EpochId::default();
-                    *block_info.epoch_first_block_mut() = current_hash;
+                    *block_info.epoch_first_block_mut() = current_hash.clone();
                     is_epoch_start = true;
                 } else if self.is_next_block_in_next_epoch(&prev_block_info)? {
                     // Current block is in the new epoch, finalize the one in prev_block.
                     *block_info.epoch_id_mut() =
                         self.get_next_epoch_id_from_info(&prev_block_info)?;
-                    *block_info.epoch_first_block_mut() = current_hash;
+                    *block_info.epoch_first_block_mut() = current_hash.clone();
                     is_epoch_start = true;
                 } else {
                     // Same epoch as parent, copy epoch_id and epoch_start_height.
                     *block_info.epoch_id_mut() = prev_block_info.epoch_id().clone();
-                    *block_info.epoch_first_block_mut() = *prev_block_info.epoch_first_block();
+                    *block_info.epoch_first_block_mut() =
+                        prev_block_info.epoch_first_block().clone();
                 }
                 let epoch_info = self.get_epoch_info(block_info.epoch_id())?.clone();
 
@@ -759,8 +760,8 @@ impl EpochManager {
     }
 
     pub fn get_prev_epoch_id(&mut self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
-        let epoch_first_block = *self.get_block_info(block_hash)?.epoch_first_block();
-        let prev_epoch_last_hash = *self.get_block_info(&epoch_first_block)?.prev_hash();
+        let epoch_first_block = self.get_block_info(block_hash)?.epoch_first_block().clone();
+        let prev_epoch_last_hash = self.get_block_info(&epoch_first_block)?.prev_hash().clone();
         self.get_epoch_id(&prev_epoch_last_hash)
     }
 
@@ -839,7 +840,7 @@ impl EpochManager {
     ) -> Result<EpochId, EpochError> {
         if self.is_next_block_epoch_start(parent_hash)? {
             // Because we ID epochs based on the last block of T - 2, this is ID for next next epoch.
-            Ok(EpochId(*parent_hash))
+            Ok(EpochId(parent_hash.clone()))
         } else {
             self.get_next_epoch_id(parent_hash)
         }
@@ -849,8 +850,8 @@ impl EpochManager {
         &mut self,
         block_hash: &CryptoHash,
     ) -> Result<BlockHeight, EpochError> {
-        let epoch_first_block = *self.get_block_info(block_hash)?.epoch_first_block();
-        Ok(*self.get_block_info(&epoch_first_block)?.height())
+        let epoch_first_block = self.get_block_info(block_hash)?.epoch_first_block().clone();
+        Ok(self.get_block_info(&epoch_first_block)?.height().clone())
     }
 
     /// Compute stake return info based on the last block hash of the epoch that is just finalized
@@ -867,7 +868,7 @@ impl EpochManager {
         (HashMap<AccountId, Balance>, HashMap<AccountId, Balance>, HashMap<AccountId, Balance>),
         EpochError,
     > {
-        let next_next_epoch_id = EpochId(*last_block_hash);
+        let next_next_epoch_id = EpochId(last_block_hash.clone());
         let validator_reward = self.get_epoch_info(&next_next_epoch_id)?.validator_reward().clone();
 
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
@@ -1151,7 +1152,7 @@ impl EpochManager {
             store_update,
             &block_info,
             &block_header_info.hash,
-            block_header_info.random_value.into(),
+            block_header_info.random_value.clone().into(),
         )?;
         Ok(())
     }
@@ -1239,7 +1240,7 @@ impl EpochManager {
         block_info: &BlockInfo,
     ) -> Result<EpochId, EpochError> {
         let first_block_info = self.get_block_info(block_info.epoch_first_block())?;
-        Ok(EpochId(*first_block_info.prev_hash()))
+        Ok(EpochId(first_block_info.prev_hash().clone()))
     }
 
     pub fn get_shard_config(&mut self, epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
@@ -1344,10 +1345,10 @@ impl EpochManager {
                 .store
                 .get_ser(ColBlockInfo, hash.as_ref())
                 .map_err(EpochError::from)
-                .and_then(|value| value.ok_or_else(|| EpochError::MissingBlock(*hash)))?;
-            self.blocks_info.cache_set(*hash, block_info);
+                .and_then(|value| value.ok_or_else(|| EpochError::MissingBlock(hash.clone())))?;
+            self.blocks_info.cache_set(hash.clone(), block_info);
         }
-        self.blocks_info.cache_get(hash).ok_or(EpochError::MissingBlock(*hash))
+        self.blocks_info.cache_get(hash).ok_or(EpochError::MissingBlock(hash.clone()))
     }
 
     fn save_block_info(
@@ -1355,7 +1356,7 @@ impl EpochManager {
         store_update: &mut StoreUpdate,
         block_info: BlockInfo,
     ) -> Result<(), EpochError> {
-        let block_hash = *block_info.hash();
+        let block_hash = block_info.hash().clone();
         store_update
             .set_ser(ColBlockInfo, block_hash.as_ref(), &block_info)
             .map_err(EpochError::from)?;
@@ -1416,19 +1417,22 @@ impl EpochManager {
             self.store
                 .get_ser(ColEpochInfo, AGGREGATOR_KEY)
                 .map_err(EpochError::from)?
-                .unwrap_or_else(|| EpochInfoAggregator::new(epoch_id.clone(), *last_block_hash))
+                .unwrap_or_else(|| {
+                    EpochInfoAggregator::new(epoch_id.clone(), last_block_hash.clone())
+                })
         };
         if &aggregator.epoch_id != epoch_id {
-            aggregator = EpochInfoAggregator::new(epoch_id.clone(), *last_block_hash);
+            aggregator = EpochInfoAggregator::new(epoch_id.clone(), last_block_hash.clone());
             epoch_change = true;
         }
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
-        let mut new_aggregator = EpochInfoAggregator::new(epoch_id.clone(), *last_block_hash);
-        let mut cur_hash = *last_block_hash;
+        let mut new_aggregator =
+            EpochInfoAggregator::new(epoch_id.clone(), last_block_hash.clone());
+        let mut cur_hash = last_block_hash.clone();
         let mut overwrite = false;
         while cur_hash != aggregator.last_block_hash || epoch_change {
             // Avoid cloning
-            let prev_hash = *self.get_block_info(&cur_hash)?.prev_hash();
+            let prev_hash = self.get_block_info(&cur_hash)?.prev_hash().clone();
             let prev_height = self.get_block_info(&prev_hash).map(|info| *info.height());
 
             let block_info = self.get_block_info(&cur_hash)?;
@@ -1442,7 +1446,7 @@ impl EpochManager {
                 break;
             }
             new_aggregator.update(&block_info, &epoch_info, prev_height?);
-            cur_hash = *block_info.prev_hash();
+            cur_hash = block_info.prev_hash().clone();
         }
         aggregator.merge(new_aggregator, overwrite);
 
@@ -1517,7 +1521,7 @@ mod tests2 {
         let mut epoch_manager = setup_default_epoch_manager(validators.clone(), 1, 1, 2, 2, 90, 60);
 
         let h = hash_range(4);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
 
         let expected0 = epoch_info_with_num_seats(
             1,
@@ -1544,21 +1548,21 @@ mod tests2 {
 
         record_block(
             &mut epoch_manager,
-            h[0],
-            h[1],
+            h[0].clone(),
+            h[1].clone(),
             1,
             vec![stake("test2".parse().unwrap(), amount_staked)],
         );
         let epoch1 = epoch_manager.get_epoch_id(&h[1]).unwrap();
         assert!(compare_epoch_infos(epoch_manager.get_epoch_info(&epoch1).unwrap(), &expected0));
-        assert_eq!(epoch_manager.get_epoch_id(&h[2]), Err(EpochError::MissingBlock(h[2])));
+        assert_eq!(epoch_manager.get_epoch_id(&h[2]), Err(EpochError::MissingBlock(h[2].clone())));
 
-        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
+        record_block(&mut epoch_manager, h[1].clone(), h[2].clone(), 2, vec![]);
         // test2 staked in epoch 1 and therefore should be included in epoch 3.
         let epoch2 = epoch_manager.get_epoch_id(&h[2]).unwrap();
         assert!(compare_epoch_infos(epoch_manager.get_epoch_info(&epoch2).unwrap(), &expected0));
 
-        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+        record_block(&mut epoch_manager, h[2].clone(), h[3].clone(), 3, vec![]);
 
         let expected3 = epoch_info_with_num_seats(
             2,
@@ -1620,11 +1624,17 @@ mod tests2 {
         );
 
         let h = hash_range(4);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1".parse().unwrap(), 10)]);
-        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
+        record_block(
+            &mut epoch_manager,
+            h[0].clone(),
+            h[1].clone(),
+            1,
+            vec![stake("test1".parse().unwrap(), 10)],
+        );
+        record_block(&mut epoch_manager, h[1].clone(), h[2].clone(), 2, vec![]);
         // New epoch starts here.
-        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+        record_block(&mut epoch_manager, h[2].clone(), h[3].clone(), 3, vec![]);
         let epoch_id = epoch_manager.get_next_epoch_id(&h[3]).unwrap();
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
         check_validators(&epoch_info, &[("test2", amount_staked)]);
@@ -1670,7 +1680,7 @@ mod tests2 {
         // Have an alternate set of hashes to use on the other branch to avoid collisions.
         let h2: Vec<CryptoHash> = h.iter().map(|x| hash(x.as_ref())).collect();
 
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
 
         let build_branch = |epoch_manager: &mut EpochManager,
                             base_block: CryptoHash,
@@ -1687,9 +1697,9 @@ mod tests2 {
                 let block_producer = epoch_info.get_validator(block_producer_id);
                 let account_id = block_producer.account_id();
                 if validator_accounts.iter().any(|v| *v == account_id.as_ref()) {
-                    record_block(epoch_manager, prev_block, *curr_block, height, vec![]);
-                    prev_block = *curr_block;
-                    branch_blocks.push(*curr_block);
+                    record_block(epoch_manager, prev_block, curr_block.clone(), height, vec![]);
+                    prev_block = curr_block.clone();
+                    branch_blocks.push(curr_block.clone());
                 }
             }
             branch_blocks
@@ -1698,15 +1708,15 @@ mod tests2 {
         // build test2/test4 fork
         record_block(
             &mut epoch_manager,
-            h[0],
-            h[1],
+            h[0].clone(),
+            h[1].clone(),
             1,
             vec![stake("test4".parse().unwrap(), amount_staked)],
         );
-        let blocks_test2 = build_branch(&mut epoch_manager, h[1], &h, &["test2", "test4"]);
+        let blocks_test2 = build_branch(&mut epoch_manager, h[1].clone(), &h, &["test2", "test4"]);
 
         // build test1/test3 fork
-        let blocks_test1 = build_branch(&mut epoch_manager, h[0], &h2, &["test1", "test3"]);
+        let blocks_test1 = build_branch(&mut epoch_manager, h[0].clone(), &h2, &["test1", "test3"]);
 
         let epoch1 = epoch_manager.get_epoch_id(&h[1]).unwrap();
         let mut bps = epoch_manager
@@ -1752,8 +1762,8 @@ mod tests2 {
         // Check that if we have a different epoch manager and apply only second branch we get the same results.
         let mut epoch_manager2 =
             setup_default_epoch_manager(validators, epoch_length, 1, 3, 0, 90, 60);
-        record_block(&mut epoch_manager2, CryptoHash::default(), h[0], 0, vec![]);
-        build_branch(&mut epoch_manager2, h[0], &h2, &["test1", "test3"]);
+        record_block(&mut epoch_manager2, CryptoHash::default(), h[0].clone(), 0, vec![]);
+        build_branch(&mut epoch_manager2, h[0].clone(), &h2, &["test1", "test3"]);
         assert_eq!(
             epoch_manager.get_epoch_info(&epoch2_2),
             epoch_manager2.get_epoch_info(&epoch2_2)
@@ -1780,10 +1790,10 @@ mod tests2 {
         let h = hash_range(6);
         // this validator only produces one block every epoch whereas they should have produced 2. However, since
         // this is the only validator left, we still keep them as validator.
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-        record_block(&mut epoch_manager, h[0], h[2], 2, vec![]);
-        record_block(&mut epoch_manager, h[2], h[4], 4, vec![]);
-        record_block(&mut epoch_manager, h[4], h[5], 5, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
+        record_block(&mut epoch_manager, h[0].clone(), h[2].clone(), 2, vec![]);
+        record_block(&mut epoch_manager, h[2].clone(), h[4].clone(), 4, vec![]);
+        record_block(&mut epoch_manager, h[4].clone(), h[5].clone(), 5, vec![]);
         let epoch_id = epoch_manager.get_next_epoch_id(&h[5]).unwrap();
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
         check_validators(&epoch_info, &[("test1", amount_staked)]);
@@ -1806,8 +1816,8 @@ mod tests2 {
             setup_default_epoch_manager(validators, epoch_length, 1, 2, 0, 90, 60);
         let h = hash_range((3 * epoch_length) as usize);
 
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-        let mut prev_block = h[0];
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
+        let mut prev_block = h[0].clone();
         let mut test2_expected_blocks = 0;
         let init_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block).unwrap();
         for (i, curr_block) in h.iter().enumerate().skip(1) {
@@ -1821,13 +1831,13 @@ mod tests2 {
                 // test1 skips its blocks in subsequent epochs
                 ()
             } else {
-                record_block(&mut epoch_manager, prev_block, *curr_block, height, vec![]);
-                prev_block = *curr_block;
+                record_block(&mut epoch_manager, prev_block, curr_block.clone(), height, vec![]);
+                prev_block = curr_block.clone();
             }
         }
         let epoch_infos: Vec<_> = h
             .iter()
-            .filter_map(|x| epoch_manager.get_epoch_info(&EpochId(*x)).ok().cloned())
+            .filter_map(|x| epoch_manager.get_epoch_info(&EpochId(x.clone())).ok().cloned())
             .collect();
         check_kickout(
             &epoch_infos[1],
@@ -1865,11 +1875,17 @@ mod tests2 {
         )
         .unwrap();
         let h = hash_range(8);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
         // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).
-        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1".parse().unwrap(), 0)]);
-        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
-        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+        record_block(
+            &mut epoch_manager,
+            h[0].clone(),
+            h[1].clone(),
+            1,
+            vec![stake("test1".parse().unwrap(), 0)],
+        );
+        record_block(&mut epoch_manager, h[1].clone(), h[2].clone(), 2, vec![]);
+        record_block(&mut epoch_manager, h[2].clone(), h[3].clone(), 3, vec![]);
 
         let epoch_id = epoch_manager.get_next_epoch_id(&h[3]).unwrap();
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
@@ -1889,8 +1905,8 @@ mod tests2 {
             ],
         );
 
-        record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
-        record_block(&mut epoch_manager, h[4], h[5], 5, vec![]);
+        record_block(&mut epoch_manager, h[3].clone(), h[4].clone(), 4, vec![]);
+        record_block(&mut epoch_manager, h[4].clone(), h[5].clone(), 5, vec![]);
         let epoch_id = epoch_manager.get_next_epoch_id(&h[5]).unwrap();
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
         check_validators(&epoch_info, &[("test2", amount_staked)]);
@@ -1906,8 +1922,8 @@ mod tests2 {
             ],
         );
 
-        record_block(&mut epoch_manager, h[5], h[6], 6, vec![]);
-        record_block(&mut epoch_manager, h[6], h[7], 7, vec![]);
+        record_block(&mut epoch_manager, h[5].clone(), h[6].clone(), 6, vec![]);
+        record_block(&mut epoch_manager, h[6].clone(), h[7].clone(), 7, vec![]);
         let epoch_id = epoch_manager.get_next_epoch_id(&h[7]).unwrap();
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
         check_validators(&epoch_info, &[("test2", amount_staked)]);
@@ -1939,15 +1955,15 @@ mod tests2 {
         .unwrap();
 
         let h = hash_range(10);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
 
         // Slash test1
         let mut slashed = HashMap::new();
         slashed.insert("test1".parse::<AccountId>().unwrap(), SlashState::Other);
         record_block_with_slashes(
             &mut epoch_manager,
-            h[0],
-            h[1],
+            h[0].clone(),
+            h[1].clone(),
             1,
             vec![],
             vec![SlashedValidator::new("test1".parse().unwrap(), false)],
@@ -1963,11 +1979,11 @@ mod tests2 {
         bps.sort_unstable();
         assert_eq!(bps, vec![("test1".parse().unwrap(), true), ("test2".parse().unwrap(), false)]);
 
-        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
-        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
-        record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
+        record_block(&mut epoch_manager, h[1].clone(), h[2].clone(), 2, vec![]);
+        record_block(&mut epoch_manager, h[2].clone(), h[3].clone(), 3, vec![]);
+        record_block(&mut epoch_manager, h[3].clone(), h[4].clone(), 4, vec![]);
         // Epoch 3 -> defined by proposals/slashes in h[1].
-        record_block(&mut epoch_manager, h[4], h[5], 5, vec![]);
+        record_block(&mut epoch_manager, h[4].clone(), h[5].clone(), 5, vec![]);
 
         let epoch_id = epoch_manager.get_epoch_id(&h[5]).unwrap();
         assert_eq!(epoch_id.0, h[2]);
@@ -2011,12 +2027,12 @@ mod tests2 {
         .unwrap();
 
         let h = hash_range(10);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-        record_block(&mut epoch_manager, h[0], h[1], 1, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
+        record_block(&mut epoch_manager, h[0].clone(), h[1].clone(), 1, vec![]);
         record_block_with_slashes(
             &mut epoch_manager,
-            h[1],
-            h[2],
+            h[1].clone(),
+            h[2].clone(),
             2,
             vec![],
             vec![
@@ -2028,7 +2044,7 @@ mod tests2 {
         let slashed: Vec<_> =
             epoch_manager.get_slashed_validators(&h[2]).unwrap().clone().into_iter().collect();
         assert_eq!(slashed, vec![("test1".parse().unwrap(), SlashState::Other)]);
-        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+        record_block(&mut epoch_manager, h[2].clone(), h[3].clone(), 3, vec![]);
         // new epoch
         let slashed: Vec<_> =
             epoch_manager.get_slashed_validators(&h[3]).unwrap().clone().into_iter().collect();
@@ -2036,15 +2052,15 @@ mod tests2 {
         // slash test1 for double sign
         record_block_with_slashes(
             &mut epoch_manager,
-            h[3],
-            h[4],
+            h[3].clone(),
+            h[4].clone(),
             4,
             vec![],
             vec![SlashedValidator::new("test1".parse().unwrap(), true)],
         );
 
         // Epoch 3 -> defined by proposals/slashes in h[1].
-        record_block(&mut epoch_manager, h[4], h[5], 5, vec![]);
+        record_block(&mut epoch_manager, h[4].clone(), h[5].clone(), 5, vec![]);
         let epoch_id = epoch_manager.get_epoch_id(&h[5]).unwrap();
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap().clone();
         assert_eq!(
@@ -2084,11 +2100,11 @@ mod tests2 {
         let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 2, 0, 90, 60);
 
         let h = hash_range(10);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
         record_block_with_slashes(
             &mut epoch_manager,
-            h[0],
-            h[1],
+            h[0].clone(),
+            h[1].clone(),
             1,
             vec![],
             vec![SlashedValidator::new("test1".parse().unwrap(), true)],
@@ -2098,15 +2114,15 @@ mod tests2 {
             epoch_manager.get_slashed_validators(&h[1]).unwrap().clone().into_iter().collect();
         assert_eq!(slashed, vec![("test1".parse().unwrap(), SlashState::DoubleSign)]);
 
-        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
+        record_block(&mut epoch_manager, h[1].clone(), h[2].clone(), 2, vec![]);
         let slashed: Vec<_> =
             epoch_manager.get_slashed_validators(&h[2]).unwrap().clone().into_iter().collect();
         assert_eq!(slashed, vec![("test1".parse().unwrap(), SlashState::DoubleSign)]);
         // new epoch
         record_block_with_slashes(
             &mut epoch_manager,
-            h[2],
-            h[3],
+            h[2].clone(),
+            h[3].clone(),
             3,
             vec![],
             vec![SlashedValidator::new("test1".parse().unwrap(), true)],
@@ -2127,12 +2143,12 @@ mod tests2 {
         ];
         let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
         let h = hash_range(5);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
         // all validators are trying to unstake.
         record_block(
             &mut epoch_manager,
-            h[0],
-            h[1],
+            h[0].clone(),
+            h[1].clone(),
             1,
             vec![
                 stake("test1".parse().unwrap(), 0),
@@ -2140,7 +2156,7 @@ mod tests2 {
                 stake("test3".parse().unwrap(), 0),
             ],
         );
-        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
+        record_block(&mut epoch_manager, h[1].clone(), h[2].clone(), 2, vec![]);
         let next_epoch = epoch_manager.get_next_epoch_id(&h[2]).unwrap();
         assert_eq!(
             epoch_manager
@@ -2193,12 +2209,12 @@ mod tests2 {
         epoch_manager
             .record_block_info(
                 block_info(
-                    h[0],
+                    h[0].clone(),
                     0,
                     0,
                     Default::default(),
                     Default::default(),
-                    h[0],
+                    h[0].clone(),
                     vec![true],
                     total_supply,
                 ),
@@ -2207,13 +2223,31 @@ mod tests2 {
             .unwrap();
         epoch_manager
             .record_block_info(
-                block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true], total_supply),
+                block_info(
+                    h[1].clone(),
+                    1,
+                    1,
+                    h[0].clone(),
+                    h[0].clone(),
+                    h[1].clone(),
+                    vec![true],
+                    total_supply,
+                ),
                 rng_seed,
             )
             .unwrap();
         epoch_manager
             .record_block_info(
-                block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true], total_supply),
+                block_info(
+                    h[2].clone(),
+                    2,
+                    2,
+                    h[1].clone(),
+                    h[1].clone(),
+                    h[1].clone(),
+                    vec![true],
+                    total_supply,
+                ),
                 rng_seed,
             )
             .unwrap();
@@ -2238,7 +2272,7 @@ mod tests2 {
         let test2_reward = *validator_reward.get("test2").unwrap();
         let protocol_reward = *validator_reward.get("near").unwrap();
 
-        let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
+        let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[2].clone())).unwrap();
         check_validators(&epoch_info, &[("test2", stake_amount + test2_reward)]);
         check_fishermen(&epoch_info, &[("test1", test1_stake_amount)]);
         check_stake_change(
@@ -2294,23 +2328,41 @@ mod tests2 {
         record_with_block_info(
             &mut epoch_manager,
             block_info(
-                h[0],
+                h[0].clone(),
                 0,
                 0,
                 Default::default(),
                 Default::default(),
-                h[0],
+                h[0].clone(),
                 vec![true],
                 total_supply,
             ),
         );
         record_with_block_info(
             &mut epoch_manager,
-            block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true], total_supply),
+            block_info(
+                h[1].clone(),
+                1,
+                1,
+                h[0].clone(),
+                h[0].clone(),
+                h[1].clone(),
+                vec![true],
+                total_supply,
+            ),
         );
         record_with_block_info(
             &mut epoch_manager,
-            block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true], total_supply),
+            block_info(
+                h[2].clone(),
+                2,
+                2,
+                h[1].clone(),
+                h[1].clone(),
+                h[1].clone(),
+                vec![true],
+                total_supply,
+            ),
         );
         let mut validator_online_ratio = HashMap::new();
         validator_online_ratio.insert(
@@ -2343,7 +2395,7 @@ mod tests2 {
         assert_eq!(test1_reward, test2_reward * 2);
         let protocol_reward = *validator_reward.get("near").unwrap();
 
-        let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
+        let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[2].clone())).unwrap();
         check_validators(
             &epoch_info,
             &[("test1", stake_amount1 + test1_reward), ("test2", stake_amount2 + test2_reward)],
@@ -2403,12 +2455,12 @@ mod tests2 {
         record_with_block_info(
             &mut epoch_manager,
             block_info(
-                h[0],
+                h[0].clone(),
                 0,
                 0,
                 Default::default(),
                 Default::default(),
-                h[0],
+                h[0].clone(),
                 vec![true],
                 total_supply,
             ),
@@ -2437,12 +2489,12 @@ mod tests2 {
             record_with_block_info(
                 &mut epoch_manager,
                 block_info(
-                    h[i],
+                    h[i].clone(),
                     height,
                     height,
-                    h[i - 1],
-                    h[i - 1],
-                    h[i],
+                    h[i - 1].clone(),
+                    h[i - 1].clone(),
+                    h[i].clone(),
                     chunk_mask,
                     total_supply,
                 ),
@@ -2471,7 +2523,7 @@ mod tests2 {
         let protocol_reward = *validator_reward.get("near").unwrap();
         let epoch_infos: Vec<_> = h
             .iter()
-            .filter_map(|x| epoch_manager.get_epoch_info(&EpochId(*x)).ok().cloned())
+            .filter_map(|x| epoch_manager.get_epoch_info(&EpochId(x.clone())).ok().cloned())
             .collect();
         let epoch_info = &epoch_infos[1];
         check_validators(epoch_info, &[("test2", stake_amount + test2_reward)]);
@@ -2509,19 +2561,25 @@ mod tests2 {
         ];
         let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 2, 0, 90, 60);
         let h = hash_range(8);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
         // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).
-        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1".parse().unwrap(), 0)]);
         record_block(
             &mut epoch_manager,
-            h[1],
-            h[2],
+            h[0].clone(),
+            h[1].clone(),
+            1,
+            vec![stake("test1".parse().unwrap(), 0)],
+        );
+        record_block(
+            &mut epoch_manager,
+            h[1].clone(),
+            h[2].clone(),
             2,
             vec![stake("test1".parse().unwrap(), amount_staked)],
         );
-        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+        record_block(&mut epoch_manager, h[2].clone(), h[3].clone(), 3, vec![]);
         let epoch_id = epoch_manager.get_next_epoch_id(&h[3]).unwrap();
-        assert_eq!(epoch_id, EpochId(h[2]));
+        assert_eq!(epoch_id, EpochId(h[2].clone()));
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
         check_validators(&epoch_info, &[("test1", amount_staked), ("test2", amount_staked)]);
         check_fishermen(&epoch_info, &[]);
@@ -2568,9 +2626,9 @@ mod tests2 {
         );
         let rng_seed = [0; 32];
         let hashes = hash_range((2 * epoch_length) as usize);
-        record_block(&mut epoch_manager, Default::default(), hashes[0], 0, vec![]);
+        record_block(&mut epoch_manager, Default::default(), hashes[0].clone(), 0, vec![]);
         let mut expected = 0;
-        let mut prev_block = hashes[0];
+        let mut prev_block = hashes[0].clone();
         let initial_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block).unwrap();
         for (i, curr_block) in hashes.iter().enumerate().skip(1) {
             let height = i as u64;
@@ -2584,12 +2642,12 @@ mod tests2 {
                 epoch_manager
                     .record_block_info(
                         block_info(
-                            *curr_block,
+                            curr_block.clone(),
                             height,
                             height,
-                            prev_block,
-                            prev_block,
-                            epoch_id.0,
+                            prev_block.clone(),
+                            prev_block.clone(),
+                            epoch_id.0.clone(),
                             vec![true, true, true],
                             total_supply,
                         ),
@@ -2598,7 +2656,7 @@ mod tests2 {
                     .unwrap()
                     .commit()
                     .unwrap();
-                prev_block = *curr_block;
+                prev_block = curr_block.clone();
             }
             if epoch_id != initial_epoch_id {
                 break;
@@ -2606,7 +2664,7 @@ mod tests2 {
         }
         let epoch_info = hashes
             .iter()
-            .filter_map(|x| epoch_manager.get_epoch_info(&EpochId(*x)).ok().cloned())
+            .filter_map(|x| epoch_manager.get_epoch_info(&EpochId(x.clone())).ok().cloned())
             .last()
             .unwrap();
         assert_eq!(
@@ -2643,9 +2701,9 @@ mod tests2 {
         );
         let rng_seed = [0; 32];
         let hashes = hash_range((2 * epoch_length) as usize);
-        record_block(&mut epoch_manager, Default::default(), hashes[0], 0, vec![]);
+        record_block(&mut epoch_manager, Default::default(), hashes[0].clone(), 0, vec![]);
         let mut expected = 0;
-        let mut prev_block = hashes[0];
+        let mut prev_block = hashes[0].clone();
         let initial_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block).unwrap();
         for (i, curr_block) in hashes.iter().enumerate().skip(1) {
             let height = i as u64;
@@ -2665,12 +2723,12 @@ mod tests2 {
                 epoch_manager
                     .record_block_info(
                         block_info(
-                            *curr_block,
+                            curr_block.clone(),
                             height,
                             height,
-                            prev_block,
-                            prev_block,
-                            epoch_id.0,
+                            prev_block.clone(),
+                            prev_block.clone(),
+                            epoch_id.0.clone(),
                             vec![should_produce_chunk],
                             total_supply,
                         ),
@@ -2679,7 +2737,7 @@ mod tests2 {
                     .unwrap()
                     .commit()
                     .unwrap();
-                prev_block = *curr_block;
+                prev_block = curr_block.clone();
             }
             if epoch_id != initial_epoch_id {
                 break;
@@ -2687,7 +2745,7 @@ mod tests2 {
         }
         let epoch_info = hashes
             .iter()
-            .filter_map(|x| epoch_manager.get_epoch_info(&EpochId(*x)).ok().cloned())
+            .filter_map(|x| epoch_manager.get_epoch_info(&EpochId(x.clone())).ok().cloned())
             .last()
             .unwrap();
         assert_eq!(
@@ -2739,9 +2797,23 @@ mod tests2 {
             default_reward_calculator(),
         );
         let h = hash_range(6);
-        record_block(&mut em, Default::default(), h[0], 0, vec![]);
-        record_block_with_final_block_hash(&mut em, h[0], h[1], h[0], 1, vec![]);
-        record_block_with_final_block_hash(&mut em, h[1], h[3], h[0], 3, vec![]);
+        record_block(&mut em, Default::default(), h[0].clone(), 0, vec![]);
+        record_block_with_final_block_hash(
+            &mut em,
+            h[0].clone(),
+            h[1].clone(),
+            h[0].clone(),
+            1,
+            vec![],
+        );
+        record_block_with_final_block_hash(
+            &mut em,
+            h[1].clone(),
+            h[3].clone(),
+            h[0].clone(),
+            3,
+            vec![],
+        );
         let epoch_id = em.get_epoch_id(&h[3]).unwrap();
         let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
 
@@ -2751,7 +2823,14 @@ mod tests2 {
         let aggregator = em.get_and_update_epoch_info_aggregator(&epoch_id, &h[3], true).unwrap();
         assert_eq!(aggregator.block_tracker, tracker,);
 
-        record_block_with_final_block_hash(&mut em, h[3], h[5], h[1], 5, vec![]);
+        record_block_with_final_block_hash(
+            &mut em,
+            h[3].clone(),
+            h[5].clone(),
+            h[1].clone(),
+            5,
+            vec![],
+        );
 
         update_tracker(&epoch_info, 4..6, &[5], &mut tracker);
 
@@ -2780,26 +2859,26 @@ mod tests2 {
             default_reward_calculator(),
         );
         let h = hash_range(6);
-        record_block(&mut em, Default::default(), h[0], 0, vec![]);
+        record_block(&mut em, Default::default(), h[0].clone(), 0, vec![]);
         record_block(
             &mut em,
-            h[0],
-            h[1],
+            h[0].clone(),
+            h[1].clone(),
             1,
             vec![stake("test1".parse().unwrap(), stake_amount - 10)],
         );
         record_block(
             &mut em,
-            h[1],
-            h[3],
+            h[1].clone(),
+            h[3].clone(),
             3,
             vec![stake("test2".parse().unwrap(), stake_amount + 10)],
         );
         em.epoch_info_aggregator = None;
         record_block(
             &mut em,
-            h[3],
-            h[5],
+            h[3].clone(),
+            h[5].clone(),
             5,
             vec![stake("test1".parse().unwrap(), stake_amount - 1)],
         );
@@ -2842,19 +2921,47 @@ mod tests2 {
             default_reward_calculator(),
         );
         let h = hash_range(6);
-        record_block(&mut em, Default::default(), h[0], 0, vec![]);
-        record_block_with_final_block_hash(&mut em, h[0], h[1], h[0], 1, vec![]);
-        record_block_with_final_block_hash(&mut em, h[1], h[2], h[0], 2, vec![]);
+        record_block(&mut em, Default::default(), h[0].clone(), 0, vec![]);
         record_block_with_final_block_hash(
             &mut em,
-            h[2],
-            h[3],
-            h[1],
+            h[0].clone(),
+            h[1].clone(),
+            h[0].clone(),
+            1,
+            vec![],
+        );
+        record_block_with_final_block_hash(
+            &mut em,
+            h[1].clone(),
+            h[2].clone(),
+            h[0].clone(),
+            2,
+            vec![],
+        );
+        record_block_with_final_block_hash(
+            &mut em,
+            h[2].clone(),
+            h[3].clone(),
+            h[1].clone(),
             3,
             vec![stake("test1".parse().unwrap(), stake_amount - 1)],
         );
-        record_block_with_final_block_hash(&mut em, h[3], h[4], h[3], 4, vec![]);
-        record_block_with_final_block_hash(&mut em, h[2], h[5], h[1], 5, vec![]);
+        record_block_with_final_block_hash(
+            &mut em,
+            h[3].clone(),
+            h[4].clone(),
+            h[3].clone(),
+            4,
+            vec![],
+        );
+        record_block_with_final_block_hash(
+            &mut em,
+            h[2].clone(),
+            h[5].clone(),
+            h[1].clone(),
+            5,
+            vec![],
+        );
         let epoch_id = em.get_epoch_id(&h[5]).unwrap();
         let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
         let mut tracker = HashMap::new();
@@ -2884,27 +2991,27 @@ mod tests2 {
             default_reward_calculator(),
         );
         let h = hash_range(10);
-        record_block(&mut em, Default::default(), h[0], 0, vec![]);
+        record_block(&mut em, Default::default(), h[0].clone(), 0, vec![]);
         for i in 1..5 {
-            record_block(&mut em, h[i - 1], h[i], i as u64, vec![]);
+            record_block(&mut em, h[i - 1].clone(), h[i].clone(), i as u64, vec![]);
         }
         record_block(
             &mut em,
-            h[4],
-            h[5],
+            h[4].clone(),
+            h[5].clone(),
             5,
             vec![stake("test1".parse().unwrap(), stake_amount - 1)],
         );
         record_block_with_final_block_hash(
             &mut em,
-            h[5],
-            h[6],
-            h[4],
+            h[5].clone(),
+            h[6].clone(),
+            h[4].clone(),
             6,
             vec![stake("test2".parse().unwrap(), stake_amount - 100)],
         );
         // reorg
-        record_block(&mut em, h[4], h[7], 7, vec![]);
+        record_block(&mut em, h[4].clone(), h[7].clone(), 7, vec![]);
         let epoch_id = em.get_epoch_id(&h[7]).unwrap();
         let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
         let mut tracker = HashMap::new();
@@ -2954,9 +3061,9 @@ mod tests2 {
             default_reward_calculator(),
         );
         let h = hash_range(8);
-        record_block(&mut em, Default::default(), h[0], 0, vec![]);
-        record_block(&mut em, h[0], h[1], 1, vec![]);
-        record_block(&mut em, h[1], h[3], 3, vec![]);
+        record_block(&mut em, Default::default(), h[0].clone(), 0, vec![]);
+        record_block(&mut em, h[0].clone(), h[1].clone(), 1, vec![]);
+        record_block(&mut em, h[1].clone(), h[3].clone(), 3, vec![]);
         let epoch_id = em.get_epoch_id(&h[1]).unwrap();
         assert_eq!(
             em.get_num_validator_blocks(&epoch_id, &h[3], &"test1".parse().unwrap()).unwrap(),
@@ -2968,7 +3075,7 @@ mod tests2 {
         );
 
         // Build chain 0 <- x <- x <- x <- ( 4 <- 5 ) <- x <- 7
-        record_block(&mut em, h[0], h[4], 4, vec![]);
+        record_block(&mut em, h[0].clone(), h[4].clone(), 4, vec![]);
         let epoch_id = em.get_epoch_id(&h[4]).unwrap();
         // Block 4 is first block after genesis and starts new epoch, but we actually count how many missed blocks have happened since block 0.
         assert_eq!(
@@ -2979,8 +3086,8 @@ mod tests2 {
             em.get_num_validator_blocks(&epoch_id, &h[4], &"test2".parse().unwrap()).unwrap(),
             count_missing_blocks(&mut em, &epoch_id, 1..5, &[4], "test2"),
         );
-        record_block(&mut em, h[4], h[5], 5, vec![]);
-        record_block(&mut em, h[5], h[7], 7, vec![]);
+        record_block(&mut em, h[4].clone(), h[5].clone(), 5, vec![]);
+        record_block(&mut em, h[5].clone(), h[7].clone(), 7, vec![]);
         let epoch_id = em.get_epoch_id(&h[7]).unwrap();
         // The next epoch started after 5 with 6, and test2 missed their slot from perspective of block 7.
         assert_eq!(
@@ -3013,7 +3120,7 @@ mod tests2 {
         );
         let rng_seed = [0; 32];
         let hashes = hash_range((epoch_length + 2) as usize);
-        record_block(&mut em, Default::default(), hashes[0], 0, vec![]);
+        record_block(&mut em, Default::default(), hashes[0].clone(), 0, vec![]);
         let mut expected = 0;
         for (prev_block, (height, curr_block)) in
             hashes.iter().zip(hashes.iter().enumerate().skip(1))
@@ -3040,11 +3147,11 @@ mod tests2 {
                     .collect();
                 em.record_block_info(
                     block_info(
-                        *curr_block,
+                        curr_block.clone(),
                         height,
                         height - 1,
-                        *prev_block,
-                        *prev_block,
+                        prev_block.clone(),
+                        prev_block.clone(),
                         epoch_id.0,
                         chunk_mask,
                         total_supply,
@@ -3055,11 +3162,11 @@ mod tests2 {
             } else {
                 em.record_block_info(
                     block_info(
-                        *curr_block,
+                        curr_block.clone(),
                         height,
                         height - 1,
-                        *prev_block,
-                        *prev_block,
+                        prev_block.clone(),
+                        prev_block.clone(),
                         epoch_id.0,
                         vec![true, true, true, true],
                         total_supply,
@@ -3070,8 +3177,10 @@ mod tests2 {
             }
         }
 
-        let last_epoch_info =
-            hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok().cloned()).last();
+        let last_epoch_info = hashes
+            .iter()
+            .filter_map(|x| em.get_epoch_info(&EpochId(x.clone())).ok().cloned())
+            .last();
         assert_eq!(
             last_epoch_info.unwrap().validator_kickout(),
             &vec![(
@@ -3092,17 +3201,23 @@ mod tests2 {
         ];
         let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 2, 0, 90, 60);
         let h = hash_range(8);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
         // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).
-        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1".parse().unwrap(), 0)]);
         record_block(
             &mut epoch_manager,
-            h[1],
-            h[2],
+            h[0].clone(),
+            h[1].clone(),
+            1,
+            vec![stake("test1".parse().unwrap(), 0)],
+        );
+        record_block(
+            &mut epoch_manager,
+            h[1].clone(),
+            h[2].clone(),
             2,
             vec![stake("test1".parse().unwrap(), amount_staked)],
         );
-        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+        record_block(&mut epoch_manager, h[2].clone(), h[3].clone(), 3, vec![]);
         let epoch_id0 = epoch_manager.get_epoch_id(&h[0]).unwrap();
         let epoch_id1 = epoch_manager.get_epoch_id(&h[1]).unwrap();
         let epoch_id2 = epoch_manager.get_next_epoch_id(&h[1]).unwrap();
@@ -3172,12 +3287,24 @@ mod tests2 {
             default_reward_calculator(),
         );
         let h = hash_range(5);
-        record_block(&mut em, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut em, CryptoHash::default(), h[0].clone(), 0, vec![]);
         // fishermen unstake
-        record_block(&mut em, h[0], h[1], 1, vec![stake("test2".parse().unwrap(), 0)]);
-        record_block(&mut em, h[1], h[2], 2, vec![stake("test3".parse().unwrap(), 1)]);
+        record_block(
+            &mut em,
+            h[0].clone(),
+            h[1].clone(),
+            1,
+            vec![stake("test2".parse().unwrap(), 0)],
+        );
+        record_block(
+            &mut em,
+            h[1].clone(),
+            h[2].clone(),
+            2,
+            vec![stake("test3".parse().unwrap(), 1)],
+        );
 
-        let epoch_info = em.get_epoch_info(&EpochId(h[2])).unwrap();
+        let epoch_info = em.get_epoch_info(&EpochId(h[2].clone())).unwrap();
         check_validators(&epoch_info, &[("test1", stake_amount)]);
         check_fishermen(&epoch_info, &[]);
         check_stake_change(
@@ -3202,7 +3329,7 @@ mod tests2 {
         ];
         let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 1, 0, 90, 60);
         let h = hash_range(5);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
         let epoch_id = epoch_manager.get_epoch_id(&h[0]).unwrap();
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
         let mut actual_block_producers = HashSet::new();
@@ -3231,11 +3358,12 @@ mod tests2 {
         let mut epoch_manager =
             setup_default_epoch_manager(validators, (BLOCK_CACHE_SIZE + 1) as u64, 1, 2, 0, 90, 60);
         let h = hash_range(BLOCK_CACHE_SIZE + 2);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
         for i in 1..=(BLOCK_CACHE_SIZE + 1) {
-            record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
+            record_block(&mut epoch_manager, h[i - 1].clone(), h[i].clone(), i as u64, vec![]);
         }
-        let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[BLOCK_CACHE_SIZE + 1])).unwrap();
+        let epoch_info =
+            epoch_manager.get_epoch_info(&EpochId(h[BLOCK_CACHE_SIZE + 1].clone())).unwrap();
         assert_eq!(
             epoch_info.validators_iter().map(|v| v.account_and_stake()).collect::<Vec<_>>(),
             vec![
@@ -3263,16 +3391,22 @@ mod tests2 {
         // have two seats to that 500 would be the threshold
         let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 2, 0, 90, 60);
         let h = hash_range(5);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
         record_block(
             &mut epoch_manager,
-            h[0],
-            h[1],
+            h[0].clone(),
+            h[1].clone(),
             1,
             vec![stake("test2".parse().unwrap(), stake_amount)],
         );
-        record_block(&mut epoch_manager, h[1], h[2], 2, vec![stake("test2".parse().unwrap(), 0)]);
-        let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
+        record_block(
+            &mut epoch_manager,
+            h[1].clone(),
+            h[2].clone(),
+            2,
+            vec![stake("test2".parse().unwrap(), 0)],
+        );
+        let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[2].clone())).unwrap();
         assert_eq!(
             epoch_info1.validators_iter().map(|r| r.account_id().clone()).collect::<Vec<_>>(),
             vec!["test1".parse().unwrap()]
@@ -3288,13 +3422,13 @@ mod tests2 {
         assert!(epoch_info1.validator_kickout().is_empty());
         record_block(
             &mut epoch_manager,
-            h[2],
-            h[3],
+            h[2].clone(),
+            h[3].clone(),
             3,
             vec![stake("test2".parse().unwrap(), stake_amount)],
         );
-        record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
-        let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap();
+        record_block(&mut epoch_manager, h[3].clone(), h[4].clone(), 4, vec![]);
+        let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[4].clone())).unwrap();
         check_validators(&epoch_info, &[("test1", stake_amount), ("test2", stake_amount)]);
         check_fishermen(&epoch_info, &[("test3", 10)]);
         check_kickout(&epoch_info, &[]);
@@ -3318,12 +3452,18 @@ mod tests2 {
         ];
         let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
         let h = hash_range(5);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-        record_block(&mut epoch_manager, h[0], h[2], 2, vec![stake("test1".parse().unwrap(), 223)]);
-        record_block(&mut epoch_manager, h[2], h[4], 4, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
+        record_block(
+            &mut epoch_manager,
+            h[0].clone(),
+            h[2].clone(),
+            2,
+            vec![stake("test1".parse().unwrap(), 223)],
+        );
+        record_block(&mut epoch_manager, h[2].clone(), h[4].clone(), 4, vec![]);
 
-        let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
-        let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
+        let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2].clone())).unwrap().clone();
+        let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[4].clone())).unwrap().clone();
         assert_ne!(epoch_info2.epoch_height(), epoch_info3.epoch_height());
     }
 
@@ -3338,29 +3478,35 @@ mod tests2 {
         ];
         let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
         let h = hash_range(9);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1".parse().unwrap(), 0)]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
+        record_block(
+            &mut epoch_manager,
+            h[0].clone(),
+            h[1].clone(),
+            1,
+            vec![stake("test1".parse().unwrap(), 0)],
+        );
         record_block_with_slashes(
             &mut epoch_manager,
-            h[1],
-            h[2],
+            h[1].clone(),
+            h[2].clone(),
             2,
             vec![],
             vec![SlashedValidator::new("test1".parse().unwrap(), false)],
         );
-        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+        record_block(&mut epoch_manager, h[2].clone(), h[3].clone(), 3, vec![]);
         record_block(
             &mut epoch_manager,
-            h[3],
-            h[4],
+            h[3].clone(),
+            h[4].clone(),
             4,
             vec![stake("test1".parse().unwrap(), stake_amount)],
         );
 
-        let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap().clone();
-        let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
-        let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap().clone();
-        let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
+        let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1].clone())).unwrap().clone();
+        let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2].clone())).unwrap().clone();
+        let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3].clone())).unwrap().clone();
+        let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4].clone())).unwrap().clone();
         assert_eq!(
             epoch_info1.validator_kickout().get("test1"),
             Some(&ValidatorKickoutReason::Unstaked)
@@ -3388,29 +3534,29 @@ mod tests2 {
         ];
         let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
         let h = hash_range(9);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
         record_block_with_slashes(
             &mut epoch_manager,
-            h[0],
-            h[1],
+            h[0].clone(),
+            h[1].clone(),
             1,
             vec![],
             vec![SlashedValidator::new("test1".parse().unwrap(), false)],
         );
-        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
-        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+        record_block(&mut epoch_manager, h[1].clone(), h[2].clone(), 2, vec![]);
+        record_block(&mut epoch_manager, h[2].clone(), h[3].clone(), 3, vec![]);
         record_block(
             &mut epoch_manager,
-            h[3],
-            h[4],
+            h[3].clone(),
+            h[4].clone(),
             4,
             vec![stake("test1".parse().unwrap(), stake_amount)],
         );
 
-        let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap().clone();
-        let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
-        let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap().clone();
-        let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
+        let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1].clone())).unwrap().clone();
+        let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2].clone())).unwrap().clone();
+        let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3].clone())).unwrap().clone();
+        let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4].clone())).unwrap().clone();
         assert_eq!(
             epoch_info1.validator_kickout().get("test1"),
             Some(&ValidatorKickoutReason::Slashed)
@@ -3438,31 +3584,37 @@ mod tests2 {
         ];
         let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
         let h = hash_range(9);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1".parse().unwrap(), 0)]);
-        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
+        record_block(
+            &mut epoch_manager,
+            h[0].clone(),
+            h[1].clone(),
+            1,
+            vec![stake("test1".parse().unwrap(), 0)],
+        );
+        record_block(&mut epoch_manager, h[1].clone(), h[2].clone(), 2, vec![]);
         record_block_with_slashes(
             &mut epoch_manager,
-            h[2],
-            h[3],
+            h[2].clone(),
+            h[3].clone(),
             3,
             vec![],
             vec![SlashedValidator::new("test1".parse().unwrap(), false)],
         );
-        record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
+        record_block(&mut epoch_manager, h[3].clone(), h[4].clone(), 4, vec![]);
         record_block(
             &mut epoch_manager,
-            h[4],
-            h[5],
+            h[4].clone(),
+            h[5].clone(),
             5,
             vec![stake("test1".parse().unwrap(), stake_amount)],
         );
 
-        let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap().clone(); // Unstaked
-        let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone(); // -
-        let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap().clone(); // Slashed
-        let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone(); // Slashed
-        let epoch_info5 = epoch_manager.get_epoch_info(&EpochId(h[5])).unwrap().clone(); // Ok
+        let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1].clone())).unwrap().clone(); // Unstaked
+        let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2].clone())).unwrap().clone(); // -
+        let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3].clone())).unwrap().clone(); // Slashed
+        let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4].clone())).unwrap().clone(); // Slashed
+        let epoch_info5 = epoch_manager.get_epoch_info(&EpochId(h[5].clone())).unwrap().clone(); // Ok
         assert_eq!(
             epoch_info1.validator_kickout().get("test1"),
             Some(&ValidatorKickoutReason::Unstaked)
@@ -3491,33 +3643,33 @@ mod tests2 {
         ];
         let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
         let h = hash_range(9);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
         record_block_with_slashes(
             &mut epoch_manager,
-            h[0],
-            h[1],
+            h[0].clone(),
+            h[1].clone(),
             1,
             vec![],
             vec![SlashedValidator::new("test1".parse().unwrap(), false)],
         );
         record_block(
             &mut epoch_manager,
-            h[1],
-            h[2],
+            h[1].clone(),
+            h[2].clone(),
             2,
             vec![stake("test1".parse().unwrap(), stake_amount)],
         );
-        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+        record_block(&mut epoch_manager, h[2].clone(), h[3].clone(), 3, vec![]);
         record_block(
             &mut epoch_manager,
-            h[3],
-            h[4],
+            h[3].clone(),
+            h[4].clone(),
             4,
             vec![stake("test1".parse().unwrap(), stake_amount)],
         );
-        let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
+        let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2].clone())).unwrap().clone();
         assert!(epoch_info2.stake_change().get("test1").is_none());
-        let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
+        let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4].clone())).unwrap().clone();
         assert!(epoch_info4.stake_change().get("test1").is_some());
     }
 
@@ -3534,8 +3686,8 @@ mod tests2 {
             setup_default_epoch_manager(validators, EPOCH_LENGTH, 1, 3, 0, 90, 60);
         let hashes = hash_range((8 * EPOCH_LENGTH + 1) as usize);
 
-        record_block(&mut epoch_manager, CryptoHash::default(), hashes[0], 0, vec![]);
-        let mut prev_block = hashes[0];
+        record_block(&mut epoch_manager, CryptoHash::default(), hashes[0].clone(), 0, vec![]);
+        let mut prev_block = hashes[0].clone();
         for (height, curr_block) in hashes.iter().enumerate().skip(1) {
             let height = height as u64;
             let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block).unwrap();
@@ -3545,38 +3697,68 @@ mod tests2 {
             if height < EPOCH_LENGTH {
                 // kickout test2 during first epoch
                 if block_producer.as_ref() == "test1" || block_producer.as_ref() == "test3" {
-                    record_block(&mut epoch_manager, prev_block, *curr_block, height, Vec::new());
-                    prev_block = *curr_block;
+                    record_block(
+                        &mut epoch_manager,
+                        prev_block,
+                        curr_block.clone(),
+                        height,
+                        Vec::new(),
+                    );
+                    prev_block = curr_block.clone();
                 }
             } else if height < 2 * EPOCH_LENGTH {
                 // produce blocks as normal during the second epoch
-                record_block(&mut epoch_manager, prev_block, *curr_block, height, Vec::new());
-                prev_block = *curr_block;
+                record_block(
+                    &mut epoch_manager,
+                    prev_block,
+                    curr_block.clone(),
+                    height,
+                    Vec::new(),
+                );
+                prev_block = curr_block.clone();
             } else if height < 5 * EPOCH_LENGTH {
                 // no one produces blocks during epochs 3, 4, 5
                 // (but only 2 get kicked out because we can't kickout all)
                 ()
             } else if height < 6 * EPOCH_LENGTH {
                 // produce blocks normally during epoch 6
-                record_block(&mut epoch_manager, prev_block, *curr_block, height, Vec::new());
-                prev_block = *curr_block;
+                record_block(
+                    &mut epoch_manager,
+                    prev_block,
+                    curr_block.clone(),
+                    height,
+                    Vec::new(),
+                );
+                prev_block = curr_block.clone();
             } else if height < 7 * EPOCH_LENGTH {
                 // the validator which was not kicked out in epoch 6 stops producing blocks,
                 // but cannot be kicked out now because they are the last validator
                 if block_producer != epoch_info.validator_account_id(0) {
-                    record_block(&mut epoch_manager, prev_block, *curr_block, height, Vec::new());
-                    prev_block = *curr_block;
+                    record_block(
+                        &mut epoch_manager,
+                        prev_block,
+                        curr_block.clone(),
+                        height,
+                        Vec::new(),
+                    );
+                    prev_block = curr_block.clone();
                 }
             } else {
                 // produce blocks normally again
-                record_block(&mut epoch_manager, prev_block, *curr_block, height, Vec::new());
-                prev_block = *curr_block;
+                record_block(
+                    &mut epoch_manager,
+                    prev_block,
+                    curr_block.clone(),
+                    height,
+                    Vec::new(),
+                );
+                prev_block = curr_block.clone();
             }
         }
 
         let last_epoch_info = hashes
             .iter()
-            .filter_map(|x| epoch_manager.get_epoch_info(&EpochId(*x)).ok().cloned())
+            .filter_map(|x| epoch_manager.get_epoch_info(&EpochId(x.clone())).ok().cloned())
             .last();
         assert_eq!(last_epoch_info.unwrap().validator_kickout(), &HashMap::default());
     }
@@ -3625,15 +3807,21 @@ mod tests2 {
         ];
         let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
         let h = hash_range(6);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1".parse().unwrap(), 148)]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
+        record_block(
+            &mut epoch_manager,
+            h[0].clone(),
+            h[1].clone(),
+            1,
+            vec![stake("test1".parse().unwrap(), 148)],
+        );
         // test1 starts as validator,
         // - reduces stake in epoch T, will be fisherman in epoch T+2
         // - Misses a block in epoch T+1, will be kicked out in epoch T+3
         // - Finalize epoch T+1 => T+3 kicks test1 as fisherman without a record in stake_change
-        record_block(&mut epoch_manager, h[1], h[3], 3, vec![]);
+        record_block(&mut epoch_manager, h[1].clone(), h[3].clone(), 3, vec![]);
 
-        let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap().clone();
+        let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[1].clone())).unwrap().clone();
         check_validators(&epoch_info2, &[("test2", stake_amount), ("test3", stake_amount)]);
         check_fishermen(&epoch_info2, &[("test1", 148)]);
         check_stake_change(
@@ -3646,7 +3834,7 @@ mod tests2 {
         );
         check_kickout(&epoch_info2, &[]);
 
-        let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap().clone();
+        let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3].clone())).unwrap().clone();
         check_validators(&epoch_info3, &[("test2", stake_amount), ("test3", stake_amount)]);
         check_fishermen(&epoch_info3, &[]);
         check_stake_change(
@@ -3685,17 +3873,28 @@ mod tests2 {
         )
         .unwrap();
         let h = hash_range(8);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-        let mut block_info1 =
-            block_info(h[1], 1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
+        let mut block_info1 = block_info(
+            h[1].clone(),
+            1,
+            1,
+            h[0].clone(),
+            h[0].clone(),
+            h[0].clone(),
+            vec![],
+            DEFAULT_TOTAL_SUPPLY,
+        );
         set_block_info_protocol_version(&mut block_info1, 0);
         epoch_manager.record_block_info(block_info1, [0; 32]).unwrap();
         for i in 2..6 {
-            record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
+            record_block(&mut epoch_manager, h[i - 1].clone(), h[i].clone(), i as u64, vec![]);
         }
-        assert_eq!(epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().protocol_version(), 0);
         assert_eq!(
-            epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().protocol_version(),
+            epoch_manager.get_epoch_info(&EpochId(h[2].clone())).unwrap().protocol_version(),
+            0
+        );
+        assert_eq!(
+            epoch_manager.get_epoch_info(&EpochId(h[4].clone())).unwrap().protocol_version(),
             PROTOCOL_VERSION
         );
     }
@@ -3730,15 +3929,15 @@ mod tests2 {
         )
         .unwrap();
         let h = hash_range(8);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
         for i in 1..8 {
             let mut block_info = block_info(
-                h[i],
+                h[i].clone(),
                 i as u64,
                 i as u64 - 1,
-                h[i - 1],
-                h[i - 1],
-                h[0],
+                h[i - 1].clone(),
+                h[i - 1].clone(),
+                h[0].clone(),
                 vec![],
                 DEFAULT_TOTAL_SUPPLY,
             );
@@ -3749,7 +3948,7 @@ mod tests2 {
             }
             epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
         }
-        let epochs = vec![EpochId::default(), EpochId(h[2]), EpochId(h[4])];
+        let epochs = vec![EpochId::default(), EpochId(h[2].clone()), EpochId(h[4].clone())];
         assert_eq!(
             epoch_manager.get_epoch_info(&epochs[1]).unwrap().protocol_version(),
             new_protocol_version - 1
@@ -3819,20 +4018,28 @@ mod tests2 {
         )
         .unwrap();
         let h = hash_range(50);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-        let mut block_info1 =
-            block_info(h[1], 1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
+        let mut block_info1 = block_info(
+            h[1].clone(),
+            1,
+            1,
+            h[0].clone(),
+            h[0].clone(),
+            h[0].clone(),
+            vec![],
+            DEFAULT_TOTAL_SUPPLY,
+        );
         set_block_info_protocol_version(&mut block_info1, 0);
         epoch_manager.record_block_info(block_info1, [0; 32]).unwrap();
         for i in 2..32 {
-            record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
+            record_block(&mut epoch_manager, h[i - 1].clone(), h[i].clone(), i as u64, vec![]);
         }
         assert_eq!(
-            epoch_manager.get_epoch_info(&EpochId(h[10])).unwrap().protocol_version(),
+            epoch_manager.get_epoch_info(&EpochId(h[10].clone())).unwrap().protocol_version(),
             PROTOCOL_VERSION
         );
         assert_eq!(
-            epoch_manager.get_epoch_info(&EpochId(h[20])).unwrap().protocol_version(),
+            epoch_manager.get_epoch_info(&EpochId(h[20].clone())).unwrap().protocol_version(),
             PROTOCOL_VERSION
         );
     }
@@ -3856,15 +4063,15 @@ mod tests2 {
         )
         .unwrap();
         let h = hash_range(5 * epoch_length);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
         for i in 1..(2 * epoch_length + 1) {
             let mut block_info = block_info(
-                h[i],
+                h[i].clone(),
                 i as u64,
                 i as u64 - 1,
-                h[i - 1],
-                h[i - 1],
-                h[0],
+                h[i - 1].clone(),
+                h[i - 1].clone(),
+                h[0].clone(),
                 vec![],
                 DEFAULT_TOTAL_SUPPLY,
             );
@@ -3883,7 +4090,7 @@ mod tests2 {
         }
 
         let get_epoch_infos = |em: &mut EpochManager| -> Vec<EpochInfo> {
-            h.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok().cloned()).collect()
+            h.iter().filter_map(|x| em.get_epoch_info(&EpochId(x.clone())).ok().cloned()).collect()
         };
 
         let epoch_infos = get_epoch_infos(&mut epoch_manager);
@@ -3895,12 +4102,12 @@ mod tests2 {
         // if there are enough votes to use the old version, it should be allowed
         for i in (2 * epoch_length + 1)..(4 * epoch_length - 1) {
             let mut block_info = block_info(
-                h[i],
+                h[i].clone(),
                 i as u64,
                 i as u64 - 1,
-                h[i - 1],
-                h[i - 1],
-                h[0],
+                h[i - 1].clone(),
+                h[i - 1].clone(),
+                h[0].clone(),
                 vec![],
                 DEFAULT_TOTAL_SUPPLY,
             );
@@ -3928,31 +4135,46 @@ mod tests2 {
         let mut epoch_manager = setup_default_epoch_manager(validators, 10, 1, 3, 0, 90, 60);
 
         let h = hash_range(10);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
         for i in 1..5 {
             record_block_with_final_block_hash(
                 &mut epoch_manager,
-                h[i - 1],
-                h[i],
-                if i == 1 { CryptoHash::default() } else { h[i - 2] },
+                h[i - 1].clone(),
+                h[i].clone(),
+                if i == 1 { CryptoHash::default() } else { h[i - 2].clone() },
                 i as u64,
                 vec![],
             );
         }
 
-        let epoch_aggregator_final_hash =
-            epoch_manager.epoch_info_aggregator.as_ref().map(|a| a.last_block_hash).unwrap();
+        let epoch_aggregator_final_hash = epoch_manager
+            .epoch_info_aggregator
+            .as_ref()
+            .map(|a| a.last_block_hash.clone())
+            .unwrap();
 
         epoch_manager
             .record_block_info(
-                block_info(h[5], 5, 1, h[1], h[2], h[1], vec![], DEFAULT_TOTAL_SUPPLY),
+                block_info(
+                    h[5].clone(),
+                    5,
+                    1,
+                    h[1].clone(),
+                    h[2].clone(),
+                    h[1].clone(),
+                    vec![],
+                    DEFAULT_TOTAL_SUPPLY,
+                ),
                 [0; 32],
             )
             .unwrap()
             .commit()
             .unwrap();
-        let new_epoch_aggregator_final_hash =
-            epoch_manager.epoch_info_aggregator.as_ref().map(|a| a.last_block_hash).unwrap();
+        let new_epoch_aggregator_final_hash = epoch_manager
+            .epoch_info_aggregator
+            .as_ref()
+            .map(|a| a.last_block_hash.clone())
+            .unwrap();
         assert_eq!(epoch_aggregator_final_hash, new_epoch_aggregator_final_hash);
     }
 
@@ -3965,13 +4187,13 @@ mod tests2 {
         ];
         let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 10, 0, 90, 60);
         let h = hash_range(10);
-        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0].clone(), 0, vec![]);
         for i in 1..4 {
-            record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
+            record_block(&mut epoch_manager, h[i - 1].clone(), h[i].clone(), i as u64, vec![]);
         }
         assert_eq!(epoch_manager.epoch_validators_ordered.cache_size(), 0);
 
-        let epoch_id = EpochId(h[2]);
+        let epoch_id = EpochId(h[2].clone());
         let epoch_validators =
             epoch_manager.get_all_block_producers_settlement(&epoch_id, &h[3]).unwrap().to_vec();
         assert_eq!(epoch_manager.epoch_validators_ordered.cache_size(), 1);

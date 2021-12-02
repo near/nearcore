@@ -81,7 +81,7 @@ impl TrieStorage for TrieRecordingStorage {
             .get(ColState, key.as_ref())
             .map_err(|_| StorageError::StorageInternalError)?;
         if let Some(val) = val {
-            self.recorded.borrow_mut().insert(*hash, val.clone());
+            self.recorded.borrow_mut().insert(hash.clone(), val.clone());
             Ok(val)
         } else {
             Err(StorageError::StorageInconsistentState("Trie node missing".to_string()))
@@ -107,7 +107,7 @@ impl TrieStorage for TrieMemoryPartialStorage {
             .get(hash)
             .map_or_else(|| Err(StorageError::TrieNodeMissing), |val| Ok(val.clone()));
         if result.is_ok() {
-            self.visited_nodes.borrow_mut().insert(*hash);
+            self.visited_nodes.borrow_mut().insert(hash.clone());
         }
         result
     }
@@ -174,7 +174,7 @@ impl TrieStorage for TrieCachingStorage {
                 .map_err(|_| StorageError::StorageInternalError)?;
             if let Some(val) = val {
                 if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
-                    guard.cache_set(*hash, val.clone());
+                    guard.cache_set(hash.clone(), val.clone());
                 }
                 Ok(val)
             } else {

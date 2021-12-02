@@ -55,7 +55,7 @@ fn test_block_query() {
         let block_response1 =
             client.block(BlockReference::BlockId(BlockId::Height(0))).await.unwrap();
         let block_response2 = client
-            .block(BlockReference::BlockId(BlockId::Hash(block_response1.header.hash)))
+            .block(BlockReference::BlockId(BlockId::Hash(block_response1.header.hash.clone())))
             .await
             .unwrap();
         let block_response3 = client.block(BlockReference::latest()).await.unwrap();
@@ -109,7 +109,8 @@ fn test_chunk_by_hash() {
         assert_eq!(chunk.header.tx_root.as_ref(), &[0; 32]);
         assert_eq!(chunk.header.validator_proposals, vec![]);
         assert_eq!(chunk.header.validator_reward, 0);
-        let same_chunk = client.chunk(ChunkId::Hash(chunk.header.chunk_hash)).await.unwrap();
+        let same_chunk =
+            client.chunk(ChunkId::Hash(chunk.header.chunk_hash.clone())).await.unwrap();
         assert_eq!(chunk.header.chunk_hash, same_chunk.header.chunk_hash);
     });
 }
@@ -174,7 +175,7 @@ fn test_query_account() {
             .unwrap();
         let query_response_3 = client
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
-                block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
+                block_reference: BlockReference::BlockId(BlockId::Hash(block_hash.clone())),
                 request: QueryRequest::ViewAccount { account_id: "test".parse().unwrap() },
             })
             .await
@@ -717,7 +718,8 @@ fn test_get_chunk_with_object_in_params() {
         assert_eq!(chunk.header.tx_root.as_ref(), &[0; 32]);
         assert_eq!(chunk.header.validator_proposals, vec![]);
         assert_eq!(chunk.header.validator_reward, 0);
-        let same_chunk = client.chunk(ChunkId::Hash(chunk.header.chunk_hash)).await.unwrap();
+        let same_chunk =
+            client.chunk(ChunkId::Hash(chunk.header.chunk_hash.clone())).await.unwrap();
         assert_eq!(chunk.header.chunk_hash, same_chunk.header.chunk_hash);
     });
 }

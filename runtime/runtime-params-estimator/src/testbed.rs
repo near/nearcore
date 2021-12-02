@@ -35,7 +35,7 @@ impl RuntimeTestbed {
 
         assert!(roots.len() <= 1, "Parameter estimation works with one shard only.");
         assert!(!roots.is_empty(), "No state roots found.");
-        let root = roots[0];
+        let root = roots[0].clone();
 
         let mut runtime_config =
             RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).as_ref().clone();
@@ -102,7 +102,7 @@ impl RuntimeTestbed {
             .runtime
             .apply(
                 self.tries.get_trie_for_shard(ShardUId::default()),
-                self.root,
+                self.root.clone(),
                 &None,
                 &self.apply_state,
                 &self.prev_receipts,

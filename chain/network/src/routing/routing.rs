@@ -157,7 +157,7 @@ impl RoutingTableView {
         match target {
             PeerIdOrHash::PeerId(peer_id) => self.find_route_from_peer_id(peer_id),
             PeerIdOrHash::Hash(hash) => {
-                self.fetch_route_back(*hash).ok_or(FindRouteError::RouteBackNotFound)
+                self.fetch_route_back(hash.clone()).ok_or(FindRouteError::RouteBackNotFound)
             }
         }
     }

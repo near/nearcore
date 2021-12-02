@@ -171,7 +171,7 @@ impl PeerActor {
         // Record block requests in tracker.
         match msg {
             PeerMessage::Block(b) if self.tracker.has_received(b.hash()) => return,
-            PeerMessage::BlockRequest(h) => self.tracker.push_request(*h),
+            PeerMessage::BlockRequest(h) => self.tracker.push_request(h.clone()),
             _ => (),
         };
 
@@ -404,8 +404,8 @@ impl PeerActor {
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
                 metrics::PEER_BLOCK_RECEIVED_TOTAL.inc();
-                let block_hash = *block.hash();
-                self.tracker.push_received(block_hash);
+                let block_hash = block.hash().clone();
+                self.tracker.push_received(block_hash.clone());
                 self.chain_info.height = max(self.chain_info.height, block.header().height());
                 NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(&block_hash))
             }

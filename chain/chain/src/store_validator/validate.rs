@@ -204,7 +204,7 @@ pub(crate) fn block_height_validity(
     let height = block.header().height();
     let tail = sv.inner.tail;
     if height <= tail && height != sv.config.genesis_height {
-        sv.inner.block_heights_less_tail.push(*block.hash());
+        sv.inner.block_heights_less_tail.push(block.hash().clone());
     }
     let head = sv.inner.head;
     if height > head {
@@ -456,8 +456,8 @@ pub(crate) fn block_increase_refcount(
     block: &Block,
 ) -> Result<(), StoreValidatorError> {
     if block.header().height() != sv.config.genesis_height {
-        let prev_hash = block.header().prev_hash();
-        sv.inner.block_refcount.entry(*prev_hash).and_modify(|x| *x += 1).or_insert(1);
+        let prev_hash = block.header().prev_hash().clone();
+        sv.inner.block_refcount.entry(prev_hash).and_modify(|x| *x += 1).or_insert(1);
     }
     Ok(())
 }
@@ -489,7 +489,7 @@ pub(crate) fn canonical_prev_block_validity(
             "Can't get Block Header {:?} from ColBlockHeader",
             hash
         );
-        let prev_hash = *header.prev_hash();
+        let prev_hash = header.prev_hash();
         let prev_header = unwrap_or_err_db!(
             sv.store.get_ser::<BlockHeader>(ColBlockHeader, prev_hash.as_ref()),
             "Can't get prev Block Header {:?} from ColBlockHeader",
@@ -504,7 +504,7 @@ pub(crate) fn canonical_prev_block_validity(
         );
         check_discrepancy!(
             prev_hash,
-            same_prev_hash,
+            &same_prev_hash,
             "Prev Block Hashes in ColBlockHeight and ColBlockHeader at height {:?} are different",
             prev_height
         );
@@ -528,7 +528,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
     (block_hash, shard_uid): &(CryptoHash, ShardUId),
     trie_changes: &TrieChanges,
 ) -> Result<(), StoreValidatorError> {
-    let new_root = trie_changes.new_root;
+    let new_root = trie_changes.new_root.clone();
     // 1. Block with `block_hash` should be available
     let block = unwrap_or_err_db!(
         sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()),
@@ -728,7 +728,7 @@ pub(crate) fn state_sync_info_valid(
 ) -> Result<(), StoreValidatorError> {
     check_discrepancy!(
         state_sync_info.epoch_tail_hash,
-        *block_hash,
+        block_hash.clone(),
         "Invalid StateSyncInfo stored"
     );
     Ok(())
@@ -764,7 +764,7 @@ pub(crate) fn block_info_block_header_exists(
     _block_info: &BlockInfo,
 ) -> Result<(), StoreValidatorError> {
     // fake block info for pre-genesis block
-    if *block_hash == CryptoHash::default() {
+    if block_hash.clone() == CryptoHash::default() {
         return Ok(());
     }
     unwrap_or_err_db!(
@@ -850,7 +850,7 @@ pub(crate) fn block_refcount(
     );
     // This is Genesis Block
     check_discrepancy!(*refcount, 1, "Invalid Genesis Block Refcount {:?}", refcount);
-    sv.inner.genesis_blocks.push(*block_hash);
+    sv.inner.genesis_blocks.push(block_hash.clone());
     Ok(())
 }
 
@@ -871,7 +871,7 @@ pub(crate) fn state_part_header_exists(
     key: &StatePartKey,
     _part: &Vec<u8>,
 ) -> Result<(), StoreValidatorError> {
-    let StatePartKey(block_hash, shard_id, part_id) = *key;
+    let StatePartKey(block_hash, shard_id, part_id) = key.clone();
     let state_header_key = unwrap_or_err!(
         StateHeaderKey(shard_id, block_hash).try_to_vec(),
         "Can't serialize StateHeaderKey"

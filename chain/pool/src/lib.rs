@@ -145,10 +145,10 @@ impl<'a> PoolIteratorWrapper<'a> {
 impl<'a> PoolIterator for PoolIteratorWrapper<'a> {
     fn next(&mut self) -> Option<&mut TransactionGroup> {
         if !self.pool.transactions.is_empty() {
-            let key = *self
+            let key = self
                 .pool
                 .transactions
-                .range((Bound::Excluded(self.pool.last_used_key), Bound::Unbounded))
+                .range((Bound::Excluded(self.pool.last_used_key.clone()), Bound::Unbounded))
                 .next()
                 .map(|(k, _v)| k)
                 .unwrap_or_else(|| {
@@ -157,13 +157,14 @@ impl<'a> PoolIterator for PoolIteratorWrapper<'a> {
                         .keys()
                         .next()
                         .expect("we've just checked that the map is not empty")
-                });
-            self.pool.last_used_key = key;
+                })
+                .clone();
+            self.pool.last_used_key = key.clone();
             let mut transactions =
                 self.pool.transactions.remove(&key).expect("just checked existence");
             transactions.sort_by_key(|st| std::cmp::Reverse(st.transaction.nonce));
             self.sorted_groups.push_back(TransactionGroup {
-                key,
+                key: key.clone(),
                 transactions,
                 removed_transaction_hashes: vec![],
             });

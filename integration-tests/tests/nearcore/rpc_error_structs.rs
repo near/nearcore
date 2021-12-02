@@ -345,7 +345,7 @@ fn test_tx_invalid_tx_error() {
     cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = *genesis_block(&genesis).hash();
+        let genesis_hash = genesis_block(&genesis).hash().clone();
         let signer =
             InMemorySigner::from_seed("near.5".parse().unwrap(), KeyType::ED25519, "near.5");
         let transaction = SignedTransaction::send_money(

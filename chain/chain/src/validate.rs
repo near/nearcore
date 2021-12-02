@@ -73,8 +73,8 @@ pub fn validate_chunk_proofs(
     } else {
         let shard_layout = {
             let prev_block_hash = match chunk {
-                ShardChunk::V1(chunk) => chunk.header.inner.prev_block_hash,
-                ShardChunk::V2(chunk) => chunk.header.prev_block_hash(),
+                ShardChunk::V1(chunk) => chunk.header.inner.prev_block_hash.clone(),
+                ShardChunk::V2(chunk) => chunk.header.prev_block_hash().clone(),
             };
             runtime_adapter.get_shard_layout_from_prev_block(&prev_block_hash)?
         };
@@ -161,7 +161,7 @@ pub fn validate_chunk_with_chunk_extra(
 
     let outgoing_receipts = chain_store.get_outgoing_receipts_for_shard(
         runtime_adapter,
-        *prev_block_hash,
+        prev_block_hash.clone().clone(),
         chunk_header.shard_id(),
         prev_chunk_height_included,
     )?;
@@ -214,9 +214,9 @@ fn validate_double_sign(
     {
         // Deterministically return header with higher hash.
         Ok(if left_block_header.hash() > right_block_header.hash() {
-            (*left_block_header.hash(), vec![block_producer])
+            (left_block_header.hash().clone(), vec![block_producer])
         } else {
-            (*right_block_header.hash(), vec![block_producer])
+            (right_block_header.hash().clone(), vec![block_producer])
         })
     } else {
         Err(ErrorKind::MaliciousChallenge.into())
@@ -266,7 +266,8 @@ fn validate_chunk_proofs_challenge(
         MaybeEncodedShardChunk::Decoded(chunk) => chunk.cloned_header(),
     };
     let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_header)?;
-    let account_to_slash_for_valid_challenge = Ok((*block_header.hash(), vec![chunk_producer]));
+    let account_to_slash_for_valid_challenge =
+        Ok((block_header.hash().clone(), vec![chunk_producer]));
     if !Block::validate_chunk_header_proof(
         &chunk_header,
         &block_header.chunk_headers_root(),
@@ -354,7 +355,7 @@ fn validate_chunk_state_challenge(
             prev_block_header.gas_price(),
             prev_chunk_header.gas_limit(),
             &ChallengesResult::default(),
-            *block_header.random_value(),
+            block_header.random_value().clone(),
             // TODO: set it properly when challenges are enabled
             true,
             false,
@@ -373,7 +374,7 @@ fn validate_chunk_state_challenge(
         || !proposals_match
         || result.total_gas_burnt != chunk_state.chunk_header.gas_used()
     {
-        Ok((*block_header.hash(), vec![chunk_producer]))
+        Ok((block_header.hash().clone(), vec![chunk_producer]))
     } else {
         // If all the data matches, this is actually valid chunk and challenge is malicious.
         Err(ErrorKind::MaliciousChallenge.into())

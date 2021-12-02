@@ -449,9 +449,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     {
                         if hash == *sync_hash {
                             if let Some(part_id) = state_response.part_id() {
-                                self.client
-                                    .state_sync
-                                    .received_requested_part(part_id, shard_id, hash);
+                                self.client.state_sync.received_requested_part(
+                                    part_id,
+                                    shard_id,
+                                    hash.clone(),
+                                );
                             }
 
                             if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
@@ -472,7 +474,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         self.client.catchup_state_syncs.get_mut(&hash)
                     {
                         if let Some(part_id) = state_response.part_id() {
-                            self.client.state_sync.received_requested_part(part_id, shard_id, hash);
+                            self.client.state_sync.received_requested_part(
+                                part_id,
+                                shard_id,
+                                hash.clone(),
+                            );
                         }
 
                         if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
@@ -492,8 +498,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         ShardSyncStatus::StateDownloadHeader => {
                             if let Some(header) = state_response.take_header() {
                                 if !shard_sync_download.downloads[0].done {
-                                    match self.client.chain.set_state_header(shard_id, hash, header)
-                                    {
+                                    match self.client.chain.set_state_header(
+                                        shard_id,
+                                        hash.clone(),
+                                        header,
+                                    ) {
                                         Ok(()) => {
                                             shard_sync_download.downloads[0].done = true;
                                         }
@@ -521,11 +530,13 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                     return NetworkClientResponses::NoResponse;
                                 }
                                 if !shard_sync_download.downloads[part_id as usize].done {
-                                    match self
-                                        .client
-                                        .chain
-                                        .set_state_part(shard_id, hash, part_id, num_parts, &data)
-                                    {
+                                    match self.client.chain.set_state_part(
+                                        shard_id,
+                                        hash.clone(),
+                                        part_id,
+                                        num_parts,
+                                        &data,
+                                    ) {
                                         Ok(()) => {
                                             shard_sync_download.downloads[part_id as usize].done =
                                                 true;
@@ -661,7 +672,7 @@ impl Handler<Status> for ClientActor {
         let mut earliest_block_height = None;
         let mut earliest_block_time = None;
         if let Some(earliest_block_hash_value) = self.client.chain.get_earliest_block_hash()? {
-            earliest_block_hash = Some(earliest_block_hash_value);
+            earliest_block_hash = Some(earliest_block_hash_value.clone());
             if let Ok(earliest_block) =
                 self.client.chain.get_block_header(&earliest_block_hash_value)
             {
@@ -973,14 +984,14 @@ impl ClientActor {
     fn process_accepted_blocks(&mut self, accepted_blocks: Vec<AcceptedBlock>) {
         for accepted_block in accepted_blocks {
             self.client.on_block_accepted(
-                accepted_block.hash,
+                accepted_block.hash.clone(),
                 accepted_block.status,
                 accepted_block.provenance,
             );
             let block = self.client.chain.get_block(&accepted_block.hash).unwrap();
             let gas_used = Block::compute_gas_used(block.chunks().iter(), block.header().height());
 
-            let last_final_hash = *block.header().last_final_block();
+            let last_final_hash = block.header().last_final_block().clone();
 
             self.info_helper.block_processed(gas_used);
             self.check_send_announce_account(last_final_hash);
@@ -1040,7 +1051,7 @@ impl ClientActor {
 
     /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
     fn receive_block(&mut self, block: Block, peer_id: PeerId, was_requested: bool) {
-        let hash = *block.hash();
+        let hash = block.hash().clone();
         debug!(target: "client", "{:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header().prev_hash(), block.header().height(), peer_id, was_requested);
         let head = unwrap_or_return!(self.client.chain.head());
         let is_syncing = self.client.sync_status.is_syncing();
@@ -1053,7 +1064,7 @@ impl ClientActor {
             debug!(target: "client", "dropping block {} that is too far behind. Block height {} current tail height {}", block.hash(), block.header().height(), tail);
             return;
         }
-        let prev_hash = *block.header().prev_hash();
+        let prev_hash = block.header().prev_hash().clone();
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         match self.process_block(block.into(), provenance, &peer_id) {
@@ -1211,7 +1222,7 @@ impl ClientActor {
         let header_head = self.client.chain.header_head()?;
         let mut sync_hash = header_head.prev_block_hash;
         for _ in 0..self.client.config.state_fetch_horizon {
-            sync_hash = *self.client.chain.get_block_header(&sync_hash)?.prev_hash();
+            sync_hash = self.client.chain.get_block_header(&sync_hash)?.prev_hash().clone();
         }
         let mut epoch_start_sync_hash =
             StateSync::get_epoch_start_sync_hash(&mut self.client.chain, &sync_hash)?;
@@ -1377,12 +1388,15 @@ impl ClientActor {
                         .collect();
 
                 if !self.client.config.archive && just_enter_state_sync {
-                    unwrap_or_run_later!(self.client.chain.reset_data_pre_state_sync(sync_hash));
+                    unwrap_or_run_later!(self
+                        .client
+                        .chain
+                        .reset_data_pre_state_sync(sync_hash.clone()));
                 }
 
                 match unwrap_or_run_later!(self.client.state_sync.run(
                     &me,
-                    sync_hash,
+                    sync_hash.clone(),
                     &mut new_shard_sync,
                     &mut self.client.chain,
                     &self.client.runtime_adapter,
@@ -1393,14 +1407,16 @@ impl ClientActor {
                 )) {
                     StateSyncResult::Unchanged => (),
                     StateSyncResult::Changed(fetch_block) => {
-                        self.client.sync_status = SyncStatus::StateSync(sync_hash, new_shard_sync);
+                        self.client.sync_status =
+                            SyncStatus::StateSync(sync_hash.clone(), new_shard_sync);
                         if fetch_block {
                             if let Some(peer_info) =
                                 highest_height_peer(&self.network_info.highest_height_peers)
                             {
                                 if let Ok(header) = self.client.chain.get_block_header(&sync_hash) {
                                     for hash in
-                                        vec![*header.prev_hash(), *header.hash()].into_iter()
+                                        vec![header.prev_hash().clone(), header.hash().clone()]
+                                            .into_iter()
                                     {
                                         self.request_block_by_hash(
                                             hash,
@@ -1523,7 +1539,7 @@ impl SyncJobsActor {
         let store = self.runtime.get_store();
 
         for part_id in 0..msg.num_parts {
-            let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
+            let key = StatePartKey(msg.sync_hash.clone(), msg.shard_id, part_id).try_to_vec()?;
             let part = store.get(ColStateParts, &key)?.unwrap();
 
             self.runtime.apply_state_part(

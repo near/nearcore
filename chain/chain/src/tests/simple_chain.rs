@@ -40,7 +40,7 @@ fn build_chain() {
 
     let (mut chain, _, signer) = setup();
 
-    let prev_hash = *chain.head_header().unwrap().hash();
+    let prev_hash = chain.head_header().unwrap().hash().clone();
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(
         prev_hash,
@@ -53,7 +53,7 @@ fn build_chain() {
     );
 
     for i in 0..4 {
-        let prev_hash = *chain.head_header().unwrap().hash();
+        let prev_hash = chain.head_header().unwrap().hash().clone().clone();
         let prev = chain.get_block(&prev_hash).unwrap();
         let block = Block::empty(&prev, &*signer);
         let tip = chain.process_block_test(&None, block).unwrap();
@@ -165,20 +165,20 @@ fn blocks_at_height() {
 
     let e_7 = Block::empty_with_height(&b_1, 7, &*signer);
 
-    let b_1_hash = *b_1.hash();
-    let b_2_hash = *b_2.hash();
-    let b_3_hash = *b_3.hash();
+    let b_1_hash = b_1.hash().clone();
+    let b_2_hash = b_2.hash().clone();
+    let b_3_hash = b_3.hash().clone();
 
-    let c_1_hash = *c_1.hash();
-    let c_3_hash = *c_3.hash();
-    let c_4_hash = *c_4.hash();
-    let c_5_hash = *c_5.hash();
+    let c_1_hash = c_1.hash().clone();
+    let c_3_hash = c_3.hash().clone();
+    let c_4_hash = c_4.hash().clone();
+    let c_5_hash = c_5.hash().clone();
 
-    let d_3_hash = *d_3.hash();
-    let d_4_hash = *d_4.hash();
-    let d_6_hash = *d_6.hash();
+    let d_3_hash = d_3.hash().clone();
+    let d_4_hash = d_4.hash().clone();
+    let d_6_hash = d_6.hash().clone();
 
-    let e_7_hash = *e_7.hash();
+    let e_7_hash = e_7.hash().clone();
 
     assert_ne!(d_3_hash, b_3_hash);
 
@@ -233,10 +233,10 @@ fn next_blocks() {
     let b2 = Block::empty_with_height(&b1, 2, &*signer);
     let b3 = Block::empty_with_height(&b1, 3, &*signer);
     let b4 = Block::empty_with_height(&b3, 4, &*signer);
-    let b1_hash = *b1.hash();
-    let b2_hash = *b2.hash();
-    let b3_hash = *b3.hash();
-    let b4_hash = *b4.hash();
+    let b1_hash = b1.hash().clone();
+    let b2_hash = b2.hash().clone();
+    let b3_hash = b3.hash().clone();
+    let b4_hash = b4.hash().clone();
     assert!(chain.process_block_test(&None, b1).is_ok());
     assert!(chain.process_block_test(&None, b2).is_ok());
     assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), &b2_hash);

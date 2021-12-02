@@ -57,7 +57,7 @@ impl<'a> TrieIterator<'a> {
             trie,
             trail: Vec::with_capacity(8),
             key_nibbles: Vec::with_capacity(64),
-            root: *root,
+            root: root.clone(),
         };
         let node = trie.retrieve_node(root)?;
         r.descend_into_node(node);
@@ -76,7 +76,7 @@ impl<'a> TrieIterator<'a> {
     ) -> Result<CryptoHash, StorageError> {
         self.trail.clear();
         self.key_nibbles.clear();
-        let mut hash = self.root;
+        let mut hash = self.root.clone();
         loop {
             let node = self.trie.retrieve_node(&hash)?;
             self.trail.push(Crumb { status: CrumbStatus::Entering, node });
@@ -99,7 +99,7 @@ impl<'a> TrieIterator<'a> {
                         self.key_nibbles.push(key.at(0));
                         *status = CrumbStatus::AtChild(idx as usize);
                         if let Some(child) = &children[idx] {
-                            hash = *child.unwrap_hash();
+                            hash = child.unwrap_hash().clone();
                             key = key.mid(1);
                         } else {
                             break;
@@ -110,7 +110,7 @@ impl<'a> TrieIterator<'a> {
                     let existing_key = NibbleSlice::from_encoded(&ext_key).0;
                     if key.starts_with(&existing_key) {
                         key = key.mid(existing_key.len());
-                        hash = *child.unwrap_hash();
+                        hash = child.unwrap_hash().clone();
                         *status = CrumbStatus::At;
                         self.key_nibbles.extend(existing_key.iter());
                     } else {
@@ -169,7 +169,7 @@ impl<'a> TrieIterator<'a> {
             }
             (CrumbStatus::At, TrieNode::Branch(_, Some(value))) => {
                 let hash = match value {
-                    ValueHandle::HashAndSize(_, hash) => *hash,
+                    ValueHandle::HashAndSize(_, hash) => hash.clone(),
                     ValueHandle::InMemory(_node) => unreachable!(),
                 };
                 Some(IterStep::Value(hash))
@@ -177,7 +177,7 @@ impl<'a> TrieIterator<'a> {
             (CrumbStatus::At, TrieNode::Branch(_, None)) => Some(IterStep::Continue),
             (CrumbStatus::At, TrieNode::Leaf(key, value)) => {
                 let hash = match value {
-                    ValueHandle::HashAndSize(_, hash) => *hash,
+                    ValueHandle::HashAndSize(_, hash) => hash.clone(),
                     ValueHandle::InMemory(_node) => unreachable!(),
                 };
                 let key = NibbleSlice::from_encoded(&key).0;
@@ -185,7 +185,7 @@ impl<'a> TrieIterator<'a> {
                 Some(IterStep::Value(hash))
             }
             (CrumbStatus::At, TrieNode::Extension(key, child)) => {
-                let hash = *child.unwrap_hash();
+                let hash = child.unwrap_hash().clone();
                 let key = NibbleSlice::from_encoded(&key).0;
                 self.key_nibbles.extend(key.iter());
                 Some(IterStep::Descend(hash))
@@ -195,7 +195,7 @@ impl<'a> TrieIterator<'a> {
                     0 => self.key_nibbles.push(0),
                     i => *self.key_nibbles.last_mut().expect("Pushed child value before") = i as u8,
                 }
-                let hash = *children[i].as_ref().unwrap().unwrap_hash();
+                let hash = children[i].as_ref().unwrap().unwrap_hash().clone();
                 Some(IterStep::Descend(hash))
             }
             (CrumbStatus::AtChild(i), TrieNode::Branch(_, _)) => {

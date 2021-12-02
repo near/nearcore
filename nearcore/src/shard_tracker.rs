@@ -225,7 +225,7 @@ mod tests {
                     cur_h,
                     height,
                     0,
-                    prev_h,
+                    prev_h.clone(),
                     prev_h,
                     proposals,
                     vec![],
@@ -336,7 +336,7 @@ mod tests {
             record_block(
                 &mut epoch_manager,
                 CryptoHash::default(),
-                h[0],
+                h[0].clone(),
                 0,
                 vec![],
                 simple_nightshade_version,
@@ -344,19 +344,19 @@ mod tests {
             for i in 1..8 {
                 record_block(
                     &mut epoch_manager,
-                    h[i - 1],
-                    h[i],
+                    h[i - 1].clone(),
+                    h[i].clone(),
                     i as u64,
                     vec![],
                     simple_nightshade_version,
                 );
             }
             assert_eq!(
-                epoch_manager.get_epoch_info(&EpochId(h[0])).unwrap().protocol_version(),
+                epoch_manager.get_epoch_info(&EpochId(h[0].clone())).unwrap().protocol_version(),
                 simple_nightshade_version - 1
             );
             assert_eq!(
-                epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap().protocol_version(),
+                epoch_manager.get_epoch_info(&EpochId(h[1].clone())).unwrap().protocol_version(),
                 simple_nightshade_version
             );
         }

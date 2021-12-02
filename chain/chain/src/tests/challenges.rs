@@ -8,10 +8,10 @@ fn challenges_new_head_prev() {
     let (mut chain, _, signer) = setup();
     let mut hashes = vec![];
     for i in 0..5 {
-        let prev_hash = *chain.head_header().unwrap().hash();
+        let prev_hash = chain.head_header().unwrap().hash().clone();
         let prev = chain.get_block(&prev_hash).unwrap();
         let block = Block::empty(&prev, &*signer);
-        hashes.push(*block.hash());
+        hashes.push(block.hash().clone());
         let tip = chain.process_block_test(&None, block).unwrap();
         assert_eq!(tip.unwrap().height, i + 1);
     }
@@ -24,7 +24,7 @@ fn challenges_new_head_prev() {
 
     let prev = chain.get_block(&hashes[1]).unwrap();
     let challenger_block = Block::empty_with_height(&prev, 3, &*signer);
-    let challenger_hash = *challenger_block.hash();
+    let challenger_hash = challenger_block.hash().clone();
 
     let _ = chain.process_block_test(&None, challenger_block).unwrap();
 
@@ -78,7 +78,7 @@ fn challenges_new_head_prev() {
 fn test_no_challenge_on_same_header() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
-    let prev_hash = *chain.head_header().unwrap().hash();
+    let prev_hash = chain.head_header().unwrap().hash().clone();
     let prev = chain.get_block(&prev_hash).unwrap();
     let block = Block::empty(&prev, &*signer);
     let tip = chain.process_block_test(&None, block.clone()).unwrap();

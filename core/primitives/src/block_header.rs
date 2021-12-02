@@ -252,7 +252,7 @@ pub struct BlockHeaderV1 {
 impl BlockHeaderV1 {
     pub fn init(&mut self) {
         self.hash = BlockHeader::compute_hash(
-            self.prev_hash,
+            self.prev_hash.clone(),
             &self.inner_lite.try_to_vec().expect("Failed to serialize"),
             &self.inner_rest.try_to_vec().expect("Failed to serialize"),
         );
@@ -303,7 +303,7 @@ pub struct BlockHeaderV3 {
 impl BlockHeaderV2 {
     pub fn init(&mut self) {
         self.hash = BlockHeader::compute_hash(
-            self.prev_hash,
+            self.prev_hash.clone(),
             &self.inner_lite.try_to_vec().expect("Failed to serialize"),
             &self.inner_rest.try_to_vec().expect("Failed to serialize"),
         );
@@ -313,7 +313,7 @@ impl BlockHeaderV2 {
 impl BlockHeaderV3 {
     pub fn init(&mut self) {
         self.hash = BlockHeader::compute_hash(
-            self.prev_hash,
+            self.prev_hash.clone(),
             &self.inner_lite.try_to_vec().expect("Failed to serialize"),
             &self.inner_rest.try_to_vec().expect("Failed to serialize"),
         );
@@ -407,12 +407,12 @@ impl BlockHeader {
                 latest_protocol_version: PROTOCOL_VERSION,
             };
             let (hash, signature) = signer.sign_block_header_parts(
-                prev_hash,
+                prev_hash.clone(),
                 &inner_lite.try_to_vec().expect("Failed to serialize"),
                 &inner_rest.try_to_vec().expect("Failed to serialize"),
             );
             Self::BlockHeaderV1(Box::new(BlockHeaderV1 {
-                prev_hash,
+                prev_hash: prev_hash.clone(),
                 inner_lite,
                 inner_rest,
                 signature,
@@ -436,7 +436,7 @@ impl BlockHeader {
                 latest_protocol_version: PROTOCOL_VERSION,
             };
             let (hash, signature) = signer.sign_block_header_parts(
-                prev_hash,
+                prev_hash.clone(),
                 &inner_lite.try_to_vec().expect("Failed to serialize"),
                 &inner_rest.try_to_vec().expect("Failed to serialize"),
             );
@@ -468,7 +468,7 @@ impl BlockHeader {
                 latest_protocol_version: PROTOCOL_VERSION,
             };
             let (hash, signature) = signer.sign_block_header_parts(
-                prev_hash,
+                prev_hash.clone(),
                 &inner_lite.try_to_vec().expect("Failed to serialize"),
                 &inner_rest.try_to_vec().expect("Failed to serialize"),
             );
@@ -851,7 +851,7 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(_) => None,
             BlockHeader::BlockHeaderV2(_) => None,
-            BlockHeader::BlockHeaderV3(header) => header.inner_rest.epoch_sync_data_hash,
+            BlockHeader::BlockHeaderV3(header) => header.inner_rest.epoch_sync_data_hash.clone(),
         }
     }
 

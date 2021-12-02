@@ -39,14 +39,14 @@ pub fn create_light_client_block_view(
 ) -> Result<LightClientBlockView, Error> {
     let inner_lite_view = BlockHeaderInnerLiteView {
         height: block_header.height(),
-        epoch_id: block_header.epoch_id().0,
-        next_epoch_id: block_header.next_epoch_id().0,
-        prev_state_root: *block_header.prev_state_root(),
-        outcome_root: *block_header.outcome_root(),
+        epoch_id: block_header.epoch_id().0.clone(),
+        next_epoch_id: block_header.next_epoch_id().0.clone(),
+        prev_state_root: block_header.prev_state_root().clone(),
+        outcome_root: block_header.outcome_root().clone(),
         timestamp: block_header.raw_timestamp(),
         timestamp_nanosec: block_header.raw_timestamp(),
-        next_bp_hash: *block_header.next_bp_hash(),
-        block_merkle_root: *block_header.block_merkle_root(),
+        next_bp_hash: block_header.next_bp_hash().clone(),
+        block_merkle_root: block_header.block_merkle_root().clone(),
     };
     let inner_rest_hash = hash(&block_header.inner_rest_bytes());
 
@@ -62,7 +62,7 @@ pub fn create_light_client_block_view(
     let approvals_after_next = after_next_block_header.approvals().to_vec();
 
     Ok(LightClientBlockView {
-        prev_block_hash: *block_header.prev_hash(),
+        prev_block_hash: block_header.prev_hash().clone(),
         next_block_inner_hash,
         inner_lite: inner_lite_view,
         inner_rest_hash,

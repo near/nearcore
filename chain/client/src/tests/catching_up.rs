@@ -195,7 +195,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                                             account_to.clone(),
                                             111,
                                             1,
-                                            *block.header().prev_hash(),
+                                            block.header().prev_hash().clone(),
                                         );
                                     }
                                     *phase = ReceiptsSyncPhases::WaitingForSecondBlock;
@@ -260,7 +260,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                                 if sync_hold {
                                     let srs = StateRequestStruct {
                                         shard_id: *shard_id,
-                                        sync_hash: *sync_hash,
+                                        sync_hash: sync_hash.clone(),
                                         part_id: None,
                                         target: target.clone(),
                                     };
@@ -283,7 +283,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                                 if sync_hold {
                                     let srs = StateRequestStruct {
                                         shard_id: *shard_id,
-                                        sync_hash: *sync_hash,
+                                        sync_hash: sync_hash.clone(),
                                         part_id: Some(*part_id),
                                         target: target.clone(),
                                     };
@@ -505,7 +505,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
                                                     validator2.clone(),
                                                     amount,
                                                     (12345 + tx_count) as u64,
-                                                    *block.header().prev_hash(),
+                                                    block.header().prev_hash().clone(),
                                                 );
                                             }
                                             tx_count += 1;
@@ -659,12 +659,18 @@ fn test_catchup_sanity_blocks_produced() {
                 move |_account_id: _, msg: &PeerManagerMessageRequest| {
                     let msg = msg.as_network_requests_ref();
                     let propagate = if let NetworkRequests::Block { block } = msg {
-                        check_height(*block.hash(), block.header().height());
+                        check_height(block.hash().clone(), block.header().height());
 
                         if block.header().height() % 10 == 5 {
-                            check_height(*block.header().prev_hash(), block.header().height() - 2);
+                            check_height(
+                                block.header().prev_hash().clone(),
+                                block.header().height() - 2,
+                            );
                         } else {
-                            check_height(*block.header().prev_hash(), block.header().height() - 1);
+                            check_height(
+                                block.header().prev_hash().clone(),
+                                block.header().height() - 1,
+                            );
                         }
 
                         if block.header().height() >= 25 {
@@ -763,7 +769,7 @@ fn test_chunk_grieving() {
                             if let NetworkRequests::Block { block } = msg {
                                 if block.header().height() == 12 {
                                     println!("BLOCK {:?}", block);
-                                    *unaccepted_block_hash = *block.header().hash();
+                                    *unaccepted_block_hash = block.header().hash().clone();
                                     assert_eq!(4, block.header().chunks_included());
                                     *phase = ChunkGrievingPhases::SecondAttack;
                                 }

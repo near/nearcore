@@ -199,8 +199,8 @@ impl TrieViewer {
         let apply_state = ApplyState {
             block_index: view_state.block_height,
             // Used for legacy reasons
-            prev_block_hash: view_state.prev_block_hash,
-            block_hash: view_state.block_hash,
+            prev_block_hash: view_state.prev_block_hash.clone(),
+            block_hash: view_state.block_hash.clone(),
             epoch_id: view_state.epoch_id.clone(),
             epoch_height: view_state.epoch_height,
             gas_price: 0,

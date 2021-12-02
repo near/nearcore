@@ -56,7 +56,7 @@ fn test_send_tx_async() {
         WaitOrTimeoutActor::new(
             Box::new(move |_| {
                 let signer_account_id = "test1".parse().unwrap();
-                if let Some(tx_hash) = *tx_hash2_2.lock().unwrap() {
+                if let Some(tx_hash) = tx_hash2_2.lock().unwrap().clone() {
                     actix::spawn(
                         client1
                             .tx(tx_hash.to_string(), signer_account_id)
@@ -154,7 +154,7 @@ fn test_expired_tx() {
                             }
                         }
                     } else {
-                        *block_hash.lock().unwrap() = Some(header.hash);
+                        *block_hash.clone().lock().unwrap() = Some(header.hash.clone());
                         *block_height.lock().unwrap() = Some(header.height);
                     };
                     future::ready(())

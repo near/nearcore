@@ -30,14 +30,14 @@ pub fn add_test_contract(genesis: &mut Genesis, account_id: &AccountId) {
         if let StateRecord::Account { account_id: record_account_id, ref mut account } = record {
             if record_account_id == account_id {
                 is_account_record_found = true;
-                account.set_code_hash(*DEFAULT_TEST_CONTRACT_HASH);
+                account.set_code_hash(DEFAULT_TEST_CONTRACT_HASH.clone());
             }
         }
     }
     if !is_account_record_found {
         genesis.records.as_mut().push(StateRecord::Account {
             account_id: account_id.clone(),
-            account: Account::new(0, 0, *DEFAULT_TEST_CONTRACT_HASH, 0),
+            account: Account::new(0, 0, DEFAULT_TEST_CONTRACT_HASH.clone(), 0),
         });
     }
     genesis.records.as_mut().push(StateRecord::Contract {

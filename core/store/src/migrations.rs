@@ -83,7 +83,7 @@ pub fn fill_col_outcomes_by_hash(store: &Store) {
         .collect();
     let mut block_hash_to_outcomes: HashMap<CryptoHash, HashSet<CryptoHash>> = HashMap::new();
     for outcome in outcomes {
-        match block_hash_to_outcomes.entry(outcome.block_hash) {
+        match block_hash_to_outcomes.entry(outcome.block_hash.clone()) {
             Entry::Occupied(mut entry) => {
                 entry.get_mut().insert(outcome.id().clone());
             }
@@ -185,20 +185,20 @@ pub fn migrate_9_to_10(path: &Path, is_archival: bool) {
                 .map(|v| ValidatorStake::V1(v.clone()))
                 .collect();
             let (encoded_chunk, merkle_paths) = EncodedShardChunk::new(
-                header.inner.prev_block_hash,
-                header.inner.prev_state_root,
-                header.inner.outcome_root,
-                header.inner.height_created,
-                header.inner.shard_id,
+                header.inner.prev_block_hash.clone(),
+                header.inner.prev_state_root.clone(),
+                header.inner.outcome_root.clone(),
+                header.inner.height_created.clone(),
+                header.inner.shard_id.clone(),
                 &mut rs,
-                header.inner.gas_used,
-                header.inner.gas_limit,
-                header.inner.balance_burnt,
-                header.inner.tx_root,
+                header.inner.gas_used.clone(),
+                header.inner.gas_limit.clone(),
+                header.inner.balance_burnt.clone(),
+                header.inner.tx_root.clone(),
                 proposals,
                 transactions,
                 &receipts,
-                header.inner.outgoing_receipts_root,
+                header.inner.outgoing_receipts_root.clone(),
                 &signer,
                 protocol_version,
             )
@@ -207,7 +207,7 @@ pub fn migrate_9_to_10(path: &Path, is_archival: bool) {
                 EncodedShardChunk::V1(chunk) => chunk,
                 EncodedShardChunk::V2(_) => panic!("Should not have created EncodedShardChunkV2"),
             };
-            encoded_chunk.header = header;
+            encoded_chunk.header = header.clone();
             let outgoing_receipt_hashes =
                 vec![hash(&ReceiptList(0, &receipts).try_to_vec().unwrap())];
             let (_, outgoing_receipt_proof) = merklize(&outgoing_receipt_hashes);
@@ -261,9 +261,9 @@ pub fn migrate_10_to_11(path: &Path) {
                 .unwrap()
                 .unwrap()
         }
-        *cur_header.hash()
+        cur_header.hash().clone()
     } else {
-        *block_header.last_final_block()
+        block_header.last_final_block().clone()
     };
     let last_final_header = store
         .get_ser::<BlockHeader>(ColBlockHeader, last_final_block_hash.as_ref())
@@ -286,7 +286,7 @@ pub fn migrate_11_to_12(path: &Path) {
                 ShardChunkV1::try_from_slice(&value).expect("BorshDeserialize should not fail")
             })
             .flat_map(|chunk: ShardChunkV1| chunk.receipts)
-            .map(|rx| (rx.receipt_id, rx.try_to_vec().unwrap())),
+            .map(|rx| (rx.receipt_id.clone(), rx.try_to_vec().unwrap())),
     );
     set_store_version(&store, 12);
 }
@@ -479,18 +479,18 @@ pub fn migrate_14_to_15(path: &Path) {
                 |receipt: &Receipt, state_update: &mut TrieUpdate| match &receipt.receipt {
                     ReceiptEnum::Action(_) => {
                         if execution_outcome_ids.contains(&receipt.receipt_id) {
-                            new_execution_outcome_ids.push(receipt.receipt_id);
+                            new_execution_outcome_ids.push(receipt.receipt_id.clone());
                         }
                     }
                     ReceiptEnum::Data(data_receipt) => {
                         if let Ok(Some(bytes)) = state_update.get(&TrieKey::PostponedReceiptId {
                             receiver_id: receipt.receiver_id.clone(),
-                            data_id: data_receipt.data_id,
+                            data_id: data_receipt.data_id.clone(),
                         }) {
                             let receipt_id = CryptoHash::try_from_slice(&bytes).unwrap();
                             let trie_key = TrieKey::PendingDataCount {
                                 receiver_id: receipt.receiver_id.clone(),
-                                receipt_id,
+                                receipt_id: receipt_id.clone(),
                             };
                             let pending_receipt_count =
                                 u32::try_from_slice(&state_update.get(&trie_key).unwrap().unwrap())
@@ -498,7 +498,7 @@ pub fn migrate_14_to_15(path: &Path) {
                             if pending_receipt_count == 1
                                 && execution_outcome_ids.contains(&receipt_id)
                             {
-                                new_execution_outcome_ids.push(receipt_id);
+                                new_execution_outcome_ids.push(receipt_id.clone());
                             }
                             state_update
                                 .set(trie_key, (pending_receipt_count - 1).try_to_vec().unwrap())

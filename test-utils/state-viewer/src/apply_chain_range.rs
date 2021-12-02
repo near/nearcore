@@ -101,7 +101,7 @@ pub fn apply_chain_range(
 
             let block_author = runtime_adapter.get_block_producer(&block.header().epoch_id(), block.header().height()).unwrap();
 
-            let apply_result = if *block.header().prev_hash() == CryptoHash::default() {
+            let apply_result = if block.header().prev_hash().clone() == CryptoHash::default() {
                 if verbose_output {
                     println!("Skipping the genesis block #{}.", height);
                 }
@@ -133,7 +133,7 @@ pub fn apply_chain_range(
                 let receipt_proof_response = chain_store_update
                     .get_incoming_receipts_for_shard(
                         shard_id,
-                        block_hash,
+                        block_hash.clone(),
                         prev_block.chunks()[shard_id as usize].height_included(),
                     )
                     .unwrap();
@@ -165,7 +165,7 @@ pub fn apply_chain_range(
                         prev_block.header().gas_price(),
                         chunk_inner.gas_limit(),
                         &block.header().challenges_result(),
-                        *block.header().random_value(),
+                        block.header().random_value().clone(),
                         true,
                         is_first_block_with_chunk_of_version,
                         None,
@@ -190,7 +190,7 @@ pub fn apply_chain_range(
                         block.header().gas_price(),
                         chunk_extra.gas_limit(),
                         &block.header().challenges_result(),
-                        *block.header().random_value(),
+                        block.header().random_value().clone(),
                         false,
                         false,
                         None,
@@ -209,7 +209,7 @@ pub fn apply_chain_range(
                 apply_result.total_balance_burnt,
             );
 
-            let state_update = runtime_adapter.get_tries().new_trie_update(shard_uid, *chunk_extra.state_root());
+            let state_update = runtime_adapter.get_tries().new_trie_update(shard_uid, chunk_extra.state_root().clone());
             let delayed_indices = get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
 
         match existing_chunk_extra {
@@ -313,7 +313,7 @@ mod test {
     fn test_apply_chain_range() {
         let epoch_length = 4;
         let (store, genesis, mut env) = setup(epoch_length);
-        let genesis_hash = *env.clients[0].chain.genesis().hash();
+        let genesis_hash = env.clients[0].chain.genesis().hash().clone();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
             1,
@@ -335,7 +335,7 @@ mod test {
     fn test_apply_chain_range_no_chunks() {
         let epoch_length = 4;
         let (store, genesis, mut env) = setup(epoch_length);
-        let genesis_hash = *env.clients[0].chain.genesis().hash();
+        let genesis_hash = env.clients[0].chain.genesis().hash().clone();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
             1,

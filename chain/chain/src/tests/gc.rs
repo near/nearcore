@@ -66,7 +66,8 @@ fn do_fork(
         let head = chain.head().unwrap();
         let mut store_update = chain.mut_store().store_update();
         if i == 0 {
-            store_update.save_block_merkle_tree(*prev_block.hash(), PartialMerkleTree::default());
+            store_update
+                .save_block_merkle_tree(prev_block.hash().clone(), PartialMerkleTree::default());
         }
         store_update.save_block(block.clone());
         store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
@@ -80,20 +81,20 @@ fn do_fork(
         for shard_id in 0..num_shards {
             let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
             let trie_changes_data = gen_changes(&mut rng, max_changes);
-            let state_root = prev_state_roots[shard_id as usize];
+            let state_root = prev_state_roots[shard_id as usize].clone();
             let trie = tries.get_trie_for_shard(shard_uid);
             let trie_changes = trie.update(&state_root, trie_changes_data.iter().cloned()).unwrap();
             if verbose {
                 println!("state new {:?} {:?}", block.header().height(), trie_changes_data);
             }
 
-            let new_root = trie_changes.new_root;
+            let new_root = trie_changes.new_root.clone();
             let wrapped_trie_changes = WrappedTrieChanges::new(
                 tries.clone(),
                 shard_uid,
-                trie_changes,
+                trie_changes.clone(),
                 Default::default(),
-                *block.hash(),
+                block.hash().clone(),
             );
             store_update.save_trie_changes(wrapped_trie_changes);
 
@@ -187,10 +188,11 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
             continue;
         }
 
-        let mut state_root2 = state_roots2[simple_chain.from as usize];
-        let state_root1 = states1[simple_chain.from as usize].1[shard_to_check_trie as usize];
+        let mut state_root2 = state_roots2[simple_chain.from as usize].clone();
+        let state_root1 =
+            states1[simple_chain.from as usize].1[shard_to_check_trie as usize].clone();
         assert!(trie1.iter(&state_root1).is_ok());
-        assert_eq!(state_root1, state_root2);
+        assert_eq!(state_root1, state_root2.clone());
 
         for i in start_index..start_index + simple_chain.length {
             let mut store_update2 = chain2.mut_store().store_update();
@@ -214,7 +216,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
                 state_root2 = new_root2;
                 store_update2.merge(trie_store_update2);
             }
-            state_roots2.push(state_root2);
+            state_roots2.push(state_root2.clone());
             store_update2.commit().unwrap();
         }
         start_index += simple_chain.length;
@@ -228,7 +230,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
         }
         for i in start_index..start_index + simple_chain.length {
             let (block1, state_root1, _) = states1[i as usize].clone();
-            let state_root1 = state_root1[shard_to_check_trie as usize];
+            let state_root1 = state_root1[shard_to_check_trie as usize].clone();
             if block1.header().height() > gc_height || i == gc_height {
                 assert!(trie1.iter(&state_root1).is_ok());
                 assert!(trie2.iter(&state_root1).is_ok());

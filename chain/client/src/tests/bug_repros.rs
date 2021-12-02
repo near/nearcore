@@ -117,7 +117,7 @@ fn repro_1183() {
                                                 from.as_ref(),
                                             ),
                                             1,
-                                            *block.header().prev_hash(),
+                                            block.header().prev_hash().clone(),
                                         ),
                                         is_forwarded: false,
                                         check_only: false,
@@ -225,7 +225,7 @@ fn test_sync_from_achival_node() {
                                 }
                             }
                             if block.header().height() <= 10 {
-                                blocks.write().unwrap().insert(*block.hash(), block.clone());
+                                blocks.write().unwrap().insert(block.hash().clone(), block.clone());
                             }
                             (NetworkResponses::NoResponse.into(), false)
                         }

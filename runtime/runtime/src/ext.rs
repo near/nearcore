@@ -90,8 +90,8 @@ impl<'a> RuntimeExt<'a> {
         code_hash: CryptoHash,
     ) -> Result<Option<Arc<ContractCode>>, StorageError> {
         debug!(target:"runtime", "Calling the contract at account {}", self.account_id);
-        let code = || get_code(self.trie_update, self.account_id, Some(code_hash));
-        crate::cache::get_code(code_hash, code)
+        let code = || get_code(self.trie_update, self.account_id, Some(code_hash.clone()));
+        crate::cache::get_code(code_hash.clone(), code)
     }
 
     pub fn create_storage_key(&self, key: &[u8]) -> TrieKey {
@@ -218,8 +218,8 @@ impl<'a> External for RuntimeExt<'a> {
                 .ok_or_else(|| HostError::InvalidReceiptIndex { receipt_index })?
                 .1
                 .output_data_receivers
-                .push(DataReceiver { data_id, receiver_id: receiver_id.clone() });
-            input_data_ids.push(data_id);
+                .push(DataReceiver { data_id: data_id.clone(), receiver_id: receiver_id.clone() });
+            input_data_ids.push(data_id.clone());
         }
 
         let new_receipt = ActionReceipt {

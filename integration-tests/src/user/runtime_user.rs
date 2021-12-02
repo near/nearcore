@@ -37,7 +37,7 @@ pub struct MockClient {
 
 impl MockClient {
     pub fn get_state_update(&self) -> TrieUpdate {
-        self.tries.new_trie_update(ShardUId::default(), self.state_root)
+        self.tries.new_trie_update(ShardUId::default(), self.state_root.clone())
     }
 }
 
@@ -92,7 +92,7 @@ impl RuntimeUser {
                 .runtime
                 .apply(
                     client.tries.get_trie_for_shard(ShardUId::default()),
-                    client.state_root,
+                    client.state_root.clone(),
                     &None,
                     &apply_state,
                     &receipts,
@@ -129,7 +129,7 @@ impl RuntimeUser {
                 return Ok(());
             }
             for receipt in apply_result.outgoing_receipts.iter() {
-                self.receipts.borrow_mut().insert(receipt.receipt_id, receipt.clone());
+                self.receipts.borrow_mut().insert(receipt.receipt_id.clone(), receipt.clone());
             }
             receipts = apply_result.outgoing_receipts;
             txs = vec![];
@@ -163,7 +163,7 @@ impl RuntimeUser {
         let outcome = self.get_transaction_result(hash);
         let receipt_ids = outcome.receipt_ids.clone();
         let mut transactions = vec![ExecutionOutcomeWithIdView {
-            id: *hash,
+            id: hash.clone(),
             outcome,
             proof: vec![],
             block_hash: Default::default(),
@@ -177,7 +177,7 @@ impl RuntimeUser {
 
     fn get_final_transaction_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
         let mut outcomes = self.get_recursive_transaction_results(hash);
-        let mut looking_for_id = (*hash).into();
+        let mut looking_for_id = (hash.clone()).into();
         let num_outcomes = outcomes.len();
         let status = outcomes
             .iter()
@@ -322,7 +322,7 @@ impl User for RuntimeUser {
     }
 
     fn get_state_root(&self) -> CryptoHash {
-        self.client.read().expect(POISONED_LOCK_ERR).state_root.into()
+        self.client.read().expect(POISONED_LOCK_ERR).state_root.clone().into()
     }
 
     fn get_access_key(

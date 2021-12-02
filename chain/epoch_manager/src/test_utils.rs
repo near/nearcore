@@ -313,7 +313,7 @@ pub fn record_block_with_slashes(
                 cur_h,
                 height,
                 height.saturating_sub(2),
-                prev_h,
+                prev_h.clone(),
                 prev_h,
                 proposals,
                 vec![],

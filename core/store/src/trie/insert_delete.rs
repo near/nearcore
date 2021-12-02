@@ -566,7 +566,7 @@ impl Trie {
                     }
                     FlattenNodesCrumb::AtChild(mut new_children, mut i) => {
                         if i > 0 && children[i - 1].is_some() {
-                            new_children[i - 1] = Some(last_hash);
+                            new_children[i - 1] = Some(last_hash.clone());
                         }
                         while i < 16 {
                             match children[i].as_ref() {
@@ -574,7 +574,7 @@ impl Trie {
                                     break;
                                 }
                                 Some(NodeHandle::Hash(hash)) => {
-                                    new_children[i] = Some(*hash);
+                                    new_children[i] = Some(hash.clone());
                                 }
                                 None => {}
                             }
@@ -607,9 +607,11 @@ impl Trie {
                             stack.push((*child, FlattenNodesCrumb::Entering));
                             continue;
                         }
-                        NodeHandle::Hash(hash) => RawTrieNode::Extension(key.clone(), *hash),
+                        NodeHandle::Hash(hash) => RawTrieNode::Extension(key.clone(), hash.clone()),
                     },
-                    FlattenNodesCrumb::Exiting => RawTrieNode::Extension(key.clone(), last_hash),
+                    FlattenNodesCrumb::Exiting => {
+                        RawTrieNode::Extension(key.clone(), last_hash.clone())
+                    }
                     _ => unreachable!(),
                 },
                 TrieNode::Leaf(key, value) => {
@@ -624,14 +626,19 @@ impl Trie {
             let key = hash(&buffer);
 
             let (_value, rc) =
-                memory.refcount_changes.entry(key).or_insert_with(|| (buffer.clone(), 0));
+                memory.refcount_changes.entry(key.clone()).or_insert_with(|| (buffer.clone(), 0));
             *rc += 1;
             buffer.clear();
             last_hash = key;
         }
         let (insertions, deletions) =
             Trie::convert_to_insertions_and_deletions(memory.refcount_changes);
-        Ok(TrieChanges { old_root: *old_root, new_root: last_hash, insertions, deletions })
+        Ok(TrieChanges {
+            old_root: old_root.clone(),
+            new_root: last_hash.clone(),
+            insertions,
+            deletions,
+        })
     }
 
     fn flatten_value(memory: &mut NodesStorage, value: ValueHandle) -> (u32, CryptoHash) {
@@ -639,9 +646,9 @@ impl Trie {
             ValueHandle::InMemory(value_handle) => {
                 let value = memory.value_ref(value_handle).clone();
                 let value_length = value.len() as u32;
-                let value_hash = hash(&value);
+                let value_hash = hash(&value).clone();
                 let (_value, rc) =
-                    memory.refcount_changes.entry(value_hash).or_insert_with(|| (value, 0));
+                    memory.refcount_changes.entry(value_hash.clone()).or_insert_with(|| (value, 0));
                 *rc += 1;
                 (value_length, value_hash)
             }

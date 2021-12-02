@@ -230,7 +230,7 @@ impl Trie {
         Ok(ApplyStatePartResult {
             trie_changes: TrieChanges {
                 old_root: CryptoHash::default(),
-                new_root: *state_root,
+                new_root: state_root.clone(),
                 insertions,
                 deletions,
             },
@@ -301,7 +301,7 @@ mod tests {
                     *rc += 1;
                 } else {
                     let bytes = trie.storage.retrieve_raw_bytes(hash)?;
-                    insertions.insert(*hash, (bytes, 1));
+                    insertions.insert(hash.clone(), (bytes, 1));
                 }
                 Ok(())
             })?;
@@ -316,7 +316,7 @@ mod tests {
             insertions.sort();
             Ok(TrieChanges {
                 old_root: Default::default(),
-                new_root: *state_root,
+                new_root: state_root.clone(),
                 insertions,
                 deletions: vec![],
             })
@@ -333,7 +333,7 @@ mod tests {
             }
             let mut stack: Vec<(CryptoHash, TrieNodeWithSize, CrumbStatus)> = Vec::new();
             let root_node = self.retrieve_node(root)?;
-            stack.push((*root, root_node, CrumbStatus::Entering));
+            stack.push((root.clone(), root_node, CrumbStatus::Entering));
             while let Some((hash, node, position)) = stack.pop() {
                 if let CrumbStatus::Entering = position {
                     on_enter(&hash)?;
@@ -590,7 +590,7 @@ mod tests {
         if changes.is_empty() {
             return TrieChanges::empty(CryptoHash::default());
         }
-        let new_root = changes[0].new_root;
+        let new_root = changes[0].new_root.clone();
         let mut map = HashMap::new();
         for changes_set in changes {
             assert!(changes_set.deletions.is_empty(), "state parts only have insertions");

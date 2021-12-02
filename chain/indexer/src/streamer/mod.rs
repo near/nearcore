@@ -52,7 +52,7 @@ async fn build_streamer_message(
         .iter()
         .filter_map(|c| {
             if c.height_included == block.header.height {
-                Some(c.chunk_hash)
+                Some(c.chunk_hash.clone())
             } else {
                 None
             }
@@ -60,11 +60,11 @@ async fn build_streamer_message(
         .collect::<Vec<_>>();
     let chunks = fetch_chunks(&client, chunks_to_fetch).await?;
 
-    let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
+    let protocol_config_view = fetch_protocol_config(&client, block.header.hash.clone()).await?;
     let num_shards = protocol_config_view.num_block_producer_seats_per_shard.len()
         as near_primitives::types::NumShards;
 
-    let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
+    let mut shards_outcomes = fetch_outcomes(&client, block.header.hash.clone()).await?;
     let mut indexer_shards: Vec<IndexerShard> = vec![];
 
     for shard_id in 0..num_shards {
@@ -134,7 +134,7 @@ async fn build_streamer_message(
                 // that appeared in some of the previous blocks
                 // we will be iterating over previous blocks until we found the receipt
                 let mut prev_block_tried = 0u16;
-                let mut prev_block_hash = block.header.prev_hash;
+                let mut prev_block_hash = block.header.prev_hash.clone();
                 'find_local_receipt: loop {
                     if prev_block_tried > 1000 {
                         panic!("Failed to find local receipt in 1000 prev blocks");
@@ -144,11 +144,14 @@ async fn build_streamer_message(
                         Err(err) => panic!("Unable to get previous block: {:?}", err),
                     };
 
-                    prev_block_hash = prev_block.header.prev_hash;
+                    prev_block_hash = prev_block.header.prev_hash.clone();
 
-                    if let Some(receipt) =
-                        find_local_receipt_by_id_in_block(&client, prev_block, execution_outcome.id)
-                            .await?
+                    if let Some(receipt) = find_local_receipt_by_id_in_block(
+                        &client,
+                        prev_block,
+                        execution_outcome.id.clone(),
+                    )
+                    .await?
                     {
                         break 'find_local_receipt receipt;
                     }
@@ -156,8 +159,10 @@ async fn build_streamer_message(
                     prev_block_tried += 1;
                 }
             };
-            receipt_execution_outcomes
-                .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt: receipt });
+            receipt_execution_outcomes.push(IndexerExecutionOutcomeWithReceipt {
+                execution_outcome: execution_outcome.clone(),
+                receipt: receipt,
+            });
         }
 
         // Blocks #47317863 and #47317864
@@ -168,14 +173,17 @@ async fn build_streamer_message(
         // so it was decided to artificially include the Receipts into the Chunk of the Block where
         // ExecutionOutcomes appear.
         // ref: https://github.com/near/nearcore/pull/4248
-        if PROBLEMATIC_BLOKS.contains(&block.header.hash.to_string().as_str()) {
+        if PROBLEMATIC_BLOKS.contains(&block.header.hash.clone().to_string().as_str()) {
             let protocol_config =
-                fetchers::fetch_protocol_config(&client, block.header.hash).await?;
+                fetchers::fetch_protocol_config(&client, block.header.hash.clone()).await?;
 
             if &protocol_config.chain_id == "mainnet" {
                 let mut restored_receipts: Vec<views::ReceiptView> = vec![];
                 let receipt_ids_included: std::collections::HashSet<CryptoHash> =
-                    chunk_non_local_receipts.iter().map(|receipt| receipt.receipt_id).collect();
+                    chunk_non_local_receipts
+                        .iter()
+                        .map(|receipt| receipt.receipt_id.clone())
+                        .collect();
 
                 for outcome in &receipt_execution_outcomes {
                     if receipt_ids_included.get(&outcome.receipt.receipt_id).is_none() {
@@ -211,7 +219,7 @@ async fn build_streamer_message(
         )
     }
 
-    let state_changes = fetch_state_changes(&client, block.header.hash).await?;
+    let state_changes = fetch_state_changes(&client, block.header.hash.clone()).await?;
 
     Ok(StreamerMessage { block, shards: indexer_shards, state_changes })
 }
@@ -228,16 +236,16 @@ async fn find_local_receipt_by_id_in_block(
         .iter()
         .filter_map(|c| {
             if c.height_included == block.header.height {
-                Some(c.chunk_hash)
+                Some(c.chunk_hash.clone())
             } else {
                 None
             }
         })
         .collect::<Vec<_>>();
     let chunks = fetch_chunks(&client, chunks_to_fetch).await?;
-    let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
+    let protocol_config_view = fetch_protocol_config(&client, block.header.hash.clone()).await?;
 
-    let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
+    let mut shards_outcomes = fetch_outcomes(&client, block.header.hash.clone()).await?;
 
     for chunk in chunks {
         let views::ChunkView { header, transactions, .. } = chunk;

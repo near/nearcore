@@ -94,12 +94,12 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
         for chunk_hash in missing_chunks.iter().cloned() {
             let blocks_for_chunk =
                 self.missing_chunks.entry(chunk_hash).or_insert_with(HashSet::new);
-            blocks_for_chunk.insert(block_hash);
+            blocks_for_chunk.insert(block_hash.clone());
         }
 
         // Convert to HashSet
         let missing_chunks = missing_chunks.into_iter().collect();
-        match self.blocks_missing_chunks.entry(block_hash) {
+        match self.blocks_missing_chunks.entry(block_hash.clone()) {
             hash_map::Entry::Vacant(entry) => {
                 entry.insert(missing_chunks);
             }
@@ -109,20 +109,20 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
             // we know a block is missing chunks.
             hash_map::Entry::Occupied(mut entry) => {
                 let previous_chunks = entry.insert(missing_chunks);
-                warn!(target: "chunks", "Block with hash {} was already missing chunks {:?}.", block_hash, previous_chunks);
+                warn!(target: "chunks", "Block with hash {} was already missing chunks {:?}.", block_hash.clone(), previous_chunks);
             }
         }
 
         let height = block.height();
         let blocks_at_height = self.height_idx.entry(height).or_insert_with(HashSet::new);
-        blocks_at_height.insert(block_hash);
-        self.blocks_waiting_for_chunks.insert(block_hash, block);
+        blocks_at_height.insert(block_hash.clone());
+        self.blocks_waiting_for_chunks.insert(block_hash.clone(), block);
     }
 
     pub fn accept_chunk(&mut self, chunk_hash: &ChunkHash) {
         let block_hashes = self.missing_chunks.remove(chunk_hash).unwrap_or_else(HashSet::new);
         for block_hash in block_hashes {
-            match self.blocks_missing_chunks.entry(block_hash) {
+            match self.blocks_missing_chunks.entry(block_hash.clone()) {
                 hash_map::Entry::Occupied(mut missing_chunks_entry) => {
                     let missing_chunks = missing_chunks_entry.get_mut();
                     missing_chunks.remove(chunk_hash);
@@ -133,7 +133,7 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
                     }
                 }
                 hash_map::Entry::Vacant(_) => {
-                    warn!(target: "chunks", "Invalid MissingChunksPool state. Block with hash {} was still a value of the missing_chunks map, but not present in the blocks_missing_chunks map", block_hash);
+                    warn!(target: "chunks", "Invalid MissingChunksPool state. Block with hash {} was still a value of the missing_chunks map, but not present in the blocks_missing_chunks map", block_hash.clone());
                     self.mark_block_as_ready(&block_hash);
                 }
             }
@@ -195,7 +195,7 @@ mod test {
         ChunkHash(get_hash(idx))
     }
 
-    #[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
+    #[derive(Debug, Clone, Default, PartialEq, Eq)]
     struct MockBlock {
         hash: BlockHash,
         height: BlockHeight,
@@ -207,7 +207,7 @@ mod test {
     }
     impl BlockLike for MockBlock {
         fn hash(&self) -> BlockHash {
-            self.hash
+            self.hash.clone()
         }
 
         fn height(&self) -> u64 {
@@ -247,7 +247,7 @@ mod test {
             let block = MockBlock::new(block_height);
             chunk_hash_idx += 1;
             let missing_chunk_hash = get_chunk_hash(chunk_hash_idx);
-            let block_hash = block.hash;
+            let block_hash = block.hash.clone();
             pool.add_block_with_missing_chunks(block, vec![missing_chunk_hash]);
             assert!(pool.contains(&block_hash));
         }
@@ -256,7 +256,7 @@ mod test {
         let block = MockBlock::new(block_height);
         chunk_hash_idx += 1;
         let missing_chunk_hash = get_chunk_hash(chunk_hash_idx);
-        let block_hash = block.hash;
+        let block_hash = block.hash.clone();
         pool.add_block_with_missing_chunks(block, vec![missing_chunk_hash]);
         assert!(!pool.contains(&block_hash));
     }
@@ -266,7 +266,7 @@ mod test {
         let mut pool: MissingChunksPool<MockBlock> = MissingChunksPool::default();
 
         let block = MockBlock::new(0);
-        let early_block_hash = block.hash;
+        let early_block_hash = block.hash.clone();
         let missing_chunk_hash = get_chunk_hash(100);
         pool.add_block_with_missing_chunks(block, vec![missing_chunk_hash]);
 
@@ -276,7 +276,7 @@ mod test {
         pool.add_block_with_missing_chunks(block.clone(), vec![missing_chunk_hash.clone()]);
 
         let later_block = MockBlock::new(block_height + 1);
-        let later_block_hash = later_block.hash;
+        let later_block_hash = later_block.hash.clone();
         pool.add_block_with_missing_chunks(later_block, vec![get_chunk_hash(300)]);
 
         pool.accept_chunk(&missing_chunk_hash);

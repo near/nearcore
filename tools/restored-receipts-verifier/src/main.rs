@@ -100,7 +100,7 @@ fn main() -> Result<()> {
                 block.header().gas_price(),
                 chunk_extra.gas_limit(),
                 &block.header().challenges_result(),
-                *block.header().random_value(),
+                block.header().random_value().clone(),
                 false,
                 false, // because fix was not applied in for the blocks analyzed here
                 None,

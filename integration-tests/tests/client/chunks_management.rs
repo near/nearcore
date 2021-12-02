@@ -88,13 +88,16 @@ fn chunks_produced_and_distributed_common(
                 let msg = msg.as_network_requests_ref();
                 match msg {
                     NetworkRequests::Block { block } => {
-                        check_height(*block.hash(), block.header().height());
-                        check_height(*block.header().prev_hash(), block.header().height() - 1);
+                        check_height(block.hash().clone(), block.header().height());
+                        check_height(
+                            block.header().prev_hash().clone(),
+                            block.header().height() - 1,
+                        );
 
                         let h = block.header().height();
 
                         let mut height_to_hash = height_to_hash.write().unwrap();
-                        height_to_hash.insert(h, *block.hash());
+                        height_to_hash.insert(h, block.hash().clone());
 
                         let mut height_to_epoch = height_to_epoch.write().unwrap();
                         height_to_epoch.insert(h, block.header().epoch_id().clone());
@@ -221,12 +224,12 @@ fn chunks_produced_and_distributed_common(
         let block_hash = res.unwrap().unwrap().header.hash;
         let connectors_ = connectors.write().unwrap();
         connectors_[0].0.do_send(NetworkClientMessages::Transaction {
-            transaction: SignedTransaction::empty(block_hash),
+            transaction: SignedTransaction::empty(block_hash.clone()),
             is_forwarded: false,
             check_only: false,
         });
         connectors_[1].0.do_send(NetworkClientMessages::Transaction {
-            transaction: SignedTransaction::empty(block_hash),
+            transaction: SignedTransaction::empty(block_hash.clone()),
             is_forwarded: false,
             check_only: false,
         });

@@ -93,9 +93,16 @@ fn do_random_test<RngImpl: Rng>(
         .collect::<Vec<_>>();
 
     let mut slashes_per_block = Vec::new();
-    record_block_with_slashes(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![], vec![]);
+    record_block_with_slashes(
+        &mut epoch_manager,
+        CryptoHash::default(),
+        h[0].clone(),
+        0,
+        vec![],
+        vec![],
+    );
     slashes_per_block.push(vec![]);
-    let mut prev_hash = h[0];
+    let mut prev_hash = h[0].clone();
     for &height in &heights_to_pick[1..] {
         let proposals = random_proposals(rng);
         let slashes = if do_slashes { random_slashes(rng) } else { vec![] };
@@ -103,12 +110,12 @@ fn do_random_test<RngImpl: Rng>(
         record_block_with_slashes(
             &mut epoch_manager,
             prev_hash,
-            h[height as usize],
+            h[height as usize].clone(),
             height,
             proposals,
             slashes,
         );
-        prev_hash = h[height as usize];
+        prev_hash = h[height as usize].clone();
     }
 
     validate(&mut epoch_manager, heights_to_pick, slashes_per_block);
@@ -143,10 +150,10 @@ fn validate(
     let num_blocks = heights.len();
     let height_to_hash = hash_range((heights[num_blocks - 1] + 1) as usize);
     let block_hashes =
-        heights.iter().map(|&height| height_to_hash[height as usize]).collect::<Vec<_>>();
+        heights.iter().map(|&height| height_to_hash[height as usize].clone()).collect::<Vec<_>>();
     let epoch_start_heights = block_hashes
         .iter()
-        .map(|&hash| epoch_manager.get_epoch_start_height(&hash).unwrap())
+        .map(|hash| epoch_manager.get_epoch_start_height(&hash).unwrap())
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
@@ -154,7 +161,7 @@ fn validate(
         .iter()
         .filter_map(|hash| {
             if epoch_manager.is_next_block_epoch_start(hash).unwrap() {
-                Some(epoch_manager.get_epoch_info(&EpochId(*hash)).unwrap().clone())
+                Some(epoch_manager.get_epoch_info(&EpochId(hash.clone())).unwrap().clone())
             } else {
                 None
             }
@@ -167,7 +174,7 @@ fn validate(
     );
     let block_infos = block_hashes
         .iter()
-        .map(|&hash| epoch_manager.get_block_info(&hash).unwrap().clone())
+        .map(|hash| epoch_manager.get_block_info(&hash).unwrap().clone())
         .collect::<Vec<_>>();
     if DEBUG_PRINT {
         println!("Block heights: {:?}", heights);
@@ -351,10 +358,13 @@ fn verify_block_stats(
     block_hashes: &[CryptoHash],
 ) {
     for i in 1..block_infos.len() {
-        let prev_epoch_end =
-            *epoch_manager.get_block_info(block_infos[i].epoch_first_block()).unwrap().prev_hash();
+        let prev_epoch_end = epoch_manager
+            .get_block_info(block_infos[i].epoch_first_block())
+            .unwrap()
+            .prev_hash()
+            .clone();
         let prev_epoch_end_height =
-            *epoch_manager.get_block_info(&prev_epoch_end).unwrap().height();
+            epoch_manager.get_block_info(&prev_epoch_end).unwrap().height().clone();
         let blocks_in_epoch = (i - heights.binary_search(&prev_epoch_end_height).unwrap()) as u64;
         let blocks_in_epoch_expected = heights[i] - prev_epoch_end_height;
         {

@@ -662,7 +662,7 @@ impl ShardsManager {
             chunk_hash.clone(),
             ChunkRequestInfo {
                 height,
-                parent_hash,
+                parent_hash: parent_hash.clone(),
                 shard_id,
                 last_requested: Clock::instant(),
                 added: Clock::instant(),
@@ -1068,7 +1068,7 @@ impl ShardsManager {
         // check part merkle proofs
         let num_total_parts = self.runtime_adapter.num_total_parts();
         for part_info in forward.parts.iter() {
-            self.validate_part(forward.merkle_root, part_info, num_total_parts)?;
+            self.validate_part(forward.merkle_root.clone(), part_info, num_total_parts)?;
         }
 
         // check signature
@@ -1223,7 +1223,7 @@ impl ShardsManager {
             if let Ok(hash) = chain_store
                 .get_any_chunk_hash_by_height_shard(header.height_created(), header.shard_id())
             {
-                if *hash != chunk_hash {
+                if hash.clone() != chunk_hash {
                     warn!(target: "client", "Rejecting unrequested chunk {:?}, height {}, shard_id {}, because of having {:?}", chunk_hash, header.height_created(), header.shard_id(), hash);
                     return Err(Error::DuplicateChunkHeight.into());
                 }

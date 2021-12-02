@@ -358,7 +358,7 @@ pub fn get_received_data(
 pub fn set_postponed_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
     let key = TrieKey::PostponedReceipt {
         receiver_id: receipt.receiver_id.clone(),
-        receipt_id: receipt.receipt_id,
+        receipt_id: receipt.receipt_id.clone(),
     };
     set(state_update, key, receipt);
 }

@@ -63,7 +63,7 @@ fn query_status_not_crash() {
         actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
             let (block, mut block_merkle_tree) = res.unwrap().unwrap();
             let header: BlockHeader = block.header.clone().into();
-            block_merkle_tree.insert(*header.hash());
+            block_merkle_tree.insert(header.hash().clone());
             let mut next_block = Block::produce(
                 PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
@@ -142,7 +142,7 @@ fn test_execution_outcome_for_chunk() {
             actix::clock::sleep(Duration::from_millis(500)).await;
             let execution_outcome = view_client
                 .send(TxStatus {
-                    tx_hash,
+                    tx_hash: tx_hash.clone(),
                     signer_account_id: "test".parse().unwrap(),
                     fetch_receipt: false,
                 })
@@ -205,7 +205,7 @@ fn test_state_request() {
                 let res = view_client
                     .send(NetworkViewClientMessages::StateRequestHeader {
                         shard_id: 0,
-                        sync_hash: block_hash,
+                        sync_hash: block_hash.clone(),
                     })
                     .await
                     .unwrap();
@@ -216,7 +216,7 @@ fn test_state_request() {
             let res = view_client
                 .send(NetworkViewClientMessages::StateRequestHeader {
                     shard_id: 0,
-                    sync_hash: block_hash,
+                    sync_hash: block_hash.clone(),
                 })
                 .await
                 .unwrap();

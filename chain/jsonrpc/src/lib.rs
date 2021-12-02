@@ -588,7 +588,7 @@ impl JsonRpcHandler {
                 match self
                     .view_client_addr
                     .send(TxStatus {
-                        tx_hash,
+                        tx_hash: tx_hash.clone(),
                         signer_account_id: signer_account_id.clone(),
                         fetch_receipt: false,
                     })
@@ -632,14 +632,14 @@ impl JsonRpcHandler {
             near_jsonrpc_primitives::types::transactions::TransactionInfo::TransactionId {
                 hash,
                 account_id,
-            } => (*hash, account_id.clone()),
+            } => (hash.clone(), account_id.clone()),
         };
         timeout(self.polling_config.polling_timeout, async {
             loop {
                 let tx_status_result = self
                     .view_client_addr
                     .send(TxStatus {
-                        tx_hash,
+                        tx_hash: tx_hash.clone(),
                         signer_account_id: account_id.clone(),
                         fetch_receipt,
                     })
@@ -938,7 +938,7 @@ impl JsonRpcHandler {
     > {
         match self
             .view_client_addr
-            .send(GetReceipt { receipt_id: request_data.receipt_reference.receipt_id })
+            .send(GetReceipt { receipt_id: request_data.receipt_reference.receipt_id.clone() })
             .await??
         {
             Some(receipt_view) => {
@@ -946,7 +946,7 @@ impl JsonRpcHandler {
             }
             None => {
                 Err(near_jsonrpc_primitives::types::receipts::RpcReceiptError::UnknownReceipt {
-                    receipt_id: request_data.receipt_reference.receipt_id,
+                    receipt_id: request_data.receipt_reference.receipt_id.clone(),
                 })
             }
         }
@@ -1026,13 +1026,13 @@ impl JsonRpcHandler {
         let block_proof = self
             .view_client_addr
             .send(GetBlockProof {
-                block_hash: execution_outcome_proof.outcome_proof.block_hash,
+                block_hash: execution_outcome_proof.outcome_proof.block_hash.clone(),
                 head_block_hash: light_client_head,
             })
             .await??;
 
         Ok(near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse {
-            outcome_proof: execution_outcome_proof.outcome_proof,
+            outcome_proof: execution_outcome_proof.outcome_proof.clone(),
             outcome_root_proof: execution_outcome_proof.outcome_root_proof,
             block_header_lite: block_proof.block_header_lite,
             block_proof: block_proof.proof,

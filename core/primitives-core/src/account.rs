@@ -66,7 +66,7 @@ impl Account {
 
     #[inline]
     pub fn code_hash(&self) -> CryptoHash {
-        self.code_hash
+        self.code_hash.clone()
     }
 
     #[inline]
@@ -137,7 +137,7 @@ impl BorshSerialize for Account {
             AccountVersion::V1 => LegacyAccount {
                 amount: self.amount,
                 locked: self.locked,
-                code_hash: self.code_hash,
+                code_hash: self.code_hash.clone(),
                 storage_usage: self.storage_usage,
             }
             .serialize(writer),

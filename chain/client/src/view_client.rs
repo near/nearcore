@@ -154,7 +154,9 @@ impl ViewClientActor {
     ) -> Result<CryptoHash, near_chain::Error> {
         match block_id {
             None => Ok(self.chain.head()?.last_block_hash),
-            Some(BlockId::Height(height)) => Ok(*self.chain.get_header_by_height(height)?.hash()),
+            Some(BlockId::Height(height)) => {
+                Ok(self.chain.get_header_by_height(height)?.hash().clone())
+            }
             Some(BlockId::Hash(block_hash)) => Ok(block_hash),
         }
     }
@@ -177,8 +179,8 @@ impl ViewClientActor {
     ) -> Result<CryptoHash, near_chain::Error> {
         let head_header = self.chain.head_header()?;
         match finality {
-            Finality::None => Ok(*head_header.hash()),
-            Finality::DoomSlug => Ok(*head_header.last_ds_final_block()),
+            Finality::None => Ok(head_header.hash().clone()),
+            Finality::DoomSlug => Ok(head_header.last_ds_final_block().clone()),
             Finality::Final => self.chain.final_head().map(|t| t.last_block_hash),
         }
     }
@@ -200,7 +202,7 @@ impl ViewClientActor {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
                 self.chain.get_header_by_height(block_height)
             }
-            BlockReference::BlockId(BlockId::Hash(block_hash)) => {
+            BlockReference::BlockId(BlockId::Hash(ref block_hash)) => {
                 self.chain.get_block_header(&block_hash)
             }
             BlockReference::Finality(ref finality) => self
@@ -340,7 +342,10 @@ impl ViewClientActor {
                 .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
             if self.chain.get_chunk_extra(last_block_hash, &shard_uid).is_err() {
                 let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
-                if Self::need_request(receipt_id, &mut request_manager.receipt_outcome_requests) {
+                if Self::need_request(
+                    receipt_id.clone(),
+                    &mut request_manager.receipt_outcome_requests,
+                ) {
                     let validator = self
                         .chain
                         .find_validator_for_forwarding(dst_shard_id)
@@ -387,7 +392,7 @@ impl ViewClientActor {
                         FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started => {
                             for receipt_view in tx_result.receipts_outcome.iter() {
                                 self.request_receipt_outcome(
-                                    receipt_view.id,
+                                    receipt_view.id.clone(),
                                     &head.epoch_id,
                                     &head.last_block_hash,
                                 )?;
@@ -435,7 +440,7 @@ impl ViewClientActor {
             }
         } else {
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
-            if Self::need_request(tx_hash, &mut request_manager.tx_status_requests) {
+            if Self::need_request(tx_hash.clone(), &mut request_manager.tx_status_requests) {
                 let epoch_id =
                     self.chain.head().map_err(|e| TxStatusError::ChainError(e))?.epoch_id;
                 let target_shard_id = self
@@ -669,7 +674,7 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
                     BlockId::Height(h) => self.chain.get_header_by_height(h)?.clone(),
                 };
                 let next_block_hash =
-                    *self.chain.mut_store().get_next_block_hash(block_header.hash())?;
+                    self.chain.mut_store().get_next_block_hash(block_header.hash())?.clone();
                 let next_block_header = self.chain.get_block_header(&next_block_hash)?.clone();
                 if block_header.epoch_id() != next_block_header.epoch_id()
                     && block_header.next_epoch_id() == next_block_header.epoch_id()
@@ -831,7 +836,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                 )?;
                 match res {
                     Some((h, target_shard_id)) => {
-                        outcome_proof.block_hash = h;
+                        outcome_proof.block_hash = h.clone();
                         // Here we assume the number of shards is small so this reconstruction
                         // should be fast
                         let outcome_roots = self
@@ -1016,10 +1021,11 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::TxStatusResponse(tx_result) => {
-                let tx_hash = tx_result.transaction_outcome.id;
+                let tx_hash = tx_result.transaction_outcome.id.clone();
                 let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
                 if request_manager.tx_status_requests.cache_remove(&tx_hash).is_some() {
-                    request_manager.tx_status_response.cache_set(tx_hash, *tx_result);
+                    let tx_result: near_primitives::views::FinalExecutionOutcomeView = *tx_result;
+                    request_manager.tx_status_response.cache_set(tx_hash, tx_result);
                 }
                 NetworkViewClientResponses::NoResponse
             }
@@ -1106,7 +1112,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                             NetworkViewClientResponses::ChainInfo {
                                 genesis_id: GenesisId {
                                     chain_id: self.config.chain_id.clone(),
-                                    hash: *self.chain.genesis().hash(),
+                                    hash: self.chain.genesis().hash().clone(),
                                 },
                                 height: self.get_height(&head),
                                 tracked_shards,
@@ -1118,7 +1124,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                             NetworkViewClientResponses::ChainInfo {
                                 genesis_id: GenesisId {
                                     chain_id: self.config.chain_id.clone(),
-                                    hash: *self.chain.genesis().hash(),
+                                    hash: self.chain.genesis().hash().clone(),
                                 },
                                 height: self.get_height(&head),
                                 tracked_shards: self.config.tracked_shards.clone(),
@@ -1132,7 +1138,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                     NetworkViewClientResponses::ChainInfo {
                         genesis_id: GenesisId {
                             chain_id: self.config.chain_id.clone(),
-                            hash: *self.chain.genesis().hash(),
+                            hash: self.chain.genesis().hash().clone(),
                         },
                         height: self.chain.genesis().height(),
                         tracked_shards: self.config.tracked_shards.clone(),
@@ -1147,7 +1153,9 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
 
                 let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
                     Ok(true) => {
-                        let header = match self.chain.get_state_response_header(shard_id, sync_hash)
+                        let header = match self
+                            .chain
+                            .get_state_response_header(shard_id, sync_hash.clone())
                         {
                             Ok(header) => Some(header),
                             Err(e) => {
@@ -1223,10 +1231,11 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 trace!(target: "sync", "Computing state request part {} {} {}", shard_id, sync_hash, part_id);
                 let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
                     Ok(true) => {
-                        let part = match self
-                            .chain
-                            .get_state_response_part(shard_id, part_id, sync_hash)
-                        {
+                        let part = match self.chain.get_state_response_part(
+                            shard_id,
+                            part_id,
+                            sync_hash.clone(),
+                        ) {
                             Ok(part) => Some((part_id, part)),
                             Err(e) => {
                                 error!(target: "sync", "Cannot build sync part #{:?} (get_state_response_part): {}", part_id, e);

@@ -38,17 +38,19 @@ fn add_blocks(
     let mut prev = &blocks[blocks.len() - 1];
     let mut block_merkle_tree = PartialMerkleTree::default();
     for block in blocks.iter() {
-        block_merkle_tree.insert(*block.hash());
+        block_merkle_tree.insert(block.hash().clone());
     }
     for _ in 0..num {
         let epoch_id = match prev.header().height() + 1 {
             height if height <= epoch_length => EpochId::default(),
-            height => {
-                EpochId(*blocks[(((height - 1) / epoch_length - 1) * epoch_length) as usize].hash())
-            }
+            height => EpochId(
+                blocks[(((height - 1) / epoch_length - 1) * epoch_length) as usize].hash().clone(),
+            ),
         };
         let next_epoch_id = EpochId(
-            *blocks[(((prev.header().height()) / epoch_length) * epoch_length) as usize].hash(),
+            blocks[(((prev.header().height()) / epoch_length) * epoch_length) as usize]
+                .hash()
+                .clone(),
         );
         #[cfg(feature = "protocol_feature_chunk_only_producers")]
         let next_bp_hash = Chain::compute_collection_hash(vec![ValidatorStake::new(
@@ -77,7 +79,7 @@ fn add_blocks(
             None,
             vec![Some(
                 Approval::new(
-                    *prev.hash(),
+                    prev.hash().clone(),
                     prev.header().height(),
                     prev.header().height() + 1,
                     signer,
@@ -94,7 +96,7 @@ fn add_blocks(
             next_bp_hash,
             block_merkle_tree.root(),
         );
-        block_merkle_tree.insert(*block.hash());
+        block_merkle_tree.insert(block.hash().clone());
         let _ = client.do_send(NetworkClientMessages::Block(
             block.clone(),
             PeerInfo::random().id,
@@ -259,7 +261,7 @@ fn sync_state_stake_change() {
             let nearcore::NearNode { client: client1, view_client: view_client1, .. } =
                 start_with_config(dir1.path(), near1.clone());
 
-            let genesis_hash = *genesis_block(&genesis).hash();
+            let genesis_hash = genesis_block(&genesis).hash().clone();
             let signer = Arc::new(InMemorySigner::from_seed(
                 "test1".parse().unwrap(),
                 KeyType::ED25519,

@@ -214,7 +214,7 @@ impl Default for ChunkForwardingTestFixture {
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
         let (mock_chunk, mock_merkles) = producer_shard_manager
             .create_encoded_shard_chunk(
-                mock_parent_hash,
+                mock_parent_hash.clone(),
                 Default::default(),
                 Default::default(),
                 mock_height,

@@ -101,7 +101,7 @@ impl GenesisStateApplier {
         genesis: &Genesis,
         batch_account_ids: HashSet<&AccountId>,
     ) {
-        let mut state_update = tries.new_trie_update(shard_uid, *current_state_root);
+        let mut state_update = tries.new_trie_update(shard_uid, current_state_root.clone());
         let mut postponed_receipts: Vec<Receipt> = vec![];
 
         let mut storage_computer = StorageComputer::new(config);
@@ -171,7 +171,7 @@ impl GenesisStateApplier {
             // Logic similar to `apply_receipt`
             let mut pending_data_count: u32 = 0;
             for data_id in &action_receipt.input_data_ids {
-                if get_received_data(&state_update, account_id, *data_id)
+                if get_received_data(&state_update, account_id, data_id.clone())
                     .expect("Genesis storage error")
                     .is_none()
                 {
@@ -180,7 +180,7 @@ impl GenesisStateApplier {
                         &mut state_update,
                         TrieKey::PostponedReceiptId {
                             receiver_id: account_id.clone(),
-                            data_id: *data_id,
+                            data_id: data_id.clone(),
                         },
                         &receipt.receipt_id,
                     )
@@ -193,7 +193,7 @@ impl GenesisStateApplier {
                     &mut state_update,
                     TrieKey::PendingDataCount {
                         receiver_id: account_id.clone(),
-                        receipt_id: receipt.receipt_id,
+                        receipt_id: receipt.receipt_id.clone(),
                     },
                     &pending_data_count,
                 );
@@ -221,7 +221,7 @@ impl GenesisStateApplier {
         tries: &mut ShardTries,
         shard_uid: ShardUId,
     ) {
-        let mut state_update = tries.new_trie_update(shard_uid, *current_state_root);
+        let mut state_update = tries.new_trie_update(shard_uid, current_state_root.clone());
 
         if delayed_receipts_indices != DelayedReceiptIndices::default() {
             set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
