@@ -1312,7 +1312,7 @@ name = "delay-detector"
 version = "0.0.0"
 dependencies = [
  "cpu-time",
- "log",
+ "tracing",
 ]
 
 [[package]]
@@ -2172,7 +2172,6 @@ dependencies = [
  "hex",
  "hyper",
  "lazy_static",
- "log",
  "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
@@ -2678,10 +2677,10 @@ dependencies = [
  "chrono",
  "failure",
  "failure_derive",
- "log",
  "near-crypto",
  "near-primitives",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -2693,7 +2692,6 @@ dependencies = [
  "cached",
  "chrono",
  "futures",
- "log",
  "near-chain",
  "near-chunks-primitives",
  "near-crypto",
@@ -2705,6 +2703,7 @@ dependencies = [
  "near-store",
  "rand 0.7.3",
  "reed-solomon-erasure",
+ "tracing",
 ]
 
 [[package]]
@@ -2726,7 +2725,6 @@ dependencies = [
  "chrono",
  "delay-detector",
  "futures",
- "log",
  "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
@@ -2751,6 +2749,7 @@ dependencies = [
  "strum",
  "sysinfo",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -2804,7 +2803,6 @@ dependencies = [
  "borsh 0.9.1",
  "cached",
  "chrono",
- "log",
  "near-chain",
  "near-chain-configs",
  "near-crypto",
@@ -2816,6 +2814,7 @@ dependencies = [
  "rand 0.7.3",
  "serde_json",
  "smart-default",
+ "tracing",
 ]
 
 [[package]]
@@ -2969,8 +2968,8 @@ name = "near-metrics"
 version = "0.0.0"
 dependencies = [
  "lazy_static",
- "log",
  "prometheus",
+ "tracing",
 ]
 
 [[package]]
@@ -3033,13 +3032,13 @@ dependencies = [
  "bytesize",
  "futures",
  "libc",
- "log",
  "near-rust-allocator-proxy",
  "nix",
  "once_cell",
  "strum",
  "tokio",
  "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -3436,7 +3435,6 @@ dependencies = [
  "byteorder",
  "hex",
  "indicatif",
- "log",
  "near-chain-configs",
  "near-crypto",
  "near-metrics",
@@ -4453,7 +4451,6 @@ version = "0.0.0"
 dependencies = [
  "byteorder",
  "libfuzzer-sys",
- "log",
  "near-chain",
  "near-chain-configs",
  "near-client",
@@ -4468,6 +4465,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "testlib",
+ "tracing",
 ]
 
 [[package]]
@@ -5052,7 +5050,6 @@ dependencies = [
  "futures",
  "hex",
  "lazy-static-include",
- "log",
  "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
@@ -5072,6 +5069,7 @@ dependencies = [
  "rand 0.7.3",
  "serde_json",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]

@@ -17,7 +17,6 @@ futures = "0.3"
 hex = "0.4"
 hyper = { version = "0.14", features = ["full"] }
 lazy_static = "1.4"
-log = "0.4"
 primitive-types = "0.10.1"
 rand = "0.7"
 serde = { version = "1", features = ["derive"] }

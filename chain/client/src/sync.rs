@@ -9,9 +9,9 @@ use std::time::Duration as TimeDuration;
 use ansi_term::Color::{Purple, Yellow};
 use chrono::{DateTime, Duration};
 use futures::{future, FutureExt};
-use log::{debug, error, info, warn};
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{thread_rng, Rng};
+use tracing::{debug, error, info, warn};
 
 use near_chain::{Chain, RuntimeAdapter};
 use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter};

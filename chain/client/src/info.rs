@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use actix::Addr;
 use ansi_term::Color::{Blue, Cyan, Green, White, Yellow};
-use log::info;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
+use tracing::info;
 
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_network::types::NetworkInfo;
@@ -133,11 +133,11 @@ impl InfoHelper {
         match self.log_summary_style {
             LogSummaryStyle::Colored => info!(
                 target: "stats", "{} {} {} {} {}",
-                Yellow.bold().paint(sync_status_log),
-                White.bold().paint(validator_info_log),
-                Cyan.bold().paint(network_info_log),
-                Green.bold().paint(blocks_info_log),
-                Blue.bold().paint(machine_info_log),
+                Yellow.bold().paint(&sync_status_log),
+                White.bold().paint(&validator_info_log),
+                Cyan.bold().paint(&network_info_log),
+                Green.bold().paint(&blocks_info_log),
+                Blue.bold().paint(&machine_info_log),
             ),
             LogSummaryStyle::Plain => info!(
                 target: "stats", "{} {} {} {} {}",
