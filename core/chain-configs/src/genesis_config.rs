@@ -53,7 +53,7 @@ fn default_protocol_upgrade_stake_threshold() -> Rational {
 }
 
 fn default_shard_layout() -> ShardLayout {
-    ShardLayout::default()
+    ShardLayout::v0_single_shard()
 }
 
 fn default_minimum_stake_ratio() -> Rational {

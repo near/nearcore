@@ -11,6 +11,44 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use std::collections::HashMap;
 
+/// This file implements two data structure `ShardLayout` and `ShardUId`
+///
+/// `ShardLayout`
+/// A versioned struct that contains all information needed to assign accounts
+/// to shards. Because of re-sharding, the chain may use different shard layout to
+/// split shards at different times.
+/// Currently, `ShardLayout` is stored as part of `EpochConfig`, which is generated each epoch
+/// given the epoch protocol version.
+/// In mainnet/testnet, we use two shard layouts since re-sharding has only happened once.
+/// It is stored as part of genesis config, see default_simple_nightshade_shard_layout()
+/// Below is an overview for some important functionalities of ShardLayout interface.
+///
+/// `version`
+/// `ShardLayout` has a version number. The version number should increment as when sharding changes.
+/// This guarantees the version number is unique across different shard layouts, which in turn guarantees
+/// `ShardUId` is different across shards from different shard layouts, as `ShardUId` includes
+/// `version` and `shard_id`
+///
+/// `get_parent_shard_id` and `get_split_shard_ids`
+/// `ShardLayout` also includes information needed for splitting shards. In particular, it encodes
+/// which shards from the previous shard layout split to which shards in the following shard layout.
+/// We only allow adding new shards that are split from the existing shards.
+/// If shard B and C are split from shard A, we call shard A the parent shard of shard B and C.
+/// Parent/split shard information can be accessed through function
+///
+/// `account_id_to_shard_id`
+///  Maps an account to the shard that it belongs to given a shard_layout
+///
+/// `ShardUId`
+/// `ShardUId` is a unique representation for shards from different shard layouts.  
+/// Comparing to `ShardId`, which is just an ordinal number ranging from 0 to NUM_SHARDS-1,
+/// `ShardUId` provides a way to unique identify shards when shard layouts may change across epochs.
+/// This is important because we store states indexed by shards in our database, so we need a
+/// way to unique identify shard even when shards change across epochs.
+/// Another difference between `ShardUId` and `ShardId` is that `ShardUId` should only exist in
+/// a node's internal state while `ShardId` can be exposed to outside APIs and used in protocol
+/// level information (for example, `ShardChunkHeader` contains `ShardId` instead of `ShardUId`)
+
 pub type ShardVersion = u32;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -19,8 +57,13 @@ pub enum ShardLayout {
     V1(ShardLayoutV1),
 }
 
+/// A shard layout that maps accounts evenly across all shards -- by calculate the hash of account
+/// id and mod number of shards. This is added to capture the old `account_id_to_shard_id` algorithm,
+/// to keep backward compatibility for some existing tests.
+/// `parent_shards` for `ShardLayoutV1` is always `None`, meaning it can only be the first shard layout
+/// a chain uses.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct ShardLayoutV0 {
+struct ShardLayoutV0 {
     /// Map accounts evenly across all shards
     num_shards: NumShards,
     /// Version of the shard layout, this is useful for uniquely identify the shard layout
@@ -34,7 +77,7 @@ pub struct ShardLayoutV0 {
 type ShardSplitMap = Vec<Vec<ShardId>>;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct ShardLayoutV1 {
+struct ShardLayoutV1 {
     /// num_shards = fixed_shards.len() + boundary_accounts.len() + 1
     /// Each account and all sub-accounts map to the shard of position in this array.
     fixed_shards: Vec<AccountId>,
@@ -57,7 +100,8 @@ pub enum ShardLayoutError {
 }
 
 impl ShardLayout {
-    pub fn default() -> Self {
+    /* Some constructors */
+    pub fn v0_single_shard() -> Self {
         Self::v0(1, 0)
     }
 
@@ -176,8 +220,6 @@ impl ShardLayout {
 ///     Account "aurora" and all its sub-accounts will be mapped to shard_id 0.
 ///     For the rest of accounts, accounts <= "near" will be mapped to shard_id 1 and
 ///     accounts > "near" will be mapped shard_id 2.
-///  TODO: verify with aurora that whether the aurora shard should include all sub-accounts of
-///        "aurora" as well.
 pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardId {
     match shard_layout {
         ShardLayout::V0(ShardLayoutV0 { num_shards, .. }) => {
@@ -225,7 +267,7 @@ pub struct ShardUId {
 }
 
 impl ShardUId {
-    pub fn default() -> Self {
+    pub fn single_shard() -> Self {
         Self { version: 0, shard_id: 0 }
     }
 
