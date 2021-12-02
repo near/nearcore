@@ -62,7 +62,6 @@ steps:
     command: |
       source ~/.cargo/env && set -eux
       source ~/.nvm/nvm.sh
-      source ~/.yarn/yarn.sh
       rustup default nightly-2020-05-15
       rustup target add wasm32-unknown-unknown
       scripts/test_nearlib.sh
