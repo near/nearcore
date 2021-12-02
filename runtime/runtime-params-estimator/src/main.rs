@@ -72,6 +72,18 @@ fn main() -> anyhow::Result<()> {
 
     let cli_args = CliArgs::parse();
 
+    // TODO: consider implementing the same in Rust to reduce complexity.
+    // Good example: runtime/near-test-contracts/build.rs
+    if !cli_args.skip_build_test_contract {
+        let build_test_contract = "./build.sh";
+        let project_root = project_root();
+        let estimator_dir = project_root.join("runtime/runtime-params-estimator/test-contract");
+        std::process::Command::new(build_test_contract)
+            .current_dir(estimator_dir)
+            .output()
+            .context("could not build test contract")?;
+    }
+
     let temp_dir;
     let state_dump_path = match cli_args.home {
         Some(it) => it,
@@ -119,18 +131,6 @@ fn main() -> anyhow::Result<()> {
             state_dump_path
         }
     };
-
-    // TODO: consider implementing the same in Rust to reduce complexity.
-    // Good example: runtime/near-test-contracts/build.rs
-    if !cli_args.skip_build_test_contract {
-        let build_test_contract = "./build.sh";
-        let project_root = project_root();
-        let estimator_dir = project_root.join("runtime/runtime-params-estimator/test-contract");
-        std::process::Command::new(build_test_contract)
-            .current_dir(estimator_dir)
-            .output()
-            .context("could not build test contract")?;
-    }
 
     if cli_args.docker {
         return main_docker(&state_dump_path, cli_args.full, cli_args.docker_shell);
