@@ -1,8 +1,5 @@
-mod fixtures;
-mod vm_logic_builder;
-use vm_logic_builder::VMLogicBuilder;
-
-use near_vm_logic::VMContext;
+use crate::tests::vm_logic_builder::VMLogicBuilder;
+use crate::VMContext;
 
 pub fn create_context() -> VMContext {
     VMContext {
