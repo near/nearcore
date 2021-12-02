@@ -6,11 +6,14 @@ macro_rules! imports {
         $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >,)*
     ) => {
         macro_rules! for_each_import {
-            ($M:ident) => {$(
-                $M!(
-                    $(#[$stable_feature])? $(#[$feature_name, $feature])*
-                    $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >
-                );
+            ($protocol_version:ident, $M:ident) => {$(
+                $(#[cfg(feature = $feature_name)])*
+                if true
+                    $(&& near_primitives::checked_feature!($feature_name, $feature, $protocol_version))*
+                    $(&& near_primitives::checked_feature!("stable", $stable_feature, $protocol_version))?
+                {
+                    $M!($func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >);
+                }
             )*}
         }
     }
@@ -197,28 +200,24 @@ pub(crate) mod wasmer {
 
         macro_rules! add_import {
             (
-              $(#[$stable_feature:ident])? $(#[$feature_name:literal, $feature:ident])*
               $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
             ) => {
-                $(#[cfg(feature = $feature_name)])*
-                if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* $(&& near_primitives::checked_feature!("stable", $stable_feature, protocol_version))? {
-                    #[allow(unused_parens)]
-                    fn $func( ctx: &mut wasmer_runtime::Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*), VMLogicError> {
-                        const IS_GAS: bool = str_eq(stringify!($func), "gas");
-                        let _span = if IS_GAS {
-                            None
-                        } else {
-                            Some(tracing::debug_span!(target: "host-function", stringify!($func)).entered())
-                        };
-                        let logic: &mut VMLogic<'_> = unsafe { &mut *(ctx.data as *mut VMLogic<'_>) };
-                        logic.$func( $( $arg_name, )* )
-                    }
-
-                    ns.insert(stringify!($func), wasmer_runtime::func!($func));
+                #[allow(unused_parens)]
+                fn $func( ctx: &mut wasmer_runtime::Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*), VMLogicError> {
+                    const IS_GAS: bool = str_eq(stringify!($func), "gas");
+                    let _span = if IS_GAS {
+                        None
+                    } else {
+                        Some(tracing::debug_span!(target: "host-function", stringify!($func)).entered())
+                    };
+                    let logic: &mut VMLogic<'_> = unsafe { &mut *(ctx.data as *mut VMLogic<'_>) };
+                    logic.$func( $( $arg_name, )* )
                 }
+
+                ns.insert(stringify!($func), wasmer_runtime::func!($func));
             };
         }
-        for_each_import!(add_import);
+        for_each_import!(protocol_version, add_import);
 
         import_object.register("env", ns);
         import_object
@@ -253,28 +252,24 @@ pub(crate) mod wasmer2 {
 
         macro_rules! add_import {
             (
-              $(#[$stable_feature:ident])? $(#[$feature_name:literal, $feature:ident])*
               $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
             ) => {
-                $(#[cfg(feature = $feature_name)])*
-                if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* $(&& near_primitives::checked_feature!("stable", $stable_feature, protocol_version))? {
-                    #[allow(unused_parens)]
-                    fn $func(env: &NearWasmerEnv, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*), VMLogicError> {
-                        const IS_GAS: bool = str_eq(stringify!($func), "gas");
-                        let _span = if IS_GAS {
-                            None
-                        } else {
-                            Some(tracing::debug_span!(target: "host-function", stringify!($func)).entered())
-                        };
-                        let logic: &mut VMLogic = unsafe { &mut *(env.logic.0 as *mut VMLogic<'_>) };
-                        logic.$func( $( $arg_name, )* )
-                    }
-
-                    namespace.insert(stringify!($func), wasmer::Function::new_native_with_env(&store, env.clone(), $func));
+                #[allow(unused_parens)]
+                fn $func(env: &NearWasmerEnv, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*), VMLogicError> {
+                    const IS_GAS: bool = str_eq(stringify!($func), "gas");
+                    let _span = if IS_GAS {
+                        None
+                    } else {
+                        Some(tracing::debug_span!(target: "host-function", stringify!($func)).entered())
+                    };
+                    let logic: &mut VMLogic = unsafe { &mut *(env.logic.0 as *mut VMLogic<'_>) };
+                    logic.$func( $( $arg_name, )* )
                 }
+
+                namespace.insert(stringify!($func), wasmer::Function::new_native_with_env(&store, env.clone(), $func));
             };
         }
-        for_each_import!(add_import);
+        for_each_import!(protocol_version, add_import);
 
         import_object.register("env", namespace);
         import_object
@@ -321,43 +316,39 @@ pub(crate) mod wasmtime {
 
         macro_rules! add_import {
             (
-              $(#[$stable_feature:ident])? $(#[$feature_name:literal, $feature:ident])*
               $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
             ) => {
-                $(#[cfg(feature = $feature_name)])*
-                if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* $(&& near_primitives::checked_feature!("stable", $stable_feature, protocol_version))? {
-                    #[allow(unused_parens)]
-                    fn $func( $( $arg_name: rust2wasm!($arg_type) ),* ) -> Result<($( rust2wasm!($returns)),*), wasmtime::Trap> {
-                        const IS_GAS: bool = str_eq(stringify!($func), "gas");
-                        let _span = if IS_GAS {
-                            None
-                        } else {
-                            Some(tracing::debug_span!(target: "host-function", stringify!($func)).entered())
-                        };
-                        let data = CALLER_CONTEXT.with(|caller_context| {
-                            unsafe {
-                                *caller_context.get()
-                            }
-                        });
-                        let logic: &mut VMLogic<'_> = unsafe { &mut *(data as *mut VMLogic<'_>) };
-                        match logic.$func( $( $arg_name as $arg_type, )* ) {
-                            Ok(result) => Ok(result as ($( rust2wasm!($returns) ),* ) ),
-                            Err(err) => {
-                                // Wasmtime doesn't have proper mechanism for wrapping custom errors
-                                // into traps. So, just store error into TLS and use special exit code here.
-                                EMBEDDER_ERROR.with(|embedder_error| {
-                                    *embedder_error.borrow_mut() = Some(err)
-                                });
-                                Err(wasmtime::Trap::i32_exit(239))
-                            }
+                #[allow(unused_parens)]
+                fn $func( $( $arg_name: rust2wasm!($arg_type) ),* ) -> Result<($( rust2wasm!($returns)),*), wasmtime::Trap> {
+                    const IS_GAS: bool = str_eq(stringify!($func), "gas");
+                    let _span = if IS_GAS {
+                        None
+                    } else {
+                        Some(tracing::debug_span!(target: "host-function", stringify!($func)).entered())
+                    };
+                    let data = CALLER_CONTEXT.with(|caller_context| {
+                        unsafe {
+                            *caller_context.get()
+                        }
+                    });
+                    let logic: &mut VMLogic<'_> = unsafe { &mut *(data as *mut VMLogic<'_>) };
+                    match logic.$func( $( $arg_name as $arg_type, )* ) {
+                        Ok(result) => Ok(result as ($( rust2wasm!($returns) ),* ) ),
+                        Err(err) => {
+                            // Wasmtime doesn't have proper mechanism for wrapping custom errors
+                            // into traps. So, just store error into TLS and use special exit code here.
+                            EMBEDDER_ERROR.with(|embedder_error| {
+                                *embedder_error.borrow_mut() = Some(err)
+                            });
+                            Err(wasmtime::Trap::i32_exit(239))
                         }
                     }
-
-                    linker.func("env", stringify!($func), $func).expect("cannot link external");
                 }
+
+                linker.func("env", stringify!($func), $func).expect("cannot link external");
             };
         }
-        for_each_import!(add_import);
+        for_each_import!(protocol_version, add_import);
     }
 
     pub(crate) fn last_error() -> Option<near_vm_logic::VMLogicError> {
