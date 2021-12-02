@@ -379,15 +379,13 @@ class LocalNode(BaseNode):
         env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get(
             "RUST_LOG", "debug")
 
-        self.stdout_name = os.path.join(self.node_dir, 'stdout')
-        self.stderr_name = os.path.join(self.node_dir, 'stderr')
-        self.stdout = open(self.stdout_name, 'a')
-        self.stderr = open(self.stderr_name, 'a')
+        self._stdout = open(os.path.join(self.node_dir, 'stdout'), 'a')
+        self._stderr = open(os.path.join(self.node_dir, 'stderr'), 'a')
         cmd = self._get_command_line(self.near_root, self.node_dir, boot_node,
                                      self.binary_name)
         self.pid.value = subprocess.Popen(cmd,
-                                          stdout=self.stdout,
-                                          stderr=self.stderr,
+                                          stdout=self._stdout,
+                                          stderr=self._stderr,
                                           env=env).pid
 
         if not skip_starting_proxy:
@@ -398,13 +396,17 @@ class LocalNode(BaseNode):
         except:
             logger.error(
                 '=== failed to start node, rpc does not ready in 10 seconds')
-            self.stdout.close()
-            self.stderr.close()
             if os.environ.get('BUILDKITE'):
                 logger.info('=== stdout: ')
-                logger.info(open(self.stdout_name).read())
+                self._stdout.seek(0)
+                logger.info(self._stdout.read())
                 logger.info('=== stderr: ')
-                logger.info(open(self.stderr_name).read())
+                self._stderr.seek(0)
+                logger.info(self._stdout.read())
+            self._stdout.close()
+            self._stderr.close()
+            self._stdout = None
+            self._stderr = None
 
     def kill(self):
         if self.pid.value != 0:
@@ -438,6 +440,12 @@ class LocalNode(BaseNode):
             self.kill()
         except:
             logger.critical('Kill failed on cleanup!', exc_info=sys.exc_info())
+
+        if self._stdout:
+            self._stdout.close()
+            self._stderr.close()
+            self._stdout = None
+            self._stderr = None
 
         # move the node dir to avoid weird interactions with multiple serial test invocations
         target_path = self.node_dir + '_finished'
