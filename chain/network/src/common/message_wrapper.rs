@@ -17,8 +17,8 @@ pub struct ActixMessageWrapper<T> {
 }
 
 impl<T> ActixMessageWrapper<T> {
-    pub fn new_without_size(msg: T, throttle_controller: ThrottleController) -> Self {
-        Self { msg, throttle_token: ThrottleToken::new(throttle_controller, 0) }
+    pub fn new_without_size(msg: T, throttle_controller: Option<ThrottleController>) -> Self {
+        Self { msg, throttle_token: ThrottleToken::new_without_size(throttle_controller) }
     }
 
     #[allow(unused)]
