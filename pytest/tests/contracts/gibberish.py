@@ -1,11 +1,13 @@
+#!/usr/bin/env python3
 # Experiments with deploying gibberish contracts. Specifically,
 # 1. Deploys completely gibberish contracts
 # 2. Gets an existing wasm contract, and tries to arbitrarily pertrurb bytes in it
 
 import sys, time, random
 import base58
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from cluster import start_cluster
 from configured_logger import logger
 from transaction import sign_deploy_contract_tx, sign_function_call_tx

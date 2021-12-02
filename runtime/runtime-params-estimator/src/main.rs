@@ -7,8 +7,8 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::create_store;
 use near_vm_runner::internal::VMKind;
 use nearcore::{get_store_path, load_config};
-use runtime_params_estimator::cases::run;
 use runtime_params_estimator::costs_to_runtime_config;
+use runtime_params_estimator::read_resource;
 use runtime_params_estimator::testbed_runners::Config;
 use runtime_params_estimator::testbed_runners::GasMetric;
 use runtime_params_estimator::CostTable;
@@ -48,9 +48,6 @@ struct CliArgs {
     /// Which VM to test.
     #[clap(long, possible_values = &["wasmer", "wasmer2", "wasmtime"])]
     vm_kind: Option<String>,
-    /// Only test contract compilation costs.
-    #[clap(long)]
-    compile_only: bool,
     /// Render existing `costs.txt` as `RuntimeConfig`.
     #[clap(long)]
     costs_file: Option<PathBuf>,
@@ -75,11 +72,29 @@ fn main() -> anyhow::Result<()> {
 
     let cli_args = CliArgs::parse();
 
+    // TODO: consider implementing the same in Rust to reduce complexity.
+    // Good example: runtime/near-test-contracts/build.rs
+    if !cli_args.skip_build_test_contract {
+        let build_test_contract = "./build.sh";
+        let project_root = project_root();
+        let estimator_dir = project_root.join("runtime/runtime-params-estimator/test-contract");
+        std::process::Command::new(build_test_contract)
+            .current_dir(estimator_dir)
+            .output()
+            .context("could not build test contract")?;
+    }
+
     let temp_dir;
     let state_dump_path = match cli_args.home {
         Some(it) => it,
         None => {
             temp_dir = tempfile::tempdir()?;
+
+            let contract_code = read_resource(if cfg!(feature = "nightly_protocol_features") {
+                "test-contract/res/nightly_small_contract.wasm"
+            } else {
+                "test-contract/res/stable_small_contract.wasm"
+            });
 
             let state_dump_path = temp_dir.path().to_path_buf();
             nearcore::init_configs(
@@ -106,7 +121,7 @@ fn main() -> anyhow::Result<()> {
                 store,
             )
             .add_additional_accounts(cli_args.additional_accounts_num)
-            .add_additional_accounts_contract(near_test_contracts::tiny_contract().to_vec())
+            .add_additional_accounts_contract(contract_code)
             .print_progress()
             .build()
             .unwrap()
@@ -116,18 +131,6 @@ fn main() -> anyhow::Result<()> {
             state_dump_path
         }
     };
-
-    // TODO: consider implementing the same in Rust to reduce complexity.
-    // Good example: runtime/near-test-contracts/build.rs
-    if !cli_args.skip_build_test_contract {
-        let build_test_contract = "./build.sh";
-        let project_root = project_root();
-        let estimator_dir = project_root.join("runtime/runtime-params-estimator/test-contract");
-        std::process::Command::new(build_test_contract)
-            .current_dir(estimator_dir)
-            .output()
-            .context("could not build test contract")?;
-    }
 
     if cli_args.docker {
         return main_docker(&state_dump_path, cli_args.full, cli_args.docker_shell);
@@ -173,19 +176,17 @@ fn main() -> anyhow::Result<()> {
     let metrics_to_measure =
         cli_args.metrics_to_measure.map(|it| it.split(',').map(str::to_string).collect());
 
-    let cost_table = run(
-        Config {
-            warmup_iters_per_block,
-            iter_per_block,
-            active_accounts,
-            block_sizes: vec![],
-            state_dump_path: state_dump_path.clone(),
-            metric,
-            vm_kind,
-            metrics_to_measure,
-        },
-        cli_args.compile_only,
-    );
+    let config = Config {
+        warmup_iters_per_block,
+        iter_per_block,
+        active_accounts,
+        block_sizes: vec![],
+        state_dump_path: state_dump_path.clone(),
+        metric,
+        vm_kind,
+        metrics_to_measure,
+    };
+    let cost_table = runtime_params_estimator::run(config);
 
     let output_path = {
         let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);

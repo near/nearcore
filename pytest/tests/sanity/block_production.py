@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up four nodes, and waits until they produce 50 blocks.
 # Ensures that the nodes remained in sync throughout the process
 # Sets epoch length to 10
@@ -10,8 +11,9 @@
 # Same for all tests that call start_cluster with a None config
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger

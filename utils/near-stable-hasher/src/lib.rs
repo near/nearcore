@@ -21,3 +21,19 @@ impl Hasher for StableHasher {
         self.0.write(bytes)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::StableHasher;
+    use std::hash::Hasher;
+
+    /// Make sure the stable hasher never changes
+    #[test]
+    fn test_stable_hasher() {
+        let mut sh = StableHasher::new();
+
+        sh.write(&[1, 2, 3, 4, 5]);
+        let finish = sh.finish();
+        assert_eq!(finish, 12661990674860217757)
+    }
+}

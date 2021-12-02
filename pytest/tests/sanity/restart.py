@@ -1,10 +1,12 @@
+#!/usr/bin/env python3
 # Spins up two nodes, and waits until they produce 20 blocks.
 # Kills the nodes, restarts them, makes sure they produce 20 more blocks
 # Sets epoch length to 10
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
