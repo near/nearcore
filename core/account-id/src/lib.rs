@@ -177,21 +177,14 @@ impl AccountId {
     /// ## Examples
     ///
     /// ```
-    /// use near_account_id::AccountId;
+    /// use near_account_id::{AccountId, ParseErrorKind};
     ///
     /// assert!(AccountId::validate("alice.near").is_ok());
     ///
     /// assert!(
     ///   matches!(
-    ///     AccountId::validate("ƒelicia.near"), // fancy ƒ!
-    ///     Err(err) if err.kind().is_invalid()
-    ///   )
-    /// );
-    ///
-    /// assert!(
-    ///   matches!(
     ///     AccountId::validate("MelissaCarver.near"), // no caps
-    ///     Err(err) if err.kind().is_invalid()
+    ///     Err(err) if err.kind() == &ParseErrorKind::Invalid
     ///   )
     /// );
     /// ```
