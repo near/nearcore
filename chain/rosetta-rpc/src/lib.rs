@@ -79,7 +79,7 @@ async fn network_list(
         .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     Ok(Json(models::NetworkListResponse {
         network_identifiers: vec![models::NetworkIdentifier {
-            blockchain: BLOCKCHAIN.to_owned(),
+            blockchain: BLOCKCHAIN.to_string(),
             network: status.chain_id,
             sub_network_identifier: None,
         }],
