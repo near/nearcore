@@ -4,7 +4,6 @@ This crate provides a type for representing a valid, unique account identifier o
 
 [![crates.io](https://img.shields.io/crates/v/near-account-id?label=latest)](https://crates.io/crates/near-account-id)
 [![Documentation](https://docs.rs/near-account-id/badge.svg)](https://docs.rs/near-account-id)
-[![Version](https://img.shields.io/badge/rustc-1.56+-ab6000.svg)](https://blog.rust-lang.org/2021/10/21/Rust-1.56.0.html)
 ![MIT or Apache 2.0 licensed](https://img.shields.io/crates/l/near-account-id.svg)
 
 ## Usage
