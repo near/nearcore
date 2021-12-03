@@ -12,40 +12,12 @@ This crate provides a type for representing a valid, unique account identifier o
 ```rust
 use near_account_id::AccountId;
 
-let alice: AccountId = "alice.near".parse().unwrap();
+let alice: AccountId = "alice.near".parse()?;
 
-// Basic reports for why validation failed
-assert!(
-  matches!(
-    "z".parse::<AccountId>(),
-    Err(err) if err.kind().is_too_short()
-  )
-);
-
-assert!(
-  matches!(
-    // no caps
-    "MelissaCarver.near".parse::<AccountId>(),
-    Err(err) if err.kind().is_invalid()
-  )
-);
-
-assert!(
-  matches!(
-    // separators cannot immediately follow each other
-    "bob__carol".parse::<AccountId>(),
-    Err(err) if err.kind().is_invalid()
-  )
-);
-
-assert!(
-  matches!(
-    // each part must be alphanumeric only (ƒ is not f)
-    "ƒelicia.near".parse::<AccountId>(),
-    Err(err) if err.kind().is_invalid()
-  )
-);
+assert!("ƒelicia.near".parse::<AccountId>().is_err()); // (ƒ is not f)
 ```
+
+See the [docs](https://docs.rs/near-account-id) for more information.
 
 ## Account ID Rules
 
