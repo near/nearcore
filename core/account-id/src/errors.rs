@@ -1,6 +1,6 @@
 use std::fmt;
 
-/// An error which can be returned when parsing an Account ID.
+/// An error which can be returned when parsing a NEAR Account ID.
 #[derive(Eq, Clone, Debug, PartialEq)]
 pub struct ParseAccountError(pub(crate) ParseErrorKind);
 
