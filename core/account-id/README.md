@@ -5,7 +5,7 @@ This crate provides a type for representing a valid, unique account identifier o
 [![crates.io](https://img.shields.io/crates/v/near-account-id?label=latest)](https://crates.io/crates/near-account-id)
 [![Documentation](https://docs.rs/near-account-id/badge.svg)](https://docs.rs/near-account-id)
 [![Version](https://img.shields.io/badge/rustc-1.56+-ab6000.svg)](https://blog.rust-lang.org/2021/10/21/Rust-1.56.0.html)
-[![Apache 2.0 licensed](https://img.shields.io/crates/l/near-account-id.svg)](https://github.com/near/nearcore/blob/master/licenses/LICENSE-APACHE)
+![MIT or Apache 2.0 licensed](https://img.shields.io/crates/l/near-account-id.svg)
 
 ## Usage
 
@@ -67,3 +67,20 @@ assert!(
 - An **Account ID** that is 64 characters long and consists of lowercase hex characters is a specific **implicit account ID**
 
 Learn more here: <https://docs.near.org/docs/concepts/account#account-id-rules>
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0
+   ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license
+   ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+
+at your option.
+
+## Contribution
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
+dual licensed as above, without any additional terms or conditions.
