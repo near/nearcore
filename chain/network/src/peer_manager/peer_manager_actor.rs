@@ -301,12 +301,18 @@ impl PeerManagerActor {
             .map(move |response, act, ctx| match response {
                 Ok(RoutingTableMessagesResponse::AddVerifiedEdgesResponse(filtered_edges)) => {
                     // Broadcast new edges to all other peers.
-                    if broadcast_edges && act.adv_helper.can_broadcast_edges() {
-                        let new_data =
-                            SyncData { edges: filtered_edges, accounts: Default::default() };
+                    if broadcast_edges
+                        && !filtered_edges.is_empty()
+                        && act.adv_helper.can_broadcast_edges()
+                    {
                         act.broadcast_message(
                             ctx,
-                            SendMessage { message: PeerMessage::RoutingTableSync(new_data) },
+                            SendMessage {
+                                message: PeerMessage::RoutingTableSync(SyncData {
+                                    edges: filtered_edges,
+                                    accounts: Default::default(),
+                                }),
+                            },
                         )
                     }
                 }
