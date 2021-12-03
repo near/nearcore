@@ -21,9 +21,6 @@ pub const DB_VERSION: DbVersion = 30;
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
 
-/// Oldest supported version by this client.
-pub const OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION: ProtocolVersion = 34;
-
 /// Minimum gas price proposed in NEP 92 and the associated protocol version
 pub const MIN_GAS_PRICE_NEP_92: Balance = 1_000_000_000;
 pub const MIN_PROTOCOL_VERSION_NEP_92: ProtocolVersion = 31;
@@ -142,15 +139,23 @@ pub enum ProtocolFeature {
     RoutingExchangeAlgorithm,
 }
 
-/// Current latest stable version of the protocol.
+/// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
+/// protocol version is lower than this.
+pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = MAIN_NET_PROTOCOL_VERSION - 1;
+
+/// Current protocol version used on the main net.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-#[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 50;
+const MAIN_NET_PROTOCOL_VERSION: ProtocolVersion = 50;
 
 /// Current latest nightly version of the protocol.
+const TEST_NET_PROTOCOL_VERSION: ProtocolVersion = 125;
+
+/// Version used by this binary.
+#[cfg(not(feature = "nightly_protocol"))]
+pub const PROTOCOL_VERSION: ProtocolVersion = MAIN_NET_PROTOCOL_VERSION;
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 125;
+pub const PROTOCOL_VERSION: ProtocolVersion = TEST_NET_PROTOCOL_VERSION;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
