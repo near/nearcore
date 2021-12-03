@@ -78,7 +78,7 @@ impl Decoder for Codec {
             return Ok(None);
         }
 
-        let len = buf.get_u32_le();
+        let len = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
         if len > NETWORK_MESSAGE_MAX_SIZE_BYTES {
             // If this point is reached, abusive peer is banned.
             return Ok(Some(Err(ReasonForBan::Abusive)));
