@@ -482,7 +482,7 @@ impl PeerManagerActor {
         peer_type: PeerType,
         addr: Addr<PeerActor>,
         ctx: &mut Context<Self>,
-        throttle_controller: Option<ThrottleController>,
+        throttle_controller: ThrottleController,
     ) {
         let throttle_controller_clone = throttle_controller.clone();
         near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act, ctx| {
@@ -490,12 +490,17 @@ impl PeerManagerActor {
                 act.routing_table_addr
                     .send(ActixMessageWrapper::new_without_size(
                         RoutingTableMessages::AddPeerIfMissing(peer_id, None),
-                        throttle_controller,
+                        Some(throttle_controller),
                     ))
                     .into_actor(act)
                     .map(move |response, act, ctx| match response.map(|x| x.into_inner()) {
                         Ok(RoutingTableMessagesResponse::AddPeerResponse { seed }) => act
-                            .start_routing_table_syncv2(ctx, addr, seed, throttle_controller_clone),
+                            .start_routing_table_syncv2(
+                                ctx,
+                                addr,
+                                seed,
+                                Some(throttle_controller_clone),
+                            ),
                         _ => error!(target: "network", "expected AddIbfSetResponse"),
                     })
                     .spawn(ctx);
@@ -540,7 +545,7 @@ impl PeerManagerActor {
         addr: Addr<PeerActor>,
         peer_protocol_version: ProtocolVersion,
         ctx: &mut Context<Self>,
-        throttle_controller: Option<ThrottleController>,
+        throttle_controller: ThrottleController,
     ) {
         #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
         let peer_id = full_peer_info.peer_info.id.clone();
@@ -575,7 +580,7 @@ impl PeerManagerActor {
                 last_time_received_message: Clock::instant(),
                 connection_established_time: Clock::instant(),
                 peer_type,
-                throttle_controller,
+                throttle_controller: throttle_controller.clone(),
             },
         );
 
@@ -601,7 +606,7 @@ impl PeerManagerActor {
             act.routing_table_addr
                 .send(ActixMessageWrapper::new_without_size(
                     RoutingTableMessages::RequestRoutingTable,
-                    throttle_controller,
+                    Some(throttle_controller),
                 ))
                 .into_actor(act)
                 .map(move |response, act, ctx| match response.map(|r| r.into_inner()) {
@@ -1989,7 +1994,7 @@ impl PeerManagerActor {
                 PeerType::Inbound,
                 addr,
                 ctx,
-                throttle_controller,
+                throttle_controller.unwrap(),
             );
         }
     }
@@ -2116,7 +2121,6 @@ impl PeerManagerActor {
         &mut self,
         msg: RegisterPeer,
         ctx: &mut Context<Self>,
-        throttle_controller: Option<ThrottleController>,
     ) -> RegisterPeerResponse {
         #[cfg(feature = "delay_detector")]
         let _d = delay_detector::DelayDetector::new("consolidate".into());
@@ -2194,9 +2198,8 @@ impl PeerManagerActor {
             msg.peer_type,
             msg.actor,
             msg.peer_protocol_version,
-            msg.throttle_controller,
             ctx,
-            throttle_controller,
+            msg.throttle_controller,
         );
 
         RegisterPeerResponse::Accept(edge_info_response)
@@ -2287,11 +2290,9 @@ impl PeerManagerActor {
                 ))
             }
             PeerManagerMessageRequest::RegisterPeer(msg) => {
-                PeerManagerMessageResponse::RegisterPeerResponse(self.handle_msg_register_peer(
-                    msg,
-                    ctx,
-                    throttle_controller,
-                ))
+                PeerManagerMessageResponse::RegisterPeerResponse(
+                    self.handle_msg_register_peer(msg, ctx),
+                )
             }
             PeerManagerMessageRequest::PeersRequest(msg) => {
                 PeerManagerMessageResponse::PeerRequestResult(
