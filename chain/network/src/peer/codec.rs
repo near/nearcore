@@ -13,6 +13,8 @@ use bytesize::{GIB, MIB};
 use near_performance_metrics::framed_write::EncoderCallBack;
 use near_rust_allocator_proxy::allocator::get_tid;
 use std::io::{Error, ErrorKind};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::error;
 
@@ -21,9 +23,22 @@ use tracing::error;
 const NETWORK_MESSAGE_MAX_SIZE_BYTES: u32 = 512 * MIB as u32;
 /// Maximum capacity of write buffer in bytes.
 const MAX_WRITE_BUFFER_CAPACITY_BYTES: usize = GIB as usize;
+/// Maximum number of transaction messages we will accept between block messages.
+/// The purpose of this constant is to ensure we do not spend too much time deserializing and
+/// dispatching transactions when we should be focusing on consensus-related messages.
+const MAX_TRANSACTIONS_PER_BLOCK_MESSAGE: usize = 1000;
 
-#[derive(Default)]
-pub struct Codec {}
+pub struct Codec {
+    /// How many transactions we have received since the last block message
+    /// Note: Shared between multiple Peers.
+    txns_since_last_block: Arc<AtomicUsize>,
+}
+
+impl Codec {
+    pub fn new(txns_since_last_block: Arc<AtomicUsize>) -> Self {
+        Self { txns_since_last_block }
+    }
+}
 
 impl EncoderCallBack for Codec {
     #[allow(unused)]
@@ -71,9 +86,10 @@ impl Encoder<Vec<u8>> for Codec {
 
 #[derive(Debug)]
 pub enum MsgReceived {
-    Decoded(u32, PeerMessage),
+    Decoded(usize, PeerMessage),
     ErrorAbusive,
-    HandshakeFailure(u32, Vec<u8>, std::io::Error),
+    HandshakeFailure(usize, Vec<u8>, std::io::Error),
+    Dropped(usize),
 }
 
 impl Decoder for Codec {
@@ -86,38 +102,49 @@ impl Decoder for Codec {
             return Ok(None);
         }
 
-        let len = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
-        if len > NETWORK_MESSAGE_MAX_SIZE_BYTES {
+        let len = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
+        if len > NETWORK_MESSAGE_MAX_SIZE_BYTES as usize {
             // If this point is reached, abusive peer is banned.
             return Ok(Some(MsgReceived::ErrorAbusive));
         }
 
-        if buf.len() < 4 + len as usize {
+        if buf.len() < 4 + len {
             // not enough bytes, keep waiting
             return Ok(None);
         }
 
-        /*
-        TODO NOT IMPLEMENTED YET.
-        if self.should_we_drop_msg_without_decoding(&msg) {
-            return;
+        if self.should_we_drop_msg_without_decoding(&buf[4..4 + len]) {
+            return Ok(Some(MsgReceived::Dropped(len)));
         }
-         */
 
-        match PeerMessage::try_from_slice(&buf[4..4 + len as usize]) {
+        match PeerMessage::try_from_slice(&buf[4..4 + len]) {
             Ok(peer_msg) => {
-                buf.advance(4 + len as usize);
+                buf.advance(4 + len);
                 Ok(Some(MsgReceived::Decoded(len, peer_msg)))
             }
             Err(err) => {
                 // This may send `HandshakeFailure` to the other peer.
                 //self.handle_peer_message_decode_error(&msg, err);
-                let msg = buf[4..4 + len as usize].to_vec();
+                let msg = buf[4..4 + len].to_vec();
 
-                buf.advance(4 + len as usize);
+                buf.advance(4 + len);
                 Ok(Some(MsgReceived::HandshakeFailure(len, msg, err)))
             }
         }
+    }
+}
+
+impl Codec {
+    /// Check whenever we exceeded number of transactions we got since last block.
+    /// If so, drop the transaction.
+    fn should_we_drop_msg_without_decoding(&self, msg: &[u8]) -> bool {
+        if is_forward_transaction(msg).unwrap_or(false) {
+            let r = self.txns_since_last_block.load(Ordering::Acquire);
+            if r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE {
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -204,13 +231,11 @@ mod test {
     use crate::routing::edge::PartialEdgeInfo;
     use crate::types::{Handshake, HandshakeFailureReason, HandshakeV2, PeerMessage, SyncData};
     use crate::PeerInfo;
-    
     use borsh::BorshSerialize;
     use bytes::{BufMut, BytesMut};
     use near_crypto::{KeyType, PublicKey, SecretKey};
     use near_network_primitives::types::{
-        PeerChainInfo, PeerChainInfoV2, PeerIdOrHash, RoutedMessage,
-        RoutedMessageBody,
+        PeerChainInfo, PeerChainInfoV2, PeerIdOrHash, RoutedMessage, RoutedMessageBody,
     };
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::{self, CryptoHash};
@@ -221,7 +246,7 @@ mod test {
     use tokio_util::codec::{Decoder, Encoder};
 
     fn test_codec(msg: PeerMessage) {
-        let mut codec = Codec::default();
+        let mut codec = Codec::new(Default::default());
         let mut buffer = BytesMut::new();
         codec.encode(msg.try_to_vec().unwrap(), &mut buffer).unwrap();
         let decoded = codec.decode(&mut buffer).unwrap().unwrap();
@@ -373,7 +398,7 @@ mod test {
         };
         let msg = PeerMessage::HandshakeV2(fake_handshake);
 
-        let mut codec = Codec::default();
+        let mut codec = Codec::new(Default::default());
         let mut buffer = BytesMut::new();
         codec.encode(msg.try_to_vec().unwrap(), &mut buffer).unwrap();
         let decoded = codec.decode(&mut buffer).unwrap().unwrap();
@@ -453,7 +478,7 @@ mod test {
 
     #[test]
     fn test_abusive() {
-        let mut codec = Codec::default();
+        let mut codec = Codec::new(Default::default());
         let mut buffer = BytesMut::new();
         buffer.reserve(4);
         buffer.put_u32_le(NETWORK_MESSAGE_MAX_SIZE_BYTES + 1);
@@ -467,7 +492,7 @@ mod test {
 
     #[test]
     fn test_not_abusive() {
-        let mut codec = Codec::default();
+        let mut codec = Codec::new(Default::default());
         let mut buffer = BytesMut::new();
         buffer.reserve(4);
         buffer.put_u32_le(NETWORK_MESSAGE_MAX_SIZE_BYTES);

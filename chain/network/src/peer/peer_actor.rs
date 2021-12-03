@@ -1,5 +1,5 @@
 use crate::common::message_wrapper::ActixMessageWrapper;
-use crate::peer::codec::{self, Codec, MsgReceived};
+use crate::peer::codec::{Codec, MsgReceived};
 use crate::peer::tracker::Tracker;
 use crate::routing::edge::{Edge, PartialEdgeInfo};
 use crate::stats::metrics::{self, NetworkMetrics};
@@ -53,10 +53,6 @@ type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 // TODO: current limit is way to high due to us sending lots of messages during sync.
 const MAX_PEER_MSG_PER_MIN: u64 = u64::MAX;
 
-/// Maximum number of transaction messages we will accept between block messages.
-/// The purpose of this constant is to ensure we do not spend too much time deserializing and
-/// dispatching transactions when we should be focusing on consensus-related messages.
-const MAX_TRANSACTIONS_PER_BLOCK_MESSAGE: usize = 1000;
 /// Limit cache size of 1000 messages
 pub const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
@@ -554,18 +550,6 @@ impl PeerActor {
         self.tracker.increment_received(msg_len as u64);
     }
 
-    /// Check whenever we exceeded number of transactions we got since last block.
-    /// If so, drop the transaction.
-    fn should_we_drop_msg_without_decoding(&self, msg: &Vec<u8>) -> bool {
-        if codec::is_forward_transaction(msg).unwrap_or(false) {
-            let r = self.txns_since_last_block.load(Ordering::Acquire);
-            if r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE {
-                return true;
-            }
-        }
-        false
-    }
-
     // Checks errors from decoding a message.
     // We may send `HandshakeFailure` to the other peer.
     fn handle_peer_message_decode_error(&mut self, msg: &Vec<u8>, err: Error) {
@@ -666,6 +650,10 @@ impl StreamHandler<MsgReceived> for PeerActor {
                 // encoded inside `err`
                 self.handle_peer_message_decode_error(&msg, err);
 
+                return;
+            }
+            MsgReceived::Dropped(msg_len) => {
+                self.update_stats_on_receiving_message(msg_len as usize);
                 return;
             }
             MsgReceived::Decoded(msg_len, msg) => {
