@@ -859,19 +859,15 @@ impl PeerManagerActor {
         // Find all peers whose height is within `highest_peer_horizon` from max height peer(s).
         self.active_peers
             .values()
-            .filter_map(|active_peer| {
-                if active_peer
+            .filter(|active_peer| {
+                active_peer
                     .full_peer_info
                     .chain_info
                     .height
                     .saturating_add(self.config.highest_peer_horizon)
                     >= max_height
-                {
-                    Some(active_peer.full_peer_info.clone())
-                } else {
-                    None
-                }
             })
+            .map(|active_peer| active_peer.full_peer_info.clone())
             .collect::<Vec<_>>()
     }
 
@@ -1887,7 +1883,7 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::RequestUpdateNonce(peer_id, edge_info) => {
-                if Edge::partial_verify(self.my_peer_id.clone(), peer_id.clone(), &edge_info) {
+                if Edge::partial_verify(&self.my_peer_id, &peer_id, &edge_info) {
                     if let Some(cur_edge) =
                         self.routing_table_view.get_edge(self.my_peer_id.clone(), peer_id.clone())
                     {

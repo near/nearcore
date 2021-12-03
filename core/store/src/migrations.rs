@@ -410,9 +410,12 @@ pub fn migrate_13_to_14(path: &Path) {
 /// Make execution outcome ids in `ColOutcomeIds` ordered by replaying the chunks.
 pub fn migrate_14_to_15(path: &Path) {
     let store = create_store(path);
-    let trie_store =
-        Box::new(TrieCachingStorage::new(store.clone(), TrieCache::new(), ShardUId::default()));
-    let trie = Rc::new(Trie::new(trie_store, ShardUId::default()));
+    let trie_store = Box::new(TrieCachingStorage::new(
+        store.clone(),
+        TrieCache::new(),
+        ShardUId::single_shard(),
+    ));
+    let trie = Rc::new(Trie::new(trie_store, ShardUId::single_shard()));
 
     let mut store_update = store.store_update();
     let batch_size_limit = 10_000_000;

@@ -2377,6 +2377,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lru"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f374d42cdfc1d7dbf3d3dec28afab2eb97ffbf43a3234d795b5986dbf4b90ba"
+dependencies = [
+ "hashbrown",
+]
+
+[[package]]
 name = "mach"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2524,6 +2533,15 @@ version = "0.0.0"
 dependencies = [
  "actix-rt",
  "futures",
+]
+
+[[package]]
+name = "near-cache"
+version = "0.1.0"
+dependencies = [
+ "bencher",
+ "lru",
+ "rand 0.7.3",
 ]
 
 [[package]]
@@ -2864,11 +2882,11 @@ dependencies = [
  "borsh 0.9.1",
  "bytes",
  "bytesize",
- "cached",
  "conqueue",
  "deepsize",
  "delay-detector",
  "futures",
+ "lru",
  "near-crypto",
  "near-metrics",
  "near-network-primitives",
