@@ -6,6 +6,8 @@
 /// NOTES:
 ///     - Code has an extra logic to ban peers if they sent messages that are too large.
 use crate::stats::metrics;
+use crate::types::PeerMessage;
+use borsh::BorshDeserialize;
 use bytes::{Buf, BufMut, BytesMut};
 use bytesize::{GIB, MIB};
 use near_network_primitives::types::ReasonForBan;
@@ -69,7 +71,7 @@ impl Encoder<Vec<u8>> for Codec {
 }
 
 impl Decoder for Codec {
-    type Item = Result<Vec<u8>, ReasonForBan>;
+    type Item = Result<PeerMessage, ReasonForBan>;
     type Error = Error;
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -90,9 +92,20 @@ impl Decoder for Codec {
             // not enough bytes, keep waiting
             Ok(None)
         } else {
-            let res = Some(Ok(buf[4..4 + len as usize].to_vec()));
+            // let res = Some(Ok(buf[4..4 + len as usize].to_vec()));
+
+            let mut peer_msg: PeerMessage =
+                match PeerMessage::try_from_slice(&buf[4..4 + len as usize]) {
+                    Ok(peer_msg) => peer_msg,
+                    Err(err) => {
+                        // This may send `HandshakeFailure` to the other peer.
+                        //self.handle_peer_message_decode_error(&msg, err);
+                        buf.advance(4 + len as usize);
+                        return Ok(None);
+                    }
+                };
             buf.advance(4 + len as usize);
-            Ok(res)
+            Ok(Some(Ok(peer_msg)))
         }
     }
 }

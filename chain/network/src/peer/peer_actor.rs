@@ -652,9 +652,9 @@ impl Actor for PeerActor {
 
 impl WriteHandler<io::Error> for PeerActor {}
 
-impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
+impl StreamHandler<Result<PeerMessage, ReasonForBan>> for PeerActor {
     #[perf]
-    fn handle(&mut self, msg: Result<Vec<u8>, ReasonForBan>, ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: Result<PeerMessage, ReasonForBan>, ctx: &mut Self::Context) {
         let msg = match msg {
             Ok(msg) => msg,
             Err(ban_reason) => {
