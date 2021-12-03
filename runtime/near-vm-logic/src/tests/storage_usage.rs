@@ -1,8 +1,5 @@
-mod fixtures;
-mod vm_logic_builder;
-
-use crate::fixtures::get_context;
-use vm_logic_builder::VMLogicBuilder;
+use crate::tests::fixtures::get_context;
+use crate::tests::vm_logic_builder::VMLogicBuilder;
 
 #[test]
 fn test_storage_write_counter() {

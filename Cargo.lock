@@ -2628,7 +2628,6 @@ dependencies = [
  "chrono",
  "delay-detector",
  "futures",
- "linked-hash-map",
  "log",
  "near-actix-test-utils",
  "near-chain",
@@ -2646,8 +2645,6 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-telemetry",
- "near-test-contracts",
- "near-vm-runner",
  "num-rational",
  "once_cell",
  "rand 0.7.3",
@@ -2950,10 +2947,8 @@ dependencies = [
 name = "near-primitives"
 version = "0.0.0"
 dependencies = [
- "base64 0.13.0",
  "bencher",
  "borsh 0.9.1",
- "bs58",
  "byteorder",
  "bytesize",
  "chrono",
