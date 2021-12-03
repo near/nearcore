@@ -379,16 +379,16 @@ class LocalNode(BaseNode):
         env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get(
             "RUST_LOG", "debug")
 
-        self.stdout_name = os.path.join(self.node_dir, 'stdout')
-        self.stderr_name = os.path.join(self.node_dir, 'stderr')
-        self.stdout = open(self.stdout_name, 'a')
-        self.stderr = open(self.stderr_name, 'a')
         cmd = self._get_command_line(self.near_root, self.node_dir, boot_node,
                                      self.binary_name)
-        self.pid.value = subprocess.Popen(cmd,
-                                          stdout=self.stdout,
-                                          stderr=self.stderr,
-                                          env=env).pid
+        node_dir = pathlib.Path(self.node_dir)
+        stdout, stderr = node_dir / 'stdout', node_dir / 'stderr'
+        with open(stdout, 'ab') as stdout_fd, open(stderr, 'ab') as stderr_fd:
+            self.pid.value = subprocess.Popen(cmd,
+                                              stdin=subprocess.DEVNULL,
+                                              stdout=stdout_fd,
+                                              stderr=stderr_fd,
+                                              env=env).pid
 
         if not skip_starting_proxy:
             self.start_proxy_if_needed()
@@ -398,13 +398,11 @@ class LocalNode(BaseNode):
         except:
             logger.error(
                 '=== failed to start node, rpc does not ready in 10 seconds')
-            self.stdout.close()
-            self.stderr.close()
             if os.environ.get('BUILDKITE'):
                 logger.info('=== stdout: ')
-                logger.info(open(self.stdout_name).read())
+                logger.info(stdout.read_text('utf-8', 'replace'))
                 logger.info('=== stderr: ')
-                logger.info(open(self.stderr_name).read())
+                logger.info(stderr.read_text('utf-8', 'replace'))
 
     def kill(self):
         if self.pid.value != 0:

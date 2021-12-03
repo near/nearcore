@@ -16,7 +16,7 @@ use actix::{
 };
 use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
-use cached::{Cached, SizedCache};
+use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::types::{
     Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2,
@@ -103,7 +103,7 @@ pub struct PeerActor {
     /// How many peer actors are created
     peer_counter: Arc<AtomicUsize>,
     /// Cache of recently routed messages, this allows us to drop duplicates
-    routed_message_cache: SizedCache<(PeerId, PeerIdOrHash, Signature), Instant>,
+    routed_message_cache: LruCache<(PeerId, PeerIdOrHash, Signature), Instant>,
     /// A helper data structure for limiting reading
     #[allow(unused)]
     throttle_controller: ThrottleController,
@@ -152,7 +152,7 @@ impl PeerActor {
             network_metrics,
             txns_since_last_block,
             peer_counter,
-            routed_message_cache: SizedCache::with_size(ROUTED_MESSAGE_CACHE_SIZE),
+            routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
             throttle_controller,
         }
     }
@@ -683,13 +683,13 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
         if let PeerMessage::Routed(msg) = &peer_msg {
             let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
             let now = Clock::instant();
-            if let Some(time) = self.routed_message_cache.cache_get(&key) {
+            if let Some(time) = self.routed_message_cache.get(&key) {
                 if now.saturating_duration_since(*time) <= DROP_DUPLICATED_MESSAGES_PERIOD {
                     debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
                     return;
                 }
             }
-            self.routed_message_cache.cache_set(key, now);
+            self.routed_message_cache.put(key, now);
         }
         if let PeerMessage::Routed(RoutedMessage {
             body: RoutedMessageBody::ForwardTx(_), ..
