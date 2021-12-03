@@ -122,15 +122,10 @@ impl AccountId {
     /// let alice_app: AccountId = "app.alice.near".parse().unwrap();
     /// assert!(alice_app.is_sub_account_of(&alice));
     /// ```
-    pub fn is_sub_account_of(&self, parent_account: &AccountId) -> bool {
-        if parent_account.len() >= self.len() {
-            return false;
-        }
-        // Will not panic, since valid account id is utf-8 only and the length is checked above.
-        // e.g. when `near` creates `aa.near`, it splits into `aa.` and `near`
-        let (prefix, suffix) = self.0.split_at(self.len() - parent_account.len());
-
-        prefix.find('.') == Some(prefix.len() - 1) && suffix == parent_account.as_ref()
+    pub fn is_sub_account_of(&self, parent: &AccountId) -> bool {
+        self.as_ref()
+            .strip_suffix(parent.as_ref())
+            .map_or(false, |s| !s.is_empty() && s.find('.') == Some(s.len() - 1))
     }
 
     /// Returns `true` if the `AccountId` is a 64 characters long hexadecimal.
