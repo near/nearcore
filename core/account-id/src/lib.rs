@@ -69,21 +69,6 @@ impl AccountId {
     /// Largest valid length for a NEAR Account ID.
     pub const MAX_LEN: usize = 64;
 
-    /// Returns the length of the Account ID.
-    ///
-    /// ## Examples
-    ///
-    /// ```
-    /// use near_account_id::AccountId;
-    ///
-    /// let carol: AccountId = "carol.near".parse().unwrap();
-    /// assert_eq!(10, carol.len());
-    /// ```
-    #[allow(clippy::len_without_is_empty)]
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
     /// Returns `true` if the `AccountId` is a top-level NEAR Account ID.
     ///
     /// See [Top-level Accounts](https://docs.near.org/docs/concepts/account#top-level-accounts).
@@ -101,7 +86,7 @@ impl AccountId {
     /// assert!(!alice.is_top_level());
     /// ```
     pub fn is_top_level(&self) -> bool {
-        !self.is_system() && !self.as_ref().contains('.')
+        !self.is_system() && !self.contains('.')
     }
 
     /// Returns `true` if the `AccountId` is a direct sub-account of the provided parent account.
@@ -127,8 +112,7 @@ impl AccountId {
     /// assert!(!alice_app.is_sub_account_of(&near_tla));
     /// ```
     pub fn is_sub_account_of(&self, parent: &AccountId) -> bool {
-        self.as_ref()
-            .strip_suffix(parent.as_ref())
+        self.strip_suffix(&parent[..])
             .map_or(false, |s| !s.is_empty() && s.find('.') == Some(s.len() - 1))
     }
 
@@ -150,8 +134,7 @@ impl AccountId {
     /// assert!(rando.is_implicit());
     /// ```
     pub fn is_implicit(&self) -> bool {
-        self.len() == 64
-            && self.as_ref().as_bytes().iter().all(|b| matches!(b, b'a'..=b'f' | b'0'..=b'9'))
+        self.len() == 64 && self.as_bytes().iter().all(|b| matches!(b, b'a'..=b'f' | b'0'..=b'9'))
     }
 
     /// Returns `true` if this `AccountId` is the system account.
@@ -170,7 +153,7 @@ impl AccountId {
     /// assert!(system.is_system());
     /// ```
     pub fn is_system(&self) -> bool {
-        self.as_ref() == "system"
+        &self[..] == "system"
     }
 
     /// Validates a string as a well-structured NEAR Account ID.
@@ -265,6 +248,14 @@ impl AccountId {
     }
 }
 
+impl std::ops::Deref for AccountId {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
+    }
+}
+
 impl<T: ?Sized> AsRef<T> for AccountId
 where
     Box<str>: AsRef<T>,
@@ -276,7 +267,7 @@ where
 
 impl std::borrow::Borrow<str> for AccountId {
     fn borrow(&self) -> &str {
-        self.as_ref()
+        self
     }
 }
 
