@@ -8,13 +8,13 @@ use near_primitives::borsh::maybestd::sync::{Arc, Mutex};
 use near_primitives::network::PeerId;
 use std::cmp::max;
 
-pub(crate) struct EdgeVerifierActor {}
+pub(crate) struct EdgeValidatorActor {}
 
-impl Actor for EdgeVerifierActor {
+impl Actor for EdgeValidatorActor {
     type Context = SyncContext<Self>;
 }
 
-impl Handler<StopMsg> for EdgeVerifierActor {
+impl Handler<StopMsg> for EdgeValidatorActor {
     type Result = ();
     fn handle(&mut self, _: StopMsg, _ctx: &mut Self::Context) -> Self::Result {
         System::current().stop();
@@ -27,7 +27,7 @@ impl Handler<StopMsg> for EdgeVerifierActor {
 ///
 /// TODO(#5230): This code needs to be rewritten to fix memory leak - there is a cache that stores
 ///              all edges `edges_info_shared` forever in memory.
-impl Handler<ValidateEdgeList> for EdgeVerifierActor {
+impl Handler<ValidateEdgeList> for EdgeValidatorActor {
     type Result = bool;
 
     #[perf]
@@ -62,7 +62,7 @@ impl Handler<ValidateEdgeList> for EdgeVerifierActor {
     }
 }
 
-pub struct EdgeVerifierHelper {
+pub struct EdgeValidatorHelper {
     /// Shared version of edges_info used by multiple threads
     pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
     /// Queue of edges verified, but not added yes
@@ -70,7 +70,7 @@ pub struct EdgeVerifierHelper {
     pub edges_to_add_sender: QueueSender<Edge>,
 }
 
-impl Default for EdgeVerifierHelper {
+impl Default for EdgeValidatorHelper {
     fn default() -> Self {
         let (tx, rx) = conqueue::Queue::unbounded::<Edge>();
         Self {

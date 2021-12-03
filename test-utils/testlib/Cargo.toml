@@ -2,6 +2,8 @@
 name = "testlib"
 version = "0.0.0"
 publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 
 [dependencies]
@@ -43,6 +45,6 @@ protocol_feature_alt_bn128 = [
     "near-primitives/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128",
 ]
-protocol_feature_chunk_only_producers = ["near-client/protocol_feature_chunk_only_producers"]
+protocol_feature_chunk_only_producers = ["near-client/protocol_feature_chunk_only_producers", "near-primitives/protocol_feature_chunk_only_producers"]
 nightly_protocol_features = ["nightly_protocol", "protocol_feature_chunk_only_producers", "protocol_feature_alt_bn128"]
 nightly_protocol = []

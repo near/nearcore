@@ -3,8 +3,9 @@
 # Make sure that both node can still produce blocks.
 
 import sys, time, base58, nacl.bindings
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from key import Key

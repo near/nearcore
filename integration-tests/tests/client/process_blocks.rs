@@ -31,7 +31,7 @@ use near_network::types::{
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 
-use near_network::routing::EdgeInfo;
+use near_network::routing::PartialEdgeInfo;
 use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
 use near_primitives::epoch_manager::RngSeed;
@@ -95,13 +95,14 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
         .collect()
 }
 
-fn produce_epochs(
+/// Produce `blocks_number` block in the given environment, starting from the given height.
+/// Returns the first unoccupied height in the chain after this operation.
+fn produce_blocks_from_height(
     env: &mut TestEnv,
-    epoch_number: u64,
-    epoch_length: u64,
+    blocks_number: u64,
     height: BlockHeight,
 ) -> BlockHeight {
-    let next_height = height + epoch_number * epoch_length;
+    let next_height = height + blocks_number;
     for i in height..next_height {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
@@ -109,6 +110,22 @@ fn produce_epochs(
             env.process_block(j, block.clone(), Provenance::NONE);
         }
     }
+    next_height
+}
+
+/// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
+/// Return height of the next block.
+fn check_tx_processing(
+    env: &mut TestEnv,
+    tx: SignedTransaction,
+    height: BlockHeight,
+    blocks_number: u64,
+) -> BlockHeight {
+    let tx_hash = tx.get_hash().clone();
+    env.clients[0].process_tx(tx, false, false);
+    let next_height = produce_blocks_from_height(env, blocks_number, height);
+    let final_outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+    assert!(matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_)));
     next_height
 }
 
@@ -132,7 +149,7 @@ fn deploy_test_contract(
         *block.hash(),
     );
     env.clients[0].process_tx(tx, false, false);
-    produce_epochs(env, 1, epoch_length, height)
+    produce_blocks_from_height(env, epoch_length, height)
 }
 
 /// Create environment and set of transactions which cause congestion on the chain.
@@ -940,7 +957,7 @@ fn client_sync_headers() {
                     tracked_shards: vec![],
                     archival: false,
                 },
-                edge_info: EdgeInfo::default(),
+                partial_edge_info: PartialEdgeInfo::default(),
             }],
             num_active_peers: 1,
             peer_max_count: 1,
@@ -952,7 +969,7 @@ fn client_sync_headers() {
                     tracked_shards: vec![],
                     archival: false,
                 },
-                edge_info: EdgeInfo::default(),
+                partial_edge_info: PartialEdgeInfo::default(),
             }],
             sent_bytes_per_sec: 0,
             received_bytes_per_sec: 0,
@@ -3331,6 +3348,125 @@ mod access_key_nonce_range_tests {
         assert!(matches!(res, NetworkClientResponses::InvalidTx(_)));
     }
 
+    /// Helper for checking that duplicate transactions from implicit accounts are properly rejected.
+    /// It creates implicit account, deletes it and creates again, so that nonce of the access
+    /// key is updated. Then it tries to send tx from implicit account with invalid nonce, which
+    /// should fail since the protocol upgrade.
+    fn get_status_of_tx_hash_collision_for_implicit_account(
+        protocol_version: ProtocolVersion,
+    ) -> NetworkClientResponses {
+        let epoch_length = 100;
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        genesis.config.epoch_length = epoch_length;
+        genesis.config.protocol_version = protocol_version;
+        let mut env = TestEnv::builder(ChainGenesis::test())
+            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+            .build();
+        let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+
+        let signer1 =
+            InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+
+        let public_key = signer1.public_key.clone();
+        let raw_public_key = public_key.unwrap_as_ed25519().0.to_vec();
+        let implicit_account_id = AccountId::try_from(hex::encode(&raw_public_key)).unwrap();
+        let implicit_account_signer = InMemorySigner::from_secret_key(
+            implicit_account_id.clone(),
+            signer1.secret_key.clone(),
+        );
+        let deposit_for_account_creation = 10u128.pow(23);
+        let mut height = 1;
+        let blocks_number = 5;
+
+        // Send money to implicit account, invoking its creation.
+        let send_money_tx = SignedTransaction::send_money(
+            1,
+            "test1".parse().unwrap(),
+            implicit_account_id.clone(),
+            &signer1,
+            deposit_for_account_creation.clone(),
+            *genesis_block.hash(),
+        );
+        height = check_tx_processing(&mut env, send_money_tx, height, blocks_number.clone());
+        let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap().clone();
+
+        // Delete implicit account.
+        let delete_account_tx = SignedTransaction::delete_account(
+            // Because AccessKeyNonceRange is enabled, correctness of this nonce is guaranteed.
+            (height - 1) * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER,
+            implicit_account_id.clone(),
+            implicit_account_id.clone(),
+            "test0".parse().unwrap(),
+            &implicit_account_signer,
+            *block.hash(),
+        );
+        height = check_tx_processing(&mut env, delete_account_tx, height, blocks_number.clone());
+        let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap().clone();
+
+        // Send money to implicit account again, invoking its second creation.
+        let send_money_again_tx = SignedTransaction::send_money(
+            2,
+            "test1".parse().unwrap(),
+            implicit_account_id.clone(),
+            &signer1,
+            deposit_for_account_creation,
+            *block.hash(),
+        );
+        height = check_tx_processing(&mut env, send_money_again_tx, height, blocks_number);
+        let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap().clone();
+
+        // Send money from implicit account with incorrect nonce.
+        let send_money_from_implicit_account_tx = SignedTransaction::send_money(
+            1,
+            implicit_account_id.clone(),
+            "test0".parse().unwrap(),
+            &implicit_account_signer,
+            100,
+            *block.hash(),
+        );
+        let status = env.clients[0].process_tx(send_money_from_implicit_account_tx, false, false);
+
+        // Check that sending money from implicit account with correct nonce is still valid.
+        let send_money_from_implicit_account_tx = SignedTransaction::send_money(
+            (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER,
+            implicit_account_id.clone(),
+            "test0".parse().unwrap(),
+            &implicit_account_signer,
+            100,
+            *block.hash(),
+        );
+        check_tx_processing(&mut env, send_money_from_implicit_account_tx, height, blocks_number);
+
+        status
+    }
+
+    /// Test that duplicate transactions from implicit accounts are properly rejected.
+    #[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
+    #[test]
+    fn test_transaction_hash_collision_for_implicit_account_fail() {
+        let protocol_version =
+            ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version();
+        assert!(matches!(
+            get_status_of_tx_hash_collision_for_implicit_account(protocol_version),
+            NetworkClientResponses::InvalidTx(InvalidTxError::InvalidNonce { .. })
+        ));
+    }
+
+    /// Test that duplicate transactions from implicit accounts are not rejected until protocol upgrade.
+    #[test]
+    fn test_transaction_hash_collision_for_implicit_account_ok() {
+        #[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
+        let protocol_version =
+            ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
+        #[cfg(not(feature = "protocol_feature_access_key_nonce_for_implicit_accounts"))]
+        let protocol_version = PROTOCOL_VERSION;
+        assert!(matches!(
+            get_status_of_tx_hash_collision_for_implicit_account(protocol_version),
+            NetworkClientResponses::ValidTx
+        ));
+    }
+
     /// Test that chunks with transactions that have expired are considered invalid.
     #[test]
     fn test_chunk_transaction_validity() {
@@ -3833,7 +3969,7 @@ mod contract_precompilation_tests {
         );
 
         // Wait 3 epochs.
-        height = produce_epochs(&mut env, 3, EPOCH_LENGTH, height);
+        height = produce_blocks_from_height(&mut env, 3 * EPOCH_LENGTH, height);
 
         // Process test contract deployment on the first client.
         let wasm_code = near_test_contracts::rs_contract().to_vec();
@@ -3926,7 +4062,7 @@ mod contract_precompilation_tests {
             *block.hash(),
         );
         env.clients[0].process_tx(delete_account_tx, false, false);
-        height = produce_epochs(&mut env, 1, EPOCH_LENGTH, height);
+        height = produce_blocks_from_height(&mut env, EPOCH_LENGTH, height);
 
         // Perform state sync for the second client.
         state_sync_on_height(&mut env, height - 1);

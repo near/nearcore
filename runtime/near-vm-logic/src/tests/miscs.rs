@@ -1,17 +1,12 @@
-use fixtures::get_context;
-use helpers::*;
+use crate::tests::fixtures::get_context;
+use crate::tests::helpers::*;
+use crate::tests::vm_logic_builder::VMLogicBuilder;
+use crate::{map, ExtCosts};
 use hex::FromHex;
 use near_vm_errors::HostError;
-use near_vm_logic::ExtCosts;
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::from_slice;
 use std::{fmt::Display, fs};
-use vm_logic_builder::VMLogicBuilder;
-
-mod fixtures;
-mod vm_logic_builder;
-
-mod helpers;
 
 #[test]
 fn test_valid_utf8() {
@@ -589,7 +584,7 @@ where
 #[test]
 fn test_ecrecover() {
     for EcrecoverTest { m, v, sig, mc, res } in
-        from_slice::<'_, Vec<_>>(fs::read("tests/ecrecover-tests.json").unwrap().as_slice())
+        from_slice::<'_, Vec<_>>(fs::read("src/tests/ecrecover-tests.json").unwrap().as_slice())
             .unwrap()
     {
         let mut logic_builder = VMLogicBuilder::default();
