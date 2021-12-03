@@ -62,6 +62,62 @@ Responsibilities:
 `PeerManagerActor` open tcp server, which listens to incoming connection.
 It starts `RoutingTableActor`, which then starts `EdgeValidatorActor`.
 When connection incoming connection gets accepted, it starts a new `PeerActor` on its own thread.
+
+# 7. Adding new edges to routing tables
+
+This section covers the process of adding new edges, received from another nodes,
+to the routing table. It consists of several steps covered below.
+
+## 7.1 Step 1
+
+`PeerManagerActor` receives `RoutingTableSync` message containing list of new `edges` to add.
+`RoutingTableSync` contains list of edges of the P2P network.
+This message is then forwarded to `RoutingTableActor`.
+
+## 7.2 Step 2
+
+`PeerManagerActor` forwards those edges to `RoutingTableActor` inside of `ValidateEdgeList` struct.
+
+`ValidateEdgeList` contains:
+- list of edges to verify
+- peer who send us the edges
+
+## 7.3 Step 3
+
+`RoutingTableActor` gets the `ValidateEdgeList` message.
+Filters out `edges` that have already been verified, those that are already in `RoutingTableActor::edges_info`.
+
+Then, it updates `edge_verifier_requests_in_progress` to mark that edge verifications are in progress, and edges shouldn't
+be pruned from Routing Table (see section TODO).
+
+Then, after removing already validated edges, the modified message is forwarded to `EdgeValidatorActor`.
+
+## 7.4 Step 4
+
+`EdgeValidatorActor` goes through list of all edges.
+It checks whenever all edges are valid (their cryptographic signatures match, etc.).
+
+If any edge is not valid peer will be banned.
+
+Edges that are validated are written to a concurrent queue `ValidateEdgeList::sender`.
+This queue is used to transfer edges from `EdgeValidatorActor`, back to `PeerManagerActor`.
+
+## 7.5 Step 5
+
+`broadcast_validated_edges_trigger` runs, and gets validated edges from `EdgeVerifierActor`.
+
+Every new edge will be broadcast to all connected peers.
+
+And then, all validated edges received from `EdgeVerifierActor` will be sent again to `RoutingTableActor` inside
+`AddVerifiedEdges`.
+
+
+## 7.5 Step 6
+
+When `RoutingTableActor` receives `RoutingTableMessages::AddVerifiedEdges`, the method`add_verified_edges_to_routing_table` will be called.
+It will add edges to `RoutingTableActor::edges_info` struct, and mark routing table, that it needs recalculation
+see `RoutingTableActor::needs_routing_table_recalculation`.
+
 # 8 Routing table computation
 
 Routing table computation does a few things:
@@ -72,20 +128,13 @@ on the network. That is, `A` has a distance of `0` to itself. It's neighbors wil
 The neighbors of theirs neighbors will have a distance of `2`, etc.
 
 ## 8.1 Step 1
+
 `PeerManagerActor` runs a `update_routing_table_trigger` every `UPDATE_ROUTING_TABLE_INTERVAL` seconds.
 
 `RoutingTableMessages::RoutingTableUpdate` message is sent to `RoutingTableActor` to request routing table re-computation.
 
-```rust,ignore
-RoutingTableMessages::RoutingTableUpdate {
-    /// An enum, used for testing, by default pruning is done once an hour.
-    prune: Prune,
-    /// A duration on when to prune edges, by default we will remove peers not reachable for an hour.
-    prune_edges_not_reachable_for: Duration,
-},
-```
-
 ## 8.2 Step 2
+
 `RoutingTableActor` receives the message, and then
 - calls `recalculate_routing_table` method, which computes `RoutingTableActor::peer_forwarding: HashMap<PeerId, Vec<PeerId>>`.
 For each `PeerId` on the network, gives list of connected peers, which are on the shortest path to the destination.
@@ -94,33 +143,25 @@ It marks reachable peers in `peer_last_time_reachable` struct.
 Those edges are then stored to disk.
 
 ## 8.3 Step 3
+
 `RoutingTableActor` sends `RoutingTableUpdateResponse` message back to `PeerManagerActor`.
 
 `PeerManagerActor` keep local copy of `edges_info`, called `local_edges_info` containing only edges adjacent to current node.
 
-- This message contains list of local edges, which `PeerManagerActor` should remove.
+- `RoutingTableUpdateResponse` contains list of local edges, which `PeerManagerActor` should remove.
 - `peer_forwarding` which represent on how to route messages in the P2P network
 - `peers_to_ban` - list of peers to ban for sending us edges, which failed validation in `EdgeVerifierActor`.
 
-```rust,ignore
-    RoutingTableUpdateResponse {
-        /// PeerManager maintains list of local edges. We will notify `PeerManager`
-        /// to remove those edges.
-        local_edges_to_remove: Vec<Edge>,
-        /// Active PeerId that are part of the shortest path to each PeerId.
-        peer_forwarding: Arc<HashMap<PeerId, Vec<PeerId>>>,
-        /// List of peers to ban for sending invalid edges.
-        peers_to_ban: Vec<PeerId>,
-    },
-```
 
 ## 8.4 Step 4
+
 `PeerManagerActor` received `RoutingTableUpdateResponse` and then:
 - updates local copy of`peer_forwarding`, used for routing messages.
 - removes `local_edges_to_remove` from `local_edges_info`.
 - bans peers, who sent us invalid edges.
 
 # 11. Code flow - routing a message
+
 This is the example of the message that is being sent between nodes (`RawRoutedMessage`) (https://github.com/near/nearcore/blob/fa8749dc60fe0de8e94c3046571731c622326e9f/chain/network-primitives/src/types.rs#L362)
 
 Each of these methods have a `target` - that is either the account_id or peer_id or hash (which seems to be used only for route back...).
@@ -143,6 +184,7 @@ All these messages are handled by `receive_client_message` in Peer. (`NetworkCli
 (that crates `PeerManagerActor` - that is passed as target to `network_recipent`).
 
 # 12. Database
+
 ### 12.1 Storage of deleted edges
 
 Everytime a group of peers becomes unreachable at the same time; We store edges belonging to
