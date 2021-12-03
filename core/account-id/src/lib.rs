@@ -291,24 +291,32 @@ impl FromStr for AccountId {
     }
 }
 
-impl TryFrom<String> for AccountId {
+impl TryFrom<Box<str>> for AccountId {
     type Error = ParseAccountError;
 
-    fn try_from(account_id: String) -> Result<Self, Self::Error> {
+    fn try_from(account_id: Box<str>) -> Result<Self, Self::Error> {
         Self::validate(&account_id)?;
         Ok(Self(account_id.into()))
     }
 }
 
-impl From<AccountId> for String {
-    fn from(account_id: AccountId) -> Self {
-        account_id.0.into_string()
+impl TryFrom<String> for AccountId {
+    type Error = ParseAccountError;
+
+    fn try_from(account_id: String) -> Result<Self, Self::Error> {
+        account_id.into_boxed_str().try_into()
     }
 }
 
 impl fmt::Display for AccountId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl From<AccountId> for String {
+    fn from(account_id: AccountId) -> Self {
+        account_id.0.into_string()
     }
 }
 
