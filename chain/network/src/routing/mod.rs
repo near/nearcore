@@ -9,7 +9,6 @@ pub(crate) mod ibf_set;
 mod route_back_cache;
 pub(crate) mod routing;
 pub(crate) mod routing_table_actor;
-mod utils;
 
 pub use crate::routing::edge::{Edge, EdgeType, PartialEdgeInfo, SimpleEdge};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
