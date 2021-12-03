@@ -94,13 +94,13 @@ impl AccountId {
     /// use near_account_id::AccountId;
     ///
     /// let near_tla: AccountId = "near".parse().unwrap();
-    /// assert!(near_tla.is_top_level_account_id());
+    /// assert!(near_tla.is_top_level());
     ///
     /// // "alice.near" is a sub account of "near" account
     /// let alice: AccountId = "alice.near".parse().unwrap();
-    /// assert!(!alice.is_top_level_account_id());
+    /// assert!(!alice.is_top_level());
     /// ```
-    pub fn is_top_level_account_id(&self) -> bool {
+    pub fn is_top_level(&self) -> bool {
         !self.is_system() && !self.as_ref().contains('.')
     }
 
@@ -114,7 +114,7 @@ impl AccountId {
     /// use near_account_id::AccountId;
     ///
     /// let near_tla: AccountId = "near".parse().unwrap();
-    /// assert!(near_tla.is_top_level_account_id());
+    /// assert!(near_tla.is_top_level());
     ///
     /// let alice: AccountId = "alice.near".parse().unwrap();
     /// assert!(alice.is_sub_account_of(&near_tla));
@@ -414,7 +414,7 @@ mod tests {
             assert!(
                 account_id
                     .parse::<AccountId>()
-                    .map_or(false, |account_id| account_id.is_top_level_account_id()),
+                    .map_or(false, |account_id| account_id.is_top_level()),
                 "Valid top level account id {:?} marked invalid",
                 account_id
             );
@@ -462,7 +462,7 @@ mod tests {
             assert!(
                 !account_id
                     .parse::<AccountId>()
-                    .map_or(false, |account_id| account_id.is_top_level_account_id()),
+                    .map_or(false, |account_id| account_id.is_top_level()),
                 "Invalid top level account id {:?} marked valid",
                 account_id
             );
