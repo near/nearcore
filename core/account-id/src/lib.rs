@@ -126,7 +126,7 @@ impl AccountId {
     /// assert!(!alice_app.is_sub_account_of(&near_tla));
     /// ```
     pub fn is_sub_account_of(&self, parent: &AccountId) -> bool {
-        self.strip_suffix(&parent[..])
+        self.strip_suffix(parent.as_str())
             .map_or(false, |s| !s.is_empty() && s.find('.') == Some(s.len() - 1))
     }
 
@@ -167,7 +167,7 @@ impl AccountId {
     /// assert!(system.is_system());
     /// ```
     pub fn is_system(&self) -> bool {
-        &self[..] == "system"
+        self.as_str() == "system"
     }
 
     /// Validates a string as a well-structured NEAR Account ID.
