@@ -855,19 +855,15 @@ impl PeerManagerActor {
         // Find all peers whose height is within `highest_peer_horizon` from max height peer(s).
         self.active_peers
             .values()
-            .filter_map(|active_peer| {
-                if active_peer
+            .filter(|active_peer| {
+                active_peer
                     .full_peer_info
                     .chain_info
                     .height
                     .saturating_add(self.config.highest_peer_horizon)
                     >= max_height
-                {
-                    Some(active_peer.full_peer_info.clone())
-                } else {
-                    None
-                }
             })
+            .map(|active_peer| active_peer.full_peer_info.clone())
             .collect::<Vec<_>>()
     }
 
