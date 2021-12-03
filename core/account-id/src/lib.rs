@@ -44,11 +44,6 @@ mod serde;
 use deepsize::DeepSizeOf;
 pub use errors::{ParseAccountError, ParseErrorKind};
 
-/// Smallest valid length for a NEAR Account ID.
-pub const MIN_ACCOUNT_ID_LEN: usize = 2;
-/// Largest valid length for a NEAR Account ID.
-pub const MAX_ACCOUNT_ID_LEN: usize = 64;
-
 /// NEAR Account Identifier.
 ///
 /// This is a unique, validated, human-readable account identifier on the NEAR network.
@@ -69,6 +64,11 @@ pub const MAX_ACCOUNT_ID_LEN: usize = 64;
 pub struct AccountId(Box<str>);
 
 impl AccountId {
+    /// Smallest valid length for a NEAR Account ID.
+    pub const MIN_LEN: usize = 2;
+    /// Largest valid length for a NEAR Account ID.
+    pub const MAX_LEN: usize = 64;
+
     /// Returns the length of the Account ID.
     ///
     /// ## Examples
@@ -200,9 +200,9 @@ impl AccountId {
     /// );
     /// ```
     pub fn validate(account_id: &str) -> Result<(), ParseAccountError> {
-        if account_id.len() < MIN_ACCOUNT_ID_LEN {
+        if account_id.len() < AccountId::MIN_LEN {
             Err(ParseAccountError(ParseErrorKind::TooShort, account_id.to_string()))
-        } else if account_id.len() > MAX_ACCOUNT_ID_LEN {
+        } else if account_id.len() > AccountId::MAX_LEN {
             Err(ParseAccountError(ParseErrorKind::TooLong, account_id.to_string()))
         } else {
             // Adapted from https://github.com/near/near-sdk-rs/blob/fd7d4f82d0dfd15f824a1cf110e552e940ea9073/near-sdk/src/environment/env.rs#L819
