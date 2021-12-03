@@ -796,8 +796,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
 
                 // Verify signature of the new edge in handshake.
                 if !Edge::partial_verify(
-                    self.my_node_id().clone(),
-                    handshake.sender_peer_id.clone(),
+                    self.my_node_id(),
+                    &handshake.sender_peer_id,
                     &handshake.partial_edge_info,
                 ) {
                     warn!(target: "network", "Received invalid signature on handshake. Disconnecting peer {}", handshake.sender_peer_id);
