@@ -32,9 +32,9 @@ where
         val
     }
 
-    /// Inserts value into map. If the value exists updated the value.
-    pub fn insert(&self, key: K, v: V) {
-        self.inner.lock().unwrap().put(key, v);
+    /// Inserts `value` into map at `key`. If the value exists updated the value.
+    pub fn insert(&self, key: K, value: V) {
+        self.inner.lock().unwrap().put(key, value);
     }
 
     /// Gets value for given `key`.
