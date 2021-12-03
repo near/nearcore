@@ -28,37 +28,7 @@
 //!
 //! let alice: AccountId = "alice.near".parse().unwrap();
 //!
-//! // Basic reports for why validation failed
-//! assert!(
-//!   matches!(
-//!     "z".parse::<AccountId>(),
-//!     Err(err) if err.kind().is_too_short()
-//!   )
-//! );
-//!
-//! assert!(
-//!   matches!(
-//!     // no caps
-//!     "MelissaCarver.near".parse::<AccountId>(),
-//!     Err(err) if err.kind().is_invalid()
-//!   )
-//! );
-//!
-//! assert!(
-//!   matches!(
-//!     // separators cannot immediately follow each other
-//!     "bob__carol".parse::<AccountId>(),
-//!     Err(err) if err.kind().is_invalid()
-//!   )
-//! );
-//!
-//! assert!(
-//!   matches!(
-//!     // each part must be alphanumeric only (ƒ is not f)
-//!     "ƒelicia.near".parse::<AccountId>(),
-//!     Err(err) if err.kind().is_invalid()
-//!   )
-//! );
+//! assert!("ƒelicia.near".parse::<AccountId>().is_err()); // (ƒ is not f)
 //! ```
 
 use std::{fmt, str::FromStr};
@@ -92,37 +62,7 @@ pub const MAX_ACCOUNT_ID_LEN: usize = 64;
 ///
 /// let alice: AccountId = "alice.near".parse().unwrap();
 ///
-/// // Basic reports for why validation failed
-/// assert!(
-///   matches!(
-///     "z".parse::<AccountId>(),
-///     Err(err) if err.kind().is_too_short()
-///   )
-/// );
-///
-/// assert!(
-///   matches!(
-///     // no caps
-///     "MelissaCarver.near".parse::<AccountId>(),
-///     Err(err) if err.kind().is_invalid()
-///   )
-/// );
-///
-/// assert!(
-///   matches!(
-///     // separators cannot immediately follow each other
-///     "bob__carol".parse::<AccountId>(),
-///     Err(err) if err.kind().is_invalid()
-///   )
-/// );
-///
-/// assert!(
-///   matches!(
-///     // each part must be alphanumeric only (ƒ is not f)
-///     "ƒelicia.near".parse::<AccountId>(),
-///     Err(err) if err.kind().is_invalid()
-///   )
-/// );
+/// assert!("ƒelicia.near".parse::<AccountId>().is_err()); // (ƒ is not f)
 /// ```
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Eq, Ord, Hash, Clone, Debug, PartialEq, PartialOrd)]
