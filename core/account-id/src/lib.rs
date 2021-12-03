@@ -69,6 +69,20 @@ impl AccountId {
     /// Largest valid length for a NEAR Account ID.
     pub const MAX_LEN: usize = 64;
 
+    /// Returns a string slice of the entire Account ID.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use near_account_id::AccountId;
+    ///
+    /// let carol: AccountId = "carol.near".parse().unwrap();
+    /// assert_eq!("carol.near", carol.as_str());
+    /// ```
+    pub fn as_str(&self) -> &str {
+        self
+    }
+
     /// Returns `true` if the `AccountId` is a top-level NEAR Account ID.
     ///
     /// See [Top-level Accounts](https://docs.near.org/docs/concepts/account#top-level-accounts).
@@ -236,10 +250,10 @@ impl AccountId {
     /// use near_account_id::AccountId;
     ///
     /// let alice = AccountId::new_unvalidated("alice.near".to_string());
-    /// assert!(AccountId::validate(alice.as_ref()).is_ok());
+    /// assert!(AccountId::validate(alice.as_str()).is_ok());
     ///
     /// let ƒelicia = AccountId::new_unvalidated("ƒelicia.near".to_string());
-    /// assert!(AccountId::validate(ƒelicia.as_ref()).is_err());
+    /// assert!(AccountId::validate(ƒelicia.as_str()).is_err());
     /// ```
     #[cfg(feature = "internal_unstable")]
     #[deprecated(since = "#4440", note = "AccountId construction without validation is illegal")]
