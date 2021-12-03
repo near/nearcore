@@ -270,12 +270,9 @@ impl std::ops::Deref for AccountId {
     }
 }
 
-impl<T: ?Sized> AsRef<T> for AccountId
-where
-    Box<str>: AsRef<T>,
-{
-    fn as_ref(&self) -> &T {
-        self.0.as_ref()
+impl AsRef<str> for AccountId {
+    fn as_ref(&self) -> &str {
+        self
     }
 }
 
