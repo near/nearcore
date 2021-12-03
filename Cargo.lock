@@ -2536,6 +2536,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-cache"
+version = "0.1.0"
+dependencies = [
+ "bencher",
+ "lru",
+ "rand 0.7.3",
+]
+
+[[package]]
 name = "near-chain"
 version = "0.0.0"
 dependencies = [
@@ -3169,13 +3178,14 @@ dependencies = [
  "assert_matches",
  "base64 0.13.0",
  "borsh 0.9.1",
- "cached",
  "memoffset",
+ "near-cache",
  "near-primitives",
  "near-stable-hasher",
  "near-test-contracts",
  "near-vm-errors",
  "near-vm-logic",
+ "once_cell",
  "parity-wasm",
  "pwasm-utils",
  "serde",
