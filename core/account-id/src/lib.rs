@@ -120,7 +120,11 @@ impl AccountId {
     /// assert!(alice.is_sub_account_of(&near_tla));
     ///
     /// let alice_app: AccountId = "app.alice.near".parse().unwrap();
+    ///
+    /// // While app.alice.near is a sub account of alice.near,
+    /// // app.alice.near is not a sub account of near
     /// assert!(alice_app.is_sub_account_of(&alice));
+    /// assert!(!alice_app.is_sub_account_of(&near_tla));
     /// ```
     pub fn is_sub_account_of(&self, parent: &AccountId) -> bool {
         self.as_ref()
