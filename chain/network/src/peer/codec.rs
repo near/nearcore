@@ -10,7 +10,6 @@ use crate::types::PeerMessage;
 use borsh::BorshDeserialize;
 use bytes::{Buf, BufMut, BytesMut};
 use bytesize::{GIB, MIB};
-use near_network_primitives::types::ReasonForBan;
 use near_performance_metrics::framed_write::EncoderCallBack;
 use near_rust_allocator_proxy::allocator::get_tid;
 use std::io::{Error, ErrorKind};
@@ -70,8 +69,15 @@ impl Encoder<Vec<u8>> for Codec {
     }
 }
 
+#[derive(Debug)]
+pub enum MsgReceived {
+    Decoded(u32, PeerMessage),
+    ErrorAbusive,
+    HandshakeFailure(u32, Vec<u8>, std::io::Error),
+}
+
 impl Decoder for Codec {
-    type Item = Result<PeerMessage, ReasonForBan>;
+    type Item = MsgReceived;
     type Error = Error;
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -80,32 +86,37 @@ impl Decoder for Codec {
             return Ok(None);
         }
 
-        let mut len_bytes: [u8; 4] = [0; 4];
-        len_bytes.copy_from_slice(&buf[0..4]);
-        let len = u32::from_le_bytes(len_bytes);
+        let len = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
         if len > NETWORK_MESSAGE_MAX_SIZE_BYTES {
             // If this point is reached, abusive peer is banned.
-            return Ok(Some(Err(ReasonForBan::Abusive)));
+            return Ok(Some(MsgReceived::ErrorAbusive));
         }
 
         if buf.len() < 4 + len as usize {
             // not enough bytes, keep waiting
-            Ok(None)
-        } else {
-            // let res = Some(Ok(buf[4..4 + len as usize].to_vec()));
+            return Ok(None);
+        }
 
-            let mut peer_msg: PeerMessage =
-                match PeerMessage::try_from_slice(&buf[4..4 + len as usize]) {
-                    Ok(peer_msg) => peer_msg,
-                    Err(err) => {
-                        // This may send `HandshakeFailure` to the other peer.
-                        //self.handle_peer_message_decode_error(&msg, err);
-                        buf.advance(4 + len as usize);
-                        return Ok(None);
-                    }
-                };
-            buf.advance(4 + len as usize);
-            Ok(Some(Ok(peer_msg)))
+        /*
+        TODO NOT IMPLEMENTED YET.
+        if self.should_we_drop_msg_without_decoding(&msg) {
+            return;
+        }
+         */
+
+        match PeerMessage::try_from_slice(&buf[4..4 + len as usize]) {
+            Ok(peer_msg) => {
+                buf.advance(4 + len as usize);
+                Ok(Some(MsgReceived::Decoded(len, peer_msg)))
+            }
+            Err(err) => {
+                // This may send `HandshakeFailure` to the other peer.
+                //self.handle_peer_message_decode_error(&msg, err);
+                let msg = buf[4..4 + len as usize].to_vec();
+
+                buf.advance(4 + len as usize);
+                Ok(Some(MsgReceived::HandshakeFailure(len, msg, err)))
+            }
         }
     }
 }
@@ -187,16 +198,18 @@ pub(crate) fn is_forward_transaction(bytes: &[u8]) -> Option<bool> {
 
 #[cfg(test)]
 mod test {
-    use crate::peer::codec::{is_forward_transaction, Codec, NETWORK_MESSAGE_MAX_SIZE_BYTES};
+    use crate::peer::codec::{
+        is_forward_transaction, Codec, MsgReceived, NETWORK_MESSAGE_MAX_SIZE_BYTES,
+    };
     use crate::routing::edge::PartialEdgeInfo;
     use crate::types::{Handshake, HandshakeFailureReason, HandshakeV2, PeerMessage, SyncData};
     use crate::PeerInfo;
-    use borsh::BorshDeserialize;
+    
     use borsh::BorshSerialize;
     use bytes::{BufMut, BytesMut};
     use near_crypto::{KeyType, PublicKey, SecretKey};
     use near_network_primitives::types::{
-        PeerChainInfo, PeerChainInfoV2, PeerIdOrHash, ReasonForBan, RoutedMessage,
+        PeerChainInfo, PeerChainInfoV2, PeerIdOrHash, RoutedMessage,
         RoutedMessageBody,
     };
     use near_primitives::block::{Approval, ApprovalInner};
@@ -211,8 +224,12 @@ mod test {
         let mut codec = Codec::default();
         let mut buffer = BytesMut::new();
         codec.encode(msg.try_to_vec().unwrap(), &mut buffer).unwrap();
-        let decoded = codec.decode(&mut buffer).unwrap().unwrap().unwrap();
-        assert_eq!(PeerMessage::try_from_slice(&decoded).unwrap(), msg);
+        let decoded = codec.decode(&mut buffer).unwrap().unwrap();
+        if let MsgReceived::Decoded(_, msg2) = decoded {
+            assert_eq!(msg2, msg);
+        } else {
+            panic!("couldn't decode msg")
+        }
     }
 
     #[derive(Debug, Copy, Clone)]
@@ -359,9 +376,13 @@ mod test {
         let mut codec = Codec::default();
         let mut buffer = BytesMut::new();
         codec.encode(msg.try_to_vec().unwrap(), &mut buffer).unwrap();
-        let decoded = codec.decode(&mut buffer).unwrap().unwrap().unwrap();
+        let decoded = codec.decode(&mut buffer).unwrap().unwrap();
 
-        let err = PeerMessage::try_from_slice(&decoded).unwrap_err();
+        let err = if let MsgReceived::HandshakeFailure(_, _, err) = decoded {
+            err
+        } else {
+            panic!("Expected HandshareFailure");
+        };
 
         assert_eq!(
             *err.get_ref()
@@ -436,7 +457,12 @@ mod test {
         let mut buffer = BytesMut::new();
         buffer.reserve(4);
         buffer.put_u32_le(NETWORK_MESSAGE_MAX_SIZE_BYTES + 1);
-        assert_eq!(codec.decode(&mut buffer).unwrap(), Some(Err(ReasonForBan::Abusive)));
+
+        let decoded = codec.decode(&mut buffer).unwrap();
+        if let Some(MsgReceived::ErrorAbusive) = decoded {
+        } else {
+            panic!("expected ErrorAbusive")
+        }
     }
 
     #[test]
@@ -445,6 +471,9 @@ mod test {
         let mut buffer = BytesMut::new();
         buffer.reserve(4);
         buffer.put_u32_le(NETWORK_MESSAGE_MAX_SIZE_BYTES);
-        assert_ne!(codec.decode(&mut buffer).unwrap(), Some(Err(ReasonForBan::Abusive)));
+        let decoded = codec.decode(&mut buffer).unwrap();
+        if let Some(MsgReceived::ErrorAbusive) = decoded {
+            panic!("didn't expected ErrorAbusive");
+        }
     }
 }

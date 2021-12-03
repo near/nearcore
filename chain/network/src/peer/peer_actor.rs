@@ -1,5 +1,5 @@
 use crate::common::message_wrapper::ActixMessageWrapper;
-use crate::peer::codec::{self, Codec};
+use crate::peer::codec::{self, Codec, MsgReceived};
 use crate::peer::tracker::Tracker;
 use crate::routing::edge::{Edge, PartialEdgeInfo};
 use crate::stats::metrics::{self, NetworkMetrics};
@@ -14,10 +14,10 @@ use actix::{
     Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
-use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
 use lru::LruCache;
 use near_crypto::Signature;
+use near_network_primitives::types::ReasonForBan::Abusive;
 use near_network_primitives::types::{
     Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2,
     PeerIdOrHash, PeerManagerRequest, PeerStatsResult, PeerStatus, PeerType, QueryPeerStats,
@@ -652,30 +652,26 @@ impl Actor for PeerActor {
 
 impl WriteHandler<io::Error> for PeerActor {}
 
-impl StreamHandler<Result<PeerMessage, ReasonForBan>> for PeerActor {
+impl StreamHandler<MsgReceived> for PeerActor {
     #[perf]
-    fn handle(&mut self, msg: Result<PeerMessage, ReasonForBan>, ctx: &mut Self::Context) {
-        let msg = match msg {
-            Ok(msg) => msg,
-            Err(ban_reason) => {
-                self.ban_peer(ctx, ban_reason);
+    fn handle(&mut self, msg: MsgReceived, ctx: &mut Self::Context) {
+        let (msg_len, mut peer_msg) = match msg {
+            MsgReceived::ErrorAbusive => {
+                self.ban_peer(ctx, Abusive);
                 return;
             }
-        };
-        // TODO(#5155) We should change our code to track size of messages received from Peer
-        // as long as it travels to PeerManager, etc.
-
-        self.update_stats_on_receiving_message(msg.len());
-
-        if self.should_we_drop_msg_without_decoding(&msg) {
-            return;
-        }
-        let mut peer_msg = match PeerMessage::try_from_slice(&msg) {
-            Ok(peer_msg) => peer_msg,
-            Err(err) => {
-                // This may send `HandshakeFailure` to the other peer.
+            MsgReceived::HandshakeFailure(msg_len, msg, err) => {
+                self.update_stats_on_receiving_message(msg_len as usize);
+                // There is a weird logic inside DecodingHandshake, it returns handshake version
+                // encoded inside `err`
                 self.handle_peer_message_decode_error(&msg, err);
+
                 return;
+            }
+            MsgReceived::Decoded(msg_len, msg) => {
+                self.update_stats_on_receiving_message(msg_len as usize);
+
+                (msg_len, msg)
             }
         };
 
@@ -709,7 +705,7 @@ impl StreamHandler<Result<PeerMessage, ReasonForBan>> for PeerActor {
 
         self.network_metrics.inc_by(
             NetworkMetrics::peer_message_bytes_rx(peer_msg.msg_variant()).as_ref(),
-            msg.len() as u64,
+            msg_len as u64,
         );
 
         if let PeerMessage::HandshakeV2(handshake) = peer_msg {
