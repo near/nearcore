@@ -2,24 +2,19 @@ use std::fmt;
 
 /// An error occurred when parsing an invalid Account ID with [`AccountId::validate`](crate::AccountId::validate).
 #[derive(Eq, Clone, Debug, PartialEq)]
-pub struct ParseAccountError(pub(crate) ParseErrorKind, pub(crate) String);
+pub struct ParseAccountError(pub(crate) ParseErrorKind);
 
 impl ParseAccountError {
     /// Returns the corresponding [`ParseErrorKind`] for this error.
     pub fn kind(&self) -> &ParseErrorKind {
         &self.0
     }
-
-    /// Returns the corresponding [`AccountId`](crate::AccountId) for this error.
-    pub fn get_account_id(self) -> String {
-        self.1
-    }
 }
 
 impl std::error::Error for ParseAccountError {}
 impl fmt::Display for ParseAccountError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[{}]: {}", self.1, self.0)
+        fmt::Display::fmt(&self.0, f)
     }
 }
 

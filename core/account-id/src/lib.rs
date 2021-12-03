@@ -197,9 +197,9 @@ impl AccountId {
     /// ```
     pub fn validate(account_id: &str) -> Result<(), ParseAccountError> {
         if account_id.len() < AccountId::MIN_LEN {
-            Err(ParseAccountError(ParseErrorKind::TooShort, account_id.to_string()))
+            Err(ParseAccountError(ParseErrorKind::TooShort))
         } else if account_id.len() > AccountId::MAX_LEN {
-            Err(ParseAccountError(ParseErrorKind::TooLong, account_id.to_string()))
+            Err(ParseAccountError(ParseErrorKind::TooLong))
         } else {
             // Adapted from https://github.com/near/near-sdk-rs/blob/fd7d4f82d0dfd15f824a1cf110e552e940ea9073/near-sdk/src/environment/env.rs#L819
 
@@ -214,22 +214,17 @@ impl AccountId {
                 let current_char_is_separator = match c {
                     b'a'..=b'z' | b'0'..=b'9' => false,
                     b'-' | b'_' | b'.' => true,
-                    _ => {
-                        return Err(ParseAccountError(
-                            ParseErrorKind::Invalid,
-                            account_id.to_string(),
-                        ))
-                    }
+                    _ => return Err(ParseAccountError(ParseErrorKind::Invalid)),
                 };
                 if current_char_is_separator && last_char_is_separator {
-                    return Err(ParseAccountError(ParseErrorKind::Invalid, account_id.to_string()));
+                    return Err(ParseAccountError(ParseErrorKind::Invalid));
                 }
                 last_char_is_separator = current_char_is_separator;
             }
 
             (!last_char_is_separator)
                 .then(|| ())
-                .ok_or_else(|| ParseAccountError(ParseErrorKind::Invalid, account_id.to_string()))
+                .ok_or_else(|| ParseAccountError(ParseErrorKind::Invalid))
         }
     }
 
