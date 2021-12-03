@@ -108,12 +108,12 @@ impl Edge {
 
     /// Helper function when adding a new edge and we receive information from new potential peer
     /// to verify the signature.
-    pub fn partial_verify(peer0: PeerId, peer1: PeerId, edge_info: &PartialEdgeInfo) -> bool {
+    pub fn partial_verify(peer0: &PeerId, peer1: &PeerId, edge_info: &PartialEdgeInfo) -> bool {
         let pk = peer1.public_key();
         let data = if peer0 < peer1 {
-            Edge::build_hash(&peer0, &peer1, edge_info.nonce)
+            Edge::build_hash(peer0, peer1, edge_info.nonce)
         } else {
-            Edge::build_hash(&peer1, &peer0, edge_info.nonce)
+            Edge::build_hash(peer1, peer0, edge_info.nonce)
         };
         edge_info.signature.verify(data.as_ref(), pk)
     }
