@@ -1,4 +1,4 @@
-//! This crate provides a type for representing a valid, unique account identifier on the [NEAR](https://near.org) network.
+//! This crate provides a type for representing a syntactically valid, unique account identifier on the [NEAR](https://near.org) network.
 //!
 //! ## Account ID Rules
 //!
@@ -46,7 +46,7 @@ pub use errors::{ParseAccountError, ParseErrorKind};
 
 /// NEAR Account Identifier.
 ///
-/// This is a unique, validated, human-readable account identifier on the NEAR network.
+/// This is a unique, syntactically valid, human-readable account identifier on the NEAR network.
 ///
 /// [See the crate-level docs for information about validation.](index.html#account-id-rules)
 ///

@@ -1,6 +1,6 @@
 # near-account-id
 
-This crate provides a type for representing a valid, unique account identifier on the [NEAR](https://near.org) network.
+This crate provides a type for representing a syntactically valid, unique account identifier on the [NEAR](https://near.org) network.
 
 [![crates.io](https://img.shields.io/crates/v/near-account-id?label=latest)](https://crates.io/crates/near-account-id)
 [![Documentation](https://docs.rs/near-account-id/badge.svg)](https://docs.rs/near-account-id)
