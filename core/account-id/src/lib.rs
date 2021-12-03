@@ -101,10 +101,7 @@ impl AccountId {
     /// assert!(!alice.is_top_level_account_id());
     /// ```
     pub fn is_top_level_account_id(&self) -> bool {
-        self.len() >= MIN_ACCOUNT_ID_LEN
-            && self.len() <= MAX_ACCOUNT_ID_LEN
-            && self.as_ref() != "system"
-            && !self.as_ref().contains('.')
+        !self.is_system() && !self.as_ref().contains('.')
     }
 
     /// Returns `true` if the `AccountId` is a direct sub-account of the provided parent account.
