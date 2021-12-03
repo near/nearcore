@@ -259,7 +259,7 @@ impl PeerManagerActor {
             .into_actor(self)
             .map(|response, act, ctx| match response {
                 Ok(RoutingTableMessagesResponse::RoutingTableUpdateResponse {
-                    edges_to_remove,
+                    local_edges_to_remove: edges_to_remove,
                     peer_forwarding,
                     peers_to_ban,
                 }) => {
@@ -855,19 +855,15 @@ impl PeerManagerActor {
         // Find all peers whose height is within `highest_peer_horizon` from max height peer(s).
         self.active_peers
             .values()
-            .filter_map(|active_peer| {
-                if active_peer
+            .filter(|active_peer| {
+                active_peer
                     .full_peer_info
                     .chain_info
                     .height
                     .saturating_add(self.config.highest_peer_horizon)
                     >= max_height
-                {
-                    Some(active_peer.full_peer_info.clone())
-                } else {
-                    None
-                }
             })
+            .map(|active_peer| active_peer.full_peer_info.clone())
             .collect::<Vec<_>>()
     }
 
