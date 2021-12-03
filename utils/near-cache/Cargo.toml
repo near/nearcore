@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-lru = "0.7.0"
+lru = "0.6.5"
 rand = "0.7"
 
 [dev-dependencies]
