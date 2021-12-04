@@ -1,7 +1,6 @@
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::DateTime;
 #[cfg(feature = "deepsize_feature")]
 use deepsize::DeepSizeOf;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
@@ -17,10 +16,8 @@ use near_primitives::syncing::{
     EpochSyncFinalizationResponse, EpochSyncResponse, ShardStateSyncResponse,
     ShardStateSyncResponseV1,
 };
-use near_primitives::time::{Clock, Utc};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
-use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -648,52 +645,6 @@ impl FromStr for PatternAddr {
     }
 }
 
-/// Status of the known peers.
-#[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug, Clone)]
-pub enum KnownPeerStatus {
-    Unknown,
-    NotConnected,
-    Connected,
-    Banned(ReasonForBan, u64),
-}
-
-impl KnownPeerStatus {
-    pub fn is_banned(&self) -> bool {
-        match self {
-            KnownPeerStatus::Banned(_, _) => true,
-            _ => false,
-        }
-    }
-}
-
-/// Information node stores about known peers.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
-pub struct KnownPeerState {
-    pub peer_info: PeerInfo,
-    pub status: KnownPeerStatus,
-    pub first_seen: u64,
-    pub last_seen: u64,
-}
-
-impl KnownPeerState {
-    pub fn new(peer_info: PeerInfo) -> Self {
-        KnownPeerState {
-            peer_info,
-            status: KnownPeerStatus::Unknown,
-            first_seen: to_timestamp(Clock::utc()),
-            last_seen: to_timestamp(Clock::utc()),
-        }
-    }
-
-    pub fn first_seen(&self) -> DateTime<Utc> {
-        from_timestamp(self.first_seen)
-    }
-
-    pub fn last_seen(&self) -> DateTime<Utc> {
-        from_timestamp(self.last_seen)
-    }
-}
-
 /// Actor message that holds the TCP stream from an inbound TCP connection
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
@@ -1058,7 +1009,6 @@ mod tests {
         assert_size!(PeerStatus);
         assert_size!(RoutedMessageBody);
         assert_size!(PeerIdOrHash);
-        assert_size!(KnownPeerStatus);
         assert_size!(ReasonForBan);
         assert_size!(PeerManagerRequest);
     }
@@ -1076,7 +1026,6 @@ mod tests {
         assert_size!(RoutedMessage);
         assert_size!(RoutedMessageFrom);
         assert_size!(NetworkConfig);
-        assert_size!(KnownPeerState);
         assert_size!(InboundTcpConnect);
         assert_size!(OutboundTcpConnect);
         assert_size!(Unregister);

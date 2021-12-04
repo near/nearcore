@@ -13,6 +13,7 @@ borsh = { version = "0.9", features = ["rc"] }
 bytes = "1"
 bytesize = "1.1"
 conqueue = "0.4.0"
+chrono = "0.4.6"
 futures = "0.3"
 lru = "0.6.5"
 near-rust-allocator-proxy = "0.3.0"
