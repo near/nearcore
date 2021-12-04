@@ -389,7 +389,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                     error!(target: "client", "Failed to save a block during state sync: {}", e);
                                 }
                             } else if block.hash() == sync_hash {
-                                if let Err(e) = self.client.chain.save_orphan(block.into()) {
+                                // This is the immediate block after a state sync
+                                // We can afford to delay requesting missing chunks for this one block
+                                if let Err(e) = self.client.chain.save_orphan(block.into(), false) {
                                     error!(target: "client", "Received an invalid block during state sync: {}", e);
                                 }
                             }
@@ -954,8 +956,11 @@ impl ClientActor {
                 match &res {
                     Ok(_) => Ok(()),
                     Err(e) => match e.kind() {
-                        // missing chunks were already dealt with in client.process_block
-                        near_chain::ErrorKind::ChunksMissing(_) => Ok(()),
+                        near_chain::ErrorKind::ChunksMissing(_) => {
+                            // missing chunks were already handled in Client::process_block, we don't need to
+                            // do anything here
+                            Ok(())
+                        }
                         _ => {
                             error!(target: "client", "Failed to process freshly produced block: {:?}", res);
                             byzantine_assert!(false);
@@ -1415,6 +1420,7 @@ impl ClientActor {
                         info!(target: "sync", "State sync: all shards are done");
 
                         let accepted_blocks = Arc::new(RwLock::new(vec![]));
+                        let orphans_missing_chunks = Arc::new(RwLock::new(vec![]));
                         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
                         let challenges = Arc::new(RwLock::new(vec![]));
 
@@ -1427,6 +1433,9 @@ impl ClientActor {
                             |missing_chunks| {
                                 blocks_missing_chunks.write().unwrap().push(missing_chunks)
                             },
+                            |orphan_missing_chunks| {
+                                orphans_missing_chunks.write().unwrap().push(orphan_missing_chunks);
+                            },
                             |challenge| challenges.write().unwrap().push(challenge)
                         ));
 
@@ -1436,7 +1445,8 @@ impl ClientActor {
                             accepted_blocks.write().unwrap().drain(..).collect(),
                         );
 
-                        self.client.request_missing_chunks(blocks_missing_chunks);
+                        self.client
+                            .request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
 
                         self.client.sync_status =
                             SyncStatus::BodySync { current_height: 0, highest_height: 0 };
