@@ -338,23 +338,22 @@ pub enum PeerIdOrHash {
 
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Hash)]
-// Defines the destination for a network request.
-// The request should be sent either to the `account_id` as a routed message, or directly to
-// any peer that tracks the shard.
-// If `prefer_peer` is `true`, should be sent to the peer, unless no peer tracks the shard, in which
-// case fall back to sending to the account.
-// Otherwise, send to the account, unless we do not know the route, in which case send to the peer.
+/// Defines the destination for a network request.
+/// The request should be sent either to the `account_id` as a routed message, or directly to
+/// any peer that tracks the shard.
+/// If `prefer_peer` is `true`, should be sent to the peer, unless no peer tracks the shard, in which
+/// case fall back to sending to the account.
+/// Otherwise, send to the account, unless we do not know the route, in which case send to the peer.
+/// `min_height` and `only_archival` are used to filter peers
+/// If `only_archival` is true, only send messages to peers that are archival nodes
+/// If `min_height` is not none, only send messages to peers whose latest chain height is no less
+/// than `min_height`
 pub struct AccountIdOrPeerTrackingShard {
     pub shard_id: ShardId,
     pub only_archival: bool,
     pub account_id: Option<AccountId>,
     pub prefer_peer: bool,
-}
-
-impl AccountIdOrPeerTrackingShard {
-    pub fn from_account(shard_id: ShardId, account_id: AccountId) -> Self {
-        Self { shard_id, only_archival: false, account_id: Some(account_id), prefer_peer: false }
-    }
+    pub min_height: Option<BlockHeight>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
