@@ -894,7 +894,8 @@ impl PeerManagerActor {
                 requests.push(active_peer.addr.send(msg.clone()));
             }
         }
-        ctx.spawn(async move {
+        Context::<PeerManagerActor>::spawn(ctx,
+        async move {
             while let Some(response) = requests.next().await {
                 if let Err(e) = response {
                     debug!(target: "network", "Failed sending broadcast message(query_active_peers): {}", e);
@@ -1236,7 +1237,8 @@ impl PeerManagerActor {
         let mut requests: futures::stream::FuturesUnordered<_> =
             self.active_peers.values().map(|peer| peer.addr.send(Arc::clone(&msg))).collect();
 
-        ctx.spawn(async move {
+        Context::<PeerManagerActor>::spawn(ctx,
+        async move {
             while let Some(response) = requests.next().await {
                 if let Err(e) = response {
                     debug!(target: "network", "Failed sending broadcast message(broadcast_message): {}", e);
@@ -1511,7 +1513,8 @@ impl Actor for PeerManagerActor {
         if let Some(server_addr) = self.config.addr {
             // TODO: for now crashes if server didn't start.
 
-            ctx.spawn(TcpListener::bind(server_addr).into_actor(self).then(
+            Context::<PeerManagerActor>::spawn(ctx,
+            TcpListener::bind(server_addr).into_actor(self).then(
                 move |listener, act, ctx| {
                     let listener = listener.unwrap();
                     let incoming = IncomingCrutch {
