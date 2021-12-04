@@ -178,20 +178,14 @@ impl PeerStore {
         }
     }
 
-    fn find_peers<F>(&self, mut filter: F, count: u32) -> Vec<PeerInfo>
+    /// Find a random subset of peers based on filter.
+    fn find_peers<F>(&self, filter: F, count: usize) -> Vec<PeerInfo>
     where
-        F: FnMut(&KnownPeerState) -> bool,
+        F: FnMut(&&KnownPeerState) -> bool,
     {
-        let mut peers = self
-            .peer_states
-            .values()
-            .filter_map(|p| if filter(p) { Some(p.peer_info.clone()) } else { None })
-            .collect::<Vec<_>>();
-        if count == 0 {
-            return peers;
-        }
-        peers.shuffle(&mut thread_rng());
-        peers.iter().take(count as usize).cloned().collect::<Vec<_>>()
+        let peers: Vec<_> =
+            self.peer_states.values().filter(filter).map(|p| &p.peer_info).collect();
+        peers.choose_multiple(&mut thread_rng(), count).cloned().cloned().collect()
     }
 
     /// Return unconnected or peers with unknown status that we can try to connect to.
@@ -206,12 +200,12 @@ impl PeerStore {
                     && !ignore_fn(p)
                     && p.peer_info.addr.is_some()
             },
-            0,
+            usize::MAX,
         )
     }
 
     /// Return healthy known peers up to given amount.
-    pub(crate) fn healthy_peers(&self, max_count: u32) -> Vec<PeerInfo> {
+    pub(crate) fn healthy_peers(&self, max_count: usize) -> Vec<PeerInfo> {
         self.find_peers(
             |p| match p.status {
                 KnownPeerStatus::Banned(_, _) => false,

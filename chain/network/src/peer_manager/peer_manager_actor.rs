@@ -2246,7 +2246,9 @@ impl PeerManagerActor {
     ) -> PeerRequestResult {
         #[cfg(feature = "delay_detector")]
         let _d = delay_detector::DelayDetector::new("peers request".into());
-        PeerRequestResult { peers: self.peer_store.healthy_peers(self.config.max_send_peers) }
+        PeerRequestResult {
+            peers: self.peer_store.healthy_peers(self.config.max_send_peers as usize),
+        }
     }
 
     fn handle_msg_peers_response(&mut self, msg: PeersResponse, _ctx: &mut Context<Self>) {
