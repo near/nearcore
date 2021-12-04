@@ -133,3 +133,7 @@ pytest sanity/rpc_finality.py --features nightly_protocol,nightly_protocol_featu
 # working on a fix / deciding whether to remove them.
 #pytest sanity/state_migration.py
 #pytest sanity/state_migration.py --features nightly_protocol,nightly_protocol_features
+
+# Rosetta RPC tests
+pytest sanity/rosetta.py
+pytest sanity/rosetta.py --features nightly_protocol,nightly_protocol_features

@@ -215,7 +215,7 @@ pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
         let head = chain_store.head().unwrap();
         let runtime = NightshadeRuntime::with_config(path, store.clone(), near_config, None, None);
         let shard_id = 0;
-        let shard_uid = ShardUId::default();
+        let shard_uid = ShardUId::single_shard();
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
         let start_height = 34691244;
         for block_height in start_height..=head.height {
