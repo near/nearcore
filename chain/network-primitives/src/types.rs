@@ -337,7 +337,7 @@ pub enum PeerIdOrHash {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 // Defines the destination for a network request.
 // The request should be sent either to the `account_id` as a routed message, or directly to
 // any peer that tracks the shard.
