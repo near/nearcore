@@ -1544,6 +1544,7 @@ impl Actor for PeerManagerActor {
         self.push_network_info_trigger(ctx, self.config.push_info_period);
 
         // Periodically starts peer monitoring.
+        debug!(target: "network", message = "monitor_peers_trigger", interval = ?self.config.bootstrap_peers_period);
         self.monitor_peers_trigger(ctx, self.config.bootstrap_peers_period);
 
         // Periodically starts active peer stats querying.
