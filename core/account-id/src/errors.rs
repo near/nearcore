@@ -38,13 +38,13 @@ pub enum ParseErrorKind {
     /// ends with or has separators immediately following each other.
     ///
     /// Cases: `jane.`, `angela__moss`, `tyrell..wellick`
-    RedundantSeparator,
+    RedundantSeparator(usize, char),
     /// The Account ID contains an invalid character.
     ///
     /// This variant would be returned if the Account ID contains an upper-case character, non-separating symbol or space.
     ///
     /// Cases: `ƒelicia.near`, `user@app.com`, `Emily.near`.
-    InvalidChar,
+    InvalidChar(usize, char),
 }
 
 impl fmt::Display for ParseErrorKind {
@@ -52,8 +52,13 @@ impl fmt::Display for ParseErrorKind {
         match self {
             ParseErrorKind::TooLong => "the Account ID is too long".fmt(f),
             ParseErrorKind::TooShort => "the Account ID is too short".fmt(f),
-            ParseErrorKind::RedundantSeparator => "the Account ID has a redundant separator".fmt(f),
-            _ => "the Account ID contains an invalid character".fmt(f),
+            ParseErrorKind::RedundantSeparator(i, c) => {
+                format!("the Account ID has a redundant separator {:?} at index {}", c, i).fmt(f)
+            }
+            ParseErrorKind::InvalidChar(i, c) => {
+                format!("the Account ID contains an invalid character {:?} at index {}", c, i)
+                    .fmt(f)
+            }
         }
     }
 }
