@@ -32,7 +32,7 @@ fn sync_state_nodes() {
 
             let view_client2_holder = Arc::new(RwLock::new(None));
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
-            let arbiters_holder2 = arbiters_holder.clone();
+            let arbiters_holder2 = arbiters_holder;
 
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
@@ -167,7 +167,7 @@ fn sync_state_nodes_multishard() {
 
             let view_client2_holder = Arc::new(RwLock::new(None));
             let arbiter_holder = Arc::new(RwLock::new(vec![]));
-            let arbiter_holder2 = arbiter_holder.clone();
+            let arbiter_holder2 = arbiter_holder;
 
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
@@ -285,7 +285,7 @@ fn sync_empty_state() {
 
             let view_client2_holder = Arc::new(RwLock::new(None));
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
-            let arbiters_holder2 = arbiters_holder.clone();
+            let arbiters_holder2 = arbiters_holder;
 
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
@@ -297,7 +297,7 @@ fn sync_empty_state() {
 
                         actix::spawn(view_client1.send(GetBlock::latest()).then(move |res| {
                             match &res {
-                                Ok(Ok(b)) if b.header.height >= state_sync_horizon + 1 => {
+                                Ok(Ok(b)) if b.header.height > state_sync_horizon => {
                                     let mut view_client2_holder2 =
                                         view_client2_holder2.write().unwrap();
                                     let mut arbiters_holder2 = arbiters_holder2.write().unwrap();

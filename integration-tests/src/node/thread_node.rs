@@ -35,10 +35,7 @@ impl Node for ThreadNode {
     }
 
     fn account_id(&self) -> Option<AccountId> {
-        match &self.config.validator_signer {
-            Some(vs) => Some(vs.validator_id().clone()),
-            None => None,
-        }
+        self.config.validator_signer.as_ref().map(|vs| vs.validator_id().clone())
     }
 
     fn start(&mut self) {

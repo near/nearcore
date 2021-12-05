@@ -21,7 +21,7 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
     let node_user = node.user();
     let transaction_result = node_user
         .create_account(
-            account_id.clone(),
+            account_id,
             "test_contract".parse().unwrap(),
             node.signer().public_key(),
             TESTING_INIT_BALANCE / 2,
@@ -43,8 +43,8 @@ fn test_evil_deep_trie() {
     let node = setup_test_contract(near_test_contracts::rs_contract());
     (0..50).for_each(|i| {
         println!("insertStrings #{}", i);
-        let from = i * 10 as u64;
-        let to = (i + 1) * 10 as u64;
+        let from = i * 10_u64;
+        let to = (i + 1) * 10_u64;
         let mut input_data = [0u8; 2 * size_of::<u64>()];
         input_data[..size_of::<u64>()].copy_from_slice(&from.to_le_bytes());
         input_data[size_of::<u64>()..].copy_from_slice(&to.to_le_bytes());
@@ -64,8 +64,8 @@ fn test_evil_deep_trie() {
     });
     (0..50).rev().for_each(|i| {
         println!("deleteStrings #{}", i);
-        let from = i * 10 as u64;
-        let to = (i + 1) * 10 as u64;
+        let from = i * 10_u64;
+        let to = (i + 1) * 10_u64;
         let mut input_data = [0u8; 2 * size_of::<u64>()];
         input_data[..size_of::<u64>()].copy_from_slice(&from.to_le_bytes());
         input_data[size_of::<u64>()..].copy_from_slice(&to.to_le_bytes());

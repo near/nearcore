@@ -21,7 +21,7 @@ fn test_catchup() {
         let nodes = create_nodes(num_nodes, test_prefix);
 
         let mut nodes: Vec<Arc<RwLock<dyn Node>>> =
-            nodes.into_iter().map(|cfg| <dyn Node>::new_sharable(cfg)).collect();
+            nodes.into_iter().map(<dyn Node>::new_sharable).collect();
 
         let late_node = nodes.pop().unwrap();
         // Start all but one.

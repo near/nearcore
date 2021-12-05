@@ -387,7 +387,7 @@ fn test_validator_join() {
 
             let (done1, done2) =
                 (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
-            let (done1_copy1, done2_copy1) = (done1.clone(), done2.clone());
+            let (done1_copy1, done2_copy1) = (done1, done2);
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     let test_nodes = test_nodes.clone();
@@ -490,17 +490,18 @@ fn test_inflation() {
 
             let (done1, done2) =
                 (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
-            let (done1_copy1, done2_copy1) = (done1.clone(), done2.clone());
+            let (done1_copy1, done2_copy1) = (done1, done2);
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
                     actix::spawn(test_nodes[0].view_client.send(GetBlock::latest()).then(
                         move |res| {
                             if let Ok(Ok(block)) = res {
-                                if block.header.height >= 2 && block.header.height <= epoch_length {
-                                    if block.header.total_supply == initial_total_supply {
-                                        done1_copy2.store(true, Ordering::SeqCst);
-                                    }
+                                if block.header.height >= 2
+                                    && block.header.height <= epoch_length
+                                    && block.header.total_supply == initial_total_supply
+                                {
+                                    done1_copy2.store(true, Ordering::SeqCst);
                                 }
                             }
                             future::ready(())

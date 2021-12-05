@@ -68,7 +68,7 @@ fn add_blocks(
         let block = Block::produce(
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
-            &prev.header(),
+            prev.header(),
             prev.header().height() + 1,
             prev.header().block_ordinal() + 1,
             blocks[0].chunks().iter().cloned().collect(),
@@ -286,7 +286,7 @@ fn sync_state_stake_change() {
             let started = Arc::new(AtomicBool::new(false));
             let dir2_path = dir2.path().to_path_buf();
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
-            let arbiters_holder2 = arbiters_holder.clone();
+            let arbiters_holder2 = arbiters_holder;
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     let started_copy = started.clone();

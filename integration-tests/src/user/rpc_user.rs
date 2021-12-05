@@ -146,7 +146,7 @@ impl User for RpcUser {
     }
 
     fn get_best_block_hash(&self) -> Option<CryptoHash> {
-        self.get_status().map(|status| status.sync_info.latest_block_hash.into())
+        self.get_status().map(|status| status.sync_info.latest_block_hash)
     }
 
     fn get_block(&self, height: BlockHeight) -> Option<BlockView> {
