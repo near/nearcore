@@ -495,16 +495,18 @@ pub enum RegisterPeerResponse {
     Reject,
 }
 
+#[cfg(feature = "test_features")]
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Clone, Debug)]
 pub struct GetPeerId {}
 
+#[cfg(feature = "test_features")]
 impl Message for GetPeerId {
     type Result = GetPeerIdResult;
 }
 
-#[derive(MessageResponse, Debug)]
-#[cfg_attr(feature = "test_features", derive(serde::Serialize))]
+#[cfg(feature = "test_features")]
+#[derive(MessageResponse, Debug, serde::Serialize)]
 pub struct GetPeerIdResult {
     pub(crate) peer_id: PeerId,
 }
@@ -620,6 +622,7 @@ pub enum PeerManagerMessageRequest {
     PeersRequest(PeersRequest),
     PeersResponse(PeersResponse),
     PeerRequest(PeerRequest),
+    #[cfg(feature = "test_features")]
     GetPeerId(GetPeerId),
     OutboundTcpConnect(OutboundTcpConnect),
     InboundTcpConnect(InboundTcpConnect),
@@ -666,6 +669,7 @@ pub enum PeerManagerMessageResponse {
     PeerRequestResult(PeerRequestResult),
     PeersResponseResult(()),
     PeerResponse(PeerResponse),
+    #[cfg(feature = "test_features")]
     GetPeerIdResult(GetPeerIdResult),
     OutboundTcpConnect(()),
     InboundTcpConnect(()),
@@ -722,6 +726,7 @@ impl PeerManagerMessageResponse {
         }
     }
 
+    #[cfg(feature = "test_features")]
     pub fn as_peer_id_result(self) -> GetPeerIdResult {
         if let PeerManagerMessageResponse::GetPeerIdResult(item) = self {
             item
