@@ -1,5 +1,10 @@
 [toolchain]
-# Please update rust-version in **/Cargo.toml files when changing channel:
-channel = "1.56.0"
+# This specified the version we use to build.
+channel = "1.57.0"
+# In order to provide provide backward compatibility, we define minimum version.
+# Current minimum version is "1.56.0", please change rust-version in `**/Cargo.toml`.
+# The minimum supported version is important for outside packages, importing packages
+# from `near/nearcore`. That means we are limited to features available in `1.56.0`.
+# However, we can still benifit from compiler optimizations, improved `cargofmt`, `clippy`, etc.
 components = [ "rustfmt" ]
 targets = [ "wasm32-unknown-unknown" ]
