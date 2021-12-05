@@ -186,11 +186,10 @@ impl OrphanBlockPool {
     /// `requested_missing_chunks`: whether missing chunks has been requested for the orphan
     fn add(&mut self, orphan: Orphan, requested_missing_chunks: bool) {
         let block_hash = *orphan.block.hash();
-        let height_hashes =
-            self.height_idx.entry(orphan.block.header().height()).or_insert_with(|| vec![]);
+        let height_hashes = self.height_idx.entry(orphan.block.header().height()).or_default();
         height_hashes.push(*orphan.block.hash());
         let prev_hash_entries =
-            self.prev_hash_idx.entry(*orphan.block.header().prev_hash()).or_insert_with(|| vec![]);
+            self.prev_hash_idx.entry(*orphan.block.header().prev_hash()).or_default();
         prev_hash_entries.push(block_hash.clone());
         self.orphans.insert(block_hash.clone(), orphan);
         if requested_missing_chunks {
