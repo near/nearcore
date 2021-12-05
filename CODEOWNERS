@@ -29,4 +29,5 @@
 /.buildkite/ @chefsale @mhalambek
 /scripts/ @chefsale @mhalambek @mina86 @nikurt
 
-/docs/ @bowenwang1996 @matklad
+/docs/ @bowenwang1996 @matklad @mm-near
+/pytest/ @mm-near @mina86
