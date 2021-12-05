@@ -93,7 +93,7 @@ async fn convert_genesis_records_to_transaction(
     }
 
     Ok(crate::models::Transaction {
-        transaction_identifier: crate::models::TransactionIdentifier::new(
+        transaction_identifier: crate::models::TransactionIdentifier::block_event(
             "block",
             &block.header.hash,
         ),
@@ -178,13 +178,19 @@ fn convert_block_changes_to_transactions(
                 crate::models::TransactionIdentifier::receipt(&receipt_hash)
             }
             StateChangeCauseView::InitialState => {
-                crate::models::TransactionIdentifier::new("block", block_hash)
+                crate::models::TransactionIdentifier::block_event("block", block_hash)
             }
             StateChangeCauseView::ValidatorAccountsUpdate => {
-                crate::models::TransactionIdentifier::new("block-validators-update", block_hash)
+                crate::models::TransactionIdentifier::block_event(
+                    "block-validators-update",
+                    block_hash,
+                )
             }
             StateChangeCauseView::UpdatedDelayedReceipts => {
-                crate::models::TransactionIdentifier::new("block-delayed-receipts", block_hash)
+                crate::models::TransactionIdentifier::block_event(
+                    "block-delayed-receipts",
+                    block_hash,
+                )
             }
             StateChangeCauseView::NotWritableToDisk => {
                 return Err(crate::errors::ErrorKind::InternalInvariantError(
@@ -192,7 +198,7 @@ fn convert_block_changes_to_transactions(
                 ));
             }
             StateChangeCauseView::Migration => {
-                crate::models::TransactionIdentifier::new("migration", block_hash)
+                crate::models::TransactionIdentifier::block_event("migration", block_hash)
             }
             StateChangeCauseView::Resharding => {
                 return Err(crate::errors::ErrorKind::InternalInvariantError(
