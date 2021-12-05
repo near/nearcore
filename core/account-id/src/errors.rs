@@ -50,12 +50,10 @@ pub enum ParseErrorKind {
 impl fmt::Display for ParseErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ParseErrorKind::TooLong => write!(f, "the Account ID is too long"),
-            ParseErrorKind::TooShort => write!(f, "the Account ID is too short"),
-            ParseErrorKind::RedundantSeparator => {
-                write!(f, "the Account ID has a redundant separator")
-            }
-            _ => write!(f, "the Account ID contains an invalid character"),
+            ParseErrorKind::TooLong => "the Account ID is too long".fmt(f),
+            ParseErrorKind::TooShort => "the Account ID is too short".fmt(f),
+            ParseErrorKind::RedundantSeparator => "the Account ID has a redundant separator".fmt(f),
+            _ => "the Account ID contains an invalid character".fmt(f),
         }
     }
 }
