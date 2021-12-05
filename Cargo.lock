@@ -2536,6 +2536,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-cache"
+version = "0.1.0"
+dependencies = [
+ "bencher",
+ "lru",
+ "rand 0.7.3",
+]
+
+[[package]]
 name = "near-chain"
 version = "0.0.0"
 dependencies = [
