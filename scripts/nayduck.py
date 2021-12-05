@@ -16,6 +16,7 @@ organisation on GitHub to authenticate (<https://github.com/orgs/near/people>).
 The source code for NayDuck itself is at <https://github.com/near/nayduck>.
 """
 
+import re
 import getpass
 import json
 import os
@@ -62,6 +63,9 @@ def _parse_args():
         '-n',
         action='store_true',
         help='Prints list of tests to execute, without doing anything')
+    parser.add_argument('--regex',
+                        '-e',
+                        help='Filter tests based on regex expression')
     args = parser.parse_args()
 
     return args
@@ -315,6 +319,9 @@ def main():
         tests = list(read_tests_from_stdin())
     else:
         tests = list(read_tests_from_file(pathlib.Path(args.test_file)))
+
+    if args.regex:
+        tests = filter(re.compile(args.regex).match, tests)
 
     if args.run_locally:
         run_locally(args, tests)
