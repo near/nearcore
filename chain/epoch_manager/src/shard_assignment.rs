@@ -1,6 +1,7 @@
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::Balance;
 use near_primitives::utils::min_heap::MinHeap;
+use near_primitives_core::types::ShardId;
 use std::cmp;
 
 /// Assign chunk producers (a.k.a validators) to shards. The i-th element
@@ -171,8 +172,6 @@ impl HasStake for ValidatorStake {
         self.stake()
     }
 }
-
-type ShardId = usize;
 
 #[cfg(test)]
 mod tests {
