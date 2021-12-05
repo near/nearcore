@@ -869,7 +869,7 @@ impl Chain {
         on_challenge: F,
     ) -> Result<(), Error>
     where
-        F: FnMut(ChallengeBody) -> (),
+        F: FnMut(ChallengeBody),
     {
         // We create new chain update, but it's not going to be committed so it's read only.
         let mut chain_update = self.chain_update();
@@ -901,10 +901,10 @@ impl Chain {
         on_challenge: F3,
     ) -> Result<Option<Tip>, Error>
     where
-        F: Copy + FnMut(AcceptedBlock) -> (),
-        F1: Copy + FnMut(BlockMissingChunks) -> (),
-        F2: Copy + FnMut(OrphanMissingChunks) -> (),
-        F3: Copy + FnMut(ChallengeBody) -> (),
+        F: Copy + FnMut(AcceptedBlock),
+        F1: Copy + FnMut(BlockMissingChunks),
+        F2: Copy + FnMut(OrphanMissingChunks),
+        F3: Copy + FnMut(ChallengeBody),
     {
         let block_hash = *block.hash();
         let timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
@@ -961,10 +961,10 @@ impl Chain {
         on_challenge: F,
     ) -> Result<(), Error>
     where
-        F: Copy + FnMut(ChallengeBody) -> (),
+        F: Copy + FnMut(ChallengeBody),
     {
         // Sort headers by heights if they are out of order.
-        headers.sort_by(|left, right| left.height().cmp(&right.height()));
+        headers.sort_by_key(|left| left.height());
 
         if let Some(header) = headers.first() {
             debug!(target: "chain", "Sync block headers: {} headers from {} at {}", headers.len(), header.hash(), header.height());
@@ -1135,10 +1135,10 @@ impl Chain {
         on_challenge: F3,
     ) -> Result<(), Error>
     where
-        F: Copy + FnMut(AcceptedBlock) -> (),
-        F1: Copy + FnMut(BlockMissingChunks) -> (),
-        F2: Copy + FnMut(OrphanMissingChunks) -> (),
-        F3: Copy + FnMut(ChallengeBody) -> (),
+        F: Copy + FnMut(AcceptedBlock),
+        F1: Copy + FnMut(BlockMissingChunks),
+        F2: Copy + FnMut(OrphanMissingChunks),
+        F3: Copy + FnMut(ChallengeBody),
     {
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
@@ -1232,10 +1232,10 @@ impl Chain {
         on_challenge: F3,
     ) -> Result<Option<Tip>, Error>
     where
-        F: FnMut(AcceptedBlock) -> (),
-        F1: Copy + FnMut(BlockMissingChunks) -> (),
-        F2: Copy + FnMut(OrphanMissingChunks) -> (),
-        F3: FnMut(ChallengeBody) -> (),
+        F: FnMut(AcceptedBlock),
+        F1: Copy + FnMut(BlockMissingChunks),
+        F2: Copy + FnMut(OrphanMissingChunks),
+        F3: FnMut(ChallengeBody),
     {
         metrics::BLOCK_PROCESSED_TOTAL.inc();
         metrics::NUM_ORPHANS.set(self.orphans.len() as i64);
@@ -1486,10 +1486,10 @@ impl Chain {
         orphan_misses_chunks: F2,
         on_challenge: F3,
     ) where
-        F: Copy + FnMut(AcceptedBlock) -> (),
-        F1: Copy + FnMut(BlockMissingChunks) -> (),
-        F2: Copy + FnMut(OrphanMissingChunks) -> (),
-        F3: Copy + FnMut(ChallengeBody) -> (),
+        F: Copy + FnMut(AcceptedBlock),
+        F1: Copy + FnMut(BlockMissingChunks),
+        F2: Copy + FnMut(OrphanMissingChunks),
+        F3: Copy + FnMut(ChallengeBody),
     {
         let mut new_blocks_accepted = vec![];
         let orphans = self.blocks_with_missing_chunks.ready_blocks();
@@ -1546,10 +1546,10 @@ impl Chain {
         on_challenge: F3,
     ) -> Option<Tip>
     where
-        F: Copy + FnMut(AcceptedBlock) -> (),
-        F1: Copy + FnMut(BlockMissingChunks) -> (),
-        F2: Copy + FnMut(OrphanMissingChunks) -> (),
-        F3: Copy + FnMut(ChallengeBody) -> (),
+        F: Copy + FnMut(AcceptedBlock),
+        F1: Copy + FnMut(BlockMissingChunks),
+        F2: Copy + FnMut(OrphanMissingChunks),
+        F3: Copy + FnMut(ChallengeBody),
     {
         let mut queue = vec![prev_hash];
         let mut queue_idx = 0;
@@ -2273,10 +2273,10 @@ impl Chain {
         affected_blocks: &Vec<CryptoHash>,
     ) -> Result<(), Error>
     where
-        F: Copy + FnMut(AcceptedBlock) -> (),
-        F1: Copy + FnMut(BlockMissingChunks) -> (),
-        F2: Copy + FnMut(OrphanMissingChunks) -> (),
-        F3: Copy + FnMut(ChallengeBody) -> (),
+        F: Copy + FnMut(AcceptedBlock),
+        F1: Copy + FnMut(BlockMissingChunks),
+        F2: Copy + FnMut(OrphanMissingChunks),
+        F3: Copy + FnMut(ChallengeBody),
     {
         debug!(
             "Finishing catching up blocks after syncing pre {:?}, me: {:?}",
@@ -3149,7 +3149,7 @@ impl<'a> ChainUpdate<'a> {
         on_challenge: F,
     ) -> Result<(), Error>
     where
-        F: FnMut(ChallengeBody) -> (),
+        F: FnMut(ChallengeBody),
     {
         debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.height());
 
@@ -3946,7 +3946,7 @@ impl<'a> ChainUpdate<'a> {
         on_challenge: F,
     ) -> Result<(Option<Tip>, bool), Error>
     where
-        F: FnMut(ChallengeBody) -> (),
+        F: FnMut(ChallengeBody),
     {
         let _span =
             tracing::debug_span!(target: "chain", "Process block", "#{}", block.header().height())
@@ -4204,7 +4204,7 @@ impl<'a> ChainUpdate<'a> {
         on_challenge: F,
     ) -> Result<(), Error>
     where
-        F: FnMut(ChallengeBody) -> (),
+        F: FnMut(ChallengeBody),
     {
         self.validate_header(header, provenance, on_challenge)?;
         self.chain_store_update.save_block_header(header.clone())?;
@@ -4219,7 +4219,7 @@ impl<'a> ChainUpdate<'a> {
         mut on_challenge: F,
     ) -> Result<(), Error>
     where
-        F: FnMut(ChallengeBody) -> (),
+        F: FnMut(ChallengeBody),
     {
         // Refuse blocks from the too distant future.
         if header.timestamp() > Utc::now() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
