@@ -972,7 +972,7 @@ pub fn setup_mock_all_validators(
                             };
                         }
                         NetworkRequests::ForwardTx(_, _)
-                        | NetworkRequests::Sync { .. }
+                        | NetworkRequests::SyncRoutingTable { .. }
                         | NetworkRequests::FetchRoutingTable
                         | NetworkRequests::PingTo(_, _)
                         | NetworkRequests::FetchPingPongInfo
@@ -1399,7 +1399,7 @@ impl TestEnv {
         let response = self.clients[0]
             .runtime_adapter
             .query(
-                ShardUId::default(),
+                ShardUId::single_shard(),
                 &last_chunk_header.prev_state_root(),
                 last_block.header().height(),
                 last_block.header().raw_timestamp(),
@@ -1422,7 +1422,7 @@ impl TestEnv {
         let response = self.clients[0]
             .runtime_adapter
             .query(
-                ShardUId::default(),
+                ShardUId::single_shard(),
                 &last_chunk_header.prev_state_root(),
                 last_block.header().height(),
                 last_block.header().raw_timestamp(),
