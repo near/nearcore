@@ -64,9 +64,9 @@ pub use errors::{ParseAccountError, ParseErrorKind};
 pub struct AccountId(Box<str>);
 
 impl AccountId {
-    /// Smallest valid length for a NEAR Account ID.
+    /// Shortest valid length for a NEAR Account ID.
     pub const MIN_LEN: usize = 2;
-    /// Largest valid length for a NEAR Account ID.
+    /// Longest valid length for a NEAR Account ID.
     pub const MAX_LEN: usize = 64;
 
     /// Returns a string slice of the entire Account ID.
