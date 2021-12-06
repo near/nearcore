@@ -1727,7 +1727,7 @@ dependencies = [
  "lazy-static-include",
  "near-chain-configs",
  "near-crypto",
- "near-network",
+ "near-network-primitives",
  "near-primitives",
  "nearcore",
  "node-runtime",
@@ -2537,7 +2537,7 @@ dependencies = [
 
 [[package]]
 name = "near-cache"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "bencher",
  "lru",

@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use actix::{Actor, Addr, System};
-use actix_rt::ArbiterHandle;
 use futures::{future, FutureExt};
 use near_primitives::num_rational::Rational;
 use rand::Rng;
@@ -34,7 +33,6 @@ struct TestNode {
     client: Addr<ClientActor>,
     view_client: Addr<ViewClientActor>,
     genesis_hash: CryptoHash,
-    arbiters: Vec<ArbiterHandle>,
 }
 
 fn init_test_staking(
@@ -78,7 +76,7 @@ fn init_test_staking(
         .enumerate()
         .map(|(i, config)| {
             let genesis_hash = genesis_hash(&config.genesis);
-            let nearcore::NearNode { client, view_client, arbiters, .. } =
+            let nearcore::NearNode { client, view_client, .. } =
                 start_with_config(paths[i], config.clone());
             let account_id = format!("near.{}", i).parse::<AccountId>().unwrap();
             let signer = Arc::new(InMemorySigner::from_seed(
@@ -86,7 +84,7 @@ fn init_test_staking(
                 KeyType::ED25519,
                 account_id.as_ref(),
             ));
-            TestNode { account_id, signer, config, client, view_client, genesis_hash, arbiters }
+            TestNode { account_id, signer, config, client, view_client, genesis_hash }
         })
         .collect()
 }

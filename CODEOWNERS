@@ -8,15 +8,15 @@
 /chain/jsonrpc/ @khorolets @chefsale
 /chain/jsonrpc-primitives/ @khorolets @miraclx @chefsale
 /chain/indexer/ @khorolets
-/chain/rosetta-rpc/ @frol
+/chain/rosetta-rpc/ @frol @mina86
 
 /runtime/ @bowenwang1996 @EgorKulikov @mzhangmzz @mm-near
 /runtime/runtime-params-estimator/ @olonho @matklad
-/runtime/near-test-contracts/ @olonho @ailisp @matklad
-/runtime/near-vm-runner-standalone/ @olonho @ailisp @matklad
-/runtime/near-vm-runner/ @olonho @ailisp @matklad
+/runtime/near-test-contracts/ @olonho @matklad
+/runtime/near-vm-runner-standalone/ @olonho @matklad
+/runtime/near-vm-runner/ @olonho @matklad
 
-/genesis-tools/ @ailisp
+/genesis-tools/ @nikurt
 /tools/indexer/ @khorolets
 
 /core/  @bowenwang1996 @matklad @mm-near
@@ -27,6 +27,7 @@
 /test-utils/runtime-tester @posvyatokum @matklad
 
 /.buildkite/ @chefsale @mhalambek
-/scripts/ @chefsale @mhalambek
+/scripts/ @chefsale @mhalambek @mina86 @nikurt
 
-/docs/ @bowenwang1996 @matklad
+/docs/ @bowenwang1996 @matklad @mm-near
+/pytest/ @mm-near @mina86
