@@ -102,6 +102,8 @@ struct CliArgs {
     protocol_version: Option<ProtocolVersion>,
 }
 
+/// Used only for debug prints.
+#[allow(unused)]
 #[derive(Debug, Clone)]
 struct StandaloneOutput {
     pub outcome: Option<VMOutcome>,
