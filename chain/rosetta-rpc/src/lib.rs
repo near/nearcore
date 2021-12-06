@@ -808,9 +808,9 @@ async fn construction_hash(
     }
 
     Ok(Json(models::TransactionIdentifierResponse {
-        transaction_identifier: models::TransactionIdentifier {
-            hash: signed_transaction.as_ref().get_hash().to_base(),
-        },
+        transaction_identifier: models::TransactionIdentifier::transaction(
+            &signed_transaction.as_ref().get_hash(),
+        ),
     }))
 }
 
@@ -842,7 +842,7 @@ async fn construction_submit(
         });
     }
 
-    let transaction_hash = signed_transaction.as_ref().get_hash().to_base();
+    let transaction_hash = signed_transaction.as_ref().get_hash();
     let transaction_submittion = client_addr
         .send(near_network::types::NetworkClientMessages::Transaction {
             transaction: signed_transaction.into_inner(),
@@ -854,7 +854,9 @@ async fn construction_submit(
         near_network::types::NetworkClientResponses::ValidTx
         | near_network::types::NetworkClientResponses::RequestRouted => {
             Ok(Json(models::TransactionIdentifierResponse {
-                transaction_identifier: models::TransactionIdentifier { hash: transaction_hash },
+                transaction_identifier: models::TransactionIdentifier::transaction(
+                    &transaction_hash,
+                ),
             }))
         }
         near_network::types::NetworkClientResponses::InvalidTx(error) => {
