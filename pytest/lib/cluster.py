@@ -390,7 +390,7 @@ class LocalNode(BaseNode):
                                              stdin=subprocess.DEVNULL,
                                              stdout=stdout,
                                              stderr=stderr,
-                                             env=env).pid
+                                             env=env)
         self._pid = self._process.pid
 
         if not skip_starting_proxy:
