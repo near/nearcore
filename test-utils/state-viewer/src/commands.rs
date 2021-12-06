@@ -58,7 +58,7 @@ pub(crate) fn dump_state(
 ) {
     assert!(
         !stream || !single_file,
-        "Exactly one of options --stream and --single_file needs to be set"
+        "At most one of options --stream and --single_file can be set"
     );
     if !stream && !single_file {
         println!("Assuming a single file output is requested");
