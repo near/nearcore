@@ -2,9 +2,10 @@
 
 ## Purpose
 
-Verifies that receipts being restored after `apply_chunks` fix (`FixApplyChunks` protocol upgrade) actually were created on chain.
+Verifies that receipts restored in chain after `RestoreReceiptsAfterFixApplyChunks` protocol upgrade actually were created on chain at some heights.
 Because receipt hashes are unique, we only check for their presence.
-See https://github.com/near/nearcore/pull/4248/ for more details.
+
+We needed such a restore, because they got stuck in chain due to a bug fixed by a `FixApplyChunks` protocol upgrade. See [#4248](https://github.com/near/nearcore/pull/4248) for more details.
 
 ## Requirements
 

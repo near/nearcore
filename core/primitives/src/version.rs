@@ -104,7 +104,7 @@ pub enum ProtocolFeature {
     MathExtension,
     /// Restore receipts that were previously stuck because of
     /// <https://github.com/near/nearcore/pull/4228>.
-    RestoreReceiptsAfterFix,
+    RestoreReceiptsAfterFixApplyChunks,
     /// This feature switch our WASM engine implementation from wasmer 0.* to
     /// wasmer 2.*, bringing better performance and reliability.
     ///
@@ -169,7 +169,7 @@ impl ProtocolFeature {
             | ProtocolFeature::CapMaxGasPrice
             | ProtocolFeature::CountRefundReceiptsInGasLimit
             | ProtocolFeature::MathExtension => 46,
-            ProtocolFeature::RestoreReceiptsAfterFix => 47,
+            ProtocolFeature::RestoreReceiptsAfterFixApplyChunks => 47,
             ProtocolFeature::Wasmer2
             | ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost
             | ProtocolFeature::LowerRegularOpCost
