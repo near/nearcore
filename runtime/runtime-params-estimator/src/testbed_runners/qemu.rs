@@ -49,7 +49,13 @@ impl QemuMeasurement {
 
 impl std::fmt::Debug for QemuMeasurement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}i {:?}r {:?}w", self.instructions, self.io_r_bytes, self.io_w_bytes)
+        write!(
+            f,
+            "{}i {}r {}w",
+            self.instructions.to_integer(),
+            self.io_r_bytes.to_integer(),
+            self.io_w_bytes.to_integer()
+        )
     }
 }
 
