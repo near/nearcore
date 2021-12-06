@@ -8,18 +8,18 @@ use near_primitives::sharding::{
 };
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 
-/// This file implements EncodedChunksCache, which provides two main functionalities:
-/// 1) It stores a map from a chunk hash to all the parts and receipts received so far for the chunk.
-///    This map is used to aggregate chunk parts and receipts before the full chunk can be reconstructed
-///    or the necessary parts and receipts are received.
-///    When a PartialEncodedChunk is received, the parts and receipts it contains are merged to the
-///    corresponding chunk entry in the map.
-///    Entries in the map are removed if the chunk is found to be invalid or the chunk goes out of
-///    horizon [chain_head_height - HEIGHT_HORIZON, chain_head_height + MAX_HEIGHTS_AHEAD]
-/// 2) It stores a map from block hash to chunk headers that are ready to be included in a block.
-///    This functionality is meant for block producers. When producing a block, the block producer
-///    will only include chunks in the block for which it has received the part it owns.
-///    Users of the data structure are responsible for adding chunk to this map at the right time.
+// This file implements EncodedChunksCache, which provides two main functionalities:
+// 1) It stores a map from a chunk hash to all the parts and receipts received so far for the chunk.
+//    This map is used to aggregate chunk parts and receipts before the full chunk can be reconstructed
+//    or the necessary parts and receipts are received.
+//    When a PartialEncodedChunk is received, the parts and receipts it contains are merged to the
+//    corresponding chunk entry in the map.
+//    Entries in the map are removed if the chunk is found to be invalid or the chunk goes out of
+//    horizon [chain_head_height - HEIGHT_HORIZON, chain_head_height + MAX_HEIGHTS_AHEAD]
+// 2) It stores a map from block hash to chunk headers that are ready to be included in a block.
+//    This functionality is meant for block producers. When producing a block, the block producer
+//    will only include chunks in the block for which it has received the part it owns.
+//    Users of the data structure are responsible for adding chunk to this map at the right time.
 
 /// A chunk is out of horizon if its height + HEIGHT_HORIZON < largest_seen_height
 const HEIGHT_HORIZON: BlockHeightDelta = 1024;
