@@ -19,7 +19,7 @@ use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 /// 2) It stores a map from block hash to chunk headers that are ready to be included in a block.
 ///    This functionality is meant for block producers. When producing a block, the block producer
 ///    will only include chunks in the block for which it has received the part it owns.
-///    Users of the data structure is responsible for adding chunk to this map at the right time.
+///    Users of the data structure are responsible for adding chunk to this map at the right time.
 
 /// A chunk is out of horizon if its height + HEIGHT_HORIZON < largest_seen_height
 const HEIGHT_HORIZON: BlockHeightDelta = 1024;
