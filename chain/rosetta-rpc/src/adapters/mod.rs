@@ -161,8 +161,7 @@ fn convert_block_changes_to_transactions(
         near_primitives::types::AccountId,
         near_primitives::views::AccountView,
     >,
-) -> crate::errors::Result<std::collections::HashMap<String, crate::models::Transaction>>
-{
+) -> crate::errors::Result<std::collections::HashMap<String, crate::models::Transaction>> {
     use near_primitives::views::StateChangeCauseView;
 
     let mut transactions = std::collections::HashMap::<String, crate::models::Transaction>::new();
