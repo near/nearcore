@@ -52,9 +52,13 @@ use crate::types::{
     ValidatorInfoIdentifier,
 };
 use crate::Doomslug;
+use crate::Provenance;
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
+use chrono::{Duration, TimeZone};
+use near_primitives::block::{Block, Tip};
 use near_primitives::epoch_manager::ShardConfig;
-use near_primitives::time::Clock;
+use near_primitives::time::{Clock, MockClockGuard, Utc};
+use near_primitives::utils::MaybeValidated;
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
 struct AccountNonce(AccountId, Nonce);
@@ -1400,6 +1404,76 @@ impl ChainGenesis {
     }
 }
 
+/// A wrapper function around process_block that doesn't trigger all the callbacks
+/// Only used in tests
+pub fn process_block_test(
+    chain: &mut Chain,
+    me: &Option<AccountId>,
+    block: Block,
+) -> Result<Option<Tip>, Error> {
+    chain.process_block(
+        me,
+        MaybeValidated::from(block),
+        Provenance::PRODUCED,
+        |_| {},
+        |_| {},
+        |_| {},
+    )
+}
+
+use rand_chacha::rand_core::SeedableRng;
+use rand_chacha::ChaCha8Rng;
+use rand_distr::{Distribution, Exp};
+
+pub fn fill_mock_clock_utc(
+    mock_date: chrono::DateTime<Utc>,
+    num_samples: u64,
+    average_interval_in_miliseconds: f64,
+    seed: u64,
+) {
+    let exp = Exp::new(average_interval_in_miliseconds).unwrap();
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut utc = mock_date.clone();
+    for _i in 0..num_samples {
+        let f = exp.sample(&mut rng) as i64;
+        let d = Duration::milliseconds(f);
+        if let Some(t) = utc.checked_add_signed(d) {
+            Clock::add_utc(utc.clone());
+            utc = t;
+        }
+    }
+}
+
+pub fn build_chain_from_random_data(data: &[u8]) {
+    if data.len() > 8 {
+        let (a, b) = data.split_at(8);
+        let seed = u64::from_be_bytes(a.try_into().unwrap());
+        let num_blocks = b.len() as u64;
+        let _mock_clock_guard = MockClockGuard::default();
+        fill_mock_clock_utc(
+            chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444),
+            num_blocks * 2 + 1,
+            100.0,
+            seed,
+        );
+
+        let (mut chain, _, signer) = setup();
+
+        for i in 0..num_blocks {
+            let prev_hash = *chain.head_header().unwrap().hash();
+            let prev = chain.get_block(&prev_hash).unwrap();
+            let block = Block::empty(&prev, &*signer);
+            if let Some(tip) = process_block_test(&mut chain, &None, block).unwrap() {
+                assert_eq!(tip.height, i + 1);
+            }
+        }
+        assert_eq!(chain.head().unwrap().height, num_blocks);
+        let count_instant = Clock::instant_call_count();
+        let count_utc = Clock::utc_call_count();
+        assert_eq!(count_utc, 2 * num_blocks + 1);
+        assert_eq!(count_instant, 0);
+    }
+}
 #[cfg(test)]
 mod test {
     use std::convert::TryFrom;
@@ -1407,6 +1481,7 @@ mod test {
     use borsh::BorshSerialize;
     use rand::Rng;
 
+    use crate::test_utils::build_chain_from_random_data;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ReceiptList;
@@ -1477,5 +1552,28 @@ mod test {
         for num_shards in 1..10 {
             test_build_receipt_hashes_with_num_shard(num_shards);
         }
+    }
+
+    #[test]
+    fn test_build_chain_from_random_data() {
+        build_chain_from_random_data(&[244, 8, 201, 201])
+    }
+
+    #[test]
+    fn test_build_chain_from_random_data2() {
+        build_chain_from_random_data(&[238, 65, 35, 35, 255, 255, 255, 255, 255, 255, 255, 255])
+    }
+
+    #[test]
+    fn test_build_chain_from_random_data3() {
+        build_chain_from_random_data(&[
+            128, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255,
+        ])
     }
 }

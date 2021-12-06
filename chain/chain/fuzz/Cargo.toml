@@ -1,0 +1,31 @@
+[package]
+name = "near-chain-fuzz"
+version = "0.0.0"
+authors = ["Automatically generated"]
+publish = false
+edition = "2018"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+chrono = { version = "0.4.4", features = ["serde"] }
+serde = { version = "1", features = [ "derive" ] }
+near-chain-primitives = { path = "../../chain-primitives" }
+near-crypto = { path = "../../../core/crypto" }
+near-primitives = { path = "../../../core/primitives" }
+
+
+[dependencies.near-chain]
+path = ".."
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "fuzz_build_chain"
+path = "fuzz_targets/fuzz_build_chain.rs"
+test = false
+doc = false

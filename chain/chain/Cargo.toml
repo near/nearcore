@@ -21,6 +21,8 @@ tracing = "0.1.13"
 thiserror = "1.0"
 strum = "0.20"
 rayon = "1.5"
+rand_chacha = "0.3.1"
+rand_distr = "0.4.2"
 
 borsh = "0.9"
 
