@@ -2003,7 +2003,7 @@ fn test_data_reset_before_state_sync() {
     let response = env.clients[0]
         .runtime_adapter
         .query(
-            ShardUId::default(),
+            ShardUId::single_shard(),
             &head_block.chunks()[0].prev_state_root(),
             head.height,
             0,
@@ -2017,7 +2017,7 @@ fn test_data_reset_before_state_sync() {
     env.clients[0].chain.reset_data_pre_state_sync(*head_block.hash()).unwrap();
     // account should not exist after clearing state
     let response = env.clients[0].runtime_adapter.query(
-        ShardUId::default(),
+        ShardUId::single_shard(),
         &head_block.chunks()[0].prev_state_root(),
         head.height,
         0,
@@ -2216,8 +2216,11 @@ fn test_validate_chunk_extra() {
 
     // About to produce a block on top of block1. Validate that this chunk is legit.
     let chunks = env.clients[0].shards_mgr.prepare_chunks(block1.hash());
-    let chunk_extra =
-        env.clients[0].chain.get_chunk_extra(block1.hash(), &ShardUId::default()).unwrap().clone();
+    let chunk_extra = env.clients[0]
+        .chain
+        .get_chunk_extra(block1.hash(), &ShardUId::single_shard())
+        .unwrap()
+        .clone();
     assert!(validate_chunk_with_chunk_extra(
         &mut chain_store,
         &*env.clients[0].runtime_adapter,
@@ -2304,7 +2307,10 @@ fn test_catchup_gas_price_change() {
     }
 
     assert_ne!(blocks[3].header().gas_price(), blocks[4].header().gas_price());
-    assert!(env.clients[1].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::default()).is_err());
+    assert!(env.clients[1]
+        .chain
+        .get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard())
+        .is_err());
 
     // Simulate state sync
     let sync_hash = *blocks[5].hash();
@@ -2355,12 +2361,12 @@ fn test_catchup_gas_price_change() {
     env.clients[1].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
     let chunk_extra_after_sync = env.clients[1]
         .chain
-        .get_chunk_extra(blocks[4].hash(), &ShardUId::default())
+        .get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard())
         .unwrap()
         .clone();
     let expected_chunk_extra = env.clients[0]
         .chain
-        .get_chunk_extra(blocks[4].hash(), &ShardUId::default())
+        .get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard())
         .unwrap()
         .clone();
     // The chunk extra of the prev block of sync block should be the same as the node that it is syncing from
@@ -2763,7 +2769,7 @@ fn test_query_final_state() {
         let last_final_block = chain.get_block(&final_head.last_block_hash).unwrap().clone();
         let response = runtime_adapter
             .query(
-                ShardUId::default(),
+                ShardUId::single_shard(),
                 &last_final_block.chunks()[0].prev_state_root(),
                 last_final_block.header().height(),
                 last_final_block.header().raw_timestamp(),
@@ -3105,14 +3111,14 @@ fn test_congestion_receipt_execution() {
     let prev_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
     let chunk_extra = env.clients[0]
         .chain
-        .get_chunk_extra(prev_block.hash(), &ShardUId::default())
+        .get_chunk_extra(prev_block.hash(), &ShardUId::single_shard())
         .unwrap()
         .clone();
     assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
     let state_update = env.clients[0]
         .runtime_adapter
         .get_tries()
-        .new_trie_update(ShardUId::default(), *chunk_extra.state_root());
+        .new_trie_update(ShardUId::single_shard(), *chunk_extra.state_root());
     let delayed_indices =
         get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices)
             .unwrap()
@@ -3836,7 +3842,7 @@ mod storage_usage_fix_tests {
 
             let root = env.clients[0]
                 .chain
-                .get_chunk_extra(block.hash(), &ShardUId::default())
+                .get_chunk_extra(block.hash(), &ShardUId::single_shard())
                 .unwrap()
                 .state_root()
                 .clone();
@@ -3951,8 +3957,11 @@ mod contract_precompilation_tests {
     fn state_sync_on_height(env: &mut TestEnv, height: BlockHeight) {
         let sync_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
         let sync_hash = *sync_block.hash();
-        let chunk_extra =
-            env.clients[0].chain.get_chunk_extra(&sync_hash, &ShardUId::default()).unwrap().clone();
+        let chunk_extra = env.clients[0]
+            .chain
+            .get_chunk_extra(&sync_hash, &ShardUId::single_shard())
+            .unwrap()
+            .clone();
         let epoch_id =
             env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
         let state_part = env.clients[0]
@@ -4029,7 +4038,7 @@ mod contract_precompilation_tests {
         // compile_module_cached_wasmer0 is cached by contract key via macro.
         let block = env.clients[0].chain.get_block_by_height(EPOCH_LENGTH).unwrap().clone();
         let chunk_extra =
-            env.clients[0].chain.get_chunk_extra(block.hash(), &ShardUId::default()).unwrap();
+            env.clients[0].chain.get_chunk_extra(block.hash(), &ShardUId::single_shard()).unwrap();
         let state_root = chunk_extra.state_root().clone();
 
         let viewer = TrieViewer::default();

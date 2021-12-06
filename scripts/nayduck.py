@@ -20,6 +20,7 @@ import getpass
 import json
 import os
 import pathlib
+import shlex
 import subprocess
 import sys
 import typing
@@ -56,6 +57,11 @@ def _parse_args():
                         '-l',
                         action='store_true',
                         help='Run tests locally.')
+    parser.add_argument(
+        '--dry-run',
+        '-n',
+        action='store_true',
+        help='Prints list of tests to execute, without doing anything')
     args = parser.parse_args()
 
     return args
@@ -199,7 +205,7 @@ def _parse_timeout(timeout: typing.Optional[str]) -> typing.Optional[int]:
     return int(timeout) * mul
 
 
-def run_locally(tests):
+def run_locally(args, tests):
     for test in tests:
         # See nayduck specs at https://github.com/near/nayduck/blob/master/lib/testspec.py
         fields = test.split()
@@ -218,7 +224,8 @@ def run_locally(tests):
         message = f'Running ‘{"".join(fields)}’'
         if ignored:
             message = f'{message} (ignoring flags ‘{" ".join(ignored)}`)'
-        print(message)
+        if not args.dry_run:
+            print(message)
 
         if fields[0] == 'expensive':
             # TODO --test doesn't work
@@ -242,6 +249,11 @@ def run_locally(tests):
         else:
             print(f'Unrecognised test category ‘{fields[0]}’', file=sys.stderr)
             continue
+        if args.dry_run:
+            print('( cd {} && {} )'.format(
+                shlex.quote(str(cwd)),
+                ' '.join(shlex.quote(str(arg)) for arg in cmd)))
+            continue
         print("RUNNING COMMAND cwd=%s cmd = %s", (cwd, cmd))
         subprocess.check_call(cmd, cwd=cwd, timeout=_parse_timeout(timeout))
 
@@ -264,11 +276,17 @@ def run_remotely(args, tests):
     else:
         code = github_auth(code_path)
 
+    if args.dry_run:
+        for test in tests:
+            print(test)
+        return
+
     post = {
         'branch': args.branch or get_current_branch().strip(),
         'sha': args.sha or get_curent_sha().strip(),
         'tests': list(tests)
     }
+
     while True:
         print('Sending request ...')
         res = requests.post(NAYDUCK_BASE_HREF + '/api/run/new',
@@ -278,6 +296,7 @@ def run_remotely(args, tests):
             break
         print(f'{styles[0]}Unauthorised.{styles[2]}\n')
         code = github_auth(code_path)
+
     if res.status_code == 200:
         json_res = json.loads(res.text)
         print(styles[json_res['code'] == 0] + json_res['response'] + styles[2])
@@ -298,7 +317,7 @@ def main():
         tests = list(read_tests_from_file(pathlib.Path(args.test_file)))
 
     if args.run_locally:
-        run_locally(tests)
+        run_locally(args, tests)
     else:
         run_remotely(args, tests)
 

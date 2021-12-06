@@ -427,16 +427,18 @@ mod tests {
     #[test]
     fn trie_iter() {
         let tries = create_tries();
-        let mut trie_update = tries.new_trie_update(ShardUId::default(), CryptoHash::default());
+        let mut trie_update =
+            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
         trie_update.set(test_key(b"aaa".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let trie_changes = trie_update.finalize().unwrap().0;
-        let (store_update, new_root) = tries.apply_all(&trie_changes, ShardUId::default()).unwrap();
+        let (store_update, new_root) =
+            tries.apply_all(&trie_changes, ShardUId::single_shard()).unwrap();
         store_update.commit().unwrap();
 
-        let mut trie_update = tries.new_trie_update(ShardUId::default(), new_root);
+        let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), new_root);
         trie_update.set(test_key(b"dog2".to_vec()), b"puppy".to_vec());
         trie_update.set(test_key(b"xxx".to_vec()), b"puppy".to_vec());
 
@@ -453,14 +455,14 @@ mod tests {
             trie_update.iter(&test_key(b"dog".to_vec()).to_vec()).unwrap().collect();
         assert_eq!(values.unwrap(), vec![test_key(b"dog".to_vec()).to_vec()]);
 
-        let mut trie_update = tries.new_trie_update(ShardUId::default(), new_root);
+        let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), new_root);
         trie_update.remove(test_key(b"dog".to_vec()));
 
         let values: Result<Vec<Vec<u8>>, _> =
             trie_update.iter(&test_key(b"dog".to_vec()).to_vec()).unwrap().collect();
         assert_eq!(values.unwrap().len(), 0);
 
-        let mut trie_update = tries.new_trie_update(ShardUId::default(), new_root);
+        let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), new_root);
         trie_update.set(test_key(b"dog2".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
@@ -470,7 +472,7 @@ mod tests {
             trie_update.iter(&test_key(b"dog".to_vec()).to_vec()).unwrap().collect();
         assert_eq!(values.unwrap(), vec![test_key(b"dog".to_vec()).to_vec()]);
 
-        let mut trie_update = tries.new_trie_update(ShardUId::default(), new_root);
+        let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), new_root);
         trie_update.set(test_key(b"dog2".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
