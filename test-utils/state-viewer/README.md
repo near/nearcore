@@ -87,3 +87,14 @@ Saves the current state of the network in a new genesis file.
 Flags:
 
 * `--height` takes state from the genesis up to and including the given height. By default, dumps all available state.
+
+#### Running on macOS
+
+```bash
+brew install --cask google-cloud-sdk
+export PATH=/usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/bin:$PATH
+gcloud beta compute ssh --zone "europe-west4-a" "<machine>"  --project "rpc-prod"
+```
+
+Check running instances at <https://console.cloud.google.com/compute/instances?project=rpc-prod> to see the machine
+name and datacenter.

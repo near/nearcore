@@ -154,6 +154,8 @@ pub struct ApplyRangeCmd {
     verbose_output: bool,
     #[clap(long, parse(from_os_str))]
     csv_file: Option<PathBuf>,
+    #[clap(long)]
+    only_contracts: bool,
 }
 
 impl ApplyRangeCmd {
@@ -167,6 +169,7 @@ impl ApplyRangeCmd {
             home_dir,
             near_config,
             store,
+            self.only_contracts,
         );
     }
 }

@@ -13,17 +13,35 @@ use near_chain_configs::Genesis;
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::DelayedReceiptIndices;
-use near_primitives::transaction::{ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof};
+use near_primitives::transaction::{
+    Action, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof,
+};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::{get, DBCol, Store};
 use nearcore::NightshadeRuntime;
 
-fn inc_and_report_progress(cnt: &AtomicU64) {
+fn timestamp() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+}
+
+fn inc_and_report_progress(cnt: &AtomicU64, ts: &AtomicU64, all: u64) {
+    const PRINT_PER: u64 = 10000;
     let prev = cnt.fetch_add(1, Ordering::Relaxed);
-    if (prev + 1) % 10000 == 0 {
-        println!("Processed {} blocks", prev + 1);
+    if (prev + 1) % PRINT_PER == 0 {
+        let prev_ts = ts.load(Ordering::Relaxed);
+        let new_ts = timestamp();
+        let per_second = PRINT_PER / (new_ts - prev_ts);
+        ts.store(new_ts, Ordering::Relaxed);
+        let secs_remaining = (all - prev) / per_second;
+        println!(
+            "Processed {} blocks, {} blocks per second, {} secs remaining",
+            prev + 1,
+            per_second,
+            secs_remaining
+        );
     }
 }
 
@@ -63,6 +81,7 @@ pub fn apply_chain_range(
     runtime: NightshadeRuntime,
     verbose_output: bool,
     csv_file: Option<&mut File>,
+    only_contracts: bool,
 ) {
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(runtime);
     let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height);
@@ -79,13 +98,16 @@ pub fn apply_chain_range(
     maybe_add_to_csv(&csv_file_mutex, "Height,Hash,Author,#Tx,#Receipt,Timestamp,GasUsed,ChunkPresent,#ProcessedDelayedReceipts,#DelayedReceipts");
 
     let processed_blocks_cnt = AtomicU64::new(0);
+    let processed_blocks_timestamp = AtomicU64::new(timestamp());
+    let all_blocks = end_height - start_height;
+
     (start_height..=end_height).into_par_iter().for_each(|height| {
             let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height);
             let block_hash = match chain_store.get_block_hash_by_height(height) {
                 Ok(block_hash) => block_hash,
                 Err(_) => {
                     // Skipping block because it's not available in ChainStore.
-                    inc_and_report_progress(&processed_blocks_cnt);
+                    inc_and_report_progress(&processed_blocks_cnt, &processed_blocks_timestamp, all_blocks);
                     return;
                 },
             };
@@ -105,7 +127,7 @@ pub fn apply_chain_range(
                 if verbose_output {
                     println!("Skipping the genesis block #{}.", height);
                 }
-                inc_and_report_progress(&processed_blocks_cnt);
+                inc_and_report_progress(&processed_blocks_cnt,&processed_blocks_timestamp, all_blocks);
                 return;
             } else if block.chunks()[shard_id as usize].height_included() == height {
                 chunk_present = true;
@@ -124,7 +146,7 @@ pub fn apply_chain_range(
                             println!("Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.", height);
                         }
                         maybe_add_to_csv(&csv_file_mutex, &format!("{},{},{},,,{},,{},,", height, block_hash, block_author, block.header().raw_timestamp(), chunk_present));
-                        inc_and_report_progress(&processed_blocks_cnt);
+                        inc_and_report_progress(&processed_blocks_cnt, &processed_blocks_timestamp, all_blocks);
                         return;
                     },
                 };
@@ -151,6 +173,25 @@ pub fn apply_chain_range(
 
                 num_receipt = receipts.len();
                 num_tx = chunk.transactions().len();
+                if only_contracts {
+                    let mut has_contracts = false;
+                    for tx in chunk.transactions() {
+                        for action in &tx.transaction.actions {
+                            has_contracts = has_contracts || match action {
+                                Action::FunctionCall(_) => {
+                                    true
+                                }
+                                Action::DeployContract(_) => {
+                                    true
+                                }
+                                _ => {
+                                    false
+                                }
+                            }
+                        }
+                    }
+                    if !has_contracts { return }
+                }
                 runtime_adapter
                     .apply_transactions(
                         shard_id,
@@ -217,7 +258,9 @@ pub fn apply_chain_range(
                 if verbose_output {
                     println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
                 }
-                assert_eq!(existing_chunk_extra, chunk_extra, "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes, old_outcomes(store.clone(), &apply_result.outcomes));
+                if !smart_equals(&existing_chunk_extra, &chunk_extra) {
+                    assert!(false, "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes, old_outcomes(store.clone(), &apply_result.outcomes));
+                }
             },
             None => {
                 assert!(prev_chunk_extra.is_some());
@@ -228,13 +271,38 @@ pub fn apply_chain_range(
             },
         };
         maybe_add_to_csv(&csv_file_mutex, &format!("{},{},{},{},{},{},{},{},{},{}", height, block_hash, block_author, num_tx, num_receipt, block.header().raw_timestamp(), apply_result.total_gas_burnt, chunk_present, apply_result.processed_delayed_receipts.len(), delayed_indices.map_or(0,|d|d.next_available_index-d.first_index)));
-        inc_and_report_progress(&processed_blocks_cnt);
+        inc_and_report_progress(&processed_blocks_cnt, &processed_blocks_timestamp, all_blocks);
     });
 
     println!(
         "No differences found after applying chunks in the range {}..={} for shard_id {}",
         start_height, end_height, shard_id
     );
+}
+
+fn smart_equals(extra1: &ChunkExtra, extra2: &ChunkExtra) -> bool {
+    if (extra1.outcome_root() != extra2.outcome_root())
+        || (extra1.state_root() != extra2.state_root())
+        || (extra1.gas_limit() != extra2.gas_limit())
+        || (extra1.gas_used() != extra2.gas_used())
+        || (extra1.balance_burnt() != extra2.balance_burnt())
+    {
+        return false;
+    }
+    let mut proposals1 = extra1.validator_proposals();
+    let mut proposals2 = extra2.validator_proposals();
+    if proposals1.len() != proposals2.len() {
+        return false;
+    }
+    for _ in 0..proposals1.len() {
+        let p1 = proposals1.next().unwrap();
+        let p2 = proposals2.next().unwrap();
+
+        if p1.into_v1() != p2.into_v1() {
+            return false;
+        }
+    }
+    return true;
 }
 
 #[cfg(test)]
