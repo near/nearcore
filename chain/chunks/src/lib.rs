@@ -570,11 +570,7 @@ impl ShardsManager {
                 let target = AccountIdOrPeerTrackingShard {
                     shard_id,
                     account_id: target_account,
-                    // prefer requesting from peers if I'm not not a validator or I'm requesting from
-                    // archival node or just by random chance
-                    prefer_peer: self.me.is_none()
-                        || request_from_archival
-                        || rand::thread_rng().gen::<bool>(),
+                    prefer_peer: request_from_archival || rand::thread_rng().gen::<bool>(),
                     only_archival: request_from_archival,
                     min_height: Some(height.saturating_sub(CHUNK_REQUEST_PEER_HORIZON)),
                 };
