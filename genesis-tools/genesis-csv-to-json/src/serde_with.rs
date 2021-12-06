@@ -1,6 +1,6 @@
 /// `PeerInfo` as `str`.
 pub mod peer_info_to_str {
-    use near_network::PeerInfo;
+    use near_network_primitives::types::PeerInfo;
     use serde::{Deserialize, Deserializer, Serializer};
     use std::str::FromStr;
 
