@@ -188,7 +188,7 @@ impl AccountId {
     /// assert!(
     ///   matches!(
     ///     AccountId::validate("ƒelicia.near"), // fancy ƒ!
-    ///     Err(err) if err.kind() == &ParseErrorKind::InvalidChar(0, 'ƒ')
+    ///     Err(err) if err.kind() == &ParseErrorKind::InvalidChar { position: 0, character: 'ƒ' }
     ///   )
     /// );
     /// ```
@@ -205,28 +205,28 @@ impl AccountId {
     /// assert!(
     ///   matches!(
     ///     AccountId::validate("A__ƒƒluent."),
-    ///     Err(err) if err.kind() == &ParseErrorKind::InvalidChar(0, 'A')
+    ///     Err(err) if err.kind() == &ParseErrorKind::InvalidChar { position: 0, character: 'A' }
     ///   )
     /// );
     ///
     /// assert!(
     ///   matches!(
     ///     AccountId::validate("a__ƒƒluent."),
-    ///     Err(err) if err.kind() == &ParseErrorKind::RedundantSeparator(2, '_')
+    ///     Err(err) if err.kind() == &ParseErrorKind::RedundantSeparator { position: 2, separator: '_' }
     ///   )
     /// );
     ///
     /// assert!(
     ///   matches!(
     ///     AccountId::validate("aƒƒluent."),
-    ///     Err(err) if err.kind() == &ParseErrorKind::InvalidChar(1, 'ƒ')
+    ///     Err(err) if err.kind() == &ParseErrorKind::InvalidChar { position: 1, character: 'ƒ' }
     ///   )
     /// );
     ///
     /// assert!(
     ///   matches!(
     ///     AccountId::validate("affluent."),
-    ///     Err(err) if err.kind() == &ParseErrorKind::RedundantSeparator(8, '.')
+    ///     Err(err) if err.kind() == &ParseErrorKind::RedundantSeparator { position: 8, separator: '.' }
     ///   )
     /// );
     /// ```
@@ -250,19 +250,29 @@ impl AccountId {
                 let current_char_is_separator = match c {
                     'a'..='z' | '0'..='9' => false,
                     '-' | '_' | '.' => true,
-                    _ => return Err(ParseAccountError(ParseErrorKind::InvalidChar(i, c))),
+                    _ => {
+                        return Err(ParseAccountError(ParseErrorKind::InvalidChar {
+                            position: i,
+                            character: c,
+                        }))
+                    }
                 };
                 if current_char_is_separator && last_char_is_separator {
-                    return Err(ParseAccountError(ParseErrorKind::RedundantSeparator(i, c)));
+                    return Err(ParseAccountError(ParseErrorKind::RedundantSeparator {
+                        position: i,
+                        separator: c,
+                    }));
                 }
                 last_char.replace((i, c));
                 last_char_is_separator = current_char_is_separator;
             }
 
             if last_char_is_separator {
-                return Err(last_char
-                    .map(|(i, c)| ParseAccountError(ParseErrorKind::RedundantSeparator(i, c)))
-                    .unwrap());
+                let (position, separator) = last_char.unwrap();
+                return Err(ParseAccountError(ParseErrorKind::RedundantSeparator {
+                    position,
+                    separator,
+                }));
             }
             Ok(())
         }
@@ -442,28 +452,49 @@ mod tests {
     fn test_err_kind_classification() {
         let id = "ErinMoriarty.near".parse::<AccountId>();
         debug_assert!(
-            matches!(id, Err(ref err) if err.kind() == &ParseErrorKind::InvalidChar(0, 'E')),
+            matches!(
+                id,
+                Err(ParseAccountError(ParseErrorKind::InvalidChar { position: 0, character: 'E' }))
+            ),
             "{:?}",
             id
         );
 
         let id = "-KarlUrban.near".parse::<AccountId>();
         debug_assert!(
-            matches!(id, Err(ref err) if err.kind() == &ParseErrorKind::RedundantSeparator(0, '-')),
+            matches!(
+                id,
+                Err(ParseAccountError(ParseErrorKind::RedundantSeparator {
+                    position: 0,
+                    separator: '-'
+                }))
+            ),
             "{:?}",
             id
         );
 
         let id = "anthonystarr.".parse::<AccountId>();
         debug_assert!(
-            matches!(id, Err(ref err) if err.kind() == &ParseErrorKind::RedundantSeparator(12, '.')),
+            matches!(
+                id,
+                Err(ParseAccountError(ParseErrorKind::RedundantSeparator {
+                    position: 12,
+                    separator: '.'
+                }))
+            ),
             "{:?}",
             id
         );
 
         let id = "jack__Quaid.near".parse::<AccountId>();
         debug_assert!(
-            matches!(id, Err(ref err) if err.kind() == &ParseErrorKind::RedundantSeparator(5, '_')),
+            matches!(
+                id,
+                Err(ParseAccountError(ParseErrorKind::RedundantSeparator {
+                    position: 5,
+                    separator: '_'
+                }))
+            ),
             "{:?}",
             id
         );
