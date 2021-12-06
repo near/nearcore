@@ -4680,7 +4680,6 @@ dependencies = [
  "ansi_term 0.12.1",
  "borsh 0.9.1",
  "clap 3.0.0-beta.2",
- "itertools",
  "near-chain",
  "near-chain-configs",
  "near-client",

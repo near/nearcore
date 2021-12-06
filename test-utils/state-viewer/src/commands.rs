@@ -2,7 +2,6 @@ use crate::apply_chain_range::apply_chain_range;
 use crate::state_dump::state_dump;
 use ansi_term::Color::Red;
 use borsh::BorshSerialize;
-use clap::ArgEnum;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
@@ -48,26 +47,21 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Arc<Store>)
     }
 }
 
-#[derive(ArgEnum, Debug)]
-pub enum DumpStateMode {
-    /// Produces a single `<near_home_dir>/output.json` which contains all of the state, but needs
-    /// to fit the whole state into memory. Use for chains with small state, such as betanet,
-    /// guildnet, localnet.
-    InMemory,
-    /// Writes records to a separate file `records.json` in a streaming manner, which lets it run
-    /// with reasonable RAM requirements. Use for chains with large state, such as testnet and
-    /// mainnet. Note that to use records from a different file, you need to use the updated
-    /// `config.json` file. All needed files are written to the `<near_home_dir>/output` directory.
-    Streaming,
-}
-
 pub(crate) fn dump_state(
     height: Option<BlockHeight>,
-    dump_mode: DumpStateMode,
+    stream: bool,
+    mut single_file: bool,
+    file: Option<PathBuf>,
     home_dir: &Path,
     near_config: NearConfig,
     store: Arc<Store>,
 ) {
+    assert!(!stream || !single_file,"Exactly one of options --stream and --single_file needs to be set");
+    if !stream &&!single_file {
+        println!("Assuming a single file output is requested");
+        single_file = true;
+    }
+
     let mode = match height {
         Some(h) => LoadTrieMode::LastFinalFromHeight(h),
         None => LoadTrieMode::Latest,
@@ -77,11 +71,10 @@ pub(crate) fn dump_state(
     let height = header.height();
     let home_dir = PathBuf::from(&home_dir);
 
-    match dump_mode {
-        DumpStateMode::InMemory => {
+        if single_file {
             let new_near_config =
-                state_dump(runtime, state_roots.clone(), header, &near_config, None);
-            let output_file = home_dir.join("output.json");
+                state_dump(runtime, &state_roots, header, &near_config, None);
+            let output_file = file.unwrap_or(home_dir.join("output.json"));
             println!(
                 "Saving state at {:?} @ {} into {}",
                 state_roots,
@@ -89,12 +82,11 @@ pub(crate) fn dump_state(
                 output_file.display(),
             );
             new_near_config.genesis.to_file(&output_file);
-        }
-        DumpStateMode::Streaming => {
-            let output_dir = home_dir.join("output");
+        } else if stream {
+            let output_dir = file.unwrap_or(home_dir.join("output"));
             let records_path = output_dir.join("records.json");
             let new_near_config =
-                state_dump(runtime, state_roots.clone(), header, &near_config, Some(&records_path));
+                state_dump(runtime, &state_roots, header, &near_config, Some(&records_path));
             println!(
                 "Saving state at {:?} @ {} into {}",
                 state_roots,
@@ -102,7 +94,6 @@ pub(crate) fn dump_state(
                 output_dir.display(),
             );
             new_near_config.save_to_dir(&output_dir);
-        }
     }
 }
 

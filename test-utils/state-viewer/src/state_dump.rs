@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use near_chain::RuntimeAdapter;
 use near_chain_configs::Genesis;
 use near_primitives::account::id::AccountId;
@@ -13,10 +12,11 @@ use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::path::Path;
+use near_crypto::PublicKey;
 
 pub fn state_dump(
     runtime: NightshadeRuntime,
-    state_roots: Vec<StateRoot>,
+    state_roots: &[StateRoot],
     last_block_header: BlockHeader,
     near_config: &NearConfig,
     records_path: Option<&Path>,
@@ -47,11 +47,10 @@ pub fn state_dump(
     let mut genesis_config = near_config.genesis.config.clone();
     genesis_config.genesis_height = genesis_height;
     genesis_config.validators = validators
-        .clone()
-        .into_iter()
-        .sorted()
-        .map(|(account_id, (public_key, amount))| AccountInfo { account_id, public_key, amount })
+        .iter()
+        .map(|(account_id, (public_key, amount))| AccountInfo { account_id: account_id.clone(), public_key:public_key.clone(), amount: *amount })
         .collect();
+    genesis_config.validators.sort();
     // Record the protocol version of the latest block. Otherwise, the state
     // dump ignores the fact that the nodes can be running a newer protocol
     // version than the protocol version of the genesis.
@@ -75,7 +74,7 @@ pub fn state_dump(
             let mut ser = serde_json::Serializer::new(records_file);
             let mut seq = ser.serialize_seq(None).unwrap();
             let total_supply =
-                get_records(runtime, state_roots, last_block_header, &validators, |sr| {
+                get_records(runtime, state_roots, last_block_header, &validators, &mut |sr| {
                     seq.serialize_element(&sr).unwrap()
                 });
             seq.end().unwrap();
@@ -90,7 +89,7 @@ pub fn state_dump(
         None => {
             let mut records: Vec<StateRecord> = vec![];
             let total_supply =
-                get_records(runtime, state_roots, last_block_header, &validators, |sr| {
+                get_records(runtime, state_roots, last_block_header, &validators, & mut |sr| {
                     records.push(sr)
                 });
             // `total_supply` is expected to change due to the natural processes of burning tokens and
@@ -102,16 +101,13 @@ pub fn state_dump(
     near_config
 }
 
-fn get_records<'a, F, X>(
+fn get_records(
     runtime: NightshadeRuntime,
-    state_roots: Vec<StateRoot>,
+    state_roots: &[StateRoot],
     last_block_header: BlockHeader,
-    validators: &'a HashMap<AccountId, (X, Balance)>,
-    mut callback: F,
-) -> Balance
-where
-    F: FnMut(StateRecord),
-{
+    validators: &HashMap<AccountId, (PublicKey, Balance)>,
+    callback: &mut dyn FnMut(StateRecord),
+) -> Balance {
     let mut total_supply = 0;
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie =
@@ -161,6 +157,7 @@ mod test {
 
     use crate::state_dump::state_dump;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
+    use near_primitives::hash::CryptoHash;
 
     fn setup(
         epoch_length: NumBlocks,
@@ -253,12 +250,12 @@ mod test {
             HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
-        let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        let state_roots :Vec<CryptoHash> = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
         let records_file = tempfile::NamedTempFile::new().unwrap();
         let new_near_config = state_dump(
             runtime,
-            state_roots,
+            &state_roots,
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),
@@ -299,10 +296,10 @@ mod test {
             HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
-        let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        let state_roots :Vec<CryptoHash> = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
         let new_near_config =
-            state_dump(runtime, state_roots, last_block.header().clone(), &near_config, None);
+            state_dump(runtime, &state_roots, last_block.header().clone(), &near_config, None);
         let new_genesis = new_near_config.genesis;
         assert_eq!(new_genesis.config.validators.len(), 2);
         validate_genesis(&new_genesis);
@@ -330,13 +327,13 @@ mod test {
 
         let head = env.clients[0].chain.head().unwrap();
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
-        let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        let state_roots :Vec<CryptoHash> = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
 
         let records_file = tempfile::NamedTempFile::new().unwrap();
         let new_near_config = state_dump(
             runtime,
-            state_roots,
+            &state_roots,
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),
@@ -373,12 +370,12 @@ mod test {
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
 
-        let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        let state_roots :Vec<CryptoHash> = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
         let records_file = tempfile::NamedTempFile::new().unwrap();
         let new_near_config = state_dump(
             runtime,
-            state_roots,
+            &state_roots,
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),
@@ -459,7 +456,7 @@ mod test {
         let records_file = tempfile::NamedTempFile::new().unwrap();
         let _ = state_dump(
             runtime2,
-            state_roots.clone(),
+            &state_roots,
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),
@@ -521,12 +518,12 @@ mod test {
             HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
-        let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        let state_roots :Vec<CryptoHash> = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
         let records_file = tempfile::NamedTempFile::new().unwrap();
         let new_near_config = state_dump(
             runtime,
-            state_roots,
+            &state_roots,
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),

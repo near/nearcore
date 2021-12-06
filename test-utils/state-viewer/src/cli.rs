@@ -104,15 +104,24 @@ pub struct DumpStateCmd {
     /// Optionally, can specify at which height to dump state.
     #[clap(long)]
     height: Option<BlockHeight>,
-    /// Use this mode if you want to dump state of networks like testnet and mainnet, this mode has
-    /// a much lower RAM requirements, but produces multiple files as the result.
-    #[clap(arg_enum, long, default_value = "in-memory")]
-    mode: DumpStateMode,
+    /// Dumps state records and genesis config into separate files.
+    /// Has reasonable RAM requirements.
+    /// Use for chains with large state, such as mainnet and testnet.
+    #[clap(long)]
+    stream: bool,
+    /// Produces a single json file containing the state.
+    /// Needs the whole state to fit in RAM.
+    /// Use for chains with small state, such as betanet, guildnet, localnet.
+    #[clap(long)]
+    single_file_output: bool,
+    /// Location of the dumped state.
+    #[clap(long, parse(from_os_str))]
+    file: Option<PathBuf>,
 }
 
 impl DumpStateCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
-        dump_state(self.height, self.mode, home_dir, near_config, store);
+        dump_state(self.height, self.stream, self.single_file_output, self.file, home_dir, near_config, store);
     }
 }
 
