@@ -176,7 +176,9 @@ pub(crate) fn is_forward_transaction(bytes: &[u8]) -> Option<bool> {
 mod test {
     use crate::peer::codec::{is_forward_transaction, Codec, NETWORK_MESSAGE_MAX_SIZE_BYTES};
     use crate::routing::edge::PartialEdgeInfo;
-    use crate::types::{Handshake, HandshakeFailureReason, HandshakeV2, PeerMessage, SyncData};
+    use crate::types::{
+        Handshake, HandshakeFailureReason, HandshakeV2, PeerMessage, RoutingTableUpdate,
+    };
     use crate::PeerInfo;
     use borsh::BorshDeserialize;
     use borsh::BorshSerialize;
@@ -375,15 +377,14 @@ mod test {
         let sk = SecretKey::from_random(KeyType::ED25519);
         let network_sk = SecretKey::from_random(KeyType::ED25519);
         let signature = sk.sign(vec![].as_slice());
-        let msg = PeerMessage::RoutingTableSync(SyncData {
-            edges: Vec::new(),
-            accounts: vec![AnnounceAccount {
+        let msg = PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_accounts(vec![
+            AnnounceAccount {
                 account_id: "test1".parse().unwrap(),
                 peer_id: PeerId::new(network_sk.public_key()),
                 epoch_id: EpochId::default(),
                 signature,
-            }],
-        });
+            },
+        ]));
         test_codec(msg);
     }
 
