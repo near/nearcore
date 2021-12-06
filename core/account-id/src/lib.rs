@@ -259,11 +259,12 @@ impl AccountId {
                 last_char_is_separator = current_char_is_separator;
             }
 
-            (!last_char_is_separator).then(|| ()).ok_or_else(|| {
-                last_char
+            if last_char_is_separator {
+                return Err(last_char
                     .map(|(i, c)| ParseAccountError(ParseErrorKind::RedundantSeparator(i, c)))
-                    .unwrap()
-            })
+                    .unwrap());
+            }
+            Ok(())
         }
     }
 
@@ -293,7 +294,7 @@ impl AccountId {
     #[cfg(feature = "internal_unstable")]
     #[deprecated(since = "#4440", note = "AccountId construction without validation is illegal")]
     pub fn new_unvalidated(account_id: String) -> Self {
-        Self(account_id.into())
+        Self(account_id.into_boxed_str())
     }
 }
 
@@ -331,7 +332,7 @@ impl TryFrom<Box<str>> for AccountId {
 
     fn try_from(account_id: Box<str>) -> Result<Self, Self::Error> {
         Self::validate(&account_id)?;
-        Ok(Self(account_id.into()))
+        Ok(Self(account_id))
     }
 }
 
@@ -339,7 +340,8 @@ impl TryFrom<String> for AccountId {
     type Error = ParseAccountError;
 
     fn try_from(account_id: String) -> Result<Self, Self::Error> {
-        account_id.into_boxed_str().try_into()
+        Self::validate(&account_id)?;
+        Ok(Self(account_id.into_boxed_str()))
     }
 }
 
@@ -431,7 +433,7 @@ mod tests {
 
         for account_id in BAD_ACCOUNT_IDS.iter().cloned() {
             if let Ok(_) = AccountId::validate(account_id) {
-                panic!("Valid account id {:?} marked valid", account_id);
+                panic!("Invalid account id {:?} marked valid", account_id);
             }
         }
     }
