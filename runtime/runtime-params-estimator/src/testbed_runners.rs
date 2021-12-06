@@ -2,8 +2,6 @@ use near_primitives::types::AccountId;
 use near_vm_runner::internal::VMKind;
 use std::path::PathBuf;
 
-pub mod qemu;
-
 /// Get account id from its index.
 pub fn get_account_id(account_index: usize) -> AccountId {
     AccountId::try_from(format!("near_{}_{}", account_index, account_index)).unwrap()

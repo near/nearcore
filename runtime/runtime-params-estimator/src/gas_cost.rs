@@ -7,7 +7,7 @@ use near_primitives::types::Gas;
 use num_rational::Ratio;
 use num_traits::ToPrimitive;
 
-use crate::testbed_runners::qemu::QemuMeasurement;
+use crate::qemu::QemuMeasurement;
 use crate::testbed_runners::GasMetric;
 
 /// Result of cost estimation.

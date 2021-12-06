@@ -40,6 +40,7 @@ mod cost_table;
 mod costs_to_runtime_config;
 mod estimator_context;
 mod gas_cost;
+mod qemu;
 mod transaction_builder;
 
 // Runs a VM (Default: Wasmer) on the given contract and measures the time it takes to do a single operation.
