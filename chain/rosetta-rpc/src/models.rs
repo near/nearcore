@@ -1001,8 +1001,11 @@ impl TransactionIdentifier {
         Self::from_prefix_and_hash(prefix, block_hash)
     }
 
-    fn from_prefix_and_hash(prefix: &'static str, hash: &near_primitives::hash::CryptoHash) -> Self {
-        Self { hash: format!("{}:{}", prefix, hash) }
+    fn from_prefix_and_hash(
+        prefix: &'static str,
+        hash: &near_primitives::hash::CryptoHash,
+    ) -> Self {
+        Self { hash: format!("{}:{}", prefix, hash.to_base()) }
     }
 }
 
