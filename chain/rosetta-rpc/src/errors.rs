@@ -8,6 +8,8 @@ pub(crate) enum ErrorKind {
     InternalError(String),
 }
 
+pub(crate) type Result<T> = std::result::Result<T, ErrorKind>;
+
 impl From<actix::MailboxError> for ErrorKind {
     fn from(err: actix::MailboxError) -> Self {
         Self::InternalError(format!(

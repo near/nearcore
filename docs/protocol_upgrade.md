@@ -27,7 +27,7 @@ For example, when we introduce EVM as a new protocol change, suppose the current
 nightly_protocol = []
 nightly_protocol_features = [“protocol_features_evm”, ...]
 ```
-In `core/primitives/src/versions.rs`, we would change the protocol version by:
+In [core/primitives/src/version.rs](../core/primitives/src/version.rs), we would change the protocol version by:
 ```
 #[cfg(feature = “nightly_protocol”)]
 pub const PROTOCOL_VERSION: u32 = 100;
@@ -43,7 +43,7 @@ the variant is gated by the corresponding rust compile-time feature.
 feature is enabled.
 - When we need to decide whether to use the new feature based on the protocol version of the current network, we can simply compare it to the protocol version of the feature. To make this simpler, we also introduced a macro `checked_feature`
 
-For more details, please refer to `core/primitives/src/versions.rs`.
+For more details, please refer to [core/primitives/src/version.rs](../core/primitives/src/version.rs).
 
 ### Feature Gating
 

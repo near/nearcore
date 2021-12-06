@@ -7,7 +7,7 @@ use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
     feature = "protocol_feature_routing_exchange_algorithm"
 ))]
 use crate::routing::edge::SimpleEdge;
-use crate::routing::edge::{Edge, EdgeType, PartialEdgeInfo};
+use crate::routing::edge::{Edge, EdgeState, PartialEdgeInfo};
 use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::routing::{
     PeerRequestResult, RoutingTableView, DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS,
@@ -21,7 +21,7 @@ use crate::types::{FullPeerInfo, NetworkClientMessages, NetworkRequests, Network
 use crate::types::{
     GetPeerId, GetPeerIdResult, NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
     PeerMessage, PeerRequest, PeerResponse, PeersRequest, PeersResponse, RegisterPeer,
-    RegisterPeerResponse, SendMessage, StopMsg, SyncData, Unregister, ValidateEdgeList,
+    RegisterPeerResponse, RoutingTableUpdate, SendMessage, StopMsg, Unregister, ValidateEdgeList,
 };
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{RoutingSyncV2, RoutingVersion2};
@@ -259,7 +259,7 @@ impl PeerManagerActor {
             .into_actor(self)
             .map(|response, act, ctx| match response {
                 Ok(RoutingTableMessagesResponse::RoutingTableUpdateResponse {
-                    edges_to_remove,
+                    local_edges_to_remove: edges_to_remove,
                     peer_forwarding,
                     peers_to_ban,
                 }) => {
@@ -302,11 +302,12 @@ impl PeerManagerActor {
                 Ok(RoutingTableMessagesResponse::AddVerifiedEdgesResponse(filtered_edges)) => {
                     // Broadcast new edges to all other peers.
                     if broadcast_edges && act.adv_helper.can_broadcast_edges() {
-                        let new_data =
-                            SyncData { edges: filtered_edges, accounts: Default::default() };
+                        let sync_routing_table = RoutingTableUpdate::from_edges(filtered_edges);
                         act.broadcast_message(
                             ctx,
-                            SendMessage { message: PeerMessage::RoutingTableSync(new_data) },
+                            SendMessage {
+                                message: PeerMessage::SyncRoutingTable(sync_routing_table),
+                            },
                         )
                     }
                 }
@@ -320,21 +321,20 @@ impl PeerManagerActor {
         ctx: &mut Context<PeerManagerActor>,
         accounts: Vec<AnnounceAccount>,
     ) {
-        if !accounts.is_empty() {
-            debug!(target: "network", "{:?} Received new accounts: {:?}", self.config.account_id, accounts);
+        if accounts.is_empty() {
+            return;
         }
+        debug!(target: "network", "{:?} Received new accounts: {:?}", self.config.account_id, accounts);
         for account in accounts.iter() {
             self.routing_table_view.add_account(account.clone());
         }
 
-        let new_data = SyncData { edges: Default::default(), accounts };
-
-        if !new_data.is_empty() {
-            self.broadcast_message(
-                ctx,
-                SendMessage { message: PeerMessage::RoutingTableSync(new_data) },
-            )
-        };
+        self.broadcast_message(
+            ctx,
+            SendMessage {
+                message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_accounts(accounts)),
+            },
+        )
     }
 
     /// `update_routing_table_trigger` schedule updating routing table to `RoutingTableActor`
@@ -393,14 +393,14 @@ impl PeerManagerActor {
                     if self.active_peers.contains_key(other) {
                         // This is an active connection.
                         match edge.edge_type() {
-                            EdgeType::Removed => {
+                            EdgeState::Removed => {
                                 self.maybe_remove_connected_peer(ctx, edge.clone(), other);
                             }
                             _ => {}
                         }
                     } else {
                         match edge.edge_type() {
-                            EdgeType::Added => {
+                            EdgeState::Active => {
                                 // We are not connected to this peer, but routing table contains
                                 // information that we do. We should wait and remove that peer
                                 // from routing table
@@ -442,16 +442,20 @@ impl PeerManagerActor {
         peer_type: PeerType,
         addr: Addr<PeerActor>,
         ctx: &mut Context<Self>,
+        throttle_controller: Option<ThrottleController>,
     ) {
+        let throttle_controller_clone = throttle_controller.clone();
         near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act, ctx| {
             if peer_type == PeerType::Inbound {
                 act.routing_table_addr
-                    .send(RoutingTableMessages::AddPeerIfMissing(peer_id, None))
+                    .send(ActixMessageWrapper::new_without_size(
+                        RoutingTableMessages::AddPeerIfMissing(peer_id, None),
+                        throttle_controller,
+                    ))
                     .into_actor(act)
-                    .map(move |response, act, ctx| match response {
-                        Ok(RoutingTableMessagesResponse::AddPeerResponse { seed }) => {
-                            act.start_routing_table_syncv2(ctx, addr, seed)
-                        }
+                    .map(move |response, act, ctx| match response.map(|x| x.into_inner()) {
+                        Ok(RoutingTableMessagesResponse::AddPeerResponse { seed }) => act
+                            .start_routing_table_syncv2(ctx, addr, seed, throttle_controller_clone),
                         _ => error!(target: "network", "expected AddIbfSetResponse"),
                     })
                     .spawn(ctx);
@@ -465,11 +469,15 @@ impl PeerManagerActor {
         ctx: &mut Context<Self>,
         addr: Addr<PeerActor>,
         seed: u64,
+        throttle_controller: Option<ThrottleController>,
     ) {
         self.routing_table_addr
-            .send(RoutingTableMessages::StartRoutingTableSync { seed })
+            .send(ActixMessageWrapper::new_without_size(
+                RoutingTableMessages::StartRoutingTableSync { seed },
+                throttle_controller,
+            ))
             .into_actor(self)
-            .map(move |response, _act, _ctx| match response {
+            .map(move |response, _act, _ctx| match response.map(|r| r.into_inner()) {
                 Ok(RoutingTableMessagesResponse::StartRoutingTableSyncResponse(response)) => {
                     let _ = addr.do_send(SendMessage { message: response });
                 }
@@ -492,6 +500,7 @@ impl PeerManagerActor {
         addr: Addr<PeerActor>,
         peer_protocol_version: ProtocolVersion,
         ctx: &mut Context<Self>,
+        throttle_controller: Option<ThrottleController>,
     ) {
         #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
         let peer_id = full_peer_info.peer_info.id.clone();
@@ -536,16 +545,25 @@ impl PeerManagerActor {
             RoutingExchangeAlgorithm,
             peer_protocol_version,
             {
-                self.initialize_routing_table_exchange(peer_id, peer_type, addr.clone(), ctx);
+                self.initialize_routing_table_exchange(
+                    peer_id,
+                    peer_type,
+                    addr.clone(),
+                    ctx,
+                    throttle_controller,
+                );
                 self.send_sync(peer_type, addr, ctx, target_peer_id, new_edge, Vec::new());
                 return;
             }
         );
         near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act, ctx| {
             act.routing_table_addr
-                .send(RoutingTableMessages::RequestRoutingTable)
+                .send(ActixMessageWrapper::new_without_size(
+                    RoutingTableMessages::RequestRoutingTable,
+                    throttle_controller,
+                ))
                 .into_actor(act)
-                .map(move |response, act, ctx| match response {
+                .map(move |response, act, ctx| match response.map(|r| r.into_inner()) {
                     Ok(RoutingTableMessagesResponse::RequestRoutingTableResponse {
                         edges_info: routing_table,
                     }) => {
@@ -580,10 +598,10 @@ impl PeerManagerActor {
 
         near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act, ctx| {
             let _ = addr.do_send(SendMessage {
-                message: PeerMessage::RoutingTableSync(SyncData {
-                    edges: known_edges,
-                    accounts: known_accounts,
-                }),
+                message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(
+                    known_edges,
+                    known_accounts,
+                )),
             });
 
             // Ask for peers list on connection.
@@ -598,7 +616,9 @@ impl PeerManagerActor {
                 act.broadcast_message(
                     ctx,
                     SendMessage {
-                        message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
+                        message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(
+                            vec![new_edge],
+                        )),
                     },
                 );
             }
@@ -637,14 +657,16 @@ impl PeerManagerActor {
         if let Some(edge) =
             self.routing_table_view.get_edge(self.my_peer_id.clone(), peer_id.clone())
         {
-            if edge.edge_type() == EdgeType::Added {
+            if edge.edge_type() == EdgeState::Active {
                 let edge_update =
                     edge.remove_edge(self.my_peer_id.clone(), &self.config.secret_key);
                 self.add_verified_edges_to_routing_table(ctx, vec![edge_update.clone()], false);
                 self.broadcast_message(
                     ctx,
                     SendMessage {
-                        message: PeerMessage::RoutingTableSync(SyncData::edge(edge_update)),
+                        message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(
+                            vec![edge_update],
+                        )),
                     },
                 );
             }
@@ -837,19 +859,15 @@ impl PeerManagerActor {
         // Find all peers whose height is within `highest_peer_horizon` from max height peer(s).
         self.active_peers
             .values()
-            .filter_map(|active_peer| {
-                if active_peer
+            .filter(|active_peer| {
+                active_peer
                     .full_peer_info
                     .chain_info
                     .height
                     .saturating_add(self.config.highest_peer_horizon)
                     >= max_height
-                {
-                    Some(active_peer.full_peer_info.clone())
-                } else {
-                    None
-                }
             })
+            .map(|active_peer| active_peer.full_peer_info.clone())
             .collect::<Vec<_>>()
     }
 
@@ -927,7 +945,9 @@ impl PeerManagerActor {
                     act.broadcast_message(
                         ctx,
                         SendMessage {
-                            message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
+                            message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(
+                                vec![new_edge],
+                            )),
                         },
                     );
                 }
@@ -1186,20 +1206,24 @@ impl PeerManagerActor {
         _ctx: &mut Context<Self>,
         peer_id: PeerId,
         edges: Vec<Edge>,
+        throttle_controller: Option<ThrottleController>,
     ) {
         if edges.is_empty() {
             return;
         }
-        self.routing_table_addr.do_send(ValidateEdgeList {
-            source_peer_id: peer_id,
-            edges,
-            edges_info_shared: self.routing_table_exchange_helper.edges_info_shared.clone(),
-            sender: self.routing_table_exchange_helper.edges_to_add_sender.clone(),
-            #[cfg(feature = "test_features")]
-            adv_disable_edge_signature_verification: self
-                .adv_helper
-                .adv_disable_edge_signature_verification,
-        });
+        self.routing_table_addr.do_send(ActixMessageWrapper::new_without_size(
+            RoutingTableMessages::ValidateEdgeList(ValidateEdgeList {
+                source_peer_id: peer_id,
+                edges,
+                edges_info_shared: self.routing_table_exchange_helper.edges_info_shared.clone(),
+                sender: self.routing_table_exchange_helper.edges_to_add_sender.clone(),
+                #[cfg(feature = "test_features")]
+                adv_disable_edge_signature_verification: self
+                    .adv_helper
+                    .adv_disable_edge_signature_verification,
+            }),
+            throttle_controller,
+        ));
     }
 
     /// Broadcast message to all active peers.
@@ -1228,7 +1252,9 @@ impl PeerManagerActor {
             self.broadcast_message(
                 ctx,
                 SendMessage {
-                    message: PeerMessage::RoutingTableSync(SyncData::account(announce_account)),
+                    message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_accounts(
+                        vec![announce_account],
+                    )),
                 },
             );
         }
@@ -1559,6 +1585,7 @@ impl PeerManagerActor {
         &mut self,
         msg: NetworkRequests,
         ctx: &mut Context<Self>,
+        throttle_controller: Option<ThrottleController>,
     ) -> NetworkResponses {
         #[cfg(feature = "delay_detector")]
         let _d =
@@ -1786,9 +1813,10 @@ impl PeerManagerActor {
             NetworkRequests::FetchRoutingTable => {
                 NetworkResponses::RoutingTableInfo(self.routing_table_view.info())
             }
-            NetworkRequests::Sync { peer_id, sync_data } => {
+            NetworkRequests::SyncRoutingTable { peer_id, routing_table_update } => {
                 // Process edges and add new edges to the routing table. Also broadcast new edges.
-                let SyncData { edges, accounts } = sync_data;
+                let edges = routing_table_update.edges;
+                let accounts = routing_table_update.accounts;
 
                 // Filter known accounts before validating them.
                 let accounts = accounts
@@ -1828,7 +1856,12 @@ impl PeerManagerActor {
                         actix::fut::ready(())
                     }).spawn(ctx);
 
-                self.validate_edges_and_add_to_routing_table(ctx, peer_id, edges);
+                self.validate_edges_and_add_to_routing_table(
+                    ctx,
+                    peer_id,
+                    edges,
+                    throttle_controller,
+                );
 
                 NetworkResponses::NoResponse
             }
@@ -1836,7 +1869,7 @@ impl PeerManagerActor {
             NetworkRequests::IbfMessage { peer_id, ibf_msg } => match ibf_msg {
                 RoutingSyncV2::Version2(ibf_msg) => {
                     if let Some(addr) = self.active_peers.get(&peer_id).map(|p| p.addr.clone()) {
-                        self.process_ibf_msg(ctx, &peer_id, ibf_msg, addr)
+                        self.process_ibf_msg(ctx, &peer_id, ibf_msg, addr, throttle_controller)
                     }
                     NetworkResponses::NoResponse
                 }
@@ -1850,11 +1883,11 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::RequestUpdateNonce(peer_id, edge_info) => {
-                if Edge::partial_verify(self.my_peer_id.clone(), peer_id.clone(), &edge_info) {
+                if Edge::partial_verify(&self.my_peer_id, &peer_id, &edge_info) {
                     if let Some(cur_edge) =
                         self.routing_table_view.get_edge(self.my_peer_id.clone(), peer_id.clone())
                     {
-                        if cur_edge.edge_type() == EdgeType::Added
+                        if cur_edge.edge_type() == EdgeState::Active
                             && cur_edge.nonce() >= edge_info.nonce
                         {
                             return NetworkResponses::EdgeUpdate(Box::new(cur_edge.clone()));
@@ -1912,10 +1945,17 @@ impl PeerManagerActor {
         &mut self,
         msg: crate::types::StartRoutingTableSync,
         ctx: &mut Context<Self>,
+        throttle_controller: Option<ThrottleController>,
     ) {
         if let Some(active_peer) = self.active_peers.get(&msg.peer_id) {
             let addr = active_peer.addr.clone();
-            self.initialize_routing_table_exchange(msg.peer_id, PeerType::Inbound, addr, ctx);
+            self.initialize_routing_table_exchange(
+                msg.peer_id,
+                PeerType::Inbound,
+                addr,
+                ctx,
+                throttle_controller,
+            );
         }
     }
 
@@ -2041,6 +2081,7 @@ impl PeerManagerActor {
         &mut self,
         msg: RegisterPeer,
         ctx: &mut Context<Self>,
+        throttle_controller: Option<ThrottleController>,
     ) -> RegisterPeerResponse {
         #[cfg(feature = "delay_detector")]
         let _d = delay_detector::DelayDetector::new("consolidate".into());
@@ -2119,6 +2160,7 @@ impl PeerManagerActor {
             msg.actor,
             msg.peer_protocol_version,
             ctx,
+            throttle_controller,
         );
 
         RegisterPeerResponse::Accept(edge_info_response)
@@ -2172,30 +2214,48 @@ impl Handler<ActixMessageWrapper<PeerManagerMessageRequest>> for PeerManagerActo
         // Unpack throttle controller
         let (msg, throttle_token) = msg.take();
 
-        let result = self.handle(msg, ctx);
+        let throttle_controller = throttle_token.throttle_controller().cloned();
+        let result = self.handle_peer_manager_message(msg, ctx, throttle_controller);
 
         // TODO(#5155) Add support for DeepSizeOf to result
-        ActixMessageResponse::new(result, ThrottleToken::new(throttle_token.into_inner(), 0))
+        ActixMessageResponse::new(
+            result,
+            ThrottleToken::new_without_size(throttle_token.throttle_controller().cloned()),
+        )
     }
 }
 
 impl Handler<PeerManagerMessageRequest> for PeerManagerActor {
     type Result = PeerManagerMessageResponse;
-
     fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
+        self.handle_peer_manager_message(msg, ctx, None)
+    }
+}
+
+impl PeerManagerActor {
+    fn handle_peer_manager_message(
+        &mut self,
+        msg: PeerManagerMessageRequest,
+        ctx: &mut Context<Self>,
+        throttle_controller: Option<ThrottleController>,
+    ) -> PeerManagerMessageResponse {
         match msg {
             PeerManagerMessageRequest::RoutedMessageFrom(msg) => {
                 PeerManagerMessageResponse::RoutedMessageFrom(self.handle_msg_routed_from(msg, ctx))
             }
             PeerManagerMessageRequest::NetworkRequests(msg) => {
-                PeerManagerMessageResponse::NetworkResponses(
-                    self.handle_msg_network_requests(msg, ctx),
-                )
+                PeerManagerMessageResponse::NetworkResponses(self.handle_msg_network_requests(
+                    msg,
+                    ctx,
+                    throttle_controller,
+                ))
             }
             PeerManagerMessageRequest::RegisterPeer(msg) => {
-                PeerManagerMessageResponse::RegisterPeerResponse(
-                    self.handle_msg_register_peer(msg, ctx),
-                )
+                PeerManagerMessageResponse::RegisterPeerResponse(self.handle_msg_register_peer(
+                    msg,
+                    ctx,
+                    throttle_controller,
+                ))
             }
             PeerManagerMessageRequest::PeersRequest(msg) => {
                 PeerManagerMessageResponse::PeerRequestResult(
@@ -2231,7 +2291,7 @@ impl Handler<PeerManagerMessageRequest> for PeerManagerActor {
             #[cfg(feature = "test_features")]
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             PeerManagerMessageRequest::StartRoutingTableSync(msg) => {
-                self.handle_msg_start_routing_table_sync(msg, ctx);
+                self.handle_msg_start_routing_table_sync(msg, ctx, throttle_controller);
                 PeerManagerMessageResponse::StartRoutingTableSync(())
             }
             #[cfg(feature = "test_features")]
@@ -2330,26 +2390,37 @@ impl PeerManagerActor {
         peer_id: &PeerId,
         mut ibf_msg: RoutingVersion2,
         addr: Addr<PeerActor>,
+        throttle_controller: Option<ThrottleController>,
     ) {
         let mut edges: Vec<Edge> = Vec::new();
         std::mem::swap(&mut edges, &mut ibf_msg.edges);
-        self.validate_edges_and_add_to_routing_table(ctx, peer_id.clone(), edges);
+        self.validate_edges_and_add_to_routing_table(
+            ctx,
+            peer_id.clone(),
+            edges,
+            throttle_controller.clone(),
+        );
         self.routing_table_addr
-            .send(RoutingTableMessages::ProcessIbfMessage { peer_id: peer_id.clone(), ibf_msg })
+            .send(ActixMessageWrapper::new_without_size(
+                RoutingTableMessages::ProcessIbfMessage { peer_id: peer_id.clone(), ibf_msg },
+                throttle_controller,
+            ))
             .into_actor(self)
-            .map(move |response, _act: &mut PeerManagerActor, _ctx| match response {
-                Ok(RoutingTableMessagesResponse::ProcessIbfMessageResponse {
-                    ibf_msg: response_ibf_msg,
-                }) => {
-                    if let Some(response_ibf_msg) = response_ibf_msg {
-                        let _ = addr.do_send(SendMessage {
-                            message: PeerMessage::RoutingTableSyncV2(RoutingSyncV2::Version2(
-                                response_ibf_msg,
-                            )),
-                        });
+            .map(move |response, _act: &mut PeerManagerActor, _ctx| {
+                match response.map(|r| r.into_inner()) {
+                    Ok(RoutingTableMessagesResponse::ProcessIbfMessageResponse {
+                        ibf_msg: response_ibf_msg,
+                    }) => {
+                        if let Some(response_ibf_msg) = response_ibf_msg {
+                            let _ = addr.do_send(SendMessage {
+                                message: PeerMessage::RoutingTableSyncV2(RoutingSyncV2::Version2(
+                                    response_ibf_msg,
+                                )),
+                            });
+                        }
                     }
+                    _ => error!(target: "network", "expected ProcessIbfMessageResponse"),
                 }
-                _ => error!(target: "network", "expected ProcessIbfMessageResponse"),
             })
             .spawn(ctx);
     }
