@@ -20,7 +20,7 @@ async fn convert_genesis_records_to_transaction(
     genesis: Arc<Genesis>,
     view_client_addr: Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
-) -> Result<crate::models::Transaction, crate::errors::ErrorKind> {
+) -> crate::errors::Result<crate::models::Transaction> {
     let genesis_account_ids = genesis.records.as_ref().iter().filter_map(|record| {
         if let near_primitives::state_record::StateRecord::Account { account_id, .. } = record {
             Some(account_id)
@@ -107,7 +107,7 @@ async fn convert_genesis_records_to_transaction(
 pub(crate) async fn convert_block_to_transactions(
     view_client_addr: Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
-) -> Result<Vec<crate::models::Transaction>, crate::errors::ErrorKind> {
+) -> crate::errors::Result<Vec<crate::models::Transaction>> {
     let state_changes = view_client_addr
         .send(near_client::GetStateChangesInBlock { block_hash: block.header.hash })
         .await?
@@ -161,8 +161,7 @@ fn convert_block_changes_to_transactions(
         near_primitives::types::AccountId,
         near_primitives::views::AccountView,
     >,
-) -> Result<std::collections::HashMap<String, crate::models::Transaction>, crate::errors::ErrorKind>
-{
+) -> crate::errors::Result<std::collections::HashMap<String, crate::models::Transaction>> {
     use near_primitives::views::StateChangeCauseView;
 
     let mut transactions = std::collections::HashMap::<String, crate::models::Transaction>::new();
@@ -394,7 +393,7 @@ pub(crate) async fn collect_transactions(
     genesis: Arc<Genesis>,
     view_client_addr: Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
-) -> Result<Vec<crate::models::Transaction>, crate::errors::ErrorKind> {
+) -> crate::errors::Result<Vec<crate::models::Transaction>> {
     if block.header.prev_hash == Default::default() {
         Ok(vec![convert_genesis_records_to_transaction(genesis, view_client_addr, block).await?])
     } else {
