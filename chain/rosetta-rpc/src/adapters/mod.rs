@@ -4,7 +4,6 @@ use actix::Addr;
 
 use near_chain_configs::Genesis;
 use near_client::ViewClientActor;
-use near_primitives::serialize::BaseEncode;
 
 use validated_operations::ValidatedOperation;
 
@@ -94,9 +93,10 @@ async fn convert_genesis_records_to_transaction(
     }
 
     Ok(crate::models::Transaction {
-        transaction_identifier: crate::models::TransactionIdentifier {
-            hash: format!("block:{}", block.header.hash),
-        },
+        transaction_identifier: crate::models::TransactionIdentifier::block_event(
+            "block",
+            &block.header.hash,
+        ),
         operations,
         metadata: crate::models::TransactionMetadata {
             type_: crate::models::TransactionType::Block,
@@ -167,22 +167,30 @@ fn convert_block_changes_to_transactions(
 
     let mut transactions = std::collections::HashMap::<String, crate::models::Transaction>::new();
     for account_change in accounts_changes {
-        let transaction_hash = match account_change.cause {
+        let transaction_identifier = match account_change.cause {
             StateChangeCauseView::TransactionProcessing { tx_hash } => {
-                format!("tx:{}", tx_hash.to_base())
+                crate::models::TransactionIdentifier::transaction(&tx_hash)
             }
             StateChangeCauseView::ActionReceiptProcessingStarted { receipt_hash }
             | StateChangeCauseView::ActionReceiptGasReward { receipt_hash }
             | StateChangeCauseView::ReceiptProcessing { receipt_hash }
             | StateChangeCauseView::PostponedReceipt { receipt_hash } => {
-                format!("receipt:{}", receipt_hash.to_base())
+                crate::models::TransactionIdentifier::receipt(&receipt_hash)
             }
-            StateChangeCauseView::InitialState => format!("block:{}", block_hash),
+            StateChangeCauseView::InitialState => {
+                crate::models::TransactionIdentifier::block_event("block", block_hash)
+            }
             StateChangeCauseView::ValidatorAccountsUpdate => {
-                format!("block-validators-update:{}", block_hash)
+                crate::models::TransactionIdentifier::block_event(
+                    "block-validators-update",
+                    block_hash,
+                )
             }
             StateChangeCauseView::UpdatedDelayedReceipts => {
-                format!("block-delayed-receipts:{}", block_hash)
+                crate::models::TransactionIdentifier::block_event(
+                    "block-delayed-receipts",
+                    block_hash,
+                )
             }
             StateChangeCauseView::NotWritableToDisk => {
                 return Err(crate::errors::ErrorKind::InternalInvariantError(
@@ -190,7 +198,7 @@ fn convert_block_changes_to_transactions(
                 ));
             }
             StateChangeCauseView::Migration => {
-                format!("migration:{}", block_hash)
+                crate::models::TransactionIdentifier::block_event("migration", block_hash)
             }
             StateChangeCauseView::Resharding => {
                 return Err(crate::errors::ErrorKind::InternalInvariantError(
@@ -199,17 +207,14 @@ fn convert_block_changes_to_transactions(
             }
         };
 
-        let current_transaction =
-            transactions.entry(transaction_hash.clone()).or_insert_with(move || {
-                crate::models::Transaction {
-                    transaction_identifier: crate::models::TransactionIdentifier {
-                        hash: transaction_hash,
-                    },
-                    operations: vec![],
-                    metadata: crate::models::TransactionMetadata {
-                        type_: crate::models::TransactionType::Transaction,
-                    },
-                }
+        let current_transaction = transactions
+            .entry(transaction_identifier.hash.clone())
+            .or_insert_with(move || crate::models::Transaction {
+                transaction_identifier,
+                operations: vec![],
+                metadata: crate::models::TransactionMetadata {
+                    type_: crate::models::TransactionType::Transaction,
+                },
             });
 
         let operations = &mut current_transaction.operations;
