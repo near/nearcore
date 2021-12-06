@@ -1453,7 +1453,7 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
     }
 
-    /// /// Computes the expected storage per account for a given set of StateRecord(s).
+    /// Computes the expected storage per account for a given set of StateRecord(s).
     /// Note: It's okay to use unsafe math here, because this method should only be called on the trusted
     /// state records (e.g. at launch from genesis)
     pub fn compute_storage_usage(
