@@ -342,6 +342,7 @@ pub enum PeerIdOrHash {
 /// The request should be sent either to the `account_id` as a routed message, or directly to
 /// any peer that tracks the shard.
 /// If `prefer_peer` is `true`, should be sent to the peer, unless there is no qualified peer,
+/// Otherwise, send to the account, unless we do not know the route, in which case send to a peer.
 /// in which case fall back to sending to the account.
 /// `shard_id`, `only_archival` and `min_height` are used to filter for qualified peers
 pub struct AccountIdOrPeerTrackingShard {
