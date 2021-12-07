@@ -5,6 +5,7 @@ An epoch is a unit of time when validators of the network remain constant.
 
 You can read more about the epoch here: https://docs.near.org/docs/concepts/epoch
 
+You can read more about Epoch finalization and Epoch changes here: https://github.com/near/NEPs/blob/master/specs/BlockchainLayer/EpochManager/EpochManager.md 
 
 ## EpochManager
 Main class that has two main functions:
