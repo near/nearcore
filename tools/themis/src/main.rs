@@ -1,6 +1,7 @@
 use cargo_metadata::{camino::Utf8PathBuf, Package};
 
 mod rules;
+mod style;
 #[macro_use]
 mod utils;
 
@@ -17,14 +18,20 @@ pub struct PackageOutcome<'a> {
 }
 
 #[derive(Debug)]
+pub struct Expected {
+    value: String,
+    reason: Option<String>,
+}
+
+#[derive(Debug)]
 pub enum Error<'a> {
-    OutcomeError { msg: String, outliers: Vec<PackageOutcome<'a>> },
+    OutcomeError { msg: String, expected: Option<Expected>, outliers: Vec<PackageOutcome<'a>> },
     RuntimeError(anyhow::Error),
 }
 
-impl<'a> From<anyhow::Error> for Error<'a> {
-    fn from(err: anyhow::Error) -> Self {
-        Error::RuntimeError(err)
+impl<'a, E: Into<anyhow::Error>> From<E> for Error<'a> {
+    fn from(err: E) -> Self {
+        Error::RuntimeError(err.into())
     }
 }
 
