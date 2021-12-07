@@ -23,8 +23,8 @@ to make sure it has expected behavior once deployed to the blockchain.
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-clap = "=3.0.0-beta.2"
-clap_derive = "=3.0.0-beta.2"
+clap = "=3.0.0-beta.5"
+clap_derive = "=3.0.0-beta.5"
 base64 = "0.13"
 strum = "0.20"
 num-rational = "0.3"

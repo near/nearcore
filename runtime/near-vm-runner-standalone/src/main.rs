@@ -3,7 +3,7 @@
 mod script;
 
 use crate::script::Script;
-use clap::Clap;
+use clap::Parser;
 use near_vm_logic::VMOutcome;
 use near_vm_logic::{mocks::mock_external::Receipt, ProtocolVersion};
 use near_vm_runner::internal::VMKind;
@@ -57,7 +57,7 @@ impl<'de> Deserialize<'de> for State {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 struct CliArgs {
     /// Specifies the execution context in JSON format, see `VMContext`.
     #[clap(long)]
