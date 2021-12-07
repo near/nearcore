@@ -1756,7 +1756,7 @@ impl PeerManagerActor {
                         for (peer_id, active_peer) in self.active_peers.iter() {
                             if (active_peer.full_peer_info.chain_info.archival
                                 || !target.only_archival)
-                                && active_peer.full_peer_info.chain_info.height >= h
+                                && active_peer.full_peer_info.chain_info.height >= target.min_height
                                 && active_peer
                                     .full_peer_info
                                     .chain_info
