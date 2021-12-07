@@ -44,7 +44,7 @@ steps:
 
       python3 scripts/check_nightly.py
       python3 scripts/check_pytests.py
-      sh scripts/check_formatting.sh
+      ./scripts/formatting --check
       rm target/rpc_errors_schema.json
       RUSTFLAGS='-D warnings' cargo check -p near-jsonrpc --features dump_errors_schema
       if ! git --no-pager diff --no-index chain/jsonrpc/res/rpc_errors_schema.json target/rpc_errors_schema.json; then
