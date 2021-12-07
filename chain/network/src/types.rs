@@ -30,6 +30,7 @@ use near_primitives::version::{
     ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
 use near_primitives::views::QueryRequest;
+use near_rate_limiter::ThrottleController;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, Mutex, RwLock};
@@ -272,24 +273,28 @@ impl From<HandshakeV2> for Handshake {
     }
 }
 
+/// Contains metadata used for routing messages to particular `PeerId` or `AccountId`.
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct SyncData {
+pub struct RoutingTableUpdate {
+    /// List of known edges from `RoutingTableActor::edges_info`.
     pub(crate) edges: Vec<Edge>,
+    /// List of known `account_id` to `PeerId` mappings.
+    /// Useful for `send_message_to_account` method, to route message to particular account.
     pub(crate) accounts: Vec<AnnounceAccount>,
 }
 
-impl SyncData {
-    pub(crate) fn edge(edge: Edge) -> Self {
-        Self { edges: vec![edge], accounts: Vec::new() }
+impl RoutingTableUpdate {
+    pub(crate) fn new(edges: Vec<Edge>, accounts: Vec<AnnounceAccount>) -> Self {
+        Self { edges, accounts }
     }
 
-    pub fn account(account: AnnounceAccount) -> Self {
-        Self { edges: Vec::new(), accounts: vec![account] }
+    pub(crate) fn from_edges(edges: Vec<Edge>) -> Self {
+        Self::new(edges, Vec::new())
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
-        self.edges.is_empty() && self.accounts.is_empty()
+    pub fn from_accounts(accounts: Vec<AnnounceAccount>) -> Self {
+        Self::new(Vec::new(), accounts)
     }
 }
 
@@ -315,7 +320,7 @@ pub enum PeerMessage {
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
     LastEdge(Edge),
     /// Contains accounts and edge information.
-    RoutingTableSync(SyncData),
+    SyncRoutingTable(RoutingTableUpdate),
     RequestUpdateNonce(PartialEdgeInfo),
     ResponseUpdateNonce(Edge),
 
@@ -465,6 +470,8 @@ pub struct RegisterPeer {
     pub(crate) other_edge_info: PartialEdgeInfo,
     /// Protocol version of new peer. May be higher than ours.
     pub(crate) peer_protocol_version: ProtocolVersion,
+    /// A helper data structure for limiting reading, reporting bandwidth stats.
+    pub(crate) throttle_controller: ThrottleController,
 }
 
 /// Addr<PeerActor> doesn't implement `DeepSizeOf` waiting for `deepsize` > 0.2.0.
@@ -823,9 +830,9 @@ pub enum NetworkRequests {
     /// (Unit tests) Fetch current routing table.
     FetchRoutingTable,
     /// Data to sync routing table from active peer.
-    Sync {
+    SyncRoutingTable {
         peer_id: PeerId,
-        sync_data: SyncData,
+        routing_table_update: RoutingTableUpdate,
     },
 
     RequestUpdateNonce(PeerId, PartialEdgeInfo),
@@ -867,6 +874,12 @@ pub struct ValidateEdgeList {
     #[cfg(feature = "test_features")]
     /// Feature to disable edge validation for purpose of testing.
     pub(crate) adv_disable_edge_signature_verification: bool,
+}
+
+impl Debug for ValidateEdgeList {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("source_peer_id").finish()
+    }
 }
 
 impl Message for ValidateEdgeList {
@@ -1129,7 +1142,7 @@ mod tests {
         assert_size!(Handshake);
         assert_size!(Ping);
         assert_size!(Pong);
-        assert_size!(SyncData);
+        assert_size!(RoutingTableUpdate);
         assert_size!(SendMessage);
         assert_size!(RegisterPeer);
         assert_size!(FullPeerInfo);

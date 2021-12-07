@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use actix::System;
+use assert_matches::assert_matches;
 use futures::{future, FutureExt};
 use near_primitives::num_rational::Rational;
 
@@ -66,7 +67,7 @@ use near_store::db::DBCol::ColStateParts;
 use near_store::get;
 use near_store::test_utils::create_test_store;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use nearcore::NEAR_BASE;
+use nearcore::{TrackedConfig, NEAR_BASE};
 use rand::Rng;
 
 pub fn set_block_protocol_version(
@@ -1781,7 +1782,7 @@ fn test_gc_tail_update() {
     store_update.commit().unwrap();
     env.clients[1]
         .chain
-        .reset_heads_post_state_sync(&None, *sync_block.hash(), |_| {}, |_| {}, |_| {})
+        .reset_heads_post_state_sync(&None, *sync_block.hash(), |_| {}, |_| {}, |_| {}, |_| {})
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
     assert_eq!(env.clients[1].chain.store().tail().unwrap(), prev_sync_height);
@@ -2002,7 +2003,7 @@ fn test_data_reset_before_state_sync() {
     let response = env.clients[0]
         .runtime_adapter
         .query(
-            ShardUId::default(),
+            ShardUId::single_shard(),
             &head_block.chunks()[0].prev_state_root(),
             head.height,
             0,
@@ -2016,7 +2017,7 @@ fn test_data_reset_before_state_sync() {
     env.clients[0].chain.reset_data_pre_state_sync(*head_block.hash()).unwrap();
     // account should not exist after clearing state
     let response = env.clients[0].runtime_adapter.query(
-        ShardUId::default(),
+        ShardUId::single_shard(),
         &head_block.chunks()[0].prev_state_root(),
         head.height,
         0,
@@ -2215,8 +2216,11 @@ fn test_validate_chunk_extra() {
 
     // About to produce a block on top of block1. Validate that this chunk is legit.
     let chunks = env.clients[0].shards_mgr.prepare_chunks(block1.hash());
-    let chunk_extra =
-        env.clients[0].chain.get_chunk_extra(block1.hash(), &ShardUId::default()).unwrap().clone();
+    let chunk_extra = env.clients[0]
+        .chain
+        .get_chunk_extra(block1.hash(), &ShardUId::single_shard())
+        .unwrap()
+        .clone();
     assert!(validate_chunk_with_chunk_extra(
         &mut chain_store,
         &*env.clients[0].runtime_adapter,
@@ -2303,7 +2307,10 @@ fn test_catchup_gas_price_change() {
     }
 
     assert_ne!(blocks[3].header().gas_price(), blocks[4].header().gas_price());
-    assert!(env.clients[1].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::default()).is_err());
+    assert!(env.clients[1]
+        .chain
+        .get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard())
+        .is_err());
 
     // Simulate state sync
     let sync_hash = *blocks[5].hash();
@@ -2354,12 +2361,12 @@ fn test_catchup_gas_price_change() {
     env.clients[1].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
     let chunk_extra_after_sync = env.clients[1]
         .chain
-        .get_chunk_extra(blocks[4].hash(), &ShardUId::default())
+        .get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard())
         .unwrap()
         .clone();
     let expected_chunk_extra = env.clients[0]
         .chain
-        .get_chunk_extra(blocks[4].hash(), &ShardUId::default())
+        .get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard())
         .unwrap()
         .clone();
     // The chunk extra of the prev block of sync block should be the same as the node that it is syncing from
@@ -2762,7 +2769,7 @@ fn test_query_final_state() {
         let last_final_block = chain.get_block(&final_head.last_block_hash).unwrap().clone();
         let response = runtime_adapter
             .query(
-                ShardUId::default(),
+                ShardUId::single_shard(),
                 &last_final_block.chunks()[0].prev_state_root(),
                 last_final_block.header().height(),
                 last_final_block.header().raw_timestamp(),
@@ -3104,14 +3111,14 @@ fn test_congestion_receipt_execution() {
     let prev_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
     let chunk_extra = env.clients[0]
         .chain
-        .get_chunk_extra(prev_block.hash(), &ShardUId::default())
+        .get_chunk_extra(prev_block.hash(), &ShardUId::single_shard())
         .unwrap()
         .clone();
     assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
     let state_update = env.clients[0]
         .runtime_adapter
         .get_tries()
-        .new_trie_update(ShardUId::default(), *chunk_extra.state_root());
+        .new_trie_update(ShardUId::single_shard(), *chunk_extra.state_root());
     let delayed_indices =
         get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices)
             .unwrap()
@@ -3206,6 +3213,7 @@ fn test_limit_contract_functions_number_upgrade() {
                 Path::new("."),
                 create_test_store(),
                 &genesis,
+                TrackedConfig::new_empty(),
                 RuntimeConfigStore::new(None),
             ))];
         let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
@@ -3530,6 +3538,132 @@ mod access_key_nonce_range_tests {
             NetworkClientResponses::InvalidTx(InvalidTxError::InvalidAccessKeyError(_))
         ));
     }
+
+    #[test]
+    /// This test tests the logic regarding requesting chunks for orphan.
+    /// The test tests the following scenario, there is one validator(test0) and one non-validator node(test1)
+    /// test0 produces and processes 20 blocks and test1 processes these blocks with some delays. We
+    /// want to test that test1 requests missing chunks for orphans ahead of time.
+    ///
+    /// - test1 processes blocks 1, 2 successfully
+    /// - test1 processes blocks 3, 4, ..., 20, but it doesn't have chunks for these blocks, so block 3
+    ///         will be put to the missing chunks pool while block 4 - 20 will be orphaned
+    /// - check that test1 sends missing chunk requests for block 4 - 7
+    /// - test1 processes partial chunk responses for block 4 - 7
+    /// - test1 processes partial chunk responses for block 3
+    /// - check that block 3 - 7 are accepted, this confirms that the missing chunk requests are sent
+    ///   and processed successfully for block 4 - 7
+    /// - check that test1 sends missing chunk requests for block 9, because now it satisfies the requirements
+    ///   for requesting chunks for orphans
+    /// - check that test1 does not send missing chunk requests for block 10, because it breaks
+    ///   the requirement that the block must be in the same epoch as the next block after its accepted ancestor
+    /// - test1 processes partial chunk responses for block 8 and 9
+    /// - check that test1 sends missing chunk requests for block 11 to 15, since now they satisfy the
+    ///   the requirements for requesting chunks for orphans
+    fn test_request_chunks_for_orphan() {
+        init_test_logger();
+
+        let num_clients = 2;
+        let num_validators = 1;
+        let epoch_length = 10;
+
+        let accounts: Vec<AccountId> =
+            (0..num_clients).map(|i| format!("test{}", i).to_string().parse().unwrap()).collect();
+        let mut genesis = Genesis::test(accounts, num_validators);
+        genesis.config.epoch_length = epoch_length;
+        let chain_genesis = ChainGenesis::from(&genesis);
+        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = (0..2)
+            .map(|_| {
+                Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
+                    Path::new("."),
+                    create_test_store(),
+                    &genesis,
+                    TrackedConfig::AllShards,
+                    RuntimeConfigStore::test(),
+                )) as Arc<dyn RuntimeAdapter>
+            })
+            .collect();
+        let mut env = TestEnv::builder(chain_genesis)
+            .clients_count(num_clients)
+            .validator_seats(num_validators as usize)
+            .runtime_adapters(runtimes)
+            .build();
+
+        let mut blocks = vec![];
+        // produce 20 blocks
+        for i in 1..=20 {
+            let block = env.clients[0].produce_block(i).unwrap().unwrap();
+            blocks.push(block.clone());
+            env.process_block(0, block, Provenance::PRODUCED);
+        }
+
+        env.clients[1].process_block(blocks[0].clone().into(), Provenance::NONE).1.unwrap();
+        // process blocks 1, 2 successfully
+        for i in 1..3 {
+            let (_, res) = env.clients[1].process_block(blocks[i].clone().into(), Provenance::NONE);
+            run_catchup(&mut env.clients[1], &vec![]).unwrap();
+            assert_matches!(res, Err(e) => {
+                assert_matches!(e.kind(), near_chain::ErrorKind::ChunksMissing(_));
+            });
+            env.process_partial_encoded_chunks_requests(1);
+        }
+
+        // process blocks 3 to 15 without processing missing chunks
+        // block 3 will be put into the blocks_with_missing_chunks pool
+        let (_, res) = env.clients[1].process_block(blocks[3].clone().into(), Provenance::NONE);
+        assert_matches!(res, Err(e) => {
+            assert_matches!(e.kind(), near_chain::ErrorKind::ChunksMissing(_));
+        });
+        // remove the missing chunk request from the network queue because we want to process it later
+        let missing_chunk_request = env.network_adapters[1].pop().unwrap();
+        // block 4-20 will be put to the orphan pool
+        for i in 4..20 {
+            let (_, res) = env.clients[1].process_block(blocks[i].clone().into(), Provenance::NONE);
+            assert_matches!(res, Err(e) => {
+                assert_eq!(e.kind(), near_chain::ErrorKind::Orphan);
+            });
+        }
+        // check that block 4-7 requested partial encoded chunks already
+        for i in 4..8 {
+            assert!(
+                env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[i].hash()),
+                "{}",
+                i
+            );
+        }
+        assert!(!env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[8].hash()));
+        assert!(!env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[9].hash()));
+        // process all the partial encoded chunk requests for block 4 - 7
+        env.process_partial_encoded_chunks_requests(1);
+
+        // process partial encoded chunk request for block 3, which will unlock block 4-7
+        env.process_partial_encoded_chunk_request(1, missing_chunk_request);
+        assert_eq!(&env.clients[1].chain.head().unwrap().last_block_hash, blocks[7].hash());
+
+        // check that `check_orphans` will request PartialChunks for new orphans as new blocks are processed
+        assert!(env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[9].hash()));
+        // blocks[10] is at the new epoch, so we can't request partial chunks for it yet
+        assert!(!env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[10].hash()));
+
+        // process missing chunks for block 8 and 9
+        let request = env.network_adapters[1].pop().unwrap();
+        env.process_partial_encoded_chunk_request(1, request);
+        let request = env.network_adapters[1].pop().unwrap();
+        env.process_partial_encoded_chunk_request(1, request);
+        assert_eq!(&env.clients[1].chain.head().unwrap().last_block_hash, blocks[9].hash());
+
+        assert!(env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[11].hash()));
+        assert!(env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[12].hash()));
+        assert!(env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[13].hash()));
+        assert!(env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[14].hash()));
+        assert!(!env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[15].hash()));
+
+        for i in 10..=15 {
+            let request = env.network_adapters[1].pop().unwrap();
+            env.process_partial_encoded_chunk_request(1, request);
+            assert_eq!(&env.clients[1].chain.head().unwrap().last_block_hash, blocks[i].hash());
+        }
+    }
 }
 
 mod protocol_feature_restore_receipts_after_fix_tests {
@@ -3708,7 +3842,7 @@ mod storage_usage_fix_tests {
 
             let root = env.clients[0]
                 .chain
-                .get_chunk_extra(block.hash(), &ShardUId::default())
+                .get_chunk_extra(block.hash(), &ShardUId::single_shard())
                 .unwrap()
                 .state_root()
                 .clone();
@@ -3823,8 +3957,11 @@ mod contract_precompilation_tests {
     fn state_sync_on_height(env: &mut TestEnv, height: BlockHeight) {
         let sync_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
         let sync_hash = *sync_block.hash();
-        let chunk_extra =
-            env.clients[0].chain.get_chunk_extra(&sync_hash, &ShardUId::default()).unwrap().clone();
+        let chunk_extra = env.clients[0]
+            .chain
+            .get_chunk_extra(&sync_hash, &ShardUId::single_shard())
+            .unwrap()
+            .clone();
         let epoch_id =
             env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
         let state_part = env.clients[0]
@@ -3901,7 +4038,7 @@ mod contract_precompilation_tests {
         // compile_module_cached_wasmer0 is cached by contract key via macro.
         let block = env.clients[0].chain.get_block_by_height(EPOCH_LENGTH).unwrap().clone();
         let chunk_extra =
-            env.clients[0].chain.get_chunk_extra(block.hash(), &ShardUId::default()).unwrap();
+            env.clients[0].chain.get_chunk_extra(block.hash(), &ShardUId::single_shard()).unwrap();
         let state_root = chunk_extra.state_root().clone();
 
         let viewer = TrieViewer::default();
