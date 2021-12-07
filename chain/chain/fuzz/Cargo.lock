@@ -148,12 +148,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b41b7ea54a0c9d92199de89e20e58d49f02f8e699814ef3fdf266f6f748d15c7"
 
 [[package]]
-name = "base64"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
-
-[[package]]
 name = "bindgen"
 version = "0.59.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -933,6 +927,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "libm"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7d73b3f436185384286bd8098d17ec07c9a7d2388a6599f824d8502b529702a"
+
+[[package]]
 name = "librocksdb-sys"
 version = "6.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1044,6 +1044,8 @@ dependencies = [
  "num-rational",
  "once_cell",
  "rand 0.7.3",
+ "rand_chacha 0.3.1",
+ "rand_distr",
  "rayon",
  "serde",
  "strum",
@@ -1071,8 +1073,13 @@ dependencies = [
 name = "near-chain-fuzz"
 version = "0.0.0"
 dependencies = [
+ "chrono",
  "libfuzzer-sys",
  "near-chain",
+ "near-chain-primitives",
+ "near-crypto",
+ "near-primitives",
+ "serde",
 ]
 
 [[package]]
@@ -1136,9 +1143,7 @@ dependencies = [
 name = "near-primitives"
 version = "0.0.0"
 dependencies = [
- "base64 0.13.0",
  "borsh",
- "bs58",
  "byteorder",
  "bytesize",
  "chrono",
@@ -1163,7 +1168,7 @@ dependencies = [
 name = "near-primitives-core"
 version = "0.0.0"
 dependencies = [
- "base64 0.11.0",
+ "base64",
  "borsh",
  "bs58",
  "derive_more",
@@ -1293,6 +1298,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a64b1ec5cda2586e284722486d802acf1f7dbdc623e2bfc57e65ca1cd099290"
 dependencies = [
  "autocfg",
+ "libm",
 ]
 
 [[package]]
@@ -1548,6 +1554,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d34f1408f55294453790c48b2f1ebbb1c5b4b7563eb1f418bcfcfdbb06ebb4e7"
 dependencies = [
  "getrandom 0.2.3",
+]
+
+[[package]]
+name = "rand_distr"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "964d548f8e7d12e102ef183a0de7e98180c9f8729f555897a857b96e48122d2f"
+dependencies = [
+ "num-traits",
+ "rand 0.8.4",
 ]
 
 [[package]]
