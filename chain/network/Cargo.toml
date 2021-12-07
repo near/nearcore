@@ -8,6 +8,7 @@ rust-version = "1.56.0"
 edition = "2021"
 
 [dependencies]
+anyhow = "1.0.51"
 actix = "=0.11.0-beta.2"
 borsh = { version = "0.9", features = ["rc"] }
 bytes = "1"

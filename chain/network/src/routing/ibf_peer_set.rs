@@ -171,11 +171,12 @@ mod test {
     use crate::routing::ibf_peer_set::{IbfPeerSet, SlotMap};
     use crate::routing::ibf_set::IbfSet;
     use crate::test_utils::random_peer_id;
+    use anyhow::{Context, Result};
     use near_primitives::network::PeerId;
     use std::collections::HashMap;
 
     #[test]
-    fn test_slot_map() {
+    fn test_slot_map() -> Result<()> {
         let p0 = random_peer_id();
         let p1 = random_peer_id();
         let p2 = random_peer_id();
@@ -185,12 +186,12 @@ mod test {
         let e2 = SimpleEdge::new(p1, p2, 3);
 
         let mut sm = SlotMap::default();
-        assert_eq!(0_u64, sm.insert(&e0).unwrap());
+        assert_eq!(0_u64, sm.insert(&e0).with_context(|| format!("failed with {:?}", &e0))?);
 
         assert!(sm.insert(&e0).is_none());
 
-        assert_eq!(1_u64, sm.insert(&e1).unwrap());
-        assert_eq!(2_u64, sm.insert(&e2).unwrap());
+        assert_eq!(1_u64, sm.insert(&e1).with_context(|| format!("failed with {:?}", &e1))?);
+        assert_eq!(2_u64, sm.insert(&e2).with_context(|| format!("failed with {:?}", &e2))?);
 
         assert_eq!(Some(2_u64), sm.pop(&e2));
         assert_eq!(None, sm.pop(&e2));
@@ -206,11 +207,12 @@ mod test {
         assert_eq!(None, sm.get(&e1));
         assert_eq!(None, sm.pop(&e1));
 
-        assert_eq!(3_u64, sm.insert(&e2).unwrap());
+        assert_eq!(3_u64, sm.insert(&e2).with_context(|| format!("failed with {:?}", &e2))?);
         assert_eq!(Some(3_u64), sm.pop(&e2));
 
         assert_eq!(None, sm.get_by_id(&1_u64));
         assert_eq!(None, sm.get_by_id(&1000_u64));
+        Ok(())
     }
 
     #[test]
