@@ -36,7 +36,7 @@ fn main() -> Result<()> {
         .arg(
             Arg::new("home")
                 .default_value_os(default_home.as_os_str())
-                .about("Directory for config and data (default \"~/.near\")")
+                .help("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
         )
         .get_matches();

@@ -1,7 +1,6 @@
 use actix;
 
-use anyhow::Result;
-use clap::Clap;
+use clap::Parser;
 use tokio::sync::mpsc;
 use tracing::info;
 
@@ -256,7 +255,7 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::StreamerMessage>
     }
 }
 
-fn main() -> Result<()> {
+fn main() -> anyhow::Result<()> {
     // We use it to automatically search the for root certificates to perform HTTPS calls
     // (sending telemetry and downloading genesis)
     openssl_probe::init_ssl_cert_env_vars();

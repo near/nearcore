@@ -1,7 +1,5 @@
 mod cli;
 
-use std::env;
-
 use self::cli::NeardCmd;
 use clap::crate_version;
 use git_version::git_version;

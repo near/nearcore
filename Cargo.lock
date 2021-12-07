@@ -804,9 +804,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "3.0.0-beta.2"
+version = "3.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bd1061998a501ee7d4b6d449020df3266ca3124b941ec56cf2005c3779ca142"
+checksum = "2afefa54b5c7dd40918dc1e09f213a171ab5937aadccab45e804780b238f9f43"
 dependencies = [
  "atty",
  "bitflags",
@@ -816,18 +816,16 @@ dependencies = [
  "os_str_bytes",
  "strsim 0.10.0",
  "termcolor",
- "textwrap 0.12.1",
- "unicode-width",
- "vec_map",
+ "textwrap 0.14.2",
 ]
 
 [[package]]
 name = "clap_derive"
-version = "3.0.0-beta.2"
+version = "3.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "370f715b81112975b1b69db93e0b56ea4cd4e5002ac43b2da8474106a54096a1"
+checksum = "0fd2078197a22f338bd4fbf7d6387eb6f0d6a3c69e6cbc09f5c93e97321fd92a"
 dependencies = [
- "heck",
+ "heck 0.4.0",
  "proc-macro-error",
  "proc-macro2",
  "quote",
@@ -1816,6 +1814,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "heck"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2540771e65fc8cb83cd6e8a237f70c319bd5c29f78ed1084ba5d50eeac86f7f9"
+
+[[package]]
 name = "hermit-abi"
 version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1978,7 +1982,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "anyhow",
- "clap 3.0.0-beta.2",
+ "clap 3.0.12",
  "near-indexer",
  "openssl-probe",
  "serde_json",
@@ -3180,8 +3184,7 @@ name = "near-vm-runner-standalone"
 version = "0.0.0"
 dependencies = [
  "base64 0.13.0",
- "clap 3.0.0-beta.2",
- "clap_derive",
+ "clap 3.0.12",
  "hex",
  "near-primitives",
  "near-primitives-core",
@@ -3255,7 +3258,7 @@ name = "neard"
 version = "0.0.0"
 dependencies = [
  "actix",
- "clap 3.0.0-beta.2",
+ "clap 3.0.12",
  "futures",
  "git-version",
  "near-chain-configs",
@@ -3472,9 +3475,12 @@ dependencies = [
 
 [[package]]
 name = "os_str_bytes"
-version = "2.4.0"
+version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "afb2e1c3ee07430c2cf76151675e583e0f19985fa6efae47d6848a3e2c824f85"
+checksum = "8e22443d1643a904602595ba1cd8f7d896afe56d26712531c5ff73a15b2fbf64"
+dependencies = [
+ "memchr",
+]
 
 [[package]]
 name = "page_size"
@@ -3545,7 +3551,7 @@ name = "paperclip-macros"
 version = "0.4.0"
 source = "git+https://github.com/near/paperclip?branch=actix-web-4-beta.6#b9589c6e520eeee4a07ed94f7e32c476990d6536"
 dependencies = [
- "heck",
+ "heck 0.3.3",
  "http",
  "lazy_static",
  "mime",
@@ -4254,7 +4260,7 @@ dependencies = [
 name = "restored-receipts-verifier"
 version = "0.0.0"
 dependencies = [
- "clap 3.0.0-beta.2",
+ "clap 3.0.12",
  "near-chain",
  "near-chain-configs",
  "near-jsonrpc",
@@ -4319,7 +4325,7 @@ dependencies = [
  "bytesize",
  "cfg-if 1.0.0",
  "chrono",
- "clap 3.0.0-beta.2",
+ "clap 3.0.12",
  "genesis-populate",
  "hex",
  "indicatif",
@@ -4748,8 +4754,13 @@ version = "0.0.0"
 dependencies = [
  "ansi_term 0.12.1",
  "anyhow",
+<<<<<<< HEAD
  "borsh",
  "clap 3.0.0-beta.2",
+=======
+ "borsh 0.9.1",
+ "clap 3.0.12",
+>>>>>>> Upgrade clap to `3.0.0-rc7`
  "near-chain",
  "near-chain-configs",
  "near-client",
@@ -4881,7 +4892,7 @@ version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee8bc6b87a5112aeeab1f4a9f7ab634fe6cbefc4850006df31267f4cfb9e3149"
 dependencies = [
- "heck",
+ "heck 0.3.3",
  "proc-macro2",
  "quote",
  "syn",
@@ -5005,12 +5016,9 @@ dependencies = [
 
 [[package]]
 name = "textwrap"
-version = "0.12.1"
+version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "203008d98caf094106cfaba70acfed15e18ed3ddb7d94e49baec153a2b462789"
-dependencies = [
- "unicode-width",
-]
+checksum = "0066c8d12af8b5acd21e00547c3797fde4e8677254a7ee429176ccebbe93dd80"
 
 [[package]]
 name = "themis"
@@ -5488,7 +5496,7 @@ version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7c2bb690b44cb1b0fdcc54d4998d21f8bdaf706b93775425e440b174f39ad16"
 dependencies = [
- "heck",
+ "heck 0.3.3",
  "proc-macro2",
  "quote",
  "syn",

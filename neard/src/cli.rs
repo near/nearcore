@@ -1,9 +1,9 @@
 use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION};
-use clap::{AppSettings, Clap};
+use clap::{AppSettings, Parser};
 use futures::future::FutureExt;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::types::{Gas, NumSeats, NumShards};
-use near_state_viewer::StateViewerSubCommand;
+use near_state_viewer::cli::StateViewerCmdNoOpts;
 use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -13,7 +13,7 @@ use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 /// NEAR Protocol Node
-#[derive(Clap)]
+#[derive(clap::Parser)]
 #[clap(version = NEARD_VERSION_STRING.as_str())]
 #[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
 pub(super) struct NeardCmd {
@@ -66,7 +66,7 @@ impl NeardCmd {
                 unsafe_reset("unsafe_reset_all", &home_dir, "data and config", "<near-home-dir>");
             }
             NeardSubCommand::StateViewer(cmd) => {
-                cmd.run(&home_dir, genesis_validation);
+                cmd.subcmd.run(&home_dir, genesis_validation);
             }
         }
     }
@@ -81,7 +81,7 @@ fn unsafe_reset(command: &str, path: &std::path::Path, what: &str, default: &str
     fs::remove_dir_all(path).expect("Removing data failed");
 }
 
-#[derive(Clap, Debug)]
+#[derive(clap::Parser, Debug)]
 struct NeardOpts {
     /// Sets verbose logging for the given target, or for all targets
     /// if "debug" is given.
@@ -102,7 +102,7 @@ impl NeardOpts {
     }
 }
 
-#[derive(Clap)]
+#[derive(clap::Parser)]
 pub(super) enum NeardSubCommand {
     /// Initializes NEAR configuration
     #[clap(name = "init")]
@@ -130,10 +130,10 @@ pub(super) enum NeardSubCommand {
     UnsafeResetData,
     /// View DB state.
     #[clap(name = "view_state")]
-    StateViewer(StateViewerSubCommand),
+    StateViewer(StateViewerCmdNoOpts),
 }
 
-#[derive(Clap)]
+#[derive(clap::Parser)]
 pub(super) struct InitCmd {
     /// Download the verified NEAR genesis file automatically.
     #[clap(long)]
@@ -241,7 +241,7 @@ impl InitCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(clap::Parser)]
 pub(super) struct RunCmd {
     /// Keep old blocks in the storage (default false).
     #[clap(long)]
@@ -377,7 +377,7 @@ impl RunCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(clap::Parser)]
 pub(super) struct LocalnetCmd {
     /// Number of non-validators to initialize the localnet with.
     #[clap(long = "n", default_value = "0")]
@@ -459,7 +459,6 @@ mod tests {
     #[test]
     fn equal_no_value_syntax() {
         assert!(NeardCmd::try_parse_from(&[
-            "test",
             "init",
             // * This line currently fails to be parsed (= without a value)
             "--chain-id=",

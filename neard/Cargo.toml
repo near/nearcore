@@ -13,7 +13,7 @@ path = "src/main.rs"
 name = "neard"
 
 [dependencies]
-clap = "=3.0.0-beta.2"
+clap = { version = "3.0.0-rc.7", features = ["cargo", "derive"] }
 actix = "=0.11.0-beta.2"
 tracing = "0.1.13"
 git-version = "0.3.1"
