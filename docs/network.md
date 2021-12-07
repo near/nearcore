@@ -1,6 +1,6 @@
 # 1. Overview
 Near Protocol uses its own implementation of a custom peer-to-peer network
-Peers who join network are represented by nodes and connected between them by edges.
+Peers who join network are represented by nodes and connections between them by edges.
 
 The purpose of this document is to describe inner workings of `near-network` package;
 and to be used as reference by future engineers to understand network code without any prior knowledge.
@@ -23,7 +23,7 @@ Responsibilities:
 `RoutingTableActor` maintain view of the `P2P network` represented by set of nodes and edges.
 
 In case a message needs to be sent between two nodes, let's call them `A` and `B`.
-If nodes `A` and `B` are connected then the message san be sent directly.
+If nodes `A` and `B` are connected then the message can be sent directly.
 However, if there aren't a node `C` needs to be chosen to forward message from `A` to `B`.
 This may be a direct or indirect route. `RoutingTableActor` is responsible for computing such set of nodes `C` that
 meets the criteria.
@@ -40,8 +40,8 @@ Each `PeerActor` keeps a physical a `TCP connection` to exactly one peer.
 Responsibilities:
 - Maintaining physical connection.
 - Reading messages from peers, decoding them, and then forwarding them to the right place.
-- Encoding messages, writing them to peers on physical layer.
-- Routing messages between `PeerManagerActor` and other peers/
+- Encoding messages, sending them to peers on physical layer.
+- Routing messages between `PeerManagerActor` and other peers.
 
 ### 2.4 `PeerManagerActor`
 `PeerManagerActor` is the main actor of `near-network` crate.
@@ -62,4 +62,4 @@ Responsibilities:
 `PeerManagerActor` actor gets started.
 `PeerManagerActor` open tcp server, which listens to incoming connection.
 It starts `RoutingTableActor`, which then starts `EdgeValidatorActor`.
-When connection incoming connection gets accepted, it starts `PeerActor` on its own thread.
+When connection incoming connection gets accepted, it starts a new `PeerActor` on its own thread.
