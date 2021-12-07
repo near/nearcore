@@ -216,21 +216,20 @@ impl NightshadeRuntime {
         home_dir: &Path,
         store: Arc<Store>,
         genesis: &Genesis,
+        tracked_config: TrackedConfig,
         runtime_config_store: RuntimeConfigStore,
     ) -> Self {
-        Self::new(
+        Self::new(home_dir, store, genesis, tracked_config, None, None, Some(runtime_config_store))
+    }
+
+    pub fn test(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
+        Self::test_with_runtime_config_store(
             home_dir,
             store,
             genesis,
             TrackedConfig::new_empty(),
-            None,
-            None,
-            Some(runtime_config_store),
+            RuntimeConfigStore::test(),
         )
-    }
-
-    pub fn test(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
-        Self::test_with_runtime_config_store(home_dir, store, genesis, RuntimeConfigStore::test())
     }
 
     fn get_epoch_height_from_prev_block(
@@ -2207,10 +2206,10 @@ mod test {
                 .commit()
                 .unwrap();
             let shard_layout = self.runtime.get_shard_layout_from_prev_block(&new_hash).unwrap();
-            let mut new_receipts = HashMap::new();
+            let mut new_receipts = HashMap::<_, Vec<Receipt>>::new();
             for receipt in all_receipts {
                 let shard_id = account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
-                new_receipts.entry(shard_id).or_insert_with(|| vec![]).push(receipt);
+                new_receipts.entry(shard_id).or_default().push(receipt);
             }
             self.last_receipts = new_receipts;
             self.last_proposals = all_proposals;
