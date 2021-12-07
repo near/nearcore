@@ -832,6 +832,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         this_edge_info: self.partial_edge_info.clone(),
                         other_edge_info: handshake.partial_edge_info.clone(),
                         peer_protocol_version: self.protocol_version,
+                        throttle_controller: self.throttle_controller.clone(),
                     }), Some(self.throttle_controller.clone())))
                     .into_actor(self)
                     .then(move |res, act, ctx| {

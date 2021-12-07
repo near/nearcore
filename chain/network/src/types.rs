@@ -30,6 +30,7 @@ use near_primitives::version::{
     ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
 use near_primitives::views::QueryRequest;
+use near_rate_limiter::ThrottleController;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, Mutex, RwLock};
@@ -469,6 +470,8 @@ pub struct RegisterPeer {
     pub(crate) other_edge_info: PartialEdgeInfo,
     /// Protocol version of new peer. May be higher than ours.
     pub(crate) peer_protocol_version: ProtocolVersion,
+    /// A helper data structure for limiting reading, reporting bandwidth stats.
+    pub(crate) throttle_controller: ThrottleController,
 }
 
 /// Addr<PeerActor> doesn't implement `DeepSizeOf` waiting for `deepsize` > 0.2.0.
