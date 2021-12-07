@@ -6,7 +6,7 @@ mod style;
 mod utils;
 
 #[derive(Debug)]
-struct Package {
+pub struct Package {
     parsed: cargo_metadata::Package,
     raw: toml::Value,
 }
@@ -56,7 +56,11 @@ fn main() -> anyhow::Result<()> {
             rules::has_debuggable_rust_version,
             rules::has_unified_rust_edition,
             rules::author_is_near,
-            // rules::publish_is_publishable,
+            rules::publishable_has_license,
+            rules::publishable_has_license_file,
+            // rules::publishable_has_description,
+            // rules::publishable_has_readme,
+            // rules::publishable_has_links,
         }
     };
 

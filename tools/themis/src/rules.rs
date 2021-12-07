@@ -145,7 +145,7 @@ pub fn has_unified_rust_edition(workspace: &Workspace) -> Result<(), Error> {
 
     if !outliers.is_empty() {
         return Err(Error::OutcomeError {
-            msg: "These packages have an unexpected rust-edition".to_string(),
+            msg: "These packages have an unexpected rust edition".to_string(),
             expected: Some(Expected {
                 value: most_common_edition.to_string(),
                 reason: Some(format!("used by {} other packages in the workspace", n_compliant)),
@@ -171,6 +171,49 @@ pub fn author_is_near(workspace: &Workspace) -> Result<(), Error> {
         return Err(Error::OutcomeError {
             msg: "These packages should be tagged as authored by NEAR".to_string(),
             expected: Some(Expected { value: NEAR_AUTHOR.to_string(), reason: None }),
+            outliers,
+        });
+    }
+
+    return Ok(());
+}
+
+/// ensure all publishable crates have a license
+pub fn publishable_has_license(workspace: &Workspace) -> Result<(), Error> {
+    let outliers = workspace
+        .members
+        .iter()
+        .filter(|pkg| utils::is_publishable(pkg) && pkg.parsed.license.is_none())
+        .map(|pkg| PackageOutcome { pkg, value: None })
+        .collect::<Vec<_>>();
+
+    if !outliers.is_empty() {
+        return Err(Error::OutcomeError {
+            msg: "These non-private packages should have a `license` specification".to_string(),
+            expected: None,
+            outliers,
+        });
+    }
+
+    return Ok(());
+}
+
+/// ensure all publishable crates have a license file
+///
+/// Checks for either one LICENSE file, or two LICENSE files, one of which
+/// is the Apache License 2.0 and the other is the MIT license.
+pub fn publishable_has_license_file(workspace: &Workspace) -> Result<(), Error> {
+    let outliers = workspace
+        .members
+        .iter()
+        .filter(|pkg| utils::pub_has!(pkg, "LICENSE" || ("LICENSE-APACHE" && "LICENSE-MIT")))
+        .map(|pkg| PackageOutcome { pkg, value: None })
+        .collect::<Vec<_>>();
+
+    if !outliers.is_empty() {
+        return Err(Error::OutcomeError {
+            msg: "These non-private packages should have a license file".to_string(),
+            expected: None,
             outliers,
         });
     }
