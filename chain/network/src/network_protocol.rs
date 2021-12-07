@@ -1,5 +1,7 @@
-/// Contains type that belong to the `network protocol.
+/// Contains types that belong to the `network protocol.
 ///
+/// WARNING WARNING WARNING
+/// WARNING WARNING WARNING
 /// We need to maintain backwards compatibility, all changes to this file needs to be reviews.
 use crate::routing::{Edge, PartialEdgeInfo};
 use borsh::{BorshDeserialize, BorshSerialize};
