@@ -1044,7 +1044,10 @@ impl PeerManagerActor {
     ///             find the one we connected earlier and add it to the safe set.
     ///         else break
     fn try_stop_active_connection(&self) {
-        debug!(target: "network", "Trying to stop an active connection. Number of active connections: {}", self.active_peers.len());
+        debug!(target: "network", message = "Trying to stop an active connection.",
+            active_peers_len = self.active_peers.len(),
+            ideal_connections_hi = self.config.ideal_connections_hi,
+        );
 
         // Build safe set
         let mut safe_set = HashSet::new();
@@ -1549,6 +1552,7 @@ impl Actor for PeerManagerActor {
         self.push_network_info_trigger(ctx, self.config.push_info_period);
 
         // Periodically starts peer monitoring.
+        debug!(target: "network", message = "monitor_peers_trigger", interval = ?self.config.bootstrap_peers_period);
         self.monitor_peers_trigger(ctx, self.config.bootstrap_peers_period);
 
         // Periodically starts active peer stats querying.
@@ -2115,7 +2119,10 @@ impl PeerManagerActor {
 
         if msg.peer_type == PeerType::Inbound && !self.is_inbound_allowed() {
             // TODO(1896): Gracefully drop inbound connection for other peer.
-            debug!(target: "network", "Inbound connection dropped (network at max capacity).");
+            debug!(target: "network", message = "Inbound connection dropped (network at max capacity).",
+                active_peers = self.active_peers.len(), outgoing_peers = self.outgoing_peers.len(),
+                max_num_peers = self.config.max_num_peers
+            );
             return RegisterPeerResponse::Reject;
         }
 
