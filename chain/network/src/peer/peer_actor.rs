@@ -9,7 +9,7 @@ use crate::types::{
     PeerResponse, PeersRequest, PeersResponse, RegisterPeer, RegisterPeerResponse, SendMessage,
     Unregister,
 };
-use crate::{PeerInfo, PeerManagerActor};
+use crate::PeerManagerActor;
 use actix::{
     Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
@@ -20,9 +20,9 @@ use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::types::{
     Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2,
-    PeerIdOrHash, PeerManagerRequest, PeerStatsResult, PeerStatus, PeerType, QueryPeerStats,
-    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
-    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerStatsResult, PeerStatus, PeerType,
+    QueryPeerStats, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom,
+    StateResponseInfo, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
@@ -832,6 +832,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         this_edge_info: self.partial_edge_info.clone(),
                         other_edge_info: handshake.partial_edge_info.clone(),
                         peer_protocol_version: self.protocol_version,
+                        throttle_controller: self.throttle_controller.clone(),
                     }), Some(self.throttle_controller.clone())))
                     .into_actor(self)
                     .then(move |res, act, ctx| {
