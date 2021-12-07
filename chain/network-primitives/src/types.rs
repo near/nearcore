@@ -341,18 +341,19 @@ pub enum PeerIdOrHash {
 /// Defines the destination for a network request.
 /// The request should be sent either to the `account_id` as a routed message, or directly to
 /// any peer that tracks the shard.
-/// If `prefer_peer` is `true`, should be sent to the peer, unless no peer tracks the shard, in which
-/// case fall back to sending to the account.
-/// Otherwise, send to the account, unless we do not know the route, in which case send to the peer.
-/// `min_height` and `only_archival` are used to filter peers
-/// If `only_archival` is true, only send messages to peers that are archival nodes
-/// If `min_height` is not none, only send messages to peers whose latest chain height is no less
-/// than `min_height`
+/// If `prefer_peer` is `true`, should be sent to the peer, unless there is no qualified peer,
+/// in which case fall back to sending to the account.
+/// `shard_id`, `only_archival` and `min_height` are used to filter for qualified peers
 pub struct AccountIdOrPeerTrackingShard {
-    pub shard_id: ShardId,
-    pub only_archival: bool,
+    /// Target account to send the the request to
     pub account_id: Option<AccountId>,
+    /// Whether to check peers first or target account first
     pub prefer_peer: bool,
+    /// Select peers that track shard `shard_id`
+    pub shard_id: ShardId,
+    /// Select peers that are archival nodes if it is true
+    pub only_archival: bool,
+    /// Only send messages to peers whose latest chain height is no less `min_height`
     pub min_height: Option<BlockHeight>,
 }
 
