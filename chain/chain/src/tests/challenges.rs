@@ -55,7 +55,7 @@ fn challenges_new_head_prev() {
     let _ = chain.process_block_test(&None, b3.clone()).unwrap().unwrap();
 
     let b4 = Block::empty(&b3, &*signer);
-    let new_head = chain.process_block_test(&None, b4.clone()).unwrap().unwrap().last_block_hash;
+    let new_head = chain.process_block_test(&None, b4).unwrap().unwrap().last_block_hash;
 
     assert_eq!(chain.head_header().unwrap().hash(), &new_head);
 

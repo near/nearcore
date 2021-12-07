@@ -96,7 +96,7 @@ impl StoreValidator {
             me,
             config,
             runtime_adapter,
-            store: store.clone(),
+            store: store,
             inner: StoreValidatorCache::new(),
             timeout: None,
             start_time: Clock::instant(),
@@ -422,7 +422,7 @@ mod tests {
         let chain =
             Chain::new(runtime_adapter.clone(), &chain_genesis, DoomslugThresholdMode::NoApprovals)
                 .unwrap();
-        (chain, StoreValidator::new(None, genesis.clone(), runtime_adapter, store))
+        (chain, StoreValidator::new(None, genesis, runtime_adapter, store))
     }
 
     #[test]
