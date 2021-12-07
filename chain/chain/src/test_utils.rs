@@ -112,7 +112,7 @@ fn create_receipt_nonce(
 
 impl KeyValueRuntime {
     pub fn new(store: Arc<Store>) -> Self {
-        Self::new_with_validators(store, vec![vec![AccountId::test_account()]], 1, 1, 5)
+        Self::new_with_validators(store, vec![vec!["test".parse().unwrap()]], 1, 1, 5)
     }
 
     pub fn new_with_validators(
@@ -1233,7 +1233,7 @@ pub fn setup_with_tx_validity_period(
         DoomslugThresholdMode::NoApprovals,
     )
     .unwrap();
-    let test_account = AccountId::test_account();
+    let test_account = "test".parse::<AccountId>().unwrap();
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         test_account.clone(),
         KeyType::ED25519,
