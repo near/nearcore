@@ -387,7 +387,7 @@ mod tests {
     ) {
         // check that the 4 tries combined to the orig trie
         let trie_items =
-            get_trie_nodes_except_delayed_receipts(tries, &ShardUId::default(), state_root);
+            get_trie_nodes_except_delayed_receipts(tries, &ShardUId::single_shard(), state_root);
         let trie_items_by_shard: HashMap<_, _> = state_roots
             .iter()
             .map(|(&shard_uid, state_root)| {
@@ -414,7 +414,7 @@ mod tests {
 
         let mut expected_receipts_by_shard: HashMap<_, Vec<_>> =
             state_roots.iter().map(|(&shard_uid, _)| (shard_uid, vec![])).collect();
-        for receipt in get_all_delayed_receipts(tries, &ShardUId::default(), state_root) {
+        for receipt in get_all_delayed_receipts(tries, &ShardUId::single_shard(), state_root) {
             let shard_uid = account_id_to_shard_id(&receipt.receiver_id);
             expected_receipts_by_shard.get_mut(&shard_uid).unwrap().push(receipt.clone());
         }
@@ -432,14 +432,14 @@ mod tests {
         let state_root = test_populate_trie(
             &tries,
             &CryptoHash::default(),
-            ShardUId::default(),
+            ShardUId::single_shard(),
             changes.clone(),
         );
         let mut expected_trie_items: Vec<_> =
             changes.into_iter().map(|(key, value)| (key, value.unwrap())).collect();
         expected_trie_items.sort();
 
-        let trie = tries.get_trie_for_shard(ShardUId::default());
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard());
         let total_trie_items = trie.get_trie_items_for_part(0, 1, &state_root).unwrap();
         assert_eq!(expected_trie_items, total_trie_items);
 
@@ -475,10 +475,14 @@ mod tests {
                 .map(|x| (ShardUId { version: 1, shard_id: x as u32 }, CryptoHash::default()))
                 .collect();
             for _ in 0..10 {
-                let trie = tries.get_trie_for_shard(ShardUId::default());
+                let trie = tries.get_trie_for_shard(ShardUId::single_shard());
                 let changes = gen_changes(&mut rng, 100);
-                state_root =
-                    test_populate_trie(&tries, &state_root, ShardUId::default(), changes.clone());
+                state_root = test_populate_trie(
+                    &tries,
+                    &state_root,
+                    ShardUId::single_shard(),
+                    changes.clone(),
+                );
 
                 let (store_update, new_state_roots) = tries
                     .add_values_to_split_states_impl(&state_roots, changes, &|raw_key| {
@@ -513,7 +517,8 @@ mod tests {
 
             // push receipt to trie
             let tries = create_tries();
-            let mut trie_update = tries.new_trie_update(ShardUId::default(), StateRoot::default());
+            let mut trie_update =
+                tries.new_trie_update(ShardUId::single_shard(), StateRoot::default());
             let mut delayed_receipt_indices = DelayedReceiptIndices::default();
 
             for (i, receipt) in all_receipts.iter().enumerate() {
@@ -524,16 +529,16 @@ mod tests {
             trie_update.commit(StateChangeCause::Resharding);
             let (trie_changes, _) = trie_update.finalize().unwrap();
             let (store_update, state_root) =
-                tries.apply_all(&trie_changes, ShardUId::default()).unwrap();
+                tries.apply_all(&trie_changes, ShardUId::single_shard()).unwrap();
             store_update.commit().unwrap();
 
             assert_eq!(
                 all_receipts,
-                get_all_delayed_receipts(&tries, &ShardUId::default(), &state_root)
+                get_all_delayed_receipts(&tries, &ShardUId::single_shard(), &state_root)
             );
             let mut start_index = 0;
 
-            let trie_update = tries.new_trie_update(ShardUId::default(), state_root);
+            let trie_update = tries.new_trie_update(ShardUId::single_shard(), state_root);
             while let Some((next_index, receipts)) =
                 get_delayed_receipts(&trie_update, Some(start_index), memory_limit).unwrap()
             {
@@ -635,7 +640,8 @@ mod tests {
         let tries = create_tries();
         // add accounts and receipts to state
         let mut account_ids = gen_unique_accounts(rng, 100);
-        let mut trie_update = tries.new_trie_update(ShardUId::default(), CryptoHash::default());
+        let mut trie_update =
+            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         for account_id in account_ids.iter() {
             set_account(
                 &mut trie_update,
@@ -660,7 +666,7 @@ mod tests {
             trie_update.commit(StateChangeCause::Resharding);
             let (trie_changes, _) = trie_update.finalize().unwrap();
             let (store_update, state_root) =
-                tries.apply_all(&trie_changes, ShardUId::default()).unwrap();
+                tries.apply_all(&trie_changes, ShardUId::single_shard()).unwrap();
             store_update.commit().unwrap();
             state_root
         };
@@ -674,7 +680,7 @@ mod tests {
         // add accounts and receipts to the split shards
         let mut split_state_roots = {
             let trie_items = tries
-                .get_view_trie_for_shard(ShardUId::default())
+                .get_view_trie_for_shard(ShardUId::single_shard())
                 .get_trie_items_for_part(0, 1, &state_root)
                 .unwrap();
             let split_state_roots: HashMap<_, _> = (0..num_shards)
@@ -693,7 +699,7 @@ mod tests {
             let (store_update, split_state_roots) = tries
                 .apply_delayed_receipts_to_split_states(
                     &split_state_roots,
-                    &get_all_delayed_receipts(&tries, &ShardUId::default(), &state_root),
+                    &get_all_delayed_receipts(&tries, &ShardUId::single_shard(), &state_root),
                     account_id_to_shard_id,
                 )
                 .unwrap();
@@ -711,7 +717,7 @@ mod tests {
         for _ in 0..10 {
             // add accounts
             let new_accounts = gen_unique_accounts(rng, 10);
-            let mut trie_update = tries.new_trie_update(ShardUId::default(), state_root);
+            let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), state_root);
             for account_id in new_accounts.iter() {
                 set_account(
                     &mut trie_update,
@@ -763,7 +769,7 @@ mod tests {
             trie_update.commit(StateChangeCause::Resharding);
             let (trie_changes, state_changes) = trie_update.finalize().unwrap();
             let (store_update, new_state_root) =
-                tries.apply_all(&trie_changes, ShardUId::default()).unwrap();
+                tries.apply_all(&trie_changes, ShardUId::single_shard()).unwrap();
             store_update.commit().unwrap();
             state_root = new_state_root;
 
