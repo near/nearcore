@@ -2,7 +2,11 @@
 
 This crate cotains functions to handle chunks. In NEAR - the block consists of multiple chunks - at most one per shard.
 
-When chunk is created, the creator encodes it using Reed Solomon encoding (ErasureCoding) - creating PartialChunks, that are later sent to all the validators (each validator gets a subset of them).
+When chunk is created, the creator encodes it using Reed Solomon encoding (ErasureCoding) - creating PartialEncodedChunks, that are later sent to all the validators (each validator gets a subset of them). This is done for data availability reasons (so that we need only a part of the validators to reconstruct the whole chunk). You can read more about it in the Nightshade paper.
+
+PartialEncodedChunks also contain cross-shard receipts.
+// TODO: add more info about the receipts.
+
 
 Each validator is waiting to receive its share of PartialChunks (`has_all_parts`) - and once they are verified, it can accept the chunk (and if all chunks are accepted chain/client can sign the block).
 
@@ -12,18 +16,16 @@ If validator cares about the given shard (that is - it wants to have a whole con
 ## ShardsManager
 Shard Manager is responsible for:
 
-* **fetching partial chunks** - it can ask other nodes for the partial chunks that it is missing. It keeps the track fo the request via RequestPool
+* **fetching partial chunks** - it can ask other nodes for the partial chunks that it is missing. It keeps the track of the requests via RequestPool and can be asked to resend them when someone calls `resend_chunk_requests` (this is done periodically by the client actor).
+* **storing partial chunks** - it stores partial chunks within local cache before they can be used to reconstruct for the full chunk.   
+  `stored_partial_encoded_chunks` stores non-validated partial chunks while `ChunkCache` stores validated partial chunks. (we need the previous block in order to validate partial chunks). This data is also used when other nodes are requesting a partial encoded chunk (see below).
 * **handling partial chunks requests** - when request for the partial chunk arrives, it handles reading it from store and returning to the requesting node
-
-* **storing partial chunks** - it stores partial chunks within local cache (`stored_partial_encoded_chunks`)
-
 * **validating chunks** - once it receives correct set of partial chunks for the chunk, it can 'accept the chunk' (which means that validator can sign the block if all chunks are accepted)
 
-* **storing full chunks** - full chunks (that are reconstructed from partial chunks if it gets enough parts) are stored in ChunkCache, and are later used to answer queries from client library. This happens only for the shards that given node cares about.
 
 ## ChunkCache
 
-Cache for chunks that we've seen - also stores the mapping from the blocks to the chunk headers.
+Cache for validated partial chunks that we've seen - also stores the mapping from the blocks to the chunk headers.
 
 ## RequestPool
 
