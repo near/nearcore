@@ -463,7 +463,7 @@ impl ShardsManager {
         request_own_parts_from_others: bool,
         request_from_archival: bool,
     ) -> Result<(), near_chain::Error> {
-        let mut bp_to_parts = HashMap::new();
+        let mut bp_to_parts = HashMap::<_, Vec<u64>>::new();
 
         let cache_entry = self.encoded_chunks.get(chunk_hash);
 
@@ -524,7 +524,7 @@ impl ShardsManager {
                     }
                 };
 
-                bp_to_parts.entry(fetch_from).or_insert_with(|| vec![]).push(part_ord);
+                bp_to_parts.entry(fetch_from).or_default().push(part_ord);
             }
         }
 
@@ -537,7 +537,7 @@ impl ShardsManager {
         //     for some subset of shards, even if we don't need to request any parts from the original
         //     chunk producer.
         if !shards_to_fetch_receipts.is_empty() {
-            bp_to_parts.entry(shard_representative_target.clone()).or_insert_with(|| vec![]);
+            bp_to_parts.entry(shard_representative_target.clone()).or_default();
         }
 
         let no_account_id = me.is_none();
