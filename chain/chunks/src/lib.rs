@@ -568,11 +568,11 @@ impl ShardsManager {
                     },
                 };
                 let target = AccountIdOrPeerTrackingShard {
-                    shard_id,
                     account_id: target_account,
                     prefer_peer: request_from_archival || rand::thread_rng().gen::<bool>(),
+                    shard_id,
                     only_archival: request_from_archival,
-                    min_height: Some(height.saturating_sub(CHUNK_REQUEST_PEER_HORIZON)),
+                    min_height: height.saturating_sub(CHUNK_REQUEST_PEER_HORIZON),
                 };
 
                 self.peer_manager_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(

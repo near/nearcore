@@ -354,7 +354,7 @@ pub struct AccountIdOrPeerTrackingShard {
     /// Select peers that are archival nodes if it is true
     pub only_archival: bool,
     /// Only send messages to peers whose latest chain height is no less `min_height`
-    pub min_height: Option<BlockHeight>,
+    pub min_height: BlockHeight,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
