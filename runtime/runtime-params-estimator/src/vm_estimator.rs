@@ -3,7 +3,7 @@ use crate::testbed_runners::GasMetric;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::types::{CompiledContractCache, ProtocolVersion};
+use near_primitives::types::{CompiledContractCache, Gas, ProtocolVersion};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{create_store, StoreCompiledContractCache};
 use near_vm_logic::mocks::mock_external::MockedExternal;
@@ -70,7 +70,7 @@ fn call(code: &ContractCode) -> (Option<VMOutcome>, Option<VMError>) {
 const NUM_ITERATIONS: u64 = 10;
 
 /// Cost of the most CPU demanding operation.
-pub fn cost_per_op(gas_metric: GasMetric, code: &ContractCode) -> Ratio<u64> {
+pub fn cost_per_op(gas_metric: GasMetric, code: &ContractCode) -> Gas {
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
     let vm_config = runtime_config.wasm_config.clone();
@@ -82,7 +82,7 @@ pub fn cost_per_op(gas_metric: GasMetric, code: &ContractCode) -> Ratio<u64> {
     for _ in 0..NUM_ITERATIONS {
         call(code);
     }
-    let measured = clock.elapsed().scalar_cost();
+    let measured = clock.elapsed().instructions();
     // We are given by measurement burnt gas
     //   gas_burned(call) = outcome.burnt_gas
     // and raw 'measured' value counting x86 insns.
@@ -105,7 +105,7 @@ pub fn cost_per_op(gas_metric: GasMetric, code: &ContractCode) -> Ratio<u64> {
     //    (measured * vm_config.regular_op_cost) /
     //       (outcome.burnt_gas * NUM_ITERATIONS),
     // as remaining can be computed with ratio_to_gas().
-    measured * vm_config.regular_op_cost as u64 / NUM_ITERATIONS / outcome.burnt_gas
+    (measured * vm_config.regular_op_cost as u64 / NUM_ITERATIONS / outcome.burnt_gas).to_integer()
 }
 
 type CompileCost = (u64, Ratio<u64>);

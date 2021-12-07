@@ -213,6 +213,11 @@ impl GasCost {
             GasMetric::Time => self.time_ns,
         }
     }
+
+    /// Get raw x86 instruction count
+    pub(crate) fn instructions(&self) -> Ratio<u64> {
+        self.instructions
+    }
 }
 
 /// How much gas there is in a nanosecond worth of computation.
