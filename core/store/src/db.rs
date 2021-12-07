@@ -71,7 +71,9 @@ pub enum DBCol {
     /// - *Rows*: height (u64)
     /// - *Content type*: block hash (CryptoHash)
     ColBlockHeight = 4,
-    /// TODO: this is something related to garbage collection - no idea yet.
+    /// Column that stores the Trie state.
+    /// - *Rows*: trie_node_or_value_hash (CryptoHash)
+    /// - *Content type*: Serializd RawTrieNodeWithSize or value ()
     ColState = 5,
     /// Mapping from BlockChunk to ChunkExtra
     /// - *Rows*: BlockChunk (block hash, shard id)
@@ -106,7 +108,7 @@ pub enum DBCol {
     /// - *Rows*: ChunkHash (CryptoHash)
     /// - *Content type*: [near_primitives::sharding::ShardChunk]
     ColChunks = 13,
-    /// Storage for  PartialEncodedChunkV1 (seems that only for version V1 and not for V2).
+    /// Storage for  PartialEncodedChunk.
     /// - *Rows*: ChunkHash (CryptoHash)
     /// - *Content type*: [near_primitives::sharding::PartialEncodedChunkV1]
     ColPartialChunks = 14,
