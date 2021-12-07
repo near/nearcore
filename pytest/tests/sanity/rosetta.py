@@ -347,7 +347,7 @@ class RosettaTestCase(unittest.TestCase):
         """Tests creating and deleting implicit account
 
         First sends some funds from validator’s account to an implicit account,
-        then checks how the transaction looks through Data API and finally the
+        then checks how the transaction looks through Data API and finally
         deletes that account refunding the validator account.
         """
         test_amount = 10**22
