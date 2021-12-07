@@ -188,7 +188,7 @@ impl AccountId {
     /// assert!(
     ///   matches!(
     ///     AccountId::validate("ƒelicia.near"), // fancy ƒ!
-    ///     Err(err) if err.kind() == &ParseErrorKind::InvalidChar { position: 0, character: 'ƒ' }
+    ///     Err(err) if err.kind() == &ParseErrorKind::InvalidChar
     ///   )
     /// );
     /// ```
@@ -205,36 +205,36 @@ impl AccountId {
     /// assert!(
     ///   matches!(
     ///     AccountId::validate("A__ƒƒluent."),
-    ///     Err(err) if err.kind() == &ParseErrorKind::InvalidChar { position: 0, character: 'A' }
+    ///     Err(err) if err.kind() == &ParseErrorKind::InvalidChar
     ///   )
     /// );
     ///
     /// assert!(
     ///   matches!(
     ///     AccountId::validate("a__ƒƒluent."),
-    ///     Err(err) if err.kind() == &ParseErrorKind::RedundantSeparator { position: 2, separator: '_' }
+    ///     Err(err) if err.kind() == &ParseErrorKind::RedundantSeparator
     ///   )
     /// );
     ///
     /// assert!(
     ///   matches!(
     ///     AccountId::validate("aƒƒluent."),
-    ///     Err(err) if err.kind() == &ParseErrorKind::InvalidChar { position: 1, character: 'ƒ' }
+    ///     Err(err) if err.kind() == &ParseErrorKind::InvalidChar
     ///   )
     /// );
     ///
     /// assert!(
     ///   matches!(
     ///     AccountId::validate("affluent."),
-    ///     Err(err) if err.kind() == &ParseErrorKind::RedundantSeparator { position: 8, separator: '.' }
+    ///     Err(err) if err.kind() == &ParseErrorKind::RedundantSeparator
     ///   )
     /// );
     /// ```
     pub fn validate(account_id: &str) -> Result<(), ParseAccountError> {
         if account_id.len() < AccountId::MIN_LEN {
-            Err(ParseAccountError(ParseErrorKind::TooShort))
+            Err(ParseAccountError { kind: ParseErrorKind::TooShort, char: None })
         } else if account_id.len() > AccountId::MAX_LEN {
-            Err(ParseAccountError(ParseErrorKind::TooLong))
+            Err(ParseAccountError { kind: ParseErrorKind::TooLong, char: None })
         } else {
             // Adapted from https://github.com/near/near-sdk-rs/blob/fd7d4f82d0dfd15f824a1cf110e552e940ea9073/near-sdk/src/environment/env.rs#L819
 
@@ -242,37 +242,36 @@ impl AccountId {
             // The valid account ID regex is /^(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/
             // Instead the implementation is based on the previous character checks.
 
-            let mut last_char = None;
             // We can safely assume that last char was a separator.
             let mut last_char_is_separator = true;
 
+            let mut this = None;
             for (i, c) in account_id.chars().enumerate() {
+                this.replace((i, c));
                 let current_char_is_separator = match c {
                     'a'..='z' | '0'..='9' => false,
                     '-' | '_' | '.' => true,
                     _ => {
-                        return Err(ParseAccountError(ParseErrorKind::InvalidChar {
-                            position: i,
-                            character: c,
-                        }))
+                        return Err(ParseAccountError {
+                            kind: ParseErrorKind::InvalidChar,
+                            char: this,
+                        });
                     }
                 };
                 if current_char_is_separator && last_char_is_separator {
-                    return Err(ParseAccountError(ParseErrorKind::RedundantSeparator {
-                        position: i,
-                        separator: c,
-                    }));
+                    return Err(ParseAccountError {
+                        kind: ParseErrorKind::RedundantSeparator,
+                        char: this,
+                    });
                 }
-                last_char.replace((i, c));
                 last_char_is_separator = current_char_is_separator;
             }
 
             if last_char_is_separator {
-                let (position, separator) = last_char.unwrap();
-                return Err(ParseAccountError(ParseErrorKind::RedundantSeparator {
-                    position,
-                    separator,
-                }));
+                return Err(ParseAccountError {
+                    kind: ParseErrorKind::RedundantSeparator,
+                    char: this,
+                });
             }
             Ok(())
         }
@@ -454,7 +453,7 @@ mod tests {
         debug_assert!(
             matches!(
                 id,
-                Err(ParseAccountError(ParseErrorKind::InvalidChar { position: 0, character: 'E' }))
+                Err(ParseAccountError { kind: ParseErrorKind::InvalidChar, char: Some((0, 'E')) })
             ),
             "{:?}",
             id
@@ -464,10 +463,10 @@ mod tests {
         debug_assert!(
             matches!(
                 id,
-                Err(ParseAccountError(ParseErrorKind::RedundantSeparator {
-                    position: 0,
-                    separator: '-'
-                }))
+                Err(ParseAccountError {
+                    kind: ParseErrorKind::RedundantSeparator,
+                    char: Some((0, '-'))
+                })
             ),
             "{:?}",
             id
@@ -477,10 +476,10 @@ mod tests {
         debug_assert!(
             matches!(
                 id,
-                Err(ParseAccountError(ParseErrorKind::RedundantSeparator {
-                    position: 12,
-                    separator: '.'
-                }))
+                Err(ParseAccountError {
+                    kind: ParseErrorKind::RedundantSeparator,
+                    char: Some((12, '.'))
+                })
             ),
             "{:?}",
             id
@@ -490,10 +489,10 @@ mod tests {
         debug_assert!(
             matches!(
                 id,
-                Err(ParseAccountError(ParseErrorKind::RedundantSeparator {
-                    position: 5,
-                    separator: '_'
-                }))
+                Err(ParseAccountError {
+                    kind: ParseErrorKind::RedundantSeparator,
+                    char: Some((5, '_'))
+                })
             ),
             "{:?}",
             id

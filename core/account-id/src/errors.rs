@@ -1,20 +1,29 @@
 use std::fmt;
+use std::fmt::Write;
 
 /// An error which can be returned when parsing a NEAR Account ID.
 #[derive(Eq, Clone, Debug, PartialEq)]
-pub struct ParseAccountError(pub(crate) ParseErrorKind);
+pub struct ParseAccountError {
+    pub(crate) kind: ParseErrorKind,
+    pub(crate) char: Option<(usize, char)>,
+}
 
 impl ParseAccountError {
     /// Returns the specific cause why parsing the Account ID failed.
     pub fn kind(&self) -> &ParseErrorKind {
-        &self.0
+        &self.kind
     }
 }
 
 impl std::error::Error for ParseAccountError {}
 impl fmt::Display for ParseAccountError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self.0, f)
+        let mut buf = String::new();
+        buf.push_str(&self.kind.to_string());
+        if let Some((idx, char)) = self.char {
+            write!(buf, " {:?} at index {}", char, idx)?
+        }
+        buf.fmt(f)
     }
 }
 
@@ -38,13 +47,13 @@ pub enum ParseErrorKind {
     /// ends with or has separators immediately following each other.
     ///
     /// Cases: `jane.`, `angela__moss`, `tyrell..wellick`
-    RedundantSeparator { position: usize, separator: char },
+    RedundantSeparator,
     /// The Account ID contains an invalid character.
     ///
     /// This variant would be returned if the Account ID contains an upper-case character, non-separating symbol or space.
     ///
     /// Cases: `ƒelicia.near`, `user@app.com`, `Emily.near`.
-    InvalidChar { position: usize, character: char },
+    InvalidChar,
 }
 
 impl fmt::Display for ParseErrorKind {
@@ -52,16 +61,8 @@ impl fmt::Display for ParseErrorKind {
         match self {
             ParseErrorKind::TooLong => "the Account ID is too long".fmt(f),
             ParseErrorKind::TooShort => "the Account ID is too short".fmt(f),
-            ParseErrorKind::RedundantSeparator { position, separator } => format!(
-                "the Account ID has a redundant separator {:?} at index {}",
-                separator, position
-            )
-            .fmt(f),
-            ParseErrorKind::InvalidChar { position, character } => format!(
-                "the Account ID contains an invalid character {:?} at index {}",
-                character, position
-            )
-            .fmt(f),
+            ParseErrorKind::RedundantSeparator => "the Account ID has a redundant separator".fmt(f),
+            ParseErrorKind::InvalidChar => "the Account ID contains an invalid character".fmt(f),
         }
     }
 }
