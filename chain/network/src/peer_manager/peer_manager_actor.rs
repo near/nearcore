@@ -370,10 +370,11 @@ impl PeerManagerActor {
                 || total_msg_received_count > REPORT_BANDWIDTH_THRESHOLD_COUNT
             {
                 warn!(
-                    message = "Peer bandwidth exceeded threshold",
                     ?peer_id,
                     bandwidth_used,
-                    msg_received_count
+                    msg_received_count = active_peer.throttle_controller.consume_msg_seen(),
+                    "Peer bandwidth exceeded threshold (thershold is {})",
+                    REPORT_BANDWIDTH_THRESHOLD_BYTES
                 );
             }
             total_bandwidth_used_by_all_peers += bandwidth_used;

@@ -159,7 +159,7 @@ strings, and can log key-value pairs. Keys go *before* free-form message, and
 support various shortcut syntaxes:
 
 ```rust
-warn!(
+tracing::warn!(
     // Explicit `key = value` syntax.
     msg_received_count = active_peer.throttle_controller.consume_msg_seen(),
     // Shorthand for `bandwidth_used = bandwidth_used`.
@@ -182,7 +182,8 @@ fn compile_and_serialize_wasmer(code: &[u8]) -> Result<wasmer::Module> {
 }
 ```
 
-This will record when the `_span` object is created and dropped, logging the time diff between the two events:
+This will record when the `_span` object is created and dropped, logging the
+time diff between the two events:
 
 ```
 May 19 21:05:07.516 DEBUG run_vm:compile_and_serialize_wasmer:  close time.busy=5ms time.idle=6ns
@@ -190,6 +191,7 @@ May 19 21:05:07.516 DEBUG run_vm:compile_and_serialize_wasmer:  close time.busy=
 
 Always specify the `target` explicitly.
 
-The `INFO` level is enabled by default, use it for information useful for node operators.
-The `DEBUG` level is enabled on the canary nodes, use it for information useful in debugging testnet failures.
-The `TRACE` level is not generally enabled, use it for arbitrary debug output.
+The `INFO` level is enabled by default, use it for information useful for node
+operators. The `DEBUG` level is enabled on the canary nodes, use it for
+information useful in debugging testnet failures. The `TRACE` level is not
+generally enabled, use it for arbitrary debug output.
