@@ -183,7 +183,10 @@ pub fn publishable_has_license(workspace: &Workspace) -> Result<(), Error> {
     let outliers = workspace
         .members
         .iter()
-        .filter(|pkg| utils::is_publishable(pkg) && pkg.parsed.license.is_none())
+        .filter(|pkg| {
+            utils::is_publishable(pkg)
+                && !(pkg.parsed.license.is_some() || pkg.parsed.license_file.is_some())
+        })
         .map(|pkg| PackageOutcome { pkg, value: None })
         .collect::<Vec<_>>();
 
