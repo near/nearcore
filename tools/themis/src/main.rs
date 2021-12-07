@@ -49,7 +49,7 @@ fn main() -> anyhow::Result<()> {
             rules::has_rust_version,
             rules::has_debuggable_rust_version,
             rules::has_unified_rust_edition,
-            // rules::author_is_near,
+            rules::author_is_near,
             // rules::publish_is_publishable,
         }
     };

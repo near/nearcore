@@ -137,6 +137,7 @@ pub fn has_debuggable_rust_version(workspace: &Workspace) -> Result<(), Error> {
     return Ok(());
 }
 
+/// ensure all crates share the same rust edition
 pub fn has_unified_rust_edition(workspace: &Workspace) -> Result<(), Error> {
     let mut edition_groups = HashMap::new();
 
@@ -168,23 +169,23 @@ pub fn has_unified_rust_edition(workspace: &Workspace) -> Result<(), Error> {
     return Ok(());
 }
 
-// / ensures all crates have a unified rust edition
-// pub fn has_unified_rust_edition(workspace: &Workspace) -> Result<(), Error> {
-//     let mut version_groups = HashMap::new();
-//     // let mut outliers = vec![];
+const NEAR_AUTHOR: &'static str = "Near Inc <hello@nearprotocol.com>";
+/// ensure all crates have NEAR as an author, non-exclusively of course.
+pub fn author_is_near(workspace: &Workspace) -> Result<(), Error> {
+    let outliers = workspace
+        .members
+        .iter()
+        .filter(|pkg| !pkg.authors.iter().any(|author| author == NEAR_AUTHOR))
+        .map(|pkg| PackageOutcome { pkg, value: Some(format!("{:?}", pkg.authors)) })
+        .collect::<Vec<_>>();
 
-//     for pkg in pkgs {
-//         if let None = pkg.rust_version {
-//             outliers.push(pkg);
-//         }
-//     }
+    if !outliers.is_empty() {
+        return Err(Error::OutcomeError {
+            msg: "These packages should be tagged as authored by NEAR".to_string(),
+            expected: Some(Expected { value: NEAR_AUTHOR.to_string(), reason: None }),
+            outliers,
+        });
+    }
 
-//     if !outliers.is_empty() {
-//         return Err((
-//             "These packages don't have a publish specification in their package manifest",
-//             outliers,
-//         ));
-//     }
-
-//     return Ok(());
-// }
+    return Ok(());
+}
