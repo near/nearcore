@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spin up one validating node and one nonvalidating node
 # stop the nonvalidating node in the second epoch and
 # restart it in the fourth epoch to trigger state sync
@@ -5,8 +6,9 @@
 # collected blocks.
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger

@@ -20,7 +20,7 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
-use near_network::routing::EdgeInfo;
+use near_network::routing::PartialEdgeInfo;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRecipient, NetworkRequests,
@@ -56,6 +56,7 @@ use near_network_primitives::types::{
     AccountOrPeerIdOrHash, NetworkViewClientMessages, NetworkViewClientResponses,
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo,
 };
+use near_primitives::epoch_manager::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::time::{Clock, Instant};
@@ -63,6 +64,7 @@ use near_primitives::utils::MaybeValidated;
 
 pub type PeerManagerMock = Mocker<PeerManagerActor>;
 
+const TEST_SEED: RngSeed = [3; 32];
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(
     validators: Vec<Vec<AccountId>>,
@@ -148,6 +150,7 @@ pub fn setup(
         Some(signer),
         telemetry,
         enable_doomslug,
+        TEST_SEED,
         ctx,
         #[cfg(feature = "test_features")]
         adv,
@@ -572,7 +575,7 @@ pub fn setup_mock_all_validators(
                                     tracked_shards: vec![],
                                     archival: true,
                                 },
-                                edge_info: EdgeInfo::default(),
+                                partial_edge_info: PartialEdgeInfo::default(),
                             })
                             .collect();
                         let peers2 = peers.clone();
@@ -969,7 +972,7 @@ pub fn setup_mock_all_validators(
                             };
                         }
                         NetworkRequests::ForwardTx(_, _)
-                        | NetworkRequests::Sync { .. }
+                        | NetworkRequests::SyncRoutingTable { .. }
                         | NetworkRequests::FetchRoutingTable
                         | NetworkRequests::PingTo(_, _)
                         | NetworkRequests::FetchPingPongInfo
@@ -1065,6 +1068,7 @@ pub fn setup_client_with_runtime(
     network_adapter: Arc<dyn PeerManagerAdapter>,
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
+    rng_seed: RngSeed,
 ) -> Client {
     let validator_signer = account_id.map(|x| {
         Arc::new(InMemoryValidatorSigner::from_seed(x.clone(), KeyType::ED25519, x.as_ref()))
@@ -1079,6 +1083,7 @@ pub fn setup_client_with_runtime(
         network_adapter,
         validator_signer,
         enable_doomslug,
+        rng_seed,
     )
     .unwrap();
     client.sync_status = SyncStatus::NoSync;
@@ -1094,6 +1099,7 @@ pub fn setup_client(
     enable_doomslug: bool,
     network_adapter: Arc<dyn PeerManagerAdapter>,
     chain_genesis: ChainGenesis,
+    rng_seed: RngSeed,
 ) -> Client {
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
     let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
@@ -1110,6 +1116,7 @@ pub fn setup_client(
         network_adapter,
         chain_genesis,
         runtime_adapter,
+        rng_seed,
     )
 }
 
@@ -1121,6 +1128,9 @@ pub struct TestEnv {
     pub network_adapters: Vec<Arc<MockPeerManagerAdapter>>,
     pub clients: Vec<Client>,
     account_to_client_index: HashMap<AccountId, usize>,
+    // random seed to be inject in each client according to AccountId
+    // if not set, a default constant TEST_SEED will be injected
+    seeds: HashMap<AccountId, RngSeed>,
 }
 
 /// A builder for the TestEnv structure.
@@ -1130,6 +1140,9 @@ pub struct TestEnvBuilder {
     validators: Vec<AccountId>,
     runtime_adapters: Option<Vec<Arc<dyn RuntimeAdapter>>>,
     network_adapters: Option<Vec<Arc<MockPeerManagerAdapter>>>,
+    // random seed to be inject in each client according to AccountId
+    // if not set, a default constant TEST_SEED will be injected
+    seeds: HashMap<AccountId, RngSeed>,
 }
 
 /// Builder for the [`TestEnv`] structure.
@@ -1138,7 +1151,15 @@ impl TestEnvBuilder {
     fn new(chain_genesis: ChainGenesis) -> Self {
         let clients = Self::make_accounts(1);
         let validators = clients.clone();
-        Self { chain_genesis, clients, validators, runtime_adapters: None, network_adapters: None }
+        let seeds: HashMap<AccountId, RngSeed> = HashMap::with_capacity(1);
+        Self {
+            chain_genesis,
+            clients,
+            validators,
+            runtime_adapters: None,
+            network_adapters: None,
+            seeds,
+        }
     }
 
     /// Sets list of client [`AccountId`]s to the one provided.  Panics if the
@@ -1146,6 +1167,12 @@ impl TestEnvBuilder {
     pub fn clients(mut self, clients: Vec<AccountId>) -> Self {
         assert!(!clients.is_empty());
         self.clients = clients;
+        self
+    }
+
+    /// Sets random seed for each client according to the provided HashMap.
+    pub fn clients_random_seeds(mut self, seeds: HashMap<AccountId, RngSeed>) -> Self {
+        self.seeds = seeds;
         self
     }
 
@@ -1209,6 +1236,7 @@ impl TestEnvBuilder {
         let num_clients = clients.len();
         let validators = self.validators;
         let num_validators = validators.len();
+        let seeds = self.seeds;
         let network_adapters = self
             .network_adapters
             .unwrap_or_else(|| (0..num_clients).map(|_| Arc::new(Default::default())).collect());
@@ -1218,6 +1246,10 @@ impl TestEnvBuilder {
                 .into_iter()
                 .zip(network_adapters.iter())
                 .map(|(account_id, network_adapter)| {
+                    let rng_seed = match seeds.get(&account_id) {
+                        Some(seed) => seed.clone(),
+                        None => TEST_SEED,
+                    };
                     setup_client(
                         create_test_store(),
                         vec![validators.clone()],
@@ -1227,6 +1259,7 @@ impl TestEnvBuilder {
                         false,
                         network_adapter.clone(),
                         chain_genesis.clone(),
+                        rng_seed,
                     )
                 })
                 .collect(),
@@ -1237,13 +1270,18 @@ impl TestEnvBuilder {
                     .zip((&network_adapters).iter())
                     .zip(runtime_adapters.into_iter())
                     .map(|((account_id, network_adapter), runtime_adapter)| {
+                        let rng_seed = match seeds.get(&account_id) {
+                            Some(seed) => seed.clone(),
+                            None => TEST_SEED,
+                        };
                         setup_client_with_runtime(
                             u64::try_from(num_validators).unwrap(),
-                            Some(account_id),
+                            Some(account_id.clone()),
                             false,
                             network_adapter.clone(),
                             chain_genesis.clone(),
                             runtime_adapter,
+                            rng_seed,
                         )
                     })
                     .collect()
@@ -1261,6 +1299,7 @@ impl TestEnvBuilder {
                 .enumerate()
                 .map(|(index, client)| (client, index))
                 .collect(),
+            seeds,
         }
     }
 
@@ -1415,7 +1454,7 @@ impl TestEnv {
         let response = self.clients[0]
             .runtime_adapter
             .query(
-                ShardUId::default(),
+                ShardUId::single_shard(),
                 &last_chunk_header.prev_state_root(),
                 last_block.header().height(),
                 last_block.header().raw_timestamp(),
@@ -1438,7 +1477,7 @@ impl TestEnv {
         let response = self.clients[0]
             .runtime_adapter
             .query(
-                ShardUId::default(),
+                ShardUId::single_shard(),
                 &last_chunk_header.prev_state_root(),
                 last_block.header().height(),
                 last_block.header().raw_timestamp(),
@@ -1464,6 +1503,11 @@ impl TestEnv {
     /// customisation will be lost.
     pub fn restart(&mut self, idx: usize) {
         let store = self.clients[idx].chain.store().owned_store();
+        let account_id = self.get_client_id(idx).clone();
+        let rng_seed = match self.seeds.get(&account_id) {
+            Some(seed) => seed.clone(),
+            None => TEST_SEED,
+        };
         self.clients[idx] = setup_client(
             store,
             vec![self.validators.clone()],
@@ -1473,6 +1517,7 @@ impl TestEnv {
             false,
             self.network_adapters[idx].clone(),
             self.chain_genesis.clone(),
+            rng_seed,
         )
     }
 
@@ -1591,6 +1636,7 @@ pub fn create_chunk(
         client.chain.mut_store().get_block_merkle_tree(&last_block.hash()).unwrap().clone();
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
+        PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         &last_block.header(),
         next_height,

@@ -186,11 +186,10 @@ impl OrphanBlockPool {
     /// `requested_missing_chunks`: whether missing chunks has been requested for the orphan
     fn add(&mut self, orphan: Orphan, requested_missing_chunks: bool) {
         let block_hash = *orphan.block.hash();
-        let height_hashes =
-            self.height_idx.entry(orphan.block.header().height()).or_insert_with(|| vec![]);
+        let height_hashes = self.height_idx.entry(orphan.block.header().height()).or_default();
         height_hashes.push(*orphan.block.hash());
         let prev_hash_entries =
-            self.prev_hash_idx.entry(*orphan.block.header().prev_hash()).or_insert_with(|| vec![]);
+            self.prev_hash_idx.entry(*orphan.block.header().prev_hash()).or_default();
         prev_hash_entries.push(block_hash.clone());
         self.orphans.insert(block_hash.clone(), orphan);
         if requested_missing_chunks {
@@ -362,7 +361,12 @@ impl Chain {
             chain_genesis.height,
             chain_genesis.min_gas_price,
             chain_genesis.total_supply,
-            Chain::compute_bp_hash(&*runtime_adapter, EpochId::default(), &CryptoHash::default())?,
+            Chain::compute_bp_hash(
+                &*runtime_adapter,
+                EpochId::default(),
+                EpochId::default(),
+                &CryptoHash::default(),
+            )?,
         );
         Ok(Chain {
             store,
@@ -400,7 +404,12 @@ impl Chain {
             chain_genesis.height,
             chain_genesis.min_gas_price,
             chain_genesis.total_supply,
-            Chain::compute_bp_hash(&*runtime_adapter, EpochId::default(), &CryptoHash::default())?,
+            Chain::compute_bp_hash(
+                &*runtime_adapter,
+                EpochId::default(),
+                EpochId::default(),
+                &CryptoHash::default(),
+            )?,
         );
 
         // Check if we have a head in the store, otherwise pick genesis block.
@@ -506,10 +515,11 @@ impl Chain {
     pub fn compute_bp_hash(
         runtime_adapter: &dyn RuntimeAdapter,
         epoch_id: EpochId,
+        prev_epoch_id: EpochId,
         last_known_hash: &CryptoHash,
     ) -> Result<CryptoHash, Error> {
         let bps = runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
-        let protocol_version = runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
+        let protocol_version = runtime_adapter.get_epoch_protocol_version(&prev_epoch_id)?;
         if checked_feature!("stable", BlockHeaderV3, protocol_version) {
             let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect();
             Chain::compute_collection_hash(validator_stakes)
@@ -858,7 +868,7 @@ impl Chain {
         on_challenge: F,
     ) -> Result<(), Error>
     where
-        F: FnMut(ChallengeBody) -> (),
+        F: FnMut(ChallengeBody),
     {
         // We create new chain update, but it's not going to be committed so it's read only.
         let mut chain_update = self.chain_update();
@@ -890,10 +900,10 @@ impl Chain {
         on_challenge: F3,
     ) -> Result<Option<Tip>, Error>
     where
-        F: Copy + FnMut(AcceptedBlock) -> (),
-        F1: Copy + FnMut(BlockMissingChunks) -> (),
-        F2: Copy + FnMut(OrphanMissingChunks) -> (),
-        F3: Copy + FnMut(ChallengeBody) -> (),
+        F: Copy + FnMut(AcceptedBlock),
+        F1: Copy + FnMut(BlockMissingChunks),
+        F2: Copy + FnMut(OrphanMissingChunks),
+        F3: Copy + FnMut(ChallengeBody),
     {
         let block_hash = *block.hash();
         let timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
@@ -950,10 +960,10 @@ impl Chain {
         on_challenge: F,
     ) -> Result<(), Error>
     where
-        F: Copy + FnMut(ChallengeBody) -> (),
+        F: Copy + FnMut(ChallengeBody),
     {
         // Sort headers by heights if they are out of order.
-        headers.sort_by(|left, right| left.height().cmp(&right.height()));
+        headers.sort_by_key(|left| left.height());
 
         if let Some(header) = headers.first() {
             debug!(target: "chain", "Sync block headers: {} headers from {} at {}", headers.len(), header.hash(), header.height());
@@ -1124,10 +1134,10 @@ impl Chain {
         on_challenge: F3,
     ) -> Result<(), Error>
     where
-        F: Copy + FnMut(AcceptedBlock) -> (),
-        F1: Copy + FnMut(BlockMissingChunks) -> (),
-        F2: Copy + FnMut(OrphanMissingChunks) -> (),
-        F3: Copy + FnMut(ChallengeBody) -> (),
+        F: Copy + FnMut(AcceptedBlock),
+        F1: Copy + FnMut(BlockMissingChunks),
+        F2: Copy + FnMut(OrphanMissingChunks),
+        F3: Copy + FnMut(ChallengeBody),
     {
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
@@ -1221,10 +1231,10 @@ impl Chain {
         on_challenge: F3,
     ) -> Result<Option<Tip>, Error>
     where
-        F: FnMut(AcceptedBlock) -> (),
-        F1: Copy + FnMut(BlockMissingChunks) -> (),
-        F2: Copy + FnMut(OrphanMissingChunks) -> (),
-        F3: FnMut(ChallengeBody) -> (),
+        F: FnMut(AcceptedBlock),
+        F1: Copy + FnMut(BlockMissingChunks),
+        F2: Copy + FnMut(OrphanMissingChunks),
+        F3: FnMut(ChallengeBody),
     {
         metrics::BLOCK_PROCESSED_TOTAL.inc();
         metrics::NUM_ORPHANS.set(self.orphans.len() as i64);
@@ -1475,10 +1485,10 @@ impl Chain {
         orphan_misses_chunks: F2,
         on_challenge: F3,
     ) where
-        F: Copy + FnMut(AcceptedBlock) -> (),
-        F1: Copy + FnMut(BlockMissingChunks) -> (),
-        F2: Copy + FnMut(OrphanMissingChunks) -> (),
-        F3: Copy + FnMut(ChallengeBody) -> (),
+        F: Copy + FnMut(AcceptedBlock),
+        F1: Copy + FnMut(BlockMissingChunks),
+        F2: Copy + FnMut(OrphanMissingChunks),
+        F3: Copy + FnMut(ChallengeBody),
     {
         let mut new_blocks_accepted = vec![];
         let orphans = self.blocks_with_missing_chunks.ready_blocks();
@@ -1535,10 +1545,10 @@ impl Chain {
         on_challenge: F3,
     ) -> Option<Tip>
     where
-        F: Copy + FnMut(AcceptedBlock) -> (),
-        F1: Copy + FnMut(BlockMissingChunks) -> (),
-        F2: Copy + FnMut(OrphanMissingChunks) -> (),
-        F3: Copy + FnMut(ChallengeBody) -> (),
+        F: Copy + FnMut(AcceptedBlock),
+        F1: Copy + FnMut(BlockMissingChunks),
+        F2: Copy + FnMut(OrphanMissingChunks),
+        F3: Copy + FnMut(ChallengeBody),
     {
         let mut queue = vec![prev_hash];
         let mut queue_idx = 0;
@@ -2262,10 +2272,10 @@ impl Chain {
         affected_blocks: &Vec<CryptoHash>,
     ) -> Result<(), Error>
     where
-        F: Copy + FnMut(AcceptedBlock) -> (),
-        F1: Copy + FnMut(BlockMissingChunks) -> (),
-        F2: Copy + FnMut(OrphanMissingChunks) -> (),
-        F3: Copy + FnMut(ChallengeBody) -> (),
+        F: Copy + FnMut(AcceptedBlock),
+        F1: Copy + FnMut(BlockMissingChunks),
+        F2: Copy + FnMut(OrphanMissingChunks),
+        F3: Copy + FnMut(ChallengeBody),
     {
         debug!(
             "Finishing catching up blocks after syncing pre {:?}, me: {:?}",
@@ -3138,7 +3148,7 @@ impl<'a> ChainUpdate<'a> {
         on_challenge: F,
     ) -> Result<(), Error>
     where
-        F: FnMut(ChallengeBody) -> (),
+        F: FnMut(ChallengeBody),
     {
         debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.height());
 
@@ -3935,7 +3945,7 @@ impl<'a> ChainUpdate<'a> {
         on_challenge: F,
     ) -> Result<(Option<Tip>, bool), Error>
     where
-        F: FnMut(ChallengeBody) -> (),
+        F: FnMut(ChallengeBody),
     {
         let _span =
             tracing::debug_span!(target: "chain", "Process block", "#{}", block.header().height())
@@ -4193,7 +4203,7 @@ impl<'a> ChainUpdate<'a> {
         on_challenge: F,
     ) -> Result<(), Error>
     where
-        F: FnMut(ChallengeBody) -> (),
+        F: FnMut(ChallengeBody),
     {
         self.validate_header(header, provenance, on_challenge)?;
         self.chain_store_update.save_block_header(header.clone())?;
@@ -4208,7 +4218,7 @@ impl<'a> ChainUpdate<'a> {
         mut on_challenge: F,
     ) -> Result<(), Error>
     where
-        F: FnMut(ChallengeBody) -> (),
+        F: FnMut(ChallengeBody),
     {
         // Refuse blocks from the too distant future.
         if header.timestamp() > Utc::now() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
@@ -4269,6 +4279,7 @@ impl<'a> ChainUpdate<'a> {
                 != &Chain::compute_bp_hash(
                     &*self.runtime_adapter,
                     header.next_epoch_id().clone(),
+                    header.epoch_id().clone(),
                     &header.prev_hash(),
                 )?
             {

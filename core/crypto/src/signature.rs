@@ -77,7 +77,7 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::errors::Pa
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct Secp256K1PublicKey([u8; 64]);
 
 #[cfg(feature = "deepsize_feature")]
@@ -154,7 +154,7 @@ impl Ord for Secp256K1PublicKey {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(Copy, Clone, derive_more::AsRef)]
+#[derive(Clone, derive_more::AsRef)]
 #[as_ref(forward)]
 pub struct ED25519PublicKey(pub [u8; ed25519_dalek::PUBLIC_KEY_LENGTH]);
 
@@ -205,7 +205,9 @@ impl Ord for ED25519PublicKey {
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq)]
 pub enum PublicKey {
+    /// 256 bit elliptic curve based public-key.
     ED25519(ED25519PublicKey),
+    /// 512 bit elliptic curve based public-key used in Bitcoin's public-key cryptography.
     SECP256K1(Secp256K1PublicKey),
 }
 

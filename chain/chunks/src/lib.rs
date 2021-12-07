@@ -42,6 +42,7 @@ use near_network_primitives::types::{
     AccountIdOrPeerTrackingShard, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
     PartialEncodedChunkResponseMsg,
 };
+use near_primitives::epoch_manager::RngSeed;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use rand::Rng;
 
@@ -391,14 +392,17 @@ pub struct ShardsManager {
 
     encoded_chunks: EncodedChunksCache,
     requested_partial_encoded_chunks: RequestPool,
-    // Temporary place to store PartialEncodedChunks if they can't be processed yet at the time
-    // when they are received
-    // A partial chunk is removed here if it is processed or it is too old
+    /// Temporary place to store PartialEncodedChunks if they can't be processed yet at the time
+    /// when they are received
+    /// A partial chunk is removed here if it is processed or it is too old
     stored_partial_encoded_chunks:
         HashMap<BlockHeight, HashMap<ShardId, Vec<PartialEncodedChunkV2>>>,
     chunk_forwards_cache: SizedCache<ChunkHash, HashMap<u64, PartialEncodedChunkPart>>,
 
     seals_mgr: SealsManager,
+    /// Useful to make tests deterministic and reproducible,
+    /// while keeping the security of randomization of transactions in pool
+    rng_seed: RngSeed,
 }
 
 impl ShardsManager {
@@ -406,6 +410,7 @@ impl ShardsManager {
         me: Option<AccountId>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_adapter: Arc<dyn PeerManagerAdapter>,
+        rng_seed: RngSeed,
     ) -> Self {
         Self {
             me: me.clone(),
@@ -422,6 +427,7 @@ impl ShardsManager {
             stored_partial_encoded_chunks: HashMap::new(),
             chunk_forwards_cache: SizedCache::with_size(CHUNK_FORWARD_CACHE_SIZE),
             seals_mgr: SealsManager::new(me, runtime_adapter),
+            rng_seed,
         }
     }
 
@@ -457,7 +463,7 @@ impl ShardsManager {
         request_own_parts_from_others: bool,
         request_from_archival: bool,
     ) -> Result<(), near_chain::Error> {
-        let mut bp_to_parts = HashMap::new();
+        let mut bp_to_parts = HashMap::<_, Vec<u64>>::new();
 
         let cache_entry = self.encoded_chunks.get(chunk_hash);
 
@@ -518,7 +524,7 @@ impl ShardsManager {
                     }
                 };
 
-                bp_to_parts.entry(fetch_from).or_insert_with(|| vec![]).push(part_ord);
+                bp_to_parts.entry(fetch_from).or_default().push(part_ord);
             }
         }
 
@@ -531,7 +537,7 @@ impl ShardsManager {
         //     for some subset of shards, even if we don't need to request any parts from the original
         //     chunk producer.
         if !shards_to_fetch_receipts.is_empty() {
-            bp_to_parts.entry(shard_representative_target.clone()).or_insert_with(|| vec![]);
+            bp_to_parts.entry(shard_representative_target.clone()).or_default();
         }
 
         let no_account_id = me.is_none();
@@ -866,7 +872,7 @@ impl ShardsManager {
 
     /// Returns true if transaction is not in the pool before call
     pub fn insert_transaction(&mut self, shard_id: ShardId, tx: SignedTransaction) -> bool {
-        self.tx_pools.entry(shard_id).or_insert_with(TransactionPool::new).insert_transaction(tx)
+        self.pool_for_shard(shard_id).insert_transaction(tx)
     }
 
     pub fn remove_transactions(
@@ -879,15 +885,29 @@ impl ShardsManager {
         }
     }
 
+    /// Computes a deterministic random seed for given `shard_id`.
+    /// This seed is used to randomize the transaction pool.
+    /// For better security we want the seed to different in each shard.
+    /// For testing purposes we want it to be the reproducible and derived from the `self.rng_seed` and `shard_id`
+    fn random_seed(base_seed: &RngSeed, shard_id: ShardId) -> RngSeed {
+        let mut res = base_seed.clone();
+        res[0] = shard_id as u8;
+        res[1] = (shard_id / 256) as u8;
+        res
+    }
+
+    fn pool_for_shard(&mut self, shard_id: ShardId) -> &mut TransactionPool {
+        self.tx_pools.entry(shard_id).or_insert_with(|| {
+            TransactionPool::new(ShardsManager::random_seed(&self.rng_seed, shard_id))
+        })
+    }
+
     pub fn reintroduce_transactions(
         &mut self,
         shard_id: ShardId,
         transactions: &Vec<SignedTransaction>,
     ) {
-        self.tx_pools
-            .entry(shard_id)
-            .or_insert_with(TransactionPool::new)
-            .reintroduce_transactions(transactions.clone());
+        self.pool_for_shard(shard_id).reintroduce_transactions(transactions.clone());
     }
 
     pub fn group_receipts_by_shard(
@@ -1839,6 +1859,8 @@ mod test {
         near_primitives::validator_signer::InMemoryValidatorSigner,
     };
 
+    const TEST_SEED: RngSeed = [3; 32];
+
     /// should not request partial encoded chunk from self
     #[test]
     fn test_request_partial_encoded_chunk_from_self() {
@@ -1848,6 +1870,7 @@ mod test {
             Some("test".parse().unwrap()),
             runtime_adapter,
             network_adapter.clone(),
+            TEST_SEED,
         );
         let added = Clock::instant();
         shards_manager.requested_partial_encoded_chunks.insert(
@@ -1904,6 +1927,7 @@ mod test {
             Some("test".parse().unwrap()),
             runtime_adapter.clone(),
             network_adapter.clone(),
+            TEST_SEED,
         );
         let signer =
             InMemoryValidatorSigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
@@ -2071,6 +2095,7 @@ mod test {
             Some(fixture.mock_chunk_part_owner.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.clone(),
+            TEST_SEED,
         );
         let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&fixture.mock_part_ords);
         let result = shards_manager
@@ -2128,8 +2153,13 @@ mod test {
     fn test_chunk_forward_non_validator() {
         // When a non validator node requests chunks, the request should be send immediately
         let fixture = ChunkForwardingTestFixture::default();
-        let mut shards_manager =
-            ShardsManager::new(None, fixture.mock_runtime.clone(), fixture.mock_network.clone());
+        let test_seed = [4; 32];
+        let mut shards_manager = ShardsManager::new(
+            None,
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+            test_seed,
+        );
         let header_head = Tip {
             height: 0,
             last_block_hash: CryptoHash::default(),
@@ -2156,6 +2186,7 @@ mod test {
             Some("none".parse().unwrap()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.clone(),
+            test_seed,
         );
         shards_manager.request_chunks(
             vec![fixture.mock_chunk_header.clone()],
@@ -2176,6 +2207,7 @@ mod test {
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.clone(),
+            test_seed,
         );
         shards_manager.request_chunks(
             vec![fixture.mock_chunk_header.clone()],
@@ -2197,6 +2229,7 @@ mod test {
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.clone(),
+            TEST_SEED,
         );
         let (most_parts, other_parts) = {
             let mut most_parts = fixture.mock_chunk_parts.clone();
@@ -2242,5 +2275,24 @@ mod test {
                 }
             })
             .is_none());
+    }
+
+    #[test]
+    fn test_random_seed_with_shard_id() {
+        let seed0 = ShardsManager::random_seed(&TEST_SEED, 0);
+        let seed10 = ShardsManager::random_seed(&TEST_SEED, 10);
+        let seed256 = ShardsManager::random_seed(&TEST_SEED, 256);
+        let seed1000 = ShardsManager::random_seed(&TEST_SEED, 1000);
+        let seed1000000 = ShardsManager::random_seed(&TEST_SEED, 1_000_000);
+        assert_ne!(seed0, seed10);
+        assert_ne!(seed0, seed256);
+        assert_ne!(seed0, seed1000);
+        assert_ne!(seed0, seed1000000);
+        assert_ne!(seed10, seed256);
+        assert_ne!(seed10, seed1000);
+        assert_ne!(seed10, seed1000000);
+        assert_ne!(seed256, seed1000);
+        assert_ne!(seed256, seed1000000);
+        assert_ne!(seed1000, seed1000000);
     }
 }

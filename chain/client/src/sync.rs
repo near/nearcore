@@ -1290,7 +1290,7 @@ mod test {
 
     use super::*;
     use crate::test_utils::TestEnv;
-    use near_network::routing::EdgeInfo;
+    use near_network::routing::PartialEdgeInfo;
     use near_network::PeerInfo;
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
@@ -1373,7 +1373,7 @@ mod test {
                 tracked_shards: vec![],
                 archival: false,
             },
-            edge_info: EdgeInfo::default(),
+            partial_edge_info: PartialEdgeInfo::default(),
         };
         let head = chain.head().unwrap();
         assert!(header_sync
@@ -1423,7 +1423,7 @@ mod test {
                     account_id: None,
                 },
                 chain_info: Default::default(),
-                edge_info: Default::default(),
+                partial_edge_info: Default::default(),
             });
             header_sync.syncing_peer.as_mut().unwrap().chain_info.height = highest_height;
         };
@@ -1476,6 +1476,7 @@ mod test {
                     )
                 };
             let block = Block::produce(
+                PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 &last_block.header(),
                 current_height,
@@ -1576,7 +1577,7 @@ mod test {
                     account_id: None,
                 },
                 chain_info: Default::default(),
-                edge_info: Default::default(),
+                partial_edge_info: Default::default(),
             })
             .collect()
     }

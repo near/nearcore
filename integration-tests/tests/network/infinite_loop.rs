@@ -13,7 +13,7 @@ use near_logger_utils::init_integration_logger;
 use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeoutActor};
 use near_network::types::{
-    NetworkClientResponses, NetworkRequests, PeerManagerMessageRequest, SyncData,
+    NetworkClientResponses, NetworkRequests, PeerManagerMessageRequest, RoutingTableUpdate,
 };
 use near_network::PeerManagerActor;
 use near_network_primitives::types::{
@@ -97,23 +97,23 @@ fn test_infinite_loop() {
             make_peer_manager("test2", port2, vec![("test1", port1)], 10);
         let pm1 = pm1.start();
         let pm2 = pm2.start();
-        let request1 = NetworkRequests::Sync {
+        let request1 = NetworkRequests::SyncRoutingTable {
             peer_id: peer_id1.clone(),
-            sync_data: SyncData::account(AnnounceAccount {
+            routing_table_update: RoutingTableUpdate::from_accounts(vec![AnnounceAccount {
                 account_id: "near".parse().unwrap(),
                 peer_id: peer_id1.clone(),
                 epoch_id: Default::default(),
                 signature: Default::default(),
-            }),
+            }]),
         };
-        let request2 = NetworkRequests::Sync {
+        let request2 = NetworkRequests::SyncRoutingTable {
             peer_id: peer_id1.clone(),
-            sync_data: SyncData::account(AnnounceAccount {
+            routing_table_update: RoutingTableUpdate::from_accounts(vec![AnnounceAccount {
                 account_id: "near".parse().unwrap(),
                 peer_id: peer_id2.clone(),
                 epoch_id: Default::default(),
                 signature: Default::default(),
-            }),
+            }]),
         };
 
         let state = Arc::new(AtomicUsize::new(0));

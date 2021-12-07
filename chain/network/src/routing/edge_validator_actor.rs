@@ -1,5 +1,5 @@
 use crate::routing::edge::Edge;
-use crate::types::{EdgeList, StopMsg};
+use crate::types::{StopMsg, ValidateEdgeList};
 use actix::{Actor, Handler, SyncContext, System};
 use conqueue::{QueueReceiver, QueueSender};
 use near_performance_metrics_macros::perf;
@@ -8,24 +8,30 @@ use near_primitives::borsh::maybestd::sync::{Arc, Mutex};
 use near_primitives::network::PeerId;
 use std::cmp::max;
 
-pub(crate) struct EdgeVerifierActor {}
+pub(crate) struct EdgeValidatorActor {}
 
-impl Actor for EdgeVerifierActor {
+impl Actor for EdgeValidatorActor {
     type Context = SyncContext<Self>;
 }
 
-impl Handler<StopMsg> for EdgeVerifierActor {
+impl Handler<StopMsg> for EdgeValidatorActor {
     type Result = ();
     fn handle(&mut self, _: StopMsg, _ctx: &mut Self::Context) -> Self::Result {
         System::current().stop();
     }
 }
 
-impl Handler<EdgeList> for EdgeVerifierActor {
+/// EdgeListToValidate contains list of Edges, and it's associated with a connected peer.
+/// Check signatures of all edges in `EdgeListToValidate` and if any signature is not valid,
+/// we will ban the peer, who sent us incorrect edges.
+///
+/// TODO(#5230): This code needs to be rewritten to fix memory leak - there is a cache that stores
+///              all edges `edges_info_shared` forever in memory.
+impl Handler<ValidateEdgeList> for EdgeValidatorActor {
     type Result = bool;
 
     #[perf]
-    fn handle(&mut self, msg: EdgeList, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: ValidateEdgeList, _ctx: &mut Self::Context) -> Self::Result {
         for edge in msg.edges {
             let key = edge.key();
             if msg.edges_info_shared.lock().unwrap().get(key).cloned().unwrap_or(0u64)
@@ -56,7 +62,7 @@ impl Handler<EdgeList> for EdgeVerifierActor {
     }
 }
 
-pub struct EdgeVerifierHelper {
+pub struct EdgeValidatorHelper {
     /// Shared version of edges_info used by multiple threads
     pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
     /// Queue of edges verified, but not added yes
@@ -64,7 +70,7 @@ pub struct EdgeVerifierHelper {
     pub edges_to_add_sender: QueueSender<Edge>,
 }
 
-impl Default for EdgeVerifierHelper {
+impl Default for EdgeValidatorHelper {
     fn default() -> Self {
         let (tx, rx) = conqueue::Queue::unbounded::<Edge>();
         Self {

@@ -17,18 +17,18 @@ pub struct ActixMessageWrapper<T> {
 }
 
 impl<T> ActixMessageWrapper<T> {
-    pub fn new_without_size(msg: T, throttle_controller: ThrottleController) -> Self {
-        Self { msg, throttle_token: ThrottleToken::new(throttle_controller, 0) }
+    pub fn new_without_size(msg: T, throttle_controller: Option<ThrottleController>) -> Self {
+        Self { msg, throttle_token: ThrottleToken::new_without_size(throttle_controller) }
     }
 
     #[allow(unused)]
     pub fn into_inner(mut self) -> T {
-        return self.msg;
+        self.msg
     }
 
     #[allow(unused)]
     pub fn take(mut self) -> (T, ThrottleToken) {
-        return (self.msg, self.throttle_token);
+        (self.msg, self.throttle_token)
     }
 }
 
@@ -53,11 +53,11 @@ impl<T> ActixMessageResponse<T> {
 
     #[allow(unused)]
     pub fn into_inner(mut self) -> T {
-        return self.msg;
+        self.msg
     }
 
     #[allow(unused)]
     pub fn take(mut self) -> (T, ThrottleToken) {
-        return (self.msg, self.throttle_token);
+        (self.msg, self.throttle_token)
     }
 }
