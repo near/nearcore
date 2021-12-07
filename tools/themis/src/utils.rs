@@ -105,20 +105,23 @@ pub fn is_publishable(pkg: &Package) -> bool {
     !matches!(pkg.raw["package"].get("publish"), Some(toml::Value::Boolean(false)))
 }
 
-macro_rules! _pub_has {
+macro_rules! _pub_missing {
     ($pkg:expr, $($files:tt)+) => {{
         let pkg_root = $pkg.parsed.manifest_path.parent().unwrap();
-        $crate::utils::is_publishable($pkg) && $crate::utils::pub_has!(@ [pkg_root] $($files)+)
+        $crate::utils::is_publishable($pkg) && !$crate::utils::pub_missing!(@ [pkg_root] $($files)+)
     }};
     (@ [$root:expr] $file:literal || $($files:tt)+) => {{
-        $crate::utils::pub_has!(@ [$root] ($file) || $($files)+)
+        $crate::utils::pub_missing!(@ [$root] ($file) || $($files)+)
     }};
     (@ [$root:expr] ($($file:literal)&&+) $(|| $($files:tt)+)?) => {{
-        $($crate::utils::pub_has!(@ [$root] $file))&&+ $(|| $crate::utils::pub_has!(@ [$root] $($files)+))?
+        $($crate::utils::pub_missing!(@ [$root] $file))&&+ $(|| $crate::utils::pub_missing!(@ [$root] $($files)+))?
     }};
     (@ [$root:expr] $file:literal) => {{
         $root.join($file).exists()
     }};
+    (@ [$root:expr] ($file:expr)?) => {{
+        $file.as_ref().map_or(false, |file| $root.join(file).exists())
+    }};
 }
 
-pub(crate) use _pub_has as pub_has;
+pub(crate) use _pub_missing as pub_missing;

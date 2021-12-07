@@ -209,8 +209,16 @@ pub fn publishable_has_license_file(workspace: &Workspace) -> Result<(), Error> 
     let outliers = workspace
         .members
         .iter()
-        .filter(|pkg| utils::pub_has!(pkg, "LICENSE" || ("LICENSE-APACHE" && "LICENSE-MIT")))
-        .map(|pkg| PackageOutcome { pkg, value: None })
+        .filter(|pkg| {
+            utils::pub_missing!(
+                pkg,
+                "LICENSE" || ("LICENSE-APACHE" && "LICENSE-MIT") || (pkg.parsed.license_file)?
+            )
+        })
+        .map(|pkg| PackageOutcome {
+            pkg,
+            value: pkg.parsed.license_file.as_ref().map(|l| l.to_string()),
+        })
         .collect::<Vec<_>>();
 
     if !outliers.is_empty() {
