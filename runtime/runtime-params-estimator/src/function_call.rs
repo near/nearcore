@@ -1,5 +1,5 @@
-use crate::gas_cost::ratio_to_gas_signed;
-use crate::testbed_runners::{end_count, start_count, GasMetric};
+use crate::gas_cost::{ratio_to_gas_signed, GasCost};
+use crate::testbed_runners::GasMetric;
 use crate::vm_estimator::{create_context, least_squares_method};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -9,6 +9,7 @@ use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::internal::VMKind;
 use nearcore::get_store_path;
 use num_rational::Ratio;
+use num_traits::ToPrimitive;
 use std::fmt::Write;
 use std::sync::Arc;
 
@@ -127,7 +128,7 @@ pub fn compute_function_call_cost(
         assert!(result.1.is_none());
     }
     // Run with gas metering.
-    let start = start_count(gas_metric);
+    let start = GasCost::measure(gas_metric);
     for _ in 0..repeats {
         let result = runtime.run(
             &contract,
@@ -142,7 +143,7 @@ pub fn compute_function_call_cost(
         );
         assert!(result.1.is_none());
     }
-    let total_raw = end_count(gas_metric, &start) as i128;
+    let total_raw = start.elapsed().scalar_cost().to_i128().unwrap();
 
     println!("cost is {}", total_raw);
 
