@@ -1,9 +1,15 @@
-use cargo_metadata::{camino::Utf8PathBuf, Package};
+use cargo_metadata::camino::Utf8PathBuf;
 
 mod rules;
 mod style;
 #[macro_use]
 mod utils;
+
+#[derive(Debug)]
+struct Package {
+    parsed: cargo_metadata::Package,
+    raw: toml::Value,
+}
 
 #[derive(Debug)]
 pub struct Workspace {

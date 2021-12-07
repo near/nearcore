@@ -7,7 +7,7 @@ pub fn has_publish_spec(workspace: &Workspace) -> Result<(), Error> {
     let outliers: Vec<_> = workspace
         .members
         .iter()
-        .filter(|pkg| pkg.publish.is_none())
+        .filter(|pkg| pkg.raw["package"].get("publish").is_none())
         .map(|pkg| PackageOutcome { pkg, value: None })
         .collect();
 
@@ -24,26 +24,12 @@ pub fn has_publish_spec(workspace: &Workspace) -> Result<(), Error> {
 
 /// ensure all crates specify a MSRV
 pub fn has_rust_version(workspace: &Workspace) -> Result<(), Error> {
-    let cargo_version = utils::cargo_version()?;
-    if cargo_version.parsed < "1.58.0".parse()? {
-        utils::warn!(
-            "{} compliance check requires {} or later",
-            style::highlight("rust-version"),
-            style::highlight("cargo 1.58.0"),
-        );
-        return Ok(());
-    }
-
     let outliers: Vec<_> = workspace
         .members
         .iter()
-        .filter(|pkg| pkg.rust_version.is_none())
+        .filter(|pkg| pkg.raw["package"].get("rust-version").is_none())
         .map(|pkg| PackageOutcome { pkg, value: None })
         .collect();
-
-    for outlier in &outliers {
-        println!("{} {:?}", outlier.pkg.name, outlier.pkg.rust_version);
-    }
 
     if !outliers.is_empty() {
         return Err(Error::OutcomeError {
@@ -64,7 +50,7 @@ pub fn is_unversioned(workspace: &Workspace) -> Result<(), Error> {
         .iter()
         .filter(|pkg| {
             !matches!(
-                pkg.version,
+                pkg.parsed.version,
                 semver::Version {
                     major: 0,
                     minor: 0,
@@ -75,7 +61,7 @@ pub fn is_unversioned(workspace: &Workspace) -> Result<(), Error> {
                   && build == &semver::BuildMetadata::EMPTY
             )
         })
-        .map(|pkg| PackageOutcome { pkg, value: Some(pkg.version.to_string()) })
+        .map(|pkg| PackageOutcome { pkg, value: Some(pkg.parsed.version.to_string()) })
         .collect::<Vec<_>>();
 
     if !outliers.is_empty() {
@@ -93,7 +79,7 @@ pub fn is_unversioned(workspace: &Workspace) -> Result<(), Error> {
 /// or equal to the version defined in rust-toolchain.toml
 pub fn has_debuggable_rust_version(workspace: &Workspace) -> Result<(), Error> {
     let rust_toolchain =
-        utils::parse_toml::<toml::Value>(workspace.root.join("rust-toolchain.toml"))?;
+        utils::parse_toml::<toml::Value>(&workspace.root.join("rust-toolchain.toml"))?;
     let rust_toolchain = rust_toolchain["toolchain"]["channel"].as_str().unwrap().to_owned();
 
     let rust_toolchain = match semver::Version::parse(&rust_toolchain) {
@@ -109,19 +95,21 @@ pub fn has_debuggable_rust_version(workspace: &Workspace) -> Result<(), Error> {
         }
     };
 
-    let outliers = workspace
-        .members
-        .iter()
-        .filter(|pkg| {
-            pkg.rust_version
-                .as_ref()
-                .map_or(false, |rust_version| rust_version.matches(&rust_toolchain))
-        })
-        .map(|pkg| PackageOutcome {
-            pkg,
-            value: Some(pkg.rust_version.as_ref().unwrap().to_string()),
-        })
-        .collect::<Vec<_>>();
+    let mut outliers = vec![];
+    for pkg in &workspace.members {
+        let (rust_version, raw) = match pkg.raw["package"].get("rust-version") {
+            Some(rust_version) => {
+                let raw = rust_version.as_str().unwrap();
+                (semver::VersionReq::parse(raw)?, raw)
+            }
+            // we can skip, since we have has_rust_version check
+            None => continue,
+        };
+
+        if !rust_version.matches(&rust_toolchain) {
+            outliers.push(PackageOutcome { pkg, value: Some(raw.to_owned()) });
+        }
+    }
 
     if !outliers.is_empty() {
         return Err(Error::OutcomeError {
@@ -142,7 +130,7 @@ pub fn has_unified_rust_edition(workspace: &Workspace) -> Result<(), Error> {
     let mut edition_groups = HashMap::new();
 
     for pkg in &workspace.members {
-        *edition_groups.entry(&pkg.edition).or_insert(0) += 1;
+        *edition_groups.entry(&pkg.parsed.edition).or_insert(0) += 1;
     }
 
     let (most_common_edition, n_compliant) =
@@ -151,8 +139,8 @@ pub fn has_unified_rust_edition(workspace: &Workspace) -> Result<(), Error> {
     let outliers = workspace
         .members
         .iter()
-        .filter(|pkg| pkg.edition != *most_common_edition)
-        .map(|pkg| PackageOutcome { pkg, value: Some(pkg.edition.clone()) })
+        .filter(|pkg| pkg.parsed.edition != *most_common_edition)
+        .map(|pkg| PackageOutcome { pkg, value: Some(pkg.parsed.edition.clone()) })
         .collect::<Vec<_>>();
 
     if !outliers.is_empty() {
@@ -175,8 +163,8 @@ pub fn author_is_near(workspace: &Workspace) -> Result<(), Error> {
     let outliers = workspace
         .members
         .iter()
-        .filter(|pkg| !pkg.authors.iter().any(|author| author == NEAR_AUTHOR))
-        .map(|pkg| PackageOutcome { pkg, value: Some(format!("{:?}", pkg.authors)) })
+        .filter(|pkg| !pkg.parsed.authors.iter().any(|author| author == NEAR_AUTHOR))
+        .map(|pkg| PackageOutcome { pkg, value: Some(format!("{:?}", pkg.parsed.authors)) })
         .collect::<Vec<_>>();
 
     if !outliers.is_empty() {

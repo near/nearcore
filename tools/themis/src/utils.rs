@@ -1,12 +1,10 @@
-use std::env;
 use std::fs;
-use std::process;
 
 use cargo_metadata::{camino::Utf8PathBuf, CargoOpt, MetadataCommand};
 use serde::de::DeserializeOwned;
 use toml;
 
-use super::{style, Error, Expected, PackageOutcome, Workspace};
+use super::{style, Error, Expected, Package, PackageOutcome, Workspace};
 
 macro_rules! _warn {
     ($msg:literal $($arg:tt)*) => {
@@ -17,7 +15,7 @@ macro_rules! _warn {
 
 pub(crate) use _warn as warn;
 
-pub fn parse_toml<T: DeserializeOwned>(path: Utf8PathBuf) -> anyhow::Result<T> {
+pub fn parse_toml<T: DeserializeOwned>(path: &Utf8PathBuf) -> anyhow::Result<T> {
     Ok(toml::from_slice(&fs::read(path)?)?)
 }
 
@@ -34,7 +32,11 @@ pub fn parse_workspace() -> anyhow::Result<Workspace> {
         .iter()
         .cloned()
         .filter(|package| metadata.workspace_members.contains(&package.id))
-        .collect();
+        .map(|package| {
+            let raw = parse_toml(&package.manifest_path)?;
+            Ok(Package { parsed: package, raw })
+        })
+        .collect::<anyhow::Result<Vec<Package>>>()?;
 
     Ok(Workspace { root: metadata.workspace_root, members })
 }
@@ -69,8 +71,9 @@ pub fn check_and_report<'a>(
                 c_heading = style::fg(style::Color::Color256(172)) + style::bold(),
                 c_none = style::reset()
             );
-            let report =
-                outliers.into_iter().fold(header, |mut acc, PackageOutcome { pkg, value }| {
+            let report = outliers.into_iter().fold(
+                header,
+                |mut acc, PackageOutcome { pkg: Package { parsed: pkg, .. }, value }| {
                     acc.push_str(&format!(
                         "\n \u{2022} {c_name}{}{c_none} v{} {c_path}({}){c_none}{}",
                         pkg.name,
@@ -89,37 +92,11 @@ pub fn check_and_report<'a>(
                         c_none = style::reset(),
                     ));
                     acc
-                });
+                },
+            );
             eprintln!("{}", report);
             Ok(true)
         }
         _ => Ok(false),
     }
-}
-
-#[derive(Debug)]
-pub struct CargoVersion {
-    pub parsed: semver::Version,
-    pub raw: String,
-}
-
-pub fn cargo_version() -> anyhow::Result<CargoVersion> {
-    let cargo =
-        env::var("CARGO").map(Utf8PathBuf::from).unwrap_or_else(|_| Utf8PathBuf::from("cargo"));
-    let output = process::Command::new(cargo).arg("--version").output()?;
-    if !output.status.success() {
-        return Err(anyhow::anyhow!(
-            "failed to get cargo version: {}",
-            String::from_utf8(output.stderr)?
-        ));
-    }
-    let raw_version = String::from_utf8(output.stdout)?;
-    let version = raw_version
-        .split_whitespace()
-        .nth(1)
-        .ok_or_else(|| anyhow::anyhow!("failed to extract cargo version"))
-        .and_then(|v| {
-            semver::Version::parse(v).map_err(|_| anyhow::anyhow!("failed to parse cargo version"))
-        })?;
-    Ok(CargoVersion { parsed: version, raw: raw_version })
 }
