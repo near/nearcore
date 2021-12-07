@@ -1,9 +1,9 @@
-use crate::gas_cost::ratio_to_gas_signed;
-use crate::testbed_runners::{end_count, start_count, GasMetric};
+use crate::gas_cost::{ratio_to_gas_signed, GasCost};
+use crate::testbed_runners::GasMetric;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::types::{CompiledContractCache, ProtocolVersion};
+use near_primitives::types::{CompiledContractCache, Gas, ProtocolVersion};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{create_store, StoreCompiledContractCache};
 use near_vm_logic::mocks::mock_external::MockedExternal;
@@ -70,7 +70,7 @@ fn call(code: &ContractCode) -> (Option<VMOutcome>, Option<VMError>) {
 const NUM_ITERATIONS: u64 = 10;
 
 /// Cost of the most CPU demanding operation.
-pub fn cost_per_op(gas_metric: GasMetric, code: &ContractCode) -> Ratio<u64> {
+pub fn cost_per_op(gas_metric: GasMetric, code: &ContractCode) -> Gas {
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
     let vm_config = runtime_config.wasm_config.clone();
@@ -78,11 +78,11 @@ pub fn cost_per_op(gas_metric: GasMetric, code: &ContractCode) -> Ratio<u64> {
     // Call once for the warmup.
     let (outcome, _) = call(code);
     let outcome = outcome.unwrap();
-    let start = start_count(gas_metric);
+    let clock = GasCost::measure(gas_metric);
     for _ in 0..NUM_ITERATIONS {
         call(code);
     }
-    let measured = end_count(gas_metric, &start);
+    let measured = clock.elapsed().instructions();
     // We are given by measurement burnt gas
     //   gas_burned(call) = outcome.burnt_gas
     // and raw 'measured' value counting x86 insns.
@@ -105,22 +105,22 @@ pub fn cost_per_op(gas_metric: GasMetric, code: &ContractCode) -> Ratio<u64> {
     //    (measured * vm_config.regular_op_cost) /
     //       (outcome.burnt_gas * NUM_ITERATIONS),
     // as remaining can be computed with ratio_to_gas().
-    Ratio::new(measured * (vm_config.regular_op_cost as u64), NUM_ITERATIONS * outcome.burnt_gas)
+    (measured * vm_config.regular_op_cost as u64 / NUM_ITERATIONS / outcome.burnt_gas).to_integer()
 }
 
 type CompileCost = (u64, Ratio<u64>);
 
 fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> Option<CompileCost> {
     let runtime = vm_kind.runtime().expect("runtime has not been enabled");
-    let start = start_count(gas_metric);
+    let clock = GasCost::measure(gas_metric);
     for _ in 0..NUM_ITERATIONS {
         let prepared_code = prepare::prepare_contract(code, &VMConfig::test()).unwrap();
         if runtime.check_compile(&prepared_code) {
             return None;
         }
     }
-    let end = end_count(gas_metric, &start);
-    Some((code.len() as u64, Ratio::new(end, NUM_ITERATIONS)))
+    let measured = clock.elapsed().scalar_cost();
+    Some((code.len() as u64, measured / NUM_ITERATIONS))
 }
 
 pub fn load_and_compile(
@@ -146,11 +146,11 @@ fn measure_contract(
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
     let vm_config = runtime_config.wasm_config.clone();
-    let start = start_count(gas_metric);
+    let start = GasCost::measure(gas_metric);
     let result = precompile_contract_vm(vm_kind, &contract, &vm_config, cache);
-    let end = end_count(gas_metric, &start);
+    let end = start.elapsed().scalar_cost();
     assert!(result.is_ok(), "Compilation failed");
-    end
+    end.to_integer()
 }
 
 #[derive(Default, Clone)]
@@ -365,7 +365,7 @@ fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
     let fake_context = create_context(vec![]);
     let fees = RuntimeFeesConfig::test();
 
-    let start = start_count(gas_metric);
+    let start = GasCost::measure(gas_metric);
     if let Some(runtime) = vm_kind.runtime() {
         for contract in &contracts {
             let promise_results = vec![];
@@ -385,7 +385,7 @@ fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
     } else {
         panic!("the {:?} runtime has not been enabled at compile time", vm_kind);
     }
-    let total_raw = end_count(gas_metric, &start) as i128;
+    let total_raw = start.elapsed().scalar_cost().to_i128().unwrap();
 
     let total_gas = ratio_to_gas_signed(gas_metric, Ratio::new(total_raw, 1));
     let raw_per_call = total_raw / count;
