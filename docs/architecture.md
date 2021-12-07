@@ -166,11 +166,13 @@ tracing::warn!(
     bandwidth_used,
     // Use `fmt::Debug` to format the value.
     ?peer_id,
-    // Free form `format!`-like arguments.
-    "Peer bandwidth exceeded threshold (threshold is {})",
-    REPORT_BANDWIDTH_THRESHOLD_BYTES
+    // Free form string
+    "Peer bandwidth exceeded threshold",
 );
 ```
+
+Qualified `tracing::warn!` syntax is preferred to reduce the amount of imports.
+Tracing supports `format!`-like arguments, but prefer `key=value` paris instead.
 
 The [span! API](https://tracing.rs/tracing/macro.debug_span.html) is used to
 measure durations of long-running operations:
