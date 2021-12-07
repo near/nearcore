@@ -2106,7 +2106,6 @@ dependencies = [
  "borsh 0.9.1",
  "cached",
  "chrono",
- "funty",
  "futures",
  "hex",
  "hyper",
