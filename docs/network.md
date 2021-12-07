@@ -22,11 +22,8 @@ Responsibilities:
 ### 2.2 `RoutingTableActor`
 `RoutingTableActor` maintain view of the `P2P network` represented by set of nodes and edges.
 
-In case a message needs to be sent between two nodes, let's call them `A` and `B`.
-If nodes `A` and `B` are connected then the message can be sent directly.
-However, if there aren't a node `C` needs to be chosen to forward message from `A` to `B`.
-This may be a direct or indirect route. `RoutingTableActor` is responsible for computing such set of nodes `C` that
-meets the criteria.
+In case a message needs to be sent between two nodes, that can be done directly through `Tcp` connection.
+Otherwise, `RoutingTableActor` is responsible for ping the best path between them.
 
 Responsibilities:
 - keep set of all edges of `P2P network` called routing table
@@ -47,9 +44,11 @@ Responsibilities:
 `PeerManagerActor` is the main actor of `near-network` crate.
 It's acts as a bridge connecting to the world outside, the other peers, and `ClientActor` and `ClientViewActor`, which
 handle processing any operations on the chain.
-`PeerManagerActor` maintains information about p2p network, and indirectly, through `PeerActor`, connections to all other nodes on the network.
+`PeerManagerActor` maintains information about p2p network via (Routing Table Actor),
+and indirectly, through `PeerActor`, connections to all some nodes on the network.
 All messages going to other nodes, or coming from other nodes will be routed through this `Actor`.
-`PeerManagerActor` is responsible for accepting incoming connections from the outside world.
+`PeerManagerActor` is responsible for accepting incoming connections from the outside world
+and creating `PeerActors` to manage them.
 
 Responsibilities:
 - Accepting new connections
