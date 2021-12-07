@@ -62,7 +62,7 @@ pub trait ValidatorSigner: Sync + Send {
 /// Don't use in any production or code that requires signature verification.
 #[derive(smart_default::SmartDefault)]
 pub struct EmptyValidatorSigner {
-    #[default(AccountId::test_account())]
+    #[default("test".parse().unwrap())]
     account_id: AccountId,
 }
 
