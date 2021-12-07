@@ -144,9 +144,7 @@ mod tests {
     use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardConfig};
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::{
-        AccountId, BlockHeight, EpochId, NumShards, ProtocolVersion, ShardId,
-    };
+    use near_primitives::types::{BlockHeight, EpochId, NumShards, ProtocolVersion, ShardId};
     use near_store::test_utils::create_test_store;
 
     use super::{account_id_to_shard_id, ShardTracker};
@@ -189,7 +187,7 @@ mod tests {
             num_blocks_per_year: 1000000,
             epoch_length: 1,
             protocol_reward_rate: Rational::from_integer(0),
-            protocol_treasury_account: AccountId::test_account(),
+            protocol_treasury_account: "test".parse().unwrap(),
             online_max_threshold: initial_epoch_config.online_max_threshold,
             online_min_threshold: initial_epoch_config.online_min_threshold,
             num_seconds_per_year: 1000000,
@@ -200,7 +198,7 @@ mod tests {
             genesis_protocol_version,
             reward_calculator,
             vec![ValidatorStake::new(
-                AccountId::test_account(),
+                "test".parse().unwrap(),
                 PublicKey::empty(KeyType::ED25519),
                 100,
                 #[cfg(feature = "protocol_feature_chunk_only_producers")]
