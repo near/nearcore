@@ -382,12 +382,14 @@ class LocalNode(BaseNode):
         cmd = self._get_command_line(self.near_root, self.node_dir, boot_node,
                                      self.binary_name)
         node_dir = pathlib.Path(self.node_dir)
-        stdout, stderr = node_dir / 'stdout', node_dir / 'stderr'
-        with open(stdout, 'ab') as stdout_fd, open(stderr, 'ab') as stderr_fd:
+        self.stdout_name = node_dir / 'stdout'
+        self.stderr_name = node_dir / 'stderr'
+        with open(self.stdout_name, 'ab') as stdout, \
+             open(self.stderr_name, 'ab') as stderr:
             self.pid.value = subprocess.Popen(cmd,
                                               stdin=subprocess.DEVNULL,
-                                              stdout=stdout_fd,
-                                              stderr=stderr_fd,
+                                              stdout=stdout,
+                                              stderr=stderr,
                                               env=env).pid
 
         if not skip_starting_proxy:

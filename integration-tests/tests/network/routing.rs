@@ -256,7 +256,6 @@ fn max_num_peers_limit() {
 ///
 /// Do four rounds where 2, 3, 4 tries to connect to 0 and check that connection between 0 and 1 was never dropped.
 #[test]
-#[ignore]
 // TODO(#5389) fix this test, ignoring for now to unlock merging
 fn archival_node() {
     let mut runner = Runner::new(5, 5)

@@ -37,7 +37,7 @@ pub struct MockClient {
 
 impl MockClient {
     pub fn get_state_update(&self) -> TrieUpdate {
-        self.tries.new_trie_update(ShardUId::default(), self.state_root)
+        self.tries.new_trie_update(ShardUId::single_shard(), self.state_root)
     }
 }
 
@@ -91,7 +91,7 @@ impl RuntimeUser {
             let apply_result = client
                 .runtime
                 .apply(
-                    client.tries.get_trie_for_shard(ShardUId::default()),
+                    client.tries.get_trie_for_shard(ShardUId::single_shard()),
                     client.state_root,
                     &None,
                     &apply_state,
@@ -119,7 +119,7 @@ impl RuntimeUser {
             }
             client
                 .tries
-                .apply_all(&apply_result.trie_changes, ShardUId::default())
+                .apply_all(&apply_result.trie_changes, ShardUId::single_shard())
                 .unwrap()
                 .0
                 .commit()
