@@ -54,7 +54,7 @@ Note that we usually use `TrieUpdate` to interact with the state.
 
 ### `chain/chain`
 
-This crate contains most of the chain logic (consensus, block processing, etc). 
+This crate contains most of the chain logic (consensus, block processing, etc).
 `ChainUpdate::process_block` is where most of the block processing logic happens.
 
 **Architecture Invariant**: interface between chain and runtime is defined by `RuntimeAdapter`.
@@ -85,7 +85,7 @@ This crate defines two important structs, `Client` and `ViewClient`.
 
 This crate contains the entire implementation of the p2p network used by NEAR blockchain nodes.
 
-Two important structs here: `PeerManagerActor` and `Peer`. 
+Two important structs here: `PeerManagerActor` and `Peer`.
 Peer manager orchestrates all the communications from network to other components and from other components to network.
 `Peer` is responsible for low-level network communications from and to a given peer.
 Peer manager runs in one thread while each `Peer` runs in its own thread.
@@ -108,15 +108,15 @@ Transactions, on the other hand, are sent to `ClientActor` for further processin
 
 ### `runtime/runtime`
 
-This crate contains the main entry point to runtime -- `Runtime::apply`. 
+This crate contains the main entry point to runtime -- `Runtime::apply`.
 This function takes `ApplyState`, which contains necessary information passed from chain to runtime, and a list of `SignedTransaction` and a list of `Receipt`, and returns a `ApplyResult`, which includes state changes, execution outcomes, etc.
 
-**Architecture Invariant**: The state update is only finalized at the end of `apply`. 
+**Architecture Invariant**: The state update is only finalized at the end of `apply`.
 During all intermediate steps state changes can be reverted.
 
 ### `runtime/near-vm-logic`
 
-`VMLogic` contains all the implementations of host functions and is the interface between runtime and wasm. 
+`VMLogic` contains all the implementations of host functions and is the interface between runtime and wasm.
 `VMLogic` is constructed when runtime applies function call actions.
 In `VMLogic`, interaction with NEAR blockchain happens in the following two ways:
 - `VMContext`, which contains lightweight information such as current block hash, current block height, epoch id, etc.
@@ -154,7 +154,26 @@ tracing::warn!(
 );
 ```
 
-The [span! API](https://tracing.rs/tracing/macro.debug_span.html) is used to measure durations of long-running operations:
+tracing supports structured logging. That is, you are not restricted to logging
+strings, and can log key-value pairs. Keys go *before* free-form message, and
+support various shortcut syntaxes:
+
+```rust
+warn!(
+    // Explicit `key = value` syntax.
+    msg_received_count = active_peer.throttle_controller.consume_msg_seen(),
+    // Shorthand for `bandwidth_used = bandwidth_used`.
+    bandwidth_used,
+    // Use `fmt::Debug` to format the value.
+    ?peer_id,
+    // Free form `format!`-like arguments.
+    "Peer bandwidth exceeded threshold (threshold is {})",
+    REPORT_BANDWIDTH_THRESHOLD_BYTES
+);
+```
+
+The [span! API](https://tracing.rs/tracing/macro.debug_span.html) is used to
+measure durations of long-running operations:
 
 ```rust
 fn compile_and_serialize_wasmer(code: &[u8]) -> Result<wasmer::Module> {
