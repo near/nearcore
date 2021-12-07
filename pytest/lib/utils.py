@@ -197,14 +197,16 @@ def load_binary_file(filepath):
         return bytearray(binaryfile.read())
 
 
-def load_test_contract(filename='test_contract_rs.wasm'):
+def load_test_contract(filename: str = 'test_contract_rs.wasm') -> bytearray:
     """Loads a WASM file from near-test-contracts package.
 
     This is just a convenience function around load_binary_file which loads
     files from ../runtime/near-test-contracts/res directory.  By default
     test_contract_rs.wasm is loaded.
     """
-    return load_binary_file('../runtime/near-test-contracts/res/' + filename)
+    repo_dir = pathlib.Path(__file__).resolve().parents[2]
+    path = repo_dir / 'runtime/near-test-contracts/res' / filename
+    return load_binary_file(path)
 
 
 def user_name():

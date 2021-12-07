@@ -1,4 +1,6 @@
 [package]
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2018"
 name = "near-rate-limiter"
 version = "0.0.0"
@@ -9,5 +11,5 @@ bytes = "1.0.0"
 futures-core = "0.3.0"
 log = "0.4"
 pin-project-lite = "0.2.0"
-tokio = { version = "1.0.0", features = ["sync"] }
+tokio = { version = "1.1", features = ["sync", "rt", "macros"] }
 tokio-util = { version = "0.6.9", features = ["io", "codec"] }

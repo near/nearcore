@@ -771,7 +771,7 @@ mod tests {
             minimum_stake_divisor: 0,
             protocol_upgrade_stake_threshold: 0.into(),
             protocol_upgrade_num_epochs: 0,
-            shard_layout: ShardLayout::default(),
+            shard_layout: ShardLayout::v0_single_shard(),
             validator_selection_config,
         }
     }

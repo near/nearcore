@@ -14,8 +14,9 @@
 import asyncio, sys, time
 import socket, base58
 import nacl.signing, hashlib
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
