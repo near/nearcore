@@ -6,11 +6,9 @@ use std::io::{Error, ErrorKind, Write};
 use std::str::FromStr;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-// We need to import ed25519::signature::Signature, because we use traits from those structs.
-// However, `Signature` symbol is already used to define a different data structure.
 #[cfg(feature = "deepsize_feature")]
 use deepsize::DeepSizeOf;
-use ed25519_dalek::ed25519::signature::{Signature as _Signature, Signer, Verifier};
+use ed25519_dalek::ed25519::signature::{Signature as _, Signer, Verifier};
 #[cfg(feature = "deepsize_feature")]
 use ed25519_dalek::SIGNATURE_LENGTH;
 use once_cell::sync::Lazy;

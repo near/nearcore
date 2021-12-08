@@ -1019,10 +1019,10 @@ fn test_process_invalid_tx() {
     let tx = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
         Transaction {
-            signer_id: AccountId::test_account(),
+            signer_id: "test".parse().unwrap(),
             public_key: signer.public_key(),
             nonce: 0,
-            receiver_id: AccountId::test_account(),
+            receiver_id: "test".parse().unwrap(),
             block_hash: *client.chain.genesis().hash(),
             actions: vec![],
         },
@@ -1035,10 +1035,10 @@ fn test_process_invalid_tx() {
     let tx2 = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
         Transaction {
-            signer_id: AccountId::test_account(),
+            signer_id: "test".parse().unwrap(),
             public_key: signer.public_key(),
             nonce: 0,
-            receiver_id: AccountId::test_account(),
+            receiver_id: "test".parse().unwrap(),
             block_hash: hash(&[1]),
             actions: vec![],
         },
