@@ -2661,6 +2661,116 @@ fn test_wasmer2_upgrade() {
 }
 
 #[test]
+fn test_execution_metadata() {
+    // Prepare TestEnv with a very simple WASM contract.
+    let wasm_code = wat::parse_str(
+        r#"
+(module
+    (import "env" "block_index" (func $block_index (result i64)))
+    (func (export "main")
+        (call $block_index)
+        drop
+    )
+)"#,
+    )
+    .unwrap();
+
+    let mut env = {
+        let epoch_length = 5;
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        genesis.config.epoch_length = epoch_length;
+        let chain_genesis = ChainGenesis::from(&genesis);
+        let mut env = TestEnv::builder(chain_genesis)
+            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+            .build();
+
+        deploy_test_contract(&mut env, "test0".parse().unwrap(), &wasm_code, epoch_length, 1);
+        env
+    };
+
+    // Call the contract and get the execution outcome.
+    let execution_outcome = {
+        let tip = env.clients[0].chain.head().unwrap();
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+        let tx = Transaction {
+            signer_id: "test0".parse().unwrap(),
+            receiver_id: "test0".parse().unwrap(),
+            public_key: signer.public_key(),
+            actions: vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "main".to_string(),
+                args: Vec::new(),
+                gas: 100_000_000_000_000,
+                deposit: 0,
+            })],
+
+            nonce: 10,
+            block_hash: tip.last_block_hash,
+        }
+        .sign(&signer);
+        let tx_hash = tx.get_hash();
+
+        env.clients[0].process_tx(tx, false, false);
+        for i in 0..3 {
+            env.produce_block(0, tip.height + i + 1);
+        }
+        env.query_transaction_status(&tx_hash)
+    };
+
+    // Now, let's assert that we get the cost breakdown we expect.
+    let config = RuntimeConfigStore::test().get_config(PROTOCOL_VERSION).clone();
+
+    // Total costs for creating a function call receipt.
+    let expected_receipt_cost = config.transaction_costs.action_receipt_creation_config.execution
+        + config.transaction_costs.action_creation_config.function_call_cost.exec_fee()
+        + config.transaction_costs.action_creation_config.function_call_cost_per_byte.exec_fee()
+            * "main".len() as u64;
+
+    // Profile for what's happening *inside* wasm vm during function call.
+    let expected_profile = serde_json::json!([
+      // Inside the contract, we called one host function.
+      {
+        "cost_category": "WASM_HOST_COST",
+        "cost": "BASE",
+        "gas_used": config.wasm_config.ext_costs.base.to_string()
+      },
+      // We include compilation costs into running the function.
+      {
+        "cost_category": "WASM_HOST_COST",
+        "cost": "CONTRACT_COMPILE_BASE",
+        "gas_used": config.wasm_config.ext_costs.contract_compile_base.to_string()
+      },
+      {
+        "cost_category": "WASM_HOST_COST",
+        "cost": "CONTRACT_COMPILE_BYTES",
+        "gas_used": "18423750"
+      },
+      // We spend two wasm instructions (call & drop).
+      {
+        "cost_category": "WASM_HOST_COST",
+        "cost": "WASM_INSTRUCTION",
+        "gas_used": (config.wasm_config.regular_op_cost as u64 * 2).to_string()
+      }
+    ]);
+    let outcome = &execution_outcome.receipts_outcome[0].outcome;
+    let metadata = &outcome.metadata;
+
+    let actual_profile = serde_json::to_value(&metadata.gas_profile).unwrap();
+    assert_eq!(expected_profile, actual_profile);
+
+    let actual_receipt_cost = outcome.gas_burnt
+        - metadata
+            .gas_profile
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|it| it.gas_used)
+            .sum::<u64>();
+
+    assert_eq!(expected_receipt_cost, actual_receipt_cost)
+}
+
+#[test]
 fn test_epoch_protocol_version_change() {
     init_test_logger();
     let epoch_length = 5;
