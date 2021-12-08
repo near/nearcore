@@ -251,3 +251,23 @@ pub fn publishable_has_description(workspace: &Workspace) -> Result<(), Error> {
 
     return Ok(());
 }
+
+/// ensure all non-private crates have a README file
+pub fn publishable_has_readme(workspace: &Workspace) -> Result<(), Error> {
+    let outliers = workspace
+        .members
+        .iter()
+        .filter(|pkg| utils::pub_missing!(pkg, "README.md" || (pkg.parsed.readme)?))
+        .map(|pkg| PackageOutcome { pkg, value: pkg.parsed.readme.as_ref().map(|r| r.to_string()) })
+        .collect::<Vec<_>>();
+
+    if !outliers.is_empty() {
+        return Err(Error::OutcomeError {
+            msg: "These non-private packages should have a readme file".to_string(),
+            expected: None,
+            outliers,
+        });
+    }
+
+    return Ok(());
+}
