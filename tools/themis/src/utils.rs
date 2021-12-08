@@ -42,11 +42,19 @@ pub fn parse_workspace() -> anyhow::Result<Workspace> {
 }
 
 macro_rules! chk {
-    ([$workspace:ident]: {$($outcome:expr),+$(,)?}) => {{
+    ([$workspace:ident]: {$($rules:tt)+}) => {{
         let mut failed = false;
-        $(failed |= $crate::utils::check_and_report($outcome(&$workspace), &$workspace)?;)+
+        chk!(@[failed] [$workspace]: { $($rules)+ });
         !failed
     }};
+    (@[$failed:expr] [$workspace:ident]: {# $rule:expr $(, $( $($rest:tt)+ )? )?}) => {
+        let _ = $rule;
+        $( $( chk!(@[$failed] [$workspace]: { $($rest)+ }) )? )?
+    };
+    (@[$failed:expr] [$workspace:ident]: {$rule:expr $(, $( $($rest:tt)+ )? )?}) => {
+        $failed |= $crate::utils::check_and_report($rule(&$workspace), &$workspace)?;
+        $( $( chk!(@[$failed] [$workspace]: { $($rest)+ }) )? )?
+    };
 }
 
 pub fn check_and_report<'a>(
@@ -105,7 +113,7 @@ pub fn is_publishable(pkg: &Package) -> bool {
     !matches!(pkg.raw["package"].get("publish"), Some(toml::Value::Boolean(false)))
 }
 
-macro_rules! _pub_missing {
+macro_rules! pub_missing {
     ($pkg:expr, $($files:tt)+) => {{
         let pkg_root = $pkg.parsed.manifest_path.parent().unwrap();
         $crate::utils::is_publishable($pkg) && !$crate::utils::pub_missing!(@ [pkg_root] $($files)+)
@@ -124,4 +132,4 @@ macro_rules! _pub_missing {
     }};
 }
 
-pub(crate) use _pub_missing as pub_missing;
+pub(crate) use pub_missing;

@@ -50,6 +50,7 @@ fn main() -> anyhow::Result<()> {
 
     let passed = chk! {
         [workspace]: {
+            // put a `#` in front of a rule to skip it
             rules::is_unversioned,
             rules::has_publish_spec,
             rules::has_rust_version,
