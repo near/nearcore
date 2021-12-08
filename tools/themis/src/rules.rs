@@ -178,7 +178,7 @@ pub fn author_is_near(workspace: &Workspace) -> Result<(), Error> {
     return Ok(());
 }
 
-/// ensure all publishable crates have a license
+/// ensure all non-private crates have a license
 pub fn publishable_has_license(workspace: &Workspace) -> Result<(), Error> {
     let outliers = workspace
         .members
@@ -201,7 +201,7 @@ pub fn publishable_has_license(workspace: &Workspace) -> Result<(), Error> {
     return Ok(());
 }
 
-/// ensure all publishable crates have a license file
+/// ensure all non-private crates have a license file
 ///
 /// Checks for either one LICENSE file, or two LICENSE files, one of which
 /// is the Apache License 2.0 and the other is the MIT license.
