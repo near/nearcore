@@ -1,0 +1,19 @@
+[package]
+name = "near-cache"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+lru = "0.6.5"
+rand = "0.7"
+
+[dev-dependencies]
+bencher = "0.1.5"
+
+[[bench]]
+name = "cache"
+harness = false
+

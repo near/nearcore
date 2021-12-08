@@ -1,6 +1,6 @@
 use crate::common::message_wrapper::{ActixMessageResponse, ActixMessageWrapper};
 use crate::metrics;
-use crate::routing::edge::{Edge, EdgeType};
+use crate::routing::edge::{Edge, EdgeState};
 use crate::routing::edge_validator_actor::EdgeValidatorActor;
 use crate::routing::routing::{Graph, SAVE_PEERS_MAX_TIME};
 use crate::types::{StopMsg, ValidateEdgeList};
@@ -132,10 +132,10 @@ impl RoutingTableActor {
         } else {
             self.needs_routing_table_recalculation = true;
             match edge.edge_type() {
-                EdgeType::Added => {
+                EdgeState::Active => {
                     self.raw_graph.add_edge(&key.0, &key.1);
                 }
-                EdgeType::Removed => {
+                EdgeState::Removed => {
                     self.raw_graph.remove_edge(&key.0, &key.1);
                 }
             }
@@ -211,13 +211,7 @@ impl RoutingTableActor {
                                     ColPeerComponent,
                                     peer_id.try_to_vec().unwrap().as_ref(),
                                 );
-                            } else {
-                                warn!("We expected `peer_id` to belong to component {}, but it belongs to {}",
-                                       component_nonce, cur_nonce);
                             }
-                        } else {
-                            warn!("We expected `peer_id` to belong to a component {}, but it doesn't belong anywhere",
-                                       component_nonce);
                         }
                     }
                     self.add_verified_edge(edge);
@@ -509,7 +503,9 @@ pub enum RoutingTableMessagesResponse {
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     StartRoutingTableSyncResponse(crate::types::PeerMessage),
     RoutingTableUpdateResponse {
-        edges_to_remove: Vec<Edge>,
+        /// PeerManager maintains list of local edges. We will notify `PeerManager`
+        /// to remove those edges.
+        local_edges_to_remove: Vec<Edge>,
         /// Active PeerId that are part of the shortest path to each PeerId.
         peer_forwarding: Arc<HashMap<PeerId, Vec<PeerId>>>,
         /// List of peers to ban for sending invalid edges.
@@ -583,9 +579,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                 swap(&mut peers_to_ban, &mut self.peers_to_ban);
 
                 RoutingTableMessagesResponse::RoutingTableUpdateResponse {
-                    // PeerManager maintains list of local edges. We will notify `PeerManager`
-                    // to remove those edges.
-                    edges_to_remove: edges_removed,
+                    local_edges_to_remove: edges_removed,
                     peer_forwarding: self.peer_forwarding.clone(),
                     peers_to_ban,
                 }
