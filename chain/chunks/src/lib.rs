@@ -8,6 +8,7 @@ use cached::{Cached, SizedCache};
 use chrono::DateTime;
 use log::{debug, error, warn};
 use near_primitives::time::Utc;
+use rand::seq::IteratorRandom;
 use rand::seq::SliceRandom;
 
 use near_chain::validate::validate_chunk_proofs;
@@ -574,26 +575,29 @@ impl ShardsManager {
         shard_id: ShardId,
         request_from_archival: bool,
     ) -> Result<AccountIdOrPeerTrackingShard, near_chain::Error> {
-        let mut block_producers = vec![];
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash).unwrap();
-        for (validator_stake, is_slashed) in
-            self.runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, parent_hash)?
-        {
-            let account_id = validator_stake.take_account_id();
-            if !is_slashed
-                && self.cares_about_shard_this_or_next_epoch(
-                    Some(&account_id),
-                    &parent_hash,
-                    shard_id,
-                    false,
-                )
-                && self.me.as_ref() != Some(&account_id)
-            {
-                block_producers.push(account_id);
-            }
-        }
+        let block_producers = self
+            .runtime_adapter
+            .get_epoch_block_producers_ordered(&epoch_id, parent_hash)?
+            .into_iter()
+            .filter_map(|(validator_stake, is_slashed)| {
+                let account_id = validator_stake.take_account_id();
+                if !is_slashed
+                    && self.cares_about_shard_this_or_next_epoch(
+                        Some(&account_id),
+                        &parent_hash,
+                        shard_id,
+                        false,
+                    )
+                    && self.me.as_ref() != Some(&account_id)
+                {
+                    Some(account_id)
+                } else {
+                    None
+                }
+            });
 
-        let maybe_account_id = block_producers.choose(&mut rand::thread_rng()).cloned();
+        let maybe_account_id = block_producers.choose(&mut rand::thread_rng());
 
         Ok(AccountIdOrPeerTrackingShard {
             shard_id,
