@@ -76,7 +76,7 @@ pub enum DBCol {
     /// - *Content type*: Serializd RawTrieNodeWithSize or value ()
     ColState = 5,
     /// Mapping from BlockChunk to ChunkExtra
-    /// - *Rows*: BlockChunk (block hash, shard id)
+    /// - *Rows*: BlockChunk (block_hash, shard_uid)
     /// - *Content type*: [near_primitives::types::ChunkExtra]
     ColChunkExtra = 6,
     /// Mapping from transaction outcome id (CryptoHash) to list of outcome ids with proofs.
