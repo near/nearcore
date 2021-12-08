@@ -147,7 +147,7 @@ pub fn has_unified_rust_edition(workspace: &Workspace) -> Result<(), Error> {
         return Err(Error::OutcomeError {
             msg: "These packages have an unexpected rust edition".to_string(),
             expected: Some(Expected {
-                value: most_common_edition.to_string(),
+                value: most_common_edition.clone(),
                 reason: Some(format!("used by {} other packages in the workspace", n_compliant)),
             }),
             outliers,
@@ -226,6 +226,46 @@ pub fn publishable_has_license_file(workspace: &Workspace) -> Result<(), Error> 
         return Err(Error::OutcomeError {
             msg: "These non-private packages should have a license file".to_string(),
             expected: None,
+            outliers,
+        });
+    }
+
+    return Ok(());
+}
+
+/// ensure all non-private crates use the the same license
+pub fn publishable_has_unified_license(workspace: &Workspace) -> Result<(), Error> {
+    let mut license_groups = HashMap::new();
+
+    for pkg in &workspace.members {
+        if let Some(license) = &pkg.parsed.license {
+            *license_groups.entry(license).or_insert(0) += 1;
+        }
+    }
+
+    let (most_common_license, n_compliant) =
+        license_groups.into_iter().reduce(|a, b| if a.1 > b.1 { a } else { b }).unwrap();
+
+    let outliers = workspace
+        .members
+        .iter()
+        .filter(|pkg| {
+            utils::is_publishable(pkg)
+                && pkg.parsed.license.as_ref().map_or(false, |l| l != most_common_license)
+        })
+        .map(|pkg| PackageOutcome {
+            pkg,
+            value: pkg.parsed.license.as_ref().map(|l| l.to_string()),
+        })
+        .collect::<Vec<_>>();
+
+    if !outliers.is_empty() {
+        return Err(Error::OutcomeError {
+            msg: "These non-private packages have an unexpected license".to_string(),
+            expected: Some(Expected {
+                value: most_common_license.clone(),
+                reason: Some(format!("used by {} other packages in the workspace", n_compliant)),
+            }),
             outliers,
         });
     }
