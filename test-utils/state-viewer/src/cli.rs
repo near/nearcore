@@ -121,15 +121,7 @@ pub struct DumpStateCmd {
 
 impl DumpStateCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
-        dump_state(
-            self.height,
-            self.stream,
-            self.single_file_output,
-            self.file,
-            home_dir,
-            near_config,
-            store,
-        );
+        dump_state(self.height, self.stream, self.file, home_dir, near_config, store);
     }
 }
 
