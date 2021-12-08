@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Runs randomized staking transactions and makes some basic checks on the final `staked` values
 # In each epoch sends two sets of staking transactions, one when (last_height % 12 == 4), called "fake", and
 # one when (last_height % 12 == 7), called "real" (because the former will be overwritten by the later).
@@ -5,8 +6,9 @@
 # each node. Before "real" txs it is the largest of the same value, and the last "fake" stake.
 
 import sys, time, base58, random
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger

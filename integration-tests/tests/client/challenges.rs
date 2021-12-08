@@ -49,6 +49,7 @@ fn test_verify_block_double_sign_challenge() {
     block_merkle_tree.insert(*genesis.hash());
     let b2 = Block::produce(
         PROTOCOL_VERSION,
+        PROTOCOL_VERSION,
         genesis.header(),
         2,
         genesis.header().block_ordinal() + 1,
@@ -349,6 +350,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         client.chain.mut_store().get_block_merkle_tree(&last_block.hash()).unwrap().clone();
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
+        PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         &last_block.header(),
         last_block.header().height() + 1,

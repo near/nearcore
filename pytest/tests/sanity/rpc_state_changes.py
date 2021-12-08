@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up four nodes, deploy a smart contract to one node,
 # and call various scenarios to trigger store changes.
 # Check that the key changes are observable via `changes` RPC call.
@@ -7,10 +8,11 @@ import json
 import struct
 import sys
 import threading
+import pathlib
 
 import deepdiff
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from cluster import start_cluster
 from key import Key
 from utils import load_test_contract

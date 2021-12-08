@@ -4,7 +4,7 @@ use crate::routing::utils::cache_to_hashmap;
 use crate::PeerInfo;
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Message};
-use cached::{Cached, SizedCache};
+use lru::LruCache;
 use near_network_primitives::types::{PeerIdOrHash, Ping, Pong};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -57,7 +57,7 @@ pub struct RoutingTableView {
     /// PeerId associated with this instance.
     my_peer_id: PeerId,
     /// PeerId associated for every known account id.
-    account_peers: SizedCache<AccountId, AnnounceAccount>,
+    account_peers: LruCache<AccountId, AnnounceAccount>,
     /// Active PeerId that are part of the shortest path to each PeerId.
     pub peer_forwarding: Arc<HashMap<PeerId, Vec<PeerId>>>,
     /// Store last update for known edges. This is limited to list of adjacent edges to `my_peer_id`.
@@ -69,15 +69,15 @@ pub struct RoutingTableView {
     /// Number of times each active connection was used to route a message.
     /// If there are several options use route with minimum nonce.
     /// New routes are added with minimum nonce.
-    route_nonce: SizedCache<PeerId, usize>,
+    route_nonce: LruCache<PeerId, usize>,
     /// Ping received by nonce.
-    ping_info: SizedCache<usize, (Ping, usize)>,
+    ping_info: LruCache<usize, (Ping, usize)>,
     /// Ping received by nonce.
-    pong_info: SizedCache<usize, (Pong, usize)>,
+    pong_info: LruCache<usize, (Pong, usize)>,
     /// List of pings sent for which we haven't received any pong yet.
-    waiting_pong: SizedCache<PeerId, SizedCache<usize, Instant>>,
+    waiting_pong: LruCache<PeerId, LruCache<usize, Instant>>,
     /// Last nonce sent to each peer through pings.
-    last_ping_nonce: SizedCache<PeerId, usize>,
+    last_ping_nonce: LruCache<PeerId, usize>,
 }
 
 #[derive(Debug)]
@@ -94,16 +94,16 @@ impl RoutingTableView {
 
         Self {
             my_peer_id,
-            account_peers: SizedCache::with_size(ANNOUNCE_ACCOUNT_CACHE_SIZE),
+            account_peers: LruCache::new(ANNOUNCE_ACCOUNT_CACHE_SIZE),
             peer_forwarding: Default::default(),
             local_edges_info: Default::default(),
             route_back: RouteBackCache::default(),
             store,
-            route_nonce: SizedCache::with_size(ROUND_ROBIN_NONCE_CACHE_SIZE),
-            ping_info: SizedCache::with_size(PING_PONG_CACHE_SIZE),
-            pong_info: SizedCache::with_size(PING_PONG_CACHE_SIZE),
-            waiting_pong: SizedCache::with_size(PING_PONG_CACHE_SIZE),
-            last_ping_nonce: SizedCache::with_size(PING_PONG_CACHE_SIZE),
+            route_nonce: LruCache::new(ROUND_ROBIN_NONCE_CACHE_SIZE),
+            ping_info: LruCache::new(PING_PONG_CACHE_SIZE),
+            pong_info: LruCache::new(PING_PONG_CACHE_SIZE),
+            waiting_pong: LruCache::new(PING_PONG_CACHE_SIZE),
+            last_ping_nonce: LruCache::new(PING_PONG_CACHE_SIZE),
         }
     }
 
@@ -111,7 +111,7 @@ impl RoutingTableView {
     /// Works only for local edges.
     pub fn is_local_edge_newer(&self, key: &(PeerId, PeerId), nonce: u64) -> bool {
         assert!(key.0 == self.my_peer_id || key.1 == self.my_peer_id);
-        self.local_edges_info.get(&key).map_or(0, |x| x.nonce()) < nonce
+        self.local_edges_info.get(key).map_or(0, |x| x.nonce()) < nonce
     }
 
     pub fn reachable_peers(&self) -> impl Iterator<Item = &PeerId> {
@@ -121,7 +121,7 @@ impl RoutingTableView {
     /// Find peer that is connected to `source` and belong to the shortest path
     /// from `source` to `peer_id`.
     pub fn find_route_from_peer_id(&mut self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
-        if let Some(routes) = self.peer_forwarding.get(&peer_id).cloned() {
+        if let Some(routes) = self.peer_forwarding.get(peer_id).cloned() {
             if routes.is_empty() {
                 return Err(FindRouteError::Disconnected);
             }
@@ -132,9 +132,7 @@ impl RoutingTableView {
             // max nonce - threshold.
             let nonce_peer = routes
                 .iter()
-                .map(|peer_id| {
-                    (self.route_nonce.cache_get(&peer_id).cloned().unwrap_or(0), peer_id)
-                })
+                .map(|peer_id| (self.route_nonce.get(peer_id).cloned().unwrap_or(0), peer_id))
                 .collect::<Vec<_>>();
 
             // Neighbor with minimum and maximum nonce respectively.
@@ -143,12 +141,12 @@ impl RoutingTableView {
 
             if min_v.0 + ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED < max_v.0 {
                 self.route_nonce
-                    .cache_set(min_v.1.clone(), max_v.0 - ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED);
+                    .put(min_v.1.clone(), max_v.0 - ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED);
             }
 
             let next_hop = min_v.1;
-            let nonce = self.route_nonce.cache_get(&next_hop).cloned();
-            self.route_nonce.cache_set(next_hop.clone(), nonce.map_or(1, |nonce| nonce + 1));
+            let nonce = self.route_nonce.get(next_hop).cloned();
+            self.route_nonce.put(next_hop.clone(), nonce.map_or(1, |nonce| nonce + 1));
             Ok(next_hop.clone())
         } else {
             Err(FindRouteError::PeerNotFound)
@@ -157,9 +155,9 @@ impl RoutingTableView {
 
     pub fn find_route(&mut self, target: &PeerIdOrHash) -> Result<PeerId, FindRouteError> {
         match target {
-            PeerIdOrHash::PeerId(peer_id) => self.find_route_from_peer_id(&peer_id),
+            PeerIdOrHash::PeerId(peer_id) => self.find_route_from_peer_id(peer_id),
             PeerIdOrHash::Hash(hash) => {
-                self.fetch_route_back(hash.clone()).ok_or(FindRouteError::RouteBackNotFound)
+                self.fetch_route_back(*hash).ok_or(FindRouteError::RouteBackNotFound)
             }
         }
     }
@@ -168,14 +166,14 @@ impl RoutingTableView {
     pub fn account_owner(&mut self, account_id: &AccountId) -> Result<PeerId, FindRouteError> {
         self.get_announce(account_id)
             .map(|announce_account| announce_account.peer_id)
-            .ok_or_else(|| FindRouteError::AccountNotFound)
+            .ok_or(FindRouteError::AccountNotFound)
     }
 
     /// Add (account id, peer id) to routing table.
     /// Note: There is at most on peer id per account id.
     pub fn add_account(&mut self, announce_account: AnnounceAccount) {
         let account_id = announce_account.account_id.clone();
-        self.account_peers.cache_set(account_id.clone(), announce_account.clone());
+        self.account_peers.put(account_id.clone(), announce_account.clone());
 
         // Add account to store
         let mut update = self.store.store_update();
@@ -197,7 +195,7 @@ impl RoutingTableView {
     pub fn remove_edges(&mut self, edges: &Vec<Edge>) {
         for edge in edges.iter() {
             assert!(edge.key().0 == self.my_peer_id || edge.key().1 == self.my_peer_id);
-            self.local_edges_info.remove(&edge.key());
+            self.local_edges_info.remove(edge.key());
         }
     }
 
@@ -215,46 +213,46 @@ impl RoutingTableView {
     }
 
     pub fn add_ping(&mut self, ping: Ping) {
-        let cnt = self.ping_info.cache_get(&(ping.nonce as usize)).map(|v| v.1).unwrap_or(0);
+        let cnt = self.ping_info.get(&(ping.nonce as usize)).map(|v| v.1).unwrap_or(0);
 
-        self.ping_info.cache_set(ping.nonce as usize, (ping, cnt + 1));
+        self.ping_info.put(ping.nonce as usize, (ping, cnt + 1));
     }
 
     /// Return time of the round trip of ping + pong
     pub fn add_pong(&mut self, pong: Pong) -> Option<f64> {
         let mut res = None;
 
-        if let Some(nonces) = self.waiting_pong.cache_get_mut(&pong.source) {
-            res = nonces.cache_remove(&(pong.nonce as usize)).and_then(|sent| {
-                Some(Clock::instant().saturating_duration_since(sent).as_secs_f64() * 1000f64)
+        if let Some(nonces) = self.waiting_pong.get_mut(&pong.source) {
+            res = nonces.pop(&(pong.nonce as usize)).map(|sent| {
+                Clock::instant().saturating_duration_since(sent).as_secs_f64() * 1000f64
             });
         }
 
-        let cnt = self.pong_info.cache_get(&(pong.nonce as usize)).map(|v| v.1).unwrap_or(0);
+        let cnt = self.pong_info.get(&(pong.nonce as usize)).map(|v| v.1).unwrap_or(0);
 
-        self.pong_info.cache_set(pong.nonce as usize, (pong, (cnt + 1)));
+        self.pong_info.put(pong.nonce as usize, (pong, (cnt + 1)));
 
         res
     }
 
     // for unit tests
     pub fn sending_ping(&mut self, nonce: usize, target: PeerId) {
-        let entry = if let Some(entry) = self.waiting_pong.cache_get_mut(&target) {
+        let entry = if let Some(entry) = self.waiting_pong.get_mut(&target) {
             entry
         } else {
-            self.waiting_pong.cache_set(target.clone(), SizedCache::with_size(10));
-            self.waiting_pong.cache_get_mut(&target).unwrap()
+            self.waiting_pong.put(target.clone(), LruCache::new(10));
+            self.waiting_pong.get_mut(&target).unwrap()
         };
 
-        entry.cache_set(nonce, Clock::instant());
+        entry.put(nonce, Clock::instant());
     }
 
     pub fn get_ping(&mut self, peer_id: PeerId) -> usize {
-        if let Some(entry) = self.last_ping_nonce.cache_get_mut(&peer_id) {
+        if let Some(entry) = self.last_ping_nonce.get_mut(&peer_id) {
             *entry += 1;
             *entry - 1
         } else {
-            self.last_ping_nonce.cache_set(peer_id, 1);
+            self.last_ping_nonce.put(peer_id, 1);
             0
         }
     }
@@ -279,32 +277,32 @@ impl RoutingTableView {
     ///
     /// Get keys currently on cache.
     pub fn get_accounts_keys(&mut self) -> Vec<AccountId> {
-        self.account_peers.key_order().cloned().collect()
+        self.account_peers.iter().map(|(k, _v)| (k.clone())).collect()
     }
 
     /// Get announce accounts on cache.
     pub fn get_announce_accounts(&mut self) -> Vec<AnnounceAccount> {
-        self.account_peers.value_order().cloned().collect()
+        self.account_peers.iter().map(|(_k, v)| v).cloned().collect()
     }
 
     /// Get number of accounts
     pub fn get_announce_accounts_size(&mut self) -> usize {
-        self.account_peers.cache_size()
+        self.account_peers.len()
     }
 
     /// Get account announce from
     pub fn get_announce(&mut self, account_id: &AccountId) -> Option<AnnounceAccount> {
-        if let Some(announce_account) = self.account_peers.cache_get(&account_id) {
+        if let Some(announce_account) = self.account_peers.get(account_id) {
             Some(announce_account.clone())
         } else {
             self.store
                 .get_ser(ColAccountAnnouncements, account_id.as_ref().as_bytes())
-                .and_then(|res: Option<AnnounceAccount>| {
+                .map(|res: Option<AnnounceAccount>| {
                     if let Some(announce_account) = res {
                         self.add_account(announce_account.clone());
-                        Ok(Some(announce_account))
+                        Some(announce_account)
                     } else {
-                        Ok(None)
+                        None
                     }
                 })
                 .unwrap_or_else(|e| {
@@ -321,6 +319,7 @@ impl RoutingTableView {
         self.local_edges_info.get(&key)
     }
 }
+
 #[derive(Debug)]
 pub struct RoutingTableInfo {
     pub account_peers: HashMap<AccountId, PeerId>,
@@ -389,8 +388,8 @@ impl Graph {
     }
 
     fn contains_edge(&self, peer0: &PeerId, peer1: &PeerId) -> bool {
-        if let Some(&id0) = self.p2id.get(&peer0) {
-            if let Some(&id1) = self.p2id.get(&peer1) {
+        if let Some(&id0) = self.p2id.get(peer0) {
+            if let Some(&id1) = self.p2id.get(peer1) {
                 return self.adjacency[id0 as usize].contains(&id1);
             }
         }
@@ -446,9 +445,9 @@ impl Graph {
 
     pub fn remove_edge(&mut self, peer0: &PeerId, peer1: &PeerId) {
         assert_ne!(peer0, peer1);
-        if self.contains_edge(&peer0, &peer1) {
-            let id0 = self.get_id(&peer0);
-            let id1 = self.get_id(&peer1);
+        if self.contains_edge(peer0, peer1) {
+            let id0 = self.get_id(peer0);
+            let id1 = self.get_id(peer1);
 
             self.adjacency[id0 as usize].retain(|&x| x != id1);
             self.adjacency[id1 as usize].retain(|&x| x != id0);
@@ -594,7 +593,7 @@ mod test {
         let source = random_peer_id();
         let nodes: Vec<_> = (0..3).map(|_| random_peer_id()).collect();
 
-        let mut graph = Graph::new(source.clone());
+        let mut graph = Graph::new(source);
 
         graph.add_edge(&nodes[0], &nodes[1]);
         graph.add_edge(&nodes[2], &nodes[1]);

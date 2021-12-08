@@ -50,6 +50,7 @@ use near_network_primitives::types::{
     PartialEncodedChunkForwardMsg, PartialEncodedChunkResponseMsg,
 };
 use near_primitives::block_header::ApprovalType;
+use near_primitives::epoch_manager::RngSeed;
 use near_primitives::version::PROTOCOL_VERSION;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
@@ -113,6 +114,7 @@ impl Client {
         network_adapter: Arc<dyn PeerManagerAdapter>,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         enable_doomslug: bool,
+        rng_seed: RngSeed,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -124,6 +126,7 @@ impl Client {
             validator_signer.as_ref().map(|x| x.validator_id().clone()),
             runtime_adapter.clone(),
             network_adapter.clone(),
+            rng_seed,
         );
         let sync_status = SyncStatus::AwaitingPeers;
         let genesis_block = chain.genesis_block();
@@ -433,7 +436,12 @@ impl Client {
         let max_gas_price = self.chain.block_economics_config.max_gas_price(protocol_version);
 
         let next_bp_hash = if prev_epoch_id != epoch_id {
-            Chain::compute_bp_hash(&*self.runtime_adapter, next_epoch_id.clone(), &prev_hash)?
+            Chain::compute_bp_hash(
+                &*self.runtime_adapter,
+                next_epoch_id.clone(),
+                epoch_id.clone(),
+                &prev_hash,
+            )?
         } else {
             prev_next_bp_hash
         };
@@ -482,10 +490,14 @@ impl Client {
         // Get all the current challenges.
         // TODO(2445): Enable challenges when they are working correctly.
         // let challenges = self.challenges.drain().map(|(_, challenge)| challenge).collect();
-        let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&next_epoch_id)?;
+        let this_epoch_protocol_version =
+            self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
+        let next_epoch_protocol_version =
+            self.runtime_adapter.get_epoch_protocol_version(&next_epoch_id)?;
 
         let block = Block::produce(
-            protocol_version,
+            this_epoch_protocol_version,
+            next_epoch_protocol_version,
             &prev_header,
             next_height,
             block_ordinal,
@@ -511,7 +523,7 @@ impl Client {
             seen: to_timestamp(Clock::utc()),
         })?;
 
-        near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
+        metrics::BLOCK_PRODUCED_TOTAL.inc();
 
         Ok(Some(block))
     }
@@ -622,7 +634,7 @@ impl Client {
             encoded_chunk.chunk_hash().0,
         );
 
-        near_metrics::inc_counter(&metrics::CHUNK_PRODUCED_TOTAL);
+        metrics::CHUNK_PRODUCED_TOTAL.inc();
         Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
     }
 
@@ -1020,7 +1032,7 @@ impl Client {
             };
             self.chain.blocks_with_missing_chunks.prune_blocks_below_height(last_finalized_height);
             if !self.config.archive {
-                let timer = near_metrics::start_timer(&metrics::GC_TIME);
+                let timer = metrics::GC_TIME.start_timer();
                 if let Err(err) = self
                     .chain
                     .clear_data(self.runtime_adapter.get_tries(), self.config.gc_blocks_limit)
@@ -1028,7 +1040,7 @@ impl Client {
                     error!(target: "client", "Can't clear old data, {:?}", err);
                     debug_assert!(false);
                 };
-                near_metrics::stop_timer(timer);
+                timer.observe_duration();
             }
 
             if self.runtime_adapter.is_next_block_epoch_start(block.hash()).unwrap_or(false) {

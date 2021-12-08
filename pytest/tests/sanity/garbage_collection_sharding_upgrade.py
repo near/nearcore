@@ -1,11 +1,13 @@
+#!/usr/bin/env python3
 # Spins up two validating nodes. The nodes start with 1 shard and will update to 4 shards
 # Stop one of them and make another one produce
 # sufficient number of blocks. Restart the stopped node and check that it can
 # still sync.
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger

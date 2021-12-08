@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up four validating nodes. Wait until they produce 20 blocks.
 # Kill the first two nodes, let the rest two produce 30 blocks.
 # Kill the remaining two and restart the first two. Let them produce also 30 blocks
@@ -5,8 +6,9 @@
 # and produce blocks
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger

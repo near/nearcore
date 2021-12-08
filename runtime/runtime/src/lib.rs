@@ -224,7 +224,7 @@ impl Runtime {
     ) -> Result<(Receipt, ExecutionOutcomeWithId), RuntimeError> {
         let _span =
             tracing::debug_span!(target: "runtime", "Runtime::process_transaction").entered();
-        near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_TOTAL);
+        metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
         match verify_and_charge_transaction(
             &apply_state.config,
@@ -236,7 +236,7 @@ impl Runtime {
             apply_state.current_protocol_version,
         ) {
             Ok(verification_result) => {
-                near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL);
+                metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
                 state_update.commit(StateChangeCause::TransactionProcessing {
                     tx_hash: signed_transaction.get_hash(),
                 });
@@ -279,7 +279,7 @@ impl Runtime {
                 Ok((receipt, outcome))
             }
             Err(e) => {
-                near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_FAILED_TOTAL);
+                metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                 state_update.rollback();
                 return Err(e);
             }
@@ -333,7 +333,7 @@ impl Runtime {
         }
         match action {
             Action::CreateAccount(_) => {
-                near_metrics::inc_counter(&metrics::ACTION_CREATE_ACCOUNT_TOTAL);
+                metrics::ACTION_CREATE_ACCOUNT_TOTAL.inc();
                 action_create_account(
                     &apply_state.config.transaction_costs,
                     &apply_state.config.account_creation_config,
@@ -345,7 +345,7 @@ impl Runtime {
                 );
             }
             Action::DeployContract(deploy_contract) => {
-                near_metrics::inc_counter(&metrics::ACTION_DEPLOY_CONTRACT_TOTAL);
+                metrics::ACTION_DEPLOY_CONTRACT_TOTAL.inc();
                 action_deploy_contract(
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
@@ -356,7 +356,7 @@ impl Runtime {
                 )?;
             }
             Action::FunctionCall(function_call) => {
-                near_metrics::inc_counter(&metrics::ACTION_FUNCTION_CALL_TOTAL);
+                metrics::ACTION_FUNCTION_CALL_TOTAL.inc();
                 action_function_call(
                     state_update,
                     apply_state,
@@ -374,7 +374,7 @@ impl Runtime {
                 )?;
             }
             Action::Transfer(transfer) => {
-                near_metrics::inc_counter(&metrics::ACTION_TRANSFER_TOTAL);
+                metrics::ACTION_TRANSFER_TOTAL.inc();
                 if let Some(account) = account.as_mut() {
                     action_transfer(account, transfer)?;
                     // Check if this is a gas refund, then try to refund the access key allowance.
@@ -399,11 +399,13 @@ impl Runtime {
                         actor_id,
                         &receipt.receiver_id,
                         transfer,
+                        apply_state.block_index,
+                        apply_state.current_protocol_version,
                     );
                 }
             }
             Action::Stake(stake) => {
-                near_metrics::inc_counter(&metrics::ACTION_STAKE_TOTAL);
+                metrics::ACTION_STAKE_TOTAL.inc();
                 action_stake(
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
@@ -416,7 +418,7 @@ impl Runtime {
                 )?;
             }
             Action::AddKey(add_key) => {
-                near_metrics::inc_counter(&metrics::ACTION_ADD_KEY_TOTAL);
+                metrics::ACTION_ADD_KEY_TOTAL.inc();
                 action_add_key(
                     apply_state,
                     state_update,
@@ -427,7 +429,7 @@ impl Runtime {
                 )?;
             }
             Action::DeleteKey(delete_key) => {
-                near_metrics::inc_counter(&metrics::ACTION_DELETE_KEY_TOTAL);
+                metrics::ACTION_DELETE_KEY_TOTAL.inc();
                 action_delete_key(
                     &apply_state.config.transaction_costs,
                     state_update,
@@ -439,7 +441,7 @@ impl Runtime {
                 )?;
             }
             Action::DeleteAccount(delete_account) => {
-                near_metrics::inc_counter(&metrics::ACTION_DELETE_ACCOUNT_TOTAL);
+                metrics::ACTION_DELETE_ACCOUNT_TOTAL.inc();
                 action_delete_account(
                     state_update,
                     account,
@@ -453,7 +455,7 @@ impl Runtime {
             }
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
             Action::StakeChunkOnly(stake) => {
-                near_metrics::inc_counter(&metrics::ACTION_STAKE_CHUNK_ONLY_TOTAL);
+                metrics::ACTION_STAKE_CHUNK_ONLY_TOTAL.inc();
                 action_stake(
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
@@ -1531,7 +1533,8 @@ mod tests {
     #[test]
     fn test_get_and_set_accounts() {
         let tries = create_tries();
-        let mut state_update = tries.new_trie_update(ShardUId::default(), MerkleHash::default());
+        let mut state_update =
+            tries.new_trie_update(ShardUId::single_shard(), MerkleHash::default());
         let test_account = account_new(to_yocto(10), hash(&[]));
         let account_id = bob_account();
         set_account(&mut state_update, account_id.clone(), &test_account);
@@ -1543,15 +1546,16 @@ mod tests {
     fn test_get_account_from_trie() {
         let tries = create_tries();
         let root = MerkleHash::default();
-        let mut state_update = tries.new_trie_update(ShardUId::default(), root);
+        let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
         let test_account = account_new(to_yocto(10), hash(&[]));
         let account_id = bob_account();
         set_account(&mut state_update, account_id.clone(), &test_account);
         state_update.commit(StateChangeCause::InitialState);
         let trie_changes = state_update.finalize().unwrap().0;
-        let (store_update, new_root) = tries.apply_all(&trie_changes, ShardUId::default()).unwrap();
+        let (store_update, new_root) =
+            tries.apply_all(&trie_changes, ShardUId::single_shard()).unwrap();
         store_update.commit().unwrap();
-        let new_state_update = tries.new_trie_update(ShardUId::default(), new_root);
+        let new_state_update = tries.new_trie_update(ShardUId::single_shard(), new_root);
         let get_res = get_account(&new_state_update, &account_id).unwrap().unwrap();
         assert_eq!(test_account, get_res);
     }
@@ -1576,7 +1580,7 @@ mod tests {
             account_id.as_ref(),
         ));
 
-        let mut initial_state = tries.new_trie_update(ShardUId::default(), root);
+        let mut initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
         let mut initial_account = account_new(initial_balance, hash(&[]));
         // For the account and a full access key
         initial_account.set_storage_usage(182);
@@ -1590,7 +1594,8 @@ mod tests {
         );
         initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap().0;
-        let (store_update, root) = tries.apply_all(&trie_changes, ShardUId::default()).unwrap();
+        let (store_update, root) =
+            tries.apply_all(&trie_changes, ShardUId::single_shard()).unwrap();
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
@@ -1620,7 +1625,7 @@ mod tests {
             setup_runtime(to_yocto(1_000_000), 0, 10u64.pow(15));
         runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::default()),
+                tries.get_trie_for_shard(ShardUId::single_shard()),
                 root,
                 &None,
                 &apply_state,
@@ -1650,7 +1655,7 @@ mod tests {
 
         runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::default()),
+                tries.get_trie_for_shard(ShardUId::single_shard()),
                 root,
                 &Some(validator_accounts_update),
                 &apply_state,
@@ -1679,7 +1684,7 @@ mod tests {
             let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
             let apply_result = runtime
                 .apply(
-                    tries.get_trie_for_shard(ShardUId::default()),
+                    tries.get_trie_for_shard(ShardUId::single_shard()),
                     root,
                     &None,
                     &apply_state,
@@ -1690,10 +1695,10 @@ mod tests {
                 )
                 .unwrap();
             let (store_update, new_root) =
-                tries.apply_all(&apply_result.trie_changes, ShardUId::default()).unwrap();
+                tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
             root = new_root;
             store_update.commit().unwrap();
-            let state = tries.new_trie_update(ShardUId::default(), root);
+            let state = tries.new_trie_update(ShardUId::single_shard(), root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             let capped_i = std::cmp::min(i, n);
             assert_eq!(
@@ -1722,7 +1727,7 @@ mod tests {
             let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
             let apply_result = runtime
                 .apply(
-                    tries.get_trie_for_shard(ShardUId::default()),
+                    tries.get_trie_for_shard(ShardUId::single_shard()),
                     root,
                     &None,
                     &apply_state,
@@ -1733,10 +1738,10 @@ mod tests {
                 )
                 .unwrap();
             let (store_update, new_root) =
-                tries.apply_all(&apply_result.trie_changes, ShardUId::default()).unwrap();
+                tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
             root = new_root;
             store_update.commit().unwrap();
-            let state = tries.new_trie_update(ShardUId::default(), root);
+            let state = tries.new_trie_update(ShardUId::single_shard(), root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             let capped_i = std::cmp::min(i, n);
             assert_eq!(
@@ -1773,7 +1778,7 @@ mod tests {
             let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
             let apply_result = runtime
                 .apply(
-                    tries.get_trie_for_shard(ShardUId::default()),
+                    tries.get_trie_for_shard(ShardUId::single_shard()),
                     root,
                     &None,
                     &apply_state,
@@ -1784,10 +1789,10 @@ mod tests {
                 )
                 .unwrap();
             let (store_update, new_root) =
-                tries.apply_all(&apply_result.trie_changes, ShardUId::default()).unwrap();
+                tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
             root = new_root;
             store_update.commit().unwrap();
-            let state = tries.new_trie_update(ShardUId::default(), root);
+            let state = tries.new_trie_update(ShardUId::single_shard(), root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             let capped_i = std::cmp::min(i * 3, n);
             assert_eq!(
@@ -1833,7 +1838,7 @@ mod tests {
             num_receipts_given += prev_receipts.len() as u64;
             let apply_result = runtime
                 .apply(
-                    tries.get_trie_for_shard(ShardUId::default()),
+                    tries.get_trie_for_shard(ShardUId::single_shard()),
                     root,
                     &None,
                     &apply_state,
@@ -1844,10 +1849,10 @@ mod tests {
                 )
                 .unwrap();
             let (store_update, new_root) =
-                tries.apply_all(&apply_result.trie_changes, ShardUId::default()).unwrap();
+                tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
             root = new_root;
             store_update.commit().unwrap();
-            let state = tries.new_trie_update(ShardUId::default(), root);
+            let state = tries.new_trie_update(ShardUId::single_shard(), root);
             num_receipts_processed += apply_result.outcomes.len() as u64;
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             assert_eq!(
@@ -1936,7 +1941,7 @@ mod tests {
         // The new delayed queue is TX#3, R#0, R#1.
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::default()),
+                tries.get_trie_for_shard(ShardUId::single_shard()),
                 root,
                 &None,
                 &apply_state,
@@ -1947,7 +1952,7 @@ mod tests {
             )
             .unwrap();
         let (store_update, root) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::default()).unwrap();
+            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -1985,7 +1990,7 @@ mod tests {
         // The new delayed queue is R#1, R#2
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::default()),
+                tries.get_trie_for_shard(ShardUId::single_shard()),
                 root,
                 &None,
                 &apply_state,
@@ -1996,7 +2001,7 @@ mod tests {
             )
             .unwrap();
         let (store_update, root) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::default()).unwrap();
+            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -2026,7 +2031,7 @@ mod tests {
         // The new delayed queue is R#1, R#2, TX#8, R#3
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::default()),
+                tries.get_trie_for_shard(ShardUId::single_shard()),
                 root,
                 &None,
                 &apply_state,
@@ -2037,7 +2042,7 @@ mod tests {
             )
             .unwrap();
         let (store_update, root) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::default()).unwrap();
+            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -2075,7 +2080,7 @@ mod tests {
         // The new delayed queue is R#3, R#4
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::default()),
+                tries.get_trie_for_shard(ShardUId::single_shard()),
                 root,
                 &None,
                 &apply_state,
@@ -2086,7 +2091,7 @@ mod tests {
             )
             .unwrap();
         let (store_update, root) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::default()).unwrap();
+            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -2109,7 +2114,7 @@ mod tests {
         // The new delayed queue is empty.
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::default()),
+                tries.get_trie_for_shard(ShardUId::single_shard()),
                 root,
                 &None,
                 &apply_state,
@@ -2148,7 +2153,7 @@ mod tests {
 
         let result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::default()),
+                tries.get_trie_for_shard(ShardUId::single_shard()),
                 root,
                 &None,
                 &apply_state,
@@ -2208,7 +2213,7 @@ mod tests {
 
         let result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::default()),
+                tries.get_trie_for_shard(ShardUId::single_shard()),
                 root,
                 &None,
                 &apply_state,
@@ -2278,7 +2283,7 @@ mod tests {
 
         let result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::default()),
+                tries.get_trie_for_shard(ShardUId::single_shard()),
                 root,
                 &None,
                 &apply_state,
@@ -2300,7 +2305,7 @@ mod tests {
         let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
             setup_runtime(to_yocto(1_000_000), initial_locked, 10u64.pow(15));
 
-        let state_update = tries.new_trie_update(ShardUId::default(), root);
+        let state_update = tries.new_trie_update(ShardUId::single_shard(), root);
         let initial_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
 
         let actions = vec![
@@ -2315,7 +2320,7 @@ mod tests {
 
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::default()),
+                tries.get_trie_for_shard(ShardUId::single_shard()),
                 root,
                 &None,
                 &apply_state,
@@ -2326,10 +2331,10 @@ mod tests {
             )
             .unwrap();
         let (store_update, root) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::default()).unwrap();
+            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
         store_update.commit().unwrap();
 
-        let state_update = tries.new_trie_update(ShardUId::default(), root);
+        let state_update = tries.new_trie_update(ShardUId::single_shard(), root);
         let final_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
 
         assert_eq!(initial_account_state.storage_usage(), final_account_state.storage_usage());
@@ -2341,14 +2346,15 @@ mod tests {
         let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
             setup_runtime(to_yocto(1_000_000), initial_locked, 10u64.pow(15));
 
-        let mut state_update = tries.new_trie_update(ShardUId::default(), root);
+        let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
         let mut initial_account_state =
             get_account(&state_update, &alice_account()).unwrap().unwrap();
         initial_account_state.set_storage_usage(10);
         set_account(&mut state_update, alice_account(), &initial_account_state);
         state_update.commit(StateChangeCause::InitialState);
         let trie_changes = state_update.finalize().unwrap().0;
-        let (store_update, root) = tries.apply_all(&trie_changes, ShardUId::default()).unwrap();
+        let (store_update, root) =
+            tries.apply_all(&trie_changes, ShardUId::single_shard()).unwrap();
         store_update.commit().unwrap();
 
         let actions = vec![Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key() })];
@@ -2357,7 +2363,7 @@ mod tests {
 
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::default()),
+                tries.get_trie_for_shard(ShardUId::single_shard()),
                 root,
                 &None,
                 &apply_state,
@@ -2368,10 +2374,10 @@ mod tests {
             )
             .unwrap();
         let (store_update, root) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::default()).unwrap();
+            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
         store_update.commit().unwrap();
 
-        let state_update = tries.new_trie_update(ShardUId::default(), root);
+        let state_update = tries.new_trie_update(ShardUId::single_shard(), root);
         let final_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
 
         assert_eq!(final_account_state.storage_usage(), 0);
@@ -2393,7 +2399,7 @@ mod tests {
 
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::default()),
+                tries.get_trie_for_shard(ShardUId::single_shard()),
                 root,
                 &None,
                 &apply_state,
@@ -2404,7 +2410,7 @@ mod tests {
             )
             .unwrap();
         let (store_update, _) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::default()).unwrap();
+            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
         store_update.commit().unwrap();
 
         let contract_code = ContractCode::new(wasm_code, None);

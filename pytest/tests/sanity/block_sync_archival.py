@@ -1,9 +1,11 @@
+#!/usr/bin/env python3
 # Spins up one validating node and one non-validating node that is archival. Let the validating node run
 # for a while and make sure that the archival node will sync all blocks.
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 

@@ -203,7 +203,12 @@ impl GenesisBuilder {
             self.genesis.config.genesis_height,
             self.genesis.config.min_gas_price,
             self.genesis.config.total_supply,
-            Chain::compute_bp_hash(&self.runtime, EpochId::default(), &CryptoHash::default())?,
+            Chain::compute_bp_hash(
+                &self.runtime,
+                EpochId::default(),
+                EpochId::default(),
+                &CryptoHash::default(),
+            )?,
         );
 
         let mut store = ChainStore::new(self.store.clone(), self.genesis.config.genesis_height);

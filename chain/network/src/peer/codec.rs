@@ -115,7 +115,7 @@ fn peer_id_type_field_len(enum_var: u8) -> Option<usize> {
 /// and `RoutedMessage.body` has type of `RoutedMessageBody::ForwardTx`.
 ///
 /// This is done to avoid expensive borsch-deserializing.
-pub(crate) fn is_forward_tx(bytes: &[u8]) -> Option<bool> {
+pub(crate) fn is_forward_transaction(bytes: &[u8]) -> Option<bool> {
     // PeerMessage::Routed variant == 13
     let peer_message_variant = *bytes.get(0)?;
     if peer_message_variant != 13 {
@@ -174,9 +174,11 @@ pub(crate) fn is_forward_tx(bytes: &[u8]) -> Option<bool> {
 
 #[cfg(test)]
 mod test {
-    use crate::peer::codec::{is_forward_tx, Codec, NETWORK_MESSAGE_MAX_SIZE_BYTES};
-    use crate::routing::edge::EdgeInfo;
-    use crate::types::{Handshake, HandshakeFailureReason, HandshakeV2, PeerMessage, SyncData};
+    use crate::peer::codec::{is_forward_transaction, Codec, NETWORK_MESSAGE_MAX_SIZE_BYTES};
+    use crate::routing::edge::PartialEdgeInfo;
+    use crate::types::{
+        Handshake, HandshakeFailureReason, HandshakeV2, PeerMessage, RoutingTableUpdate,
+    };
     use crate::PeerInfo;
     use borsh::BorshDeserialize;
     use borsh::BorshSerialize;
@@ -281,7 +283,7 @@ mod test {
         schemas.for_each(|s| {
             let msg = create_tx_forward(s);
             let bytes = msg.try_to_vec().unwrap();
-            assert!(is_forward_tx(&bytes).unwrap());
+            assert!(is_forward_transaction(&bytes).unwrap());
         })
     }
 
@@ -289,18 +291,18 @@ mod test {
     fn test_peer_message_handshake() {
         let peer_info = PeerInfo::random();
         let fake_handshake = Handshake {
-            version: PROTOCOL_VERSION,
+            protocol_version: PROTOCOL_VERSION,
             oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
-            peer_id: peer_info.id.clone(),
+            sender_peer_id: peer_info.id.clone(),
             target_peer_id: peer_info.id,
-            listen_port: None,
-            chain_info: PeerChainInfoV2 {
+            sender_listen_port: None,
+            sender_chain_info: PeerChainInfoV2 {
                 genesis_id: Default::default(),
                 height: 0,
                 tracked_shards: vec![],
                 archival: false,
             },
-            edge_info: EdgeInfo::default(),
+            partial_edge_info: PartialEdgeInfo::default(),
         };
         let msg = PeerMessage::Handshake(fake_handshake);
         test_codec(msg);
@@ -310,17 +312,17 @@ mod test {
     fn test_peer_message_handshake_v2() {
         let peer_info = PeerInfo::random();
         let fake_handshake = HandshakeV2 {
-            version: PROTOCOL_VERSION,
+            protocol_version: PROTOCOL_VERSION,
             oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
-            peer_id: peer_info.id.clone(),
+            sender_peer_id: peer_info.id.clone(),
             target_peer_id: peer_info.id,
-            listen_port: None,
+            sender_listen_port: None,
             chain_info: PeerChainInfo {
                 genesis_id: Default::default(),
                 height: 0,
                 tracked_shards: vec![],
             },
-            edge_info: EdgeInfo::default(),
+            partial_edge_info: PartialEdgeInfo::default(),
         };
         let msg = PeerMessage::HandshakeV2(fake_handshake);
         test_codec(msg);
@@ -329,17 +331,17 @@ mod test {
     #[test]
     fn test_peer_message_handshake_v2_00() {
         let fake_handshake = HandshakeV2 {
-            version: 0,
+            protocol_version: 0,
             oldest_supported_version: 0,
-            peer_id: PeerId::new(PublicKey::empty(KeyType::ED25519)),
+            sender_peer_id: PeerId::new(PublicKey::empty(KeyType::ED25519)),
             target_peer_id: PeerId::new(PublicKey::empty(KeyType::ED25519)),
-            listen_port: None,
+            sender_listen_port: None,
             chain_info: PeerChainInfo {
                 genesis_id: Default::default(),
                 height: 0,
                 tracked_shards: vec![],
             },
-            edge_info: EdgeInfo::default(),
+            partial_edge_info: PartialEdgeInfo::default(),
         };
         let msg = PeerMessage::HandshakeV2(fake_handshake);
 
@@ -375,15 +377,14 @@ mod test {
         let sk = SecretKey::from_random(KeyType::ED25519);
         let network_sk = SecretKey::from_random(KeyType::ED25519);
         let signature = sk.sign(vec![].as_slice());
-        let msg = PeerMessage::RoutingTableSync(SyncData {
-            edges: Vec::new(),
-            accounts: vec![AnnounceAccount {
+        let msg = PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_accounts(vec![
+            AnnounceAccount {
                 account_id: "test1".parse().unwrap(),
                 peer_id: PeerId::new(network_sk.public_key()),
                 epoch_id: EpochId::default(),
                 signature,
-            }],
-        });
+            },
+        ]));
         test_codec(msg);
     }
 

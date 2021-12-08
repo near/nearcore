@@ -67,6 +67,7 @@ fn add_blocks(
         .unwrap();
         let block = Block::produce(
             PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
             &prev.header(),
             prev.header().height() + 1,
             prev.header().block_ordinal() + 1,

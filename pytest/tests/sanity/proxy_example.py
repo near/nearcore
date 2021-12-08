@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # This test is an example about how to use the proxy features.
 #
 # Create two nodes and add a proxy between them.
@@ -7,8 +8,9 @@
 import sys, time, asyncio
 import multiprocessing
 import functools
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger

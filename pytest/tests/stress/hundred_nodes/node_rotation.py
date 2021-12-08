@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import base58
 from enum import Enum
 import os
@@ -7,7 +8,7 @@ import sys
 import tempfile
 import time
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from cluster import GCloudNode, Key
 from configured_logger import logger
 from transaction import sign_staking_tx

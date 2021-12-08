@@ -1,5 +1,5 @@
-use crate::cases::ratio_to_gas_signed;
-use crate::testbed_runners::{end_count, start_count, GasMetric};
+use crate::gas_cost::{ratio_to_gas_signed, GasCost};
+use crate::testbed_runners::GasMetric;
 use crate::vm_estimator::{create_context, least_squares_method};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -8,11 +8,12 @@ use near_store::{create_store, StoreCompiledContractCache};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::internal::VMKind;
 use nearcore::get_store_path;
+use num_rational::Ratio;
+use num_traits::ToPrimitive;
 use std::fmt::Write;
 use std::sync::Arc;
 
-#[allow(dead_code)]
-fn test_function_call(metric: GasMetric, vm_kind: VMKind) {
+pub(crate) fn test_function_call(metric: GasMetric, vm_kind: VMKind) -> (Ratio<i128>, Ratio<i128>) {
     let mut xs = vec![];
     let mut ys = vec![];
     const REPEATS: u64 = 50;
@@ -26,18 +27,17 @@ fn test_function_call(metric: GasMetric, vm_kind: VMKind) {
 
     // Regression analysis only makes sense for additive metrics.
     if metric == GasMetric::Time {
-        return;
+        return (0.into(), 0.into());
     }
 
     let (cost_base, cost_byte, _) = least_squares_method(&xs, &ys);
-
+    let gas_cost_base = ratio_to_gas_signed(metric, cost_base);
+    let gas_cost_byte = ratio_to_gas_signed(metric, cost_byte);
     println!(
         "{:?} {:?} function call base {} gas, per byte {} gas",
-        vm_kind,
-        metric,
-        ratio_to_gas_signed(metric, cost_base),
-        ratio_to_gas_signed(metric, cost_byte),
+        vm_kind, metric, gas_cost_base, gas_cost_byte,
     );
+    (cost_base, cost_byte)
 }
 
 #[test]
@@ -128,7 +128,7 @@ pub fn compute_function_call_cost(
         assert!(result.1.is_none());
     }
     // Run with gas metering.
-    let start = start_count(gas_metric);
+    let start = GasCost::measure(gas_metric);
     for _ in 0..repeats {
         let result = runtime.run(
             &contract,
@@ -143,7 +143,7 @@ pub fn compute_function_call_cost(
         );
         assert!(result.1.is_none());
     }
-    let total_raw = end_count(gas_metric, &start) as i128;
+    let total_raw = start.elapsed().scalar_cost().to_i128().unwrap();
 
     println!("cost is {}", total_raw);
 

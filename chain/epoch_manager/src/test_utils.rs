@@ -2,6 +2,10 @@ use std::collections::{BTreeMap, HashMap};
 
 use num_rational::Rational;
 
+use crate::proposals::find_threshold;
+use crate::RewardCalculator;
+use crate::RngSeed;
+use crate::{BlockInfo, EpochManager};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::epoch_manager::block_info::BlockInfoV2;
@@ -17,15 +21,12 @@ use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 
-use crate::proposals::find_threshold;
-use crate::RewardCalculator;
-use crate::{BlockInfo, EpochManager};
-
 use near_primitives::shard_layout::ShardLayout;
 use {crate::reward_calculator::NUM_NS_IN_SECOND, crate::NUM_SECONDS_IN_A_YEAR};
 
 pub const DEFAULT_GAS_PRICE: u128 = 100;
 pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
+pub const TEST_SEED: RngSeed = [3; 32];
 
 pub fn hash_range(num: usize) -> Vec<CryptoHash> {
     let mut result = vec![];
@@ -118,7 +119,7 @@ pub fn epoch_info_with_num_seats(
         minted_amount,
         seat_price,
         PROTOCOL_VERSION,
-        [0; 32],
+        TEST_SEED,
     )
 }
 

@@ -634,11 +634,11 @@ fn test_shard_layout_upgrade_cross_contract_calls() {
             let client = &mut test_env.env.clients[0];
             let block_hash = client.chain.head().unwrap().last_block_hash;
             let chunk_extra =
-                client.chain.get_chunk_extra(&block_hash, &ShardUId::default()).unwrap();
+                client.chain.get_chunk_extra(&block_hash, &ShardUId::single_shard()).unwrap();
             let trie_update = client
                 .runtime_adapter
                 .get_tries()
-                .new_trie_update_view(ShardUId::default(), *chunk_extra.state_root());
+                .new_trie_update_view(ShardUId::single_shard(), *chunk_extra.state_root());
             let delayed_receipt_indices = get_delayed_receipt_indices(&trie_update).unwrap();
             assert_ne!(
                 delayed_receipt_indices.first_index,
