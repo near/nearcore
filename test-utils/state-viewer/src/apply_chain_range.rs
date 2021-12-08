@@ -178,12 +178,7 @@ pub fn apply_chain_range(
                     for tx in chunk.transactions() {
                         for action in &tx.transaction.actions {
                             has_contracts = has_contracts || match action {
-                                Action::FunctionCall(_) => {
-                                    true
-                                }
-                                Action::DeployContract(_) => {
-                                    true
-                                }
+                                Action::FunctionCall(_) | Action::DeployContract(_) => true,
                                 _ => {
                                     false
                                 }
