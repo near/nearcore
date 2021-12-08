@@ -373,10 +373,6 @@ impl<'a> External for RuntimeExt<'a> {
         self.trie_update.trie.counter.get()
     }
 
-    fn reset_touched_nodes_counter(&mut self) {
-        self.trie_update.trie.counter.reset()
-    }
-
     fn validator_stake(&self, account_id: &AccountId) -> ExtResult<Option<Balance>> {
         self.epoch_info_provider
             .validator_stake(self.epoch_id, self.prev_block_hash, account_id)

@@ -846,8 +846,6 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
-        let _span = tracing::debug_span!(target: "runtime", "Runtime::process_receipt").entered();
-
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
             ReceiptEnum::Data(ref data_receipt) => {
@@ -1276,7 +1274,9 @@ impl Runtime {
                                    state_update: &mut TrieUpdate,
                                    total_gas_burnt: &mut Gas|
          -> Result<_, RuntimeError> {
-            self.process_receipt(
+            let _span = tracing::debug_span!(target: "runtime", "Runtime::process_receipt", receipt_id = tracing::field::display(receipt.receipt_id)).entered();
+            tracing::debug!(target: "runtime", node_counter = state_update.trie.counter.get());
+            let result = self.process_receipt(
                 state_update,
                 apply_state,
                 receipt,
@@ -1284,9 +1284,9 @@ impl Runtime {
                 &mut validator_proposals,
                 &mut stats,
                 epoch_info_provider,
-            )?
-            .into_iter()
-            .try_for_each(
+            );
+            tracing::debug!(target: "runtime", node_counter = state_update.trie.counter.get());
+            result?.into_iter().try_for_each(
                 |outcome_with_id: ExecutionOutcomeWithId| -> Result<(), RuntimeError> {
                     *total_gas_burnt =
                         safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
