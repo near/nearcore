@@ -343,7 +343,7 @@ pub(crate) fn run_wasmer2_module<'a>(
         current_protocol_version,
     );
 
-    let import = imports::build_wasmer2(store, memory_copy, &mut logic, current_protocol_version);
+    let import = imports::wasmer2::build(store, memory_copy, &mut logic, current_protocol_version);
 
     if let Err(e) = check_method(&module, method_name) {
         return (None, Some(e));
@@ -432,7 +432,7 @@ impl crate::runner::VM for Wasmer2VM {
         }
 
         let import_object =
-            imports::build_wasmer2(&store, memory_copy, &mut logic, current_protocol_version);
+            imports::wasmer2::build(&store, memory_copy, &mut logic, current_protocol_version);
 
         if let Err(e) = check_method(&module, method_name) {
             return (None, Some(e));

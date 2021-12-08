@@ -20,7 +20,7 @@ async fn convert_genesis_records_to_transaction(
     genesis: Arc<Genesis>,
     view_client_addr: Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
-) -> Result<crate::models::Transaction, crate::errors::ErrorKind> {
+) -> crate::errors::Result<crate::models::Transaction> {
     let genesis_account_ids = genesis.records.as_ref().iter().filter_map(|record| {
         if let near_primitives::state_record::StateRecord::Account { account_id, .. } = record {
             Some(account_id)
@@ -107,7 +107,7 @@ async fn convert_genesis_records_to_transaction(
 pub(crate) async fn convert_block_to_transactions(
     view_client_addr: Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
-) -> Result<Vec<crate::models::Transaction>, crate::errors::ErrorKind> {
+) -> crate::errors::Result<Vec<crate::models::Transaction>> {
     let state_changes = view_client_addr
         .send(near_client::GetStateChangesInBlock { block_hash: block.header.hash })
         .await?
@@ -153,6 +153,46 @@ pub(crate) async fn convert_block_to_transactions(
     Ok(transactions.into_iter().map(|(_transaction_hash, transaction)| transaction).collect())
 }
 
+/// Constructs a transaction identifier from the cause of a state change.
+fn convert_cause_to_transaction_id(
+    block_hash: &near_primitives::hash::CryptoHash,
+    cause: near_primitives::views::StateChangeCauseView,
+) -> crate::errors::Result<crate::models::TransactionIdentifier> {
+    use crate::models::TransactionIdentifier;
+    use near_primitives::views::StateChangeCauseView;
+    match cause {
+        StateChangeCauseView::TransactionProcessing { tx_hash } => {
+            Ok(TransactionIdentifier::transaction(&tx_hash))
+        }
+        StateChangeCauseView::ActionReceiptProcessingStarted { receipt_hash }
+        | StateChangeCauseView::ActionReceiptGasReward { receipt_hash }
+        | StateChangeCauseView::ReceiptProcessing { receipt_hash }
+        | StateChangeCauseView::PostponedReceipt { receipt_hash } => {
+            Ok(TransactionIdentifier::receipt(&receipt_hash))
+        }
+        StateChangeCauseView::InitialState => {
+            Ok(TransactionIdentifier::block_event("block", block_hash))
+        }
+        StateChangeCauseView::ValidatorAccountsUpdate => {
+            Ok(TransactionIdentifier::block_event("block-validators-update", block_hash))
+        }
+        StateChangeCauseView::UpdatedDelayedReceipts => {
+            Ok(TransactionIdentifier::block_event("block-delayed-receipts", block_hash))
+        }
+        StateChangeCauseView::NotWritableToDisk => {
+            Err(crate::errors::ErrorKind::InternalInvariantError(
+                "State Change 'NotWritableToDisk' should never be observed".to_string(),
+            ))
+        }
+        StateChangeCauseView::Migration => {
+            Ok(TransactionIdentifier::block_event("migration", block_hash))
+        }
+        StateChangeCauseView::Resharding => Err(crate::errors::ErrorKind::InternalInvariantError(
+            "State Change 'Resharding' should never be observed".to_string(),
+        )),
+    }
+}
+
 fn convert_block_changes_to_transactions(
     runtime_config: &near_primitives::runtime::config::RuntimeConfig,
     block_hash: &near_primitives::hash::CryptoHash,
@@ -161,52 +201,11 @@ fn convert_block_changes_to_transactions(
         near_primitives::types::AccountId,
         near_primitives::views::AccountView,
     >,
-) -> Result<std::collections::HashMap<String, crate::models::Transaction>, crate::errors::ErrorKind>
-{
-    use near_primitives::views::StateChangeCauseView;
-
+) -> crate::errors::Result<std::collections::HashMap<String, crate::models::Transaction>> {
     let mut transactions = std::collections::HashMap::<String, crate::models::Transaction>::new();
     for account_change in accounts_changes {
-        let transaction_identifier = match account_change.cause {
-            StateChangeCauseView::TransactionProcessing { tx_hash } => {
-                crate::models::TransactionIdentifier::transaction(&tx_hash)
-            }
-            StateChangeCauseView::ActionReceiptProcessingStarted { receipt_hash }
-            | StateChangeCauseView::ActionReceiptGasReward { receipt_hash }
-            | StateChangeCauseView::ReceiptProcessing { receipt_hash }
-            | StateChangeCauseView::PostponedReceipt { receipt_hash } => {
-                crate::models::TransactionIdentifier::receipt(&receipt_hash)
-            }
-            StateChangeCauseView::InitialState => {
-                crate::models::TransactionIdentifier::block_event("block", block_hash)
-            }
-            StateChangeCauseView::ValidatorAccountsUpdate => {
-                crate::models::TransactionIdentifier::block_event(
-                    "block-validators-update",
-                    block_hash,
-                )
-            }
-            StateChangeCauseView::UpdatedDelayedReceipts => {
-                crate::models::TransactionIdentifier::block_event(
-                    "block-delayed-receipts",
-                    block_hash,
-                )
-            }
-            StateChangeCauseView::NotWritableToDisk => {
-                return Err(crate::errors::ErrorKind::InternalInvariantError(
-                    "State Change 'NotWritableToDisk' should never be observed".to_string(),
-                ));
-            }
-            StateChangeCauseView::Migration => {
-                crate::models::TransactionIdentifier::block_event("migration", block_hash)
-            }
-            StateChangeCauseView::Resharding => {
-                return Err(crate::errors::ErrorKind::InternalInvariantError(
-                    "State Change 'Resharding' should never be observed".to_string(),
-                ));
-            }
-        };
-
+        let transaction_identifier =
+            convert_cause_to_transaction_id(block_hash, account_change.cause)?;
         let current_transaction = transactions
             .entry(transaction_identifier.hash.clone())
             .or_insert_with(move || crate::models::Transaction {
@@ -394,7 +393,7 @@ pub(crate) async fn collect_transactions(
     genesis: Arc<Genesis>,
     view_client_addr: Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
-) -> Result<Vec<crate::models::Transaction>, crate::errors::ErrorKind> {
+) -> crate::errors::Result<Vec<crate::models::Transaction>> {
     if block.header.prev_hash == Default::default() {
         Ok(vec![convert_genesis_records_to_transaction(genesis, view_client_addr, block).await?])
     } else {
