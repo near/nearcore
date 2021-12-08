@@ -285,7 +285,7 @@ pub unsafe fn write_key_value() {
         panic()
     }
     let data = [0u8; 2 * size_of::<u64>()];
-    read_register(0, 9223372036854775808u64);
+    read_register(0, data.as_ptr() as u64);
 
     let key = &data[0..size_of::<u64>()];
     let value = &data[size_of::<u64>()..];

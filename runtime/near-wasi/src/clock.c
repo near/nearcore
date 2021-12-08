@@ -1,3 +1,4 @@
+/* This file is in order to get a common clock resolution on possible host, i.e. Linux and Mac. */
 #include <stdio.h>
 #include <time.h>
 
