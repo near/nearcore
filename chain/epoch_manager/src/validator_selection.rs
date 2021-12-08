@@ -707,7 +707,6 @@ mod tests {
         )
         .unwrap();
         assert_eq!(num_validators + 1, epoch_info.validators_iter().len());
-        assert!(epoch_info.validator_kickout().get("test7").is_none());
 
         let proposals = create_proposals(&[
             ("test1", 1000),
