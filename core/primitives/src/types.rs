@@ -45,7 +45,7 @@ pub struct AccountWithPublicKey {
 }
 
 /// Account info for validators
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct AccountInfo {
     pub account_id: AccountId,
     pub public_key: PublicKey,

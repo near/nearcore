@@ -50,7 +50,7 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Arc<Store>)
 pub(crate) fn dump_state(
     height: Option<BlockHeight>,
     stream: bool,
-    mut single_file: bool,
+    single_file: bool,
     file: Option<PathBuf>,
     home_dir: &Path,
     near_config: NearConfig,
@@ -60,6 +60,7 @@ pub(crate) fn dump_state(
         !stream || !single_file,
         "At most one of options --stream and --single_file can be set"
     );
+    let mut single_file = single_file;
     if !stream && !single_file {
         println!("Assuming a single file output is requested");
         single_file = true;

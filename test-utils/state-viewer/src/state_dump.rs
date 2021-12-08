@@ -14,6 +14,9 @@ use std::fs;
 use std::fs::File;
 use std::path::Path;
 
+/// Returns a `NearConfig` with genesis records taken from the current state.
+/// If `records_path` argument is provided, then records will be streamed into a separate file,
+/// otherwise the returned `NearConfig` will contain all the records within itself.
 pub fn state_dump(
     runtime: NightshadeRuntime,
     state_roots: &[StateRoot],
@@ -53,8 +56,8 @@ pub fn state_dump(
             public_key: public_key.clone(),
             amount: *amount,
         })
+        .sort_by_key(|account_info|account_info.account_id)
         .collect();
-    genesis_config.validators.sort();
     // Record the protocol version of the latest block. Otherwise, the state
     // dump ignores the fact that the nodes can be running a newer protocol
     // version than the protocol version of the genesis.
@@ -78,7 +81,7 @@ pub fn state_dump(
             let mut ser = serde_json::Serializer::new(records_file);
             let mut seq = ser.serialize_seq(None).unwrap();
             let total_supply =
-                get_records(runtime, state_roots, last_block_header, &validators, &mut |sr| {
+                iterate_over_records(runtime, state_roots, last_block_header, &validators, &mut |sr| {
                     seq.serialize_element(&sr).unwrap()
                 });
             seq.end().unwrap();
@@ -93,7 +96,7 @@ pub fn state_dump(
         None => {
             let mut records: Vec<StateRecord> = vec![];
             let total_supply =
-                get_records(runtime, state_roots, last_block_header, &validators, &mut |sr| {
+                iterate_over_records(runtime, state_roots, last_block_header, &validators, &mut |sr| {
                     records.push(sr)
                 });
             // `total_supply` is expected to change due to the natural processes of burning tokens and
@@ -105,7 +108,8 @@ pub fn state_dump(
     near_config
 }
 
-fn get_records(
+/// Iterates over the state, calling `callback` for every record that genesis needs to contain.
+fn iterate_over_records(
     runtime: NightshadeRuntime,
     state_roots: &[StateRoot],
     last_block_header: BlockHeader,
