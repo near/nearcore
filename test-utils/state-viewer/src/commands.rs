@@ -83,6 +83,7 @@ pub(crate) fn apply_range(
     home_dir: &Path,
     near_config: NearConfig,
     store: Arc<Store>,
+    only_contracts: bool,
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
@@ -102,6 +103,7 @@ pub(crate) fn apply_range(
         runtime,
         verbose_output,
         csv_file.as_mut(),
+        only_contracts,
     );
 }
 

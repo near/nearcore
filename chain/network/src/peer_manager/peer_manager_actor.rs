@@ -1562,7 +1562,7 @@ impl Actor for PeerManagerActor {
 
             ctx.spawn(TcpListener::bind(server_addr).into_actor(self).then(
                 move |listener, act, ctx| {
-                    let listener = listener.unwrap();
+                    let listener = listener.unwrap_or_else(|_| panic!("Failed to PeerManagerActor at {}", server_addr));
                     let incoming = IncomingCrutch {
                         listener: tokio_stream::wrappers::TcpListenerStream::new(listener),
                     };

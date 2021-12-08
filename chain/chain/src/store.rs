@@ -2978,7 +2978,7 @@ mod tests {
         let chain_genesis = ChainGenesis::test();
         let validators = vec![vec!["test1"]];
         let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
-            store.clone(),
+            store,
             validators
                 .into_iter()
                 .map(|inner| {
@@ -3002,7 +3002,7 @@ mod tests {
             KeyType::ED25519,
             "test1",
         ));
-        let short_fork = vec![Block::empty_with_height(&genesis, 1, &*signer.clone())];
+        let short_fork = vec![Block::empty_with_height(&genesis, 1, &*signer)];
         let mut store_update = chain.mut_store().store_update();
         store_update.save_block_header(short_fork[0].header().clone()).unwrap();
         store_update.commit().unwrap();
@@ -3017,7 +3017,7 @@ mod tests {
             )
             .is_ok());
         let mut long_fork = vec![];
-        let mut prev_block = genesis.clone();
+        let mut prev_block = genesis;
         for i in 1..(transaction_validity_period + 3) {
             let mut store_update = chain.mut_store().store_update();
             let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
@@ -3061,7 +3061,7 @@ mod tests {
             "test1",
         ));
         let mut blocks = vec![];
-        let mut prev_block = genesis.clone();
+        let mut prev_block = genesis;
         for i in 1..(transaction_validity_period + 2) {
             let mut store_update = chain.mut_store().store_update();
             let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
@@ -3086,7 +3086,7 @@ mod tests {
         let new_block = Block::empty_with_height(
             &blocks.last().unwrap(),
             transaction_validity_period + 3,
-            &*signer.clone(),
+            &*signer,
         );
         let mut store_update = chain.mut_store().store_update();
         store_update.save_block_header(new_block.header().clone()).unwrap();
@@ -3164,7 +3164,7 @@ mod tests {
             KeyType::ED25519,
             "test1",
         ));
-        let block1 = Block::empty_with_height(&genesis, 1, &*signer.clone());
+        let block1 = Block::empty_with_height(&genesis, 1, &*signer);
         let mut block2 = block1.clone();
         block2.mut_header().get_mut().inner_lite.epoch_id = EpochId(hash(&[1, 2, 3]));
         block2.mut_header().resign(&*signer);
@@ -3209,7 +3209,7 @@ mod tests {
             KeyType::ED25519,
             "test1",
         ));
-        let mut prev_block = genesis.clone();
+        let mut prev_block = genesis;
         let mut blocks = vec![prev_block.clone()];
         for i in 1..15 {
             // This is a hack to make the KeyValueRuntime to have epoch information stored
@@ -3310,7 +3310,7 @@ mod tests {
             KeyType::ED25519,
             "test1",
         ));
-        let mut prev_block = genesis.clone();
+        let mut prev_block = genesis;
         let mut blocks = vec![prev_block.clone()];
         for i in 1..10 {
             // This is a hack to make the KeyValueRuntime to have epoch information stored
