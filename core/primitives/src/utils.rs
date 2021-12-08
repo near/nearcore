@@ -159,6 +159,11 @@ impl<T> MaybeValidated<T> {
     pub fn into_inner(self) -> T {
         self.payload
     }
+
+    /// Returns a reference to the payload
+    pub fn get_inner(&self) -> &T {
+        &self.payload
+    }
 }
 
 impl<T> From<T> for MaybeValidated<T> {

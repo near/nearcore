@@ -158,7 +158,6 @@ fn test_process_partial_encoded_chunk_with_missing_block() {
         MaybeValidated::from(&mock_chunk),
         client.chain.mut_store(),
         &mut client.rs,
-        PROTOCOL_VERSION,
     );
     assert!(matches!(result, Ok(ProcessPartialEncodedChunkResult::NeedBlock)));
 

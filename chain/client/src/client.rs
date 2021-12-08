@@ -854,62 +854,35 @@ impl Client {
         &mut self,
         partial_encoded_chunk: MaybeValidated<PartialEncodedChunk>,
     ) -> Result<Vec<AcceptedBlock>, Error> {
-        fn missing_block_handler(
-            client: &mut Client,
-            pec: PartialEncodedChunkV2,
-        ) -> Result<Vec<AcceptedBlock>, Error> {
-            client.shards_mgr.store_partial_encoded_chunk(client.chain.head_header()?, pec);
-            Ok(vec![])
-        }
-        let block_hash = partial_encoded_chunk.prev_block();
-        match self.runtime_adapter.get_epoch_id_from_prev_block(block_hash) {
-            Ok(epoch_id) => {
-                let protocol_version =
-                    self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
+        let chunk_hash = partial_encoded_chunk.chunk_hash();
+        let pec_v2: MaybeValidated<PartialEncodedChunkV2> = partial_encoded_chunk.map(Into::into);
+        let process_result = self.shards_mgr.process_partial_encoded_chunk(
+            pec_v2.as_ref(),
+            self.chain.mut_store(),
+            &mut self.rs,
+        )?;
 
-                if !partial_encoded_chunk.version_range().contains(protocol_version) {
-                    return Err(Error::Other("Invalid chunk version".to_string()));
-                };
-
-                let chunk_hash = partial_encoded_chunk.chunk_hash();
-                let pec_v2: MaybeValidated<PartialEncodedChunkV2> =
-                    partial_encoded_chunk.map(Into::into);
-                let process_result = self.shards_mgr.process_partial_encoded_chunk(
-                    pec_v2.as_ref(),
-                    self.chain.mut_store(),
-                    &mut self.rs,
-                    protocol_version,
-                )?;
-
-                match process_result {
-                    ProcessPartialEncodedChunkResult::Known => Ok(vec![]),
-                    ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(_) => {
-                        self.record_receive_chunk_timestamp(
-                            pec_v2.header.height_created(),
-                            pec_v2.header.shard_id(),
-                        );
-                        self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_hash);
-                        Ok(self.process_blocks_with_missing_chunks())
-                    }
-                    ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts => {
-                        let chunk_header = pec_v2.into_inner().header;
-                        let prev_hash = chunk_header.prev_block_hash();
-                        self.shards_mgr.request_chunks(
-                            iter::once(chunk_header),
-                            prev_hash,
-                            &self.chain.header_head()?,
-                        );
-                        Ok(vec![])
-                    }
-                    ProcessPartialEncodedChunkResult::NeedBlock => {
-                        missing_block_handler(self, pec_v2.into_inner())
-                    }
-                }
+        match process_result {
+            ProcessPartialEncodedChunkResult::Known
+            | ProcessPartialEncodedChunkResult::NeedBlock => Ok(vec![]),
+            ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(_) => {
+                self.record_receive_chunk_timestamp(
+                    pec_v2.header.height_created(),
+                    pec_v2.header.shard_id(),
+                );
+                self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_hash);
+                Ok(self.process_blocks_with_missing_chunks())
             }
-
-            // If the epoch_id cannot be looked up then we have not processed
-            // `partial_encoded_chunk.prev_block()` yet.
-            Err(_) => missing_block_handler(self, partial_encoded_chunk.into_inner().into()),
+            ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts => {
+                let chunk_header = pec_v2.into_inner().header;
+                let prev_hash = chunk_header.prev_block_hash();
+                self.shards_mgr.request_chunks(
+                    iter::once(chunk_header),
+                    prev_hash,
+                    &self.chain.header_head()?,
+                );
+                Ok(vec![])
+            }
         }
     }
 

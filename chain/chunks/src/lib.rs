@@ -130,6 +130,10 @@ impl RequestPool {
         self.requests.insert(chunk_hash, chunk_request);
     }
 
+    pub fn get_request_info(&self, chunk_hash: &ChunkHash) -> Option<&ChunkRequestInfo> {
+        self.requests.get(chunk_hash)
+    }
+
     pub fn remove(&mut self, chunk_hash: &ChunkHash) {
         self.requests.remove(chunk_hash);
     }
@@ -1202,56 +1206,91 @@ impl ShardsManager {
         }
     }
 
-    pub fn process_partial_encoded_chunk(
+    // validate a partial encoded chunk
+    // returns error if validation fails
+    // validation includes
+    // 1) check that the chunk header is signed by the correct chunk producer for the chunk at
+    //    the height for the shard
+    // 2) check that the chunk header is compatible with the current protocol version
+    // 3) check that the parts are valid (TODO: only check parts that we care about)
+    // 4) check that the receipts to the shards we care about are valid
+    fn validate_partial_encoded_chunk(
         &mut self,
-        partial_encoded_chunk: MaybeValidated<&PartialEncodedChunkV2>,
-        chain_store: &mut ChainStore,
-        rs: &mut ReedSolomonWrapper,
-        protocol_version: ProtocolVersion,
-    ) -> Result<ProcessPartialEncodedChunkResult, Error> {
-        // Check validity first
-
-        // 1. Checking signature validity (if needed)
-        let signature_check = partial_encoded_chunk.validate_with(|pec| {
-            let epoch_id =
-                self.runtime_adapter.get_epoch_id_from_prev_block(&pec.header.prev_block_hash())?;
-            self.runtime_adapter.verify_chunk_header_signature(
-                &pec.header,
-                &epoch_id,
-                &pec.header.prev_block_hash(),
-            )
-        });
-        match signature_check {
+        partial_encoded_chunk: &PartialEncodedChunkV2,
+    ) -> Result<(), Error> {
+        let header = &partial_encoded_chunk.header;
+        let chunk_hash = header.chunk_hash();
+        // 1.  check signature
+        // if the partial encoded chunk is requested, we use `ancestor_hash` in the original request
+        // Because of how we request for chunks, get_epoch_id_from_prev_block(`ancestor_hash`)
+        // gives the epoch id of the current chunk, so we can use `ancestor_hash` to substitute
+        // prev_block_hash
+        // This enables us to process partial encoded chunks requested for orphans
+        let ancestor_hash =
+            self.requested_partial_encoded_chunks.get_request_info(&chunk_hash).map_or_else(
+                || partial_encoded_chunk.header.prev_block_hash(),
+                |r| r.ancestor_hash.clone(),
+            );
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&ancestor_hash)?;
+        match self.runtime_adapter.verify_chunk_header_signature(header, &epoch_id, &ancestor_hash)
+        {
             Ok(false) => {
                 byzantine_assert!(false);
                 return Err(Error::InvalidChunkSignature);
             }
             Ok(true) => (),
             Err(chain_error) => {
-                return match chain_error.kind() {
-                    near_chain::ErrorKind::DBNotFoundErr(_) => {
-                        // We can't check if this chunk came from a valid chunk producer because
-                        // we don't know `prev_block`, so return that we need a block.
-                        Ok(ProcessPartialEncodedChunkResult::NeedBlock)
-                    }
-                    // Some other error kind happened during the signature check, we don't
-                    // know how to handle it.
-                    _ => Err(Error::ChainError(chain_error)),
-                };
+                return Err(Error::ChainError(chain_error));
             }
-        };
+        }
 
-        // We must check the protocol version every time, since a new value
-        // could be passed to the function, whereas the signature check is intrinsic
-        // to the header, thus only needs to happen exactly once.
-        let partial_encoded_chunk = partial_encoded_chunk.into_inner();
+        // 2. check protocol version
+        let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
         if !partial_encoded_chunk.header.version_range().contains(protocol_version) {
             return Err(Error::InvalidChunkHeader);
         }
+
+        // 3. Checking part_ords' validity
+        let num_total_parts = self.runtime_adapter.num_total_parts();
+        for part_info in partial_encoded_chunk.parts.iter() {
+            // TODO: only validate parts we care about
+            self.validate_part(header.encoded_merkle_root(), part_info, num_total_parts)?;
+        }
+
+        // 4. Checking receipts validity
+        for proof in partial_encoded_chunk.receipts.iter() {
+            let shard_id = proof.1.to_shard_id;
+            if self.cares_about_shard_this_or_next_epoch(
+                self.me.as_ref(),
+                &ancestor_hash,
+                shard_id,
+                true,
+            ) {
+                let ReceiptProof(shard_receipts, receipt_proof) = proof;
+                let receipt_hash =
+                    hash(&ReceiptList(shard_id, shard_receipts).try_to_vec().unwrap());
+                if !verify_path(
+                    header.outgoing_receipts_root(),
+                    &receipt_proof.proof,
+                    &receipt_hash,
+                ) {
+                    byzantine_assert!(false);
+                    return Err(Error::ChainError(ErrorKind::InvalidReceiptsProof.into()));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn process_partial_encoded_chunk(
+        &mut self,
+        partial_encoded_chunk: MaybeValidated<&PartialEncodedChunkV2>,
+        chain_store: &mut ChainStore,
+        rs: &mut ReedSolomonWrapper,
+    ) -> Result<ProcessPartialEncodedChunkResult, Error> {
         let header = &partial_encoded_chunk.header;
         let chunk_hash = header.chunk_hash();
-
-        // 2. Leave if we received known chunk
+        // 1. Leave if we received known chunk
         if let Some(entry) = self.encoded_chunks.get(&chunk_hash) {
             let know_all_parts = partial_encoded_chunk
                 .parts
@@ -1270,7 +1309,7 @@ impl ShardsManager {
             }
         };
 
-        // 3. Checking chunk height
+        // 2. Checking chunk height
         let chunk_requested = self.requested_partial_encoded_chunks.contains_key(&chunk_hash);
         if !chunk_requested {
             if !self.encoded_chunks.height_within_horizon(header.height_created()) {
@@ -1288,7 +1327,43 @@ impl ShardsManager {
             }
         }
 
-        // 4. Checking epoch_id validity
+        // 3. Check validity
+        let signature_check = partial_encoded_chunk
+            .validate_with(|pec| self.validate_partial_encoded_chunk(&pec).map(|()| true));
+        match signature_check {
+            Ok(_) => (),
+            Err(Error::ChainError(chain_error)) => {
+                return match chain_error.kind() {
+                    near_chain::ErrorKind::DBNotFoundErr(_) => {
+                        // We can't check if this chunk came from a valid chunk producer because
+                        // we don't know `prev_block`, so return that we need a block.
+                        Ok(ProcessPartialEncodedChunkResult::NeedBlock)
+                    }
+                    // Some other error kind happened during the signature check, we don't
+                    // know how to handle it.
+                    _ => Err(Error::ChainError(chain_error)),
+                };
+            }
+            Err(err) => return Err(err),
+        };
+
+        // Consider it valid
+        let partial_encoded_chunk = partial_encoded_chunk.into_inner();
+
+        // Store chunk hash into chunk_hash_per_height_shard collection
+        let mut store_update = chain_store.store_update();
+        store_update.save_chunk_hash(
+            header.height_created(),
+            header.shard_id(),
+            chunk_hash.clone(),
+        );
+        store_update.commit()?;
+
+        // Merge parts and receipts included in the partial encoded chunk into chunk cache
+        self.encoded_chunks.merge_in_partial_encoded_chunk(partial_encoded_chunk);
+
+        // Check prev_block is processed because function calls like `have_all_parts`
+        // depend on that
         let prev_block_hash = header.prev_block_hash();
         let epoch_id = match self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash) {
             Ok(epoch_id) => epoch_id,
@@ -1299,53 +1374,13 @@ impl ShardsManager {
             }
         };
 
-        // 5. Checking part_ords' validity
-        let num_total_parts = self.runtime_adapter.num_total_parts();
-        for part_info in partial_encoded_chunk.parts.iter() {
-            // TODO: only validate parts we care about
-            self.validate_part(header.encoded_merkle_root(), part_info, num_total_parts)?;
-        }
-
-        // 6. Checking receipts validity
-        for proof in partial_encoded_chunk.receipts.iter() {
-            let shard_id = proof.1.to_shard_id;
-            if self.cares_about_shard_this_or_next_epoch(
-                self.me.as_ref(),
-                &prev_block_hash,
-                shard_id,
-                true,
-            ) {
-                let ReceiptProof(shard_receipts, receipt_proof) = proof;
-                let receipt_hash =
-                    hash(&ReceiptList(shard_id, shard_receipts).try_to_vec().unwrap());
-                if !verify_path(
-                    header.outgoing_receipts_root(),
-                    &receipt_proof.proof,
-                    &receipt_hash,
-                ) {
-                    byzantine_assert!(false);
-                    return Err(Error::ChainError(ErrorKind::InvalidReceiptsProof.into()));
-                }
-            }
-        }
-
-        // Consider it valid
-        // Store chunk hash into chunk_hash_per_height_shard collection
-        let mut store_update = chain_store.store_update();
-        store_update.save_chunk_hash(
-            header.height_created(),
-            header.shard_id(),
-            chunk_hash.clone(),
-        );
-        store_update.commit()?;
-
-        self.encoded_chunks.merge_in_partial_encoded_chunk(partial_encoded_chunk);
-
         // Forward my parts to others tracking this chunk's shard
+        let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
         if checked_feature!("stable", ForwardChunkParts, protocol_version) {
             self.send_partial_encoded_chunk_to_chunk_trackers(partial_encoded_chunk)?;
         };
 
+        // Now check whether we have all parts and receipts for the given chunk
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
 
         let have_all_parts = self.has_all_parts(&prev_block_hash, entry)?;
@@ -1448,7 +1483,6 @@ impl ShardsManager {
                     MaybeValidated::from_validated(&forwarded_chunk),
                     chain_store,
                     rs,
-                    protocol_version,
                 )
             }
         }
@@ -1992,7 +2026,6 @@ mod test {
                     MaybeValidated::from(&pec_v2),
                     &mut chain_store,
                     &mut rs,
-                    PROTOCOL_VERSION,
                 )
                 .unwrap();
         }
@@ -2107,7 +2140,6 @@ mod test {
                 MaybeValidated::from(&partial_encoded_chunk),
                 &mut fixture.chain_store,
                 &mut fixture.rs,
-                PROTOCOL_VERSION,
             )
             .unwrap();
         match result {
@@ -2256,7 +2288,6 @@ mod test {
                 MaybeValidated::from(&partial_encoded_chunk),
                 &mut fixture.chain_store,
                 &mut fixture.rs,
-                PROTOCOL_VERSION,
             )
             .unwrap();
 
