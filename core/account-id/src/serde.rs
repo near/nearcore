@@ -17,7 +17,9 @@ impl<'de> de::Deserialize<'de> for AccountId {
         D: de::Deserializer<'de>,
     {
         let account_id = Box::<str>::deserialize(deserializer)?;
-        AccountId::validate(&account_id).map_err(de::Error::custom)?;
+        AccountId::validate(&account_id).map_err(|err| {
+            de::Error::custom(format!("invalid value: \"{}\", {}", account_id, err))
+        })?;
         Ok(AccountId(account_id))
     }
 }

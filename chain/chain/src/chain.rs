@@ -348,7 +348,7 @@ impl Chain {
         let (store, state_roots) = runtime_adapter.genesis_state();
         let store = ChainStore::new(store, chain_genesis.height);
         let genesis_chunks = genesis_chunks(
-            state_roots.clone(),
+            state_roots,
             runtime_adapter.num_shards(&EpochId::default())?,
             chain_genesis.gas_limit,
             chain_genesis.height,
@@ -373,7 +373,7 @@ impl Chain {
             runtime_adapter,
             orphans: OrphanBlockPool::new(),
             blocks_with_missing_chunks: MissingChunksPool::new(),
-            genesis: genesis.clone(),
+            genesis: genesis,
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
@@ -1683,7 +1683,7 @@ impl Chain {
         );
         assert_eq!(&chunk_headers_root, sync_prev_block.header().chunk_headers_root());
 
-        let chunk = self.get_chunk_clone_from_header(&chunk_header.clone())?;
+        let chunk = self.get_chunk_clone_from_header(&chunk_header)?;
         let chunk_proof = chunk_proofs[shard_id as usize].clone();
         let block_header =
             self.get_header_on_chain_by_height(&sync_hash, chunk_header.height_included())?.clone();
@@ -3561,7 +3561,7 @@ impl<'a> ChainUpdate<'a> {
                     // This variable is responsible for checking to which block we can apply receipts previously lost in apply_chunks
                     // (see https://github.com/near/nearcore/pull/4248/)
                     // We take the first block with existing chunk in the first epoch in which protocol feature
-                    // RestoreReceiptsAfterFix was enabled, and put the restored receipts there.
+                    // RestoreReceiptsAfterFixApplyChunks was enabled, and put the restored receipts there.
                     let is_first_block_with_chunk_of_version =
                         check_if_block_is_first_with_chunk_of_version(
                             &mut self.chain_store_update,
