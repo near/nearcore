@@ -34,7 +34,12 @@ fn empty_chain() {
 fn build_chain() {
     init_test_logger();
     let _mock_clock_guard = MockClockGuard::default();
-    for i in 0..5 {
+    // Adding first mock entry for genesis block
+    Clock::add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444));
+    for i in 1..5 {
+        // two entries, because the clock is called 2 times per block
+        // - one time for creation of the block
+        // - one time for validating block header
         Clock::add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
         Clock::add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
     }
@@ -68,12 +73,12 @@ fn build_chain() {
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(
         chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("JDNJcU8dbsY18Trzbts9gSphtQqw9C5fx1Abg3SzDdRZ").unwrap()
+        CryptoHash::from_str("BNap11nsM7PEqYQertYU487g7gkCteQ8Fmee6QfyRdVQ").unwrap()
     );
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
         chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("WX4b4czkxK8mXTEa9rXwz29rDus62ccwdkYCVMqkWu1").unwrap()
+        CryptoHash::from_str("5pXLqgQe98JSdhtQ66VQFjQzBRPdZaEiMaTpdGuziF4H").unwrap()
     );
 }
 
