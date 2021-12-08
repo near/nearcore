@@ -119,14 +119,14 @@ impl TrieStorage for TrieMemoryPartialStorage {
 
 /// Maximum number of cache entries.
 #[cfg(not(feature = "no_cache"))]
-const TRIE_MAX_CACHE_SIZE: usize = 100000;
+const TRIE_MAX_CACHE_SIZE: usize = 50000;
 
 #[cfg(feature = "no_cache")]
 const TRIE_MAX_CACHE_SIZE: usize = 1;
 
 /// Values above this size (in bytes) are never cached.
 /// Note that Trie inner nodes are always smaller than this.
-const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 1000;
+const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 4000;
 
 pub struct TrieCachingStorage {
     pub(crate) store: Arc<Store>,
