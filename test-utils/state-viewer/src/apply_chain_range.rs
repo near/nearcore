@@ -27,7 +27,7 @@ fn timestamp() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
 }
 
-fn inc_and_report_progress(cnt: &AtomicU64, ts: &AtomicU64, all: u64) {
+fn inc_and_report_progress(cnt: &AtomicU64, ts: &AtomicU64, all: u64, skipped: &AtomicU64) {
     const PRINT_PER: u64 = 10000;
     let prev = cnt.fetch_add(1, Ordering::Relaxed);
     if (prev + 1) % PRINT_PER == 0 {
@@ -37,9 +37,10 @@ fn inc_and_report_progress(cnt: &AtomicU64, ts: &AtomicU64, all: u64) {
         ts.store(new_ts, Ordering::Relaxed);
         let secs_remaining = (all - prev) / per_second;
         println!(
-            "Processed {} blocks, {} blocks per second, {} secs remaining",
+            "Processed {} blocks, {} blocks per second ({} skipped), {} secs remaining",
             prev + 1,
             per_second,
+            skipped.load(Ordering::Relaxed),
             secs_remaining
         );
     }
@@ -99,6 +100,8 @@ pub fn apply_chain_range(
 
     let processed_blocks_cnt = AtomicU64::new(0);
     let processed_blocks_timestamp = AtomicU64::new(timestamp());
+    let skipped_blocks = AtomicU64::new(0);
+
     let all_blocks = end_height - start_height;
 
     (start_height..=end_height).into_par_iter().for_each(|height| {
@@ -107,7 +110,7 @@ pub fn apply_chain_range(
                 Ok(block_hash) => block_hash,
                 Err(_) => {
                     // Skipping block because it's not available in ChainStore.
-                    inc_and_report_progress(&processed_blocks_cnt, &processed_blocks_timestamp, all_blocks);
+                    inc_and_report_progress(&processed_blocks_cnt, &processed_blocks_timestamp, all_blocks, &skipped_blocks);
                     return;
                 },
             };
@@ -127,7 +130,7 @@ pub fn apply_chain_range(
                 if verbose_output {
                     println!("Skipping the genesis block #{}.", height);
                 }
-                inc_and_report_progress(&processed_blocks_cnt,&processed_blocks_timestamp, all_blocks);
+                inc_and_report_progress(&processed_blocks_cnt,&processed_blocks_timestamp, all_blocks, &skipped_blocks);
                 return;
             } else if block.chunks()[shard_id as usize].height_included() == height {
                 chunk_present = true;
@@ -146,7 +149,7 @@ pub fn apply_chain_range(
                             println!("Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.", height);
                         }
                         maybe_add_to_csv(&csv_file_mutex, &format!("{},{},{},,,{},,{},,", height, block_hash, block_author, block.header().raw_timestamp(), chunk_present));
-                        inc_and_report_progress(&processed_blocks_cnt, &processed_blocks_timestamp, all_blocks);
+                        inc_and_report_progress(&processed_blocks_cnt, &processed_blocks_timestamp, all_blocks, &skipped_blocks);
                         return;
                     },
                 };
@@ -185,7 +188,10 @@ pub fn apply_chain_range(
                             }
                         }
                     }
-                    if !has_contracts { return }
+                    if !has_contracts {
+                        skipped_blocks.fetch_add(1, Ordering::Relaxed);
+                        return
+                    }
                 }
                 runtime_adapter
                     .apply_transactions(
@@ -266,7 +272,7 @@ pub fn apply_chain_range(
             },
         };
         maybe_add_to_csv(&csv_file_mutex, &format!("{},{},{},{},{},{},{},{},{},{}", height, block_hash, block_author, num_tx, num_receipt, block.header().raw_timestamp(), apply_result.total_gas_burnt, chunk_present, apply_result.processed_delayed_receipts.len(), delayed_indices.map_or(0,|d|d.next_available_index-d.first_index)));
-        inc_and_report_progress(&processed_blocks_cnt, &processed_blocks_timestamp, all_blocks);
+        inc_and_report_progress(&processed_blocks_cnt, &processed_blocks_timestamp, all_blocks, &skipped_blocks);
     });
 
     println!(
@@ -275,6 +281,11 @@ pub fn apply_chain_range(
     );
 }
 
+/**
+ * With the database migration we can get into the situation where there are different
+ * ChunkExtra versions in database and produced by `neard` playback. Consider them equal as
+ * long as the content is equal.
+ */
 fn smart_equals(extra1: &ChunkExtra, extra2: &ChunkExtra) -> bool {
     if (extra1.outcome_root() != extra2.outcome_root())
         || (extra1.state_root() != extra2.state_root())
@@ -391,7 +402,7 @@ mod test {
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, None);
 
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
-        apply_chain_range(store, &genesis, None, None, 0, runtime, true, None);
+        apply_chain_range(store, &genesis, None, None, 0, runtime, true, None, false);
     }
 
     #[test]
@@ -414,7 +425,17 @@ mod test {
 
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
         let mut file = tempfile::NamedTempFile::new().unwrap();
-        apply_chain_range(store, &genesis, None, None, 0, runtime, true, Some(file.as_file_mut()));
+        apply_chain_range(
+            store,
+            &genesis,
+            None,
+            None,
+            0,
+            runtime,
+            true,
+            Some(file.as_file_mut()),
+            false,
+        );
         let mut csv = String::new();
         file.as_file_mut().seek(SeekFrom::Start(0)).unwrap();
         file.as_file_mut().read_to_string(&mut csv).unwrap();
