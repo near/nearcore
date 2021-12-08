@@ -1727,7 +1727,7 @@ dependencies = [
  "lazy-static-include",
  "near-chain-configs",
  "near-crypto",
- "near-network",
+ "near-network-primitives",
  "near-primitives",
  "nearcore",
  "node-runtime",
@@ -2106,7 +2106,6 @@ dependencies = [
  "borsh 0.9.1",
  "cached",
  "chrono",
- "funty",
  "futures",
  "hex",
  "hyper",
@@ -2377,6 +2376,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lru"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f374d42cdfc1d7dbf3d3dec28afab2eb97ffbf43a3234d795b5986dbf4b90ba"
+dependencies = [
+ "hashbrown",
+]
+
+[[package]]
 name = "mach"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2527,6 +2535,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-cache"
+version = "0.0.0"
+dependencies = [
+ "bencher",
+ "lru",
+ "rand 0.7.3",
+]
+
+[[package]]
 name = "near-chain"
 version = "0.0.0"
 dependencies = [
@@ -2626,7 +2643,6 @@ dependencies = [
  "chrono",
  "delay-detector",
  "futures",
- "linked-hash-map",
  "log",
  "near-actix-test-utils",
  "near-chain",
@@ -2644,8 +2660,6 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-telemetry",
- "near-test-contracts",
- "near-vm-runner",
  "num-rational",
  "once_cell",
  "rand 0.7.3",
@@ -2863,11 +2877,11 @@ dependencies = [
  "borsh 0.9.1",
  "bytes",
  "bytesize",
- "cached",
  "conqueue",
  "deepsize",
  "delay-detector",
  "futures",
+ "lru",
  "near-crypto",
  "near-metrics",
  "near-network-primitives",
@@ -2946,10 +2960,8 @@ dependencies = [
 name = "near-primitives"
 version = "0.0.0"
 dependencies = [
- "base64 0.13.0",
  "bencher",
  "borsh 0.9.1",
- "bs58",
  "byteorder",
  "bytesize",
  "chrono",
@@ -5096,9 +5108,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-macros"
-version = "1.5.0"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2dd85aeaba7b68df939bd357c6afb36c87951be9e80bf9c859f2fc3e9fca0fd"
+checksum = "c9efc1aba077437943f7515666aa2b882dfabfbfdf89c819ea75a8d6e9eaba5e"
 dependencies = [
  "proc-macro2",
  "quote",

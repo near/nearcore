@@ -3754,7 +3754,10 @@ mod tests2 {
             epoch_manager.get_epoch_info(&epochs[1]).unwrap().protocol_version(),
             new_protocol_version - 1
         );
-        assert_eq!(*epoch_manager.get_shard_layout(&epochs[1]).unwrap(), ShardLayout::default(),);
+        assert_eq!(
+            *epoch_manager.get_shard_layout(&epochs[1]).unwrap(),
+            ShardLayout::v0_single_shard(),
+        );
         assert_eq!(
             epoch_manager.get_epoch_info(&epochs[2]).unwrap().protocol_version(),
             new_protocol_version
@@ -3801,7 +3804,7 @@ mod tests2 {
             protocol_upgrade_stake_threshold: Rational::new(80, 100),
             protocol_upgrade_num_epochs: 2,
             minimum_stake_divisor: 1,
-            shard_layout: ShardLayout::default(),
+            shard_layout: ShardLayout::v0_single_shard(),
             validator_selection_config: Default::default(),
         };
         let config = AllEpochConfig::new(epoch_config, None);

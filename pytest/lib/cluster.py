@@ -337,7 +337,7 @@ class LocalNode(BaseNode):
             os.path.join(node_dir, "node_key.json"))
         self.signer_key = Key.from_json_file(
             os.path.join(node_dir, "validator_key.json"))
-        self.pid = multiprocessing.Value('i', 0)
+        self._process = None
 
         self.change_config({
             'network': {
@@ -379,16 +379,19 @@ class LocalNode(BaseNode):
         env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get(
             "RUST_LOG", "debug")
 
-        self.stdout_name = os.path.join(self.node_dir, 'stdout')
-        self.stderr_name = os.path.join(self.node_dir, 'stderr')
-        self.stdout = open(self.stdout_name, 'a')
-        self.stderr = open(self.stderr_name, 'a')
         cmd = self._get_command_line(self.near_root, self.node_dir, boot_node,
                                      self.binary_name)
-        self.pid.value = subprocess.Popen(cmd,
-                                          stdout=self.stdout,
-                                          stderr=self.stderr,
-                                          env=env).pid
+        node_dir = pathlib.Path(self.node_dir)
+        self.stdout_name = node_dir / 'stdout'
+        self.stderr_name = node_dir / 'stderr'
+        with open(self.stdout_name, 'ab') as stdout, \
+             open(self.stderr_name, 'ab') as stderr:
+            self._process = subprocess.Popen(cmd,
+                                             stdin=subprocess.DEVNULL,
+                                             stdout=stdout,
+                                             stderr=stderr,
+                                             env=env)
+        self._pid = self._process.pid
 
         if not skip_starting_proxy:
             self.start_proxy_if_needed()
@@ -398,24 +401,19 @@ class LocalNode(BaseNode):
         except:
             logger.error(
                 '=== failed to start node, rpc does not ready in 10 seconds')
-            self.stdout.close()
-            self.stderr.close()
             if os.environ.get('BUILDKITE'):
                 logger.info('=== stdout: ')
-                logger.info(open(self.stdout_name).read())
+                logger.info(stdout.read_text('utf-8', 'replace'))
                 logger.info('=== stderr: ')
-                logger.info(open(self.stderr_name).read())
+                logger.info(stderr.read_text('utf-8', 'replace'))
 
     def kill(self):
-        if self.pid.value != 0:
-            try:
-                os.kill(self.pid.value, signal.SIGKILL)
-            except ProcessLookupError:
-                pass  # the process has already terminated
-            self.pid.value = 0
-
-            if self._proxy_local_stopped is not None:
-                self._proxy_local_stopped.value = 1
+        if self._proxy_local_stopped is not None:
+            self._proxy_local_stopped.value = 1
+        if self._process:
+            self._process.kill()
+            self._process.wait(5)
+            self._process = None
 
     def reset_data(self):
         shutil.rmtree(os.path.join(self.node_dir, "data"))
@@ -447,12 +445,12 @@ class LocalNode(BaseNode):
         self.cleaned = True
 
     def stop_network(self):
-        logger.info("Stopping network for process %s" % self.pid.value)
-        network.stop(self.pid.value)
+        logger.info(f'Stopping network for process {self._pid}')
+        network.stop(self._pid)
 
     def resume_network(self):
-        logger.info("Resuming network for process %s" % self.pid.value)
-        network.resume_network(self.pid.value)
+        logger.info(f'Resuming network for process {self._pid}')
+        network.resume_network(self._pid)
 
 
 class GCloudNode(BaseNode):
