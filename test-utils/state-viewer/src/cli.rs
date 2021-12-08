@@ -107,12 +107,12 @@ pub struct DumpStateCmd {
     /// Dumps state records and genesis config into separate files.
     /// Has reasonable RAM requirements.
     /// Use for chains with large state, such as mainnet and testnet.
-    #[clap(long)]
+    #[clap(long, conflicts_with("single_file_output"))]
     stream: bool,
     /// Produces a single json file containing the state.
     /// Needs the whole state to fit in RAM.
     /// Use for chains with small state, such as betanet, guildnet, localnet.
-    #[clap(long)]
+    #[clap(long, conflicts_with("stream"))]
     single_file_output: bool,
     /// Location of the dumped state.
     #[clap(long, parse(from_os_str))]
