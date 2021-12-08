@@ -1,4 +1,4 @@
-//! This crate provides a type for representing a valid, unique account identifier on the [NEAR](https://near.org) network.
+//! This crate provides a type for representing a syntactically valid, unique account identifier on the [NEAR](https://near.org) network.
 //!
 //! ## Account ID Rules
 //!
@@ -28,37 +28,7 @@
 //!
 //! let alice: AccountId = "alice.near".parse().unwrap();
 //!
-//! // Basic reports for why validation failed
-//! assert!(
-//!   matches!(
-//!     "z".parse::<AccountId>(),
-//!     Err(err) if err.kind().is_too_short()
-//!   )
-//! );
-//!
-//! assert!(
-//!   matches!(
-//!     // no caps
-//!     "MelissaCarver.near".parse::<AccountId>(),
-//!     Err(err) if err.kind().is_invalid()
-//!   )
-//! );
-//!
-//! assert!(
-//!   matches!(
-//!     // separators cannot immediately follow each other
-//!     "bob__carol".parse::<AccountId>(),
-//!     Err(err) if err.kind().is_invalid()
-//!   )
-//! );
-//!
-//! assert!(
-//!   matches!(
-//!     // each part must be alphanumeric only (ƒ is not f)
-//!     "ƒelicia.near".parse::<AccountId>(),
-//!     Err(err) if err.kind().is_invalid()
-//!   )
-//! );
+//! assert!("ƒelicia.near".parse::<AccountId>().is_err()); // (ƒ is not f)
 //! ```
 
 use std::{fmt, str::FromStr};
@@ -74,14 +44,9 @@ mod serde;
 use deepsize::DeepSizeOf;
 pub use errors::{ParseAccountError, ParseErrorKind};
 
-/// Smallest valid length for a NEAR Account ID.
-pub const MIN_ACCOUNT_ID_LEN: usize = 2;
-/// Largest valid length for a NEAR Account ID.
-pub const MAX_ACCOUNT_ID_LEN: usize = 64;
-
 /// NEAR Account Identifier.
 ///
-/// This is a unique, validated, human-readable account identifier on the NEAR network.
+/// This is a unique, syntactically valid, human-readable account identifier on the NEAR network.
 ///
 /// [See the crate-level docs for information about validation.](index.html#account-id-rules)
 ///
@@ -92,44 +57,19 @@ pub const MAX_ACCOUNT_ID_LEN: usize = 64;
 ///
 /// let alice: AccountId = "alice.near".parse().unwrap();
 ///
-/// // Basic reports for why validation failed
-/// assert!(
-///   matches!(
-///     "z".parse::<AccountId>(),
-///     Err(err) if err.kind().is_too_short()
-///   )
-/// );
-///
-/// assert!(
-///   matches!(
-///     // no caps
-///     "MelissaCarver.near".parse::<AccountId>(),
-///     Err(err) if err.kind().is_invalid()
-///   )
-/// );
-///
-/// assert!(
-///   matches!(
-///     // separators cannot immediately follow each other
-///     "bob__carol".parse::<AccountId>(),
-///     Err(err) if err.kind().is_invalid()
-///   )
-/// );
-///
-/// assert!(
-///   matches!(
-///     // each part must be alphanumeric only (ƒ is not f)
-///     "ƒelicia.near".parse::<AccountId>(),
-///     Err(err) if err.kind().is_invalid()
-///   )
-/// );
+/// assert!("ƒelicia.near".parse::<AccountId>().is_err()); // (ƒ is not f)
 /// ```
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Eq, Ord, Hash, Clone, Debug, PartialEq, PartialOrd)]
 pub struct AccountId(Box<str>);
 
 impl AccountId {
-    /// Returns the length of the Account ID.
+    /// Shortest valid length for a NEAR Account ID.
+    pub const MIN_LEN: usize = 2;
+    /// Longest valid length for a NEAR Account ID.
+    pub const MAX_LEN: usize = 64;
+
+    /// Returns a string slice of the entire Account ID.
     ///
     /// ## Examples
     ///
@@ -137,11 +77,10 @@ impl AccountId {
     /// use near_account_id::AccountId;
     ///
     /// let carol: AccountId = "carol.near".parse().unwrap();
-    /// assert_eq!(10, carol.len());
+    /// assert_eq!("carol.near", carol.as_str());
     /// ```
-    #[allow(clippy::len_without_is_empty)]
-    pub fn len(&self) -> usize {
-        self.0.len()
+    pub fn as_str(&self) -> &str {
+        self
     }
 
     /// Returns `true` if the `AccountId` is a top-level NEAR Account ID.
@@ -154,17 +93,14 @@ impl AccountId {
     /// use near_account_id::AccountId;
     ///
     /// let near_tla: AccountId = "near".parse().unwrap();
-    /// assert!(near_tla.is_top_level_account_id());
+    /// assert!(near_tla.is_top_level());
     ///
     /// // "alice.near" is a sub account of "near" account
     /// let alice: AccountId = "alice.near".parse().unwrap();
-    /// assert!(!alice.is_top_level_account_id());
+    /// assert!(!alice.is_top_level());
     /// ```
-    pub fn is_top_level_account_id(&self) -> bool {
-        self.len() >= MIN_ACCOUNT_ID_LEN
-            && self.len() <= MAX_ACCOUNT_ID_LEN
-            && self.as_ref() != "system"
-            && !self.as_ref().contains('.')
+    pub fn is_top_level(&self) -> bool {
+        !self.is_system() && !self.contains('.')
     }
 
     /// Returns `true` if the `AccountId` is a direct sub-account of the provided parent account.
@@ -177,23 +113,21 @@ impl AccountId {
     /// use near_account_id::AccountId;
     ///
     /// let near_tla: AccountId = "near".parse().unwrap();
-    /// assert!(near_tla.is_top_level_account_id());
+    /// assert!(near_tla.is_top_level());
     ///
     /// let alice: AccountId = "alice.near".parse().unwrap();
     /// assert!(alice.is_sub_account_of(&near_tla));
     ///
     /// let alice_app: AccountId = "app.alice.near".parse().unwrap();
+    ///
+    /// // While app.alice.near is a sub account of alice.near,
+    /// // app.alice.near is not a sub account of near
     /// assert!(alice_app.is_sub_account_of(&alice));
+    /// assert!(!alice_app.is_sub_account_of(&near_tla));
     /// ```
-    pub fn is_sub_account_of(&self, parent_account: &AccountId) -> bool {
-        if parent_account.len() >= self.len() {
-            return false;
-        }
-        // Will not panic, since valid account id is utf-8 only and the length is checked above.
-        // e.g. when `near` creates `aa.near`, it splits into `aa.` and `near`
-        let (prefix, suffix) = self.0.split_at(self.len() - parent_account.len());
-
-        prefix.find('.') == Some(prefix.len() - 1) && suffix == parent_account.as_ref()
+    pub fn is_sub_account_of(&self, parent: &AccountId) -> bool {
+        self.strip_suffix(parent.as_str())
+            .map_or(false, |s| !s.is_empty() && s.find('.') == Some(s.len() - 1))
     }
 
     /// Returns `true` if the `AccountId` is a 64 characters long hexadecimal.
@@ -214,8 +148,26 @@ impl AccountId {
     /// assert!(rando.is_implicit());
     /// ```
     pub fn is_implicit(&self) -> bool {
-        self.len() == 64
-            && self.as_ref().as_bytes().iter().all(|b| matches!(b, b'a'..=b'f' | b'0'..=b'9'))
+        self.len() == 64 && self.as_bytes().iter().all(|b| matches!(b, b'a'..=b'f' | b'0'..=b'9'))
+    }
+
+    /// Returns `true` if this `AccountId` is the system account.
+    ///
+    /// See [System account](https://nomicon.io/DataStructures/Account.html?highlight=system#system-account).
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use near_account_id::AccountId;
+    ///
+    /// let alice: AccountId = "alice.near".parse().unwrap();
+    /// assert!(!alice.is_system());
+    ///
+    /// let system: AccountId = "system".parse().unwrap();
+    /// assert!(system.is_system());
+    /// ```
+    pub fn is_system(&self) -> bool {
+        self.as_str() == "system"
     }
 
     /// Validates a string as a well-structured NEAR Account ID.
@@ -225,29 +177,22 @@ impl AccountId {
     /// ## Examples
     ///
     /// ```
-    /// use near_account_id::AccountId;
+    /// use near_account_id::{AccountId, ParseErrorKind};
     ///
     /// assert!(AccountId::validate("alice.near").is_ok());
     ///
     /// assert!(
     ///   matches!(
-    ///     AccountId::validate("ƒelicia.near"), // fancy ƒ!
-    ///     Err(err) if err.kind().is_invalid()
-    ///   )
-    /// );
-    ///
-    /// assert!(
-    ///   matches!(
     ///     AccountId::validate("MelissaCarver.near"), // no caps
-    ///     Err(err) if err.kind().is_invalid()
+    ///     Err(err) if err.kind() == &ParseErrorKind::Invalid
     ///   )
     /// );
     /// ```
     pub fn validate(account_id: &str) -> Result<(), ParseAccountError> {
-        if account_id.len() < MIN_ACCOUNT_ID_LEN {
-            Err(ParseAccountError(ParseErrorKind::TooShort, account_id.to_string()))
-        } else if account_id.len() > MAX_ACCOUNT_ID_LEN {
-            Err(ParseAccountError(ParseErrorKind::TooLong, account_id.to_string()))
+        if account_id.len() < AccountId::MIN_LEN {
+            Err(ParseAccountError(ParseErrorKind::TooShort))
+        } else if account_id.len() > AccountId::MAX_LEN {
+            Err(ParseAccountError(ParseErrorKind::TooLong))
         } else {
             // Adapted from https://github.com/near/near-sdk-rs/blob/fd7d4f82d0dfd15f824a1cf110e552e940ea9073/near-sdk/src/environment/env.rs#L819
 
@@ -262,22 +207,18 @@ impl AccountId {
                 let current_char_is_separator = match c {
                     b'a'..=b'z' | b'0'..=b'9' => false,
                     b'-' | b'_' | b'.' => true,
-                    _ => {
-                        return Err(ParseAccountError(
-                            ParseErrorKind::Invalid,
-                            account_id.to_string(),
-                        ))
-                    }
+                    _ => return Err(ParseAccountError(ParseErrorKind::Invalid)),
                 };
                 if current_char_is_separator && last_char_is_separator {
-                    return Err(ParseAccountError(ParseErrorKind::Invalid, account_id.to_string()));
+                    return Err(ParseAccountError(ParseErrorKind::Invalid));
                 }
                 last_char_is_separator = current_char_is_separator;
             }
 
-            (!last_char_is_separator)
-                .then(|| ())
-                .ok_or_else(|| ParseAccountError(ParseErrorKind::Invalid, account_id.to_string()))
+            if last_char_is_separator {
+                return Err(ParseAccountError(ParseErrorKind::Invalid));
+            }
+            Ok(())
         }
     }
 
@@ -298,42 +239,36 @@ impl AccountId {
     /// use near_account_id::AccountId;
     ///
     /// let alice = AccountId::new_unvalidated("alice.near".to_string());
-    /// assert!(AccountId::validate(alice.as_ref()).is_ok());
+    /// assert!(AccountId::validate(alice.as_str()).is_ok());
     ///
     /// let ƒelicia = AccountId::new_unvalidated("ƒelicia.near".to_string());
-    /// assert!(AccountId::validate(ƒelicia.as_ref()).is_err());
+    /// assert!(AccountId::validate(ƒelicia.as_str()).is_err());
     /// ```
+    #[doc(hidden)]
     #[cfg(feature = "internal_unstable")]
     #[deprecated(since = "#4440", note = "AccountId construction without validation is illegal")]
     pub fn new_unvalidated(account_id: String) -> Self {
-        Self(account_id.into())
-    }
-
-    pub fn is_system(&self) -> bool {
-        self.as_ref() == "system"
-    }
-
-    pub fn system_account() -> Self {
-        "system".parse().unwrap()
-    }
-
-    pub fn test_account() -> Self {
-        "test".parse().unwrap()
+        Self(account_id.into_boxed_str())
     }
 }
 
-impl<T: ?Sized> AsRef<T> for AccountId
-where
-    Box<str>: AsRef<T>,
-{
-    fn as_ref(&self) -> &T {
+impl std::ops::Deref for AccountId {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
         self.0.as_ref()
+    }
+}
+
+impl AsRef<str> for AccountId {
+    fn as_ref(&self) -> &str {
+        self
     }
 }
 
 impl std::borrow::Borrow<str> for AccountId {
     fn borrow(&self) -> &str {
-        self.as_ref()
+        self
     }
 }
 
@@ -346,24 +281,33 @@ impl FromStr for AccountId {
     }
 }
 
+impl TryFrom<Box<str>> for AccountId {
+    type Error = ParseAccountError;
+
+    fn try_from(account_id: Box<str>) -> Result<Self, Self::Error> {
+        Self::validate(&account_id)?;
+        Ok(Self(account_id))
+    }
+}
+
 impl TryFrom<String> for AccountId {
     type Error = ParseAccountError;
 
     fn try_from(account_id: String) -> Result<Self, Self::Error> {
         Self::validate(&account_id)?;
-        Ok(Self(account_id.into()))
+        Ok(Self(account_id.into_boxed_str()))
+    }
+}
+
+impl fmt::Display for AccountId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
     }
 }
 
 impl From<AccountId> for String {
     fn from(account_id: AccountId) -> Self {
         account_id.0.into_string()
-    }
-}
-
-impl fmt::Display for AccountId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
     }
 }
 
@@ -443,7 +387,7 @@ mod tests {
 
         for account_id in BAD_ACCOUNT_IDS.iter().cloned() {
             if let Ok(_) = AccountId::validate(account_id) {
-                panic!("Valid account id {:?} marked valid", account_id);
+                panic!("Invalid account id {:?} marked valid", account_id);
             }
         }
     }
@@ -470,7 +414,7 @@ mod tests {
             assert!(
                 account_id
                     .parse::<AccountId>()
-                    .map_or(false, |account_id| account_id.is_top_level_account_id()),
+                    .map_or(false, |account_id| account_id.is_top_level()),
                 "Valid top level account id {:?} marked invalid",
                 account_id
             );
@@ -518,7 +462,7 @@ mod tests {
             assert!(
                 !account_id
                     .parse::<AccountId>()
-                    .map_or(false, |account_id| account_id.is_top_level_account_id()),
+                    .map_or(false, |account_id| account_id.is_top_level()),
                 "Invalid top level account id {:?} marked valid",
                 account_id
             );

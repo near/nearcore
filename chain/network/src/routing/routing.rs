@@ -319,6 +319,7 @@ impl RoutingTableView {
         self.local_edges_info.get(&key)
     }
 }
+
 #[derive(Debug)]
 pub struct RoutingTableInfo {
     pub account_peers: HashMap<AccountId, PeerId>,
