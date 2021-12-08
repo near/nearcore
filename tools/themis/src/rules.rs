@@ -271,3 +271,27 @@ pub fn publishable_has_readme(workspace: &Workspace) -> Result<(), Error> {
 
     return Ok(());
 }
+
+/// ensure all non-private crates have repository and homepage links
+pub fn publishable_has_links(workspace: &Workspace) -> Result<(), Error> {
+    let outliers = workspace
+        .members
+        .iter()
+        .filter(|pkg| {
+            utils::is_publishable(pkg)
+                && !(pkg.parsed.repository.is_some() && pkg.parsed.homepage.is_some())
+        })
+        .map(|pkg| PackageOutcome { pkg, value: None })
+        .collect::<Vec<_>>();
+
+    if !outliers.is_empty() {
+        return Err(Error::OutcomeError {
+            msg: "These non-private packages should have both `repository` and `homepage` links"
+                .to_string(),
+            expected: None,
+            outliers,
+        });
+    }
+
+    return Ok(());
+}
