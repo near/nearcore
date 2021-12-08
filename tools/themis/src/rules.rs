@@ -157,25 +157,26 @@ pub fn has_unified_rust_edition(workspace: &Workspace) -> Result<(), Error> {
     return Ok(());
 }
 
-const NEAR_AUTHOR: &'static str = "Near Inc <hello@nearprotocol.com>";
-/// ensure all crates have NEAR as an author, non-exclusively of course.
-pub fn author_is_near(workspace: &Workspace) -> Result<(), Error> {
-    let outliers = workspace
-        .members
-        .iter()
-        .filter(|pkg| !pkg.parsed.authors.iter().any(|author| author == NEAR_AUTHOR))
-        .map(|pkg| PackageOutcome { pkg, value: Some(format!("{:?}", pkg.parsed.authors)) })
-        .collect::<Vec<_>>();
+/// ensure all crates have the appropriate author, non-exclusively of course.
+pub fn author_is<'a>(expected: &'a str) -> impl Fn(&'a Workspace) -> Result<(), Error> {
+    move |workspace| {
+        let outliers = workspace
+            .members
+            .iter()
+            .filter(|pkg| !pkg.parsed.authors.iter().any(|author| author == expected))
+            .map(|pkg| PackageOutcome { pkg, value: Some(format!("{:?}", pkg.parsed.authors)) })
+            .collect::<Vec<_>>();
 
-    if !outliers.is_empty() {
-        return Err(Error::OutcomeError {
-            msg: "These packages should be tagged as authored by NEAR".to_string(),
-            expected: Some(Expected { value: NEAR_AUTHOR.to_string(), reason: None }),
-            outliers,
-        });
+        if !outliers.is_empty() {
+            return Err(Error::OutcomeError {
+                msg: "These packages need to be correctly authored".to_string(),
+                expected: Some(Expected { value: expected.to_string(), reason: None }),
+                outliers,
+            });
+        }
+
+        return Ok(());
     }
-
-    return Ok(());
 }
 
 /// ensure all non-private crates have a license
@@ -273,25 +274,38 @@ pub fn publishable_has_readme(workspace: &Workspace) -> Result<(), Error> {
 }
 
 /// ensure all non-private crates have repository and homepage links
-pub fn publishable_has_links(workspace: &Workspace) -> Result<(), Error> {
-    let outliers = workspace
-        .members
-        .iter()
-        .filter(|pkg| {
-            utils::is_publishable(pkg)
-                && !(pkg.parsed.repository.is_some() && pkg.parsed.homepage.is_some())
-        })
-        .map(|pkg| PackageOutcome { pkg, value: None })
-        .collect::<Vec<_>>();
+pub fn publishable_has_links<'a>(expected: &'a str) -> impl Fn(&'a Workspace) -> Result<(), Error> {
+    move |workspace| {
+        let outliers = workspace
+            .members
+            .iter()
+            .filter(|pkg| {
+                utils::is_publishable(pkg)
+                    && !(matches!(pkg.parsed.repository, Some(ref r) if r.contains(expected))
+                        && pkg.parsed.homepage.is_some())
+            })
+            .map(|pkg| PackageOutcome {
+                pkg,
+                value: Some(format!(
+                    "{c_none}{{repository = {c_found}{:?}{c_none}, homepage = {c_found}{:?}{c_none}}}",
+                    pkg.parsed.repository.as_ref().map_or("null", |r| r.as_str()),
+                    pkg.parsed.homepage.as_ref().map_or("null", |h| h.as_str()),
+                    c_found = style::fg(style::Color::White)
+                        + &style::bg(style::Color::Red)
+                        + style::bold(),
+                    c_none = style::reset()
+                )),
+            })
+            .collect::<Vec<_>>();
 
-    if !outliers.is_empty() {
-        return Err(Error::OutcomeError {
-            msg: "These non-private packages should have both `repository` and `homepage` links"
-                .to_string(),
-            expected: None,
-            outliers,
-        });
+        if !outliers.is_empty() {
+            return Err(Error::OutcomeError {
+                msg: "These non-private packages need to have appropriate `repository` and `homepage` links".to_string(),
+                expected: Some(Expected { value: expected.to_string(), reason: None }),
+                outliers,
+            });
+        }
+
+        return Ok(());
     }
-
-    return Ok(());
 }
