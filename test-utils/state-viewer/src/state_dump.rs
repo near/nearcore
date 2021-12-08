@@ -56,8 +56,8 @@ pub fn state_dump(
             public_key: public_key.clone(),
             amount: *amount,
         })
-        .sort_by_key(|account_info|account_info.account_id)
         .collect();
+    genesis_config.validators.sort_by_key(|account_info|account_info.account_id.clone());
     // Record the protocol version of the latest block. Otherwise, the state
     // dump ignores the fact that the nodes can be running a newer protocol
     // version than the protocol version of the genesis.
