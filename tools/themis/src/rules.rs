@@ -231,3 +231,23 @@ pub fn publishable_has_license_file(workspace: &Workspace) -> Result<(), Error> 
 
     return Ok(());
 }
+
+/// ensure all non-private crates have a description
+pub fn publishable_has_description(workspace: &Workspace) -> Result<(), Error> {
+    let outliers = workspace
+        .members
+        .iter()
+        .filter(|pkg| utils::is_publishable(pkg) && pkg.parsed.description.is_none())
+        .map(|pkg| PackageOutcome { pkg, value: None })
+        .collect::<Vec<_>>();
+
+    if !outliers.is_empty() {
+        return Err(Error::OutcomeError {
+            msg: "These non-private packages should have a `description`".to_string(),
+            expected: None,
+            outliers,
+        });
+    }
+
+    return Ok(());
+}

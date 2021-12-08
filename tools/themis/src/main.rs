@@ -58,7 +58,7 @@ fn main() -> anyhow::Result<()> {
             rules::author_is_near,
             rules::publishable_has_license,
             rules::publishable_has_license_file,
-            // rules::publishable_has_description,
+            rules::publishable_has_description,
             // rules::publishable_has_readme,
             // rules::publishable_has_links,
         }
