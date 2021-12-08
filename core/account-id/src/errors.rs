@@ -18,8 +18,7 @@ impl ParseAccountError {
 impl std::error::Error for ParseAccountError {}
 impl fmt::Display for ParseAccountError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut buf = String::new();
-        buf.push_str(&self.kind.to_string());
+        let mut buf = self.kind.to_string();
         if let Some((idx, char)) = self.char {
             write!(buf, " {:?} at index {}", char, idx)?
         }
