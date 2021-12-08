@@ -57,7 +57,7 @@ pub fn state_dump(
             amount: *amount,
         })
         .collect();
-    genesis_config.validators.sort_by_key(|account_info|account_info.account_id.clone());
+    genesis_config.validators.sort_by_key(|account_info| account_info.account_id.clone());
     // Record the protocol version of the latest block. Otherwise, the state
     // dump ignores the fact that the nodes can be running a newer protocol
     // version than the protocol version of the genesis.
@@ -80,10 +80,13 @@ pub fn state_dump(
             let records_file = File::create(&records_path).unwrap();
             let mut ser = serde_json::Serializer::new(records_file);
             let mut seq = ser.serialize_seq(None).unwrap();
-            let total_supply =
-                iterate_over_records(runtime, state_roots, last_block_header, &validators, &mut |sr| {
-                    seq.serialize_element(&sr).unwrap()
-                });
+            let total_supply = iterate_over_records(
+                runtime,
+                state_roots,
+                last_block_header,
+                &validators,
+                &mut |sr| seq.serialize_element(&sr).unwrap(),
+            );
             seq.end().unwrap();
             // `total_supply` is expected to change due to the natural processes of burning tokens and
             // minting tokens every epoch.
@@ -95,10 +98,13 @@ pub fn state_dump(
         }
         None => {
             let mut records: Vec<StateRecord> = vec![];
-            let total_supply =
-                iterate_over_records(runtime, state_roots, last_block_header, &validators, &mut |sr| {
-                    records.push(sr)
-                });
+            let total_supply = iterate_over_records(
+                runtime,
+                state_roots,
+                last_block_header,
+                &validators,
+                &mut |sr| records.push(sr),
+            );
             // `total_supply` is expected to change due to the natural processes of burning tokens and
             // minting tokens every epoch.
             genesis_config.total_supply = total_supply;
