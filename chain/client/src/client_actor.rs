@@ -1002,19 +1002,19 @@ impl ClientActor {
         // If we produced the block, send it out before we apply the block.
         // If we didn't produce the block and didn't request it, do basic validation
         // before sending it out.
-        if provenance == Provenance::PRODUCED {
+        let block = if provenance == Provenance::PRODUCED {
             self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Block { block: block.as_ref().into_inner().clone() },
             ));
             // If we produced it, we don’t need to validate it.  Mark the block
             // as valid.
-            block.mark_as_valid();
+            block.into_validated_unchecked()
         } else {
             let chain = &mut self.client.chain;
             let res = chain.process_block_header(&block.header(), |_| {});
-            let res = res.and_then(|_| chain.validate_block(&block));
+            let res = res.and_then(|_| chain.into_validated_block(block));
             match res {
-                Ok(_) => {
+                Ok(block) => {
                     let head = self.client.chain.head()?;
                     // do not broadcast blocks that are too far back.
                     if (head.height < block.header().height()
@@ -1024,21 +1024,22 @@ impl ClientActor {
                     {
                         self.client.rebroadcast_block(block.as_ref().into_inner());
                     }
+                    block
                 }
                 Err(e) => {
-                    if e.is_bad_data() {
-                        self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::BanPeer {
-                                peer_id: peer_id.clone(),
-                                ban_reason: ReasonForBan::BadBlockHeader,
-                            },
-                        ));
-                        return Err(e);
-                    }
+                    //                    if e.is_bad_data() {
+                    self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::BanPeer {
+                            peer_id: peer_id.clone(),
+                            ban_reason: ReasonForBan::BadBlockHeader,
+                        },
+                    ));
+                    return Err(e);
+                    //                    }
                 }
             }
-        }
-        let (accepted_blocks, result) = self.client.process_block(block, provenance);
+        };
+        let (accepted_blocks, result) = self.client.process_block(block.into(), provenance);
         self.process_accepted_blocks(accepted_blocks);
         result.map(|_| ())
     }

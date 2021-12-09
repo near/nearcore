@@ -25,8 +25,12 @@ pub mod min_heap;
 /// Number of nano seconds in a second.
 const NS_IN_SECOND: u64 = 1_000_000_000;
 
-/// A data structure for tagging data as already being validated to prevent
-/// redundant work.
+/// A data structure for tagging data as possibly having been validated to
+/// prevent redundant work.
+///
+/// Typically, the payload starts as not validated and then can be validated
+/// with one of the validation methods provided by the type.  Those methods are
+/// idempotent such that a valid payload is never validated more than once.
 ///
 /// # Example
 ///
@@ -56,6 +60,14 @@ const NS_IN_SECOND: u64 = 1_000_000_000;
 #[derive(Clone)]
 pub struct MaybeValidated<T> {
     validated: std::cell::Cell<bool>,
+    payload: T,
+}
+
+/// A data structure for tagging data as having been validated.  This should be
+/// used in pair with [`MaybeValidated`] and allows encoding using type system
+/// where validated payload is required.
+#[derive(Clone)]
+pub struct Validated<T> {
     payload: T,
 }
 
@@ -109,10 +121,21 @@ impl<T> MaybeValidated<T> {
         }
     }
 
-    /// Marks the payload as valid.  No verification is performed; it’s caller’s
-    /// responsibility to make sure the payload has indeed been validated.
-    pub fn mark_as_valid(&self) {
-        self.validated.set(true);
+    /// Validates payload with given `validator` function and returns the
+    /// payload wrapped in a [`Validated`] class.
+    pub fn into_validated_with<E, F: FnOnce(&T) -> Result<(), E>>(
+        self,
+        validator: F,
+    ) -> Result<Validated<T>, E> {
+        let result = if self.validated.get() { Ok(()) } else { validator(&self.payload) };
+        result.map(|_| Validated { payload: self.payload })
+    }
+
+    /// Assumes payload is valid and returns it as [`Validated`] object.  It’s
+    /// caller’s responsibility to ensure that the payload has indeed been
+    /// validated.
+    pub fn into_validated_unchecked(self) -> Validated<T> {
+        Validated { payload: self.payload }
     }
 
     /// Applies function to the payload (whether it’s been validated or not) and
@@ -161,6 +184,25 @@ impl<T> MaybeValidated<T> {
     }
 }
 
+impl<T> Validated<T> {
+    /// Creates a new Validated object with payload which has already been
+    /// validated.  No verification is performed; it’s caller’s responsibility
+    /// to make sure the payload has indeed been validated.
+    pub fn new_unchecked(payload: T) -> Self {
+        Self { payload }
+    }
+
+    /// Extracts the payload.
+    pub fn into_inner(self) -> T {
+        self.payload
+    }
+
+    /// Returns new object storing reference to the this object’s payload.
+    pub fn as_ref(&self) -> Validated<&T> {
+        Validated { payload: &self.payload }
+    }
+}
+
 impl<T> From<T> for MaybeValidated<T> {
     /// Creates new MaybeValidated object marking payload as not validated.
     fn from(payload: T) -> Self {
@@ -168,9 +210,22 @@ impl<T> From<T> for MaybeValidated<T> {
     }
 }
 
+impl<T> From<Validated<T>> for MaybeValidated<T> {
+    /// Creates new MaybeValidated object marking payload as validated.
+    fn from(validated: Validated<T>) -> Self {
+        Self { validated: true.into(), payload: validated.into_inner() }
+    }
+}
+
 impl<T: Sized> Deref for MaybeValidated<T> {
     type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.payload
+    }
+}
 
+impl<T: Sized> Deref for Validated<T> {
+    type Target = T;
     fn deref(&self) -> &Self::Target {
         &self.payload
     }

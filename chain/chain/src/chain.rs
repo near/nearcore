@@ -38,7 +38,7 @@ use near_primitives::types::{
     NumBlocks, NumShards, ShardId, StateChangesForSplitStates, StateRoot,
 };
 use near_primitives::unwrap_or_return;
-use near_primitives::utils::MaybeValidated;
+use near_primitives::utils::{MaybeValidated, Validated};
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
@@ -117,7 +117,7 @@ enum ApplyChunksMode {
 /// We save these blocks in an in-memory orphan pool to be processed later
 /// after their previous block is accepted.
 pub struct Orphan {
-    block: MaybeValidated<Block>,
+    block: Validated<Block>,
     provenance: Provenance,
     added: Instant,
 }
@@ -569,10 +569,10 @@ impl Chain {
         if self.store.get_block(block.hash()).is_ok() {
             return Ok(());
         }
-        if let Err(e) = self.validate_block(&block) {
+        let block = self.into_validated_block(block).map_err(|err| {
             byzantine_assert!(false);
-            return Err(e.into());
-        }
+            err
+        })?;
 
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
 
@@ -592,10 +592,10 @@ impl Chain {
         if self.orphans.contains(block.hash()) {
             return Ok(());
         }
-        if let Err(e) = self.validate_block(&block) {
+        let block = self.into_validated_block(block).map_err(|err| {
             byzantine_assert!(false);
-            return Err(e.into());
-        }
+            err
+        })?;
         self.orphans.add(
             Orphan { block, provenance: Provenance::NONE, added: Clock::instant() },
             requested_missing_chunks,
@@ -817,17 +817,13 @@ impl Chain {
 
     /// Do basic validation of a block upon receiving it. Check that block is
     /// well-formed (various roots match).
-    pub fn validate_block(&mut self, block: &MaybeValidated<Block>) -> Result<(), Error> {
-        block
-            .validate_with(|block| {
-                Chain::validate_block_impl(
-                    self.runtime_adapter.as_ref(),
-                    &self.genesis_block(),
-                    block,
-                )
-                .map(|_| true)
-            })
-            .map(|_| ())
+    pub fn into_validated_block(
+        &mut self,
+        block: MaybeValidated<Block>,
+    ) -> Result<Validated<Block>, Error> {
+        block.into_validated_with(|block| {
+            Chain::validate_block_impl(self.runtime_adapter.as_ref(), &self.genesis_block(), block)
+        })
     }
 
     fn validate_block_impl(
@@ -1240,6 +1236,7 @@ impl Chain {
         metrics::NUM_ORPHANS.set(self.orphans.len() as i64);
 
         let prev_head = self.store.head()?;
+        let block = self.into_validated_block(block)?;
         let mut chain_update = self.chain_update();
         let maybe_new_head = chain_update.process_block(me, &block, &provenance, on_challenge);
         let block_height = block.header().height();
@@ -1496,7 +1493,7 @@ impl Chain {
             let block_hash = *orphan.block.header().hash();
             let res = self.process_block_single(
                 me,
-                orphan.block,
+                orphan.block.into(),
                 orphan.provenance,
                 block_accepted,
                 block_misses_chunks,
@@ -1581,7 +1578,7 @@ impl Chain {
                     let timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
                     let res = self.process_block_single(
                         me,
-                        orphan.block,
+                        orphan.block.into(),
                         orphan.provenance,
                         block_accepted,
                         block_misses_chunks,
@@ -3015,6 +3012,7 @@ pub struct ChainUpdate<'a> {
     epoch_length: BlockHeightDelta,
     block_economics_config: &'a BlockEconomicsConfig,
     doomslug_threshold_mode: DoomslugThresholdMode,
+    #[allow(unused)]
     genesis: &'a Block,
     #[allow(unused)]
     transaction_validity_period: BlockHeightDelta,
@@ -3940,7 +3938,7 @@ impl<'a> ChainUpdate<'a> {
     fn process_block<F>(
         &mut self,
         me: &Option<AccountId>,
-        block: &MaybeValidated<Block>,
+        block: &Validated<Block>,
         provenance: &Provenance,
         on_challenge: F,
     ) -> Result<(Option<Tip>, bool), Error>
@@ -3990,7 +3988,6 @@ impl<'a> ChainUpdate<'a> {
             if !self.partial_verify_orphan_header_signature(&block.header())? {
                 return Err(ErrorKind::InvalidSignature.into());
             }
-            block.check_validity()?;
             // TODO: enable after #3729 and #3863
             // self.verify_orphan_header_approvals(&block.header())?;
             return Err(ErrorKind::Orphan.into());
@@ -4043,15 +4040,6 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidRandomnessBeaconOutput.into());
         }
 
-        let res = block.validate_with(|block| {
-            Chain::validate_block_impl(self.runtime_adapter.as_ref(), &self.genesis, block)
-                .map(|_| true)
-        });
-        if let Err(e) = res {
-            byzantine_assert!(false);
-            return Err(e.into());
-        }
-
         let protocol_version =
             self.runtime_adapter.get_epoch_protocol_version(&block.header().epoch_id())?;
         if !block.verify_gas_price(
@@ -4090,14 +4078,14 @@ impl<'a> ChainUpdate<'a> {
         // for these states as well
         // otherwise put the block into the permanent storage, waiting for be caught up
         let apply_chunk_work = if is_caught_up {
-            self.apply_chunks_preprocessing(me, block, &prev_block, ApplyChunksMode::IsCaughtUp)?
+            self.apply_chunks_preprocessing(me, &block, &prev_block, ApplyChunksMode::IsCaughtUp)?
         } else {
             debug!("add block to catch up {:?} {:?}", prev_hash, *block.hash());
             self.chain_store_update.add_block_to_catchup(prev_hash, *block.hash());
-            self.apply_chunks_preprocessing(me, block, &prev_block, ApplyChunksMode::NotCaughtUp)?
+            self.apply_chunks_preprocessing(me, &block, &prev_block, ApplyChunksMode::NotCaughtUp)?
         };
 
-        self.apply_chunks_and_process_results(block, &prev_block, apply_chunk_work)?;
+        self.apply_chunks_and_process_results(&block, &prev_block, apply_chunk_work)?;
 
         // Verify that proposals from chunks match block header proposals.
         let block_height = block.header().height();
@@ -4154,7 +4142,7 @@ impl<'a> ChainUpdate<'a> {
             // is also just height, so the very first block to cross the epoch end is guaranteed
             // to be the head of the chain, and result in the light client block produced.
             if block.header().epoch_id() != &prev_epoch_id {
-                let prev = self.get_previous_header(&block.header())?.clone();
+                let prev = self.get_previous_header(block.header())?.clone();
                 if prev.last_final_block() != &CryptoHash::default() {
                     let light_client_block = self.create_light_client_block(&prev)?;
                     self.chain_store_update
