@@ -2142,6 +2142,7 @@ dependencies = [
  "testlib",
  "tokio",
  "tracing",
+ "wat",
 ]
 
 [[package]]
@@ -2567,7 +2568,6 @@ dependencies = [
  "once_cell",
  "rand 0.7.3",
  "rayon",
- "serde",
  "strum",
  "thiserror",
  "tracing",
@@ -2623,7 +2623,6 @@ dependencies = [
  "near-store",
  "rand 0.7.3",
  "reed-solomon-erasure",
- "serde",
 ]
 
 [[package]]
@@ -2666,7 +2665,6 @@ dependencies = [
  "once_cell",
  "rand 0.7.3",
  "reed-solomon-erasure",
- "serde",
  "serde_json",
  "strum",
  "sysinfo",
@@ -2734,7 +2732,6 @@ dependencies = [
  "primitive-types",
  "rand 0.6.5",
  "rand 0.7.3",
- "serde",
  "serde_json",
  "smart-default",
 ]
@@ -3007,6 +3004,7 @@ dependencies = [
 name = "near-rate-limiter"
 version = "0.0.0"
 dependencies = [
+ "actix",
  "bytes",
  "futures-core",
  "log",
