@@ -15,13 +15,11 @@ use crate::routing::routing::{
 use crate::routing::routing_table_actor::Prune;
 use crate::stats::metrics;
 use crate::stats::metrics::NetworkMetrics;
-#[cfg(feature = "test_features")]
-use crate::types::SetAdvOptions;
 use crate::types::{FullPeerInfo, NetworkClientMessages, NetworkRequests, NetworkResponses};
 use crate::types::{
-    GetPeerId, GetPeerIdResult, NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    PeerMessage, PeerRequest, PeerResponse, PeersRequest, PeersResponse, RegisterPeer,
-    RegisterPeerResponse, RoutingTableUpdate, SendMessage, StopMsg, Unregister, ValidateEdgeList,
+    NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerRequest,
+    PeerResponse, PeersRequest, PeersResponse, RegisterPeer, RegisterPeerResponse,
+    RoutingTableUpdate, SendMessage, StopMsg, Unregister, ValidateEdgeList,
 };
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{RoutingSyncV2, RoutingVersion2};
@@ -2014,7 +2012,11 @@ impl PeerManagerActor {
 
     #[cfg(feature = "test_features")]
     #[perf]
-    fn handle_msg_set_adv_options(&mut self, msg: SetAdvOptions, _ctx: &mut Context<Self>) {
+    fn handle_msg_set_adv_options(
+        &mut self,
+        msg: crate::types::SetAdvOptions,
+        _ctx: &mut Context<Self>,
+    ) {
         if let Some(disable_edge_propagation) = msg.disable_edge_propagation {
             self.adv_helper.adv_disable_edge_propagation = disable_edge_propagation;
         }
@@ -2067,13 +2069,14 @@ impl PeerManagerActor {
         self.pending_incoming_connections_counter.fetch_sub(1, Ordering::SeqCst);
     }
 
+    #[cfg(feature = "test_features")]
     #[perf]
     fn handle_msg_get_peer_id(
         &mut self,
-        msg: GetPeerId,
+        msg: crate::types::GetPeerId,
         _ctx: &mut Context<Self>,
-    ) -> GetPeerIdResult {
-        GetPeerIdResult { peer_id: self.my_peer_id.clone() }
+    ) -> crate::types::GetPeerIdResult {
+        crate::types::GetPeerIdResult { peer_id: self.my_peer_id.clone() }
     }
 
     #[perf]
@@ -2322,6 +2325,7 @@ impl PeerManagerActor {
             PeerManagerMessageRequest::PeerRequest(msg) => {
                 PeerManagerMessageResponse::PeerResponse(self.handle_msg_peer_request(msg, ctx))
             }
+            #[cfg(feature = "test_features")]
             PeerManagerMessageRequest::GetPeerId(msg) => {
                 PeerManagerMessageResponse::GetPeerIdResult(self.handle_msg_get_peer_id(msg, ctx))
             }
