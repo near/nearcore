@@ -64,8 +64,10 @@ steps:
       source ~/.nvm/nvm.sh
       rustup default nightly-2020-05-15
       rustup target add wasm32-unknown-unknown
-      scripts/test_nearlib.sh
-    timeout: 20
+      for x in `seq 1 1 500`; do
+        scripts/test_nearlib.sh
+      done
+    timeout: 1000
     agents:
     - "distro=amazonlinux"
     branches: "!master"
