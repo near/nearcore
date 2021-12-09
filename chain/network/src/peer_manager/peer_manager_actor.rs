@@ -1,4 +1,3 @@
-use crate::common::message_wrapper::{ActixMessageResponse, ActixMessageWrapper};
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
@@ -45,7 +44,10 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::time::Clock;
 use near_primitives::types::{AccountId, ProtocolVersion};
 use near_primitives::utils::from_timestamp;
-use near_rate_limiter::{ThrottleController, ThrottleToken, ThrottledFrameRead};
+use near_rate_limiter::{
+    ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleToken,
+    ThrottledFrameRead,
+};
 use near_store::Store;
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::thread_rng;
