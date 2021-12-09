@@ -1,6 +1,5 @@
-use crate::common::message_wrapper::{ActixMessageResponse, ActixMessageWrapper};
 use crate::metrics;
-use crate::routing::edge::{Edge, EdgeType};
+use crate::routing::edge::{Edge, EdgeState};
 use crate::routing::edge_validator_actor::EdgeValidatorActor;
 use crate::routing::routing::{Graph, SAVE_PEERS_MAX_TIME};
 use crate::types::{StopMsg, ValidateEdgeList};
@@ -13,7 +12,7 @@ use near_performance_metrics_macros::perf;
 use near_primitives::borsh::BorshSerialize;
 use near_primitives::network::PeerId;
 use near_primitives::utils::index_to_bytes;
-use near_rate_limiter::ThrottleToken;
+use near_rate_limiter::{ActixMessageResponse, ActixMessageWrapper, ThrottleToken};
 use near_store::db::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
 use near_store::{Store, StoreUpdate};
 use std::collections::{HashMap, HashSet};
@@ -131,10 +130,10 @@ impl RoutingTableActor {
         } else {
             self.needs_routing_table_recalculation = true;
             match edge.edge_type() {
-                EdgeType::Added => {
+                EdgeState::Active => {
                     self.raw_graph.add_edge(&key.0, &key.1);
                 }
-                EdgeType::Removed => {
+                EdgeState::Removed => {
                     self.raw_graph.remove_edge(&key.0, &key.1);
                 }
             }
@@ -210,13 +209,7 @@ impl RoutingTableActor {
                                     ColPeerComponent,
                                     peer_id.try_to_vec().unwrap().as_ref(),
                                 );
-                            } else {
-                                warn!("We expected `peer_id` to belong to component {}, but it belongs to {}",
-                                       component_nonce, cur_nonce);
                             }
-                        } else {
-                            warn!("We expected `peer_id` to belong to a component {}, but it doesn't belong anywhere",
-                                       component_nonce);
                         }
                     }
                     self.add_verified_edge(edge);

@@ -1727,7 +1727,7 @@ dependencies = [
  "lazy-static-include",
  "near-chain-configs",
  "near-crypto",
- "near-network",
+ "near-network-primitives",
  "near-primitives",
  "nearcore",
  "node-runtime",
@@ -2106,7 +2106,6 @@ dependencies = [
  "borsh 0.9.1",
  "cached",
  "chrono",
- "funty",
  "futures",
  "hex",
  "hyper",
@@ -2143,6 +2142,7 @@ dependencies = [
  "testlib",
  "tokio",
  "tracing",
+ "wat",
 ]
 
 [[package]]
@@ -2537,7 +2537,7 @@ dependencies = [
 
 [[package]]
 name = "near-cache"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "bencher",
  "lru",
@@ -2568,7 +2568,6 @@ dependencies = [
  "once_cell",
  "rand 0.7.3",
  "rayon",
- "serde",
  "strum",
  "thiserror",
  "tracing",
@@ -2624,7 +2623,6 @@ dependencies = [
  "near-store",
  "rand 0.7.3",
  "reed-solomon-erasure",
- "serde",
 ]
 
 [[package]]
@@ -2667,7 +2665,6 @@ dependencies = [
  "once_cell",
  "rand 0.7.3",
  "reed-solomon-erasure",
- "serde",
  "serde_json",
  "strum",
  "sysinfo",
@@ -2735,7 +2732,6 @@ dependencies = [
  "primitive-types",
  "rand 0.6.5",
  "rand 0.7.3",
- "serde",
  "serde_json",
  "smart-default",
 ]
@@ -3008,6 +3004,7 @@ dependencies = [
 name = "near-rate-limiter"
 version = "0.0.0"
 dependencies = [
+ "actix",
  "bytes",
  "futures-core",
  "log",
@@ -5113,9 +5110,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-macros"
-version = "1.5.0"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2dd85aeaba7b68df939bd357c6afb36c87951be9e80bf9c859f2fc3e9fca0fd"
+checksum = "c9efc1aba077437943f7515666aa2b882dfabfbfdf89c819ea75a8d6e9eaba5e"
 dependencies = [
  "proc-macro2",
  "quote",
