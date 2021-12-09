@@ -410,7 +410,7 @@ pub(crate) async fn query_access_key(
 pub(crate) async fn query_protocol_config(
     block_hash: near_primitives::hash::CryptoHash,
     view_client_addr: &Addr<ViewClientActor>,
-) -> Result<ProtocolConfigView, crate::errors::ErrorKind> {
+) -> crate::errors::Result<ProtocolConfigView> {
     view_client_addr
         .send(near_client::GetProtocolConfig(near_primitives::types::BlockReference::from(
             near_primitives::types::BlockId::Hash(block_hash),
@@ -438,7 +438,7 @@ where
         Self { error_message, known_value: None }
     }
 
-    pub fn try_set(&mut self, new_value: &T) -> Result<(), crate::errors::ErrorKind> {
+    pub fn try_set(&mut self, new_value: &T) -> crate::errors::Result<()> {
         if let Some(ref known_value) = self.known_value {
             if new_value != known_value {
                 Err(crate::errors::ErrorKind::InvalidInput(format!(

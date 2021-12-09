@@ -549,9 +549,9 @@ mod tests {
         let trie_changes = gen_trie_changes(&mut rng, max_key_length, big_value_length);
         println!("Number of nodes: {}", trie_changes.len());
         let tries = create_tries();
-        let trie = tries.get_trie_for_shard(ShardUId::default());
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard());
         let state_root =
-            test_populate_trie(&tries, &Trie::empty_root(), ShardUId::default(), trie_changes);
+            test_populate_trie(&tries, &Trie::empty_root(), ShardUId::single_shard(), trie_changes);
         let memory_size = trie.retrieve_root_node(&state_root).unwrap().memory_usage;
         println!("Total memory size: {}", memory_size);
         for num_parts in [2, 3, 5, 10, 50].iter().cloned() {
@@ -616,12 +616,12 @@ mod tests {
         let mut rng = rand::thread_rng();
         for _ in 0..2000 {
             let tries = create_tries();
-            let trie = tries.get_trie_for_shard(ShardUId::default());
+            let trie = tries.get_trie_for_shard(ShardUId::single_shard());
             let trie_changes = gen_changes(&mut rng, 20);
             let state_root = test_populate_trie(
                 &tries,
                 &Trie::empty_root(),
-                ShardUId::default(),
+                ShardUId::single_shard(),
                 trie_changes.clone(),
             );
             let root_memory_usage = trie.retrieve_root_node(&state_root).unwrap().memory_usage;
@@ -700,13 +700,13 @@ mod tests {
         let mut rng = rand::thread_rng();
         for _ in 0..20 {
             let tries = create_tries();
-            let trie = tries.get_trie_for_shard(ShardUId::default());
+            let trie = tries.get_trie_for_shard(ShardUId::single_shard());
             let trie_changes = gen_changes(&mut rng, 10);
 
             let state_root = test_populate_trie(
                 &tries,
                 &Trie::empty_root(),
-                ShardUId::default(),
+                ShardUId::single_shard(),
                 trie_changes.clone(),
             );
             for _ in 0..10 {

@@ -1,4 +1,4 @@
-use crate::routing::{Edge, EdgeType, Prune, DELETE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME};
+use crate::routing::{Edge, EdgeState, Prune, DELETE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME};
 use crate::test_utils::random_peer_id;
 use crate::RoutingTableActor;
 use actix::System;
@@ -13,12 +13,12 @@ use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(Eq, PartialEq, Hash)]
-struct EdgeDescription(usize, usize, EdgeType);
+struct EdgeDescription(usize, usize, EdgeState);
 
 impl EdgeDescription {
     fn from(data: (usize, usize, bool)) -> Self {
         let (u, v, t) = data;
-        Self(u, v, if t { EdgeType::Added } else { EdgeType::Removed })
+        Self(u, v, if t { EdgeState::Active } else { EdgeState::Removed })
     }
 }
 
@@ -112,7 +112,7 @@ impl RoutingTableTest {
         }
         let active_edges = on_memory
             .iter()
-            .filter_map(|x| if x.2 == EdgeType::Added { Some(1) } else { None })
+            .filter_map(|x| if x.2 == EdgeState::Active { Some(1) } else { None })
             .count();
 
         assert_eq!(active_edges, self.routing_table.raw_graph.total_active_edges() as usize);

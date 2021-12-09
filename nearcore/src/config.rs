@@ -468,7 +468,7 @@ impl Config {
             .unwrap_or_else(|_| panic!("Could not open config file: `{}`", path.display()));
         let mut content = String::new();
         file.read_to_string(&mut content).expect("Could not read from config file.");
-        Config::from(content.as_str())
+        serde_json::from_str::<Config>(&content).expect("Deserializing config failed")
     }
 
     pub fn write_to_file(&self, path: &Path) {
@@ -493,12 +493,6 @@ impl Config {
         {
             self.rpc.get_or_insert(Default::default()).addr = addr;
         }
-    }
-}
-
-impl From<&str> for Config {
-    fn from(content: &str) -> Self {
-        serde_json::from_str(content).expect("Failed to deserialize config")
     }
 }
 
@@ -568,7 +562,7 @@ impl Genesis {
             accounts,
             num_validator_seats,
             vec![num_validator_seats],
-            ShardLayout::default(),
+            ShardLayout::v0_single_shard(),
         )
     }
 
