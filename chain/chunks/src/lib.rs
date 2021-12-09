@@ -17,7 +17,7 @@ use near_chain::{
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_pool::{PoolIteratorWrapper, TransactionPool};
-use near_primitives::block::{BlockHeader, Tip};
+use near_primitives::block::Tip;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -35,6 +35,7 @@ use near_primitives::types::{
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolVersion;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::{checked_feature, unwrap_or_return};
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
@@ -47,6 +48,65 @@ use near_primitives::epoch_manager::RngSeed;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use rand::Rng;
 
+// This file implements ShardManager, which handles chunks requesting and processing.
+// Since blocks only contain chunk headers, full chunks must be communicated separately.
+// For data availability, information in a chunk is divided into parts by Reed Solomon encoding,
+// and each validator holds a subset of parts of each chunk (a validator is called the owner
+// of the parts that they hold). This way, a chunk can be retrieved from any X validators
+// where X is the threshold for the Reed Solomon encoding for retrieving the full information.
+// Currently, X is set to be 1/3 of total validator seats (num_data_parts).
+//
+// **How chunks are propagated in the network
+// Instead sending the full chunk, chunk content is communicated between nodes through
+// PartialEncodedChunk, which includes the chunk header, some parts and receipts of the chunk.
+// Full chunk can be reconstructed if a node receipts enough chunk parts.
+// A node receives partial encoded chunks in two ways, either by requesting for it, or receives
+// a PartialEncodedChunkForward message from other nodes. Note that PartialEncodedChunkForward
+// will only be sent from validators to validators, so the only way a non-validator receives
+// a partial encoded chunk is by requesting for it.
+//
+// ** Requesting for chunks
+// `ShardManager` keeps a request pool that stores all requests for chunks that are not completed
+// yet. The requests are managed at the chunk level, instead of individual parts and receipts.
+// A new request can be added by calling function `request_chunk_single`. If it is not
+// in the pool yet, `request_partial_encoded_chunk` will be called, which checks which parts or
+// receipts is still needed for the chunk by checking `encoded_chunks` (see the section on
+// ** Storing chunks), figures out where to request them (either from the original
+// chunk producer, or a block producer or peer who tracks the shard), and sends out network
+// requests. Check the logic there for details regarding how targets of requests are chosen.
+//
+// Once a request is added the pool, they can be asked to be resend through `resend_chunk_requests`,
+// which is done periodically through client_actor. A request is only removed from the pool when
+// all needed parts and receipts in the requested chunk are received.
+//
+// ** Forwarding chunks
+// To save messages and time for chunks to propagate among validators, we implemented a feature
+// called ForwardChunkParts. When a validator receives a part it owns, it forwards the part to
+// other validators who track the shard through a PartialEncodedChunkForward message. This saves
+// the number of requests validators need to send to get all parts they need. A forwarded part
+// can only be processed after the node has the corresponding chunk header, either from blocks
+// or partial chunk requests. Before that, they are temporarily stored in `chunk_forwards_cache`.
+// After that, they are processed as a PartialEncodedChunk message only containing one part.
+//
+// ** Storing chunks
+// Before a chunk can be reconstructed fully, parts and receipts in the chunk are stored in
+// `encoded_chunks`. Full chunks will be persisted in the database storage after they are
+// reconstructed.
+//
+// ** Processing chunks
+// Function `process_partial_encoded_chunk` processes a partial encoded chunk message.
+// 1) validates that chunk header, parts and receipts in the message
+// 2) merges the parts and receipts are into `encoded_chunks`.
+// 3) forwards newly received owned parts to other validators, if any.
+// 4) checks if there are any forwarded chunk parts in `chunk_forwards_cache` that can be processed.
+// 5) checks if all needed parts and receipts are received and tries to reconstruct the full chunk.
+//    If successful, removes request for the chunk from the request pool.
+// Note that the last step requires the previous block of the chunk has been accepted.
+// If not, the function will return `NeedBlock`. To avoid a chunk gets stuck waiting on
+// the previous block, when a new block is accepted, client must remembers to call
+// `get_incomplete_chunks` to get the list of incomplete chunks who are waiting on the block
+// and process them
+
 mod chunk_cache;
 pub mod test_utils;
 
@@ -58,9 +118,6 @@ const CHUNK_REQUEST_RETRY_MAX_MS: u64 = 1_000_000;
 const CHUNK_FORWARD_CACHE_SIZE: usize = 1000;
 const ACCEPTING_SEAL_PERIOD_MS: i64 = 30_000;
 const NUM_PARTS_REQUESTED_IN_SEAL: usize = 3;
-/// Max number of PartialEncodedChunks per height per shard to store in
-/// `stored_partial_encoded_chunks` before processing
-const MAX_STORED_PARTIAL_CHUNK_SIZE: usize = 100;
 // TODO(#3180): seals are disabled in single shard setting
 // const NUM_PARTS_LEFT_IN_SEAL: usize = 1;
 const PAST_SEAL_HEIGHT_HORIZON: BlockHeightDelta = 1024;
@@ -74,6 +131,7 @@ pub enum ChunkStatus {
 
 #[derive(Debug)]
 pub enum ProcessPartialEncodedChunkResult {
+    /// The information included in the partial encoded chunk is already known, no processing is needed
     Known,
     /// The CryptoHash is the previous block hash (which might be unknown to the caller) to start
     ///     unblocking the blocks from
@@ -397,11 +455,6 @@ pub struct ShardsManager {
 
     encoded_chunks: EncodedChunksCache,
     requested_partial_encoded_chunks: RequestPool,
-    /// Temporary place to store PartialEncodedChunks if they can't be processed yet at the time
-    /// when they are received
-    /// A partial chunk is removed here if it is processed or it is too old
-    stored_partial_encoded_chunks:
-        HashMap<BlockHeight, HashMap<ShardId, Vec<PartialEncodedChunkV2>>>,
     chunk_forwards_cache: SizedCache<ChunkHash, HashMap<u64, PartialEncodedChunkPart>>,
 
     seals_mgr: SealsManager,
@@ -429,7 +482,6 @@ impl ShardsManager {
                 Duration::from_millis(CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS),
                 Duration::from_millis(CHUNK_REQUEST_RETRY_MAX_MS),
             ),
-            stored_partial_encoded_chunks: HashMap::new(),
             chunk_forwards_cache: SizedCache::with_size(CHUNK_FORWARD_CACHE_SIZE),
             seals_mgr: SealsManager::new(me, runtime_adapter),
             rng_seed,
@@ -669,7 +721,7 @@ impl ShardsManager {
             return;
         }
 
-        self.encoded_chunks.get_or_insert_from_header(chunk_hash.clone(), chunk_header);
+        self.encoded_chunks.try_insert(chunk_hash.clone(), chunk_header.clone());
 
         let prev_block_hash = chunk_header.prev_block_hash();
         self.requested_partial_encoded_chunks.insert(
@@ -818,53 +870,6 @@ impl ShardsManager {
                 }
             }
         }
-    }
-
-    pub fn store_partial_encoded_chunk(
-        &mut self,
-        known_header: &BlockHeader,
-        partial_encoded_chunk: PartialEncodedChunkV2,
-    ) {
-        // Remove old partial_encoded_chunks
-        let encoded_chunks = &self.encoded_chunks;
-        self.stored_partial_encoded_chunks
-            .retain(|&height, _| encoded_chunks.height_within_front_horizon(height));
-
-        let header = partial_encoded_chunk.header.clone();
-        let height = header.height_created();
-        let shard_id = header.shard_id();
-        if self.encoded_chunks.height_within_front_horizon(height) {
-            let runtime_adapter = &self.runtime_adapter;
-            let heights =
-                self.stored_partial_encoded_chunks.entry(height).or_insert_with(HashMap::new);
-            heights
-                .entry(shard_id)
-                .and_modify(|stored_chunk| {
-                    let epoch_id = unwrap_or_return!(
-                        runtime_adapter.get_epoch_id_from_prev_block(known_header.prev_hash())
-                    );
-                    if runtime_adapter.verify_chunk_header_signature(&header, &epoch_id, known_header.prev_hash()).unwrap_or(false) {
-                        // We prove that this one is valid for `epoch_id`.
-                        // We won't store it by design if epoch is changed.
-                        if stored_chunk.len() < MAX_STORED_PARTIAL_CHUNK_SIZE {
-                            stored_chunk.push(partial_encoded_chunk.clone());
-                        } else {
-                            warn!(target:"shards_manager", "Drop partial encoded chunk because stored partial encoded chunks already exceed limit, height: {} shard: {}", 
-                                  height, shard_id);
-                        }
-                    }
-                })
-                // This is the first partial encoded chunk received for current height / shard_id.
-                // Store it because there are no other candidates.
-                .or_insert_with(|| vec![partial_encoded_chunk.clone()]);
-        }
-    }
-
-    pub fn pop_stored_partial_encoded_chunks(
-        &mut self,
-        height: BlockHeight,
-    ) -> HashMap<ShardId, Vec<PartialEncodedChunkV2>> {
-        self.stored_partial_encoded_chunks.remove(&height).unwrap_or(HashMap::new())
     }
 
     pub fn num_chunks_for_block(&mut self, prev_block_hash: &CryptoHash) -> ShardId {
@@ -1206,9 +1211,23 @@ impl ShardsManager {
         }
     }
 
-    // validate a partial encoded chunk
-    // returns error if validation fails
-    // validation includes
+    /// Get a list of incomplete chunks whose previous block hash is `prev_block_hash`
+    pub fn get_incomplete_chunks(&self, prev_block_hash: &CryptoHash) -> Vec<ShardChunkHeader> {
+        if let Some(chunk_hashes) = self.encoded_chunks.get_incomplete_chunks(prev_block_hash) {
+            chunk_hashes
+                .iter()
+                .flat_map(|chunk_hash| {
+                    self.encoded_chunks.get(chunk_hash).map(|e| e.header.clone())
+                })
+                .collect()
+        } else {
+            vec![]
+        }
+    }
+
+    // Validate a partial encoded chunk
+    // Returns error if validation fails
+    // Validation includes
     // 1) check that the chunk header is signed by the correct chunk producer for the chunk at
     //    the height for the shard
     // 2) check that the chunk header is compatible with the current protocol version
@@ -1224,8 +1243,7 @@ impl ShardsManager {
         // if the partial encoded chunk is requested, we use `ancestor_hash` in the original request
         // Because of how we request for chunks, get_epoch_id_from_prev_block(`ancestor_hash`)
         // gives the epoch id of the current chunk, so we can use `ancestor_hash` to substitute
-        // prev_block_hash
-        // This enables us to process partial encoded chunks requested for orphans
+        // `prev_block_hash. This way, we can validate partial encoded chunks requested for orphans
         let ancestor_hash =
             self.requested_partial_encoded_chunks.get_request_info(&chunk_hash).map_or_else(
                 || partial_encoded_chunk.header.prev_block_hash(),
@@ -1282,6 +1300,14 @@ impl ShardsManager {
         Ok(())
     }
 
+    /// Process a partial encoded chunk message, which means
+    /// 1) Checks that the partial encoded chunk message is valid, which includes validating
+    ///    the signature of chunk header, the merkle proof of the parts and the receipts
+    /// 2) If the chunk message is valid, save the chunk hash and merge the parts and receipts into
+    ///    chunk cache, which is a temporary storage for chunk parts and receipts before full chunks
+    ///    can be constructed
+    /// 3) Check if the chunk has all parts and receipts, if so and if the node cares about the shard,
+    ///    decode and persist the full chunk
     pub fn process_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: MaybeValidated<&PartialEncodedChunkV2>,
@@ -1290,30 +1316,22 @@ impl ShardsManager {
     ) -> Result<ProcessPartialEncodedChunkResult, Error> {
         let header = &partial_encoded_chunk.header;
         let chunk_hash = header.chunk_hash();
-        // 1. Leave if we received known chunk
+        // Verify the partial encoded chunk is valid and worth processing
+        // 1.a Leave if we received known chunk
+        // Note that we have to still process the chunk even if all parts and receipts included
+        // in `partial_encoded_chunk` are already in `encoded_chunks`. This is because
+        // `try_process_full_chunk` can only succ
         if let Some(entry) = self.encoded_chunks.get(&chunk_hash) {
-            let know_all_parts = partial_encoded_chunk
-                .parts
-                .iter()
-                .all(|part_entry| entry.parts.contains_key(&part_entry.part_ord));
-
-            if know_all_parts {
-                let know_all_receipts = partial_encoded_chunk
-                    .receipts
-                    .iter()
-                    .all(|receipt| entry.receipts.contains_key(&receipt.1.to_shard_id));
-
-                if know_all_receipts {
-                    return Ok(ProcessPartialEncodedChunkResult::Known);
-                }
+            if entry.complete {
+                return Ok(ProcessPartialEncodedChunkResult::Known);
             }
         };
 
-        // 2. Checking chunk height
+        // 1.b Checking chunk height
         let chunk_requested = self.requested_partial_encoded_chunks.contains_key(&chunk_hash);
         if !chunk_requested {
             if !self.encoded_chunks.height_within_horizon(header.height_created()) {
-                return Err(Error::ChainError(ErrorKind::InvalidChunkHeight.into()));
+                return Ok(ProcessPartialEncodedChunkResult::Known);
             }
             // We shouldn't process unrequested chunk if we have seen one with same (height_created + shard_id)
             if let Ok(hash) = chain_store
@@ -1327,7 +1345,7 @@ impl ShardsManager {
             }
         }
 
-        // 3. Check validity
+        // 1.c Check validity
         let signature_check = partial_encoded_chunk
             .validate_with(|pec| self.validate_partial_encoded_chunk(&pec).map(|()| true));
         match signature_check {
@@ -1347,7 +1365,7 @@ impl ShardsManager {
             Err(err) => return Err(err),
         };
 
-        // Consider it valid
+        // 2. Consider it valid and stores it
         let partial_encoded_chunk = partial_encoded_chunk.into_inner();
 
         // Store chunk hash into chunk_hash_per_height_shard collection
@@ -1362,32 +1380,69 @@ impl ShardsManager {
         // Merge parts and receipts included in the partial encoded chunk into chunk cache
         self.encoded_chunks.merge_in_partial_encoded_chunk(partial_encoded_chunk);
 
+        // 3. Forward my parts to others tracking this chunk's shard
+        if checked_feature!("stable", ForwardChunkParts, PROTOCOL_VERSION) {
+            // Technically, we should use the protocol version from this epoch, but
+            // that that is a little inconvenient to get here, let's just use the current protocol
+            // version since we already stabilized the feature
+            self.send_partial_encoded_chunk_to_chunk_trackers(partial_encoded_chunk)?;
+        };
+
+        // 4. Process the forwarded parts in chunk_forwards_cache
+        match self.chunk_forwards_cache.cache_remove(&chunk_hash) {
+            None => {}
+            Some(forwarded_parts) => {
+                // We have the header now, and there were some parts we were forwarded earlier.
+                // Let's process those parts now.
+                let forwarded_chunk = PartialEncodedChunkV2 {
+                    header: header.clone(),
+                    parts: forwarded_parts.into_iter().map(|(_, part)| part).collect(),
+                    receipts: Vec::new(),
+                };
+                // Make sure we mark this chunk as being requested so that it is handled
+                // properly in the next call. Note no requests are actually sent at this point.
+                self.request_chunk_single_mark_only(header);
+                return self.process_partial_encoded_chunk(
+                    // We can assert the signature on the header is valid because
+                    // it would have been checked in an earlier call to this function.
+                    MaybeValidated::from_validated(&forwarded_chunk),
+                    chain_store,
+                    rs,
+                );
+            }
+        }
+
+        // 5. Try process all parts and receipts in the chunk cache to reconstruct the full chunk
+        self.try_process_full_chunk(header, chain_store, rs)
+    }
+
+    /// Try to process all parts and receipts stored in the chunk cache
+    /// Check if we have all parts and receipts for the chunk, if so and if the node cares about the shard,
+    /// decode and persist the full chunk
+    fn try_process_full_chunk(
+        &mut self,
+        header: &ShardChunkHeader,
+        chain_store: &mut ChainStore,
+        rs: &mut ReedSolomonWrapper,
+    ) -> Result<ProcessPartialEncodedChunkResult, Error> {
         // Check prev_block is processed because function calls like `have_all_parts`
         // depend on that
+        let chunk_hash = &header.chunk_hash();
         let prev_block_hash = header.prev_block_hash();
         let epoch_id = match self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash) {
             Ok(epoch_id) => epoch_id,
             Err(_) => {
-                // It may happen because PartialChunkEncodedMessage appeared before Block announcement.
-                // We keep the chunk until Block is received.
                 return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
             }
         };
 
-        // Forward my parts to others tracking this chunk's shard
-        let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
-        if checked_feature!("stable", ForwardChunkParts, protocol_version) {
-            self.send_partial_encoded_chunk_to_chunk_trackers(partial_encoded_chunk)?;
-        };
-
         // Now check whether we have all parts and receipts for the given chunk
-        let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
+        let entry = self.encoded_chunks.get(chunk_hash).unwrap();
 
         let have_all_parts = self.has_all_parts(&prev_block_hash, entry)?;
         let have_all_receipts = self.has_all_receipts(&prev_block_hash, entry)?;
 
         let can_reconstruct = entry.parts.len() >= self.runtime_adapter.num_data_parts();
-
         let chunk_producer = self.runtime_adapter.get_chunk_producer(
             &epoch_id,
             header.height_created(),
@@ -1400,7 +1455,7 @@ impl ShardsManager {
         if have_all_parts && self.seals_mgr.should_trust_chunk_producer(&chunk_producer) {
             self.encoded_chunks.insert_chunk_header(header.shard_id(), header.clone());
         }
-        let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
+        let entry = self.encoded_chunks.get(chunk_hash).unwrap();
 
         // TODO(#3180): seals are disabled in single shard setting
         /*let seal = self.seals_mgr.get_seal(
@@ -1419,7 +1474,7 @@ impl ShardsManager {
                 true,
             );
 
-            if let Err(_) = chain_store.get_partial_chunk(&chunk_hash) {
+            if let Err(_) = chain_store.get_partial_chunk(chunk_hash) {
                 let mut store_update = chain_store.store_update();
                 self.persist_partial_chunk_for_data_availability(entry, &mut store_update);
                 store_update.commit()?;
@@ -1430,8 +1485,9 @@ impl ShardsManager {
             // If we do care about the shard, we will remove the request once the full chunk is
             //    assembled.
             if !cares_about_shard {
-                self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
-                self.requested_partial_encoded_chunks.remove(&chunk_hash);
+                self.encoded_chunks.remove_from_cache_if_outside_horizon(chunk_hash);
+                self.encoded_chunks.mark_entry_complete(chunk_hash.clone());
+                self.requested_partial_encoded_chunks.remove(chunk_hash);
                 return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(
                     prev_block_hash,
                 ));
@@ -1440,6 +1496,7 @@ impl ShardsManager {
 
         if can_reconstruct {
             let height = header.height_created();
+            let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
             let mut encoded_chunk = EncodedShardChunk::from_header(
                 header.clone(),
                 self.runtime_adapter.num_total_parts(),
@@ -1456,36 +1513,15 @@ impl ShardsManager {
 
             assert!(successfully_decoded);
 
-            self.seals_mgr.approve_chunk(height, &chunk_hash);
+            self.seals_mgr.approve_chunk(height, chunk_hash);
 
-            self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
-            self.requested_partial_encoded_chunks.remove(&chunk_hash);
+            self.encoded_chunks.remove_from_cache_if_outside_horizon(chunk_hash);
+            self.encoded_chunks.mark_entry_complete(chunk_hash.clone());
+            self.requested_partial_encoded_chunks.remove(chunk_hash);
             return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(prev_block_hash));
         }
 
-        match self.chunk_forwards_cache.cache_remove(&chunk_hash) {
-            None => Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts),
-
-            Some(forwarded_parts) => {
-                // We have the header now, and there were some parts we were forwarded earlier.
-                // Let's process those parts now.
-                let forwarded_chunk = PartialEncodedChunkV2 {
-                    header: header.clone(),
-                    parts: forwarded_parts.into_iter().map(|(_, part)| part).collect(),
-                    receipts: Vec::new(),
-                };
-                // Make sure we mark this chunk as being requested so that it is handled
-                // properly in the next call. Note no requests are actually sent at this point.
-                self.request_chunk_single_mark_only(header);
-                self.process_partial_encoded_chunk(
-                    // We can assert the signature on the header is valid because
-                    // it would have been checked in an earlier call to this function.
-                    MaybeValidated::from_validated(&forwarded_chunk),
-                    chain_store,
-                    rs,
-                )
-            }
-        }
+        Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts)
     }
 
     /// Send the parts of the partial_encoded_chunk that are owned by `self.me` to the
@@ -1760,10 +1796,10 @@ impl ShardsManager {
                 let to_shard_id = to_shard_id as u64;
                 let receipts = receipts_by_shard.remove(&to_shard_id).unwrap_or_else(Vec::new);
                 let shard_proof = ShardProof { from_shard_id: shard_id, to_shard_id, proof };
-                (to_shard_id, ReceiptProof(receipts, shard_proof))
+                ReceiptProof(receipts, shard_proof)
             })
             .collect();
-        let cache_entry = EncodedChunksCacheEntry {
+        let partial_chunk = PartialEncodedChunkV2 {
             header,
             parts: encoded_chunk
                 .content()
@@ -1775,17 +1811,18 @@ impl ShardsManager {
                 .map(|(part_ord, (part, merkle_proof))| {
                     let part_ord = part_ord as u64;
                     let part = part.unwrap();
-                    (part_ord, PartialEncodedChunkPart { part_ord, part, merkle_proof })
+                    PartialEncodedChunkPart { part_ord, part, merkle_proof }
                 })
                 .collect(),
             receipts,
         };
 
-        // Save the partial chunk for data availability
-        self.persist_partial_chunk_for_data_availability(&cache_entry, store_update);
-
         // Save this chunk into encoded_chunks.
-        self.encoded_chunks.insert(cache_entry.header.chunk_hash(), cache_entry);
+        self.encoded_chunks.merge_in_partial_encoded_chunk(&partial_chunk);
+
+        // Save the partial chunk for data availability
+        let cache_entry = self.encoded_chunks.get(&partial_chunk.header.chunk_hash()).unwrap();
+        self.persist_partial_chunk_for_data_availability(cache_entry, store_update);
 
         Ok(())
     }

@@ -145,9 +145,6 @@ pub enum ErrorKind {
     /// Invalid chunk mask
     #[fail(display = "Invalid Chunk Mask")]
     InvalidChunkMask,
-    /// The chunk height is outside of the horizon
-    #[fail(display = "Invalid Chunk Height")]
-    InvalidChunkHeight,
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]
     InvalidEpochHash,
@@ -270,7 +267,6 @@ impl Error {
             | ErrorKind::Orphan
             | ErrorKind::ChunkMissing(_)
             | ErrorKind::ChunksMissing(_)
-            | ErrorKind::InvalidChunkHeight
             | ErrorKind::IOErr(_)
             | ErrorKind::Other(_)
             | ErrorKind::ValidatorError(_)

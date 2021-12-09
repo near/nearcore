@@ -850,6 +850,26 @@ impl Client {
         self.process_partial_encoded_chunk(MaybeValidated::from_validated(partial_chunk))
     }
 
+    /// Try to process chunks in the chunk cache whose previous block hash is `prev_block_hash` and
+    /// who are not marked as complete yet
+    pub fn check_incomplete_chunks(&mut self, prev_block_hash: &CryptoHash) -> Vec<AcceptedBlock> {
+        let mut accepted_blocks = vec![];
+        for chunk_header in self.shards_mgr.get_incomplete_chunks(prev_block_hash) {
+            // create a fake partial encoded chunk message with empty parts and receipts
+            // because we just want to reconstruct the chunk
+            let res = self.process_partial_encoded_chunk(MaybeValidated::from_validated(
+                PartialEncodedChunk::new(chunk_header, vec![], vec![]),
+            ));
+            match res {
+                Ok(new_accepted_blocks) => accepted_blocks.extend(new_accepted_blocks),
+                Err(err) => {
+                    error!(target:"client", "unexpected error processing orphan chunk {:?}", err)
+                }
+            }
+        }
+        accepted_blocks
+    }
+
     pub fn process_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: MaybeValidated<PartialEncodedChunk>,
@@ -1139,29 +1159,7 @@ impl Client {
                 }
             }
         }
-
-        // Process stored partial encoded chunks
-        let next_height = block.header().height() + 1;
-        let mut partial_encoded_chunks =
-            self.shards_mgr.pop_stored_partial_encoded_chunks(next_height);
-        for (_shard_id, partial_encoded_chunks) in partial_encoded_chunks.drain() {
-            for partial_encoded_chunk in partial_encoded_chunks {
-                let chunk = MaybeValidated::from(PartialEncodedChunk::V2(partial_encoded_chunk));
-                if let Ok(accepted_blocks) = self.process_partial_encoded_chunk(chunk) {
-                    // Executing process_partial_encoded_chunk can unlock some blocks.
-                    // Any block that is in the blocks_with_missing_chunks which doesn't have any chunks
-                    // for which we track shards will be unblocked here.
-                    for accepted_block in accepted_blocks {
-                        self.on_block_accepted_with_optional_chunk_produce(
-                            accepted_block.hash,
-                            accepted_block.status,
-                            accepted_block.provenance,
-                            skip_produce_chunk,
-                        );
-                    }
-                }
-            }
-        }
+        self.check_incomplete_chunks(block.hash());
     }
 
     pub fn request_missing_chunks(
