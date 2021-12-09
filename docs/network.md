@@ -95,7 +95,7 @@ Then, after removing already validated edges, the modified message is forwarded 
 ## 7.4 Step 4
 
 `EdgeValidatorActor` goes through list of all edges.
-It checks whenever all edges are valid (their cryptographic signatures match, etc.).
+It checks whether all edges are valid (their cryptographic signatures match, etc.).
 
 If any edge is not valid peer will be banned.
 
