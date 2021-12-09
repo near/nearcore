@@ -1136,6 +1136,8 @@ enum AutoXzState {
     Compressed(xz2::stream::Stream, Box<[u8]>),
 }
 
+/// Header that every XZ streams starts with.  See
+/// <https://tukaani.org/xz/xz-file-format-1.0.4.txt> § 2.1.1.1.
 static XZ_HEADER_MAGIC: [u8; 6] = [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
 
 impl AutoXzDecoder {
