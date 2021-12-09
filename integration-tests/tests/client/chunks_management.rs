@@ -9,10 +9,7 @@ use log::info;
 
 use integration_tests::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
-use near_chunks::{
-    CHUNK_REQUEST_RETRY_MS, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
-    CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
-};
+use near_chunks::{CHUNK_REQUEST_RETRY_MS, CHUNK_REQUEST_SWITCH_TO_OTHERS_MS};
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, GetBlock, ViewClientActor};
 use near_logger_utils::init_test_logger;
@@ -296,6 +293,7 @@ fn chunks_recovered_from_full_timeout_too_short() {
 
 /// Same test as above, but the timeout is sufficiently large for test4 now to reconstruct the full
 /// chunk
+#[cfg(feature = "expensive_tests")]
 #[test]
 fn chunks_recovered_from_full() {
     heavy_test(|| {
@@ -303,7 +301,7 @@ fn chunks_recovered_from_full() {
             chunks_produced_and_distributed_common(
                 4,
                 true,
-                2 * CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
+                2 * near_chunks::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
             );
         })
     });
