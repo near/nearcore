@@ -953,9 +953,9 @@ pub enum NetworkViewClientResponses {
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
     /// A response to a request for a light client block during Epoch Sync
-    EpochSyncResponse(EpochSyncResponse),
+    EpochSyncResponse(Box<EpochSyncResponse>),
     /// A response to a request for headers and proofs during Epoch Sync
-    EpochSyncFinalizationResponse(EpochSyncFinalizationResponse),
+    EpochSyncFinalizationResponse(Box<EpochSyncFinalizationResponse>),
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
     /// Response not needed
