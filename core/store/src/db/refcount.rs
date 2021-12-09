@@ -78,6 +78,13 @@ pub(crate) fn encode_value_with_rc(data: &[u8], rc: i64) -> Vec<u8> {
     cursor.into_inner()
 }
 
+pub(crate) fn encode_value_with_rc_inplace(
+    data: &mut Vec<u8>,
+    rc: i64,
+) -> Result<(), std::io::Error> {
+    data.write_i64::<LittleEndian>(rc)
+}
+
 impl RocksDB {
     /// ColState has refcounted values.
     /// Merge adds refcounts, zero refcount becomes empty value.

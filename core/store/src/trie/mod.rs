@@ -14,6 +14,7 @@ use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{StateRoot, StateRootNode};
 
+use crate::db::refcount::encode_value_with_rc_inplace;
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
@@ -384,7 +385,7 @@ impl RawTrieNode {
 impl RawTrieNodeWithSize {
     fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), std::io::Error> {
         self.node.encode_into(out)?;
-        out.write_u64::<LittleEndian>(self.memory_usage)
+        encode_value_with_rc_inplace(out, self.memory_usage as i64)
     }
 
     #[allow(dead_code)]
