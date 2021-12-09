@@ -240,6 +240,7 @@ fn chunks_produced_and_distributed_common(
 }
 
 #[test]
+#[ignore]
 fn chunks_produced_and_distributed_all_in_all_shards() {
     heavy_test(|| {
         run_actix(async {
@@ -258,6 +259,7 @@ fn chunks_produced_and_distributed_2_vals_per_shard() {
 }
 
 #[test]
+#[ignore]
 fn chunks_produced_and_distributed_one_val_per_shard() {
     heavy_test(|| {
         run_actix(async {
@@ -272,6 +274,7 @@ fn chunks_produced_and_distributed_one_val_per_shard() {
 /// give up on getting the part from test1 and will get it from test2 (who will have it because
 /// `validator_groups=2`)
 #[test]
+#[ignore]
 fn chunks_recovered_from_others() {
     heavy_test(|| {
         run_actix(async {
@@ -297,6 +300,7 @@ fn chunks_recovered_from_full_timeout_too_short() {
 /// Same test as above, but the timeout is sufficiently large for test4 now to reconstruct the full
 /// chunk
 #[test]
+#[ignore]
 fn chunks_recovered_from_full() {
     heavy_test(|| {
         run_actix(async {
