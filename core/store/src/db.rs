@@ -132,7 +132,9 @@ pub enum DBCol {
     /// `LightClientBlock`s corresponding to the last final block of each completed epoch
     ColEpochLightClientBlocks = 26,
     ColReceiptIdToShardId = 27,
+    // Deprecated.
     _ColNextBlockWithNewChunk = 28,
+    // Deprecated.
     _ColLastBlockWithNewChunk = 29,
     /// Network storage:
     ///   When given edge is removed (or we didn't get any ping from it for a while), we remove it from our 'in memory'
