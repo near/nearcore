@@ -141,7 +141,7 @@ async fn network_status(
             None
         },
         peers: network_info
-            .active_peers
+            .connected_peers
             .into_iter()
             .map(|peer| models::Peer { peer_id: peer.id.to_string() })
             .collect(),

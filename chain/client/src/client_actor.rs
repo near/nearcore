@@ -176,8 +176,8 @@ impl ClientActor {
             network_adapter,
             node_id,
             network_info: NetworkInfo {
-                active_peers: vec![],
-                num_active_peers: 0,
+                connected_peers: vec![],
+                num_connected_peers: 0,
                 peer_max_count: 0,
                 highest_height_peers: vec![],
                 received_bytes_per_sec: 0,
@@ -703,14 +703,14 @@ impl Handler<GetNetworkInfo> for ClientActor {
         self.check_triggers(ctx);
 
         Ok(NetworkInfoResponse {
-            active_peers: self
+            connected_peers: self
                 .network_info
-                .active_peers
+                .connected_peers
                 .clone()
                 .into_iter()
                 .map(|a| a.peer_info)
                 .collect::<Vec<_>>(),
-            num_active_peers: self.network_info.num_active_peers,
+            num_connected_peers: self.network_info.num_connected_peers,
             peer_max_count: self.network_info.peer_max_count,
             sent_bytes_per_sec: self.network_info.sent_bytes_per_sec,
             received_bytes_per_sec: self.network_info.received_bytes_per_sec,
@@ -736,7 +736,7 @@ impl ClientActor {
     /// Account Id is sent when is not current a validator but are becoming a validator soon.
     fn check_send_announce_account(&mut self, prev_block_hash: CryptoHash) {
         // If no peers, there is no one to announce to.
-        if self.network_info.num_active_peers == 0 {
+        if self.network_info.num_connected_peers == 0 {
             debug!(target: "client", "No peers: skip account announce");
             return;
         }
@@ -1185,7 +1185,7 @@ impl ClientActor {
     /// Starts syncing and then switches to either syncing or regular mode.
     fn start_sync(&mut self, ctx: &mut Context<ClientActor>) {
         // Wait for connections reach at least minimum peers unless skipping sync.
-        if self.network_info.num_active_peers < self.client.config.min_num_peers
+        if self.network_info.num_connected_peers < self.client.config.min_num_peers
             && !self.client.config.skip_sync_wait
         {
             near_performance_metrics::actix::run_later(
