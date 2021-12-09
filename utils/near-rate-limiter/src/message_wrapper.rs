@@ -1,6 +1,6 @@
+use crate::{ThrottleController, ThrottleToken};
 use actix::dev::MessageResponse;
 use actix::Message;
-use near_rate_limiter::{ThrottleController, ThrottleToken};
 
 // Wrapper around Actix messages, used to track size of all messages sent to PeerManager.
 // TODO(#5155) Finish implementation of this.

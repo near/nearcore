@@ -7,6 +7,7 @@ version = "0.0.0"
 publish = false
 
 [dependencies]
+actix = "=0.11.0-beta.2"
 bytes = "1.0.0"
 futures-core = "0.3.0"
 log = "0.4"

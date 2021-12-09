@@ -397,7 +397,7 @@ mod tests {
         let max_messages_total_size = 500_000_000;
         let semaphore = PollSemaphore::new(Arc::new(Semaphore::new(0)));
         let mut throttle_controller =
-            ThrottleController::new(semaphore.clone(), 1000, max_messages_total_size);
+            ThrottleController::new(semaphore, 1000, max_messages_total_size);
 
         assert_eq!(throttle_controller.consume_msg_seen(), 0);
         throttle_controller.report_msg_seen();
