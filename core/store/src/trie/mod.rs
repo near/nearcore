@@ -22,7 +22,7 @@ use crate::trie::trie_storage::{
     TouchedNodesCounter, TrieMemoryPartialStorage, TrieRecordingStorage, TrieStorage,
 };
 pub(crate) use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
-use crate::StorageError;
+use crate::{decode_value_with_rc, StorageError};
 
 mod insert_delete;
 pub mod iterator;
@@ -395,14 +395,14 @@ impl RawTrieNodeWithSize {
     }
 
     fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
-        if bytes.len() < 8 {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type"));
+        let (value_bytes, rc) = decode_value_with_rc(bytes);
+        match value_bytes {
+            None => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type")),
+            Some(value_bytes) => {
+                let node = RawTrieNode::decode(value_bytes)?;
+                Ok(RawTrieNodeWithSize { node, memory_usage: rc as u64 })
+            }
         }
-        let node = RawTrieNode::decode(&bytes[0..bytes.len() - 8])?;
-        let mut arr: [u8; 8] = Default::default();
-        arr.copy_from_slice(&bytes[bytes.len() - 8..]);
-        let memory_usage = u64::from_le_bytes(arr);
-        Ok(RawTrieNodeWithSize { node, memory_usage })
     }
 }
 
