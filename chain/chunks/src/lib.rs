@@ -1537,6 +1537,7 @@ impl ShardsManager {
         self.cares_about_shard_this_or_next_epoch(self.me.as_ref(), prev_block_hash, shard_id, true)
     }
 
+    /// Returns true if we need this part to sign the block.
     fn need_part(&self, prev_block_hash: &CryptoHash, part_ord: u64) -> Result<bool, Error> {
         Ok(Some(self.runtime_adapter.get_part_owner(prev_block_hash, part_ord)?) == self.me)
     }
@@ -1558,6 +1559,9 @@ impl ShardsManager {
         Ok(true)
     }
 
+    /// Returns true if we have all the parts that are needed to validate the block.
+    /// NOTE: this doesn't mean that we got *all* the parts (as given verifier only needs the ones
+    /// for which it is the 'owner').
     fn has_all_parts(
         &self,
         prev_block_hash: &CryptoHash,
