@@ -11,8 +11,9 @@ import sys
 import time
 import subprocess
 import base58
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 import branches
 import cluster

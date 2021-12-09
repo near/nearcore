@@ -27,9 +27,10 @@
 # This test also completely disables rewards, which simplifies ensuring total supply invariance and balance invariances
 
 import sys, time, base58, random, inspect, traceback, requests, logging
+import pathlib
 from multiprocessing import Process, Value, Lock
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import init_cluster, spin_up_node, load_config
 from configured_logger import logger

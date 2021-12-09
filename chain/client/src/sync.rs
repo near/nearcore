@@ -1290,7 +1290,7 @@ mod test {
 
     use super::*;
     use crate::test_utils::TestEnv;
-    use near_network::routing::EdgeInfo;
+    use near_network::routing::PartialEdgeInfo;
     use near_network::PeerInfo;
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
@@ -1334,7 +1334,15 @@ mod test {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(prev, &*signer);
             chain
-                .process_block(&None, block.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+                .process_block(
+                    &None,
+                    block.into(),
+                    Provenance::PRODUCED,
+                    |_| {},
+                    |_| {},
+                    |_| {},
+                    |_| {},
+                )
                 .unwrap();
         }
         let (mut chain2, _, signer2) = setup();
@@ -1342,7 +1350,15 @@ mod test {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(&prev, &*signer2);
             chain2
-                .process_block(&None, block.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+                .process_block(
+                    &None,
+                    block.into(),
+                    Provenance::PRODUCED,
+                    |_| {},
+                    |_| {},
+                    |_| {},
+                    |_| {},
+                )
                 .unwrap();
         }
         let mut sync_status = SyncStatus::NoSync;
@@ -1357,7 +1373,7 @@ mod test {
                 tracked_shards: vec![],
                 archival: false,
             },
-            edge_info: EdgeInfo::default(),
+            partial_edge_info: PartialEdgeInfo::default(),
         };
         let head = chain.head().unwrap();
         assert!(header_sync
@@ -1407,7 +1423,7 @@ mod test {
                     account_id: None,
                 },
                 chain_info: Default::default(),
-                edge_info: Default::default(),
+                partial_edge_info: Default::default(),
             });
             header_sync.syncing_peer.as_mut().unwrap().chain_info.height = highest_height;
         };
@@ -1561,7 +1577,7 @@ mod test {
                     account_id: None,
                 },
                 chain_info: Default::default(),
-                edge_info: Default::default(),
+                partial_edge_info: Default::default(),
             })
             .collect()
     }

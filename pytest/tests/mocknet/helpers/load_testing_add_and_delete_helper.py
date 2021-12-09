@@ -8,12 +8,13 @@ import itertools
 import random
 import sys
 import time
+import pathlib
 
 import base58
 import requests
 from rc import pmap
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 import account
 import key
 import mocknet

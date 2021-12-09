@@ -3,6 +3,8 @@ name = "genesis-csv-to-json"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 
 [dependencies]
@@ -16,7 +18,7 @@ near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 node-runtime = { path = "../../runtime/runtime" }
-near-network = { path = "../../chain/network" }
+near-network-primitives = { path = "../../chain/network-primitives" }
 
 [dev-dependencies]
 tempfile = "3"

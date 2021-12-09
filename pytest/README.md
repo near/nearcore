@@ -104,8 +104,9 @@ For example, a simple test for checking implementation of
     import base58
     import base64
     import json
+    import pathlib
 
-    sys.path.append('lib')
+    sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
     from cluster import start_cluster
     from utils import load_binary_file
     import transaction

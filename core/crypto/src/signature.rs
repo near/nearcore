@@ -6,11 +6,9 @@ use std::io::{Error, ErrorKind, Write};
 use std::str::FromStr;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-// We need to import ed25519::signature::Signature, because we use traits from those structs.
-// However, `Signature` symbol is already used to define a different data structure.
 #[cfg(feature = "deepsize_feature")]
 use deepsize::DeepSizeOf;
-use ed25519_dalek::ed25519::signature::{Signature as _Signature, Signer, Verifier};
+use ed25519_dalek::ed25519::signature::{Signature as _, Signer, Verifier};
 #[cfg(feature = "deepsize_feature")]
 use ed25519_dalek::SIGNATURE_LENGTH;
 use once_cell::sync::Lazy;
@@ -77,7 +75,7 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::errors::Pa
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct Secp256K1PublicKey([u8; 64]);
 
 #[cfg(feature = "deepsize_feature")]
@@ -154,7 +152,7 @@ impl Ord for Secp256K1PublicKey {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(Copy, Clone, derive_more::AsRef)]
+#[derive(Clone, derive_more::AsRef)]
 #[as_ref(forward)]
 pub struct ED25519PublicKey(pub [u8; ed25519_dalek::PUBLIC_KEY_LENGTH]);
 
@@ -205,7 +203,9 @@ impl Ord for ED25519PublicKey {
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq)]
 pub enum PublicKey {
+    /// 256 bit elliptic curve based public-key.
     ED25519(ED25519PublicKey),
+    /// 512 bit elliptic curve based public-key used in Bitcoin's public-key cryptography.
     SECP256K1(Secp256K1PublicKey),
 }
 
