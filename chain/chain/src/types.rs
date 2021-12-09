@@ -231,6 +231,12 @@ pub struct ChainGenesis {
     pub protocol_version: ProtocolVersion,
 }
 
+// to specify a part we always specify both part_id and num_parts together
+struct PartId {
+    idx:u64,
+    total:u64
+}
+
 impl<T> From<T> for ChainGenesis
 where
     T: AsRef<GenesisConfig>,
@@ -681,8 +687,7 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
         block_hash: &CryptoHash,
         state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
+        partId: PartId
     ) -> Result<Vec<u8>, Error>;
 
     /// Validate state part that expected to be given state root with provided data.
@@ -690,8 +695,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn validate_state_part(
         &self,
         state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
+        partId: PartId,
         data: &Vec<u8>,
     ) -> bool;
 
