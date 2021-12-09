@@ -1380,15 +1380,7 @@ impl ShardsManager {
         // Merge parts and receipts included in the partial encoded chunk into chunk cache
         self.encoded_chunks.merge_in_partial_encoded_chunk(partial_encoded_chunk);
 
-        // 3. Forward my parts to others tracking this chunk's shard
-        if checked_feature!("stable", ForwardChunkParts, PROTOCOL_VERSION) {
-            // Technically, we should use the protocol version from this epoch, but
-            // that that is a little inconvenient to get here, let's just use the current protocol
-            // version since we already stabilized the feature
-            self.send_partial_encoded_chunk_to_chunk_trackers(partial_encoded_chunk)?;
-        };
-
-        // 4. Process the forwarded parts in chunk_forwards_cache
+        // 3. Process the forwarded parts in chunk_forwards_cache
         match self.chunk_forwards_cache.cache_remove(&chunk_hash) {
             None => {}
             Some(forwarded_parts) => {
@@ -1412,22 +1404,8 @@ impl ShardsManager {
             }
         }
 
-        // 5. Try process all parts and receipts in the chunk cache to reconstruct the full chunk
-        self.try_process_full_chunk(header, chain_store, rs)
-    }
-
-    /// Try to process all parts and receipts stored in the chunk cache
-    /// Check if we have all parts and receipts for the chunk, if so and if the node cares about the shard,
-    /// decode and persist the full chunk
-    fn try_process_full_chunk(
-        &mut self,
-        header: &ShardChunkHeader,
-        chain_store: &mut ChainStore,
-        rs: &mut ReedSolomonWrapper,
-    ) -> Result<ProcessPartialEncodedChunkResult, Error> {
-        // Check prev_block is processed because function calls like `have_all_parts`
-        // depend on that
-        let chunk_hash = &header.chunk_hash();
+        // The logic from now on requires previous block is processed because
+        // calculating owner parts requires that
         let prev_block_hash = header.prev_block_hash();
         let epoch_id = match self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash) {
             Ok(epoch_id) => epoch_id,
@@ -1436,7 +1414,16 @@ impl ShardsManager {
             }
         };
 
-        // Now check whether we have all parts and receipts for the given chunk
+        // 4. Forward my parts to others tracking this chunk's shard
+        if checked_feature!("stable", ForwardChunkParts, PROTOCOL_VERSION) {
+            // Technically, we should use the protocol version from this epoch, but
+            // that that is a little inconvenient to get here, let's just use the current protocol
+            // version since we already stabilized the feature
+            self.send_partial_encoded_chunk_to_chunk_trackers(partial_encoded_chunk)?;
+        };
+
+        // 5. Now check whether we have all parts and receipts for the given chunk
+        let chunk_hash = &header.chunk_hash();
         let entry = self.encoded_chunks.get(chunk_hash).unwrap();
 
         let have_all_parts = self.has_all_parts(&prev_block_hash, entry)?;

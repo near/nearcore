@@ -23,7 +23,6 @@ use near_primitives::sharding::ShardChunkHeaderInner;
 use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 

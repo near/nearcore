@@ -855,6 +855,7 @@ impl Client {
     pub fn check_incomplete_chunks(&mut self, prev_block_hash: &CryptoHash) -> Vec<AcceptedBlock> {
         let mut accepted_blocks = vec![];
         for chunk_header in self.shards_mgr.get_incomplete_chunks(prev_block_hash) {
+            debug!(target:"client", "try to process incomplete chunks {:?}, prev_block: {:?}", chunk_header.chunk_hash(), prev_block_hash);
             // create a fake partial encoded chunk message with empty parts and receipts
             // because we just want to reconstruct the chunk
             let res = self.process_partial_encoded_chunk(MaybeValidated::from_validated(
@@ -1159,7 +1160,14 @@ impl Client {
                 }
             }
         }
-        self.check_incomplete_chunks(block.hash());
+        for accepted_block in self.check_incomplete_chunks(block.hash()) {
+            self.on_block_accepted_with_optional_chunk_produce(
+                accepted_block.hash,
+                accepted_block.status,
+                accepted_block.provenance,
+                skip_produce_chunk,
+            );
+        }
     }
 
     pub fn request_missing_chunks(
