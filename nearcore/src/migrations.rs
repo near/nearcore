@@ -369,7 +369,7 @@ pub fn migrate_24_to_25(path: &Path) {
         pub receipt_ids: Vec<CryptoHash>,
         pub gas_burnt: Gas,
         pub tokens_burnt: Balance,
-        #[default(AccountId::test_account())]
+        #[default("test".parse().unwrap())]
         pub executor_id: AccountId,
         pub status: ExecutionStatus,
     }

@@ -7,7 +7,7 @@ pub use crate::stats::metrics;
 // TODO(#5307)
 pub use near_network_primitives::types::PeerInfo;
 
-pub(crate) mod common;
+mod network_protocol;
 mod peer;
 mod peer_manager;
 pub mod routing;

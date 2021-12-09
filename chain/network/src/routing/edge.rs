@@ -132,7 +132,7 @@ impl Edge {
 
     /// Create the remove edge change from an added edge change.
     pub fn remove_edge(&self, my_peer_id: PeerId, sk: &SecretKey) -> Edge {
-        assert_eq!(self.edge_type(), EdgeType::Added);
+        assert_eq!(self.edge_type(), EdgeState::Active);
         let mut edge = self.0.as_ref().clone();
         edge.nonce += 1;
         let me = edge.key.0 == my_peer_id;
@@ -156,14 +156,14 @@ impl Edge {
         }
 
         match self.edge_type() {
-            EdgeType::Added => {
+            EdgeState::Active => {
                 let data = self.hash();
 
                 self.removal_info().is_none()
                     && self.signature0().verify(data.as_ref(), self.key().0.public_key())
                     && self.signature1().verify(data.as_ref(), self.key().1.public_key())
             }
-            EdgeType::Removed => {
+            EdgeState::Removed => {
                 // nonce should be an even positive number
                 if self.nonce() == 0 {
                     return false;
@@ -190,11 +190,11 @@ impl Edge {
 
     /// It will be considered as a new edge if the nonce is odd, otherwise it is canceling the
     /// previous edge.
-    pub fn edge_type(&self) -> EdgeType {
+    pub fn edge_type(&self) -> EdgeState {
         if self.nonce() % 2 == 1 {
-            EdgeType::Added
+            EdgeState::Active
         } else {
-            EdgeType::Removed
+            EdgeState::Removed
         }
     }
     /// Next nonce of valid addition edge.
@@ -300,19 +300,24 @@ impl SimpleEdge {
         self.nonce
     }
 
-    pub fn edge_type(&self) -> EdgeType {
+    pub fn edge_state(&self) -> EdgeState {
         if self.nonce % 2 == 1 {
-            EdgeType::Added
+            EdgeState::Active
         } else {
-            EdgeType::Removed
+            EdgeState::Removed
         }
     }
 }
 
-/// Status of the edge
+/// State of a given edge.
+/// Every edge starts in `Active` state. It can be removed and go to `Removed` state, and then
+/// added back to go to `Active` state, etc.
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, Hash)]
-/// TODO: Rename `Added` -> `Active`
-pub enum EdgeType {
-    Added,
+pub enum EdgeState {
+    /// `Edge` is `Active` if there is an active connection between two peers on the network.
+    Active,
+    /// `Edge` is in `Removed` state if it was previously in `Active` state, but has been removed.
+    /// A signature of one of the peers is requires, otherwise the edge will stay active.
+    /// Though, it may be removed  from memory if both peers become unreachable.
     Removed,
 }

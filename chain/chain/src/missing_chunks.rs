@@ -66,6 +66,10 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
         self.blocks_waiting_for_chunks.contains_key(block_hash)
     }
 
+    pub fn get(&self, block_hash: &BlockHash) -> Option<&Block> {
+        self.blocks_waiting_for_chunks.get(block_hash)
+    }
+
     pub fn len(&self) -> usize {
         self.blocks_waiting_for_chunks.len()
     }

@@ -337,24 +337,25 @@ pub enum PeerIdOrHash {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Hash)]
-// Defines the destination for a network request.
-// The request should be sent either to the `account_id` as a routed message, or directly to
-// any peer that tracks the shard.
-// If `prefer_peer` is `true`, should be sent to the peer, unless no peer tracks the shard, in which
-// case fall back to sending to the account.
-// Otherwise, send to the account, unless we do not know the route, in which case send to the peer.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Defines the destination for a network request.
+/// The request should be sent either to the `account_id` as a routed message, or directly to
+/// any peer that tracks the shard.
+/// If `prefer_peer` is `true`, should be sent to the peer, unless there is no qualified peer,
+/// Otherwise, send to the account, unless we do not know the route, in which case send to a peer.
+/// in which case fall back to sending to the account.
+/// `shard_id`, `only_archival` and `min_height` are used to filter for qualified peers
 pub struct AccountIdOrPeerTrackingShard {
-    pub shard_id: ShardId,
-    pub only_archival: bool,
+    /// Target account to send the the request to
     pub account_id: Option<AccountId>,
+    /// Whether to check peers first or target account first
     pub prefer_peer: bool,
-}
-
-impl AccountIdOrPeerTrackingShard {
-    pub fn from_account(shard_id: ShardId, account_id: AccountId) -> Self {
-        Self { shard_id, only_archival: false, account_id: Some(account_id), prefer_peer: false }
-    }
+    /// Select peers that track shard `shard_id`
+    pub shard_id: ShardId,
+    /// Select peers that are archival nodes if it is true
+    pub only_archival: bool,
+    /// Only send messages to peers whose latest chain height is no less `min_height`
+    pub min_height: BlockHeight,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
