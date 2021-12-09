@@ -70,14 +70,20 @@ use rand::Rng;
 // yet. The requests are managed at the chunk level, instead of individual parts and receipts.
 // A new request can be added by calling function `request_chunk_single`. If it is not
 // in the pool yet, `request_partial_encoded_chunk` will be called, which checks which parts or
-// receipts is still needed for the chunk by checking `encoded_chunks` (see the section on
-// ** Storing chunks), figures out where to request them (either from the original
-// chunk producer, or a block producer or peer who tracks the shard), and sends out network
+// receipts are still needed for the chunk by checking `encoded_chunks` (see the section on
+// ** Storing chunks). This way, the node won't send requests for parts and receipts they already have.
+// It then figures out where to request them, either from the original
+// chunk producer, or a block producer or peer who tracks the shard, and sends out the network
 // requests. Check the logic there for details regarding how targets of requests are chosen.
 //
-// Once a request is added the pool, they can be asked to be resend through `resend_chunk_requests`,
+// Once a request is added the pool, they can be asked to be resent through `resend_chunk_requests`,
 // which is done periodically through client_actor. A request is only removed from the pool when
 // all needed parts and receipts in the requested chunk are received.
+//
+// ** Storing chunks
+// Before a chunk can be reconstructed fully, parts and receipts in the chunk are stored in
+// `encoded_chunks`. Full chunks will be persisted in the database storage after they are
+// reconstructed.
 //
 // ** Forwarding chunks
 // To save messages and time for chunks to propagate among validators, we implemented a feature
@@ -87,11 +93,6 @@ use rand::Rng;
 // can only be processed after the node has the corresponding chunk header, either from blocks
 // or partial chunk requests. Before that, they are temporarily stored in `chunk_forwards_cache`.
 // After that, they are processed as a PartialEncodedChunk message only containing one part.
-//
-// ** Storing chunks
-// Before a chunk can be reconstructed fully, parts and receipts in the chunk are stored in
-// `encoded_chunks`. Full chunks will be persisted in the database storage after they are
-// reconstructed.
 //
 // ** Processing chunks
 // Function `process_partial_encoded_chunk` processes a partial encoded chunk message.
@@ -1415,16 +1416,14 @@ impl ShardsManager {
         };
 
         // 4. Forward my parts to others tracking this chunk's shard
-        if checked_feature!("stable", ForwardChunkParts, PROTOCOL_VERSION) {
-            // Technically, we should use the protocol version from this epoch, but
-            // that that is a little inconvenient to get here, let's just use the current protocol
-            // version since we already stabilized the feature
+        let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
+        if checked_feature!("stable", ForwardChunkParts, protocol_version) {
             self.send_partial_encoded_chunk_to_chunk_trackers(partial_encoded_chunk)?;
         };
 
         // 5. Now check whether we have all parts and receipts for the given chunk
-        let chunk_hash = &header.chunk_hash();
-        let entry = self.encoded_chunks.get(chunk_hash).unwrap();
+        let chunk_hash = header.chunk_hash();
+        let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
 
         let have_all_parts = self.has_all_parts(&prev_block_hash, entry)?;
         let have_all_receipts = self.has_all_receipts(&prev_block_hash, entry)?;
@@ -1442,7 +1441,7 @@ impl ShardsManager {
         if have_all_parts && self.seals_mgr.should_trust_chunk_producer(&chunk_producer) {
             self.encoded_chunks.insert_chunk_header(header.shard_id(), header.clone());
         }
-        let entry = self.encoded_chunks.get(chunk_hash).unwrap();
+        let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
 
         // TODO(#3180): seals are disabled in single shard setting
         /*let seal = self.seals_mgr.get_seal(
@@ -1461,7 +1460,7 @@ impl ShardsManager {
                 true,
             );
 
-            if let Err(_) = chain_store.get_partial_chunk(chunk_hash) {
+            if let Err(_) = chain_store.get_partial_chunk(&chunk_hash) {
                 let mut store_update = chain_store.store_update();
                 self.persist_partial_chunk_for_data_availability(entry, &mut store_update);
                 store_update.commit()?;
@@ -1472,9 +1471,9 @@ impl ShardsManager {
             // If we do care about the shard, we will remove the request once the full chunk is
             //    assembled.
             if !cares_about_shard {
-                self.encoded_chunks.remove_from_cache_if_outside_horizon(chunk_hash);
+                self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
                 self.encoded_chunks.mark_entry_complete(chunk_hash.clone());
-                self.requested_partial_encoded_chunks.remove(chunk_hash);
+                self.requested_partial_encoded_chunks.remove(&chunk_hash);
                 return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(
                     prev_block_hash,
                 ));
@@ -1483,7 +1482,6 @@ impl ShardsManager {
 
         if can_reconstruct {
             let height = header.height_created();
-            let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
             let mut encoded_chunk = EncodedShardChunk::from_header(
                 header.clone(),
                 self.runtime_adapter.num_total_parts(),
@@ -1500,11 +1498,11 @@ impl ShardsManager {
 
             assert!(successfully_decoded);
 
-            self.seals_mgr.approve_chunk(height, chunk_hash);
+            self.seals_mgr.approve_chunk(height, &chunk_hash);
 
-            self.encoded_chunks.remove_from_cache_if_outside_horizon(chunk_hash);
+            self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
             self.encoded_chunks.mark_entry_complete(chunk_hash.clone());
-            self.requested_partial_encoded_chunks.remove(chunk_hash);
+            self.requested_partial_encoded_chunks.remove(&chunk_hash);
             return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(prev_block_hash));
         }
 
