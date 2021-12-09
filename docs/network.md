@@ -67,7 +67,7 @@ When connection incoming connection gets accepted, it starts a new `PeerActor` o
 Routing table computation does a few things:
 - For each peer `B`, calculates set of peers `|C_b|`, such that each peer is on the shortest path to `B`.
 - Removing unreachable edges from memory and storing them to disk.
-- The distance is calculated as the minimum number of nodes on the path from given node `A`, to each other node 
+- The distance is calculated as the minimum number of nodes on the path from given node `A`, to each other node
 on the network. That is, `A` has a distance of `0` to itself. It's neighbors will have a distance of `1`.
 The neighbors of theirs neighbors will have a distance of `2`, etc.
 
@@ -123,7 +123,7 @@ Those edges are then stored to disk.
 # 11. Code flow - routing a message
 This is the example of the message that is being sent between nodes (`RawRoutedMessage`) (https://github.com/near/nearcore/blob/fa8749dc60fe0de8e94c3046571731c622326e9f/chain/network-primitives/src/types.rs#L362)
 
-Each of these methods have a `target` - that is either the account_id or peer_id or hash (which seems to be used only for route back...). 
+Each of these methods have a `target` - that is either the account_id or peer_id or hash (which seems to be used only for route back...).
 If target is the account - it will be converted using `routing_table.account_owner` to the peer.
 
 Upon receiving the message, the `PeerManagerActor` will sign it (https://github.com/near/nearcore/blob/master/chain/network/src/peer_manager.rs#L1285)
@@ -132,7 +132,7 @@ And convert into RoutedMessage (which also have things like TTL etc.).
 Then it will use the `routing_table`, to find the route to the target peer (add `route_back` if needed) and then send the message over the network as `PeerMessage::Routed`.
 Details about routing table computations are covered in section 8.
 
-When Peer receives this message (as `PeerMessage::Routed`), it will pass it to PeerManager (as `RoutedMessageFrom`), 
+When Peer receives this message (as `PeerMessage::Routed`), it will pass it to PeerManager (as `RoutedMessageFrom`),
 which would then check if the message is for the current `PeerActor`. (if yes, it would pass it for the client) and if not - it would pass it along the network.
 
 All these messages are handled by `receive_client_message` in Peer. (`NetworkClientMessags`) - and transferred to `ClientActor` in (`chain/client/src/client_actor.rs`)
@@ -141,3 +141,23 @@ All these messages are handled by `receive_client_message` in Peer. (`NetworkCli
 
 `lib.rs` (`ShardsManager`) has a `network_adapter` - coming from client’s network_adapter that comes from `ClientActor` that comes from start_client call that comes from `start_with_config`
 (that crates `PeerManagerActor` - that is passed as target to `network_recipent`).
+
+# 12. Database
+### 12.1 Storage of deleted edges
+
+Everytime a group of peers becomes unreachable at the same time; We store edges belonging to
+them in components. We remove all of those edges from memory, and save them to database,
+If any of them were to be reachable again, we would re-add them. This is useful in case there is a network split,
+to recover edges if needed.
+
+Each component is assigned a unique `nonce`, where first one is assigned nonce 0. Each new component, a get
+assigned a consecutive integer.
+
+To store components, we have the following columns in the DB.
+- `ColLastComponentNonce` Stores `component_nonce: u64`, which is the last used nonce.
+- `ColComponentEdges` Mapping from `component_nonce` to list of edges.
+- `ColPeerComponent` Mapping from `peer_id` to last component `nonce` it belongs to.
+
+### 12.2 Storage of `account_id` to `peer_id` mapping
+
+`ColAccountAnouncements` -> Stores a mapping from `account_id` to tuple (`account_id`, `peer_id`, `epoch_id`, `signature`).

@@ -64,6 +64,8 @@ const MAX_STORED_PARTIAL_CHUNK_SIZE: usize = 100;
 // TODO(#3180): seals are disabled in single shard setting
 // const NUM_PARTS_LEFT_IN_SEAL: usize = 1;
 const PAST_SEAL_HEIGHT_HORIZON: BlockHeightDelta = 1024;
+// Only request chunks from peers whose latest height >= chunk_height - CHUNK_REQUEST_PEER_HORIZON
+const CHUNK_REQUEST_PEER_HORIZON: BlockHeightDelta = 5;
 
 #[derive(PartialEq, Eq)]
 pub enum ChunkStatus {
@@ -482,14 +484,31 @@ impl ShardsManager {
             shard_id,
         )?;
 
+        // In the following we compute which target accounts we should request parts and receipts from
+        // First we choose a shard representative target which is either the original chunk producer
+        // or a random block producer tracks the shard.
+        // If request_from_archival is true (indicating we are requesting a chunk not from the current
+        // or the last epoch), request all parts and receipts from the shard representative target
+        // For each part, if we are the part owner, we request the part from the shard representative
+        // target, otherwise, the part owner
+        // For receipts, request them from the shard representative target
+        //
+        // Also note that the target accounts decided is not necessarily the final destination
+        // where requests are sent. We use them to construct AccountIdOrPeerTrackingShard struct,
+        // which will be passed to PeerManagerActor. PeerManagerActor will try to request either
+        // from the target account or any eligible peer of the node (See comments in
+        // AccountIdOrPeerTrackingShard for when target account is used or peer is used)
+
         let me = self.me.as_ref();
+        // A account that is either the original chunk producer or a random block producer tracking
+        // the shard
         let shard_representative_target = if !request_own_parts_from_others
             && !request_from_archival
             && Some(chunk_producer_account_id) != me
         {
-            AccountIdOrPeerTrackingShard::from_account(shard_id, chunk_producer_account_id.clone())
+            Some(chunk_producer_account_id.clone())
         } else {
-            self.get_random_target_tracking_shard(&ancestor_hash, shard_id, request_from_archival)?
+            self.get_random_target_tracking_shard(&ancestor_hash, shard_id)?
         };
 
         let seal = self.seals_mgr.get_seal(chunk_hash, ancestor_hash, height, shard_id)?;
@@ -521,7 +540,7 @@ impl ShardsManager {
                         // If missing own part, request it from the chunk producer / node tracking shard
                         shard_representative_target.clone()
                     } else {
-                        AccountIdOrPeerTrackingShard::from_account(shard_id, part_owner)
+                        Some(part_owner)
                     }
                 };
 
@@ -542,17 +561,24 @@ impl ShardsManager {
         }
 
         let no_account_id = me.is_none();
-        for (target, part_ords) in bp_to_parts {
+        for (target_account, part_ords) in bp_to_parts {
             // extra check that we are not sending request to ourselves.
-            if no_account_id || me != target.account_id.as_ref() {
+            if no_account_id || me != target_account.as_ref() {
                 let request = PartialEncodedChunkRequestMsg {
                     chunk_hash: chunk_hash.clone(),
                     part_ords,
-                    tracking_shards: if target == shard_representative_target {
+                    tracking_shards: if target_account == shard_representative_target {
                         shards_to_fetch_receipts.clone()
                     } else {
                         HashSet::new()
                     },
+                };
+                let target = AccountIdOrPeerTrackingShard {
+                    account_id: target_account,
+                    prefer_peer: request_from_archival || rand::thread_rng().gen::<bool>(),
+                    shard_id,
+                    only_archival: request_from_archival,
+                    min_height: height.saturating_sub(CHUNK_REQUEST_PEER_HORIZON),
                 };
 
                 self.peer_manager_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
@@ -573,8 +599,7 @@ impl ShardsManager {
         &self,
         parent_hash: &CryptoHash,
         shard_id: ShardId,
-        request_from_archival: bool,
-    ) -> Result<AccountIdOrPeerTrackingShard, near_chain::Error> {
+    ) -> Result<Option<AccountId>, near_chain::Error> {
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash).unwrap();
         let block_producers = self
             .runtime_adapter
@@ -597,14 +622,7 @@ impl ShardsManager {
                 }
             });
 
-        let maybe_account_id = block_producers.choose(&mut rand::thread_rng());
-
-        Ok(AccountIdOrPeerTrackingShard {
-            shard_id,
-            only_archival: request_from_archival,
-            account_id: maybe_account_id,
-            prefer_peer: request_from_archival || rand::thread_rng().gen::<bool>(),
-        })
+        Ok(block_producers.choose(&mut rand::thread_rng()))
     }
 
     fn get_tracking_shards(&self, parent_hash: &CryptoHash) -> HashSet<ShardId> {
