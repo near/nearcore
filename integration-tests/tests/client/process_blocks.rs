@@ -3793,7 +3793,8 @@ mod protocol_feature_restore_receipts_after_fix_tests {
     ) {
         init_test_logger();
 
-        let protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
+        let protocol_version =
+            ProtocolFeature::RestoreReceiptsAfterFixApplyChunks.protocol_version() - 1;
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.chain_id = String::from(chain_id);
@@ -3842,7 +3843,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             set_block_protocol_version(
                 &mut block,
                 "test0".parse().unwrap(),
-                ProtocolFeature::RestoreReceiptsAfterFix.protocol_version(),
+                ProtocolFeature::RestoreReceiptsAfterFixApplyChunks.protocol_version(),
             );
 
             env.process_block(0, block, Provenance::PRODUCED);
@@ -3857,7 +3858,8 @@ mod protocol_feature_restore_receipts_after_fix_tests {
                 if env.clients[0].chain.get_execution_outcome(receipt_id).is_ok() {
                     assert!(
                         protocol_version
-                            >= ProtocolFeature::RestoreReceiptsAfterFix.protocol_version(),
+                            >= ProtocolFeature::RestoreReceiptsAfterFixApplyChunks
+                                .protocol_version(),
                         "Restored receipt {} was executed before protocol upgrade",
                         receipt_id
                     );
@@ -3867,7 +3869,9 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             }
 
             // Update last updated height anyway if upgrade did not happen
-            if protocol_version < ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() {
+            if protocol_version
+                < ProtocolFeature::RestoreReceiptsAfterFixApplyChunks.protocol_version()
+            {
                 last_update_height = height;
             }
             height += 1;

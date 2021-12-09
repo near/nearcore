@@ -299,7 +299,7 @@ impl RoutingTableView {
                 .get_ser(ColAccountAnnouncements, account_id.as_ref().as_bytes())
                 .map(|res: Option<AnnounceAccount>| {
                     if let Some(announce_account) = res {
-                        self.add_account(announce_account.clone());
+                        self.account_peers.put(account_id.clone(), announce_account.clone());
                         Some(announce_account)
                     } else {
                         None
