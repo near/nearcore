@@ -337,7 +337,7 @@ class LocalNode(BaseNode):
             os.path.join(node_dir, "node_key.json"))
         self.signer_key = Key.from_json_file(
             os.path.join(node_dir, "validator_key.json"))
-        self.pid = multiprocessing.Value('i', 0)
+        self._process = None
 
         self.change_config({
             'network': {
@@ -386,11 +386,12 @@ class LocalNode(BaseNode):
         self.stderr_name = node_dir / 'stderr'
         with open(self.stdout_name, 'ab') as stdout, \
              open(self.stderr_name, 'ab') as stderr:
-            self.pid.value = subprocess.Popen(cmd,
-                                              stdin=subprocess.DEVNULL,
-                                              stdout=stdout,
-                                              stderr=stderr,
-                                              env=env).pid
+            self._process = subprocess.Popen(cmd,
+                                             stdin=subprocess.DEVNULL,
+                                             stdout=stdout,
+                                             stderr=stderr,
+                                             env=env)
+        self._pid = self._process.pid
 
         if not skip_starting_proxy:
             self.start_proxy_if_needed()
@@ -407,15 +408,12 @@ class LocalNode(BaseNode):
                 logger.info(stderr.read_text('utf-8', 'replace'))
 
     def kill(self):
-        if self.pid.value != 0:
-            try:
-                os.kill(self.pid.value, signal.SIGKILL)
-            except ProcessLookupError:
-                pass  # the process has already terminated
-            self.pid.value = 0
-
-            if self._proxy_local_stopped is not None:
-                self._proxy_local_stopped.value = 1
+        if self._proxy_local_stopped is not None:
+            self._proxy_local_stopped.value = 1
+        if self._process:
+            self._process.kill()
+            self._process.wait(5)
+            self._process = None
 
     def reset_data(self):
         shutil.rmtree(os.path.join(self.node_dir, "data"))
@@ -447,12 +445,12 @@ class LocalNode(BaseNode):
         self.cleaned = True
 
     def stop_network(self):
-        logger.info("Stopping network for process %s" % self.pid.value)
-        network.stop(self.pid.value)
+        logger.info(f'Stopping network for process {self._pid}')
+        network.stop(self._pid)
 
     def resume_network(self):
-        logger.info("Resuming network for process %s" % self.pid.value)
-        network.resume_network(self.pid.value)
+        logger.info(f'Resuming network for process {self._pid}')
+        network.resume_network(self._pid)
 
 
 class GCloudNode(BaseNode):

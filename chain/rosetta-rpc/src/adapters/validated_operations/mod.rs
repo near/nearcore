@@ -47,7 +47,7 @@ pub(crate) trait ValidatedOperation:
 
     fn validate_operation_type(
         operation_type: crate::models::OperationType,
-    ) -> Result<(), crate::errors::ErrorKind> {
+    ) -> crate::errors::Result<()> {
         if operation_type == Self::OPERATION_TYPE {
             Ok(())
         } else {

@@ -40,6 +40,7 @@ mod cost_table;
 mod costs_to_runtime_config;
 mod estimator_context;
 mod gas_cost;
+mod qemu;
 mod transaction_builder;
 
 // Runs a VM (Default: Wasmer) on the given contract and measures the time it takes to do a single operation.
@@ -164,15 +165,16 @@ pub fn run(config: Config) -> CostTable {
         }
 
         let start = Instant::now();
-        let value = f(&mut ctx);
-        let uncertain = if value.is_uncertain() { "UNCERTAIN " } else { "" };
-        let gas = value.to_gas();
+        let measurement = f(&mut ctx);
+        let uncertain = if measurement.is_uncertain() { "UNCERTAIN " } else { "" };
+        let gas = measurement.to_gas();
         res.add(cost, gas);
 
         eprintln!(
-            "{:<40} {:>25} gas {}(computed in {:.2?})",
+            "{:<40} {:>25} gas [{:>25}] {:<10}(computed in {:?})",
             cost.to_string(),
             format_gas(gas),
+            format!("{:?}", measurement),
             uncertain,
             start.elapsed(),
         );
