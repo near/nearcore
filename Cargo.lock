@@ -2142,6 +2142,7 @@ dependencies = [
  "testlib",
  "tokio",
  "tracing",
+ "wat",
 ]
 
 [[package]]

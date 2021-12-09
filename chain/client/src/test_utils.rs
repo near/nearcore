@@ -40,7 +40,9 @@ use near_primitives::types::{
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{AccountView, QueryRequest, QueryResponseKind, StateItem};
+use near_primitives::views::{
+    AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponseKind, StateItem,
+};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
@@ -1491,6 +1493,16 @@ impl TestEnv {
             QueryResponseKind::ViewState(view_state_result) => view_state_result.values,
             _ => panic!("Wrong return value"),
         }
+    }
+
+    #[track_caller]
+    pub fn query_transaction_status(
+        &mut self,
+        transaction_hash: &CryptoHash,
+    ) -> FinalExecutionOutcomeView {
+        self.clients[0].chain.get_final_transaction_result(transaction_hash).unwrap_or_else(|err| {
+            panic!("failed to get transaction status for {}: {}", transaction_hash, err)
+        })
     }
 
     pub fn query_balance(&mut self, account_id: AccountId) -> Balance {
