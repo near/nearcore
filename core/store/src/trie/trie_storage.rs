@@ -171,6 +171,7 @@ impl TrieStorage for TrieCachingStorage {
         if let Some(val) = guard.cache_get(hash) {
             Ok(val.clone())
         } else {
+            tracing::debug!(target: "runtime", "trie cache miss", hash = %hash);
             let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
             let val = self
                 .store
