@@ -973,6 +973,7 @@ pub fn change_account_id(node_id: usize, account_id: AccountId) -> ActionFn {
 }
 
 /// Wait for predicate to return True.
+#[cfg(feature = "test_features")]
 pub fn wait_for<T>(predicate: T) -> ActionFn
 where
     T: 'static + Fn() -> bool,
