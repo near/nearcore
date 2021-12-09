@@ -1274,7 +1274,7 @@ impl Runtime {
                                    state_update: &mut TrieUpdate,
                                    total_gas_burnt: &mut Gas|
          -> Result<_, RuntimeError> {
-            let _span = tracing::debug_span!(target: "runtime", "Runtime::process_receipt", receipt_id = tracing::field::display(receipt.receipt_id)).entered();
+            let _span = tracing::debug_span!(target: "runtime", "Runtime::process_receipt", receipt_id = %receipt.receipt_id).entered();
             tracing::debug!(target: "runtime", node_counter = state_update.trie.counter.get());
             let result = self.process_receipt(
                 state_update,
