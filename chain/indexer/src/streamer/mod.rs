@@ -58,13 +58,13 @@ async fn build_streamer_message(
             }
         })
         .collect::<Vec<_>>();
-    let chunks = fetch_chunks(client, chunks_to_fetch).await?;
+    let chunks = fetch_chunks(&client, chunks_to_fetch).await?;
 
-    let protocol_config_view = fetch_protocol_config(client, block.header.hash).await?;
+    let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
     let num_shards = protocol_config_view.num_block_producer_seats_per_shard.len()
         as near_primitives::types::NumShards;
 
-    let mut shards_outcomes = fetch_outcomes(client, block.header.hash).await?;
+    let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
     let mut indexer_shards: Vec<IndexerShard> = vec![];
 
     for shard_id in 0..num_shards {
@@ -99,7 +99,7 @@ async fn build_streamer_message(
             .collect::<Vec<IndexerTransactionWithOutcome>>();
 
         let chunk_local_receipts = convert_transactions_sir_into_local_receipts(
-            client,
+            &client,
             &protocol_config_view,
             indexer_transactions
                 .iter()
@@ -139,7 +139,7 @@ async fn build_streamer_message(
                     if prev_block_tried > 1000 {
                         panic!("Failed to find local receipt in 1000 prev blocks");
                     }
-                    let prev_block = match fetch_block_by_hash(client, prev_block_hash).await {
+                    let prev_block = match fetch_block_by_hash(&client, prev_block_hash).await {
                         Ok(block) => block,
                         Err(err) => panic!("Unable to get previous block: {:?}", err),
                     };
@@ -147,7 +147,7 @@ async fn build_streamer_message(
                     prev_block_hash = prev_block.header.prev_hash;
 
                     if let Some(receipt) =
-                        find_local_receipt_by_id_in_block(client, prev_block, execution_outcome.id)
+                        find_local_receipt_by_id_in_block(&client, prev_block, execution_outcome.id)
                             .await?
                     {
                         break 'find_local_receipt receipt;
@@ -170,7 +170,7 @@ async fn build_streamer_message(
         // ref: https://github.com/near/nearcore/pull/4248
         if PROBLEMATIC_BLOKS.contains(&block.header.hash.to_string().as_str()) {
             let protocol_config =
-                fetchers::fetch_protocol_config(client, block.header.hash).await?;
+                fetchers::fetch_protocol_config(&client, block.header.hash).await?;
 
             if &protocol_config.chain_id == "mainnet" {
                 let mut restored_receipts: Vec<views::ReceiptView> = vec![];
@@ -211,7 +211,7 @@ async fn build_streamer_message(
         )
     }
 
-    let state_changes = fetch_state_changes(client, block.header.hash).await?;
+    let state_changes = fetch_state_changes(&client, block.header.hash).await?;
 
     Ok(StreamerMessage { block, shards: indexer_shards, state_changes })
 }
@@ -234,10 +234,10 @@ async fn find_local_receipt_by_id_in_block(
             }
         })
         .collect::<Vec<_>>();
-    let chunks = fetch_chunks(client, chunks_to_fetch).await?;
-    let protocol_config_view = fetch_protocol_config(client, block.header.hash).await?;
+    let chunks = fetch_chunks(&client, chunks_to_fetch).await?;
+    let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
 
-    let mut shards_outcomes = fetch_outcomes(client, block.header.hash).await?;
+    let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
 
     for chunk in chunks {
         let views::ChunkView { header, transactions, .. } = chunk;
@@ -259,7 +259,7 @@ async fn find_local_receipt_by_id_in_block(
         {
             let indexer_transaction = IndexerTransactionWithOutcome { transaction, outcome };
             let local_receipts = convert_transactions_sir_into_local_receipts(
-                client,
+                &client,
                 &protocol_config_view,
                 vec![&indexer_transaction],
                 &block,

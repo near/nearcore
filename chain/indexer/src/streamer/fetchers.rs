@@ -96,7 +96,7 @@ pub(crate) async fn fetch_outcomes(
     for (shard_id, shard_outcomes) in outcomes {
         let mut outcomes_with_receipts: Vec<IndexerExecutionOutcomeWithOptionalReceipt> = vec![];
         for outcome in shard_outcomes {
-            let receipt = match fetch_receipt_by_id(client, outcome.id).await {
+            let receipt = match fetch_receipt_by_id(&client, outcome.id).await {
                 Ok(res) => res,
                 Err(e) => {
                     warn!(
@@ -139,7 +139,7 @@ pub(crate) async fn fetch_chunks(
     let mut chunks: futures::stream::FuturesUnordered<_> = chunk_hashes
         .into_iter()
         .map(|chunk_hash| {
-            fetch_single_chunk(client, near_client::GetChunk::ChunkHash(chunk_hash.into()))
+            fetch_single_chunk(&client, near_client::GetChunk::ChunkHash(chunk_hash.into()))
         })
         .collect();
     let mut response = Vec::<views::ChunkView>::with_capacity(chunks.len());
