@@ -349,7 +349,7 @@ pub(crate) fn action_create_account(
     predecessor_id: &AccountId,
     result: &mut ActionResult,
 ) {
-    if AccountId::is_top_level_account_id(account_id) {
+    if account_id.is_top_level() {
         if account_id.len() < account_creation_config.min_allowed_top_level_account_length as usize
             && predecessor_id != &account_creation_config.registrar_account_id
         {
@@ -859,7 +859,8 @@ mod tests {
     #[test]
     fn test_delete_account_too_large() {
         let tries = create_tries();
-        let mut state_update = tries.new_trie_update(ShardUId::default(), CryptoHash::default());
+        let mut state_update =
+            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let action_result = test_delete_large_account(
             &"alice".parse().unwrap(),
             &CryptoHash::default(),
@@ -879,7 +880,8 @@ mod tests {
 
     fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
         let tries = create_tries();
-        let mut state_update = tries.new_trie_update(ShardUId::default(), CryptoHash::default());
+        let mut state_update =
+            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let account_id = "alice".parse::<AccountId>().unwrap();
         let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
         let empty_contract = [0; 10_000].to_vec();
