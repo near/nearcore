@@ -1426,7 +1426,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
                 .get_all_block_hashes_by_height(i as BlockHeight)
                 .is_err());
         } else {
-            assert!(env.clients[0].chain.get_block(&blocks[i as usize].hash()).is_ok());
+            assert!(env.clients[0].chain.get_block(blocks[i as usize].hash()).is_ok());
             assert!(env.clients[0].chain.get_block_by_height(i).is_ok());
             assert!(env.clients[0]
                 .chain
@@ -1743,7 +1743,7 @@ fn test_not_resync_old_blocks() {
     }
     for i in 2..epoch_length {
         let block = blocks[i as usize - 1].clone();
-        assert!(env.clients[0].chain.get_block(&block.hash()).is_err());
+        assert!(env.clients[0].chain.get_block(block.hash()).is_err());
         let (_, res) = env.clients[0].process_block(block.into(), Provenance::NONE);
         assert!(matches!(res, Err(x) if matches!(x.kind(), ErrorKind::Orphan)));
         assert_eq!(env.clients[0].chain.orphans_len(), 0);
@@ -1952,7 +1952,7 @@ fn test_block_merkle_proof_with_len(n: NumBlocks) {
     let head = blocks.pop().unwrap();
     let root = head.header().block_merkle_root();
     for block in blocks {
-        let proof = env.clients[0].chain.get_block_proof(&block.hash(), &head.hash()).unwrap();
+        let proof = env.clients[0].chain.get_block_proof(block.hash(), head.hash()).unwrap();
         assert!(verify_hash(*root, &proof, *block.hash()));
     }
 }
@@ -1969,7 +1969,7 @@ fn test_block_merkle_proof_same_hash() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let proof =
-        env.clients[0].chain.get_block_proof(&genesis_block.hash(), &genesis_block.hash()).unwrap();
+        env.clients[0].chain.get_block_proof(genesis_block.hash(), genesis_block.hash()).unwrap();
     assert!(proof.is_empty());
 }
 
@@ -3244,7 +3244,7 @@ fn test_congestion_receipt_execution() {
     }
 
     for tx_hash in &tx_hashes {
-        let final_outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+        let final_outcome = env.clients[0].chain.get_final_transaction_result(tx_hash).unwrap();
         assert!(matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_)));
 
         // Check that all receipt ids have corresponding execution outcomes. This means that all receipts generated are executed.

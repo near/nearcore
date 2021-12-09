@@ -236,7 +236,7 @@ impl KeyValueRuntime {
         let prev_epoch = hash_to_epoch.get(&prev_prev_hash);
         let prev_next_epoch = hash_to_next_epoch.get(&prev_prev_hash).unwrap();
         let prev_valset = match prev_epoch {
-            Some(prev_epoch) => Some(*hash_to_valset.get(&prev_epoch).unwrap()),
+            Some(prev_epoch) => Some(*hash_to_valset.get(prev_epoch).unwrap()),
             None => None,
         };
 
@@ -665,7 +665,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         assert!(!generate_storage_proof);
         let mut tx_results = vec![];
 
-        let mut state = self.state.read().unwrap().get(&state_root).cloned().unwrap();
+        let mut state = self.state.read().unwrap().get(state_root).cloned().unwrap();
 
         let mut balance_transfers = vec![];
 
@@ -870,7 +870,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             QueryRequest::ViewAccount { account_id, .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::ViewAccount(
                     Account::new(
-                        self.state.read().unwrap().get(&state_root).map_or_else(
+                        self.state.read().unwrap().get(state_root).map_or_else(
                             || 0,
                             |state| *state.amounts.get(account_id).unwrap_or(&0),
                         ),
@@ -937,7 +937,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         if part_id != 0 {
             return Ok(vec![]);
         }
-        let state = self.state.read().unwrap().get(&state_root).unwrap().clone();
+        let state = self.state.read().unwrap().get(state_root).unwrap().clone();
         let data = state.try_to_vec().expect("should never fall");
         Ok(data)
     }
@@ -985,12 +985,12 @@ impl RuntimeAdapter for KeyValueRuntime {
                 .state
                 .read()
                 .unwrap()
-                .get(&state_root)
+                .get(state_root)
                 .unwrap()
                 .clone()
                 .try_to_vec()
                 .expect("should never fall"),
-            memory_usage: self.state_size.read().unwrap().get(&state_root).unwrap().clone(),
+            memory_usage: self.state_size.read().unwrap().get(state_root).unwrap().clone(),
         })
     }
 
@@ -1322,7 +1322,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
             debug!("{: >3} {}", header.height(), format_hash(*header.hash()));
         } else {
             let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap().clone();
-            let maybe_block = chain_store.get_block(&header.hash()).ok().cloned();
+            let maybe_block = chain_store.get_block(header.hash()).ok().cloned();
             let epoch_id =
                 runtime_adapter.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
             let block_producer =

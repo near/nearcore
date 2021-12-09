@@ -922,7 +922,7 @@ impl fmt::Debug for FinalExecutionStatus {
             FinalExecutionStatus::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
             FinalExecutionStatus::SuccessValue(v) => f.write_fmt(format_args!(
                 "SuccessValue({})",
-                logging::pretty_utf8(&from_base64(&v).unwrap())
+                logging::pretty_utf8(&from_base64(v).unwrap())
             )),
         }
     }
@@ -963,7 +963,7 @@ impl fmt::Debug for ExecutionStatusView {
             ExecutionStatusView::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
             ExecutionStatusView::SuccessValue(v) => f.write_fmt(format_args!(
                 "SuccessValue({})",
-                logging::pretty_utf8(&from_base64(&v).unwrap())
+                logging::pretty_utf8(&from_base64(v).unwrap())
             )),
             ExecutionStatusView::SuccessReceiptId(receipt_id) => {
                 f.write_fmt(format_args!("SuccessReceiptId({})", receipt_id))

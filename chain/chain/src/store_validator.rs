@@ -461,7 +461,7 @@ mod tests {
     fn test_db_not_found() {
         let (mut chain, mut sv) = init();
         let block = chain.get_block_by_height(0).unwrap();
-        assert!(validate::block_header_exists(&mut sv, &block.hash(), block).is_ok());
+        assert!(validate::block_header_exists(&mut sv, block.hash(), block).is_ok());
         match validate::block_header_exists(&mut sv, &CryptoHash::default(), block) {
             Err(StoreValidatorError::DBNotFound { .. }) => {}
             _ => assert!(false),

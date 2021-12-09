@@ -1009,7 +1009,7 @@ pub fn setup_mock_all_validators(
                 Arc::new(network_adapter),
                 10000,
                 genesis_time,
-                &ctx,
+                ctx,
             );
             *view_client_addr1.write().unwrap() = Some(view_client_addr);
             *genesis_block1.write().unwrap() = Some(block);
@@ -1645,12 +1645,12 @@ pub fn create_chunk(
         }
     }
     let mut block_merkle_tree =
-        client.chain.mut_store().get_block_merkle_tree(&last_block.hash()).unwrap().clone();
+        client.chain.mut_store().get_block_merkle_tree(last_block.hash()).unwrap().clone();
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
-        &last_block.header(),
+        last_block.header(),
         next_height,
         last_block.header().block_ordinal() + 1,
         vec![chunk.cloned_header()],
