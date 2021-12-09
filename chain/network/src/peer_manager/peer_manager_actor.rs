@@ -629,12 +629,10 @@ impl PeerManagerActor {
         new_edge: Edge,
         known_edges: Vec<Edge>,
     ) {
-        let known_accounts = self.routing_table_view.get_announce_accounts();
-
-        // Start syncing network point of view. Wait until both parties are connected before start
-        // sending messages.
-
         near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act, ctx| {
+            // Start syncing network point of view. Wait until both parties are connected before start
+            // sending messages.
+            let known_accounts = act.routing_table_view.get_announce_accounts();
             let _ = addr.do_send(SendMessage {
                 message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(
                     known_edges,
