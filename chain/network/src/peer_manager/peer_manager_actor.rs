@@ -267,11 +267,11 @@ impl PeerManagerActor {
             .into_actor(self)
             .map(|response, act, ctx| match response {
                 Ok(RoutingTableMessagesResponse::RoutingTableUpdateResponse {
-                    local_edges_to_remove: edges_to_remove,
+                    local_edges_to_remove,
                     peer_forwarding,
                     peers_to_ban,
                 }) => {
-                    act.routing_table_view.remove_edges(&edges_to_remove);
+                    act.routing_table_view.remove_local_edges(&local_edges_to_remove);
                     act.routing_table_view.peer_forwarding = peer_forwarding;
                     for peer in peers_to_ban {
                         act.ban_peer(ctx, &peer, ReasonForBan::InvalidEdge);
@@ -293,14 +293,12 @@ impl PeerManagerActor {
         }
         // RoutingTable keeps list of local edges; let's apply changes immediately.
         for edge in edges.iter() {
-            if !edge.contains_peer(&self.my_peer_id) {
-                continue;
+            if let Some(other_peer) = edge.other(&self.my_peer_id) {
+                if !self.routing_table_view.is_local_edge_newer(other_peer, edge.nonce()) {
+                    continue;
+                }
+                self.routing_table_view.local_edges_info.insert(other_peer.clone(), edge.clone());
             }
-            let key = edge.key();
-            if !self.routing_table_view.is_local_edge_newer(key, edge.nonce()) {
-                continue;
-            }
-            self.routing_table_view.local_edges_info.insert(edge.key().clone(), edge.clone());
         }
 
         self.routing_table_addr
@@ -419,22 +417,16 @@ impl PeerManagerActor {
             // Also check whenever there is an edge indicating that we should be disconnected
             // from a peer, but we are connected. And try to resolve the inconsistency.
             for edge in new_edges.iter() {
-                // check if edge is local; contains our peer
-                if !edge.contains_peer(&self.my_peer_id) {
-                    continue;
-                }
-                let key = edge.key();
-                if !self.routing_table_view.is_local_edge_newer(key, edge.nonce()) {
-                    continue;
-                }
-                // Check whenever peer needs to be removed when edge is removed.
-                if let Some(other) = edge.other(&self.my_peer_id) {
+                if let Some(other_peer) = edge.other(&self.my_peer_id) {
+                    if !self.routing_table_view.is_local_edge_newer(other_peer, edge.nonce()) {
+                        continue;
+                    }
                     // We belong to this edge.
-                    if self.active_peers.contains_key(other) {
+                    if self.active_peers.contains_key(other_peer) {
                         // This is an active connection.
                         match edge.edge_type() {
                             EdgeState::Removed => {
-                                self.maybe_remove_connected_peer(ctx, edge.clone(), other);
+                                self.maybe_remove_connected_peer(ctx, edge.clone(), other_peer);
                             }
                             _ => {}
                         }
@@ -698,9 +690,7 @@ impl PeerManagerActor {
             .map(|_, _, _| ())
             .spawn(ctx);
 
-        if let Some(edge) =
-            self.routing_table_view.get_edge(self.my_peer_id.clone(), peer_id.clone())
-        {
+        if let Some(edge) = self.routing_table_view.get_local_edge(peer_id) {
             if edge.edge_type() == EdgeState::Active {
                 let edge_update =
                     edge.remove_edge(self.my_peer_id.clone(), &self.config.secret_key);
@@ -966,7 +956,7 @@ impl PeerManagerActor {
                 )
             })
             .collect();
-        self.routing_table_view.remove_edges(&edges);
+        self.routing_table_view.remove_local_edges(&edges);
         self.routing_table_addr
             .send(RoutingTableMessages::AdvRemoveEdges(edges))
             .into_actor(self)
@@ -1453,16 +1443,13 @@ impl PeerManagerActor {
     }
 
     fn propose_edge(&self, peer1: PeerId, with_nonce: Option<u64>) -> PartialEdgeInfo {
-        let key = Edge::make_key(self.my_peer_id.clone(), peer1.clone());
-
         // When we create a new edge we increase the latest nonce by 2 in case we miss a removal
         // proposal from our partner.
         let nonce = with_nonce.unwrap_or_else(|| {
-            self.routing_table_view
-                .get_edge(self.my_peer_id.clone(), peer1)
-                .map_or(1, |edge| edge.next())
+            self.routing_table_view.get_local_edge(&peer1).map_or(1, |edge| edge.next())
         });
 
+        let key = Edge::make_key(self.my_peer_id.clone(), peer1);
         PartialEdgeInfo::new(&key.0, &key.1, nonce, &self.config.secret_key)
     }
 
@@ -1936,9 +1923,7 @@ impl PeerManagerActor {
             }
             NetworkRequests::RequestUpdateNonce(peer_id, edge_info) => {
                 if Edge::partial_verify(&self.my_peer_id, &peer_id, &edge_info) {
-                    if let Some(cur_edge) =
-                        self.routing_table_view.get_edge(self.my_peer_id.clone(), peer_id.clone())
-                    {
+                    if let Some(cur_edge) = self.routing_table_view.get_local_edge(&peer_id) {
                         if cur_edge.edge_type() == EdgeState::Active
                             && cur_edge.nonce() >= edge_info.nonce
                         {
@@ -1961,19 +1946,28 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::ResponseUpdateNonce(edge) => {
-                if edge.contains_peer(&self.my_peer_id) && edge.verify() {
-                    let key = edge.key();
-                    if self.routing_table_view.is_local_edge_newer(key, edge.nonce()) {
-                        let other = edge.other(&self.my_peer_id).unwrap();
-                        if let Some(nonce) = self.local_peer_pending_update_nonce_request.get(other)
-                        {
-                            if edge.nonce() >= *nonce {
-                                self.local_peer_pending_update_nonce_request.remove(other);
+                if let Some(other_peer) = edge.other(&self.my_peer_id) {
+                    if edge.verify() {
+                        // This happens in case, we get an edge, in `RoutingTableActor`,
+                        // which says that we shouldn't be connected to local peer, but we are.
+                        // This is a part of logic used to ask peer, if he really want to be disconnected.
+                        if self.routing_table_view.is_local_edge_newer(other_peer, edge.nonce()) {
+                            if let Some(nonce) =
+                                self.local_peer_pending_update_nonce_request.get(other_peer)
+                            {
+                                if edge.nonce() >= *nonce {
+                                    // This means that, `other_peer` responded that we should keep
+                                    // the connection that that peer. Therefore, we are
+                                    // cleaning up this data structure.
+                                    self.local_peer_pending_update_nonce_request.remove(other_peer);
+                                }
                             }
                         }
+                        self.add_verified_edges_to_routing_table(ctx, vec![edge.clone()], false);
+                        NetworkResponses::NoResponse
+                    } else {
+                        NetworkResponses::BanPeer(ReasonForBan::InvalidEdge)
                     }
-                    self.add_verified_edges_to_routing_table(ctx, vec![edge.clone()], false);
-                    NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::BanPeer(ReasonForBan::InvalidEdge)
                 }
@@ -2183,8 +2177,7 @@ impl PeerManagerActor {
             return RegisterPeerResponse::Reject;
         }
 
-        let last_edge =
-            self.routing_table_view.get_edge(self.my_peer_id.clone(), msg.peer_info.id.clone());
+        let last_edge = self.routing_table_view.get_local_edge(&msg.peer_info.id);
         let last_nonce = last_edge.as_ref().map_or(0, |edge| edge.nonce());
 
         // Check that the received nonce is greater than the current nonce of this connection.
