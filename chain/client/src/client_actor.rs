@@ -1031,8 +1031,8 @@ impl ClientActor {
                                 ban_reason: ReasonForBan::BadBlockHeader,
                             },
                         ));
-                        return Err(e);
                     }
+                    return Err(e);
                 }
             }
         }
