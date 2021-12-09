@@ -1,21 +1,22 @@
+use crate::network_protocol::{Edge, PartialEdgeInfo};
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
 use crate::peer::utils;
-use crate::routing::network_protocol::{Edge, PartialEdgeInfo};
+use crate::private_actix::{
+    PeersRequest, RegisterPeer, RegisterPeerResponse, SendMessage, Unregister,
+};
 use crate::stats::metrics::{self, NetworkMetrics};
 use crate::types::{
     Handshake, HandshakeFailureReason, HandshakeV2, NetworkClientMessages, NetworkClientResponses,
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerMessage, PeerRequest,
-    PeerResponse, PeersRequest, PeersResponse, RegisterPeer, RegisterPeerResponse, SendMessage,
-    Unregister,
+    PeerResponse, PeersResponse,
 };
 use crate::PeerManagerActor;
 use actix::{
     Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
-use borsh::BorshDeserialize;
-use borsh::BorshSerialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::types::{
