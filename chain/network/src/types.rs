@@ -110,14 +110,6 @@ pub struct GetPeerIdResult {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(Debug)]
-pub struct GetRoutingTable {}
-
-impl Message for GetRoutingTable {
-    type Result = GetRoutingTableResult;
-}
-
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Clone, Debug)]
 #[cfg(feature = "test_features")]
 pub struct StartRoutingTableSync {
