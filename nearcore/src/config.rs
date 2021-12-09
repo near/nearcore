@@ -1101,9 +1101,9 @@ pub enum FileDownloadError {
     #[error("Failed to write to file: {0}")]
     WriteError(std::io::Error),
     #[error("Failed to decompress XZ stream: {0}")]
-    XZDecodeError(#[from] xz2::stream::Error),
+    XzDecodeError(#[from] xz2::stream::Error),
     #[error("Failed to decompress XZ stream: internal error: unexpected status {0:?}")]
-    XZStatusError(String),
+    XzStatusError(String),
     #[error("Failed to rename file: {0}")]
     RenameError(std::io::Error),
     #[error("Invalid URI: {0}")]
@@ -1241,7 +1241,7 @@ impl AutoXzDecoder {
                 status => {
                     let status = format!("{:?}", status);
                     error!(target: "near", "Got unexpected status ‘{}’ when decompressing downloaded file.", status);
-                    return Err(FileDownloadError::XZStatusError(status));
+                    return Err(FileDownloadError::XzStatusError(status));
                 }
             };
             let read = (stream.total_in() - total_in).try_into().unwrap();
@@ -1256,37 +1256,34 @@ impl AutoXzDecoder {
 }
 
 #[cfg(test)]
-fn auto_xz_test_write_file(buffer: &[u8], chunk_size: usize) -> Vec<u8> {
+fn auto_xz_test_write_file(buffer: &[u8], chunk_size: usize) -> Result<Vec<u8>, FileDownloadError> {
     let (file, path) = tempfile::NamedTempFile::new().unwrap().into_parts();
     {
         let mut out = AutoXzDecoder::new(file);
         tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(
             async move {
                 for chunk in buffer.chunks(chunk_size) {
-                    out.write_all(chunk).await.unwrap();
+                    out.write_all(chunk).await?;
                 }
-                out.finish().await.unwrap();
-            },
-        );
+                out.finish().await
+            }
+        )?;
     }
-    std::fs::read(path).unwrap()
+    Ok(std::fs::read(path).unwrap())
 }
 
 #[test]
 fn test_auto_xz_decode_plain() {
-    let buffer = "Zażółć gęślą jaźń".as_bytes();
-    for chunk_size in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] {
-        let got = auto_xz_test_write_file(buffer, chunk_size);
-        assert_eq!(got, buffer);
-    }
-}
-
-#[test]
-fn test_auto_xz_decode_plain_with_partial_prefix() {
-    let buffer = b"\xfd\x37\x7aA quick brown fox";
-    for chunk_size in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] {
-        let got = auto_xz_test_write_file(buffer, chunk_size);
-        assert_eq!(got, buffer);
+    let mut buffer: [u8; 38] = *b"A quick brow fox jumps over a lazy dog";
+    // On first iteration we’re testing just a plain text data.  On subsequent
+    // iterations, we’re testing uncompressed data whose first few bytes match
+    // the XZ header.
+    for (pos, &ch) in XZ_HEADER_MAGIC.iter().enumerate() {
+        for chunk_size in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] {
+            let got = auto_xz_test_write_file(&buffer, chunk_size).unwrap();
+            assert_eq!(got, buffer);
+        }
+        buffer[pos] = ch;
     }
 }
 
@@ -1300,8 +1297,18 @@ fn test_auto_xz_decode_compressed() {
                    \x66\xbe\xa9\x51\x00\x01\x32\x1a\x20\x18\x94\x30\
                    \x1f\xb6\xf3\x7d\x01\x00\x00\x00\x00\x04\x59\x5a";
     for chunk_size in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] {
-        let got = auto_xz_test_write_file(buffer, chunk_size);
+        let got = auto_xz_test_write_file(buffer, chunk_size).unwrap();
         assert_eq!(got, "Zażółć gęślą jaźń".as_bytes());
+    }
+}
+
+#[test]
+fn test_auto_xz_decode_corrupted() {
+    let buffer = b"\xfd\x37\x7a\x58\x5a\x00A quick brown fox";
+    for chunk_size in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] {
+        let got = auto_xz_test_write_file(buffer, chunk_size);
+        eprintln!("got: {:?}", got);
+        assert!(matches!(got, Err(FileDownloadError::XzDecodeError(xz2::stream::Error::Data))), "{:?}", got);
     }
 }
 
