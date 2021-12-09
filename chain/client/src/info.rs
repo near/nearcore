@@ -116,7 +116,7 @@ impl InfoHelper {
             String::new()
         };
 
-        let sync_status_log = display_sync_status(&sync_status, &head, genesis_height);
+        let sync_status_log = display_sync_status(sync_status, head, genesis_height);
         let network_info_log = format!(
             "{:2}/{:?}/{:2} peers ⬇ {} ⬆ {}",
             network_info.num_connected_peers,

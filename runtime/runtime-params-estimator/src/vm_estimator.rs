@@ -130,7 +130,7 @@ pub fn load_and_compile(
 ) -> Option<CompileCost> {
     match fs::read(path) {
         Ok(mut code) => match delete_all_data(&mut code) {
-            Ok(code) => compile(&code, gas_metric, vm_kind),
+            Ok(code) => compile(code, gas_metric, vm_kind),
             _ => None,
         },
         _ => None,
@@ -147,7 +147,7 @@ fn measure_contract(
     let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
     let vm_config = runtime_config.wasm_config.clone();
     let start = GasCost::measure(gas_metric);
-    let result = precompile_contract_vm(vm_kind, &contract, &vm_config, cache);
+    let result = precompile_contract_vm(vm_kind, contract, &vm_config, cache);
     let end = start.elapsed().scalar_cost();
     assert!(result.is_ok(), "Compilation failed");
     end.to_integer()

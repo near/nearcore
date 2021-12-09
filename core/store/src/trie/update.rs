@@ -181,7 +181,7 @@ impl<'a> Iterator for MergeIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let res = match (self.left.peek(), self.right.peek()) {
-            (Some(&(ref left_key, _)), Some(&(ref right_key, _))) => left_key.cmp(&right_key),
+            (Some(&(ref left_key, _)), Some(&(ref right_key, _))) => left_key.cmp(right_key),
             (Some(_), None) => std::cmp::Ordering::Less,
             (None, Some(_)) => std::cmp::Ordering::Greater,
             (None, None) => return None,
@@ -305,7 +305,7 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
                         }
                         Ordering::Trie
                     }
-                    (None, Some(&(ref right_key, _))) => {
+                    (None, Some(&(right_key, _))) => {
                         if stop_cond(right_key, &self.prefix, &self.end_offset) {
                             return None;
                         }
