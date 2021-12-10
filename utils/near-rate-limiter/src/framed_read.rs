@@ -310,10 +310,21 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::ThrottleController;
+    use crate::{ThrottleController, ThrottledFrameRead};
+    use bytes::{Buf, BytesMut};
+    use futures_core::Stream;
+    use std::error::Error;
+    use std::pin::Pin;
+    use std::ptr::null;
     use std::sync::atomic::Ordering::SeqCst;
     use std::sync::Arc;
+    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+    use std::time::Duration;
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::{TcpListener, TcpStream};
     use tokio::sync::Semaphore;
+    use tokio::time::Instant;
+    use tokio_util::codec::Decoder;
     use tokio_util::sync::PollSemaphore;
 
     #[tokio::test]
@@ -435,5 +446,93 @@ mod tests {
 
         assert_eq!(throttle_controller.consume_max_messages_in_progress(), 2);
         assert_eq!(throttle_controller.consume_max_messages_in_progress(), 0);
+    }
+
+    #[derive(Default)]
+    pub struct Codec {}
+
+    impl Decoder for Codec {
+        type Item = u8;
+        type Error = std::io::Error;
+
+        fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, std::io::Error> {
+            if buf.is_empty() {
+                // not enough bytes to start decoding
+                return Ok(None);
+            }
+            let res = buf[0];
+            buf.advance(1);
+            Ok(Some(res))
+        }
+    }
+
+    unsafe fn noop_clone(_data: *const ()) -> RawWaker {
+        noop_raw_waker()
+    }
+
+    unsafe fn noop(_data: *const ()) {}
+
+    const NOOP_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(noop_clone, noop, noop, noop);
+
+    const fn noop_raw_waker() -> RawWaker {
+        RawWaker::new(null(), &NOOP_WAKER_VTABLE)
+    }
+    pub fn noop_waker() -> Waker {
+        // FIXME: Since 1.46.0 we can use transmute in consts, allowing this function to be const.
+        unsafe { Waker::from_raw(noop_raw_waker()) }
+    }
+
+    #[tokio::test]
+    async fn test_throttled_framed_read() -> Result<(), Box<dyn Error>> {
+        let semaphore = PollSemaphore::new(Arc::new(Semaphore::new(0)));
+        let rate_limiter = ThrottleController::new(semaphore, 1, usize::MAX);
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("TcpListener::bind");
+        let addr = listener.local_addr().expect("addr");
+
+        let client_stream = TcpStream::connect(addr).await?;
+
+        let (mut server_tcp_stream, _socket) = listener.accept().await.unwrap();
+
+        // Write some data.
+        server_tcp_stream.write_all(b"hello world!").await?;
+
+        let (read, _write) = tokio::io::split(client_stream);
+        let semaphore = PollSemaphore::new(Arc::new(Semaphore::new(0)));
+        let mut read =
+            ThrottledFrameRead::new(read, Codec::default(), rate_limiter.clone(), semaphore);
+
+        let waker = noop_waker();
+        let mut context = Context::from_waker(&waker);
+        server_tcp_stream.flush().await?;
+        let start = Instant::now();
+        // Unfortunately, the test times out for some reason.
+        loop {
+            assert!(start.elapsed() < Duration::from_secs(10), "timed out {:?}", start.elapsed());
+
+            match Pin::new(&mut read).poll_next(&mut context) {
+                Poll::Pending => {
+                    // this expected
+                }
+                Poll::Ready(x) => {
+                    assert!(false, "got {:?}", x);
+                    break;
+                }
+            }
+        }
+
+        rate_limiter.add_msg(1);
+        rate_limiter.add_msg(1);
+
+        match Pin::new(&mut read).poll_next(&mut context) {
+            Poll::Pending => {
+                // this expected
+            }
+            Poll::Ready(x) => {
+                assert!(false, "got {:?}", x);
+            }
+        }
+
+        Ok(())
     }
 }
