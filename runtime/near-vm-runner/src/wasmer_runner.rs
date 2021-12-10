@@ -213,7 +213,7 @@ fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Resu
 
     {
         let _span = tracing::debug_span!(target: "vm", "run_method/call").entered();
-        instance.call(&method_name, &[]).map_err(|err| err.into_vm_error())?;
+        instance.call(method_name, &[]).map_err(|err| err.into_vm_error())?;
     }
 
     {

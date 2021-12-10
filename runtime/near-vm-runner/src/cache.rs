@@ -255,7 +255,7 @@ pub mod wasmer2_cache {
 
         let prepared_code =
             prepare::prepare_contract(code, config).map_err(CompilationError::PrepareError)?;
-        wasmer::Module::new(&store, prepared_code).map_err(|err| match err {
+        wasmer::Module::new(store, prepared_code).map_err(|err| match err {
             wasmer::CompileError::Wasm(_) => {
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             }
@@ -365,7 +365,7 @@ pub mod wasmer2_cache {
     ) -> Result<Result<wasmer::Module, CompilationError>, CacheError> {
         let key = get_contract_cache_key(code, VMKind::Wasmer2, config);
         #[cfg(not(feature = "no_cache"))]
-        return memcache_compile_module_cached_wasmer2(key, &code.code(), config, cache, store);
+        return memcache_compile_module_cached_wasmer2(key, code.code(), config, cache, store);
         #[cfg(feature = "no_cache")]
         return compile_module_cached_wasmer2_impl(key, &code.code(), config, cache, store);
     }

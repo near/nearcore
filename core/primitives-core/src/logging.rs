@@ -47,7 +47,7 @@ pub fn pretty_utf8(buf: &[u8]) -> String {
 
 pub fn pretty_result(result: &Option<Vec<u8>>) -> String {
     match result {
-        Some(ref v) => pretty_utf8(&v),
+        Some(ref v) => pretty_utf8(v),
         None => "None".to_string(),
     }
 }
