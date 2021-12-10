@@ -211,10 +211,11 @@ pub fn publishable_has_license_file(workspace: &Workspace) -> Result<(), Error> 
         .members
         .iter()
         .filter(|pkg| {
-            utils::pub_missing!(
-                pkg,
-                "LICENSE" || ("LICENSE-APACHE" && "LICENSE-MIT") || (pkg.parsed.license_file)?
-            )
+            utils::is_publishable(pkg)
+                && !utils::exists!(
+                    pkg,
+                    "LICENSE" || ("LICENSE-APACHE" && "LICENSE-MIT") || (pkg.parsed.license_file)?
+                )
         })
         .map(|pkg| PackageOutcome {
             pkg,
@@ -298,7 +299,9 @@ pub fn publishable_has_readme(workspace: &Workspace) -> Result<(), Error> {
     let outliers = workspace
         .members
         .iter()
-        .filter(|pkg| utils::pub_missing!(pkg, "README.md" || (pkg.parsed.readme)?))
+        .filter(|pkg| {
+            utils::is_publishable(pkg) && !utils::exists!(pkg, "README.md" || (pkg.parsed.readme)?)
+        })
         .map(|pkg| PackageOutcome { pkg, value: pkg.parsed.readme.as_ref().map(|r| r.to_string()) })
         .collect::<Vec<_>>();
 
