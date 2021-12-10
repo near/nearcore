@@ -222,25 +222,16 @@ pub fn publishable_has_license_file(workspace: &Workspace) -> Result<(), Error> 
     Ok(())
 }
 
-/// ensure all non-private crates use the the same license
+const EXPECTED_LICENSE: &str = "MIT OR Apache-2.0";
+
+/// ensure all non-private crates use the the same expected license
 pub fn publishable_has_unified_license(workspace: &Workspace) -> Result<(), Error> {
-    let mut license_groups = HashMap::new();
-
-    for pkg in &workspace.members {
-        if let Some(license) = &pkg.parsed.license {
-            *license_groups.entry(license).or_insert(0) += 1;
-        }
-    }
-
-    let (most_common_license, n_compliant) =
-        license_groups.into_iter().reduce(|a, b| if a.1 > b.1 { a } else { b }).unwrap();
-
     let outliers = workspace
         .members
         .iter()
         .filter(|pkg| {
             utils::is_publishable(pkg)
-                && pkg.parsed.license.as_ref().map_or(false, |l| l != most_common_license)
+                && pkg.parsed.license.as_ref().map_or(false, |l| l != EXPECTED_LICENSE)
         })
         .map(|pkg| PackageOutcome {
             pkg,
@@ -251,10 +242,7 @@ pub fn publishable_has_unified_license(workspace: &Workspace) -> Result<(), Erro
     if !outliers.is_empty() {
         return Err(Error::OutcomeError {
             msg: "These non-private packages have an unexpected license".to_string(),
-            expected: Some(Expected {
-                value: most_common_license.clone(),
-                reason: Some(format!("used by {} other packages in the workspace", n_compliant)),
-            }),
+            expected: Some(Expected { value: EXPECTED_LICENSE.to_string(), reason: None }),
             outliers,
         });
     }
