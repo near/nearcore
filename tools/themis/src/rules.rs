@@ -19,7 +19,7 @@ pub fn has_publish_spec(workspace: &Workspace) -> Result<(), Error> {
         });
     }
 
-    return Ok(());
+    Ok(())
 }
 
 /// ensure all crates specify a MSRV
@@ -40,7 +40,7 @@ pub fn has_rust_version(workspace: &Workspace) -> Result<(), Error> {
         });
     }
 
-    return Ok(());
+    Ok(())
 }
 
 /// ensure all crates are versioned to v0.0.0
@@ -72,7 +72,7 @@ pub fn is_unversioned(workspace: &Workspace) -> Result<(), Error> {
         });
     }
 
-    return Ok(());
+    Ok(())
 }
 
 /// ensures all crates have a rust-version spec less than
@@ -122,7 +122,7 @@ pub fn has_debuggable_rust_version(workspace: &Workspace) -> Result<(), Error> {
         });
     }
 
-    return Ok(());
+    Ok(())
 }
 
 /// ensure all crates share the same rust edition
@@ -154,7 +154,7 @@ pub fn has_unified_rust_edition(workspace: &Workspace) -> Result<(), Error> {
         });
     }
 
-    return Ok(());
+    Ok(())
 }
 
 /// ensure all crates have the appropriate author, non-exclusively of course.
@@ -175,7 +175,7 @@ pub fn author_is<'a>(expected: &'a str) -> impl Fn(&'a Workspace) -> Result<(), 
             });
         }
 
-        return Ok(());
+        Ok(())
     }
 }
 
@@ -199,7 +199,7 @@ pub fn publishable_has_license(workspace: &Workspace) -> Result<(), Error> {
         });
     }
 
-    return Ok(());
+    Ok(())
 }
 
 /// ensure all non-private crates have a license file
@@ -231,7 +231,7 @@ pub fn publishable_has_license_file(workspace: &Workspace) -> Result<(), Error> 
         });
     }
 
-    return Ok(());
+    Ok(())
 }
 
 /// ensure all non-private crates use the the same license
@@ -271,7 +271,7 @@ pub fn publishable_has_unified_license(workspace: &Workspace) -> Result<(), Erro
         });
     }
 
-    return Ok(());
+    Ok(())
 }
 
 /// ensure all non-private crates have a description
@@ -291,7 +291,7 @@ pub fn publishable_has_description(workspace: &Workspace) -> Result<(), Error> {
         });
     }
 
-    return Ok(());
+    Ok(())
 }
 
 /// ensure all non-private crates have a README file
@@ -313,7 +313,7 @@ pub fn publishable_has_readme(workspace: &Workspace) -> Result<(), Error> {
         });
     }
 
-    return Ok(());
+    Ok(())
 }
 
 /// ensure all non-private crates have repository and homepage links
@@ -349,6 +349,6 @@ pub fn publishable_has_links<'a>(expected: &'a str) -> impl Fn(&'a Workspace) ->
             });
         }
 
-        return Ok(());
+        Ok(())
     }
 }

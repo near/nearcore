@@ -2,7 +2,6 @@ use std::fs;
 
 use cargo_metadata::{camino::Utf8PathBuf, CargoOpt, MetadataCommand};
 use serde::de::DeserializeOwned;
-use toml;
 
 use super::{style, Error, Expected, Package, PackageOutcome, Workspace};
 
@@ -57,10 +56,7 @@ macro_rules! chk {
     };
 }
 
-pub fn check_and_report<'a>(
-    outcome: Result<(), Error<'a>>,
-    workspace: &Workspace,
-) -> anyhow::Result<bool> {
+pub fn check_and_report(outcome: Result<(), Error>, workspace: &Workspace) -> anyhow::Result<bool> {
     match outcome {
         Err(Error::RuntimeError(err)) => Err(err),
         Err(Error::OutcomeError { msg, expected, outliers }) => {
