@@ -441,6 +441,7 @@ impl Chain {
             }
             Err(err) => match err.kind() {
                 ErrorKind::DBNotFoundErr(_) => {
+                    let genesis_hash = genesis.hash();
                     for chunk in genesis_chunks {
                         store_update.save_chunk(chunk.clone());
                     }
@@ -454,13 +455,13 @@ impl Chain {
                     store_update.save_block_header(genesis.header().clone())?;
                     store_update.save_block(genesis.clone());
                     store_update
-                        .save_block_extra(genesis.hash(), BlockExtra { challenges_result: vec![] });
+                        .save_block_extra(genesis_hash, BlockExtra { challenges_result: vec![] });
 
                     for (chunk_header, state_root) in
                         genesis.chunks().iter().zip(state_roots.iter())
                     {
                         store_update.save_chunk_extra(
-                            genesis.hash(),
+                            genesis_hash,
                             &runtime_adapter
                                 .shard_id_to_uid(chunk_header.shard_id(), &EpochId::default())?,
                             ChunkExtra::new(
@@ -476,6 +477,8 @@ impl Chain {
 
                     head = Tip::from_header(genesis.header());
                     store_update.save_head(&head)?;
+                    // genesis has ordinal 0
+                    store_update.save_block_ordinal(*genesis_hash, 0);
                     store_update.save_final_head(&head)?;
 
                     info!(target: "chain", "Init: saved genesis: {:?} / {:?}", genesis.hash(), state_roots);
@@ -4419,6 +4422,13 @@ impl<'a> ChainUpdate<'a> {
             };
         if last_final_block_header.height() > final_head.height {
             let tip = Tip::from_header(last_final_block_header);
+            for height in final_head.height + 1..=last_final_block_header.height() {
+                if let Ok(block_hash) = self.chain_store_update.get_block_hash_by_height(height) {
+                    let block_ordinal =
+                        self.chain_store_update.get_block_merkle_tree(&block_hash)?.size();
+                    self.chain_store_update.save_block_ordinal(block_hash, block_ordinal);
+                }
+            }
             self.chain_store_update.save_final_head(&tip)?;
             Ok(Some(tip))
         } else {
