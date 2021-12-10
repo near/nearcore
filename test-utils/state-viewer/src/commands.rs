@@ -569,7 +569,7 @@ pub(crate) fn print_epoch_info(
         // Fetch all epochs.
         let epoch_ids = store
             .iter(DBCol::ColEpochInfo)
-            .filter_map(|(key, value)| {
+            .filter_map(|(key, _)| {
                 if key.as_ref() == AGGREGATOR_KEY {
                     None
                 } else {
