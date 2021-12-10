@@ -1,12 +1,5 @@
-use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
 use ansi_term::Color::Red;
-
-use borsh::BorshSerialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
@@ -20,14 +13,20 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, ShardId, StateRoot};
+use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId, StateRoot};
 use near_store::test_utils::create_test_store;
-use near_store::{Store, TrieIterator};
+use near_store::{DBCol, Store, TrieIterator};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
+use std::collections::HashMap;
+use std::fs::{self, File};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::apply_chain_range::apply_chain_range;
 use crate::state_dump::state_dump;
+use near_primitives::epoch_manager::epoch_info::EpochInfo;
 
 pub(crate) fn peers(store: Arc<Store>) {
     iter_peers_from_store(store, |(peer_id, peer_info)| {
@@ -488,6 +487,44 @@ pub(crate) fn check_block_chunk_existence(store: Arc<Store>, near_config: NearCo
     }
     println!("Block check succeed");
 }
+
+pub(crate) fn print_epoch_info(
+    epoch_id: Option<EpochId>,
+    epoch_height: Option<EpochHeight>,
+    block_hash: Option<CryptoHash>,
+    block_height: Option<BlockHeight>,
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Arc<Store>,
+) {
+    let genesis_height = near_config.genesis.config.genesis_height;
+    let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+    let mut epoch_manager =
+        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
+            .expect("Failed to start Epoch Manager");
+    let epoch_id: EpochId = if let Some(epoch_id) = epoch_id {
+        epoch_id
+    } else if let Some(epoch_height) = epoch_height {
+        let (epoch_id, _) = store
+            .iter(DBCol::ColEpochInfo)
+            .find(|(_, value)| {
+                let epoch_info = EpochInfo::try_from_slice(value.as_ref()).unwrap();
+                epoch_info.epoch_height() == epoch_height
+            })
+            .unwrap();
+        EpochId::try_from_slice(epoch_id.as_ref()).unwrap()
+    } else if let Some(block_hash) = block_hash {
+        epoch_manager.get_block_info(&block_hash).unwrap().epoch_id().clone()
+    } else if let Some(block_height) = block_height {
+        let block_hash = chain_store.get_block_hash_by_height(block_height).unwrap();
+        epoch_manager.get_block_info(&block_hash).unwrap().epoch_id().clone()
+    } else {
+        panic!("No epoch selected");
+    };
+    let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
+    println!("{:?}: {:#?}", epoch_id, epoch_info);
+}
+
 #[allow(unused)]
 enum LoadTrieMode {
     /// Load latest state
