@@ -1,6 +1,7 @@
 use crate::commands::*;
 use clap::{AppSettings, Clap};
 use near_logger_utils::init_integration_logger;
+use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ProtocolVersion, ShardId};
 use near_primitives::version::{DB_VERSION, PROTOCOL_VERSION};
@@ -263,6 +264,9 @@ pub struct EpochInfoCmd {
     /// Fetch all epochs at the given protocol version.
     #[clap(long)]
     protocol_version: Option<ProtocolVersion>,
+    /// If given, print block heights and hashes for blocks the given validator needs to produce.
+    #[clap(long)]
+    validator_account_id: Option<String>,
 }
 
 impl EpochInfoCmd {
@@ -274,6 +278,7 @@ impl EpochInfoCmd {
             self.block_height,
             self.protocol_version_upgrade,
             self.protocol_version,
+            self.validator_account_id.map(|s| AccountId::from_str(&s).unwrap()),
             near_config,
             store,
         );
