@@ -145,26 +145,26 @@ pub fn has_unified_rust_edition(workspace: &Workspace) -> Result<(), Error> {
     Ok(())
 }
 
+const EXPECTED_AUTHOR: &str = "Near Inc <hello@nearprotocol.com>";
+
 /// ensure all crates have the appropriate author, non-exclusively of course.
-pub fn author_is<'a>(expected: &'a str) -> impl Fn(&'a Workspace) -> Result<(), Error> {
-    move |workspace| {
-        let outliers = workspace
-            .members
-            .iter()
-            .filter(|pkg| !pkg.parsed.authors.iter().any(|author| author == expected))
-            .map(|pkg| PackageOutcome { pkg, value: Some(format!("{:?}", pkg.parsed.authors)) })
-            .collect::<Vec<_>>();
+pub fn author_is_near(workspace: &Workspace) -> Result<(), Error> {
+    let outliers = workspace
+        .members
+        .iter()
+        .filter(|pkg| !pkg.parsed.authors.iter().any(|author| author == EXPECTED_AUTHOR))
+        .map(|pkg| PackageOutcome { pkg, value: Some(format!("{:?}", pkg.parsed.authors)) })
+        .collect::<Vec<_>>();
 
-        if !outliers.is_empty() {
-            return Err(Error::OutcomeError {
-                msg: "These packages need to be correctly authored".to_string(),
-                expected: Some(Expected { value: expected.to_string(), reason: None }),
-                outliers,
-            });
-        }
-
-        Ok(())
+    if !outliers.is_empty() {
+        return Err(Error::OutcomeError {
+            msg: "These packages need to be correctly authored".to_string(),
+            expected: Some(Expected { value: EXPECTED_AUTHOR.to_string(), reason: None }),
+            outliers,
+        });
     }
+
+    Ok(())
 }
 
 /// ensure all non-private crates have a license

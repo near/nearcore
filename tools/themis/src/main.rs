@@ -54,7 +54,7 @@ fn main() -> anyhow::Result<()> {
             rules::has_rust_version,
             rules::has_debuggable_rust_version,
             rules::has_unified_rust_edition,
-            rules::author_is("Near Inc <hello@nearprotocol.com>"),
+            rules::author_is_near,
             rules::publishable_has_license,
             rules::publishable_has_unified_license,
             rules::publishable_has_license_file,
