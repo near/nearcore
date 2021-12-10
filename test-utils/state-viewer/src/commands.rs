@@ -643,7 +643,8 @@ fn get_block_height_range(
         let prev_epoch_last_block_info =
             epoch_manager.get_block_info(&prev_epoch_last_block_hash).unwrap().clone();
         if cur_epoch_height == epoch_info.epoch_height() {
-            return (prev_epoch_last_block_info.height() + 1)..(cur_block_info.height() + 1);
+            return epoch_manager.get_epoch_start_height(cur_block_info.hash()).unwrap()
+                ..(cur_block_info.height() + 1);
         }
         cur_block_info = prev_epoch_last_block_info;
     }
