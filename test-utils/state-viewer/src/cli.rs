@@ -1,17 +1,15 @@
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
+use crate::commands::*;
 use clap::{AppSettings, Clap};
-use once_cell::sync::Lazy;
-
 use near_logger_utils::init_integration_logger;
-use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ProtocolVersion, ShardId};
 use near_primitives::version::{DB_VERSION, PROTOCOL_VERSION};
 use near_store::{create_store, Store};
 use nearcore::{get_default_home, get_store_path, load_config, NearConfig};
-
-use crate::commands::*;
-use near_primitives::hash::CryptoHash;
+use once_cell::sync::Lazy;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::sync::Arc;
 
 static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(|| get_default_home());
 
@@ -102,7 +100,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::CheckBlock => check_block_chunk_existence(store, near_config),
             StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::EpochInfo(cmd) => cmd.run(near_config, store),
         }
     }
 }
@@ -247,24 +245,35 @@ impl DumpAccountStorageCmd {
 }
 #[derive(Clap)]
 pub struct EpochInfoCmd {
+    /// Fetch the given epoch.
     #[clap(long)]
     epoch_id: Option<String>,
+    /// Fetch epochs at the given height. There should be at most one, but this is a debug tool, it's ok to expect the unexpected.
     #[clap(long)]
     epoch_height: Option<EpochHeight>,
+    /// Fetch an epoch containing the given block height.
     #[clap(long)]
     block_hash: Option<String>,
-    #[clap(long, conflicts_with_all(&["epoch_id","epoch_height","block_hash"]), required_unless_present_all(&["epoch_id","epoch_height","block_hash"]))]
+    /// Fetch an epoch containing the given block height.
+    #[clap(long)]
     block_height: Option<BlockHeight>,
+    /// Fetch the first epoch with the given protocol version.
+    #[clap(long)]
+    protocol_version_upgrade: Option<ProtocolVersion>,
+    /// Fetch all epochs at the given protocol version.
+    #[clap(long)]
+    protocol_version: Option<ProtocolVersion>,
 }
 
 impl EpochInfoCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
+    pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
         print_epoch_info(
-            self.epoch_id.map(|s| EpochId(CryptoHash::try_from(s.as_bytes()).unwrap())),
+            self.epoch_id.map(|s| EpochId(CryptoHash::from_str(&s).unwrap())),
             self.epoch_height,
-            self.block_hash.map(|s| CryptoHash::try_from(s.as_bytes()).unwrap()),
+            self.block_hash.map(|s| CryptoHash::from_str(&s).unwrap()),
             self.block_height,
-            home_dir,
+            self.protocol_version_upgrade,
+            self.protocol_version,
             near_config,
             store,
         );

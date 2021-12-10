@@ -13,7 +13,9 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId, StateRoot};
+use near_primitives::types::{
+    BlockHeight, EpochHeight, EpochId, ProtocolVersion, ShardId, StateRoot,
+};
 use near_store::test_utils::create_test_store;
 use near_store::{DBCol, Store, TrieIterator};
 use nearcore::{NearConfig, NightshadeRuntime};
@@ -493,7 +495,8 @@ pub(crate) fn print_epoch_info(
     epoch_height: Option<EpochHeight>,
     block_hash: Option<CryptoHash>,
     block_height: Option<BlockHeight>,
-    home_dir: &Path,
+    protocol_version_upgrade: Option<ProtocolVersion>,
+    protocol_version: Option<ProtocolVersion>,
     near_config: NearConfig,
     store: Arc<Store>,
 ) {
@@ -502,27 +505,72 @@ pub(crate) fn print_epoch_info(
     let mut epoch_manager =
         EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
             .expect("Failed to start Epoch Manager");
-    let epoch_id: EpochId = if let Some(epoch_id) = epoch_id {
-        epoch_id
+    let epoch_ids: Vec<EpochId> = if let Some(epoch_id) = epoch_id {
+        // Fetch the specified epoch.
+        vec![epoch_id]
     } else if let Some(epoch_height) = epoch_height {
-        let (epoch_id, _) = store
+        // Fetch epochs at the given height.
+        // There should only be one epoch at a given height. But this is a debug tool, let's check
+        // if there are multiple epochs at a given height.
+        let epoch_ids = store
+            .iter(DBCol::ColEpochInfo)
+            .filter_map(|(key, value)| {
+                println!("{:?}", EpochId::try_from_slice(key.as_ref()));
+                let epoch_info = EpochInfo::try_from_slice(value.as_ref()).unwrap();
+                if epoch_info.epoch_height() == epoch_height {
+                    Some(EpochId::try_from_slice(key.as_ref()).unwrap())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        epoch_ids
+    } else if let Some(block_hash) = block_hash {
+        // Fetch an epoch containing the given block.
+        vec![epoch_manager.get_block_info(&block_hash).unwrap().epoch_id().clone()]
+    } else if let Some(block_height) = block_height {
+        // Fetch an epoch containing the given block height.
+        let block_hash = chain_store.get_block_hash_by_height(block_height).unwrap();
+        vec![epoch_manager.get_block_info(&block_hash).unwrap().epoch_id().clone()]
+    } else if let Some(protocol_version_upgrade) = protocol_version_upgrade {
+        // Fetch the first epoch of the given protocol version.
+        let epoch_id = store
             .iter(DBCol::ColEpochInfo)
             .find(|(_, value)| {
                 let epoch_info = EpochInfo::try_from_slice(value.as_ref()).unwrap();
-                epoch_info.epoch_height() == epoch_height
+                epoch_info.protocol_version() == protocol_version_upgrade
             })
+            .map(|(key, _)| EpochId::try_from_slice(key.as_ref()).unwrap())
             .unwrap();
-        EpochId::try_from_slice(epoch_id.as_ref()).unwrap()
-    } else if let Some(block_hash) = block_hash {
-        epoch_manager.get_block_info(&block_hash).unwrap().epoch_id().clone()
-    } else if let Some(block_height) = block_height {
-        let block_hash = chain_store.get_block_hash_by_height(block_height).unwrap();
-        epoch_manager.get_block_info(&block_hash).unwrap().epoch_id().clone()
+        vec![epoch_id]
+    } else if let Some(protocol_version) = protocol_version {
+        // Fetch the first epoch of the given protocol version.
+        let epoch_ids = store
+            .iter(DBCol::ColEpochInfo)
+            .filter_map(|(key, value)| {
+                let epoch_info = EpochInfo::try_from_slice(value.as_ref()).unwrap();
+                if epoch_info.protocol_version() == protocol_version {
+                    Some(EpochId::try_from_slice(key.as_ref()).unwrap())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        epoch_ids
     } else {
-        panic!("No epoch selected");
+        // Fetch all epochs.
+        let epoch_ids = store
+            .iter(DBCol::ColEpochInfo)
+            .map(|(epoch_id, _)| EpochId::try_from_slice(epoch_id.as_ref()).unwrap())
+            .collect();
+        epoch_ids
     };
-    let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
-    println!("{:?}: {:#?}", epoch_id, epoch_info);
+    for epoch_id in &epoch_ids {
+        let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
+        println!("{:?}: {:#?}", epoch_id, epoch_info);
+    }
+    println!("=========================");
+    println!("Found {} epochs", epoch_ids.len());
 }
 
 #[allow(unused)]
