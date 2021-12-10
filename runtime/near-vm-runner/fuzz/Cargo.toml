@@ -19,6 +19,9 @@ near-vm-runner = { path = ".." }
 near-vm-logic = { path = "../../near-vm-logic", default-features = false, features = [] }
 near-primitives = { path = "../../../core/primitives" }
 
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
 
 [[bin]]
 name = "runner"
