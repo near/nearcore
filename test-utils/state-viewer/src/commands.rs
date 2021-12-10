@@ -1,3 +1,5 @@
+use crate::apply_chain_range::apply_chain_range;
+use crate::state_dump::state_dump;
 use ansi_term::Color::Red;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain::chain::collect_receipts_from_response;
@@ -7,6 +9,8 @@ use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter}
 use near_epoch_manager::EpochManager;
 use near_network::iter_peers_from_store;
 use near_primitives::block::BlockHeader;
+use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::shard_layout::ShardUId;
@@ -25,10 +29,6 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
-use crate::apply_chain_range::apply_chain_range;
-use crate::state_dump::state_dump;
-use near_primitives::epoch_manager::epoch_info::EpochInfo;
 
 pub(crate) fn peers(store: Arc<Store>) {
     iter_peers_from_store(store, |(peer_id, peer_info)| {
@@ -536,9 +536,13 @@ pub(crate) fn print_epoch_info(
         // Fetch the first epoch of the given protocol version.
         let epoch_id = store
             .iter(DBCol::ColEpochInfo)
-            .find(|(_, value)| {
-                let epoch_info = EpochInfo::try_from_slice(value.as_ref()).unwrap();
-                epoch_info.protocol_version() == protocol_version_upgrade
+            .find(|(key, value)| {
+                if key.as_ref() == AGGREGATOR_KEY {
+                    false
+                } else {
+                    let epoch_info = EpochInfo::try_from_slice(value.as_ref()).unwrap();
+                    epoch_info.protocol_version() == protocol_version_upgrade
+                }
             })
             .map(|(key, _)| EpochId::try_from_slice(key.as_ref()).unwrap())
             .unwrap();
@@ -548,11 +552,15 @@ pub(crate) fn print_epoch_info(
         let epoch_ids = store
             .iter(DBCol::ColEpochInfo)
             .filter_map(|(key, value)| {
-                let epoch_info = EpochInfo::try_from_slice(value.as_ref()).unwrap();
-                if epoch_info.protocol_version() == protocol_version {
-                    Some(EpochId::try_from_slice(key.as_ref()).unwrap())
-                } else {
+                if key.as_ref() == AGGREGATOR_KEY {
                     None
+                } else {
+                    let epoch_info = EpochInfo::try_from_slice(value.as_ref()).unwrap();
+                    if epoch_info.protocol_version() == protocol_version {
+                        Some(EpochId::try_from_slice(key.as_ref()).unwrap())
+                    } else {
+                        None
+                    }
                 }
             })
             .collect();
@@ -561,7 +569,13 @@ pub(crate) fn print_epoch_info(
         // Fetch all epochs.
         let epoch_ids = store
             .iter(DBCol::ColEpochInfo)
-            .map(|(epoch_id, _)| EpochId::try_from_slice(epoch_id.as_ref()).unwrap())
+            .filter_map(|(key, value)| {
+                if key.as_ref() == AGGREGATOR_KEY {
+                    None
+                } else {
+                    Some(EpochId::try_from_slice(key.as_ref()).unwrap())
+                }
+            })
             .collect();
         epoch_ids
     };
