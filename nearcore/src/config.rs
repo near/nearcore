@@ -1272,35 +1272,29 @@ fn auto_xz_test_write_file(buffer: &[u8], chunk_size: usize) -> Result<Vec<u8>, 
     Ok(std::fs::read(path).unwrap())
 }
 
-/// Tests writing plain text through [`AutoXzDecoder`].  Includes test cases
-/// where prefix of a XZ header is present at the beginning of the stream being
-/// written.  That tests the object not being fooled by partial prefix.
+/// Tests writing plain text of varying lengths through [`AutoXzDecoder`].
+/// Includes test cases where prefix of a XZ header is present at the beginning
+/// of the stream being written.  That tests the object not being fooled by
+/// partial prefix.
 #[test]
 fn test_auto_xz_decode_plain() {
-    let mut buffer: [u8; 38] = *b"A quick brow fox jumps over a lazy dog";
+    let mut data: [u8; 38] = *b"A quick brow fox jumps over a lazy dog";
     // On first iteration we’re testing just a plain text data.  On subsequent
     // iterations, we’re testing uncompressed data whose first few bytes match
     // the XZ header.
     for (pos, &ch) in XZ_HEADER_MAGIC.iter().enumerate() {
-        for chunk_size in 1..11 {
-            let got = auto_xz_test_write_file(&buffer, chunk_size).unwrap();
-            assert_eq!(got, buffer);
+        for len in [0, 1, 2, 3, 4, 5, 6, 10, 20, data.len()] {
+            let buffer = &data[0..len];
+            for chunk_size in 1..11 {
+                let got = auto_xz_test_write_file(&buffer, chunk_size).unwrap();
+                assert_eq!(
+                    got, buffer,
+                    "got=‘{:?}’, pos={}, len={}, chunk_size={}",
+                    got, pos, len, chunk_size
+                );
+            }
         }
-        buffer[pos] = ch;
-    }
-}
-
-/// Tests writing a short file which consists of nothing but a partial XZ
-/// header.  In those cases [`AutoXzDecoder`] should treat the stream as plain
-/// text since it does not include a full XZ header.
-#[test]
-fn test_auto_xz_decode_just_partial_header() {
-    for len in 0..XZ_HEADER_MAGIC.len() - 1 {
-        let buffer = &XZ_HEADER_MAGIC[0..len];
-        for chunk_size in 1..6 {
-            let got = auto_xz_test_write_file(buffer, chunk_size).unwrap();
-            assert_eq!(got, buffer);
-        }
+        data[pos] = ch;
     }
 }
 
