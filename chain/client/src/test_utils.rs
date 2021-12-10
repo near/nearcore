@@ -274,7 +274,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     >,
     transaction_validity_period: NumBlocks,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
-    let network_adapter = Arc::new(NetworkRecipient::new());
+    let network_adapter = Arc::new(NetworkRecipient::default());
     let mut vca: Option<Addr<ViewClientActor>> = None;
     let client_addr = ClientActor::create(|ctx: &mut Context<ClientActor>| {
         let (_, client, view_client_addr) = setup(
@@ -992,7 +992,7 @@ pub fn setup_mock_all_validators(
                 Box::new(Some(resp))
             }))
             .start();
-            let network_adapter = NetworkRecipient::new();
+            let network_adapter = NetworkRecipient::default();
             network_adapter.set_recipient(pm.recipient());
             let (block, client, view_client_addr) = setup(
                 validators_clone1.clone(),
