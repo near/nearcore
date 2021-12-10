@@ -1266,7 +1266,7 @@ fn auto_xz_test_write_file(buffer: &[u8], chunk_size: usize) -> Result<Vec<u8>, 
                     out.write_all(chunk).await?;
                 }
                 out.finish().await
-            }
+            },
         )?;
     }
     Ok(std::fs::read(path).unwrap())
@@ -1308,7 +1308,11 @@ fn test_auto_xz_decode_corrupted() {
     for chunk_size in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] {
         let got = auto_xz_test_write_file(buffer, chunk_size);
         eprintln!("got: {:?}", got);
-        assert!(matches!(got, Err(FileDownloadError::XzDecodeError(xz2::stream::Error::Data))), "{:?}", got);
+        assert!(
+            matches!(got, Err(FileDownloadError::XzDecodeError(xz2::stream::Error::Data))),
+            "{:?}",
+            got
+        );
     }
 }
 
