@@ -29,10 +29,10 @@ fn main() {
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
     let near_config = load_config(home_dir);
 
-    let store = create_store(&get_store_path(&home_dir));
+    let store = create_store(&get_store_path(home_dir));
 
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(nearcore::NightshadeRuntime::new(
-        &home_dir,
+        home_dir,
         store.clone(),
         &near_config.genesis,
         TrackedConfig::from_config(&near_config.client_config),

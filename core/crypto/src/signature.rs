@@ -242,7 +242,7 @@ impl PublicKey {
 
     pub fn unwrap_as_ed25519(&self) -> &ED25519PublicKey {
         match self {
-            Self::ED25519(key) => &key,
+            Self::ED25519(key) => key,
             Self::SECP256K1(_) => panic!(),
         }
     }
@@ -351,7 +351,7 @@ impl FromStr for PublicKey {
     type Err = crate::errors::ParseKeyError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let (key_type, key_data) = split_key_type_data(&value)?;
+        let (key_type, key_data) = split_key_type_data(value)?;
         match key_type {
             KeyType::ED25519 => {
                 let mut array = [0; ed25519_dalek::PUBLIC_KEY_LENGTH];
@@ -487,7 +487,7 @@ impl SecretKey {
 
     pub fn unwrap_as_ed25519(&self) -> &ED25519SecretKey {
         match self {
-            SecretKey::ED25519(key) => &key,
+            SecretKey::ED25519(key) => key,
             SecretKey::SECP256K1(_) => panic!(),
         }
     }
@@ -507,7 +507,7 @@ impl FromStr for SecretKey {
     type Err = crate::errors::ParseKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (key_type, key_data) = split_key_type_data(&s)?;
+        let (key_type, key_data) = split_key_type_data(s)?;
         match key_type {
             KeyType::ED25519 => {
                 let mut array = [0; ed25519_dalek::KEYPAIR_LENGTH];
@@ -847,7 +847,7 @@ impl FromStr for Signature {
     type Err = crate::errors::ParseSignatureError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let (sig_type, sig_data) = split_key_type_data(&value)?;
+        let (sig_type, sig_data) = split_key_type_data(value)?;
         match sig_type {
             KeyType::ED25519 => {
                 let mut array = [0; ed25519_dalek::SIGNATURE_LENGTH];

@@ -673,7 +673,7 @@ mod test {
             "b": "random",
             "records": []
         }"#;
-        stream_records_from_json_str(&genesis).expect("error reading empty records");
+        stream_records_from_json_str(genesis).expect("error reading empty records");
     }
 
     #[test]
@@ -683,7 +683,7 @@ mod test {
             "a": [1, 2],
             "b": "random"
         }"#;
-        stream_records_from_json_str(&genesis).unwrap();
+        stream_records_from_json_str(genesis).unwrap();
     }
 
     #[test]
@@ -715,7 +715,7 @@ mod test {
                     }
                 }]
         }"#;
-        stream_records_from_json_str(&genesis).unwrap();
+        stream_records_from_json_str(genesis).unwrap();
     }
 
     #[test]
@@ -741,7 +741,7 @@ mod test {
                 "e": []
             }
         }"#;
-        stream_records_from_json_str(&genesis).expect("error reading records with a field after");
+        stream_records_from_json_str(genesis).expect("error reading records with a field after");
     }
 
     #[test]
@@ -767,7 +767,7 @@ mod test {
                 }
             ]
         }"#;
-        stream_records_from_json_str(&genesis).expect("error reading records from genesis");
+        stream_records_from_json_str(genesis).expect("error reading records from genesis");
     }
 
     #[test]
@@ -804,6 +804,6 @@ mod test {
                 }
             ]
         }"#;
-        stream_records_from_json_str(&genesis).expect("error reading records from genesis");
+        stream_records_from_json_str(genesis).expect("error reading records from genesis");
     }
 }
