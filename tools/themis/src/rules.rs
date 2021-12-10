@@ -48,19 +48,7 @@ pub fn is_unversioned(workspace: &Workspace) -> Result<(), Error> {
     let outliers = workspace
         .members
         .iter()
-        .filter(|pkg| {
-            !matches!(
-                pkg.parsed.version,
-                semver::Version {
-                    major: 0,
-                    minor: 0,
-                    patch: 0,
-                    ref pre,
-                    ref build,
-                } if pre == &semver::Prerelease::EMPTY
-                  && build == &semver::BuildMetadata::EMPTY
-            )
-        })
+        .filter(|pkg| pkg.parsed.version != semver::Version::new(0, 0, 0))
         .map(|pkg| PackageOutcome { pkg, value: Some(pkg.parsed.version.to_string()) })
         .collect::<Vec<_>>();
 
