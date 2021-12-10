@@ -22,7 +22,6 @@ use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransac
 use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fmt::{Debug, Error, Formatter};
@@ -44,7 +43,7 @@ pub const ROUTED_MESSAGE_TTL: u8 = 100;
 pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: Duration = Duration::from_secs(60);
 
 /// Peer information.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
 pub struct PeerInfo {
     pub id: PeerId,
     pub addr: Option<SocketAddr>,
@@ -167,7 +166,7 @@ impl From<PeerChainInfo> for PeerChainInfoV2 {
 
 /// Peer type.
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum PeerType {
     /// Inbound session
     Inbound,
@@ -650,7 +649,7 @@ impl FromStr for PatternAddr {
 }
 
 /// Status of the known peers.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Eq, PartialEq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug, Clone)]
 pub enum KnownPeerStatus {
     Unknown,
     NotConnected,
@@ -776,7 +775,7 @@ where
 
 /// Ban reason.
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq, Copy)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Copy)]
 pub enum ReasonForBan {
     None = 0,
     BadBlock = 1,
@@ -817,7 +816,7 @@ pub enum PeerManagerRequest {
 #[rtype(result = "()")]
 pub enum PeerRequest {}
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct KnownProducer {
     pub account_id: AccountId,
     pub addr: Option<SocketAddr>,
