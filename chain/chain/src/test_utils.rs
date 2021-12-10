@@ -111,8 +111,8 @@ fn create_receipt_nonce(
 }
 
 impl KeyValueRuntime {
-    pub fn new(store: Arc<Store>) -> Self {
-        Self::new_with_validators(store, vec![vec!["test".parse().unwrap()]], 1, 1, 5)
+    pub fn new(store: Arc<Store>, epoch_length: u64) -> Self {
+        Self::new_with_validators(store, vec![vec!["test".parse().unwrap()]], 1, 1, epoch_length)
     }
 
     pub fn new_with_validators(
@@ -1215,7 +1215,8 @@ pub fn setup_with_tx_validity_period(
     tx_validity_period: NumBlocks,
 ) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
-    let runtime = Arc::new(KeyValueRuntime::new(store));
+    let epoch_length = 1000;
+    let runtime = Arc::new(KeyValueRuntime::new(store, epoch_length));
     let chain = Chain::new(
         runtime.clone(),
         &ChainGenesis {
@@ -1227,7 +1228,7 @@ pub fn setup_with_tx_validity_period(
             total_supply: 1_000_000_000,
             gas_price_adjustment_rate: Rational::from_integer(0),
             transaction_validity_period: tx_validity_period,
-            epoch_length: 10,
+            epoch_length,
             protocol_version: PROTOCOL_VERSION,
         },
         DoomslugThresholdMode::NoApprovals,
