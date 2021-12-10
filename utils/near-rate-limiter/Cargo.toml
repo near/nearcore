@@ -1,10 +1,10 @@
 [package]
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
-edition = "2018"
 name = "near-rate-limiter"
 version = "0.0.0"
 publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
+edition = "2021"
 
 [dependencies]
 actix = "=0.11.0-beta.2"
