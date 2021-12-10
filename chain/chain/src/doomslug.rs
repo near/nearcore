@@ -250,7 +250,7 @@ impl DoomslugApprovalsTrackersAtHeight {
                 .unwrap_or(false);
 
             if should_remove {
-                self.approval_trackers.remove(&last_parent);
+                self.approval_trackers.remove(last_parent);
             }
         }
 
@@ -779,7 +779,7 @@ mod tests {
             Duration::from_millis(1000),
             Duration::from_millis(100),
             Duration::from_millis(3000),
-            Some(signer.clone()),
+            Some(signer),
             DoomslugThresholdMode::TwoThirds,
         );
 

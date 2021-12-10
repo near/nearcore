@@ -7,7 +7,7 @@ To request a new run, use the following command:
        --branch    <your_branch>   \
        --test_file <test_file>.txt
 
-Scheduled runs can be seen at <http://nayduck.near.org/>.
+Scheduled runs can be seen at <https://nayduck.near.org/>.
 
 See README.md in nightly directory for documentation of the test suite file
 format.  Note that you must be a member of the Near or Near Protocol
@@ -28,7 +28,7 @@ import typing
 REPO_DIR = pathlib.Path(__file__).resolve().parents[1]
 
 DEFAULT_TEST_FILE = 'nightly/nightly.txt'
-NAYDUCK_BASE_HREF = 'http://nayduck.near.org'
+NAYDUCK_BASE_HREF = 'https://nayduck.near.org'
 
 
 def _parse_args():

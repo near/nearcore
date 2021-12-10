@@ -153,6 +153,46 @@ pub(crate) async fn convert_block_to_transactions(
     Ok(transactions.into_iter().map(|(_transaction_hash, transaction)| transaction).collect())
 }
 
+/// Constructs a transaction identifier from the cause of a state change.
+fn convert_cause_to_transaction_id(
+    block_hash: &near_primitives::hash::CryptoHash,
+    cause: near_primitives::views::StateChangeCauseView,
+) -> crate::errors::Result<crate::models::TransactionIdentifier> {
+    use crate::models::TransactionIdentifier;
+    use near_primitives::views::StateChangeCauseView;
+    match cause {
+        StateChangeCauseView::TransactionProcessing { tx_hash } => {
+            Ok(TransactionIdentifier::transaction(&tx_hash))
+        }
+        StateChangeCauseView::ActionReceiptProcessingStarted { receipt_hash }
+        | StateChangeCauseView::ActionReceiptGasReward { receipt_hash }
+        | StateChangeCauseView::ReceiptProcessing { receipt_hash }
+        | StateChangeCauseView::PostponedReceipt { receipt_hash } => {
+            Ok(TransactionIdentifier::receipt(&receipt_hash))
+        }
+        StateChangeCauseView::InitialState => {
+            Ok(TransactionIdentifier::block_event("block", block_hash))
+        }
+        StateChangeCauseView::ValidatorAccountsUpdate => {
+            Ok(TransactionIdentifier::block_event("block-validators-update", block_hash))
+        }
+        StateChangeCauseView::UpdatedDelayedReceipts => {
+            Ok(TransactionIdentifier::block_event("block-delayed-receipts", block_hash))
+        }
+        StateChangeCauseView::NotWritableToDisk => {
+            Err(crate::errors::ErrorKind::InternalInvariantError(
+                "State Change 'NotWritableToDisk' should never be observed".to_string(),
+            ))
+        }
+        StateChangeCauseView::Migration => {
+            Ok(TransactionIdentifier::block_event("migration", block_hash))
+        }
+        StateChangeCauseView::Resharding => Err(crate::errors::ErrorKind::InternalInvariantError(
+            "State Change 'Resharding' should never be observed".to_string(),
+        )),
+    }
+}
+
 fn convert_block_changes_to_transactions(
     runtime_config: &near_primitives::runtime::config::RuntimeConfig,
     block_hash: &near_primitives::hash::CryptoHash,
@@ -162,50 +202,10 @@ fn convert_block_changes_to_transactions(
         near_primitives::views::AccountView,
     >,
 ) -> crate::errors::Result<std::collections::HashMap<String, crate::models::Transaction>> {
-    use near_primitives::views::StateChangeCauseView;
-
     let mut transactions = std::collections::HashMap::<String, crate::models::Transaction>::new();
     for account_change in accounts_changes {
-        let transaction_identifier = match account_change.cause {
-            StateChangeCauseView::TransactionProcessing { tx_hash } => {
-                crate::models::TransactionIdentifier::transaction(&tx_hash)
-            }
-            StateChangeCauseView::ActionReceiptProcessingStarted { receipt_hash }
-            | StateChangeCauseView::ActionReceiptGasReward { receipt_hash }
-            | StateChangeCauseView::ReceiptProcessing { receipt_hash }
-            | StateChangeCauseView::PostponedReceipt { receipt_hash } => {
-                crate::models::TransactionIdentifier::receipt(&receipt_hash)
-            }
-            StateChangeCauseView::InitialState => {
-                crate::models::TransactionIdentifier::block_event("block", block_hash)
-            }
-            StateChangeCauseView::ValidatorAccountsUpdate => {
-                crate::models::TransactionIdentifier::block_event(
-                    "block-validators-update",
-                    block_hash,
-                )
-            }
-            StateChangeCauseView::UpdatedDelayedReceipts => {
-                crate::models::TransactionIdentifier::block_event(
-                    "block-delayed-receipts",
-                    block_hash,
-                )
-            }
-            StateChangeCauseView::NotWritableToDisk => {
-                return Err(crate::errors::ErrorKind::InternalInvariantError(
-                    "State Change 'NotWritableToDisk' should never be observed".to_string(),
-                ));
-            }
-            StateChangeCauseView::Migration => {
-                crate::models::TransactionIdentifier::block_event("migration", block_hash)
-            }
-            StateChangeCauseView::Resharding => {
-                return Err(crate::errors::ErrorKind::InternalInvariantError(
-                    "State Change 'Resharding' should never be observed".to_string(),
-                ));
-            }
-        };
-
+        let transaction_identifier =
+            convert_cause_to_transaction_id(block_hash, account_change.cause)?;
         let current_transaction = transactions
             .entry(transaction_identifier.hash.clone())
             .or_insert_with(move || crate::models::Transaction {
@@ -232,7 +232,7 @@ fn convert_block_changes_to_transactions(
 
                 if previous_account_balances.liquid != new_account_balances.liquid {
                     operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier::new(&operations),
+                        operation_identifier: crate::models::OperationIdentifier::new(operations),
                         related_operations: None,
                         account: crate::models::AccountIdentifier {
                             address: account_id.clone().into(),
@@ -254,7 +254,7 @@ fn convert_block_changes_to_transactions(
                     != new_account_balances.liquid_for_storage
                 {
                     operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier::new(&operations),
+                        operation_identifier: crate::models::OperationIdentifier::new(operations),
                         related_operations: None,
                         account: crate::models::AccountIdentifier {
                             address: account_id.clone().into(),
@@ -276,7 +276,7 @@ fn convert_block_changes_to_transactions(
 
                 if previous_account_balances.locked != new_account_balances.locked {
                     operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier::new(&operations),
+                        operation_identifier: crate::models::OperationIdentifier::new(operations),
                         related_operations: None,
                         account: crate::models::AccountIdentifier {
                             address: account_id.clone().into(),
@@ -313,7 +313,7 @@ fn convert_block_changes_to_transactions(
 
                 if previous_account_balances.liquid != new_account_balances.liquid {
                     operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier::new(&operations),
+                        operation_identifier: crate::models::OperationIdentifier::new(operations),
                         related_operations: None,
                         account: crate::models::AccountIdentifier {
                             address: account_id.clone().into(),
@@ -335,7 +335,7 @@ fn convert_block_changes_to_transactions(
                     != new_account_balances.liquid_for_storage
                 {
                     operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier::new(&operations),
+                        operation_identifier: crate::models::OperationIdentifier::new(operations),
                         related_operations: None,
                         account: crate::models::AccountIdentifier {
                             address: account_id.clone().into(),
@@ -357,7 +357,7 @@ fn convert_block_changes_to_transactions(
 
                 if previous_account_balances.locked != new_account_balances.locked {
                     operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier::new(&operations),
+                        operation_identifier: crate::models::OperationIdentifier::new(operations),
                         related_operations: None,
                         account: crate::models::AccountIdentifier {
                             address: account_id.clone().into(),

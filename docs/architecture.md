@@ -137,6 +137,10 @@ As mentioned before, `neard` is the crate that contains that main entry points.
 All the actors are spawned in `start_with_config`.
 It is also worth noting that `NightshadeRuntime` is the struct that implements `RuntimeAdapter`.
 
+### `core/store/src/db.rs`
+
+This file contains schema (DBCol) of our internal RocksDB storage - a good starting point when reading the code base.
+
 ## Cross Cutting Concerns
 
 ### Logging & Observability

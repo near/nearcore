@@ -156,7 +156,7 @@ impl ShardLayout {
     /// are split from this parent shard. If this shard layout has no parent shard layout, return None
     pub fn get_split_shard_uids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
         self.get_split_shard_ids(parent_shard_id).map(|shards| {
-            shards.into_iter().map(|id| ShardUId::from_shard_id_and_layout(id, &self)).collect()
+            shards.into_iter().map(|id| ShardUId::from_shard_id_and_layout(id, self)).collect()
         })
     }
 
