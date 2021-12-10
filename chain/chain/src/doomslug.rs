@@ -250,7 +250,7 @@ impl DoomslugApprovalsTrackersAtHeight {
                 .unwrap_or(false);
 
             if should_remove {
-                self.approval_trackers.remove(&last_parent);
+                self.approval_trackers.remove(last_parent);
             }
         }
 

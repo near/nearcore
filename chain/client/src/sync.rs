@@ -201,7 +201,7 @@ impl HeaderSync {
             *sync_status =
                 SyncStatus::HeaderSync { current_height: header_head.height, highest_height };
             self.syncing_peer = None;
-            if let Some(peer) = highest_height_peer(&highest_height_peers) {
+            if let Some(peer) = highest_height_peer(highest_height_peers) {
                 if peer.chain_info.height > header_head.height {
                     self.syncing_peer = self.request_headers(chain, peer);
                 }
@@ -1023,7 +1023,7 @@ impl StateSync {
         self.last_part_id_requested.retain(|_, request| !request.expired());
 
         let prev_block_hash = chain.get_block_header(&sync_hash)?.prev_hash();
-        let epoch_hash = runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash)?;
+        let epoch_hash = runtime_adapter.get_epoch_id_from_prev_block(prev_block_hash)?;
 
         Ok(runtime_adapter
             .get_epoch_block_producers_ordered(&epoch_hash, &sync_hash)?
@@ -1032,7 +1032,7 @@ impl StateSync {
                 let account_id = validator_stake.account_id();
                 if runtime_adapter.cares_about_shard(
                     Some(account_id),
-                    &prev_block_hash,
+                    prev_block_hash,
                     shard_id,
                     false,
                 ) {
@@ -1348,7 +1348,7 @@ mod test {
         let (mut chain2, _, signer2) = setup();
         for _ in 0..5 {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
-            let block = Block::empty(&prev, &*signer2);
+            let block = Block::empty(prev, &*signer2);
             chain2
                 .process_block(
                     &None,
@@ -1478,7 +1478,7 @@ mod test {
             let block = Block::produce(
                 PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
-                &last_block.header(),
+                last_block.header(),
                 current_height,
                 last_block.header().block_ordinal() + 1,
                 last_block.chunks().iter().cloned().collect(),
@@ -1512,7 +1512,7 @@ mod test {
             set_syncing_peer(&mut header_sync);
             header_sync.header_sync_due(
                 &SyncStatus::HeaderSync { current_height, highest_height },
-                &Tip::from_header(&block.header()),
+                &Tip::from_header(block.header()),
                 highest_height,
             );
 
@@ -1530,7 +1530,7 @@ mod test {
             set_syncing_peer(&mut header_sync);
             header_sync.header_sync_due(
                 &SyncStatus::HeaderSync { current_height, highest_height },
-                &Tip::from_header(&block.header()),
+                &Tip::from_header(block.header()),
                 highest_height,
             );
 

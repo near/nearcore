@@ -27,7 +27,7 @@ pub mod bytes_as_str {
     where
         S: Serializer,
     {
-        serializer.serialize_str(std::str::from_utf8(&arr).map_err(ser::Error::custom)?)
+        serializer.serialize_str(std::str::from_utf8(arr).map_err(ser::Error::custom)?)
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>

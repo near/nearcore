@@ -115,7 +115,7 @@ pub fn compute_function_call_cost(
     // Warmup.
     if repeats != 1 {
         let result = runtime.run(
-            &contract,
+            contract,
             "hello0",
             &mut fake_external,
             fake_context.clone(),
@@ -131,7 +131,7 @@ pub fn compute_function_call_cost(
     let start = GasCost::measure(gas_metric);
     for _ in 0..repeats {
         let result = runtime.run(
-            &contract,
+            contract,
             "hello0",
             &mut fake_external,
             fake_context.clone(),

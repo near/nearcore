@@ -44,11 +44,11 @@ fn main() -> Result<()> {
 
     let shard_id = 0u64;
     let home_dir = matches.value_of("home").map(Path::new).unwrap();
-    let near_config = load_config(&home_dir);
-    let store = create_store(&get_store_path(&home_dir));
+    let near_config = load_config(home_dir);
+    let store = create_store(&get_store_path(home_dir));
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime = NightshadeRuntime::new(
-        &home_dir,
+        home_dir,
         store,
         &near_config.genesis,
         TrackedConfig::from_config(&near_config.client_config),
@@ -88,13 +88,13 @@ fn main() -> Result<()> {
                 block.header().height(),
                 block.header().raw_timestamp(),
                 block.header().prev_hash(),
-                &block.hash(),
+                block.hash(),
                 &[],
                 &[],
                 chunk_extra.validator_proposals(),
                 block.header().gas_price(),
                 chunk_extra.gas_limit(),
-                &block.header().challenges_result(),
+                block.header().challenges_result(),
                 *block.header().random_value(),
                 false,
                 false, // because fix was not applied in for the blocks analyzed here
