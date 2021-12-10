@@ -342,7 +342,7 @@ impl Trie {
                 TrieNode::Branch(mut children, value) => {
                     if partial.is_empty() {
                         if let Some(value) = &value {
-                            self.delete_value(memory, &value)?;
+                            self.delete_value(memory, value)?;
                         } else {
                         }
                         if children.iter().filter(|&x| x.is_some()).count() == 0 {

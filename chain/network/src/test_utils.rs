@@ -279,10 +279,10 @@ impl MockPeerManagerAdapter {
 
 #[cfg(feature = "test_features")]
 pub mod test_features {
-    use crate::routing::routing_table_actor::start_routing_table_actor;
+    use crate::routing::routing_table_actor::{start_routing_table_actor, RoutingTableActor};
     use crate::test_utils::{convert_boot_nodes, open_port};
     use crate::types::{NetworkClientMessages, NetworkClientResponses};
-    use crate::{PeerManagerActor, RoutingTableActor};
+    use crate::PeerManagerActor;
     use actix::actors::mocker::Mocker;
     use actix::{Actor, Addr};
     use near_network_primitives::types::{

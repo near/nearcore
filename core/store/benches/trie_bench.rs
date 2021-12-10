@@ -28,7 +28,7 @@ fn trie_lookup(bench: &mut Bencher) {
     bench.iter(|| {
         for _ in 0..1 {
             for (key, _) in other_changes.iter() {
-                trie.get(&root, &key).unwrap();
+                trie.get(&root, key).unwrap();
             }
         }
     });

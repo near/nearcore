@@ -101,9 +101,9 @@ impl<'a> RuntimeExt<'a> {
     fn new_data_id(&mut self) -> CryptoHash {
         let data_id = create_data_id(
             self.current_protocol_version,
-            &self.action_hash,
-            &self.prev_block_hash,
-            &self.last_block_hash,
+            self.action_hash,
+            self.prev_block_hash,
+            self.last_block_hash,
             self.data_count as usize,
         );
         self.data_count += 1;
@@ -177,7 +177,7 @@ impl<'a> External for RuntimeExt<'a> {
     fn storage_remove_subtree(&mut self, prefix: &[u8]) -> ExtResult<()> {
         let data_keys = self
             .trie_update
-            .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(&self.account_id, prefix))
+            .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(self.account_id, prefix))
             .map_err(|err| {
                 VMLogicError::InconsistentStateError(InconsistentStateError::StorageError(
                     err.to_string(),

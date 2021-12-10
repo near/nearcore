@@ -50,7 +50,7 @@ impl Wasmer2Memory {
     ) -> Result<Self, VMError> {
         Ok(Wasmer2Memory(
             Memory::new(
-                &store,
+                store,
                 MemoryType::new(Pages(initial_memory_pages), Some(Pages(max_memory_pages)), false),
             )
             .expect("TODO creating memory cannot fail"),
@@ -227,7 +227,7 @@ fn run_method(
     let instance = {
         let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
         Instance::new_with_config(
-            &module,
+            module,
             unsafe {
                 InstanceConfig::new_with_counter(
                     logic.gas_counter_pointer() as *mut wasmer_types::FastGasCounter
@@ -345,7 +345,7 @@ pub(crate) fn run_wasmer2_module<'a>(
 
     let import = imports::wasmer2::build(store, memory_copy, &mut logic, current_protocol_version);
 
-    if let Err(e) = check_method(&module, method_name) {
+    if let Err(e) = check_method(module, method_name) {
         return (None, Some(e));
     }
 
@@ -396,7 +396,7 @@ impl crate::runner::VM for Wasmer2VM {
 
         let store = default_wasmer2_store();
         let module =
-            cache::wasmer2_cache::compile_module_cached_wasmer2(&code, wasm_config, cache, &store);
+            cache::wasmer2_cache::compile_module_cached_wasmer2(code, wasm_config, cache, &store);
         let module = match into_vm_result(module) {
             Ok(it) => it,
             Err(err) => return (None, Some(err)),
