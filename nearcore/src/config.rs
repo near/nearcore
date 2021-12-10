@@ -1176,7 +1176,7 @@ impl AutoXzDecoder {
 
     /// If object is still in `Probing` state, read more data from the input to
     /// determine whether it’s XZ stream or not.  Updates `state` accordingly.
-    /// If probing succeeded, returns number of bites from XZ header magic that
+    /// If probing succeeded, returns number of bytes from XZ header magic that
     /// need to be processed before `chunk` is processed.  If the entire data
     /// from `chunk` has been processed and it should be discarded by the
     /// caller, returns `None`.
