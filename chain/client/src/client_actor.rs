@@ -28,8 +28,6 @@ use near_chain_configs::ClientConfig;
 #[cfg(feature = "test_features")]
 use near_chain_configs::GenesisConfig;
 use near_crypto::Signature;
-#[cfg(feature = "sandbox")]
-use near_network::types::SandboxResponse;
 use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
@@ -365,7 +363,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     }
                     NetworkSandboxMessage::SandboxPatchStateStatus => {
                         NetworkClientResponses::SandboxResult(
-                            SandboxResponse::SandboxPatchStateFinished(
+                            near_network_primitives::types::SandboxResponse::SandboxPatchStateFinished(
                                 !self.client.chain.patch_state_in_progress(),
                             ),
                         )
