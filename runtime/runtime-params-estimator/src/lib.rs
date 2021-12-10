@@ -1028,7 +1028,7 @@ fn fn_cost_with_setup(
             .collect();
 
         let (gas_cost, ext_costs) =
-            aggregate_per_block_measurements(&ctx.config, block_size, measurements);
+            aggregate_per_block_measurements(ctx.config, block_size, measurements);
         (gas_cost, ext_costs[&ext_cost])
     };
     assert_eq!(measured_count, count);

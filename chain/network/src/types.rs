@@ -495,8 +495,8 @@ pub struct FullPeerInfo {
 
 #[derive(Debug)]
 pub struct NetworkInfo {
-    pub active_peers: Vec<FullPeerInfo>,
-    pub num_active_peers: usize,
+    pub connected_peers: Vec<FullPeerInfo>,
+    pub num_connected_peers: usize,
     pub peer_max_count: u32,
     pub highest_height_peers: Vec<FullPeerInfo>,
     pub sent_bytes_per_sec: u64,
@@ -577,9 +577,9 @@ pub enum NetworkClientMessages {
     /// State response.
     StateResponse(StateResponseInfo),
     /// Epoch Sync response for light client block request
-    EpochSyncResponse(PeerId, EpochSyncResponse),
+    EpochSyncResponse(PeerId, Box<EpochSyncResponse>),
     /// Epoch Sync response for finalization request
-    EpochSyncFinalizationResponse(PeerId, EpochSyncFinalizationResponse),
+    EpochSyncFinalizationResponse(PeerId, Box<EpochSyncFinalizationResponse>),
 
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),

@@ -473,7 +473,7 @@ impl ShardsManager {
         let request_full = force_request_full
             || self.cares_about_shard_this_or_next_epoch(
                 self.me.as_ref(),
-                &ancestor_hash,
+                ancestor_hash,
                 shard_id,
                 true,
             );
@@ -508,7 +508,7 @@ impl ShardsManager {
         {
             Some(chunk_producer_account_id.clone())
         } else {
-            self.get_random_target_tracking_shard(&ancestor_hash, shard_id)?
+            self.get_random_target_tracking_shard(ancestor_hash, shard_id)?
         };
 
         let seal = self.seals_mgr.get_seal(chunk_hash, ancestor_hash, height, shard_id)?;
@@ -523,7 +523,7 @@ impl ShardsManager {
                 true
             } else {
                 if let Some(me) = me {
-                    &self.runtime_adapter.get_part_owner(&ancestor_hash, part_ord)? == me
+                    &self.runtime_adapter.get_part_owner(ancestor_hash, part_ord)? == me
                 } else {
                     false
                 }
@@ -534,7 +534,7 @@ impl ShardsManager {
                     shard_representative_target.clone()
                 } else {
                     let part_owner =
-                        self.runtime_adapter.get_part_owner(&ancestor_hash, part_ord)?;
+                        self.runtime_adapter.get_part_owner(ancestor_hash, part_ord)?;
 
                     if Some(&part_owner) == me {
                         // If missing own part, request it from the chunk producer / node tracking shard
@@ -550,7 +550,7 @@ impl ShardsManager {
 
         let shards_to_fetch_receipts =
         // TODO: only keep shards for which we don't have receipts yet
-            if request_full { HashSet::new() } else { self.get_tracking_shards(&ancestor_hash) };
+            if request_full { HashSet::new() } else { self.get_tracking_shards(ancestor_hash) };
 
         // The loop below will be sending PartialEncodedChunkRequestMsg to various block producers.
         // We need to send such a message to the original chunk producer if we do not have the receipts
@@ -610,7 +610,7 @@ impl ShardsManager {
                 if !is_slashed
                     && self.cares_about_shard_this_or_next_epoch(
                         Some(&account_id),
-                        &parent_hash,
+                        parent_hash,
                         shard_id,
                         false,
                     )
@@ -631,7 +631,7 @@ impl ShardsManager {
             .filter(|chunk_shard_id| {
                 self.cares_about_shard_this_or_next_epoch(
                     self.me.as_ref(),
-                    &parent_hash,
+                    parent_hash,
                     *chunk_shard_id,
                     true,
                 )
@@ -889,7 +889,7 @@ impl ShardsManager {
         &mut self,
         prev_block_hash: &CryptoHash,
     ) -> HashMap<ShardId, ShardChunkHeader> {
-        self.encoded_chunks.get_chunk_headers_for_block(&prev_block_hash)
+        self.encoded_chunks.get_chunk_headers_for_block(prev_block_hash)
     }
 
     /// Returns true if transaction is not in the pool before call
@@ -939,7 +939,7 @@ impl ShardsManager {
     ) -> HashMap<ShardId, Vec<Receipt>> {
         let mut result = HashMap::with_capacity(shard_layout.num_shards() as usize);
         for receipt in receipts {
-            let shard_id = account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
+            let shard_id = account_id_to_shard_id(&receipt.receiver_id, shard_layout);
             let entry = result.entry(shard_id).or_insert_with(Vec::new);
             entry.push(receipt)
         }
@@ -1534,14 +1534,10 @@ impl ShardsManager {
     }
 
     fn need_receipt(&self, prev_block_hash: &CryptoHash, shard_id: ShardId) -> bool {
-        self.cares_about_shard_this_or_next_epoch(
-            self.me.as_ref(),
-            &prev_block_hash,
-            shard_id,
-            true,
-        )
+        self.cares_about_shard_this_or_next_epoch(self.me.as_ref(), prev_block_hash, shard_id, true)
     }
 
+    /// Returns true if we need this part to sign the block.
     fn need_part(&self, prev_block_hash: &CryptoHash, part_ord: u64) -> Result<bool, Error> {
         Ok(Some(self.runtime_adapter.get_part_owner(prev_block_hash, part_ord)?) == self.me)
     }
@@ -1555,7 +1551,7 @@ impl ShardsManager {
         for shard_id in 0..self.runtime_adapter.num_shards(&epoch_id)? {
             let shard_id = shard_id as ShardId;
             if !chunk_entry.receipts.contains_key(&shard_id) {
-                if self.need_receipt(&prev_block_hash, shard_id) {
+                if self.need_receipt(prev_block_hash, shard_id) {
                     return Ok(false);
                 }
             }
@@ -1563,6 +1559,9 @@ impl ShardsManager {
         Ok(true)
     }
 
+    /// Returns true if we have all the parts that are needed to validate the block.
+    /// NOTE: this doesn't mean that we got *all* the parts (as given verifier only needs the ones
+    /// for which it is the 'owner').
     fn has_all_parts(
         &self,
         prev_block_hash: &CryptoHash,
@@ -1571,7 +1570,7 @@ impl ShardsManager {
         for part_ord in 0..self.runtime_adapter.num_total_parts() {
             let part_ord = part_ord as u64;
             if !chunk_entry.parts.contains_key(&part_ord) {
-                if self.need_part(&prev_block_hash, part_ord)? {
+                if self.need_part(prev_block_hash, part_ord)? {
                     return Ok(false);
                 }
             }

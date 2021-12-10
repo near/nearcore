@@ -124,7 +124,7 @@ pub fn apply_chain_range(
             let mut num_receipt = 0;
             let chunk_present: bool;
 
-            let block_author = runtime_adapter.get_block_producer(&block.header().epoch_id(), block.header().height()).unwrap();
+            let block_author = runtime_adapter.get_block_producer(block.header().epoch_id(), block.header().height()).unwrap();
 
             let apply_result = if *block.header().prev_hash() == CryptoHash::default() {
                 if verbose_output {
@@ -142,7 +142,7 @@ pub fn apply_chain_range(
                     .unwrap()
                     .clone();
 
-                let prev_block = match chain_store.get_block(&block.header().prev_hash()) {
+                let prev_block = match chain_store.get_block(block.header().prev_hash()) {
                     Ok(prev_block) => prev_block.clone(),
                     Err(_) => {
                         if verbose_output {
@@ -206,7 +206,7 @@ pub fn apply_chain_range(
                         chunk_inner.validator_proposals(),
                         prev_block.header().gas_price(),
                         chunk_inner.gas_limit(),
-                        &block.header().challenges_result(),
+                        block.header().challenges_result(),
                         *block.header().random_value(),
                         true,
                         is_first_block_with_chunk_of_version,
@@ -225,13 +225,13 @@ pub fn apply_chain_range(
                         block.header().height(),
                         block.header().raw_timestamp(),
                         block.header().prev_hash(),
-                        &block.hash(),
+                        block.hash(),
                         &[],
                         &[],
                         chunk_extra.validator_proposals(),
                         block.header().gas_price(),
                         chunk_extra.gas_limit(),
-                        &block.header().challenges_result(),
+                        block.header().challenges_result(),
                         *block.header().random_value(),
                         false,
                         false,
@@ -374,7 +374,7 @@ mod test {
                     assert!(!blocks.is_empty());
                     testlib::process_blocks::set_no_chunk_in_block(
                         &mut block,
-                        &blocks.last().unwrap(),
+                        blocks.last().unwrap(),
                     )
                 }
             }
