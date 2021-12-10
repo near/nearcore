@@ -606,7 +606,7 @@ pub enum NetworkClientResponses {
 
     /// Sandbox controls
     #[cfg(feature = "sandbox")]
-    SandboxResult(SandboxResponse),
+    SandboxResult(near_network_primitives::types::SandboxResponse),
 
     /// No response.
     NoResponse,
@@ -621,12 +621,6 @@ pub enum NetworkClientResponses {
     DoesNotTrackShard,
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
-}
-
-#[cfg(feature = "sandbox")]
-#[derive(Eq, PartialEq, Debug)]
-pub enum SandboxResponse {
-    SandboxPatchStateFinished(bool),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses
