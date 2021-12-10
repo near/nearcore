@@ -44,9 +44,7 @@ impl<'a, E: Into<anyhow::Error>> From<E> for Error<'a> {
 fn main() -> anyhow::Result<()> {
     let workspace = utils::parse_workspace()?;
 
-    if workspace.members.is_empty() {
-        return Ok(());
-    }
+    assert!(!workspace.members.is_empty(), "unexpected empty workspace");
 
     let passed = chk! {
         [workspace]: {
