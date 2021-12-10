@@ -2,9 +2,9 @@ use crate::types::{
     NetworkInfo, NetworkResponses, PeerManagerAdapter, PeerManagerMessageRequest,
     PeerManagerMessageResponse,
 };
-use crate::PeerInfo;
-use crate::PeerManagerActor;
+use crate::{PeerInfo, PeerManagerActor};
 use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
+use anyhow::{Context as _Context, Result};
 use futures::future::BoxFuture;
 use futures::{future, FutureExt};
 use near_crypto::{KeyType, SecretKey};
@@ -23,27 +23,38 @@ use tracing::debug;
 
 static OPENED_PORTS: Lazy<Mutex<HashSet<u16>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 
+const MAX_ATTEMPTS: usize = 100;
+
 /// Returns available port.
+/// Note, has a few issues. Please use `open_port_safe`.
+/// - In between the `open_port` and the time the port is opened, another system thread
+///   or test, can use the port. This may result into the crash.
+/// - This function tries to start listening on an unused port, it's assumed that it will be
+///   freed on time, next time it's needed.
 pub fn open_port() -> u16 {
+    open_port_safe().with_context(|| "open_port failed").unwrap().1
+}
+
+/// Returns available port.
+pub fn open_port_safe() -> Result<(TcpListener, u16)> {
     // Use port 0 to allow the OS to assign an open port.
     // TcpListener's Drop impl will unbind the port as soon as listener goes out of scope.
     // We retry multiple times and store selected port in OPENED_PORTS to avoid port collision among
     // multiple tests.
-    let max_attempts = 100;
 
-    for _ in 0..max_attempts {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
+    for _ in 0..MAX_ATTEMPTS {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .with_context(|| "TcpListener::bind 127.0.0.1:0 failed")?;
+        let port = listener.local_addr()?.port();
 
         let mut opened_ports = OPENED_PORTS.lock().unwrap();
-
         if !opened_ports.contains(&port) {
             opened_ports.insert(port);
-            return port;
+            return Ok((listener, port));
         }
     }
 
-    panic!("Failed to find an open port after {} attempts.", max_attempts);
+    panic!("Failed to find an open port after {} attempts.", MAX_ATTEMPTS);
 }
 
 // `peer_id_from_seed` generate `PeerId` from seed for unit tests
@@ -377,6 +388,7 @@ pub mod test_features {
                 client_addr.recipient(),
                 view_client_addr.recipient(),
                 routing_table_addr,
+                None,
             )
             .unwrap(),
             peer_id,

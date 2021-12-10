@@ -16,11 +16,11 @@ use crate::routing::routing_table_actor::{
 };
 use crate::stats::metrics;
 use crate::stats::metrics::NetworkMetrics;
-use crate::types::{FullPeerInfo, NetworkClientMessages, NetworkRequests, NetworkResponses};
 use crate::types::{
-    NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerRequest,
-    PeerResponse, PeersRequest, PeersResponse, RegisterPeer, RegisterPeerResponse,
-    RoutingTableUpdate, SendMessage, StopMsg, Unregister, ValidateEdgeList,
+    FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerRequest, PeerResponse,
+    PeersRequest, PeersResponse, RegisterPeer, RegisterPeerResponse, RoutingTableUpdate,
+    SendMessage, StopMsg, Unregister, ValidateEdgeList,
 };
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{RoutingSyncV2, RoutingVersion2};
@@ -61,7 +61,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpStream;
 use tokio::sync::Semaphore;
 use tokio_util::sync::PollSemaphore;
 use tracing::{debug, error, info, trace, warn};
@@ -182,6 +182,10 @@ pub struct PeerManagerActor {
     peer_counter: Arc<AtomicUsize>,
     /// Used for testing, for disabling features.
     adv_helper: AdvHelper,
+    /// Listener to that `PeerManagerActor` will listen to. This is needed to avoid a rare
+    /// race condition, where some system service may take port, in between the time
+    /// the port is randomly chosen, and used by the `PeerManagerActor`.
+    listener: Option<std::net::TcpListener>,
 }
 
 #[derive(Default)]
@@ -223,6 +227,7 @@ impl PeerManagerActor {
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         routing_table_addr: Addr<RoutingTableActor>,
+        listener: Option<std::net::TcpListener>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         if config.max_num_peers as usize > MAX_NUM_PEERS {
             panic!("Exceeded max peer limit: {}", MAX_NUM_PEERS);
@@ -256,6 +261,7 @@ impl PeerManagerActor {
             pending_incoming_connections_counter: Arc::new(AtomicUsize::new(0)),
             peer_counter: Arc::new(AtomicUsize::new(0)),
             adv_helper: AdvHelper::default(),
+            listener,
         })
     }
 
@@ -1555,39 +1561,48 @@ impl Actor for PeerManagerActor {
         // Start server if address provided.
         if let Some(server_addr) = self.config.addr {
             // TODO: for now crashes if server didn't start.
+            let std_listener = if let Some(listener) = std::mem::take(&mut self.listener) {
+                listener
+            } else {
+                std::net::TcpListener::bind(server_addr).unwrap()
+            };
 
-            ctx.spawn(TcpListener::bind(server_addr).into_actor(self).then(
-                move |listener, act, ctx| {
-                    let listener = listener.unwrap_or_else(|_| panic!("Failed to PeerManagerActor at {}", server_addr));
-                    let incoming = IncomingCrutch {
-                        listener: tokio_stream::wrappers::TcpListenerStream::new(listener),
-                    };
-                    info!(target: "stats", "Server listening at {}@{}", act.my_peer_id, server_addr);
-                    let pending_incoming_connections_counter =
-                        act.pending_incoming_connections_counter.clone();
-                    let peer_counter = act.peer_counter.clone();
-                    let max_num_peers: usize = act.config.max_num_peers as usize;
+            let tokio_listener = tokio::net::TcpListener::from_std(std_listener).unwrap();
 
-                    ctx.add_message_stream(incoming.filter_map(move |conn| {
-                        if let Ok(conn) = conn {
-                            if pending_incoming_connections_counter.load(Ordering::SeqCst)
-                                + peer_counter.load(Ordering::SeqCst)
-                                < max_num_peers + LIMIT_PENDING_PEERS
-                            {
-                                pending_incoming_connections_counter.fetch_add(1, Ordering::SeqCst);
-                                return future::ready(Some(
-                                    PeerManagerMessageRequest::InboundTcpConnect(
-                                        InboundTcpConnect::new(conn),
-                                    ),
-                                ));
-                            }
+            // ctx.spawn(TcpListener::bind(server_addr).into_actor(self).then(
+
+            ctx.spawn(
+                async move {
+                    tokio_listener
+                }.into_actor(self).then(move |listener, act, ctx| {
+                let incoming = IncomingCrutch {
+                    listener: tokio_stream::wrappers::TcpListenerStream::new(listener),
+                };
+                info!(target: "stats", "Server listening at {}@{}", act.my_peer_id, server_addr);
+                let pending_incoming_connections_counter =
+                    act.pending_incoming_connections_counter.clone();
+                let peer_counter = act.peer_counter.clone();
+                let max_num_peers: usize = act.config.max_num_peers as usize;
+
+                ctx.add_message_stream(incoming.filter_map(move |conn| {
+                    if let Ok(conn) = conn {
+                        if pending_incoming_connections_counter.load(Ordering::SeqCst)
+                            + peer_counter.load(Ordering::SeqCst)
+                            < max_num_peers + LIMIT_PENDING_PEERS
+                        {
+                            pending_incoming_connections_counter.fetch_add(1, Ordering::SeqCst);
+                            return future::ready(Some(
+                                PeerManagerMessageRequest::InboundTcpConnect(
+                                    InboundTcpConnect::new(conn),
+                                ),
+                            ));
                         }
+                    }
 
-                        future::ready(None)
-                    }));
-                    actix::fut::ready(())
-                },
-            ));
+                    future::ready(None)
+                }));
+                actix::fut::ready(())
+            }));
         }
 
         // Periodically push network information to client.

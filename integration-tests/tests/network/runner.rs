@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::iter::Iterator;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use actix::{Actor, Addr, AsyncContext, Context, Handler, Message, System};
@@ -18,7 +18,7 @@ use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{
-    convert_boot_nodes, expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal,
+    convert_boot_nodes, expected_routing_tables, open_port_safe, peer_id_from_seed, BanPeerSignal,
     GetInfo, StopSignal, WaitOrTimeoutActor,
 };
 
@@ -50,6 +50,7 @@ pub fn setup_network_node(
     validators: Vec<AccountId>,
     genesis_time: DateTime<Utc>,
     config: NetworkConfig,
+    listener: Option<std::net::TcpListener>,
 ) -> Addr<PeerManagerActor> {
     let store = create_test_store();
 
@@ -112,6 +113,7 @@ pub fn setup_network_node(
             client_actor.recipient(),
             view_client_actor.recipient(),
             routing_table_addr,
+            listener,
         )
         .unwrap()
     });
@@ -498,6 +500,7 @@ pub struct Runner {
     ports: Option<Vec<u16>>,
     validators: Option<Vec<AccountId>>,
     genesis_time: Option<DateTime<Utc>>,
+    listeners: Option<Arc<Mutex<Vec<Option<std::net::TcpListener>>>>>,
 }
 
 impl Runner {
@@ -512,6 +515,7 @@ impl Runner {
             ports: None,
             validators: None,
             genesis_time: None,
+            listeners: None,
         }
     }
 
@@ -661,11 +665,15 @@ impl Runner {
         network_config.minimum_outbound_peers =
             test_config.minimum_outbound_peers.unwrap_or(network_config.minimum_outbound_peers);
 
+        let listener =
+            std::mem::take(&mut self.listeners.as_ref().unwrap().lock().unwrap()[node_id]).unwrap();
+
         setup_network_node(
             accounts_id[node_id].clone(),
             self.validators.clone().unwrap(),
             self.genesis_time.clone().unwrap(),
             network_config,
+            Some(listener),
         )
     }
 
@@ -673,13 +681,19 @@ impl Runner {
         let accounts_id: Vec<_> = (0..self.num_nodes)
             .map(|ix| format!("test{}", ix).parse::<AccountId>().unwrap())
             .collect();
-        let ports: Vec<_> = (0..self.num_nodes).map(|_| open_port()).collect();
+        let ports: Vec<_> =
+            (0..self.num_nodes).map(|_| open_port_safe().expect("open_port_safe")).collect();
 
         let validators: Vec<_> =
             accounts_id.iter().map(|x| x.clone()).take(self.num_validators).collect();
 
-        let mut peers_info =
-            convert_boot_nodes(accounts_id.iter().map(|x| x.as_ref()).zip(ports.clone()).collect());
+        let mut peers_info = convert_boot_nodes(
+            accounts_id
+                .iter()
+                .map(|x| x.as_ref())
+                .zip(ports.iter().map(|e| e.1.clone()).collect::<Vec<u16>>())
+                .collect(),
+        );
 
         for (validator, peer_info) in validators.iter().zip(peers_info.iter_mut()) {
             peer_info.account_id = Some(validator.clone());
@@ -687,8 +701,10 @@ impl Runner {
 
         self.genesis_time = Some(Utc::now());
         self.accounts_id = Some(accounts_id);
-        self.ports = Some(ports);
+        self.ports = Some(ports.iter().map(|x| x.1).collect());
         self.validators = Some(validators);
+
+        self.listeners = Some(Arc::new(Mutex::new(ports.into_iter().map(|x| Some(x.0)).collect())));
 
         let pm_addr: Vec<_> = self
             .test_config

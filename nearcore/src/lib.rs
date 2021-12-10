@@ -363,6 +363,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
             client_actor1,
             view_client1,
             routing_table_addr,
+            None,
         )
         .unwrap()
     });

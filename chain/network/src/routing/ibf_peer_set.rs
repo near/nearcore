@@ -167,8 +167,7 @@ impl IbfPeerSet {
 #[cfg(test)]
 mod test {
     use crate::routing::edge::{Edge, SimpleEdge};
-    use crate::routing::ibf_peer_set::ValidIBFLevel;
-    use crate::routing::ibf_peer_set::{IbfPeerSet, SlotMap};
+    use crate::routing::ibf_peer_set::{IbfPeerSet, SlotMap, ValidIBFLevel};
     use crate::routing::ibf_set::IbfSet;
     use crate::test_utils::random_peer_id;
     use near_primitives::network::PeerId;
