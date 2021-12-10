@@ -64,7 +64,7 @@ pub fn check_and_report<'a>(
     match outcome {
         Err(Error::RuntimeError(err)) => Err(err),
         Err(Error::OutcomeError { msg, expected, outliers }) => {
-            let header = format!(
+            let mut report = format!(
                 "{c_heading}(i) {}:{c_none}{}",
                 msg,
                 expected.map_or("".to_string(), |Expected { value, reason }| format!(
@@ -79,29 +79,26 @@ pub fn check_and_report<'a>(
                 c_heading = style::fg(style::Color::Color256(172)) + style::bold(),
                 c_none = style::reset()
             );
-            let report = outliers.into_iter().fold(
-                header,
-                |mut acc, PackageOutcome { pkg: Package { parsed: pkg, .. }, value }| {
-                    acc.push_str(&format!(
-                        "\n \u{2022} {c_name}{}{c_none} v{} {c_path}({}){c_none}{}",
-                        pkg.name,
-                        pkg.version,
-                        pkg.manifest_path.strip_prefix(&workspace.root).unwrap(),
-                        value.map_or("".to_string(), |v| format!(
-                            " [found: {c_found}{}{c_none}]",
-                            v,
-                            c_found = style::fg(style::Color::White)
-                                + &style::bg(style::Color::Red)
-                                + style::bold(),
-                            c_none = style::reset()
-                        )),
-                        c_name = style::fg(style::Color::Color256(39)) + style::bold(),
-                        c_path = style::fg(style::Color::Gray { shade: 12 }),
-                        c_none = style::reset(),
-                    ));
-                    acc
-                },
-            );
+
+            for PackageOutcome { pkg: Package { parsed: pkg, .. }, value } in outliers {
+                report.push_str(&format!(
+                    "\n \u{2022} {c_name}{}{c_none} v{} {c_path}({}){c_none}{}",
+                    pkg.name,
+                    pkg.version,
+                    pkg.manifest_path.strip_prefix(&workspace.root).unwrap(),
+                    value.map_or("".to_string(), |v| format!(
+                        " [found: {c_found}{}{c_none}]",
+                        v,
+                        c_found = style::fg(style::Color::White)
+                            + &style::bg(style::Color::Red)
+                            + style::bold(),
+                        c_none = style::reset()
+                    )),
+                    c_name = style::fg(style::Color::Color256(39)) + style::bold(),
+                    c_path = style::fg(style::Color::Gray { shade: 12 }),
+                    c_none = style::reset(),
+                ));
+            }
             eprintln!("{}", report);
             Ok(true)
         }
