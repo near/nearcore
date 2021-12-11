@@ -2173,6 +2173,7 @@ dependencies = [
  "testlib",
  "tokio",
  "tracing",
+ "wat",
 ]
 
 [[package]]
@@ -2944,7 +2945,6 @@ dependencies = [
  "deepsize",
  "near-crypto",
  "near-primitives",
- "serde",
  "strum",
  "tokio",
  "tracing",
@@ -3034,6 +3034,7 @@ dependencies = [
 name = "near-rate-limiter"
 version = "0.0.0"
 dependencies = [
+ "actix",
  "bytes",
  "futures-core",
  "log",

@@ -124,12 +124,12 @@ impl ShardTries {
         values: Vec<(Vec<u8>, Option<Vec<u8>>)>,
         account_id_to_shard_id: &(dyn Fn(&AccountId) -> ShardUId + 'a),
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
-        self.add_values_to_split_states_impl(&state_roots, values, &|raw_key| {
+        self.add_values_to_split_states_impl(state_roots, values, &|raw_key| {
             // Here changes on DelayedReceipts or DelayedReceiptsIndices will be excluded
             // This is because we cannot migrate delayed receipts part by part. They have to be
             // reconstructed in the new states after all DelayedReceipts are ready in the original
             // shard.
-            if let Some(account_id) = parse_account_id_from_raw_key(&raw_key).map_err(|e| {
+            if let Some(account_id) = parse_account_id_from_raw_key(raw_key).map_err(|e| {
                 let err = format!("error parsing account id from trie key {:?}: {:?}", raw_key, e);
                 StorageError::StorageInconsistentState(err)
             })? {
@@ -280,7 +280,7 @@ fn apply_delayed_receipts_to_split_states_impl<'a>(
         set(
             &mut trie_update,
             TrieKey::DelayedReceiptIndices,
-            delayed_receipts_indices_by_shard.get(&shard_uid).unwrap(),
+            delayed_receipts_indices_by_shard.get(shard_uid).unwrap(),
         );
         trie_update.commit(StateChangeCause::Resharding);
     }
@@ -585,7 +585,7 @@ mod tests {
         let receipts_by_shard: HashMap<_, _> = new_state_roots
             .iter()
             .map(|(shard_uid, state_root)| {
-                let receipts = get_all_delayed_receipts(&tries, shard_uid, state_root);
+                let receipts = get_all_delayed_receipts(tries, shard_uid, state_root);
                 (shard_uid, receipts)
             })
             .collect();

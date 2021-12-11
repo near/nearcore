@@ -416,7 +416,8 @@ mod tests {
     fn init() -> (Chain, StoreValidator) {
         let store = create_test_store();
         let chain_genesis = ChainGenesis::test();
-        let runtime_adapter = Arc::new(KeyValueRuntime::new(store.clone()));
+        let runtime_adapter =
+            Arc::new(KeyValueRuntime::new(store.clone(), chain_genesis.epoch_length));
         let mut genesis = GenesisConfig::default();
         genesis.genesis_height = 0;
         let chain =
@@ -461,7 +462,7 @@ mod tests {
     fn test_db_not_found() {
         let (mut chain, mut sv) = init();
         let block = chain.get_block_by_height(0).unwrap();
-        assert!(validate::block_header_exists(&mut sv, &block.hash(), block).is_ok());
+        assert!(validate::block_header_exists(&mut sv, block.hash(), block).is_ok());
         match validate::block_header_exists(&mut sv, &CryptoHash::default(), block) {
             Err(StoreValidatorError::DBNotFound { .. }) => {}
             _ => assert!(false),

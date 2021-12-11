@@ -28,8 +28,6 @@ use near_chain_configs::ClientConfig;
 #[cfg(feature = "test_features")]
 use near_chain_configs::GenesisConfig;
 use near_crypto::Signature;
-#[cfg(feature = "sandbox")]
-use near_network::types::SandboxResponse;
 use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
@@ -176,8 +174,8 @@ impl ClientActor {
             network_adapter,
             node_id,
             network_info: NetworkInfo {
-                active_peers: vec![],
-                num_active_peers: 0,
+                connected_peers: vec![],
+                num_connected_peers: 0,
                 peer_max_count: 0,
                 highest_height_peers: vec![],
                 received_bytes_per_sec: 0,
@@ -365,7 +363,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     }
                     NetworkSandboxMessage::SandboxPatchStateStatus => {
                         NetworkClientResponses::SandboxResult(
-                            SandboxResponse::SandboxPatchStateFinished(
+                            near_network_primitives::types::SandboxResponse::SandboxPatchStateFinished(
                                 !self.client.chain.patch_state_in_progress(),
                             ),
                         )
@@ -703,14 +701,14 @@ impl Handler<GetNetworkInfo> for ClientActor {
         self.check_triggers(ctx);
 
         Ok(NetworkInfoResponse {
-            active_peers: self
+            connected_peers: self
                 .network_info
-                .active_peers
+                .connected_peers
                 .clone()
                 .into_iter()
                 .map(|a| a.peer_info)
                 .collect::<Vec<_>>(),
-            num_active_peers: self.network_info.num_active_peers,
+            num_connected_peers: self.network_info.num_connected_peers,
             peer_max_count: self.network_info.peer_max_count,
             sent_bytes_per_sec: self.network_info.sent_bytes_per_sec,
             received_bytes_per_sec: self.network_info.received_bytes_per_sec,
@@ -723,7 +721,7 @@ impl ClientActor {
     fn sign_announce_account(&self, epoch_id: &EpochId) -> Result<Signature, ()> {
         if let Some(validator_signer) = self.client.validator_signer.as_ref() {
             Ok(validator_signer.sign_account_announce(
-                &validator_signer.validator_id(),
+                validator_signer.validator_id(),
                 &self.node_id,
                 epoch_id,
             ))
@@ -736,7 +734,7 @@ impl ClientActor {
     /// Account Id is sent when is not current a validator but are becoming a validator soon.
     fn check_send_announce_account(&mut self, prev_block_hash: CryptoHash) {
         // If no peers, there is no one to announce to.
-        if self.network_info.num_active_peers == 0 {
+        if self.network_info.num_connected_peers == 0 {
             debug!(target: "client", "No peers: skip account announce");
             return;
         }
@@ -1011,7 +1009,7 @@ impl ClientActor {
             block.mark_as_valid();
         } else {
             let chain = &mut self.client.chain;
-            let res = chain.process_block_header(&block.header(), |_| {});
+            let res = chain.process_block_header(block.header(), |_| {});
             let res = res.and_then(|_| chain.validate_block(&block));
             match res {
                 Ok(_) => {
@@ -1185,7 +1183,7 @@ impl ClientActor {
     /// Starts syncing and then switches to either syncing or regular mode.
     fn start_sync(&mut self, ctx: &mut Context<ClientActor>) {
         // Wait for connections reach at least minimum peers unless skipping sync.
-        if self.network_info.num_active_peers < self.client.config.min_num_peers
+        if self.network_info.num_connected_peers < self.client.config.min_num_peers
             && !self.client.config.skip_sync_wait
         {
             near_performance_metrics::actix::run_later(
@@ -1369,17 +1367,16 @@ impl ClientActor {
                     unwrap_or_run_later!(self.client.chain.get_block_header(&sync_hash));
                 let prev_hash = block_header.prev_hash().clone();
                 let epoch_id = self.client.chain.get_block_header(&sync_hash).unwrap().epoch_id();
-                let shards_to_sync =
-                    (0..self.client.runtime_adapter.num_shards(&epoch_id).unwrap())
-                        .filter(|x| {
-                            self.client.shards_mgr.cares_about_shard_this_or_next_epoch(
-                                me.as_ref(),
-                                &prev_hash,
-                                *x,
-                                true,
-                            )
-                        })
-                        .collect();
+                let shards_to_sync = (0..self.client.runtime_adapter.num_shards(epoch_id).unwrap())
+                    .filter(|x| {
+                        self.client.shards_mgr.cares_about_shard_this_or_next_epoch(
+                            me.as_ref(),
+                            &prev_hash,
+                            *x,
+                            true,
+                        )
+                    })
+                    .collect();
 
                 if !self.client.config.archive && just_enter_state_sync {
                     unwrap_or_run_later!(self.client.chain.reset_data_pre_state_sync(sync_hash));
@@ -1480,7 +1477,7 @@ impl ClientActor {
                     );
                     let num_validators = validators.len();
                     let account_id = act.client.validator_signer.as_ref().map(|x| x.validator_id());
-                    let is_validator = if let Some(ref account_id) = account_id {
+                    let is_validator = if let Some(account_id) = account_id {
                         match act.client.runtime_adapter.get_validator_by_account_id(
                             &head.epoch_id,
                             &head.last_block_hash,

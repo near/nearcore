@@ -40,7 +40,9 @@ use near_primitives::types::{
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{AccountView, QueryRequest, QueryResponseKind, StateItem};
+use near_primitives::views::{
+    AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponseKind, StateItem,
+};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
@@ -580,8 +582,8 @@ pub fn setup_mock_all_validators(
                             .collect();
                         let peers2 = peers.clone();
                         let info = NetworkInfo {
-                            active_peers: peers,
-                            num_active_peers: key_pairs1.len(),
+                            connected_peers: peers,
+                            num_connected_peers: key_pairs1.len(),
                             peer_max_count: key_pairs1.len() as u32,
                             highest_height_peers: peers2,
                             sent_bytes_per_sec: 0,
@@ -1007,7 +1009,7 @@ pub fn setup_mock_all_validators(
                 Arc::new(network_adapter),
                 10000,
                 genesis_time,
-                &ctx,
+                ctx,
             );
             *view_client_addr1.write().unwrap() = Some(view_client_addr);
             *genesis_block1.write().unwrap() = Some(block);
@@ -1493,6 +1495,16 @@ impl TestEnv {
         }
     }
 
+    #[track_caller]
+    pub fn query_transaction_status(
+        &mut self,
+        transaction_hash: &CryptoHash,
+    ) -> FinalExecutionOutcomeView {
+        self.clients[0].chain.get_final_transaction_result(transaction_hash).unwrap_or_else(|err| {
+            panic!("failed to get transaction status for {}: {}", transaction_hash, err)
+        })
+    }
+
     pub fn query_balance(&mut self, account_id: AccountId) -> Balance {
         self.query_account(account_id).amount
     }
@@ -1633,12 +1645,12 @@ pub fn create_chunk(
         }
     }
     let mut block_merkle_tree =
-        client.chain.mut_store().get_block_merkle_tree(&last_block.hash()).unwrap().clone();
+        client.chain.mut_store().get_block_merkle_tree(last_block.hash()).unwrap().clone();
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
-        &last_block.header(),
+        last_block.header(),
         next_height,
         last_block.header().block_ordinal() + 1,
         vec![chunk.cloned_header()],

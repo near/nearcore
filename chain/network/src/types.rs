@@ -92,16 +92,18 @@ pub enum RegisterPeerResponse {
     Reject,
 }
 
+#[cfg(feature = "test_features")]
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Clone, Debug)]
 pub struct GetPeerId {}
 
+#[cfg(feature = "test_features")]
 impl Message for GetPeerId {
     type Result = GetPeerIdResult;
 }
 
-#[derive(MessageResponse, Debug)]
-#[cfg_attr(feature = "test_features", derive(serde::Serialize))]
+#[cfg(feature = "test_features")]
+#[derive(MessageResponse, Debug, serde::Serialize)]
 pub struct GetPeerIdResult {
     pub(crate) peer_id: PeerId,
 }
@@ -217,6 +219,7 @@ pub enum PeerManagerMessageRequest {
     PeersRequest(PeersRequest),
     PeersResponse(PeersResponse),
     PeerRequest(PeerRequest),
+    #[cfg(feature = "test_features")]
     GetPeerId(GetPeerId),
     OutboundTcpConnect(OutboundTcpConnect),
     InboundTcpConnect(InboundTcpConnect),
@@ -263,6 +266,7 @@ pub enum PeerManagerMessageResponse {
     PeerRequestResult(PeerRequestResult),
     PeersResponseResult(()),
     PeerResponse(PeerResponse),
+    #[cfg(feature = "test_features")]
     GetPeerIdResult(GetPeerIdResult),
     OutboundTcpConnect(()),
     InboundTcpConnect(()),
@@ -319,6 +323,7 @@ impl PeerManagerMessageResponse {
         }
     }
 
+    #[cfg(feature = "test_features")]
     pub fn as_peer_id_result(self) -> GetPeerIdResult {
         if let PeerManagerMessageResponse::GetPeerIdResult(item) = self {
             item
@@ -490,8 +495,8 @@ pub struct FullPeerInfo {
 
 #[derive(Debug)]
 pub struct NetworkInfo {
-    pub active_peers: Vec<FullPeerInfo>,
-    pub num_active_peers: usize,
+    pub connected_peers: Vec<FullPeerInfo>,
+    pub num_connected_peers: usize,
     pub peer_max_count: u32,
     pub highest_height_peers: Vec<FullPeerInfo>,
     pub sent_bytes_per_sec: u64,
@@ -572,9 +577,9 @@ pub enum NetworkClientMessages {
     /// State response.
     StateResponse(StateResponseInfo),
     /// Epoch Sync response for light client block request
-    EpochSyncResponse(PeerId, EpochSyncResponse),
+    EpochSyncResponse(PeerId, Box<EpochSyncResponse>),
     /// Epoch Sync response for finalization request
-    EpochSyncFinalizationResponse(PeerId, EpochSyncFinalizationResponse),
+    EpochSyncFinalizationResponse(PeerId, Box<EpochSyncFinalizationResponse>),
 
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
@@ -601,7 +606,7 @@ pub enum NetworkClientResponses {
 
     /// Sandbox controls
     #[cfg(feature = "sandbox")]
-    SandboxResult(SandboxResponse),
+    SandboxResult(near_network_primitives::types::SandboxResponse),
 
     /// No response.
     NoResponse,
@@ -616,12 +621,6 @@ pub enum NetworkClientResponses {
     DoesNotTrackShard,
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
-}
-
-#[cfg(feature = "sandbox")]
-#[derive(Eq, PartialEq, Debug)]
-pub enum SandboxResponse {
-    SandboxPatchStateFinished(bool),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses

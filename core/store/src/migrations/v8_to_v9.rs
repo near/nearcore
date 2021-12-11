@@ -55,7 +55,7 @@ pub(crate) fn repair_col_transactions(store: &Store) {
 
 // Make ColReceiptIdToShardId match receipts in ColOutgoingReceipts
 pub(crate) fn repair_col_receipt_id_to_shard_id(store: &Store) {
-    let num_shards = get_num_shards(&store);
+    let num_shards = get_num_shards(store);
     recompute_col_rc(
         store,
         DBCol::ColReceiptIdToShardId,

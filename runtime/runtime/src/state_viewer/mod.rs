@@ -53,7 +53,7 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
     ) -> Result<Account, errors::ViewAccountError> {
-        get_account(state_update, &account_id)?.ok_or_else(|| {
+        get_account(state_update, account_id)?.ok_or_else(|| {
             errors::ViewAccountError::AccountDoesNotExist {
                 requested_account_id: account_id.clone(),
             }
@@ -97,7 +97,7 @@ impl TrieViewer {
                 .map(|key| {
                     let key = key?;
                     let public_key = &key[raw_prefix.len()..];
-                    let access_key = near_store::get_access_key_raw(&state_update, &key)?
+                    let access_key = near_store::get_access_key_raw(state_update, &key)?
                         .ok_or_else(|| errors::ViewAccessKeyError::InternalError {
                             error_message: "Unexpected missing key from iterator".to_string(),
                         })?;
@@ -147,7 +147,7 @@ impl TrieViewer {
         iter.seek(&query)?;
         for item in iter {
             let (key, value) = item?;
-            if !key.starts_with(&query.as_ref()) {
+            if !key.starts_with(query.as_ref()) {
                 break;
             }
             values.push(StateItem {
@@ -232,12 +232,12 @@ impl TrieViewer {
             &apply_state,
             &mut runtime_ext,
             &mut account,
-            &originator_id,
+            originator_id,
             &action_receipt,
             &[],
             &function_call,
             &empty_hash,
-            &config,
+            config,
             true,
             Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view }),
         );

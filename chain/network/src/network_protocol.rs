@@ -320,9 +320,9 @@ pub enum PeerMessage {
     HandshakeV2(HandshakeV2),
 
     EpochSyncRequest(EpochId),
-    EpochSyncResponse(EpochSyncResponse),
+    EpochSyncResponse(Box<EpochSyncResponse>),
     EpochSyncFinalizationRequest(EpochId),
-    EpochSyncFinalizationResponse(EpochSyncFinalizationResponse),
+    EpochSyncFinalizationResponse(Box<EpochSyncFinalizationResponse>),
 
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingTableSyncV2(RoutingSyncV2),
