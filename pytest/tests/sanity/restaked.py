@@ -17,7 +17,6 @@ from cluster import start_cluster, load_config
 from configured_logger import logger
 
 TIMEOUT = 150
-BLOCKS = 50
 EPOCH_LENGTH = 10
 
 
@@ -42,6 +41,10 @@ def start_restaked(node_dir, rpc_port, config):
     atexit.register(atexit_stop_restaked, pid)
 
 
+def get_height(node):
+    return node.get_status()['sync_info']['latest_block_height']
+
+
 # Local:
 nodes = start_cluster(
     4, 0, 1, None,
@@ -53,12 +56,16 @@ nodes = start_cluster(
 
 started = time.time()
 
+# Wait until at least one block is generated since otherwise we will get
+# UnknownEpoch errors inside of restaked binary when asking for validators info.
+while not (b := get_height(nodes[1])):
+    time.sleep(0.1)
+
 restaked_pid = start_restaked(nodes[0].node_dir, nodes[1].rpc_port, {})
 nodes[0].kill()
 
 while time.time() - started < TIMEOUT:
-    status = nodes[1].get_status()
-    height = status['sync_info']['latest_block_height']
+    height = get_height(nodes[1])
     # epoch boundary may have shifted due to validator being offline
     if height > EPOCH_LENGTH * 5 + 5:
         # 5 epochs later.
