@@ -3223,8 +3223,8 @@ mod tests {
             let mut store_update = chain.mut_store().store_update();
             store_update.save_block(block.clone());
             store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
-            store_update.save_head(&Tip::from_header(block.header())).unwrap();
             store_update.save_block_header(block.header().clone()).unwrap();
+            store_update.save_head(&Tip::from_header(block.header())).unwrap();
             store_update
                 .chain_store_cache_update
                 .height_to_hashes
@@ -3325,8 +3325,8 @@ mod tests {
             blocks.push(block.clone());
             store_update.save_block(block.clone());
             store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
-            store_update.save_head(&Tip::from_header(block.header())).unwrap();
             store_update.save_block_header(block.header().clone()).unwrap();
+            store_update.save_head(&Tip::from_header(block.header())).unwrap();
             store_update
                 .chain_store_cache_update
                 .height_to_hashes
