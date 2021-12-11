@@ -40,22 +40,7 @@ pub fn parse_workspace() -> anyhow::Result<Workspace> {
     Ok(Workspace { root: metadata.workspace_root, members })
 }
 
-macro_rules! chk {
-    ([$workspace:ident]: {$($rules:tt)+}) => {{
-        let mut failed = false;
-        chk!(@[failed] [$workspace]: { $($rules)+ });
-        !failed
-    }};
-    (@[$failed:expr] [$workspace:ident]: {# $rule:expr $(, $( $($rest:tt)+ )? )?}) => {
-        let _ = $rule;
-        $( $( chk!(@[$failed] [$workspace]: { $($rest)+ }) )? )?
-    };
-    (@[$failed:expr] [$workspace:ident]: {$rule:expr $(, $( $($rest:tt)+ )? )?}) => {
-        $failed |= $crate::utils::check_and_report($rule(&$workspace), &$workspace)?;
-        $( $( chk!(@[$failed] [$workspace]: { $($rest)+ }) )? )?
-    };
-}
-
+/// returns true if the rule failed, false if otherwise
 pub fn check_and_report(outcome: Result<(), Error>, workspace: &Workspace) -> anyhow::Result<bool> {
     match outcome {
         Err(Error::RuntimeError(err)) => Err(err),

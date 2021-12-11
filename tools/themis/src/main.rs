@@ -46,25 +46,28 @@ fn main() -> anyhow::Result<()> {
 
     assert!(!workspace.members.is_empty(), "unexpected empty workspace");
 
-    let passed = chk! {
-        [workspace]: {
-            // put a `#` in front of a rule to skip it
-            rules::is_unversioned,
-            rules::has_publish_spec,
-            rules::has_rust_version,
-            rules::has_debuggable_rust_version,
-            rules::has_unified_rust_edition,
-            rules::author_is_near,
-            rules::publishable_has_license,
-            rules::publishable_has_unified_license,
-            rules::publishable_has_license_file,
-            rules::publishable_has_description,
-            rules::publishable_has_readme,
-            rules::publishable_has_near_link,
-        }
-    };
+    let rules = [
+        rules::is_unversioned,
+        rules::has_publish_spec,
+        rules::has_rust_version,
+        rules::has_debuggable_rust_version,
+        rules::has_unified_rust_edition,
+        rules::author_is_near,
+        rules::publishable_has_license,
+        rules::publishable_has_unified_license,
+        rules::publishable_has_license_file,
+        rules::publishable_has_description,
+        rules::publishable_has_readme,
+        rules::publishable_has_near_link,
+    ];
 
-    if !passed {
+    let mut failed = false;
+
+    for rule in rules {
+        failed |= utils::check_and_report(rule(&workspace), &workspace)?;
+    }
+
+    if failed {
         std::process::exit(1);
     }
 
