@@ -70,6 +70,14 @@ overflow-checks = true
 [profile.bench]
 overflow-checks = true
 
+[profile.dev]
+lto = false
+opt-level = 2
+
+[profile.test]
+lto = false
+opt-level = 2
+
 [profile.dev.package.hex]
 opt-level = 3 # BLS library is too slow to use in debug
 

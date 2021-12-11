@@ -2,7 +2,7 @@ steps:
   - label: "cargo test integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      RUST_BACKTRACE=1 RUST_LOG=WARN cargo test --locked -p 'integration-tests' -j 16
+      RUST_BACKTRACE=1 RUST_LOG=WARN cargo test --locked -p 'integration-tests' -j 16 -- --test-threads 16
 
     timeout: 60
     agents:
@@ -12,7 +12,7 @@ steps:
   - label: "cargo test not integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      RUST_BACKTRACE=1 RUST_LOG=WARN cargo test --locked --workspace -p '*' --exclude 'integration-tests*' -j 16
+      RUST_BACKTRACE=1 RUST_LOG=WARN cargo test --locked --workspace -p '*' --exclude 'integration-tests*' -j 16 -- --test-threads 16
 
     timeout: 60
     agents:
@@ -22,7 +22,7 @@ steps:
   - label: "cargo test nightly integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      RUST_BACKTRACE=1 RUST_LOG=WARN cargo test --features nightly_protocol,nightly_protocol_features,test_features -p 'integration-tests' -j 16
+      RUST_BACKTRACE=1 RUST_LOG=WARN cargo test --features nightly_protocol,nightly_protocol_features,test_features -p 'integration-tests' -j 16 -- --test-threads 16
 
     timeout: 60
     agents:
@@ -32,7 +32,7 @@ steps:
   - label: "cargo test nightly not integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      RUST_BACKTRACE=1 RUST_LOG=WARN cargo test --workspace --features nightly_protocol,nightly_protocol_features,test_features,rosetta_rpc -p '*' --exclude 'integration-tests*' -j 16
+      RUST_BACKTRACE=1 RUST_LOG=WARN cargo test --workspace --features nightly_protocol,nightly_protocol_features,test_features,rosetta_rpc -p '*' --exclude 'integration-tests*' -j 16 -- --test-threads 16
 
     timeout: 60
     agents:
