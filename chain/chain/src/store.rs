@@ -1609,6 +1609,10 @@ impl<'a> ChainStoreUpdate<'a> {
             for height in (header_height + 1)..prev_height {
                 self.chain_store_cache_update.height_to_hashes.insert(height, None);
             }
+            // Override block ordinal to hash mapping for blocks in between.
+            // At this point block_merkle_tree for header is already saved.
+            let block_ordinal = self.get_block_merkle_tree(&header_hash)?.size();
+            self.chain_store_cache_update.block_ordinal_to_hash.insert(block_ordinal, header_hash);
             match self.get_block_hash_by_height(header_height) {
                 Ok(cur_hash) if cur_hash == header_hash => {
                     // Found common ancestor.
@@ -1668,6 +1672,11 @@ impl<'a> ChainStoreUpdate<'a> {
             },
         }
 
+        // save block ordinal and height if we need to update header head
+        let block_ordinal = self.get_block_merkle_tree(&t.last_block_hash)?.size();
+        self.chain_store_cache_update
+            .block_ordinal_to_hash
+            .insert(block_ordinal, t.last_block_hash);
         self.chain_store_cache_update.height_to_hashes.insert(t.height, Some(t.last_block_hash));
         self.chain_store_cache_update
             .next_block_hashes
@@ -1742,10 +1751,6 @@ impl<'a> ChainStoreUpdate<'a> {
         block_merkle_tree: PartialMerkleTree,
     ) {
         self.chain_store_cache_update.block_merkle_tree.insert(block_hash, block_merkle_tree);
-    }
-
-    pub fn save_block_ordinal(&mut self, block_hash: CryptoHash, block_ordinal: NumBlocks) {
-        self.chain_store_cache_update.block_ordinal_to_hash.insert(block_ordinal, block_hash);
     }
 
     fn update_and_save_block_merkle_tree(&mut self, header: &BlockHeader) -> Result<(), Error> {

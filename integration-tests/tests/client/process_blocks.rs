@@ -1955,36 +1955,25 @@ fn test_block_merkle_proof_with_len(n: NumBlocks, rng: &mut StdRng) {
         }
     }
 
-    if let Ok(last_final_block) = env.clients[0]
-        .chain
-        .get_block(blocks.last().unwrap().header().last_final_block())
-        .map(Clone::clone)
-    {
-        let root = last_final_block.header().block_merkle_root();
-        for h in 0..last_final_block.header().height() {
-            if let Ok(block) = env.clients[0].chain.get_block_by_height(h).map(Clone::clone) {
-                // verify that block ordinal to block hash map is correct
-                let block_hash = *block.hash();
-                let block_ordinal = env.clients[0]
-                    .chain
-                    .mut_store()
-                    .get_block_merkle_tree(&block_hash)
-                    .unwrap()
-                    .size();
-                let block_hash1 = *env.clients[0]
-                    .chain
-                    .mut_store()
-                    .get_block_hash_from_ordinal(block_ordinal)
-                    .unwrap();
-                assert_eq!(block_hash, block_hash1);
-                // verify block merkle proof
-                let proof = env.clients[0]
-                    .chain
-                    .get_block_proof(block.hash(), last_final_block.hash())
-                    .unwrap();
-                assert!(verify_hash(*root, &proof, *block.hash()));
-            }
+    let head = blocks.pop().unwrap();
+    let root = head.header().block_merkle_root();
+    // verify that block ordinal to block hash map is correct
+    for h in 0..head.header().height() {
+        if let Ok(block) = env.clients[0].chain.get_block_by_height(h).map(Clone::clone) {
+            let block_hash = *block.hash();
+            let block_ordinal =
+                env.clients[0].chain.mut_store().get_block_merkle_tree(&block_hash).unwrap().size();
+            let block_hash1 = *env.clients[0]
+                .chain
+                .mut_store()
+                .get_block_hash_from_ordinal(block_ordinal)
+                .unwrap();
+            assert_eq!(block_hash, block_hash1);
         }
+    }
+    for block in blocks {
+        let proof = env.clients[0].chain.get_block_proof(block.hash(), head.hash()).unwrap();
+        assert!(verify_hash(*root, &proof, *block.hash()));
     }
 }
 
