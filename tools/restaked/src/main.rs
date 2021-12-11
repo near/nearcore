@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::{App, Arg};
-use log::{error, info, LevelFilter};
+use log::{error, warn, info, LevelFilter};
 
 use near_crypto::{InMemorySigner, KeyFile};
 use near_primitives::views::CurrentEpochValidatorInfo;
@@ -83,13 +83,25 @@ fn main() {
 
     let user = RpcUser::new(rpc_url, account_id.clone(), Arc::new(signer));
     loop {
-        let validators = user.validators(None).unwrap();
+        let validators = match user.validators(None) {
+            Ok(validators) => validators,
+            Err(msg) if msg.contains("UNKNOWN_EPOCH") => {
+                // TODO(#5767): This shouldn’t happen (since we’re asking for
+                // the latest epoch) but it does.  Retry until we get the
+                // validators info.
+                warn!("Got ‘UNKNOWN_EPOCH’ when querying validators");
+                std::thread::sleep(Duration::from_millis(250));
+                continue;
+            },
+            Err(e) => panic!("Unable to get validators: {:?}", e),
+        };
         // Check:
         //  - don't already have a proposal
         //  - too many missing blocks in current validators
         //  - missing in next validators
         if validators.current_proposals.iter().any(|proposal| proposal.account_id() == &account_id)
         {
+            std::thread::sleep(Duration::from_millis(50));
             continue;
         }
         let mut restake = false;
