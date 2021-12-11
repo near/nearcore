@@ -78,6 +78,18 @@ steps:
     - "distro=amazonlinux"
     branches: "!master"
 
+  - label: "sanity checks - fuzzing"
+    command: |
+      source ~/.cargo/env && set -eux
+      RUSTFLAGS='-D warnings' cargo check --all-targets --all-features --manifest-path chain/jsonrpc/fuzz/Cargo.toml
+      RUSTFLAGS='-D warnings' cargo check --all-targets --all-features --manifest-path core/account-id/fuzz/Cargo.toml
+      RUSTFLAGS='-D warnings' cargo check --all-targets --all-features --manifest-path runtime/near-vm-runner/fuzz/Cargo.toml
+      RUSTFLAGS='-D warnings' cargo check --all-targets --all-features --manifest-path test-utils/runtime-tester/fuzz/Cargo.toml
+    timeout: 30
+    agents:
+    - "distro=amazonlinux"
+    branches: "!master"
+
   - label: "nearlib test"
     command: |
       source ~/.cargo/env && set -eux
