@@ -1,4 +1,4 @@
-use borsh::BorshSerialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_network_primitives::types::{
     KnownPeerState, KnownPeerStatus, NetworkConfig, PeerInfo, ReasonForBan,
 };
@@ -79,10 +79,8 @@ impl PeerStore {
         }
 
         for (key, value) in store.iter(ColPeers) {
-            let key: Vec<u8> = key.into();
-            let value: Vec<u8> = value.into();
-            let peer_id: PeerId = key.try_into()?;
-            let mut peer_state: KnownPeerState = value.try_into()?;
+            let peer_id: PeerId = PeerId::try_from_slice(key.as_ref())?;
+            let mut peer_state: KnownPeerState = KnownPeerState::try_from_slice(value.as_ref())?;
             // Mark loaded node last seen to now, to avoid deleting them as soon as they are loaded.
             peer_state.last_seen = to_timestamp(Utc::now());
             match peer_state.status {
