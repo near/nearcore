@@ -105,7 +105,6 @@ impl Message for GetPeerId {
 #[cfg(feature = "test_features")]
 #[derive(MessageResponse, Debug, serde::Serialize)]
 pub struct GetPeerIdResult {
-    #[allow(unused)]
     pub(crate) peer_id: PeerId,
 }
 
