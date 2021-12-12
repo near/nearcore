@@ -88,12 +88,7 @@ impl TryFrom<&[u8]> for CryptoHash {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() != 32 {
-            return Err("incorrect length for hash".into());
-        }
-        let mut buf = [0; 32];
-        buf.copy_from_slice(bytes);
-        Ok(CryptoHash(buf))
+        bytes.try_into().map(|v| CryptoHash(v)).map_err(|_| "incorrect length for hash".into())
     }
 }
 
