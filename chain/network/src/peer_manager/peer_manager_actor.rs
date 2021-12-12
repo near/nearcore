@@ -1453,15 +1453,14 @@ impl PeerManagerActor {
         }
     }
 
-    fn propose_edge(&self, peer1: PeerId, with_nonce: Option<u64>) -> PartialEdgeInfo {
+    fn propose_edge(&self, peer1: &PeerId, with_nonce: Option<u64>) -> PartialEdgeInfo {
         // When we create a new edge we increase the latest nonce by 2 in case we miss a removal
         // proposal from our partner.
         let nonce = with_nonce.unwrap_or_else(|| {
             self.routing_table_view.get_local_edge(&peer1).map_or(1, |edge| edge.next())
         });
 
-        let key = Edge::make_key(self.my_peer_id.clone(), peer1);
-        PartialEdgeInfo::new(&key.0, &key.1, nonce, &self.config.secret_key)
+        PartialEdgeInfo::new(&self.my_peer_id, &peer1, nonce, &self.config.secret_key)
     }
 
     // Ping pong useful functions.
@@ -2109,7 +2108,7 @@ impl PeerManagerActor {
                     Ok(res) => match res {
                         Ok(stream) => {
                             debug!(target: "network", "Connecting to {}", msg.peer_info);
-                            let edge_info = act.propose_edge(msg.peer_info.id.clone(), None);
+                            let edge_info = act.propose_edge(&msg.peer_info.id, None);
 
                             act.try_connect_peer(
                                 ctx.address(),
@@ -2206,7 +2205,7 @@ impl PeerManagerActor {
         let require_response = msg.this_edge_info.is_none();
 
         let edge_info = msg.this_edge_info.clone().unwrap_or_else(|| {
-            self.propose_edge(msg.peer_info.id.clone(), Some(msg.other_edge_info.nonce))
+            self.propose_edge(&msg.peer_info.id, Some(msg.other_edge_info.nonce))
         });
 
         let edge_info_response = if require_response { Some(edge_info.clone()) } else { None };
@@ -2418,7 +2417,7 @@ impl PeerManagerActor {
             delay_detector::DelayDetector::new(format!("peer request {}", msg.as_ref()).into());
         match msg {
             PeerRequest::UpdateEdge((peer, nonce)) => {
-                PeerResponse::UpdatedEdge(self.propose_edge(peer, Some(nonce)))
+                PeerResponse::UpdatedEdge(self.propose_edge(&peer, Some(nonce)))
             }
             PeerRequest::RouteBack(body, target) => {
                 trace!(target: "network", "Sending message to route back: {:?}", target);
