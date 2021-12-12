@@ -18,6 +18,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::utils::index_to_bytes;
 use near_store::db::DBCol::ColReceipts;
 use near_store::migrations::{set_store_version, BatchedStoreUpdate};
 use near_store::{create_store, DBCol, StoreUpdate};
@@ -476,6 +477,28 @@ pub fn migrate_24_to_25(path: &Path) {
     store_update.finish().expect("Failed to migrate");
 
     set_store_version(&store, 25);
+}
+
+/// Fix an issue with block ordinal (#5761)
+pub fn migrate_30_to_31(path: &Path, near_config: &NearConfig) {
+    let store = create_store(path);
+    if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
+        let genesis_height = near_config.genesis.config.genesis_height;
+        let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+        let head = chain_store.head().unwrap();
+        let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
+        // we manually checked mainnet archival data and the first block where the discrepancy happened is `47443088`.
+        for height in 47443088..=head.height {
+            if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
+                let block_ordinal = chain_store.get_block_merkle_tree(&block_hash).unwrap().size();
+                store_update
+                    .set_ser(DBCol::ColBlockOrdinal, &index_to_bytes(block_ordinal), &block_hash)
+                    .expect("BorshSerialize should not fail");
+            }
+        }
+        store_update.finish().expect("Failed to migrate");
+    }
+    set_store_version(&store, 31);
 }
 
 lazy_static_include::lazy_static_include_bytes! {

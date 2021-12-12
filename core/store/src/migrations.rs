@@ -838,11 +838,3 @@ pub fn migrate_29_to_30(path: &Path) {
 
     set_store_version(&store, 30);
 }
-
-pub fn migrate_30_to_31(path: &Path, is_archival: bool) {
-    let store = create_store(path);
-    if is_archival {
-        recompute_block_ordinal(store.as_ref());
-    }
-    set_store_version(&store, 31);
-}
