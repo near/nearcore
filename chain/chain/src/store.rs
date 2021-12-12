@@ -1991,14 +1991,14 @@ impl<'a> ChainStoreUpdate<'a> {
                 let chunk = self.get_chunk(&chunk_hash)?.clone();
                 debug_assert_eq!(chunk.cloned_header().height_created(), height);
                 for transaction in chunk.transactions() {
-                    self.gc_col(ColTransactions, &transaction.get_hash().into());
+                    self.gc_col(ColTransactions, &transaction.get_hash().0);
                 }
                 for receipt in chunk.receipts() {
-                    self.gc_col(ColReceipts, &receipt.get_hash().into());
+                    self.gc_col(ColReceipts, &receipt.get_hash().0);
                 }
 
                 // 2. Delete chunk_hash-indexed data
-                let chunk_header_hash = chunk_hash.clone().into();
+                let chunk_header_hash = chunk_hash.as_ref();
                 self.gc_col(ColChunks, &chunk_header_hash);
                 self.gc_col(ColPartialChunks, &chunk_header_hash);
                 self.gc_col(ColInvalidChunks, &chunk_header_hash);
@@ -2144,7 +2144,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
 
         // 3. Delete block_hash-indexed data
-        let block_hash_vec: Vec<u8> = block_hash.as_ref().into();
+        let block_hash_vec = block_hash.as_ref();
         self.gc_col(ColBlock, &block_hash_vec);
         self.gc_col(ColBlockExtra, &block_hash_vec);
         self.gc_col(ColNextBlockHashes, &block_hash_vec);
@@ -2296,7 +2296,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 let mut outcomes_with_id = self.chain_store.get_outcomes_by_id(&outcome_id)?;
                 outcomes_with_id.retain(|outcome| &outcome.block_hash != block_hash);
                 if outcomes_with_id.is_empty() {
-                    self.gc_col(ColTransactionResult, &outcome_id.as_ref().into());
+                    self.gc_col(ColTransactionResult, &outcome_id.as_ref());
                 } else {
                     store_update.set_ser(
                         ColTransactionResult,
@@ -2311,7 +2311,7 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    fn gc_col(&mut self, col: DBCol, key: &Vec<u8>) {
+    fn gc_col(&mut self, col: DBCol, key: &[u8]) {
         assert!(SHOULD_COL_GC[col as usize]);
         let mut store_update = self.store().store_update();
         match col {
