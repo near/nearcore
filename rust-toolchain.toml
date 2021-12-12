@@ -1,7 +1,7 @@
 [toolchain]
 # This specifies the version of Rust we use to build.
 # Invidual crates in the project may support lower version, indicated by `rust-version` field of `Cargo.toml`.
-# The version specified below, should be at least as high as maximum `rust-version` out of all `**/Cargo.toml` files.
+# The version specified below, should be at least as high as the maximum `rust-version` within the workspace.
 channel = "1.57.0"
 components = [ "rustfmt" ]
 targets = [ "wasm32-unknown-unknown" ]
