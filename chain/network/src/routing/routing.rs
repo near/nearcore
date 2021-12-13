@@ -1,4 +1,4 @@
-use crate::routing::edge::{Edge, SimpleEdge};
+use crate::routing::network_protocol::{Edge, SimpleEdge};
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::routing::utils::cache_to_hashmap;
 use crate::PeerInfo;

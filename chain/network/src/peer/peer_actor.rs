@@ -1,7 +1,7 @@
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
 use crate::peer::utils;
-use crate::routing::edge::{Edge, PartialEdgeInfo};
+use crate::routing::network_protocol::{Edge, PartialEdgeInfo};
 use crate::stats::metrics::{self, NetworkMetrics};
 use crate::types::{
     Handshake, HandshakeFailureReason, HandshakeV2, NetworkClientMessages, NetworkClientResponses,
