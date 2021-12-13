@@ -207,7 +207,7 @@ mod tests {
             format!("\"{}\"", "1".repeat(1000)),
         ] {
             match serde_json::from_str::<CryptoHash>(encoded) {
-                Err(e) if e.to_string() == "incorrect length for hash" => {}
+                Err(e) => if e.to_string() == "could not convert slice to array" {},
                 res => assert!(false, "should have failed with incorrect length error: {:?}", res),
             };
         }
