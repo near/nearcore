@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-if [[ -z "${NEAR_PID}" ]]; then
-  echo "NEAR_PID is undefined"
-  exit 1
-fi
-
-echo "waiting on healthcheck NEAR_PID = ${NEAR_PID}" >&2
+echo "waiting on health check; NEAR_PID = ${NEAR_PID:?undefined}" >&2
 
 for _ in {1..500}; do
     echo -n '.' >&2
