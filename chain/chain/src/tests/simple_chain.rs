@@ -34,7 +34,13 @@ fn empty_chain() {
 fn build_chain() {
     init_test_logger();
     let _mock_clock_guard = MockClockGuard::default();
-    for i in 0..5 {
+    // Adding first mock entry for genesis block
+    Clock::add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444));
+    for i in 1..5 {
+        // two entries, because the clock is called 2 times per block
+        // - one time for creation of the block
+        // - one time for validating block header
+        Clock::add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
         Clock::add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
     }
 
@@ -62,7 +68,7 @@ fn build_chain() {
     assert_eq!(chain.head().unwrap().height, 4);
     let count_instant = Clock::instant_call_count();
     let count_utc = Clock::utc_call_count();
-    assert_eq!(count_utc, 5);
+    assert_eq!(count_utc, 9);
     assert_eq!(count_instant, 0);
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(

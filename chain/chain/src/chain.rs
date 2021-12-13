@@ -5,7 +5,7 @@ use std::time::{Duration as TimeDuration, Instant};
 use borsh::BorshSerialize;
 use chrono::Duration;
 use itertools::Itertools;
-use near_primitives::time::{Clock, Utc};
+use near_primitives::time::Clock;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -4218,7 +4218,7 @@ impl<'a> ChainUpdate<'a> {
         F: FnMut(ChallengeBody),
     {
         // Refuse blocks from the too distant future.
-        if header.timestamp() > Utc::now() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
+        if header.timestamp() > Clock::utc() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
             return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp()).into());
         }
 
@@ -4254,9 +4254,10 @@ impl<'a> ChainUpdate<'a> {
         let prev_header = self.get_previous_header(header)?.clone();
 
         // Check that epoch_id in the header does match epoch given previous header (only if previous header is present).
-        if &self.runtime_adapter.get_epoch_id_from_prev_block(header.prev_hash())?
-            != header.epoch_id()
-        {
+        let epoch_id_from_prev_block =
+            &self.runtime_adapter.get_epoch_id_from_prev_block(header.prev_hash())?;
+        let epoch_id_from_header = header.epoch_id();
+        if epoch_id_from_prev_block != epoch_id_from_header {
             return Err(ErrorKind::InvalidEpochHash.into());
         }
 
