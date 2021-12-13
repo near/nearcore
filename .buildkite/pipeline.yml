@@ -109,7 +109,7 @@ steps:
       source ~/.cargo/env && set -eux
       cd pytest
       pip3 install --user -r requirements.txt
-      python3 tests/sanity/upgradable.py
+      # python3 tests/sanity/upgradable.py
     branches: "!master"
     timeout: 30
     agents:
