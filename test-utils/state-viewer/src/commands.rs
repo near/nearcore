@@ -639,9 +639,7 @@ fn get_block_height_range(
 ) -> Range<BlockHeight> {
     let head = chain_store.head().unwrap();
     let mut cur_block_info = epoch_manager.get_block_info(&head.last_block_hash).unwrap().clone();
-    println!("epoch_info.height: {}", epoch_info.epoch_height());
     loop {
-        println!("cur_block_info: {:#?}", cur_block_info);
         let cur_epoch_info = epoch_manager.get_epoch_info(cur_block_info.epoch_id()).unwrap();
         let cur_epoch_height = cur_epoch_info.epoch_height();
         assert!(
