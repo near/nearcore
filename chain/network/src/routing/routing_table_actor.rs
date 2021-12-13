@@ -1,5 +1,5 @@
-use crate::routing::edge::{Edge, EdgeState};
 use crate::routing::edge_validator_actor::EdgeValidatorActor;
+use crate::routing::network_protocol::{Edge, EdgeState};
 use crate::routing::routing::{Graph, SAVE_PEERS_MAX_TIME};
 use crate::stats::metrics;
 use crate::types::{StopMsg, ValidateEdgeList};
