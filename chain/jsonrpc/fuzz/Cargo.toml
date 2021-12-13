@@ -15,7 +15,7 @@ cargo-fuzz = true
 awc = "3.0.0-beta.5"
 actix = "=0.11.0-beta.2"
 actix_derive = "=0.6.0-beta.1" # Pinned dependency in addition to actix dependecy (remove this line once the pinning is not needed)
-arbitrary = { version = "0.4.7", features = ["derive"] }
+arbitrary = { version = "1", features = ["derive"] }
 base64 = "0.13"
 lazy_static = "1.4"
 libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
@@ -28,10 +28,6 @@ tokio = { version = "1.1", features = ["full"] }
 near-jsonrpc = { path = ".." }
 near-jsonrpc-tests = { path = "../jsonrpc-tests" }
 near-logger-utils = { path = "../../../test-utils/logger" }
-
-# Prevent this from interfering with workspaces
-[workspace]
-members = ["."]
 
 [[bin]]
 name = "fuzz_target_1"

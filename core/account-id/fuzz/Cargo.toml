@@ -19,10 +19,6 @@ serde_json = "1"
 [dependencies.near-account-id]
 path = ".."
 
-# Prevent this from interfering with workspaces
-[workspace]
-members = ["."]
-
 [[bin]]
 name = "serde"
 path = "fuzz_targets/serde.rs"

@@ -2528,6 +2528,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-account-id-fuzz"
+version = "0.0.0"
+dependencies = [
+ "borsh 0.9.1",
+ "libfuzzer-sys",
+ "near-account-id",
+ "serde_json",
+]
+
+[[package]]
 name = "near-actix-test-utils"
 version = "0.0.0"
 dependencies = [
@@ -2807,6 +2817,27 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "near-jsonrpc-fuzz"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "actix_derive",
+ "arbitrary",
+ "awc",
+ "base64 0.13.0",
+ "lazy_static",
+ "libfuzzer-sys",
+ "near-jsonrpc",
+ "near-jsonrpc-tests",
+ "near-logger-utils",
+ "once_cell",
+ "rust-base58",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -3373,6 +3404,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "num"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b7a8e9be5e039e2ff869df49155f1c06bd01ade2117ec783e56ab0932b67a8f"
+dependencies = [
+ "num-bigint",
+ "num-complex",
+ "num-integer",
+ "num-iter",
+ "num-rational",
+ "num-traits",
+]
+
+[[package]]
 name = "num-bigint"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3384,12 +3429,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-complex"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "747d632c0c558b87dbabbe6a82f3b4ae03720d0646ac5b7b4dae89394be5f2c5"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "num-integer"
 version = "0.1.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2cc698a63b549a70bc047073d2949cce27cd1c7b0a4a862d08a8031bc2801db"
 dependencies = [
  "autocfg 1.0.1",
+ "num-traits",
+]
+
+[[package]]
+name = "num-iter"
+version = "0.1.42"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2021c8337a54d21aca0d59a92577a029af9431cb59b909b03252b9c164fad59"
+dependencies = [
+ "autocfg 1.0.1",
+ "num-integer",
  "num-traits",
 ]
 
@@ -4359,6 +4424,15 @@ dependencies = [
  "libfuzzer-sys",
  "runtime-tester",
  "serde_json",
+]
+
+[[package]]
+name = "rust-base58"
+version = "0.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b313b91fcdc6719ad41fa2dad2b7e810b03833fae4bf911950e15529a5f04439"
+dependencies = [
+ "num",
 ]
 
 [[package]]
