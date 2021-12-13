@@ -99,7 +99,7 @@ impl Decoder for Codec {
 mod test {
     use crate::peer::codec::{Codec, NETWORK_MESSAGE_MAX_SIZE_BYTES};
 
-    use crate::routing::edge::PartialEdgeInfo;
+    use crate::routing::network_protocol::PartialEdgeInfo;
     use crate::types::{
         Handshake, HandshakeFailureReason, HandshakeV2, PeerMessage, RoutingTableUpdate,
     };

@@ -1,13 +1,13 @@
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
+use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 #[cfg(all(
     feature = "test_features",
     feature = "protocol_feature_routing_exchange_algorithm"
 ))]
-use crate::routing::edge::SimpleEdge;
-use crate::routing::edge::{Edge, EdgeState, PartialEdgeInfo};
-use crate::routing::edge_validator_actor::EdgeValidatorHelper;
+use crate::routing::network_protocol::SimpleEdge;
+use crate::routing::network_protocol::{Edge, EdgeState, PartialEdgeInfo};
 use crate::routing::routing::{
     PeerRequestResult, RoutingTableView, DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS,
 };
