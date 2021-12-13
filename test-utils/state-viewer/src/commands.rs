@@ -586,8 +586,10 @@ pub(crate) fn print_epoch_info(
         epoch_manager.get_block_info(&chain_store.head().unwrap().last_block_hash).unwrap().clone();
     let head_epoch_height =
         epoch_manager.get_epoch_info(head_block_info.epoch_id()).unwrap().epoch_height();
-    for epoch_id in &epoch_ids {
-        let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap().clone();
+    let mut epoch_infos : Vec<(EpochId,EpochInfo)> = epoch_ids.iter().map(|epoch_id|(epoch_id.clone(), epoch_manager.get_epoch_info(&epoch_id).unwrap().clone())).collect();
+    epoch_infos.sort_by_key(|(_,epoch_info)|epoch_info.epoch_height());
+
+    for (epoch_id , epoch_info) in &epoch_infos {
         println!("{:?}: {:#?}", epoch_id, epoch_info);
         if epoch_info.epoch_height() >= head_epoch_height {
             println!("Epoch information for this epoch is not yet available, skipping.");
