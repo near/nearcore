@@ -94,6 +94,8 @@ Dump all **distinct** contracts from the current state of the DB to JSON file.
 
 File format is a dictionary which maps account ID to base64-encoded contract code.
 
+As of 13/12/2021, takes 1m to run, size of resulting file is ~100 MB.
+
 Flags:
 
 * `--output` specifies a file to which contracts will be saved.
