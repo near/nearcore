@@ -54,6 +54,7 @@ use near_store::Store;
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::thread_rng;
 use std::cmp;
+use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -368,9 +369,11 @@ impl PeerManagerActor {
     fn report_bandwidth_stats_trigger(&mut self, ctx: &mut Context<Self>, every: Duration) {
         let mut total_bandwidth_used_by_all_peers: usize = 0;
         let mut total_msg_received_count: usize = 0;
+        let mut max_max_record_num_messages_in_progress: usize = 0;
         for (peer_id, active_peer) in self.connected_peers.iter_mut() {
             let bandwidth_used = active_peer.throttle_controller.consume_bandwidth_used();
             let msg_received_count = active_peer.throttle_controller.consume_msg_seen();
+            let max_record = active_peer.throttle_controller.consume_max_messages_in_progress();
 
             if bandwidth_used > REPORT_BANDWIDTH_THRESHOLD_BYTES
                 || total_msg_received_count > REPORT_BANDWIDTH_THRESHOLD_COUNT
@@ -384,11 +387,15 @@ impl PeerManagerActor {
             }
             total_bandwidth_used_by_all_peers += bandwidth_used;
             total_msg_received_count += msg_received_count;
+            max_max_record_num_messages_in_progress =
+                max(max_max_record_num_messages_in_progress, max_record);
         }
 
         info!(
             message = "Bandwidth stats",
-            total_bandwidth_used_by_all_peers, total_msg_received_count
+            total_bandwidth_used_by_all_peers,
+            total_msg_received_count,
+            max_max_record_num_messages_in_progress
         );
 
         near_performance_metrics::actix::run_later(ctx, every, move |act, ctx| {
@@ -540,8 +547,8 @@ impl PeerManagerActor {
         peer_type: PeerType,
         addr: Addr<PeerActor>,
         peer_protocol_version: ProtocolVersion,
-        ctx: &mut Context<Self>,
         throttle_controller: ThrottleController,
+        ctx: &mut Context<Self>,
     ) {
         #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
         let peer_id = full_peer_info.peer_info.id.clone();
@@ -2215,8 +2222,8 @@ impl PeerManagerActor {
             msg.peer_type,
             msg.actor,
             msg.peer_protocol_version,
-            ctx,
             msg.throttle_controller,
+            ctx,
         );
 
         RegisterPeerResponse::Accept(edge_info_response)

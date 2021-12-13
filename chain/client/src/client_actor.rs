@@ -28,8 +28,6 @@ use near_chain_configs::ClientConfig;
 #[cfg(feature = "test_features")]
 use near_chain_configs::GenesisConfig;
 use near_crypto::Signature;
-#[cfg(feature = "sandbox")]
-use near_network::types::SandboxResponse;
 use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
@@ -365,7 +363,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     }
                     NetworkSandboxMessage::SandboxPatchStateStatus => {
                         NetworkClientResponses::SandboxResult(
-                            SandboxResponse::SandboxPatchStateFinished(
+                            near_network_primitives::types::SandboxResponse::SandboxPatchStateFinished(
                                 !self.client.chain.patch_state_in_progress(),
                             ),
                         )
@@ -1025,16 +1023,21 @@ impl ClientActor {
                         self.client.rebroadcast_block(block.as_ref().into_inner());
                     }
                 }
-                Err(e) => {
-                    if e.is_bad_data() {
-                        self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::BanPeer {
-                                peer_id: peer_id.clone(),
-                                ban_reason: ReasonForBan::BadBlockHeader,
-                            },
-                        ));
-                        return Err(e);
-                    }
+                Err(e) if e.is_bad_data() => {
+                    self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::BanPeer {
+                            peer_id: peer_id.clone(),
+                            ban_reason: ReasonForBan::BadBlockHeader,
+                        },
+                    ));
+                    return Err(e);
+                }
+                Err(_) => {
+                    // We are ignoring all other errors and proceeding with the
+                    // block.  If it is an orphan (i.e. we haven’t processed its
+                    // previous block) than we will get MissingBlock errors.  In
+                    // those cases we shouldn’t reject the block instead passing
+                    // it along.  Eventually, it’ll get saved as an orphan.
                 }
             }
         }
