@@ -1,8 +1,7 @@
-use crate::common::message_wrapper::{ActixMessageResponse, ActixMessageWrapper};
-use crate::metrics;
-use crate::routing::edge::{Edge, EdgeType};
+use crate::routing::edge::{Edge, EdgeState};
 use crate::routing::edge_validator_actor::EdgeValidatorActor;
 use crate::routing::routing::{Graph, SAVE_PEERS_MAX_TIME};
+use crate::stats::metrics;
 use crate::types::{StopMsg, ValidateEdgeList};
 use actix::dev::MessageResponse;
 use actix::{
@@ -13,11 +12,10 @@ use near_performance_metrics_macros::perf;
 use near_primitives::borsh::BorshSerialize;
 use near_primitives::network::PeerId;
 use near_primitives::utils::index_to_bytes;
-use near_rate_limiter::ThrottleToken;
+use near_rate_limiter::{ActixMessageResponse, ActixMessageWrapper, ThrottleToken};
 use near_store::db::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
 use near_store::{Store, StoreUpdate};
 use std::collections::{HashMap, HashSet};
-use std::mem::swap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, trace, warn};
@@ -132,10 +130,10 @@ impl RoutingTableActor {
         } else {
             self.needs_routing_table_recalculation = true;
             match edge.edge_type() {
-                EdgeType::Added => {
+                EdgeState::Active => {
                     self.raw_graph.add_edge(&key.0, &key.1);
                 }
-                EdgeType::Removed => {
+                EdgeState::Removed => {
                     self.raw_graph.remove_edge(&key.0, &key.1);
                 }
             }
@@ -211,13 +209,7 @@ impl RoutingTableActor {
                                     ColPeerComponent,
                                     peer_id.try_to_vec().unwrap().as_ref(),
                                 );
-                            } else {
-                                warn!("We expected `peer_id` to belong to component {}, but it belongs to {}",
-                                       component_nonce, cur_nonce);
                             }
-                        } else {
-                            warn!("We expected `peer_id` to belong to a component {}, but it doesn't belong anywhere",
-                                       component_nonce);
                         }
                     }
                     self.add_verified_edge(edge);
@@ -507,7 +499,7 @@ pub enum RoutingTableMessagesResponse {
     },
     AddVerifiedEdgesResponse(Vec<Edge>),
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    StartRoutingTableSyncResponse(crate::types::PeerMessage),
+    StartRoutingTableSyncResponse(crate::types::RoutingSyncV2),
     RoutingTableUpdateResponse {
         /// PeerManager maintains list of local edges. We will notify `PeerManager`
         /// to remove those edges.
@@ -581,26 +573,21 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                 // Only keep local edges
                 edges_removed.retain(|p| p.contains_peer(self.my_peer_id()));
 
-                let mut peers_to_ban = Vec::new();
-                swap(&mut peers_to_ban, &mut self.peers_to_ban);
-
                 RoutingTableMessagesResponse::RoutingTableUpdateResponse {
                     local_edges_to_remove: edges_removed,
                     peer_forwarding: self.peer_forwarding.clone(),
-                    peers_to_ban,
+                    peers_to_ban: std::mem::take(&mut self.peers_to_ban),
                 }
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             RoutingTableMessages::StartRoutingTableSync { seed } => {
                 RoutingTableMessagesResponse::StartRoutingTableSyncResponse(
-                    crate::types::PeerMessage::RoutingTableSyncV2(
-                        crate::types::RoutingSyncV2::Version2(crate::types::RoutingVersion2 {
-                            known_edges: self.edges_info.len() as u64,
-                            seed,
-                            edges: Default::default(),
-                            routing_state: crate::types::RoutingState::InitializeIbf,
-                        }),
-                    ),
+                    crate::types::RoutingSyncV2::Version2(crate::types::RoutingVersion2 {
+                        known_edges: self.edges_info.len() as u64,
+                        seed,
+                        edges: Default::default(),
+                        routing_state: crate::types::RoutingState::InitializeIbf,
+                    }),
                 )
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]

@@ -478,9 +478,6 @@ pub trait External {
     /// Returns amount of touched trie nodes by storage operations
     fn get_touched_nodes_count(&self) -> u64;
 
-    /// Resets amount of touched trie nodes by storage operations
-    fn reset_touched_nodes_counter(&mut self);
-
     /// Returns the validator stake for given account in the current epoch.
     /// If the account is not a validator, returns `None`.
     fn validator_stake(&self, account_id: &AccountId) -> Result<Option<Balance>>;

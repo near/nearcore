@@ -22,7 +22,6 @@ use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransac
 use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fmt::{Debug, Error, Formatter};
@@ -44,7 +43,7 @@ pub const ROUTED_MESSAGE_TTL: u8 = 100;
 pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: Duration = Duration::from_secs(60);
 
 /// Peer information.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
 pub struct PeerInfo {
     pub id: PeerId,
     pub addr: Option<SocketAddr>,
@@ -167,7 +166,7 @@ impl From<PeerChainInfo> for PeerChainInfoV2 {
 
 /// Peer type.
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum PeerType {
     /// Inbound session
     Inbound,
@@ -337,24 +336,25 @@ pub enum PeerIdOrHash {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Hash)]
-// Defines the destination for a network request.
-// The request should be sent either to the `account_id` as a routed message, or directly to
-// any peer that tracks the shard.
-// If `prefer_peer` is `true`, should be sent to the peer, unless no peer tracks the shard, in which
-// case fall back to sending to the account.
-// Otherwise, send to the account, unless we do not know the route, in which case send to the peer.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Defines the destination for a network request.
+/// The request should be sent either to the `account_id` as a routed message, or directly to
+/// any peer that tracks the shard.
+/// If `prefer_peer` is `true`, should be sent to the peer, unless there is no qualified peer,
+/// Otherwise, send to the account, unless we do not know the route, in which case send to a peer.
+/// in which case fall back to sending to the account.
+/// `shard_id`, `only_archival` and `min_height` are used to filter for qualified peers
 pub struct AccountIdOrPeerTrackingShard {
-    pub shard_id: ShardId,
-    pub only_archival: bool,
+    /// Target account to send the the request to
     pub account_id: Option<AccountId>,
+    /// Whether to check peers first or target account first
     pub prefer_peer: bool,
-}
-
-impl AccountIdOrPeerTrackingShard {
-    pub fn from_account(shard_id: ShardId, account_id: AccountId) -> Self {
-        Self { shard_id, only_archival: false, account_id: Some(account_id), prefer_peer: false }
-    }
+    /// Select peers that track shard `shard_id`
+    pub shard_id: ShardId,
+    /// Select peers that are archival nodes if it is true
+    pub only_archival: bool,
+    /// Only send messages to peers whose latest chain height is no less `min_height`
+    pub min_height: BlockHeight,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
@@ -649,7 +649,7 @@ impl FromStr for PatternAddr {
 }
 
 /// Status of the known peers.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Eq, PartialEq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug, Clone)]
 pub enum KnownPeerStatus {
     Unknown,
     NotConnected,
@@ -745,7 +745,7 @@ pub struct Unregister {
 
 /// Ban reason.
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq, Copy)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Copy)]
 pub enum ReasonForBan {
     None = 0,
     BadBlock = 1,
@@ -786,7 +786,7 @@ pub enum PeerManagerRequest {
 #[rtype(result = "()")]
 pub enum PeerRequest {}
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct KnownProducer {
     pub account_id: AccountId,
     pub addr: Option<SocketAddr>,
@@ -865,6 +865,12 @@ pub enum NetworkSandboxMessage {
     SandboxPatchStateStatus,
 }
 
+#[cfg(feature = "sandbox")]
+#[derive(Eq, PartialEq, Debug)]
+pub enum SandboxResponse {
+    SandboxPatchStateFinished(bool),
+}
+
 #[derive(AsStaticStr)]
 pub enum NetworkViewClientMessages {
     #[cfg(feature = "test_features")]
@@ -922,9 +928,9 @@ pub enum NetworkViewClientResponses {
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
     /// A response to a request for a light client block during Epoch Sync
-    EpochSyncResponse(EpochSyncResponse),
+    EpochSyncResponse(Box<EpochSyncResponse>),
     /// A response to a request for headers and proofs during Epoch Sync
-    EpochSyncFinalizationResponse(EpochSyncFinalizationResponse),
+    EpochSyncFinalizationResponse(Box<EpochSyncFinalizationResponse>),
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
     /// Response not needed
@@ -998,7 +1004,7 @@ pub struct PartialEncodedChunkResponseMsg {
 }
 
 /// Message for chunk part owners to forward their parts to validators tracking that shard.
-/// This reduces the number of requests a node tracking a shard needs to send to obtain enough
+// This reduces the number of requests a node tracking a shard needs to send to obtain enough
 /// parts to reconstruct the message (in the best case no such requests are needed).
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]

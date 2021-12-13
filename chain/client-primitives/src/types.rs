@@ -463,8 +463,8 @@ impl From<near_chain_primitives::Error> for GetGasPriceError {
 
 #[derive(Debug)]
 pub struct NetworkInfoResponse {
-    pub active_peers: Vec<PeerInfo>,
-    pub num_active_peers: usize,
+    pub connected_peers: Vec<PeerInfo>,
+    pub num_connected_peers: usize,
     pub peer_max_count: u32,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
