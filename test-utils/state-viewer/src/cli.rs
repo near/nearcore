@@ -101,7 +101,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::CheckBlock => check_block_chunk_existence(store, near_config),
             StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::EpochInfo(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
         }
     }
 }
@@ -270,7 +270,7 @@ pub struct EpochInfoCmd {
 }
 
 impl EpochInfoCmd {
-    pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
         print_epoch_info(
             self.epoch_id.map(|s| EpochId(CryptoHash::from_str(&s).unwrap())),
             self.epoch_height,
@@ -279,6 +279,7 @@ impl EpochInfoCmd {
             self.protocol_version_upgrade,
             self.protocol_version,
             self.validator_account_id.map(|s| AccountId::from_str(&s).unwrap()),
+            home_dir,
             near_config,
             store,
         );

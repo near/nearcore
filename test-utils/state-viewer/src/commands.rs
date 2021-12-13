@@ -500,6 +500,7 @@ pub(crate) fn print_epoch_info(
     protocol_version_upgrade: Option<ProtocolVersion>,
     protocol_version: Option<ProtocolVersion>,
     validator_account_id: Option<AccountId>,
+    home_dir: &Path,
     near_config: NearConfig,
     store: Arc<Store>,
 ) {
@@ -508,6 +509,14 @@ pub(crate) fn print_epoch_info(
     let mut epoch_manager =
         EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
             .expect("Failed to start Epoch Manager");
+    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::with_config(
+        &home_dir,
+        store.clone(),
+        &near_config,
+        None,
+        near_config.client_config.max_gas_burnt_view,
+    ));
+
     let epoch_ids: Vec<EpochId> = if let Some(epoch_id) = epoch_id {
         // Fetch the specified epoch.
         vec![epoch_id]
@@ -616,7 +625,8 @@ pub(crate) fn print_epoch_info(
                     })
                     .collect();
                 println!("Block producer for {} blocks: {:?}", bp_for_blocks.len(), bp_for_blocks);
-                let shard_ids = 0..near_config.genesis.config.shard_layout.num_shards();
+
+                let shard_ids = 0..runtime_adapter.num_shards(epoch_id).unwrap();
                 let cp_for_chunks: Vec<(BlockHeight, ShardId)> = block_height_range
                     .clone()
                     .into_iter()
@@ -624,10 +634,10 @@ pub(crate) fn print_epoch_info(
                         shard_ids
                             .clone()
                             .map(|shard_id| (block_height, shard_id))
-                            .filter(|&(block_height,shard_id)| {
-                                epoch_info.sample_chunk_producer(block_height, shard_id) == *validator_id
+                            .filter(|&(block_height, shard_id)| {
+                                epoch_info.sample_chunk_producer(block_height, shard_id)
+                                    == *validator_id
                             })
-
                             .collect::<Vec<(BlockHeight, ShardId)>>()
                     })
                     .flatten()
@@ -638,7 +648,7 @@ pub(crate) fn print_epoch_info(
                     let block_hash = chain_store.get_block_hash_by_height(block_height).unwrap();
                     let block = chain_store.get_block(&block_hash).unwrap();
                     if block.chunks()[shard_id as usize].height_included() != block_height {
-                        missing_chunks.push((block_height,shard_id));
+                        missing_chunks.push((block_height, shard_id));
                     }
                 }
                 println!("Missing {} chunks: {:?}", missing_chunks.len(), missing_chunks);
