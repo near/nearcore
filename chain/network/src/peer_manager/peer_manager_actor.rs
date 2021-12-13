@@ -1228,21 +1228,19 @@ impl PeerManagerActor {
         // Reschedule the bootstrap peer task, starting of as quick as possible with exponential backoff.
         let wait = if self.monitor_peers_attempts >= EXPONENTIAL_BACKOFF_LIMIT {
             // This is expected to be 60 seconds
-            max_interval.as_millis() as u64
+            max_interval
         } else {
-            (10f64 * EXPONENTIAL_BACKOFF_RATIO.powf(self.monitor_peers_attempts as f64)) as u64
+            Duration::from_millis(
+                (10f64 * EXPONENTIAL_BACKOFF_RATIO.powf(self.monitor_peers_attempts as f64)) as u64,
+            )
         };
 
         self.monitor_peers_attempts =
             cmp::min(EXPONENTIAL_BACKOFF_LIMIT, self.monitor_peers_attempts + 1);
 
-        near_performance_metrics::actix::run_later(
-            ctx,
-            Duration::from_millis(wait),
-            move |act, ctx| {
-                act.monitor_peers_trigger(ctx, max_interval);
-            },
-        );
+        near_performance_metrics::actix::run_later(ctx, wait, move |act, ctx| {
+            act.monitor_peers_trigger(ctx, max_interval);
+        });
     }
 
     /// Sends list of edges, from peer `peer_id` to check their signatures to `EdgeValidatorActor`.
