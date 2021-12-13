@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -ex
 
-export RUST_BACKTRACE=full
+# export RUST_BACKTRACE=full
 # ./scripts/start_unittest.py --local &
-export NEAR_PID=$!
-trap 'pkill -15 -P $NEAR_PID' 0
+# export NEAR_PID=$!
+# trap 'pkill -15 -P $NEAR_PID' 0
 
 #./scripts/build_wasm.sh
 
@@ -23,7 +23,7 @@ export HOME=$SRC_DIR/../testdir
 cd near-api-js
 yarn
 yarn build
-../scripts/waitonserver.sh
+# ../scripts/waitonserver.sh
 # Disabling yarn test for now
 yarn test
 yarn doc
