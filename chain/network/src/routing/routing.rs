@@ -30,7 +30,6 @@ pub const DELETE_PEERS_AFTER_TIME: Duration = Duration::from_secs(3_600);
 pub const MAX_NUM_PEERS: usize = 128;
 
 #[derive(Debug)]
-#[cfg_attr(feature = "test_features", derive(serde::Serialize))]
 pub struct PeerRequestResult {
     pub peers: Vec<PeerInfo>,
 }
