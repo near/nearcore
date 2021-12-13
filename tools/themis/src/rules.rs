@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use super::{style, utils, Error, Expected, PackageOutcome, Workspace};
 
-/// ensure all crates have the `publish = <true/false>` specification
+/// Ensure all crates have the `publish = <true/false>` specification
 pub fn has_publish_spec(workspace: &Workspace) -> Result<(), Error> {
     let outliers: Vec<_> = workspace
         .members
@@ -22,7 +22,7 @@ pub fn has_publish_spec(workspace: &Workspace) -> Result<(), Error> {
     Ok(())
 }
 
-/// ensure all crates specify a MSRV
+/// Ensure all crates specify a MSRV
 pub fn has_rust_version(workspace: &Workspace) -> Result<(), Error> {
     let outliers: Vec<_> = workspace
         .members
@@ -43,7 +43,7 @@ pub fn has_rust_version(workspace: &Workspace) -> Result<(), Error> {
     Ok(())
 }
 
-/// ensure all crates are versioned to v0.0.0
+/// Ensure all crates are versioned to v0.0.0
 pub fn is_unversioned(workspace: &Workspace) -> Result<(), Error> {
     let outliers = workspace
         .members
@@ -63,7 +63,7 @@ pub fn is_unversioned(workspace: &Workspace) -> Result<(), Error> {
     Ok(())
 }
 
-/// ensures all crates have a rust-version spec less than
+/// Ensures all crates have a rust-version spec less than
 /// or equal to the version defined in rust-toolchain.toml
 pub fn has_debuggable_rust_version(workspace: &Workspace) -> Result<(), Error> {
     let rust_toolchain =
@@ -113,7 +113,7 @@ pub fn has_debuggable_rust_version(workspace: &Workspace) -> Result<(), Error> {
     Ok(())
 }
 
-/// ensure all crates share the same rust edition
+/// Ensure all crates share the same rust edition
 pub fn has_unified_rust_edition(workspace: &Workspace) -> Result<(), Error> {
     let mut edition_groups = HashMap::new();
 
@@ -147,7 +147,7 @@ pub fn has_unified_rust_edition(workspace: &Workspace) -> Result<(), Error> {
 
 const EXPECTED_AUTHOR: &str = "Near Inc <hello@nearprotocol.com>";
 
-/// ensure all crates have the appropriate author, non-exclusively of course.
+/// Ensure all crates have the appropriate author, non-exclusively of course.
 pub fn author_is_near(workspace: &Workspace) -> Result<(), Error> {
     let outliers = workspace
         .members
@@ -167,7 +167,7 @@ pub fn author_is_near(workspace: &Workspace) -> Result<(), Error> {
     Ok(())
 }
 
-/// ensure all non-private crates have a license
+/// Ensure all non-private crates have a license
 pub fn publishable_has_license(workspace: &Workspace) -> Result<(), Error> {
     let outliers = workspace
         .members
@@ -190,7 +190,7 @@ pub fn publishable_has_license(workspace: &Workspace) -> Result<(), Error> {
     Ok(())
 }
 
-/// ensure all non-private crates have a license file
+/// Ensure all non-private crates have a license file
 ///
 /// Checks for either one LICENSE file, or two LICENSE files, one of which
 /// is the Apache License 2.0 and the other is the MIT license.
@@ -227,7 +227,7 @@ pub fn publishable_has_license_file(workspace: &Workspace) -> Result<(), Error> 
 
 const EXPECTED_LICENSE: &str = "MIT OR Apache-2.0";
 
-/// ensure all non-private crates use the the same expected license
+/// Ensure all non-private crates use the the same expected license
 pub fn publishable_has_unified_license(workspace: &Workspace) -> Result<(), Error> {
     let outliers = workspace
         .members
@@ -253,7 +253,7 @@ pub fn publishable_has_unified_license(workspace: &Workspace) -> Result<(), Erro
     Ok(())
 }
 
-/// ensure all non-private crates have a description
+/// Ensure all non-private crates have a description
 pub fn publishable_has_description(workspace: &Workspace) -> Result<(), Error> {
     let outliers = workspace
         .members
@@ -273,7 +273,7 @@ pub fn publishable_has_description(workspace: &Workspace) -> Result<(), Error> {
     Ok(())
 }
 
-/// ensure all non-private crates have a README file
+/// Ensure all non-private crates have a README file
 pub fn publishable_has_readme(workspace: &Workspace) -> Result<(), Error> {
     let outliers = workspace
         .members
@@ -299,7 +299,7 @@ pub fn publishable_has_readme(workspace: &Workspace) -> Result<(), Error> {
 
 const EXPECTED_LINK: &str = "https://github.com/near/nearcore";
 
-/// ensure all non-private crates have repository and homepage links
+/// Ensure all non-private crates have repository and homepage links
 pub fn publishable_has_near_link(workspace: &Workspace) -> Result<(), Error> {
     let outliers = workspace
         .members

@@ -40,7 +40,7 @@ pub fn parse_workspace() -> anyhow::Result<Workspace> {
     Ok(Workspace { root: metadata.workspace_root, members })
 }
 
-/// returns true if the rule failed, false if otherwise
+/// Returns true if the rule failed, false if otherwise
 pub fn check_and_report(outcome: Result<(), Error>, workspace: &Workspace) -> anyhow::Result<bool> {
     match outcome {
         Err(Error::RuntimeError(err)) => Err(err),
@@ -87,10 +87,12 @@ pub fn check_and_report(outcome: Result<(), Error>, workspace: &Workspace) -> an
     }
 }
 
+/// Checks if the crate specified is explicitly publishable
 pub fn is_publishable(pkg: &Package) -> bool {
     !matches!(pkg.raw["package"].get("publish"), Some(toml::Value::Boolean(false)))
 }
 
+/// Checks if the file specified exists relative to the crate folder
 pub fn exists(pkg: &Package, file: &str) -> bool {
     pkg.parsed.manifest_path.parent().unwrap().join(file).exists()
 }
