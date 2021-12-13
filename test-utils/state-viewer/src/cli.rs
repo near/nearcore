@@ -56,6 +56,9 @@ pub enum StateViewerSubCommand {
     /// Generate a genesis file from the current state of the DB.
     #[clap(name = "dump_state")]
     DumpState(DumpStateCmd),
+    /// Dump all distinct contracts from the current state of the DB to file.
+    #[clap(name = "dump_contracts")]
+    DumpContracts(DumpContractsCmd),
     /// Print chain from start_index to end_index.
     #[clap(name = "chain")]
     Chain(ChainCmd),
@@ -90,6 +93,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::Peers => peers(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
             StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::DumpContracts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyRange(cmd) => cmd.run(home_dir, near_config, store),
@@ -111,6 +115,18 @@ pub struct DumpStateCmd {
 impl DumpStateCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
         dump_state(self.height, home_dir, near_config, store);
+    }
+}
+
+#[derive(Clap)]
+pub struct DumpContractsCmd {
+    #[clap(long, parse(from_os_str))]
+    output: PathBuf,
+}
+
+impl DumpContractsCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
+        dump_contracts(&self.output, home_dir, near_config, store);
     }
 }
 

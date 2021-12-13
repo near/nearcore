@@ -13,11 +13,13 @@ use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_epoch_manager::EpochManager;
 use near_network::iter_peers_from_store;
+use near_primitives::account::id::AccountId;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::to_base;
+use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::state_record::StateRecord;
+use near_primitives::state_record::{is_contract_code_key, StateRecord};
+use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_contract_code_key;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
@@ -48,6 +50,35 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Arc<Store>)
             }
         }
     }
+}
+
+pub(crate) fn dump_contracts(
+    output: &Path,
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Arc<Store>,
+) {
+    let (runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
+    println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
+    let mut distinct_codes: HashMap<Vec<u8>, AccountId> = HashMap::default();
+    for (shard_id, state_root) in state_roots.iter().enumerate() {
+        let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
+        let trie = TrieIterator::new(&trie, state_root).unwrap();
+        let mut touched_contract_node = false;
+        for item in trie {
+            let (key, value) = item.unwrap();
+            if is_contract_code_key(&key) {
+                touched_contract_node = true;
+                let account_id = parse_account_id_from_contract_code_key(&key).unwrap();
+                distinct_codes.insert(value.clone(), account_id.clone());
+            } else if touched_contract_node {
+                break;
+            }
+        }
+    }
+    let mut codes_to_dump: HashMap<_, _> =
+        distinct_codes.iter().map(|(code, account_id)| (account_id, to_base64(code))).collect();
+    std::fs::write(output, serde_json::to_string(&codes_to_dump).unwrap());
 }
 
 pub(crate) fn dump_state(

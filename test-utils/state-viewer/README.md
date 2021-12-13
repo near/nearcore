@@ -88,6 +88,16 @@ Flags:
 
 * `--height` takes state from the genesis up to and including the given height. By default, dumps all available state.
 
+### `dump_contracts`
+
+Dump all **distinct** contracts from the current state of the DB to JSON file.
+
+File format is a dictionary which maps account ID to base64-encoded contract code.
+
+Flags:
+
+* `--output` specifies a file to which contracts will be saved.
+
 #### Running on macOS
 
 ```bash
