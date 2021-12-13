@@ -260,9 +260,6 @@ pub struct EpochInfoCmd {
     block_height: Option<BlockHeight>,
     /// Fetch the first epoch with the given protocol version.
     #[clap(long)]
-    protocol_version_upgrade: Option<ProtocolVersion>,
-    /// Fetch all epochs at the given protocol version.
-    #[clap(long)]
     protocol_version: Option<ProtocolVersion>,
     /// If given, print block heights and hashes for blocks the given validator needs to produce.
     #[clap(long)]
@@ -276,7 +273,6 @@ impl EpochInfoCmd {
             self.epoch_height,
             self.block_hash.map(|s| CryptoHash::from_str(&s).unwrap()),
             self.block_height,
-            self.protocol_version_upgrade,
             self.protocol_version,
             self.validator_account_id.map(|s| AccountId::from_str(&s).unwrap()),
             home_dir,
