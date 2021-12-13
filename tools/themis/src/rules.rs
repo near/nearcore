@@ -297,32 +297,25 @@ pub fn publishable_has_readme(workspace: &Workspace) -> Result<(), Error> {
 
 const EXPECTED_LINK: &str = "https://github.com/near/nearcore";
 
-/// Ensure all non-private crates have repository and homepage links
+/// Ensure all non-private crates have appropriate repository links
 pub fn publishable_has_near_link(workspace: &Workspace) -> Result<(), Error> {
     let outliers = workspace
         .members
         .iter()
         .filter(|pkg| {
             utils::is_publishable(pkg)
-                && !(matches!(pkg.parsed.repository, Some(ref r) if r == EXPECTED_LINK)
-                    && pkg.parsed.homepage.is_some())
+                && !matches!(pkg.parsed.repository, Some(ref r) if r == EXPECTED_LINK)
         })
         .map(|pkg| PackageOutcome {
             pkg,
-            value: Some(format!(
-                "{c_none}{{repository = {c_found}{:?}{c_none}, homepage = {c_found}{:?}{c_none}}}",
-                pkg.parsed.repository.as_ref().map_or("null", |r| r.as_str()),
-                pkg.parsed.homepage.as_ref().map_or("null", |h| h.as_str()),
-                c_found =
-                    style::fg(style::Color::White) + &style::bg(style::Color::Red) + style::bold(),
-                c_none = style::reset()
-            )),
+            value: pkg.parsed.repository.as_ref().map(|r| r.to_string()),
         })
         .collect::<Vec<_>>();
 
     if !outliers.is_empty() {
         return Err(Error::OutcomeError {
-            msg: "These non-private packages need to have appropriate `repository` and `homepage` links".to_string(),
+            msg: "These non-private packages need to have the appropriate `repository` link"
+                .to_string(),
             expected: Some(Expected { value: EXPECTED_LINK.to_string(), reason: None }),
             outliers,
         });
