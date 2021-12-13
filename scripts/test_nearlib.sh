@@ -2,7 +2,7 @@
 set -ex
 
 export RUST_BACKTRACE=full
-./scripts/start_unittest.py --local &
+# ./scripts/start_unittest.py --local &
 export NEAR_PID=$!
 trap 'pkill -15 -P $NEAR_PID' 0
 
@@ -25,8 +25,8 @@ yarn
 yarn build
 ../scripts/waitonserver.sh
 # Disabling yarn test for now
-# yarn test
-# yarn doc
+yarn test
+yarn doc
 
 # Run create-near-app tests
 # cd ../create-near-app
