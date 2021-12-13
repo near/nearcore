@@ -25,8 +25,8 @@ yarn
 yarn build
 ../scripts/waitonserver.sh
 # Disabling yarn test for now
-yarn test
-yarn doc
+# yarn test
+# yarn doc
 
 # Run create-near-app tests
 # cd ../create-near-app
