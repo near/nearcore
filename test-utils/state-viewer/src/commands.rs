@@ -64,6 +64,8 @@ pub(crate) fn dump_contracts(
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
         let trie = TrieIterator::new(&trie, state_root).unwrap();
+        // Optimization: contract nodes form a contiguous segment in the set of nodes with values, so if we touched a
+        // contract node and then touched a non-contract node, then we can stop iterating.
         let mut touched_contract_node = false;
         for item in trie {
             let (key, value) = item.unwrap();
