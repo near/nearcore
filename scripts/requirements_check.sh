@@ -1,0 +1,16 @@
+#!/usr/bin/env zsh
+
+set -e
+
+npm --version
+yarn --version
+python3 --version
+cargo --version
+
+
+if [[ $(yarn --version) != "1."* ]]; then
+  echo "You version of yarn is too old $(yarn --version) < 1.0"
+  echo "Install with npm install --global yarn"
+  exit 1
+fi
+
