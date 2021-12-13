@@ -9,7 +9,6 @@ license = "MIT OR Apache-2.0"
 readme = "README.md"
 categories = ["wasm"]
 repository = "https://github.com/near/nearcore"
-homepage = "https://github.com/near/nearcore"
 description = """
 This crate implements the specification of the interface that Near blockchain exposes to the smart contracts.
 """
