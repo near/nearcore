@@ -488,30 +488,6 @@ impl<T: Any + Eq + Sized + Send + Sync> AnyEq for T {
     }
 }
 
-pub mod hex_format {
-    use hex::{decode, encode};
-
-    use serde::de;
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S, T>(data: T, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-        T: AsRef<[u8]>,
-    {
-        serializer.serialize_str(&encode(data))
-    }
-
-    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
-    where
-        D: Deserializer<'de>,
-        T: From<Vec<u8>>,
-    {
-        let s = String::deserialize(deserializer)?;
-        decode(&s).map_err(|err| de::Error::custom(err.to_string())).map(Into::into)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMError};
