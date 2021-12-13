@@ -612,11 +612,7 @@ pub(crate) fn print_epoch_info(
                     .clone()
                     .into_iter()
                     .filter(|&block_height| {
-                        epoch_manager
-                            .get_block_producer_info(epoch_id, block_height)
-                            .unwrap()
-                            .take_account_id()
-                            == account_id
+                        epoch_info.sample_block_producer(block_height) == *validator_id
                     })
                     .collect();
                 println!("Block producer for {} blocks: {:?}", bp_for_blocks.len(), bp_for_blocks);
@@ -628,19 +624,24 @@ pub(crate) fn print_epoch_info(
                         shard_ids
                             .clone()
                             .map(|shard_id| (block_height, shard_id))
-                            .filter(|&(block_height, shard_id)| {
-                                epoch_manager
-                                    .get_chunk_producer_info(epoch_id, block_height, shard_id)
-                                    .unwrap()
-                                    .take_account_id()
-                                    == account_id
+                            .filter(|&(block_height,shard_id)| {
+                                epoch_info.sample_chunk_producer(block_height, shard_id) == *validator_id
                             })
+
                             .collect::<Vec<(BlockHeight, ShardId)>>()
                     })
                     .flatten()
                     .collect();
                 println!("Chunk producer for {} chunks: {:?}", cp_for_chunks.len(), cp_for_chunks);
-                for (block_height, shard_id) in cp_for_chunks {}
+                let mut missing_chunks = vec![];
+                for (block_height, shard_id) in cp_for_chunks {
+                    let block_hash = chain_store.get_block_hash_by_height(block_height).unwrap();
+                    let block = chain_store.get_block(&block_hash).unwrap();
+                    if block.chunks()[shard_id as usize].height_included() != block_height {
+                        missing_chunks.push((block_height,shard_id));
+                    }
+                }
+                println!("Missing {} chunks: {:?}", missing_chunks.len(), missing_chunks);
             }
         }
     }
