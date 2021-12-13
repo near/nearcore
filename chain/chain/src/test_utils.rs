@@ -56,6 +56,8 @@ use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::time::Clock;
 
+mod types;
+
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
 struct AccountNonce(AccountId, Nonce);
 
@@ -930,8 +932,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _shard_id: ShardId,
         _block_hash: &CryptoHash,
         state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
+        partId: types::PartId,
     ) -> Result<Vec<u8>, Error> {
         assert!(part_id < num_parts);
         if part_id != 0 {
@@ -945,8 +946,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn validate_state_part(
         &self,
         _state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
+        partId:PartId,
         _data: &Vec<u8>,
     ) -> bool {
         assert!(part_id < num_parts);

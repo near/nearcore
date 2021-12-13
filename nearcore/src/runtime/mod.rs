@@ -637,6 +637,11 @@ impl NightshadeRuntime {
     }
 }
 
+pub struct PartId {
+    idx:u64,
+    total:u64
+}
+
 fn apply_delayed_receipts<'a>(
     tries: &ShardTries,
     orig_shard_uid: ShardUId,
@@ -1585,8 +1590,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         block_hash: &CryptoHash,
         state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
+        partId: PartId,
     ) -> Result<Vec<u8>, Error> {
         assert!(part_id < num_parts);
         let epoch_id = self.get_epoch_id(block_hash)?;
@@ -1610,8 +1614,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn validate_state_part(
         &self,
         state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
+        partId:PartId,
         data: &Vec<u8>,
     ) -> bool {
         assert!(part_id < num_parts);
@@ -2634,7 +2637,7 @@ mod test {
         env.step_default(vec![]);
         let block_hash = hash(&vec![env.head.height as u8]);
         let state_part =
-            env.runtime.obtain_state_part(0, &block_hash, &env.state_roots[0], 0, 1).unwrap();
+            env.runtime.obtain_state_part(0, &block_hash, &env.state_roots[0], PartId{idx:0,total:1}).unwrap();
         let root_node =
             env.runtime.get_state_root_node(0, &block_hash, &env.state_roots[0]).unwrap();
         let mut new_env = TestEnv::new("test_state_sync", vec![validators.clone()], 2, false);
@@ -2683,8 +2686,8 @@ mod test {
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
         root_node_wrong.data = vec![123];
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
-        assert!(!new_env.runtime.validate_state_part(&StateRoot::default(), 0, 1, &state_part));
-        new_env.runtime.validate_state_part(&env.state_roots[0], 0, 1, &state_part);
+        assert!(!new_env.runtime.validate_state_part(&StateRoot::default(), PartId{idx:0,total:1}, &state_part));
+        new_env.runtime.validate_state_part(&env.state_roots[0], PartId{idx:0,total:1}, &state_part);
         let epoch_id = &new_env.head.epoch_id;
         new_env
             .runtime

@@ -232,7 +232,7 @@ pub struct ChainGenesis {
 }
 
 // to specify a part we always specify both part_id and num_parts together
-struct PartId {
+pub struct PartId {
     idx:u64,
     total:u64
 }
