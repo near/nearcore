@@ -109,6 +109,7 @@ steps:
       source ~/.cargo/env && set -eux
       cd pytest
       pip3 install --user -r requirements.txt
+      # TODO(#5822) Disabled, because it blocks production
       # python3 tests/sanity/upgradable.py
     branches: "!master"
     timeout: 30
