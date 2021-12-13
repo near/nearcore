@@ -202,11 +202,9 @@ pub fn publishable_has_license_file(workspace: &Workspace) -> Result<(), Error> 
             utils::is_publishable(pkg)
                 && !(utils::exists(pkg, "LICENSE")
                     || (utils::exists(pkg, "LICENSE-APACHE") && utils::exists(pkg, "LICENSE-MIT"))
-                    || pkg
+                    || matches!(pkg
                         .parsed
-                        .license_file
-                        .as_ref()
-                        .map_or(false, |l| utils::exists(pkg, l.as_str())))
+                        .license_file, Some(ref l) if utils::exists(pkg, l.as_str())))
         })
         .map(|pkg| PackageOutcome {
             pkg,
@@ -234,7 +232,7 @@ pub fn publishable_has_unified_license(workspace: &Workspace) -> Result<(), Erro
         .iter()
         .filter(|pkg| {
             utils::is_publishable(pkg)
-                && pkg.parsed.license.as_ref().map_or(false, |l| l != EXPECTED_LICENSE)
+                && matches!(pkg.parsed.license, Some(ref l) if l != EXPECTED_LICENSE)
         })
         .map(|pkg| PackageOutcome {
             pkg,
@@ -281,7 +279,7 @@ pub fn publishable_has_readme(workspace: &Workspace) -> Result<(), Error> {
         .filter(|pkg| {
             utils::is_publishable(pkg)
                 && !(utils::exists(pkg, "README.md")
-                    || pkg.parsed.readme.as_ref().map_or(false, |r| utils::exists(pkg, r.as_str())))
+                    || matches!(pkg.parsed.readme, Some(ref r) if utils::exists(pkg, r.as_str())))
         })
         .map(|pkg| PackageOutcome { pkg, value: pkg.parsed.readme.as_ref().map(|r| r.to_string()) })
         .collect::<Vec<_>>();
