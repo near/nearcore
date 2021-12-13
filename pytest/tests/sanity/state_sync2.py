@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up two block producing nodes. Uses a large number of block producer seats to ensure
 # both block producers are validating both shards.
 # Gets to 105 blocks and nukes + wipes one of the block producers. Makes sure it can recover
@@ -5,8 +6,9 @@
 
 import sys, time
 import fcntl
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger

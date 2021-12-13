@@ -269,7 +269,7 @@ fn get_liquid_balance_for_storage(
     runtime_config: &near_primitives::runtime::config::RuntimeConfig,
 ) -> near_primitives::types::Balance {
     account.set_amount(0);
-    near_primitives::runtime::get_insufficient_storage_stake(&account, &runtime_config)
+    near_primitives::runtime::get_insufficient_storage_stake(&account, runtime_config)
         .expect("get_insufficient_storage_stake never fails when state is consistent")
         .unwrap_or(0)
 }
@@ -349,7 +349,7 @@ pub(crate) async fn query_accounts(
     futures::stream::iter(account_ids)
         .map(|account_id| async move {
             let (_, _, account_info) =
-                query_account(block_id.clone(), account_id.clone(), &view_client_addr).await?;
+                query_account(block_id.clone(), account_id.clone(), view_client_addr).await?;
             Ok((account_id.clone(), account_info))
         })
         .buffer_unordered(10)
@@ -410,7 +410,7 @@ pub(crate) async fn query_access_key(
 pub(crate) async fn query_protocol_config(
     block_hash: near_primitives::hash::CryptoHash,
     view_client_addr: &Addr<ViewClientActor>,
-) -> Result<ProtocolConfigView, crate::errors::ErrorKind> {
+) -> crate::errors::Result<ProtocolConfigView> {
     view_client_addr
         .send(near_client::GetProtocolConfig(near_primitives::types::BlockReference::from(
             near_primitives::types::BlockId::Hash(block_hash),
@@ -438,7 +438,7 @@ where
         Self { error_message, known_value: None }
     }
 
-    pub fn try_set(&mut self, new_value: &T) -> Result<(), crate::errors::ErrorKind> {
+    pub fn try_set(&mut self, new_value: &T) -> crate::errors::Result<()> {
         if let Some(ref known_value) = self.known_value {
             if new_value != known_value {
                 Err(crate::errors::ErrorKind::InvalidInput(format!(

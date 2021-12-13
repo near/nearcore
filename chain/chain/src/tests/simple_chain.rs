@@ -23,7 +23,7 @@ fn empty_chain() {
     assert_eq!(chain.head().unwrap().height, 0);
     let hash = chain.head().unwrap().last_block_hash;
     #[cfg(feature = "nightly_protocol")]
-    assert_eq!(hash, CryptoHash::from_str("DHFJfDH25yEPmEpKrUN9upXY3gFcCmsGyHMTk2sugyXd").unwrap());
+    assert_eq!(hash, CryptoHash::from_str("3wFoFbJPPv7Jg1ZERuBWTCok4H9uRZ7Uagm1wiXdKpvV").unwrap());
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(hash, CryptoHash::from_str("BkrZeGCDnYJGAdc3G1fb1P8FMbnNDhBn6w5DjhQeNAdp").unwrap());
     assert_eq!(count_utc, 1);
@@ -44,7 +44,7 @@ fn build_chain() {
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(
         prev_hash,
-        CryptoHash::from_str("FrAMjjHhjJAB1N6BiDVpRfAMsjLHbTYZnkYKUs39JgEx").unwrap()
+        CryptoHash::from_str("5VroU43sRYCkttuJfpdP6iC57fsD4q2TCbWaronBWpz7").unwrap()
     );
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
@@ -55,7 +55,7 @@ fn build_chain() {
     for i in 0..4 {
         let prev_hash = *chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
-        let block = Block::empty(&prev, &*signer);
+        let block = Block::empty(prev, &*signer);
         let tip = chain.process_block_test(&None, block).unwrap();
         assert_eq!(tip.unwrap().height, i + 1);
     }
@@ -67,7 +67,7 @@ fn build_chain() {
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(
         chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("2zngdBZU9YEZKvtfpkZb3vjjxf7j7szMdo5jtPLDcg5Z").unwrap()
+        CryptoHash::from_str("BNap11nsM7PEqYQertYU487g7gkCteQ8Fmee6QfyRdVQ").unwrap()
     );
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
@@ -89,7 +89,7 @@ fn build_chain_with_orhpans() {
     let block = Block::produce(
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
-        &last_block.header(),
+        last_block.header(),
         10,
         last_block.header().block_ordinal() + 1,
         last_block.chunks().iter().cloned().collect(),
@@ -129,8 +129,8 @@ fn build_chain_with_skips_and_forks() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-    let b1 = Block::empty(&genesis, &*signer);
-    let b2 = Block::empty_with_height(&genesis, 2, &*signer);
+    let b1 = Block::empty(genesis, &*signer);
+    let b2 = Block::empty_with_height(genesis, 2, &*signer);
     let b3 = Block::empty_with_height(&b1, 3, &*signer);
     let b4 = Block::empty_with_height(&b2, 4, &*signer);
     let b5 = Block::empty(&b4, &*signer);
@@ -154,7 +154,7 @@ fn blocks_at_height() {
     let b_2 = Block::empty_with_height(&b_1, 2, &*signer);
     let b_3 = Block::empty_with_height(&b_2, 3, &*signer);
 
-    let c_1 = Block::empty_with_height(&genesis, 1, &*signer);
+    let c_1 = Block::empty_with_height(genesis, 1, &*signer);
     let c_3 = Block::empty_with_height(&c_1, 3, &*signer);
     let c_4 = Block::empty_with_height(&c_3, 4, &*signer);
     let c_5 = Block::empty_with_height(&c_4, 5, &*signer);
@@ -229,7 +229,7 @@ fn next_blocks() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-    let b1 = Block::empty(&genesis, &*signer);
+    let b1 = Block::empty(genesis, &*signer);
     let b2 = Block::empty_with_height(&b1, 2, &*signer);
     let b3 = Block::empty_with_height(&b1, 3, &*signer);
     let b4 = Block::empty_with_height(&b3, 4, &*signer);

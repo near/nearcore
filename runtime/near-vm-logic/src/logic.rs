@@ -1580,7 +1580,7 @@ impl<'a> VMLogic<'a> {
         let receiver_id = self.get_account_by_receipt(&receipt_idx);
         let is_receiver_implicit =
             is_implicit_account_creation_enabled(self.current_protocol_version)
-                && AccountId::is_implicit(receiver_id.as_ref());
+                && receiver_id.is_implicit();
 
         let send_fee =
             transfer_send_fee(&self.fees_config.action_creation_config, sir, is_receiver_implicit);
@@ -2483,14 +2483,20 @@ impl<'a> VMLogic<'a> {
 
     /// Computes the outcome of execution.
     pub fn outcome(self) -> VMOutcome {
+        let burnt_gas = self.gas_counter.burnt_gas();
+        let used_gas = self.gas_counter.used_gas();
+
+        let mut profile = self.gas_counter.profile_data();
+        profile.compute_wasm_instruction_cost(burnt_gas);
+
         VMOutcome {
             balance: self.current_account_balance,
             storage_usage: self.current_storage_usage,
             return_data: self.return_data,
-            burnt_gas: self.gas_counter.burnt_gas(),
-            used_gas: self.gas_counter.used_gas(),
+            burnt_gas,
+            used_gas,
             logs: self.logs,
-            profile: self.gas_counter.profile_data(),
+            profile,
         }
     }
 

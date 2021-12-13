@@ -1,9 +1,11 @@
+#!/usr/bin/env python3
 # Spin up two validating nodes. Stop one of them after one epoch, switch node key (peer id), and restart.
 # Make sure that both node can still produce blocks.
 
 import sys, time, base58, nacl.bindings
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from key import Key

@@ -130,6 +130,7 @@ impl TryFrom<&str> for PeerInfo {
 /// TODO: Remove in next version
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
+/// Represents `peers` view about chain.
 pub struct PeerChainInfo {
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,
@@ -336,24 +337,25 @@ pub enum PeerIdOrHash {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Hash)]
-// Defines the destination for a network request.
-// The request should be sent either to the `account_id` as a routed message, or directly to
-// any peer that tracks the shard.
-// If `prefer_peer` is `true`, should be sent to the peer, unless no peer tracks the shard, in which
-// case fall back to sending to the account.
-// Otherwise, send to the account, unless we do not know the route, in which case send to the peer.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Defines the destination for a network request.
+/// The request should be sent either to the `account_id` as a routed message, or directly to
+/// any peer that tracks the shard.
+/// If `prefer_peer` is `true`, should be sent to the peer, unless there is no qualified peer,
+/// Otherwise, send to the account, unless we do not know the route, in which case send to a peer.
+/// in which case fall back to sending to the account.
+/// `shard_id`, `only_archival` and `min_height` are used to filter for qualified peers
 pub struct AccountIdOrPeerTrackingShard {
-    pub shard_id: ShardId,
-    pub only_archival: bool,
+    /// Target account to send the the request to
     pub account_id: Option<AccountId>,
+    /// Whether to check peers first or target account first
     pub prefer_peer: bool,
-}
-
-impl AccountIdOrPeerTrackingShard {
-    pub fn from_account(shard_id: ShardId, account_id: AccountId) -> Self {
-        Self { shard_id, only_archival: false, account_id: Some(account_id), prefer_peer: false }
-    }
+    /// Select peers that track shard `shard_id`
+    pub shard_id: ShardId,
+    /// Select peers that are archival nodes if it is true
+    pub only_archival: bool,
+    /// Only send messages to peers whose latest chain height is no less `min_height`
+    pub min_height: BlockHeight,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
@@ -369,7 +371,7 @@ impl AccountOrPeerIdOrHash {
         match self {
             AccountOrPeerIdOrHash::AccountId(_) => None,
             AccountOrPeerIdOrHash::PeerId(peer_id) => Some(PeerIdOrHash::PeerId(peer_id.clone())),
-            AccountOrPeerIdOrHash::Hash(hash) => Some(PeerIdOrHash::Hash(hash.clone())),
+            AccountOrPeerIdOrHash::Hash(hash) => Some(PeerIdOrHash::Hash(*hash)),
         }
     }
 }
@@ -443,7 +445,7 @@ impl RoutedMessage {
     }
 
     pub fn verify(&self) -> bool {
-        self.signature.verify(self.hash().as_ref(), &self.author.public_key())
+        self.signature.verify(self.hash().as_ref(), self.author.public_key())
     }
 
     pub fn expect_response(&self) -> bool {
@@ -951,9 +953,9 @@ pub enum NetworkViewClientResponses {
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
     /// A response to a request for a light client block during Epoch Sync
-    EpochSyncResponse(EpochSyncResponse),
+    EpochSyncResponse(Box<EpochSyncResponse>),
     /// A response to a request for headers and proofs during Epoch Sync
-    EpochSyncFinalizationResponse(EpochSyncFinalizationResponse),
+    EpochSyncFinalizationResponse(Box<EpochSyncFinalizationResponse>),
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
     /// Response not needed

@@ -1,10 +1,9 @@
 use crate::peer::peer_actor::PeerActor;
-use crate::routing::edge::{Edge, EdgeInfo, SimpleEdge};
+use crate::routing::edge::{Edge, PartialEdgeInfo, SimpleEdge};
 use crate::routing::routing::{GetRoutingTableResult, PeerRequestResult, RoutingTableInfo};
 use crate::PeerInfo;
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, MailboxError, Message, Recipient};
-use borsh::{BorshDeserialize, BorshSerialize};
 use conqueue::QueueSender;
 #[cfg(feature = "deepsize_feature")]
 use deepsize::DeepSizeOf;
@@ -13,10 +12,10 @@ use futures::FutureExt;
 use near_network_primitives::types::{
     AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, InboundTcpConnect, KnownProducer,
     OutboundTcpConnect, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfo, PeerChainInfoV2, PeerType, Ping, Pong,
-    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerType, Ping, Pong, ReasonForBan,
+    RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
 };
-use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader, GenesisId};
+use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -26,412 +25,21 @@ use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse}
 use near_primitives::time::Instant;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference, EpochId, ShardId};
-use near_primitives::version::{
-    ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
-};
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views::QueryRequest;
+use near_rate_limiter::ThrottleController;
 use std::collections::HashMap;
+use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, Mutex, RwLock};
-use std::{fmt, io};
 use strum::AsStaticStr;
 
-const ERROR_UNEXPECTED_LENGTH_OF_INPUT: &str = "Unexpected length of input";
-
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub enum HandshakeFailureReason {
-    ProtocolVersionMismatch { version: u32, oldest_supported_version: u32 },
-    GenesisMismatch(GenesisId),
-    InvalidTarget,
-}
-
-impl fmt::Display for HandshakeFailureReason {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "HandshakeFailureReason")
-    }
-}
-
-impl std::error::Error for HandshakeFailureReason {}
-
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
-pub struct Handshake {
-    pub(crate) version: u32,
-    /// Oldest supported protocol version.
-    pub(crate) oldest_supported_version: u32,
-    /// Sender's peer id.
-    pub(crate) peer_id: PeerId,
-    /// Receiver's peer id.
-    pub(crate) target_peer_id: PeerId,
-    /// Sender's listening addr.
-    pub(crate) listen_port: Option<u16>,
-    /// Peer's chain information.
-    pub(crate) chain_info: PeerChainInfoV2,
-    /// Info for new edge.
-    pub(crate) edge_info: EdgeInfo,
-}
-
-/// Struct describing the layout for Handshake.
-/// It is used to automatically derive BorshDeserialize.
-/// Struct describing the layout for Handshake.
-/// It is used to automatically derive BorshDeserialize.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub(crate) struct HandshakeAutoDes {
-    /// Protocol version.
-    pub(crate) version: u32,
-    /// Oldest supported protocol version.
-    pub(crate) oldest_supported_version: u32,
-    /// Sender's peer id.
-    pub(crate) peer_id: PeerId,
-    /// Receiver's peer id.
-    pub(crate) target_peer_id: PeerId,
-    /// Sender's listening addr.
-    pub(crate) listen_port: Option<u16>,
-    /// Peer's chain information.
-    pub(crate) chain_info: PeerChainInfoV2,
-    /// Info for new edge.
-    pub(crate) edge_info: EdgeInfo,
-}
-
-impl Handshake {
-    pub(crate) fn new(
-        version: ProtocolVersion,
-        peer_id: PeerId,
-        target_peer_id: PeerId,
-        listen_port: Option<u16>,
-        chain_info: PeerChainInfoV2,
-        edge_info: EdgeInfo,
-    ) -> Self {
-        Handshake {
-            version,
-            oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
-            peer_id,
-            target_peer_id,
-            listen_port,
-            chain_info,
-            edge_info,
-        }
-    }
-}
-
-// Use custom deserializer for HandshakeV2. Try to read version of the other peer from the header.
-// If the version is supported then fallback to standard deserializer.
-impl BorshDeserialize for Handshake {
-    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
-        // Detect the current and oldest supported version from the header
-        if buf.len() < 4 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                ERROR_UNEXPECTED_LENGTH_OF_INPUT,
-            ));
-        }
-
-        let version = u32::from_le_bytes(buf[..4].try_into().unwrap());
-
-        if OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION <= version && version <= PROTOCOL_VERSION {
-            // If we support this version, then try to deserialize with custom deserializer
-            HandshakeAutoDes::deserialize(buf).map(Into::into)
-        } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                HandshakeFailureReason::ProtocolVersionMismatch {
-                    version,
-                    oldest_supported_version: version,
-                },
-            ))
-        }
-    }
-}
-
-impl From<HandshakeAutoDes> for Handshake {
-    fn from(handshake: HandshakeAutoDes) -> Self {
-        Self {
-            version: handshake.version,
-            oldest_supported_version: handshake.oldest_supported_version,
-            peer_id: handshake.peer_id,
-            target_peer_id: handshake.target_peer_id,
-            listen_port: handshake.listen_port,
-            chain_info: handshake.chain_info,
-            edge_info: handshake.edge_info,
-        }
-    }
-}
-
-// TODO: Remove Handshake V2 in next iteration
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
-pub struct HandshakeV2 {
-    pub(crate) version: u32,
-    pub(crate) oldest_supported_version: u32,
-    pub(crate) peer_id: PeerId,
-    pub(crate) target_peer_id: PeerId,
-    pub(crate) listen_port: Option<u16>,
-    pub(crate) chain_info: PeerChainInfo,
-    pub(crate) edge_info: EdgeInfo,
-}
-
-impl HandshakeV2 {
-    pub(crate) fn new(
-        version: ProtocolVersion,
-        peer_id: PeerId,
-        target_peer_id: PeerId,
-        listen_port: Option<u16>,
-        chain_info: PeerChainInfo,
-        edge_info: EdgeInfo,
-    ) -> Self {
-        Self {
-            version,
-            oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
-            peer_id,
-            target_peer_id,
-            listen_port,
-            chain_info,
-            edge_info,
-        }
-    }
-}
-
-/// Struct describing the layout for HandshakeV2.
-/// It is used to automatically derive BorshDeserialize.
-#[derive(BorshDeserialize)]
-pub(crate) struct HandshakeV2AutoDes {
-    pub(crate) version: u32,
-    pub(crate) oldest_supported_version: u32,
-    pub(crate) peer_id: PeerId,
-    pub(crate) target_peer_id: PeerId,
-    pub(crate) listen_port: Option<u16>,
-    pub(crate) chain_info: PeerChainInfo,
-    pub(crate) edge_info: EdgeInfo,
-}
-
-// Use custom deserializer for HandshakeV2. Try to read version of the other peer from the header.
-// If the version is supported then fallback to standard deserializer.
-impl BorshDeserialize for HandshakeV2 {
-    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
-        // Detect the current and oldest supported version from the header
-        if buf.len() < 8 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                ERROR_UNEXPECTED_LENGTH_OF_INPUT,
-            ));
-        }
-
-        let version = u32::from_le_bytes(buf[..4].try_into().unwrap());
-        let oldest_supported_version = u32::from_le_bytes(buf[4..8].try_into().unwrap());
-
-        if OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION <= version && version <= PROTOCOL_VERSION {
-            // If we support this version, then try to deserialize with custom deserializer
-            HandshakeV2AutoDes::deserialize(buf).map(Into::into)
-        } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                HandshakeFailureReason::ProtocolVersionMismatch {
-                    version,
-                    oldest_supported_version,
-                },
-            ))
-        }
-    }
-}
-
-impl From<HandshakeV2AutoDes> for HandshakeV2 {
-    fn from(handshake: HandshakeV2AutoDes) -> Self {
-        Self {
-            version: handshake.version,
-            oldest_supported_version: handshake.oldest_supported_version,
-            peer_id: handshake.peer_id,
-            target_peer_id: handshake.target_peer_id,
-            listen_port: handshake.listen_port,
-            chain_info: handshake.chain_info,
-            edge_info: handshake.edge_info,
-        }
-    }
-}
-
-impl From<HandshakeV2> for Handshake {
-    fn from(handshake: HandshakeV2) -> Self {
-        Self {
-            version: handshake.version,
-            oldest_supported_version: handshake.oldest_supported_version,
-            peer_id: handshake.peer_id,
-            target_peer_id: handshake.target_peer_id,
-            listen_port: handshake.listen_port,
-            chain_info: handshake.chain_info.into(),
-            edge_info: handshake.edge_info,
-        }
-    }
-}
-
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct SyncData {
-    pub(crate) edges: Vec<Edge>,
-    pub(crate) accounts: Vec<AnnounceAccount>,
-}
-
-impl SyncData {
-    pub(crate) fn edge(edge: Edge) -> Self {
-        Self { edges: vec![edge], accounts: Vec::new() }
-    }
-
-    pub fn account(account: AnnounceAccount) -> Self {
-        Self { edges: Vec::new(), accounts: vec![account] }
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.edges.is_empty() && self.accounts.is_empty()
-    }
-}
-
-/// Warning, position of each message type in this enum defines the protocol due to serialization.
-/// DO NOT MOVE, REORDER, DELETE items from the list. Only add new items to the end.
-/// If need to remove old items - replace with `None`.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    PartialEq,
-    Eq,
-    Clone,
-    Debug,
-    strum::AsStaticStr,
-    strum::EnumVariantNames,
-)]
-// TODO(#1313): Use Box
-#[allow(clippy::large_enum_variant)]
-pub enum PeerMessage {
-    Handshake(Handshake),
-    HandshakeFailure(PeerInfo, HandshakeFailureReason),
-    /// When a failed nonce is used by some peer, this message is sent back as evidence.
-    LastEdge(Edge),
-    /// Contains accounts and edge information.
-    RoutingTableSync(SyncData),
-    RequestUpdateNonce(EdgeInfo),
-    ResponseUpdateNonce(Edge),
-
-    PeersRequest,
-    PeersResponse(Vec<PeerInfo>),
-
-    BlockHeadersRequest(Vec<CryptoHash>),
-    BlockHeaders(Vec<BlockHeader>),
-
-    BlockRequest(CryptoHash),
-    Block(Block),
-
-    Transaction(SignedTransaction),
-    Routed(RoutedMessage),
-
-    /// Gracefully disconnect from other peer.
-    Disconnect,
-    Challenge(Challenge),
-    HandshakeV2(HandshakeV2),
-
-    EpochSyncRequest(EpochId),
-    EpochSyncResponse(EpochSyncResponse),
-    EpochSyncFinalizationRequest(EpochId),
-    EpochSyncFinalizationResponse(EpochSyncFinalizationResponse),
-
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    RoutingTableSyncV2(RoutingSyncV2),
-}
-
+/// Type that belong to the network protocol.
+pub use crate::network_protocol::{
+    Handshake, HandshakeFailureReason, HandshakeV2, PeerMessage, RoutingTableUpdate,
+};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub enum RoutingSyncV2 {
-    Version2(RoutingVersion2),
-}
-
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct PartialSync {
-    pub(crate) ibf_level: crate::routing::ibf_peer_set::ValidIBFLevel,
-    pub(crate) ibf: Vec<crate::routing::ibf::IbfBox>,
-}
-
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub enum RoutingState {
-    PartialSync(PartialSync),
-    RequestAllEdges,
-    Done,
-    RequestMissingEdges(Vec<u64>),
-    InitializeIbf,
-}
-
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct RoutingVersion2 {
-    pub(crate) known_edges: u64,
-    pub(crate) seed: u64,
-    pub(crate) edges: Vec<Edge>,
-    pub(crate) routing_state: RoutingState,
-}
-
-impl fmt::Display for PeerMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(self.msg_variant(), f)
-    }
-}
-
-impl PeerMessage {
-    pub(crate) fn msg_variant(&self) -> &str {
-        match self {
-            PeerMessage::Routed(routed_message) => {
-                strum::AsStaticRef::as_static(&routed_message.body)
-            }
-            _ => strum::AsStaticRef::as_static(self),
-        }
-    }
-
-    pub(crate) fn is_client_message(&self) -> bool {
-        match self {
-            PeerMessage::Block(_)
-            | PeerMessage::BlockHeaders(_)
-            | PeerMessage::Transaction(_)
-            | PeerMessage::Challenge(_)
-            | PeerMessage::EpochSyncResponse(_)
-            | PeerMessage::EpochSyncFinalizationResponse(_) => true,
-            PeerMessage::Routed(r) => match r.body {
-                RoutedMessageBody::BlockApproval(_)
-                | RoutedMessageBody::ForwardTx(_)
-                | RoutedMessageBody::PartialEncodedChunk(_)
-                | RoutedMessageBody::PartialEncodedChunkRequest(_)
-                | RoutedMessageBody::PartialEncodedChunkResponse(_)
-                | RoutedMessageBody::StateResponse(_)
-                | RoutedMessageBody::VersionedPartialEncodedChunk(_)
-                | RoutedMessageBody::VersionedStateResponse(_) => true,
-                RoutedMessageBody::PartialEncodedChunkForward(_) => true,
-                _ => false,
-            },
-            _ => false,
-        }
-    }
-
-    pub(crate) fn is_view_client_message(&self) -> bool {
-        match self {
-            PeerMessage::Routed(r) => match r.body {
-                RoutedMessageBody::QueryRequest { .. }
-                | RoutedMessageBody::QueryResponse { .. }
-                | RoutedMessageBody::TxStatusRequest(_, _)
-                | RoutedMessageBody::TxStatusResponse(_)
-                | RoutedMessageBody::ReceiptOutcomeRequest(_)
-                | RoutedMessageBody::StateRequestHeader(_, _)
-                | RoutedMessageBody::StateRequestPart(_, _, _) => true,
-                _ => false,
-            },
-            PeerMessage::BlockHeadersRequest(_) => true,
-            PeerMessage::BlockRequest(_) => true,
-            PeerMessage::EpochSyncRequest(_) => true,
-            PeerMessage::EpochSyncFinalizationRequest(_) => true,
-            _ => false,
-        }
-    }
-}
+pub use crate::network_protocol::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
 
 #[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
@@ -439,27 +47,30 @@ pub struct SendMessage {
     pub(crate) message: PeerMessage,
 }
 
-/// Actor message to consolidate potential new peer.
-/// Returns if connection should be kept or dropped.
+/// Actor message which asks `PeerManagerActor` to register peer.
+/// Returns `RegisterPeerResult` with `Accepted` if connection should be kept
+/// or a reject response otherwise.
 #[derive(Clone, Debug)]
-pub struct Consolidate {
+pub struct RegisterPeer {
     pub(crate) actor: Addr<PeerActor>,
     pub(crate) peer_info: PeerInfo,
     pub(crate) peer_type: PeerType,
     pub(crate) chain_info: PeerChainInfoV2,
-    // Edge information from this node.
-    // If this is None it implies we are outbound connection, so we need to create our
-    // EdgeInfo part and send it to the other peer.
-    pub(crate) this_edge_info: Option<EdgeInfo>,
-    // Edge information from other node.
-    pub(crate) other_edge_info: EdgeInfo,
-    // Protocol version of new peer. May be higher than ours.
+    /// Edge information from this node.
+    /// If this is None it implies we are outbound connection, so we need to create our
+    /// EdgeInfo part and send it to the other peer.
+    pub(crate) this_edge_info: Option<PartialEdgeInfo>,
+    /// Edge information from other node.
+    pub(crate) other_edge_info: PartialEdgeInfo,
+    /// Protocol version of new peer. May be higher than ours.
     pub(crate) peer_protocol_version: ProtocolVersion,
+    /// A helper data structure for limiting reading, reporting bandwidth stats.
+    pub(crate) throttle_controller: ThrottleController,
 }
 
 /// Addr<PeerActor> doesn't implement `DeepSizeOf` waiting for `deepsize` > 0.2.0.
 #[cfg(feature = "deepsize_feature")]
-impl deepsize::DeepSizeOf for Consolidate {
+impl deepsize::DeepSizeOf for RegisterPeer {
     fn deep_size_of_children(&self, context: &mut deepsize::Context) -> usize {
         self.peer_info.deep_size_of_children(context)
             + self.peer_type.deep_size_of_children(context)
@@ -470,20 +81,29 @@ impl deepsize::DeepSizeOf for Consolidate {
     }
 }
 
-impl Message for Consolidate {
-    type Result = ConsolidateResponse;
+impl Message for RegisterPeer {
+    type Result = RegisterPeerResponse;
 }
 
+#[derive(MessageResponse, Debug)]
+pub enum RegisterPeerResponse {
+    Accept(Option<PartialEdgeInfo>),
+    InvalidNonce(Box<Edge>),
+    Reject,
+}
+
+#[cfg(feature = "test_features")]
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(Clone, Debug)]
 pub struct GetPeerId {}
 
+#[cfg(feature = "test_features")]
 impl Message for GetPeerId {
     type Result = GetPeerIdResult;
 }
 
-#[derive(MessageResponse, Debug)]
-#[cfg_attr(feature = "test_features", derive(serde::Serialize))]
+#[cfg(feature = "test_features")]
+#[derive(MessageResponse, Debug, serde::Serialize)]
 pub struct GetPeerIdResult {
     pub(crate) peer_id: PeerId,
 }
@@ -521,13 +141,6 @@ impl Message for SetAdvOptions {
 #[cfg(feature = "test_features")]
 impl Message for StartRoutingTableSync {
     type Result = ();
-}
-
-#[derive(MessageResponse, Debug)]
-pub enum ConsolidateResponse {
-    Accept(Option<EdgeInfo>),
-    InvalidNonce(Box<Edge>),
-    Reject,
 }
 
 /// Unregister message from Peer to PeerManager.
@@ -574,7 +187,7 @@ impl Message for PeerRequest {
 #[derive(MessageResponse, Debug)]
 pub enum PeerResponse {
     NoResponse,
-    UpdatedEdge(EdgeInfo),
+    UpdatedEdge(PartialEdgeInfo),
 }
 
 /// Requesting peers from peer manager to communicate to a peer.
@@ -602,10 +215,11 @@ pub struct PeersResponse {
 pub enum PeerManagerMessageRequest {
     RoutedMessageFrom(RoutedMessageFrom),
     NetworkRequests(NetworkRequests),
-    Consolidate(Consolidate),
+    RegisterPeer(RegisterPeer),
     PeersRequest(PeersRequest),
     PeersResponse(PeersResponse),
     PeerRequest(PeerRequest),
+    #[cfg(feature = "test_features")]
     GetPeerId(GetPeerId),
     OutboundTcpConnect(OutboundTcpConnect),
     InboundTcpConnect(InboundTcpConnect),
@@ -648,10 +262,11 @@ impl Message for PeerManagerMessageRequest {
 pub enum PeerManagerMessageResponse {
     RoutedMessageFrom(bool),
     NetworkResponses(NetworkResponses),
-    ConsolidateResponse(ConsolidateResponse),
+    RegisterPeerResponse(RegisterPeerResponse),
     PeerRequestResult(PeerRequestResult),
     PeersResponseResult(()),
     PeerResponse(PeerResponse),
+    #[cfg(feature = "test_features")]
     GetPeerIdResult(GetPeerIdResult),
     OutboundTcpConnect(()),
     InboundTcpConnect(()),
@@ -684,8 +299,8 @@ impl PeerManagerMessageResponse {
         }
     }
 
-    pub fn as_consolidate_response(self) -> ConsolidateResponse {
-        if let PeerManagerMessageResponse::ConsolidateResponse(item) = self {
+    pub fn as_consolidate_response(self) -> RegisterPeerResponse {
+        if let PeerManagerMessageResponse::RegisterPeerResponse(item) = self {
             item
         } else {
             panic!("expected PeerMessageRequest::ConsolidateResponse(");
@@ -708,6 +323,7 @@ impl PeerManagerMessageResponse {
         }
     }
 
+    #[cfg(feature = "test_features")]
     pub fn as_peer_id_result(self) -> GetPeerIdResult {
         if let PeerManagerMessageResponse::GetPeerIdResult(item) = self {
             item
@@ -813,12 +429,12 @@ pub enum NetworkRequests {
     /// (Unit tests) Fetch current routing table.
     FetchRoutingTable,
     /// Data to sync routing table from active peer.
-    Sync {
+    SyncRoutingTable {
         peer_id: PeerId,
-        sync_data: SyncData,
+        routing_table_update: RoutingTableUpdate,
     },
 
-    RequestUpdateNonce(PeerId, EdgeInfo),
+    RequestUpdateNonce(PeerId, PartialEdgeInfo),
     ResponseUpdateNonce(Edge),
 
     /// (Unit tests) Start ping to `PeerId` with `nonce`.
@@ -837,13 +453,32 @@ pub enum NetworkRequests {
     },
 }
 
+/// List of `Edges`, which we received from `source_peer_id` gor purpose of validation.
+/// Those are list of edges received through `NetworkRequests::Sync` or `NetworkRequests::IbfMessage`.
 pub struct ValidateEdgeList {
+    /// The list of edges is provided by `source_peer_id`, that peer will be banned
+    ///if any of these edges are invalid.
+    pub(crate) source_peer_id: PeerId,
+    /// List of Edges, which will be sent to `EdgeValidatorActor`.
     pub(crate) edges: Vec<Edge>,
+    /// A set of edges, which have been verified. This is a cache with all verified edges.
+    /// `EdgeValidatorActor`, and is a source of memory leak.
+    /// TODO(#5254): Simplify this process.
     pub(crate) edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
+    /// A concurrent queue. After edge become validated it will be sent from `EdgeValidatorActor` back to
+    /// `PeerManagetActor`, and then send to `RoutingTableActor`. And then `RoutingTableActor`
+    /// will add them.
+    /// TODO(#5254): Simplify this process.
     pub(crate) sender: QueueSender<Edge>,
     #[cfg(feature = "test_features")]
+    /// Feature to disable edge validation for purpose of testing.
     pub(crate) adv_disable_edge_signature_verification: bool,
-    pub(crate) peer_id: PeerId,
+}
+
+impl Debug for ValidateEdgeList {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("source_peer_id").finish()
+    }
 }
 
 impl Message for ValidateEdgeList {
@@ -855,13 +490,13 @@ impl Message for ValidateEdgeList {
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
     pub chain_info: PeerChainInfoV2,
-    pub edge_info: EdgeInfo,
+    pub partial_edge_info: PartialEdgeInfo,
 }
 
 #[derive(Debug)]
 pub struct NetworkInfo {
-    pub active_peers: Vec<FullPeerInfo>,
-    pub num_active_peers: usize,
+    pub connected_peers: Vec<FullPeerInfo>,
+    pub num_connected_peers: usize,
     pub peer_max_count: u32,
     pub highest_height_peers: Vec<FullPeerInfo>,
     pub sent_bytes_per_sec: u64,
@@ -942,9 +577,9 @@ pub enum NetworkClientMessages {
     /// State response.
     StateResponse(StateResponseInfo),
     /// Epoch Sync response for light client block request
-    EpochSyncResponse(PeerId, EpochSyncResponse),
+    EpochSyncResponse(PeerId, Box<EpochSyncResponse>),
     /// Epoch Sync response for finalization request
-    EpochSyncFinalizationResponse(PeerId, EpochSyncFinalizationResponse),
+    EpochSyncFinalizationResponse(PeerId, Box<EpochSyncFinalizationResponse>),
 
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
@@ -1092,7 +727,7 @@ mod tests {
     #[test]
     fn test_enum_size() {
         assert_size!(HandshakeFailureReason);
-        assert_size!(ConsolidateResponse);
+        assert_size!(RegisterPeerResponse);
         assert_size!(PeerRequest);
         assert_size!(PeerResponse);
         assert_size!(NetworkRequests);
@@ -1106,9 +741,9 @@ mod tests {
         assert_size!(Handshake);
         assert_size!(Ping);
         assert_size!(Pong);
-        assert_size!(SyncData);
+        assert_size!(RoutingTableUpdate);
         assert_size!(SendMessage);
-        assert_size!(Consolidate);
+        assert_size!(RegisterPeer);
         assert_size!(FullPeerInfo);
         assert_size!(NetworkInfo);
     }

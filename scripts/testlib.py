@@ -3,7 +3,6 @@
 import glob
 import os
 import subprocess
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import fcntl
 import re
 import filecmp

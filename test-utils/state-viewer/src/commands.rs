@@ -37,11 +37,11 @@ pub(crate) fn peers(store: Arc<Store>) {
 }
 
 pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
-    let (runtime, state_roots, header) = load_trie(store, &home_dir, &near_config);
+    let (runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
     println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
     for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let trie = runtime.get_trie_for_shard(shard_id as u64, &header.prev_hash()).unwrap();
-        let trie = TrieIterator::new(&trie, &state_root).unwrap();
+        let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
+        let trie = TrieIterator::new(&trie, state_root).unwrap();
         for item in trie {
             let (key, value) = item.unwrap();
             if let Some(state_record) = StateRecord::from_raw_key_value(key, value) {
@@ -84,11 +84,12 @@ pub(crate) fn apply_range(
     home_dir: &Path,
     near_config: NearConfig,
     store: Arc<Store>,
+    only_contracts: bool,
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
     let runtime = NightshadeRuntime::with_config(
-        &home_dir,
+        home_dir,
         store.clone(),
         &near_config,
         None,
@@ -103,6 +104,7 @@ pub(crate) fn apply_range(
         runtime,
         verbose_output,
         csv_file.as_mut(),
+        only_contracts,
     );
 }
 
@@ -113,8 +115,8 @@ pub(crate) fn dump_code(
     near_config: NearConfig,
     store: Arc<Store>,
 ) {
-    let (runtime, state_roots, header) = load_trie(store, &home_dir, &near_config);
-    let epoch_id = &runtime.get_epoch_id(&header.hash()).unwrap();
+    let (runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
+    let epoch_id = &runtime.get_epoch_id(header.hash()).unwrap();
 
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let state_root_vec: Vec<u8> = state_root.try_to_vec().unwrap();
@@ -154,7 +156,7 @@ pub(crate) fn dump_account_storage(
         panic!("block_height should be either number or \"latest\"")
     };
     let (runtime, state_roots, header) =
-        load_trie_stop_at_height(store, &home_dir, &near_config, block_height);
+        load_trie_stop_at_height(store, home_dir, &near_config, block_height);
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
         let key = TrieKey::ContractData {
@@ -193,7 +195,7 @@ pub(crate) fn print_chain(
 ) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime = NightshadeRuntime::with_config(
-        &home_dir,
+        home_dir,
         store,
         &near_config,
         None,
@@ -217,7 +219,7 @@ pub(crate) fn print_chain(
                         "Epoch {} Validators {:?}",
                         format_hash(epoch_id.0),
                         runtime
-                            .get_epoch_block_producers_ordered(&epoch_id, &header.hash())
+                            .get_epoch_block_producers_ordered(&epoch_id, header.hash())
                             .unwrap()
                     );
                 }
@@ -262,7 +264,7 @@ pub(crate) fn replay_chain(
     let mut chain_store = ChainStore::new(store, near_config.genesis.config.genesis_height);
     let new_store = create_test_store();
     let runtime = NightshadeRuntime::with_config(
-        &home_dir,
+        home_dir,
         new_store,
         &near_config,
         None,
@@ -275,7 +277,7 @@ pub(crate) fn replay_chain(
             runtime
                 .add_validator_proposals(BlockHeaderInfo::new(
                     &header,
-                    chain_store.get_block_height(&header.last_final_block()).unwrap(),
+                    chain_store.get_block_height(header.last_final_block()).unwrap(),
                 ))
                 .unwrap()
                 .commit()
@@ -293,7 +295,7 @@ pub(crate) fn apply_block_at_height(
 ) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::with_config(
-        &home_dir,
+        home_dir,
         store,
         &near_config,
         None,
@@ -305,7 +307,7 @@ pub(crate) fn apply_block_at_height(
     let apply_result = if block.chunks()[shard_id as usize].height_included() == height {
         let chunk =
             chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap().clone();
-        let prev_block = chain_store.get_block(&block.header().prev_hash()).unwrap().clone();
+        let prev_block = chain_store.get_block(block.header().prev_hash()).unwrap().clone();
         let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
@@ -337,7 +339,7 @@ pub(crate) fn apply_block_at_height(
                 chunk_inner.validator_proposals(),
                 prev_block.header().gas_price(),
                 chunk_inner.gas_limit(),
-                &block.header().challenges_result(),
+                block.header().challenges_result(),
                 *block.header().random_value(),
                 true,
                 is_first_block_with_chunk_of_version,
@@ -355,13 +357,13 @@ pub(crate) fn apply_block_at_height(
                 block.header().height(),
                 block.header().raw_timestamp(),
                 block.header().prev_hash(),
-                &block.hash(),
+                block.hash(),
                 &[],
                 &[],
                 chunk_extra.validator_proposals(),
                 block.header().gas_price(),
                 chunk_extra.gas_limit(),
-                &block.header().challenges_result(),
+                block.header().challenges_result(),
                 *block.header().random_value(),
                 false,
                 false,
@@ -426,7 +428,7 @@ pub(crate) fn view_chain(
         if chunk_header.height_included() == block.header().height() {
             let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, shard_layout);
             chunk_extras
-                .push((i, chain_store.get_chunk_extra(&block.hash(), &shard_uid).unwrap().clone()));
+                .push((i, chain_store.get_chunk_extra(block.hash(), &shard_uid).unwrap().clone()));
             chunks.push((i, chain_store.get_chunk(&chunk_header.chunk_hash()).unwrap().clone()));
         }
     }
@@ -437,7 +439,7 @@ pub(crate) fn view_chain(
         .filter_map(|(i, chunk_header)| {
             if chunk_header.height_included() == block.header().height() {
                 let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, shard_layout);
-                Some((i, chain_store.get_chunk_extra(&block.hash(), &shard_uid).unwrap().clone()))
+                Some((i, chain_store.get_chunk_extra(block.hash(), &shard_uid).unwrap().clone()))
             } else {
                 None
             }
@@ -555,9 +557,9 @@ fn load_trie_stop_at_height(
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
 
     let runtime = NightshadeRuntime::with_config(
-        &home_dir,
+        home_dir,
         store,
-        &near_config,
+        near_config,
         None,
         near_config.client_config.max_gas_burnt_view,
     );

@@ -1,11 +1,13 @@
+#!/usr/bin/env python3
 """
 Spawn a cluster with four nodes. Check that no node tries to
 connect to another node that is currently connected.
 """
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from utils import LogTracker

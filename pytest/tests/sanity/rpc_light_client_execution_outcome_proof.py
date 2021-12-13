@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up two nodes, deploy a smart contract to one node,
 # Send a transaction to call a contract method. Check that
 # the transaction and receipts execution outcome proof for
@@ -8,8 +9,9 @@ import hashlib
 import json
 import struct
 import sys
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from cluster import start_cluster, Key
 from utils import load_test_contract, compute_merkle_root_from_path
 from serializer import BinarySerializer

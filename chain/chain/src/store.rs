@@ -512,7 +512,7 @@ impl ChainStore {
         // whether the base block is the same as the one with that height on the canonical fork.
         // Otherwise we walk back the chain to check whether base block is on the same chain.
         let last_final_height = self
-            .get_block_height(&prev_block_header.last_final_block())
+            .get_block_height(prev_block_header.last_final_block())
             .map_err(|_| InvalidTxError::InvalidChain)?;
 
         if prev_height > base_height + validity_period {
@@ -651,7 +651,7 @@ impl ChainStore {
         // 2. Extract the original Trie key out of the keys returned by RocksDB
         // 3. Try extracting `account_id` from the key using KeyFor* implementations
 
-        let storage_key = KeyForStateChanges::get_prefix(&block_hash);
+        let storage_key = KeyForStateChanges::get_prefix(block_hash);
 
         let mut block_changes = storage_key.find_iter(&self.store);
 
@@ -662,7 +662,7 @@ impl ChainStore {
         &self,
         block_hash: &CryptoHash,
     ) -> Result<StateChanges, Error> {
-        let storage_key = KeyForStateChanges::get_prefix(&block_hash);
+        let storage_key = KeyForStateChanges::get_prefix(block_hash);
 
         let mut block_changes = storage_key.find_iter(&self.store);
 
@@ -706,7 +706,7 @@ impl ChainStore {
                 let mut changes = StateChanges::new();
                 for account_id in account_ids {
                     let data_key = TrieKey::Account { account_id: account_id.clone() }.to_vec();
-                    let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
+                    let storage_key = KeyForStateChanges::new(block_hash, data_key.as_ref());
                     let changes_per_key = storage_key.find_exact_iter(&self.store);
                     changes.extend(StateChanges::from_account_changes(changes_per_key)?);
                 }
@@ -720,7 +720,7 @@ impl ChainStore {
                         public_key: key.public_key.clone(),
                     }
                     .to_vec();
-                    let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
+                    let storage_key = KeyForStateChanges::new(block_hash, data_key.as_ref());
                     let changes_per_key = storage_key.find_exact_iter(&self.store);
                     changes.extend(StateChanges::from_access_key_changes(changes_per_key)?);
                 }
@@ -730,7 +730,7 @@ impl ChainStore {
                 let mut changes = StateChanges::new();
                 for account_id in account_ids {
                     let data_key = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
-                    let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
+                    let storage_key = KeyForStateChanges::new(block_hash, data_key.as_ref());
                     let changes_per_key_prefix = storage_key.find_iter(&self.store);
                     changes.extend(StateChanges::from_access_key_changes(changes_per_key_prefix)?);
                 }
@@ -741,7 +741,7 @@ impl ChainStore {
                 for account_id in account_ids {
                     let data_key =
                         TrieKey::ContractCode { account_id: account_id.clone() }.to_vec();
-                    let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
+                    let storage_key = KeyForStateChanges::new(block_hash, data_key.as_ref());
                     let changes_per_key = storage_key.find_exact_iter(&self.store);
                     changes.extend(StateChanges::from_contract_code_changes(changes_per_key)?);
                 }
@@ -754,7 +754,7 @@ impl ChainStore {
                         account_id,
                         key_prefix.as_ref(),
                     );
-                    let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
+                    let storage_key = KeyForStateChanges::new(block_hash, data_key.as_ref());
                     let changes_per_key_prefix = storage_key.find_iter(&self.store);
                     changes.extend(StateChanges::from_data_changes(changes_per_key_prefix)?);
                 }
@@ -1485,7 +1485,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error> {
-        if self.challenged_blocks.contains(&hash) {
+        if self.challenged_blocks.contains(hash) {
             return Ok(true);
         }
         self.chain_store.is_block_challenged(hash)
@@ -1495,7 +1495,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         &mut self,
         chunk_hash: &ChunkHash,
     ) -> Result<Option<&EncodedShardChunk>, Error> {
-        if let Some(chunk) = self.chain_store_cache_update.invalid_chunks.get(&chunk_hash) {
+        if let Some(chunk) = self.chain_store_cache_update.invalid_chunks.get(chunk_hash) {
             Ok(Some(chunk))
         } else {
             self.chain_store.is_invalid_chunk(chunk_hash)
@@ -1526,7 +1526,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         if let Some(receipt) = self.chain_store_cache_update.receipts.get(receipt_id) {
             Ok(Some(receipt))
         } else {
-            self.chain_store.get_receipt(&receipt_id)
+            self.chain_store.get_receipt(receipt_id)
         }
     }
 
@@ -2025,9 +2025,9 @@ impl<'a> ChainStoreUpdate<'a> {
         block_hash: &CryptoHash,
     ) -> Vec<ShardUId> {
         let block_header =
-            self.get_block_header(&block_hash).expect("block header must exist").clone();
+            self.get_block_header(block_hash).expect("block header must exist").clone();
         let shard_layout = runtime_adapter
-            .get_shard_layout(&block_header.epoch_id())
+            .get_shard_layout(block_header.epoch_id())
             .expect("epoch info must exist");
         // gc shards in this epoch
         let mut shard_uids_to_gc: Vec<_> = shard_layout.get_shard_uids();
@@ -2038,7 +2038,7 @@ impl<'a> ChainStoreUpdate<'a> {
         // block_header.epoch_id() as next_epoch_id
         let next_epoch_id = block_header.next_epoch_id();
         let next_shard_layout =
-            runtime_adapter.get_shard_layout(&next_epoch_id).expect("epoch info must exist");
+            runtime_adapter.get_shard_layout(next_epoch_id).expect("epoch info must exist");
         if shard_layout != next_shard_layout {
             shard_uids_to_gc.extend(next_shard_layout.get_shard_uids());
         }
@@ -2169,7 +2169,7 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_col(ColStateDlInfos, &block_hash_vec);
 
         // 4. Update or delete block_hash_per_height
-        self.gc_col_block_per_height(&block_hash, height, &block.header().epoch_id())?;
+        self.gc_col_block_per_height(&block_hash, height, block.header().epoch_id())?;
 
         match gc_mode {
             GCMode::Fork(_) => {
@@ -2215,7 +2215,7 @@ impl<'a> ChainStoreUpdate<'a> {
         let mut epoch_to_hashes = epoch_to_hashes_ref.clone();
         let hashes =
             epoch_to_hashes.get_mut(epoch_id).ok_or("current epoch id should exist".to_string())?;
-        hashes.remove(&block_hash);
+        hashes.remove(block_hash);
         if hashes.is_empty() {
             epoch_to_hashes.remove(epoch_id);
         }
@@ -2978,7 +2978,7 @@ mod tests {
         let chain_genesis = ChainGenesis::test();
         let validators = vec![vec!["test1"]];
         let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
-            store.clone(),
+            store,
             validators
                 .into_iter()
                 .map(|inner| {
@@ -3002,7 +3002,7 @@ mod tests {
             KeyType::ED25519,
             "test1",
         ));
-        let short_fork = vec![Block::empty_with_height(&genesis, 1, &*signer.clone())];
+        let short_fork = vec![Block::empty_with_height(&genesis, 1, &*signer)];
         let mut store_update = chain.mut_store().store_update();
         store_update.save_block_header(short_fork[0].header().clone()).unwrap();
         store_update.commit().unwrap();
@@ -3012,12 +3012,12 @@ mod tests {
             .mut_store()
             .check_transaction_validity_period(
                 &short_fork_head,
-                &genesis.hash(),
+                genesis.hash(),
                 transaction_validity_period
             )
             .is_ok());
         let mut long_fork = vec![];
-        let mut prev_block = genesis.clone();
+        let mut prev_block = genesis;
         for i in 1..(transaction_validity_period + 3) {
             let mut store_update = chain.mut_store().store_update();
             let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
@@ -3035,7 +3035,7 @@ mod tests {
             .mut_store()
             .check_transaction_validity_period(
                 cur_header,
-                &valid_base_hash,
+                valid_base_hash,
                 transaction_validity_period
             )
             .is_ok());
@@ -3043,7 +3043,7 @@ mod tests {
         assert_eq!(
             chain.mut_store().check_transaction_validity_period(
                 cur_header,
-                &invalid_base_hash,
+                invalid_base_hash,
                 transaction_validity_period
             ),
             Err(InvalidTxError::Expired)
@@ -3061,7 +3061,7 @@ mod tests {
             "test1",
         ));
         let mut blocks = vec![];
-        let mut prev_block = genesis.clone();
+        let mut prev_block = genesis;
         for i in 1..(transaction_validity_period + 2) {
             let mut store_update = chain.mut_store().store_update();
             let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
@@ -3079,14 +3079,14 @@ mod tests {
             .mut_store()
             .check_transaction_validity_period(
                 cur_header,
-                &valid_base_hash,
+                valid_base_hash,
                 transaction_validity_period
             )
             .is_ok());
         let new_block = Block::empty_with_height(
-            &blocks.last().unwrap(),
+            blocks.last().unwrap(),
             transaction_validity_period + 3,
-            &*signer.clone(),
+            &*signer,
         );
         let mut store_update = chain.mut_store().store_update();
         store_update.save_block_header(new_block.header().clone()).unwrap();
@@ -3096,8 +3096,8 @@ mod tests {
         store_update.commit().unwrap();
         assert_eq!(
             chain.mut_store().check_transaction_validity_period(
-                &new_block.header(),
-                &valid_base_hash,
+                new_block.header(),
+                valid_base_hash,
                 transaction_validity_period
             ),
             Err(InvalidTxError::Expired)
@@ -3129,7 +3129,7 @@ mod tests {
         assert_eq!(
             chain.mut_store().check_transaction_validity_period(
                 &short_fork_head,
-                &genesis.hash(),
+                genesis.hash(),
                 transaction_validity_period
             ),
             Err(InvalidTxError::Expired)
@@ -3148,7 +3148,7 @@ mod tests {
         assert_eq!(
             chain.mut_store().check_transaction_validity_period(
                 long_fork_head,
-                &genesis.hash(),
+                genesis.hash(),
                 transaction_validity_period
             ),
             Err(InvalidTxError::Expired)
@@ -3164,7 +3164,7 @@ mod tests {
             KeyType::ED25519,
             "test1",
         ));
-        let block1 = Block::empty_with_height(&genesis, 1, &*signer.clone());
+        let block1 = Block::empty_with_height(&genesis, 1, &*signer);
         let mut block2 = block1.clone();
         block2.mut_header().get_mut().inner_lite.epoch_id = EpochId(hash(&[1, 2, 3]));
         block2.mut_header().resign(&*signer);
@@ -3209,7 +3209,7 @@ mod tests {
             KeyType::ED25519,
             "test1",
         ));
-        let mut prev_block = genesis.clone();
+        let mut prev_block = genesis;
         let mut blocks = vec![prev_block.clone()];
         for i in 1..15 {
             // This is a hack to make the KeyValueRuntime to have epoch information stored
@@ -3227,7 +3227,7 @@ mod tests {
                 .chain_store_cache_update
                 .height_to_hashes
                 .insert(i, Some(*block.header().hash()));
-            store_update.save_next_block_hash(&prev_block.hash(), *block.hash());
+            store_update.save_next_block_hash(prev_block.hash(), *block.hash());
             store_update.commit().unwrap();
 
             prev_block = block.clone();
@@ -3241,13 +3241,13 @@ mod tests {
         for i in 0..15 {
             println!("height = {} hash = {}", i, blocks[i].hash());
             if i < 8 {
-                assert!(chain.get_block(&blocks[i].hash()).is_err());
+                assert!(chain.get_block(blocks[i].hash()).is_err());
                 assert!(chain
                     .mut_store()
                     .get_all_block_hashes_by_height(i as BlockHeight)
                     .is_err());
             } else {
-                assert!(chain.get_block(&blocks[i].hash()).is_ok());
+                assert!(chain.get_block(blocks[i].hash()).is_ok());
                 assert!(chain.mut_store().get_all_block_hashes_by_height(i as BlockHeight).is_ok());
             }
         }
@@ -3310,7 +3310,7 @@ mod tests {
             KeyType::ED25519,
             "test1",
         ));
-        let mut prev_block = genesis.clone();
+        let mut prev_block = genesis;
         let mut blocks = vec![prev_block.clone()];
         for i in 1..10 {
             // This is a hack to make the KeyValueRuntime to have epoch information stored
@@ -3323,22 +3323,22 @@ mod tests {
             blocks.push(block.clone());
             store_update.save_block(block.clone());
             store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
-            store_update.save_head(&Tip::from_header(&block.header())).unwrap();
+            store_update.save_head(&Tip::from_header(block.header())).unwrap();
             store_update.save_block_header(block.header().clone()).unwrap();
             store_update
                 .chain_store_cache_update
                 .height_to_hashes
                 .insert(i, Some(*block.header().hash()));
-            store_update.save_next_block_hash(&prev_block.hash(), *block.hash());
+            store_update.save_next_block_hash(prev_block.hash(), *block.hash());
             store_update.commit().unwrap();
 
             prev_block = block.clone();
         }
 
-        assert!(chain.get_block(&blocks[4].hash()).is_ok());
-        assert!(chain.get_block(&blocks[5].hash()).is_ok());
-        assert!(chain.get_block(&blocks[6].hash()).is_ok());
-        assert!(chain.get_block_header(&blocks[5].hash()).is_ok());
+        assert!(chain.get_block(blocks[4].hash()).is_ok());
+        assert!(chain.get_block(blocks[5].hash()).is_ok());
+        assert!(chain.get_block(blocks[6].hash()).is_ok());
+        assert!(chain.get_block_header(blocks[5].hash()).is_ok());
         assert_eq!(
             chain
                 .mut_store()
@@ -3349,7 +3349,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![blocks[5].hash()]
         );
-        assert!(chain.mut_store().get_next_block_hash(&blocks[5].hash()).is_ok());
+        assert!(chain.mut_store().get_next_block_hash(blocks[5].hash()).is_ok());
 
         let trie = chain.runtime_adapter.get_tries();
         let mut store_update = chain.mut_store().store_update();
