@@ -200,10 +200,13 @@ pub fn publishable_has_license_file(workspace: &Workspace) -> Result<(), Error> 
         .iter()
         .filter(|pkg| {
             utils::is_publishable(pkg)
-                && !utils::exists!(
-                    pkg,
-                    "LICENSE" || ("LICENSE-APACHE" && "LICENSE-MIT") || (pkg.parsed.license_file)?
-                )
+                && !(utils::exists(pkg, "LICENSE")
+                    || (utils::exists(pkg, "LICENSE-APACHE") && utils::exists(pkg, "LICENSE-MIT"))
+                    || pkg
+                        .parsed
+                        .license_file
+                        .as_ref()
+                        .map_or(false, |l| utils::exists(pkg, l.as_str())))
         })
         .map(|pkg| PackageOutcome {
             pkg,
@@ -276,7 +279,9 @@ pub fn publishable_has_readme(workspace: &Workspace) -> Result<(), Error> {
         .members
         .iter()
         .filter(|pkg| {
-            utils::is_publishable(pkg) && !utils::exists!(pkg, "README.md" || (pkg.parsed.readme)?)
+            utils::is_publishable(pkg)
+                && !(utils::exists(pkg, "README.md")
+                    || pkg.parsed.readme.as_ref().map_or(false, |r| utils::exists(pkg, r.as_str())))
         })
         .map(|pkg| PackageOutcome { pkg, value: pkg.parsed.readme.as_ref().map(|r| r.to_string()) })
         .collect::<Vec<_>>();

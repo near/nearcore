@@ -91,33 +91,6 @@ pub fn is_publishable(pkg: &Package) -> bool {
     !matches!(pkg.raw["package"].get("publish"), Some(toml::Value::Boolean(false)))
 }
 
-/// Returns true if a crate has either of the provided files.
-///
-/// ## Example
-///
-/// ```rust
-/// exists!(pkg, "a" || "b" || ( "c" && "d" ) || "e")
-/// ```
-///
-/// If the crate has either `a`, `b`, `e` or both `c` and `d`, this returns true.
-/// Only returns false if all the combinations don't exist.
-macro_rules! exists {
-    ($pkg:expr, $($files:tt)+) => {{
-        let pkg_root = $pkg.parsed.manifest_path.parent().unwrap();
-        $crate::utils::exists!(@ [pkg_root] $($files)+)
-    }};
-    (@ [$root:expr] $file:literal || $($files:tt)+) => {{
-        $crate::utils::exists!(@ [$root] ($file) || $($files)+)
-    }};
-    (@ [$root:expr] ($($file:literal)&&+) $(|| $($files:tt)+)?) => {{
-        $($crate::utils::exists!(@ [$root] $file))&&+ $(|| $crate::utils::exists!(@ [$root] $($files)+))?
-    }};
-    (@ [$root:expr] $file:literal) => {{
-        $root.join($file).exists()
-    }};
-    (@ [$root:expr] ($file:expr)?) => {{
-        $file.as_ref().map_or(false, |file| $root.join(file).exists())
-    }};
+pub fn exists(pkg: &Package, file: &str) -> bool {
+    pkg.parsed.manifest_path.parent().unwrap().join(file).exists()
 }
-
-pub(crate) use exists;
