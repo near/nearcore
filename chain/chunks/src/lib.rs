@@ -1885,7 +1885,7 @@ mod test {
     /// should not request partial encoded chunk from self
     #[test]
     fn test_request_partial_encoded_chunk_from_self() {
-        let runtime_adapter = Arc::new(KeyValueRuntime::new(create_test_store()));
+        let runtime_adapter = Arc::new(KeyValueRuntime::new(create_test_store(), 5));
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut shards_manager = ShardsManager::new(
             Some("test".parse().unwrap()),

@@ -446,7 +446,7 @@ fn test_health_fail_no_blocks() {
 fn test_health_ok() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let health = client.health().await;
-        assert!(health.is_ok());
+        assert_eq!(health, Ok(()));
     });
 }
 
