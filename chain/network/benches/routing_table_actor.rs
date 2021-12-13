@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate bencher;
+extern crate actix;
 
 use bencher::{black_box, Bencher};
 use near_crypto::{KeyType, SecretKey, Signature};
@@ -12,6 +13,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 fn build_graph(depth: usize, size: usize) -> RoutingTableActor {
+    // This is needed for `RoutingTableActor` not to crash.
+    // `RoutingTableActor` stats `EdgeValidatorActor.
+    let _system = actix::System::new();
+
     let source = random_peer_id();
     let nodes: Vec<_> = (0..depth * size).map(|_| random_peer_id()).collect();
 
