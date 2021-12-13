@@ -155,10 +155,9 @@ impl BorshSerialize for Account {
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug,
 )]
 pub struct AccessKey {
-    /// The nonce for this access key.
-    /// NOTE: In some cases the access key needs to be recreated. If the new access key reuses the
-    /// same public key, the nonce of the new access key should be equal to the nonce of the old
-    /// access key. It's required to avoid replaying old transactions again.
+    /// Nonce for this access key, used for tx nonce generation. When access key is created, nonce
+    /// is set to `(block_height - 1) * 1e6` to avoid tx hash collision on access key re-creation.
+    /// See <https://github.com/near/nearcore/issues/3779> for more details.
     pub nonce: Nonce,
 
     /// Defines permissions for this access key.

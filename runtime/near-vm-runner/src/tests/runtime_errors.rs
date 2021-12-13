@@ -749,3 +749,94 @@ fn test_contract_error_caching() {
         assert_eq!(err1, err2);
     })
 }
+
+/// Load from address so far out of bounds that it causes integer overflow.
+fn address_overflow() -> Vec<u8> {
+    wat::parse_str(
+        r#"
+        (module
+          (memory 1)
+          (func (export "main")
+            i32.const 1
+            i64.load32_u offset=4294967295 (;2^32 - 1;) align=1
+            drop
+          )
+        )"#,
+    )
+    .unwrap()
+}
+
+#[test]
+fn test_address_overflow() {
+    with_vm_variants(|vm_kind: VMKind| {
+        match vm_kind {
+            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
+            // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
+            // Restore, once get rid of Wasmer 0.x.
+            VMKind::Wasmtime => return,
+        }
+
+        let actual = make_simple_contract_call_vm(&address_overflow(), "main", vm_kind);
+        match vm_kind {
+            VMKind::Wasmer2 | VMKind::Wasmtime => gas_and_error_match(
+                actual,
+                Some(57635826),
+                Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                    WasmTrap::MemoryOutOfBounds,
+                ))),
+            ),
+            // wasmer0 incorrectly doesn't catch overflow during address calculation
+            VMKind::Wasmer0 => gas_and_error_match(actual, Some(57635826), None),
+        };
+    });
+}
+
+/// Uses `f32.copysign` to observe a sign of `NaN`.
+///
+/// WASM specification allows different behaviors here:
+///
+///   https://github.com/WebAssembly/design/blob/main/Nondeterminism.md
+///
+/// We solve this problem by canonicalizing NaNs.
+fn nan_sign() -> Vec<u8> {
+    wat::parse_str(
+        r#"
+        (module
+          (func (export "main")
+            (i32.div_u
+              (i32.const 0)
+              (f32.gt
+                (f32.copysign
+                  (f32.const 1.0)
+                  (f32.sqrt (f32.const -1.0)))
+                (f32.const 0)))
+            drop
+          )
+        )"#,
+    )
+    .unwrap()
+}
+
+#[test]
+fn test_nan_sign() {
+    with_vm_variants(|vm_kind: VMKind| {
+        match vm_kind {
+            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
+            // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
+            // Restore, once get rid of Wasmer 0.x.
+            VMKind::Wasmtime => return,
+        }
+
+        let actual = make_simple_contract_call_vm(&nan_sign(), "main", vm_kind);
+        match vm_kind {
+            VMKind::Wasmer2 => gas_and_error_match(actual, Some(82291302), None),
+            VMKind::Wasmtime | VMKind::Wasmer0 => gas_and_error_match(
+                actual,
+                Some(82291302),
+                Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                    WasmTrap::IllegalArithmetic,
+                ))),
+            ),
+        }
+    });
+}

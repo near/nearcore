@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up three validating nodes with stake distribution 11, 5, 5.
 # Stop the two nodes with stake 2
 # Wait for sufficient number of blocks.
@@ -5,8 +6,9 @@
 # Restart the other one. Make sure it can sync as well.
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger

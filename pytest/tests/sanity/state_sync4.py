@@ -1,11 +1,13 @@
+#!/usr/bin/env python3
 # Spin up one node and create some accounts and make them stake
 # Spin up another node that syncs from the first node.
 # Check that the second node doesn't crash (with trie node missing)
 # during state sync.
 
 import sys, time, base58
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger

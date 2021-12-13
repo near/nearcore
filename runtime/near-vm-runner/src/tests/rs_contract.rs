@@ -178,7 +178,7 @@ fn run_test_ext(
 
     let (outcome, err) = runtime.run(
         &code,
-        &method,
+        method,
         &mut fake_external,
         context,
         &config,

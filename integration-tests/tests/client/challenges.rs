@@ -49,6 +49,7 @@ fn test_verify_block_double_sign_challenge() {
     block_merkle_tree.insert(*genesis.hash());
     let b2 = Block::produce(
         PROTOCOL_VERSION,
+        PROTOCOL_VERSION,
         genesis.header(),
         2,
         genesis.header().block_ordinal() + 1,
@@ -77,7 +78,7 @@ fn test_verify_block_double_sign_challenge() {
     );
     let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
     assert_eq!(
-        &validate_challenge(&*runtime_adapter, &epoch_id, &genesis.hash(), &valid_challenge)
+        &validate_challenge(&*runtime_adapter, &epoch_id, genesis.hash(), &valid_challenge)
             .unwrap()
             .0,
         if b1.hash() > b2.hash() { b1.hash() } else { b2.hash() }
@@ -90,7 +91,7 @@ fn test_verify_block_double_sign_challenge() {
         &signer,
     );
     let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
-    assert!(validate_challenge(&*runtime_adapter, &epoch_id, &genesis.hash(), &invalid_challenge,)
+    assert!(validate_challenge(&*runtime_adapter, &epoch_id, genesis.hash(), &invalid_challenge,)
         .is_err());
     let b3 = env.clients[0].produce_block(3).unwrap().unwrap();
     let invalid_challenge = Challenge::produce(
@@ -101,7 +102,7 @@ fn test_verify_block_double_sign_challenge() {
         &signer,
     );
     let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
-    assert!(validate_challenge(&*runtime_adapter, &epoch_id, &genesis.hash(), &invalid_challenge,)
+    assert!(validate_challenge(&*runtime_adapter, &epoch_id, genesis.hash(), &invalid_challenge,)
         .is_err());
 
     let (_, result) = env.clients[0].process_block(b2.into(), Provenance::SYNC);
@@ -257,8 +258,8 @@ fn challenge(
     let runtime_adapter = env.clients[0].chain.runtime_adapter.clone();
     validate_challenge(
         &*runtime_adapter,
-        &block.header().epoch_id(),
-        &block.header().prev_hash(),
+        block.header().epoch_id(),
+        block.header().prev_hash(),
         &valid_challenge,
     )
 }
@@ -346,11 +347,12 @@ fn test_verify_chunk_invalid_state_challenge() {
         }
     }
     let mut block_merkle_tree =
-        client.chain.mut_store().get_block_merkle_tree(&last_block.hash()).unwrap().clone();
+        client.chain.mut_store().get_block_merkle_tree(last_block.hash()).unwrap().clone();
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
         PROTOCOL_VERSION,
-        &last_block.header(),
+        PROTOCOL_VERSION,
+        last_block.header(),
         last_block.header().height() + 1,
         last_block.header().block_ordinal() + 1,
         vec![invalid_chunk.cloned_header()],
@@ -423,8 +425,8 @@ fn test_verify_chunk_invalid_state_challenge() {
     assert_eq!(
         validate_challenge(
             &*runtime_adapter,
-            &block.header().epoch_id(),
-            &block.header().prev_hash(),
+            block.header().epoch_id(),
+            block.header().prev_hash(),
             &challenge,
         )
         .unwrap(),
@@ -540,7 +542,7 @@ fn test_block_challenge() {
     env.clients[0].process_challenge(challenge.clone()).unwrap();
     env.produce_block(0, 2);
     assert_eq!(env.clients[0].chain.get_block_by_height(2).unwrap().challenges(), &[challenge]);
-    assert!(env.clients[0].chain.mut_store().is_block_challenged(&block.hash()).unwrap());
+    assert!(env.clients[0].chain.mut_store().is_block_challenged(block.hash()).unwrap());
 }
 
 /// Make sure that fisherman can initiate challenges while an account that is neither a fisherman nor
@@ -605,7 +607,7 @@ fn test_fishermen_challenge() {
     env.clients[0].process_challenge(challenge.clone()).unwrap();
     env.produce_block(0, 12);
     assert_eq!(env.clients[0].chain.get_block_by_height(12).unwrap().challenges(), &[challenge]);
-    assert!(env.clients[0].chain.mut_store().is_block_challenged(&block.hash()).unwrap());
+    assert!(env.clients[0].chain.mut_store().is_block_challenged(block.hash()).unwrap());
 }
 
 /// If there are two blocks produced at the same height but by different block producers, no

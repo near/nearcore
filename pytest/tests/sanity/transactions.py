@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Consists of a small sanity test that verifies that a single transaction
 # gets properly processed (to simplify debugging when the code is completely
 # broken). If one transaction goes through, sends batches of transactions
@@ -5,8 +6,9 @@
 # Sets epoch length to 10
 
 import sys, time, base58, random
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger

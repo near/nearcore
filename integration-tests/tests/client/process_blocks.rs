@@ -32,9 +32,10 @@ use near_network::types::{
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 
-use near_network::routing::EdgeInfo;
+use near_network::routing::PartialEdgeInfo;
 use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
+use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -95,13 +96,14 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
         .collect()
 }
 
-fn produce_epochs(
+/// Produce `blocks_number` block in the given environment, starting from the given height.
+/// Returns the first unoccupied height in the chain after this operation.
+fn produce_blocks_from_height(
     env: &mut TestEnv,
-    epoch_number: u64,
-    epoch_length: u64,
+    blocks_number: u64,
     height: BlockHeight,
 ) -> BlockHeight {
-    let next_height = height + epoch_number * epoch_length;
+    let next_height = height + blocks_number;
     for i in height..next_height {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
@@ -109,6 +111,22 @@ fn produce_epochs(
             env.process_block(j, block.clone(), Provenance::NONE);
         }
     }
+    next_height
+}
+
+/// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
+/// Return height of the next block.
+fn check_tx_processing(
+    env: &mut TestEnv,
+    tx: SignedTransaction,
+    height: BlockHeight,
+    blocks_number: u64,
+) -> BlockHeight {
+    let tx_hash = tx.get_hash().clone();
+    env.clients[0].process_tx(tx, false, false);
+    let next_height = produce_blocks_from_height(env, blocks_number, height);
+    let final_outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+    assert!(matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_)));
     next_height
 }
 
@@ -132,7 +150,7 @@ fn deploy_test_contract(
         *block.hash(),
     );
     env.clients[0].process_tx(tx, false, false);
-    produce_epochs(env, 1, epoch_length, height)
+    produce_blocks_from_height(env, epoch_length, height)
 }
 
 /// Create environment and set of transactions which cause congestion on the chain.
@@ -338,6 +356,7 @@ fn receive_network_block() {
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let block = Block::produce(
                 PROTOCOL_VERSION,
+                PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 next_block_ordinal,
@@ -412,6 +431,7 @@ fn produce_block_with_approvals() {
             block_merkle_tree.insert(last_block.header.hash);
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let block = Block::produce(
+                PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -601,6 +621,7 @@ fn invalid_blocks_common(is_requested: bool) {
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let valid_block = Block::produce(
                 PROTOCOL_VERSION,
+                PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 next_block_ordinal,
@@ -677,6 +698,8 @@ fn invalid_blocks_common(is_requested: bool) {
         near_network::test_utils::wait_or_panic(5000);
     });
 }
+
+const TEST_SEED: RngSeed = [3; 32];
 
 #[test]
 fn test_invalid_blocks_not_requested() {
@@ -927,7 +950,7 @@ fn client_sync_headers() {
             }),
         );
         client.do_send(NetworkClientMessages::NetworkInfo(NetworkInfo {
-            active_peers: vec![FullPeerInfo {
+            connected_peers: vec![FullPeerInfo {
                 peer_info: peer_info2.clone(),
                 chain_info: PeerChainInfoV2 {
                     genesis_id: Default::default(),
@@ -935,9 +958,9 @@ fn client_sync_headers() {
                     tracked_shards: vec![],
                     archival: false,
                 },
-                edge_info: EdgeInfo::default(),
+                partial_edge_info: PartialEdgeInfo::default(),
             }],
-            num_active_peers: 1,
+            num_connected_peers: 1,
             peer_max_count: 1,
             highest_height_peers: vec![FullPeerInfo {
                 peer_info: peer_info2.clone(),
@@ -947,7 +970,7 @@ fn client_sync_headers() {
                     tracked_shards: vec![],
                     archival: false,
                 },
-                edge_info: EdgeInfo::default(),
+                partial_edge_info: PartialEdgeInfo::default(),
             }],
             sent_bytes_per_sec: 0,
             received_bytes_per_sec: 0,
@@ -990,15 +1013,16 @@ fn test_process_invalid_tx() {
         false,
         network_adapter,
         chain_genesis,
+        TEST_SEED,
     );
     let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     let tx = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
         Transaction {
-            signer_id: AccountId::test_account(),
+            signer_id: "test".parse().unwrap(),
             public_key: signer.public_key(),
             nonce: 0,
-            receiver_id: AccountId::test_account(),
+            receiver_id: "test".parse().unwrap(),
             block_hash: *client.chain.genesis().hash(),
             actions: vec![],
         },
@@ -1011,10 +1035,10 @@ fn test_process_invalid_tx() {
     let tx2 = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
         Transaction {
-            signer_id: AccountId::test_account(),
+            signer_id: "test".parse().unwrap(),
             public_key: signer.public_key(),
             nonce: 0,
-            receiver_id: AccountId::test_account(),
+            receiver_id: "test".parse().unwrap(),
             block_hash: hash(&[1]),
             actions: vec![],
         },
@@ -1041,6 +1065,7 @@ fn test_time_attack() {
         false,
         network_adapter,
         chain_genesis,
+        TEST_SEED,
     );
     let signer =
         InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
@@ -1073,6 +1098,7 @@ fn test_invalid_approvals() {
         false,
         network_adapter,
         chain_genesis,
+        TEST_SEED,
     );
     let signer =
         InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
@@ -1127,6 +1153,7 @@ fn test_invalid_gas_price() {
         false,
         network_adapter,
         chain_genesis,
+        TEST_SEED,
     );
     let signer =
         InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
@@ -1289,6 +1316,7 @@ fn test_bad_chunk_mask() {
                 false,
                 Arc::new(MockPeerManagerAdapter::default()),
                 chain_genesis.clone(),
+                TEST_SEED,
             )
         })
         .collect();
@@ -1398,7 +1426,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
                 .get_all_block_hashes_by_height(i as BlockHeight)
                 .is_err());
         } else {
-            assert!(env.clients[0].chain.get_block(&blocks[i as usize].hash()).is_ok());
+            assert!(env.clients[0].chain.get_block(blocks[i as usize].hash()).is_ok());
             assert!(env.clients[0].chain.get_block_by_height(i).is_ok());
             assert!(env.clients[0]
                 .chain
@@ -1715,7 +1743,7 @@ fn test_not_resync_old_blocks() {
     }
     for i in 2..epoch_length {
         let block = blocks[i as usize - 1].clone();
-        assert!(env.clients[0].chain.get_block(&block.hash()).is_err());
+        assert!(env.clients[0].chain.get_block(block.hash()).is_err());
         let (_, res) = env.clients[0].process_block(block.into(), Provenance::NONE);
         assert!(matches!(res, Err(x) if matches!(x.kind(), ErrorKind::Orphan)));
         assert_eq!(env.clients[0].chain.orphans_len(), 0);
@@ -1888,6 +1916,7 @@ fn test_incorrect_validator_key_produce_block() {
         Arc::new(MockPeerManagerAdapter::default()),
         Some(signer),
         false,
+        TEST_SEED,
     )
     .unwrap();
     let res = client.produce_block(1);
@@ -1923,7 +1952,7 @@ fn test_block_merkle_proof_with_len(n: NumBlocks) {
     let head = blocks.pop().unwrap();
     let root = head.header().block_merkle_root();
     for block in blocks {
-        let proof = env.clients[0].chain.get_block_proof(&block.hash(), &head.hash()).unwrap();
+        let proof = env.clients[0].chain.get_block_proof(block.hash(), head.hash()).unwrap();
         assert!(verify_hash(*root, &proof, *block.hash()));
     }
 }
@@ -1940,7 +1969,7 @@ fn test_block_merkle_proof_same_hash() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let proof =
-        env.clients[0].chain.get_block_proof(&genesis_block.hash(), &genesis_block.hash()).unwrap();
+        env.clients[0].chain.get_block_proof(genesis_block.hash(), genesis_block.hash()).unwrap();
     assert!(proof.is_empty());
 }
 
@@ -1974,7 +2003,7 @@ fn test_data_reset_before_state_sync() {
     let response = env.clients[0]
         .runtime_adapter
         .query(
-            ShardUId::default(),
+            ShardUId::single_shard(),
             &head_block.chunks()[0].prev_state_root(),
             head.height,
             0,
@@ -1988,7 +2017,7 @@ fn test_data_reset_before_state_sync() {
     env.clients[0].chain.reset_data_pre_state_sync(*head_block.hash()).unwrap();
     // account should not exist after clearing state
     let response = env.clients[0].runtime_adapter.query(
-        ShardUId::default(),
+        ShardUId::single_shard(),
         &head_block.chunks()[0].prev_state_root(),
         head.height,
         0,
@@ -2187,8 +2216,11 @@ fn test_validate_chunk_extra() {
 
     // About to produce a block on top of block1. Validate that this chunk is legit.
     let chunks = env.clients[0].shards_mgr.prepare_chunks(block1.hash());
-    let chunk_extra =
-        env.clients[0].chain.get_chunk_extra(block1.hash(), &ShardUId::default()).unwrap().clone();
+    let chunk_extra = env.clients[0]
+        .chain
+        .get_chunk_extra(block1.hash(), &ShardUId::single_shard())
+        .unwrap()
+        .clone();
     assert!(validate_chunk_with_chunk_extra(
         &mut chain_store,
         &*env.clients[0].runtime_adapter,
@@ -2275,7 +2307,10 @@ fn test_catchup_gas_price_change() {
     }
 
     assert_ne!(blocks[3].header().gas_price(), blocks[4].header().gas_price());
-    assert!(env.clients[1].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::default()).is_err());
+    assert!(env.clients[1]
+        .chain
+        .get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard())
+        .is_err());
 
     // Simulate state sync
     let sync_hash = *blocks[5].hash();
@@ -2326,12 +2361,12 @@ fn test_catchup_gas_price_change() {
     env.clients[1].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
     let chunk_extra_after_sync = env.clients[1]
         .chain
-        .get_chunk_extra(blocks[4].hash(), &ShardUId::default())
+        .get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard())
         .unwrap()
         .clone();
     let expected_chunk_extra = env.clients[0]
         .chain
-        .get_chunk_extra(blocks[4].hash(), &ShardUId::default())
+        .get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard())
         .unwrap()
         .clone();
     // The chunk extra of the prev block of sync block should be the same as the node that it is syncing from
@@ -2626,6 +2661,116 @@ fn test_wasmer2_upgrade() {
 }
 
 #[test]
+fn test_execution_metadata() {
+    // Prepare TestEnv with a very simple WASM contract.
+    let wasm_code = wat::parse_str(
+        r#"
+(module
+    (import "env" "block_index" (func $block_index (result i64)))
+    (func (export "main")
+        (call $block_index)
+        drop
+    )
+)"#,
+    )
+    .unwrap();
+
+    let mut env = {
+        let epoch_length = 5;
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        genesis.config.epoch_length = epoch_length;
+        let chain_genesis = ChainGenesis::from(&genesis);
+        let mut env = TestEnv::builder(chain_genesis)
+            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+            .build();
+
+        deploy_test_contract(&mut env, "test0".parse().unwrap(), &wasm_code, epoch_length, 1);
+        env
+    };
+
+    // Call the contract and get the execution outcome.
+    let execution_outcome = {
+        let tip = env.clients[0].chain.head().unwrap();
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+        let tx = Transaction {
+            signer_id: "test0".parse().unwrap(),
+            receiver_id: "test0".parse().unwrap(),
+            public_key: signer.public_key(),
+            actions: vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "main".to_string(),
+                args: Vec::new(),
+                gas: 100_000_000_000_000,
+                deposit: 0,
+            })],
+
+            nonce: 10,
+            block_hash: tip.last_block_hash,
+        }
+        .sign(&signer);
+        let tx_hash = tx.get_hash();
+
+        env.clients[0].process_tx(tx, false, false);
+        for i in 0..3 {
+            env.produce_block(0, tip.height + i + 1);
+        }
+        env.query_transaction_status(&tx_hash)
+    };
+
+    // Now, let's assert that we get the cost breakdown we expect.
+    let config = RuntimeConfigStore::test().get_config(PROTOCOL_VERSION).clone();
+
+    // Total costs for creating a function call receipt.
+    let expected_receipt_cost = config.transaction_costs.action_receipt_creation_config.execution
+        + config.transaction_costs.action_creation_config.function_call_cost.exec_fee()
+        + config.transaction_costs.action_creation_config.function_call_cost_per_byte.exec_fee()
+            * "main".len() as u64;
+
+    // Profile for what's happening *inside* wasm vm during function call.
+    let expected_profile = serde_json::json!([
+      // Inside the contract, we called one host function.
+      {
+        "cost_category": "WASM_HOST_COST",
+        "cost": "BASE",
+        "gas_used": config.wasm_config.ext_costs.base.to_string()
+      },
+      // We include compilation costs into running the function.
+      {
+        "cost_category": "WASM_HOST_COST",
+        "cost": "CONTRACT_COMPILE_BASE",
+        "gas_used": config.wasm_config.ext_costs.contract_compile_base.to_string()
+      },
+      {
+        "cost_category": "WASM_HOST_COST",
+        "cost": "CONTRACT_COMPILE_BYTES",
+        "gas_used": "18423750"
+      },
+      // We spend two wasm instructions (call & drop).
+      {
+        "cost_category": "WASM_HOST_COST",
+        "cost": "WASM_INSTRUCTION",
+        "gas_used": (config.wasm_config.regular_op_cost as u64 * 2).to_string()
+      }
+    ]);
+    let outcome = &execution_outcome.receipts_outcome[0].outcome;
+    let metadata = &outcome.metadata;
+
+    let actual_profile = serde_json::to_value(&metadata.gas_profile).unwrap();
+    assert_eq!(expected_profile, actual_profile);
+
+    let actual_receipt_cost = outcome.gas_burnt
+        - metadata
+            .gas_profile
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|it| it.gas_used)
+            .sum::<u64>();
+
+    assert_eq!(expected_receipt_cost, actual_receipt_cost)
+}
+
+#[test]
 fn test_epoch_protocol_version_change() {
     init_test_logger();
     let epoch_length = 5;
@@ -2734,7 +2879,7 @@ fn test_query_final_state() {
         let last_final_block = chain.get_block(&final_head.last_block_hash).unwrap().clone();
         let response = runtime_adapter
             .query(
-                ShardUId::default(),
+                ShardUId::single_shard(),
                 &last_final_block.chunks()[0].prev_state_root(),
                 last_final_block.header().height(),
                 last_final_block.header().raw_timestamp(),
@@ -3076,14 +3221,14 @@ fn test_congestion_receipt_execution() {
     let prev_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
     let chunk_extra = env.clients[0]
         .chain
-        .get_chunk_extra(prev_block.hash(), &ShardUId::default())
+        .get_chunk_extra(prev_block.hash(), &ShardUId::single_shard())
         .unwrap()
         .clone();
     assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
     let state_update = env.clients[0]
         .runtime_adapter
         .get_tries()
-        .new_trie_update(ShardUId::default(), *chunk_extra.state_root());
+        .new_trie_update(ShardUId::single_shard(), *chunk_extra.state_root());
     let delayed_indices =
         get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices)
             .unwrap()
@@ -3099,7 +3244,7 @@ fn test_congestion_receipt_execution() {
     }
 
     for tx_hash in &tx_hashes {
-        let final_outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+        let final_outcome = env.clients[0].chain.get_final_transaction_result(tx_hash).unwrap();
         assert!(matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_)));
 
         // Check that all receipt ids have corresponding execution outcomes. This means that all receipts generated are executed.
@@ -3321,6 +3466,125 @@ mod access_key_nonce_range_tests {
         assert!(matches!(res, NetworkClientResponses::InvalidTx(_)));
     }
 
+    /// Helper for checking that duplicate transactions from implicit accounts are properly rejected.
+    /// It creates implicit account, deletes it and creates again, so that nonce of the access
+    /// key is updated. Then it tries to send tx from implicit account with invalid nonce, which
+    /// should fail since the protocol upgrade.
+    fn get_status_of_tx_hash_collision_for_implicit_account(
+        protocol_version: ProtocolVersion,
+    ) -> NetworkClientResponses {
+        let epoch_length = 100;
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        genesis.config.epoch_length = epoch_length;
+        genesis.config.protocol_version = protocol_version;
+        let mut env = TestEnv::builder(ChainGenesis::test())
+            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+            .build();
+        let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+
+        let signer1 =
+            InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+
+        let public_key = signer1.public_key.clone();
+        let raw_public_key = public_key.unwrap_as_ed25519().0.to_vec();
+        let implicit_account_id = AccountId::try_from(hex::encode(&raw_public_key)).unwrap();
+        let implicit_account_signer = InMemorySigner::from_secret_key(
+            implicit_account_id.clone(),
+            signer1.secret_key.clone(),
+        );
+        let deposit_for_account_creation = 10u128.pow(23);
+        let mut height = 1;
+        let blocks_number = 5;
+
+        // Send money to implicit account, invoking its creation.
+        let send_money_tx = SignedTransaction::send_money(
+            1,
+            "test1".parse().unwrap(),
+            implicit_account_id.clone(),
+            &signer1,
+            deposit_for_account_creation.clone(),
+            *genesis_block.hash(),
+        );
+        height = check_tx_processing(&mut env, send_money_tx, height, blocks_number.clone());
+        let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap().clone();
+
+        // Delete implicit account.
+        let delete_account_tx = SignedTransaction::delete_account(
+            // Because AccessKeyNonceRange is enabled, correctness of this nonce is guaranteed.
+            (height - 1) * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER,
+            implicit_account_id.clone(),
+            implicit_account_id.clone(),
+            "test0".parse().unwrap(),
+            &implicit_account_signer,
+            *block.hash(),
+        );
+        height = check_tx_processing(&mut env, delete_account_tx, height, blocks_number.clone());
+        let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap().clone();
+
+        // Send money to implicit account again, invoking its second creation.
+        let send_money_again_tx = SignedTransaction::send_money(
+            2,
+            "test1".parse().unwrap(),
+            implicit_account_id.clone(),
+            &signer1,
+            deposit_for_account_creation,
+            *block.hash(),
+        );
+        height = check_tx_processing(&mut env, send_money_again_tx, height, blocks_number);
+        let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap().clone();
+
+        // Send money from implicit account with incorrect nonce.
+        let send_money_from_implicit_account_tx = SignedTransaction::send_money(
+            1,
+            implicit_account_id.clone(),
+            "test0".parse().unwrap(),
+            &implicit_account_signer,
+            100,
+            *block.hash(),
+        );
+        let status = env.clients[0].process_tx(send_money_from_implicit_account_tx, false, false);
+
+        // Check that sending money from implicit account with correct nonce is still valid.
+        let send_money_from_implicit_account_tx = SignedTransaction::send_money(
+            (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER,
+            implicit_account_id.clone(),
+            "test0".parse().unwrap(),
+            &implicit_account_signer,
+            100,
+            *block.hash(),
+        );
+        check_tx_processing(&mut env, send_money_from_implicit_account_tx, height, blocks_number);
+
+        status
+    }
+
+    /// Test that duplicate transactions from implicit accounts are properly rejected.
+    #[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
+    #[test]
+    fn test_transaction_hash_collision_for_implicit_account_fail() {
+        let protocol_version =
+            ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version();
+        assert!(matches!(
+            get_status_of_tx_hash_collision_for_implicit_account(protocol_version),
+            NetworkClientResponses::InvalidTx(InvalidTxError::InvalidNonce { .. })
+        ));
+    }
+
+    /// Test that duplicate transactions from implicit accounts are not rejected until protocol upgrade.
+    #[test]
+    fn test_transaction_hash_collision_for_implicit_account_ok() {
+        #[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
+        let protocol_version =
+            ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
+        #[cfg(not(feature = "protocol_feature_access_key_nonce_for_implicit_accounts"))]
+        let protocol_version = PROTOCOL_VERSION;
+        assert!(matches!(
+            get_status_of_tx_hash_collision_for_implicit_account(protocol_version),
+            NetworkClientResponses::ValidTx
+        ));
+    }
+
     /// Test that chunks with transactions that have expired are considered invalid.
     #[test]
     fn test_chunk_transaction_validity() {
@@ -3529,7 +3793,8 @@ mod protocol_feature_restore_receipts_after_fix_tests {
     ) {
         init_test_logger();
 
-        let protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
+        let protocol_version =
+            ProtocolFeature::RestoreReceiptsAfterFixApplyChunks.protocol_version() - 1;
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.chain_id = String::from(chain_id);
@@ -3578,7 +3843,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             set_block_protocol_version(
                 &mut block,
                 "test0".parse().unwrap(),
-                ProtocolFeature::RestoreReceiptsAfterFix.protocol_version(),
+                ProtocolFeature::RestoreReceiptsAfterFixApplyChunks.protocol_version(),
             );
 
             env.process_block(0, block, Provenance::PRODUCED);
@@ -3593,7 +3858,8 @@ mod protocol_feature_restore_receipts_after_fix_tests {
                 if env.clients[0].chain.get_execution_outcome(receipt_id).is_ok() {
                     assert!(
                         protocol_version
-                            >= ProtocolFeature::RestoreReceiptsAfterFix.protocol_version(),
+                            >= ProtocolFeature::RestoreReceiptsAfterFixApplyChunks
+                                .protocol_version(),
                         "Restored receipt {} was executed before protocol upgrade",
                         receipt_id
                     );
@@ -3603,7 +3869,9 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             }
 
             // Update last updated height anyway if upgrade did not happen
-            if protocol_version < ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() {
+            if protocol_version
+                < ProtocolFeature::RestoreReceiptsAfterFixApplyChunks.protocol_version()
+            {
                 last_update_height = height;
             }
             height += 1;
@@ -3688,7 +3956,7 @@ mod storage_usage_fix_tests {
 
             let root = env.clients[0]
                 .chain
-                .get_chunk_extra(block.hash(), &ShardUId::default())
+                .get_chunk_extra(block.hash(), &ShardUId::single_shard())
                 .unwrap()
                 .state_root()
                 .clone();
@@ -3803,8 +4071,11 @@ mod contract_precompilation_tests {
     fn state_sync_on_height(env: &mut TestEnv, height: BlockHeight) {
         let sync_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
         let sync_hash = *sync_block.hash();
-        let chunk_extra =
-            env.clients[0].chain.get_chunk_extra(&sync_hash, &ShardUId::default()).unwrap().clone();
+        let chunk_extra = env.clients[0]
+            .chain
+            .get_chunk_extra(&sync_hash, &ShardUId::single_shard())
+            .unwrap()
+            .clone();
         let epoch_id =
             env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
         let state_part = env.clients[0]
@@ -3881,7 +4152,7 @@ mod contract_precompilation_tests {
         // compile_module_cached_wasmer0 is cached by contract key via macro.
         let block = env.clients[0].chain.get_block_by_height(EPOCH_LENGTH).unwrap().clone();
         let chunk_extra =
-            env.clients[0].chain.get_chunk_extra(block.hash(), &ShardUId::default()).unwrap();
+            env.clients[0].chain.get_chunk_extra(block.hash(), &ShardUId::single_shard()).unwrap();
         let state_root = chunk_extra.state_root().clone();
 
         let viewer = TrieViewer::default();
@@ -3949,7 +4220,7 @@ mod contract_precompilation_tests {
         );
 
         // Wait 3 epochs.
-        height = produce_epochs(&mut env, 3, EPOCH_LENGTH, height);
+        height = produce_blocks_from_height(&mut env, 3 * EPOCH_LENGTH, height);
 
         // Process test contract deployment on the first client.
         let wasm_code = near_test_contracts::rs_contract().to_vec();
@@ -4042,7 +4313,7 @@ mod contract_precompilation_tests {
             *block.hash(),
         );
         env.clients[0].process_tx(delete_account_tx, false, false);
-        height = produce_epochs(&mut env, 1, EPOCH_LENGTH, height);
+        height = produce_blocks_from_height(&mut env, EPOCH_LENGTH, height);
 
         // Perform state sync for the second client.
         state_sync_on_height(&mut env, height - 1);

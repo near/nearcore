@@ -97,7 +97,7 @@ impl EpochInfoProvider for SafeEpochManager {
         if slashed.contains_key(account_id) {
             return Ok(None);
         }
-        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
+        let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
         Ok(epoch_info.get_validator_id(account_id).map(|id| epoch_info.validator_stake(*id)))
     }
 
@@ -108,7 +108,7 @@ impl EpochInfoProvider for SafeEpochManager {
     ) -> Result<Balance, EpochError> {
         let mut epoch_manager = self.0.write().expect(POISONED_LOCK_ERR);
         let slashed = epoch_manager.get_slashed_validators(last_block_hash)?.clone();
-        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
+        let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
         Ok(epoch_info
             .validators_iter()
             .filter_map(|info| {
@@ -328,8 +328,8 @@ impl NightshadeRuntime {
                 tries.clone(),
                 shard_id,
                 &validators,
-                &genesis,
-                &runtime_config,
+                genesis,
+                runtime_config,
                 shard_account_ids[shard_id as usize].clone(),
             ));
         }
@@ -554,8 +554,8 @@ impl NightshadeRuntime {
                 state_root,
                 &validator_accounts_update,
                 &apply_state,
-                &receipts,
-                &transactions,
+                receipts,
+                transactions,
                 &self.epoch_manager,
                 states_to_patch,
             )
@@ -625,7 +625,7 @@ impl NightshadeRuntime {
             .install(|| {
                 contract_codes.par_iter().for_each(|code| {
                     precompile_contract(
-                        &code,
+                        code,
                         &runtime_config.wasm_config,
                         protocol_version,
                         compiled_contract_cache.as_deref(),
@@ -704,7 +704,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         vrf_proof: &near_crypto::vrf::Proof,
     ) -> Result<(), Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        let validator = epoch_manager.get_block_producer_info(&epoch_id, block_height)?;
+        let validator = epoch_manager.get_block_producer_info(epoch_id, block_height)?;
         let public_key = near_crypto::key_conversion::convert_public_key(
             validator.public_key().unwrap_as_ed25519(),
         )
@@ -736,7 +736,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 runtime_config,
                 &mut state_update,
                 gas_price,
-                &transaction,
+                transaction,
                 verify_signature,
                 // here we do not know which block the transaction will be included
                 // and therefore skip the check on the nonce upper bound.
@@ -758,7 +758,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             match validate_transaction(
                 runtime_config,
                 gas_price,
-                &transaction,
+                transaction,
                 verify_signature,
                 current_protocol_version,
             ) {
@@ -885,7 +885,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         let block_producer =
-            epoch_manager.get_block_producer_info(&header.epoch_id(), header.height())?;
+            epoch_manager.get_block_producer_info(header.epoch_id(), header.height())?;
         let slashed = match epoch_manager.get_slashed_validators(header.prev_hash()) {
             Ok(slashed) => slashed,
             Err(_) => return Err(EpochError::MissingBlock(*header.prev_hash()).into()),
@@ -1040,7 +1040,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         match epoch_manager.get_validator_by_account_id(epoch_id, account_id) {
             Ok(Some(validator)) => {
-                let slashed = epoch_manager.get_slashed_validators(&last_known_block_hash)?;
+                let slashed = epoch_manager.get_slashed_validators(last_known_block_hash)?;
                 Ok((validator, slashed.contains_key(account_id)))
             }
             Ok(None) => Err(ErrorKind::NotAValidator.into()),
@@ -1057,7 +1057,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         match epoch_manager.get_fisherman_by_account_id(epoch_id, account_id) {
             Ok(Some(fisherman)) => {
-                let slashed = epoch_manager.get_slashed_validators(&last_known_block_hash)?;
+                let slashed = epoch_manager.get_slashed_validators(last_known_block_hash)?;
                 Ok((fisherman, slashed.contains_key(account_id)))
             }
             Ok(None) => Err(ErrorKind::NotAValidator.into()),
@@ -1474,7 +1474,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let (epoch_height, current_protocol_version) = {
                     let mut epoch_manager =
                         self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-                    let epoch_info = epoch_manager.get_epoch_info(&epoch_id).map_err(|err| {
+                    let epoch_info = epoch_manager.get_epoch_info(epoch_id).map_err(|err| {
                         near_chain::near_chain_primitives::error::QueryError::from_epoch_error(
                             err,
                             block_height,
@@ -1673,7 +1673,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             new_shards.iter().map(|shard_uid| (*shard_uid, StateRoot::default())).collect();
         let split_shard_ids: HashSet<_> = new_shards.into_iter().collect();
         let checked_account_id_to_shard_id = |account_id: &AccountId| {
-            let new_shard_uid = account_id_to_shard_uid(account_id, &next_epoch_shard_layout);
+            let new_shard_uid = account_id_to_shard_uid(account_id, next_epoch_shard_layout);
             // check that all accounts in the shard are mapped the shards that this shard will split
             // to according to shard layout
             assert!(
@@ -1721,7 +1721,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let part = BorshDeserialize::try_from_slice(data)
             .expect("Part was already validated earlier, so could never fail here");
         let ApplyStatePartResult { trie_changes, contract_codes } =
-            Trie::apply_state_part(&state_root, part_id, num_parts, part);
+            Trie::apply_state_part(state_root, part_id, num_parts, part);
         let tries = self.get_tries();
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
         let (store_update, _) =
@@ -1993,7 +1993,7 @@ mod test {
             let mut result = self
                 .apply_transactions(
                     shard_id,
-                    &state_root,
+                    state_root,
                     height,
                     block_timestamp,
                     prev_block_hash,
@@ -2206,10 +2206,10 @@ mod test {
                 .commit()
                 .unwrap();
             let shard_layout = self.runtime.get_shard_layout_from_prev_block(&new_hash).unwrap();
-            let mut new_receipts = HashMap::new();
+            let mut new_receipts = HashMap::<_, Vec<Receipt>>::new();
             for receipt in all_receipts {
                 let shard_id = account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
-                new_receipts.entry(shard_id).or_insert_with(|| vec![]).push(receipt);
+                new_receipts.entry(shard_id).or_default().push(receipt);
             }
             self.last_receipts = new_receipts;
             self.last_proposals = all_proposals;
@@ -2240,7 +2240,7 @@ mod test {
                 self.runtime.account_id_to_shard_id(account_id, &self.head.epoch_id).unwrap();
             let shard_uid = self.runtime.shard_id_to_uid(shard_id, &self.head.epoch_id).unwrap();
             self.runtime
-                .view_account(&shard_uid, self.state_roots[shard_id as usize], &account_id)
+                .view_account(&shard_uid, self.state_roots[shard_id as usize], account_id)
                 .unwrap()
                 .into()
         }
@@ -3307,7 +3307,7 @@ mod test {
         let (validator_reward, protocol_treasury_reward) =
             env.compute_reward(num_nodes, epoch_length * 10u64.pow(9));
         for i in 0..4 {
-            let account = env.view_account(&block_producers[i].validator_id());
+            let account = env.view_account(block_producers[i].validator_id());
             assert_eq!(account.locked, TESTING_INIT_STAKE + validator_reward);
         }
 

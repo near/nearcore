@@ -121,14 +121,14 @@ pub fn genesis_chunks(
 
 impl Block {
     fn block_from_protocol_version(
-        protocol_version: ProtocolVersion,
+        next_epoch_protocol_version: ProtocolVersion,
         header: BlockHeader,
         chunks: Vec<ShardChunkHeader>,
         challenges: Challenges,
         vrf_value: near_crypto::vrf::Value,
         vrf_proof: near_crypto::vrf::Proof,
     ) -> Block {
-        if protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
+        if next_epoch_protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
             let legacy_chunks = chunks
                 .into_iter()
                 .map(|chunk| match chunk {
@@ -197,7 +197,8 @@ impl Block {
 
     /// Produces new block from header of previous block, current state root and set of transactions.
     pub fn produce(
-        protocol_version: ProtocolVersion,
+        this_epoch_protocol_version: ProtocolVersion,
+        next_epoch_protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
         block_ordinal: NumBlocks,
@@ -269,7 +270,8 @@ impl Block {
         };
 
         let header = BlockHeader::new(
-            protocol_version,
+            this_epoch_protocol_version,
+            next_epoch_protocol_version,
             height,
             prev.hash().clone(),
             Block::compute_state_root(&chunks),
@@ -299,7 +301,7 @@ impl Block {
         );
 
         Self::block_from_protocol_version(
-            protocol_version,
+            next_epoch_protocol_version,
             header,
             chunks,
             challenges,
@@ -523,7 +525,7 @@ impl Block {
         }
 
         // Check that challenges root stored in the header matches the challenges root of the challenges
-        let challenges_root = Block::compute_challenges_root(&self.challenges());
+        let challenges_root = Block::compute_challenges_root(self.challenges());
         if self.header().challenges_root() != &challenges_root {
             return Err(InvalidChallengeRoot);
         }
@@ -584,7 +586,7 @@ impl<'a> ChunksCollection<'a> {
 
     pub fn iter<'b: 'a>(&'b self) -> VersionedChunksIter<'b> {
         match self {
-            ChunksCollection::V1(chunks) => VersionedChunksIter::new(&chunks),
+            ChunksCollection::V1(chunks) => VersionedChunksIter::new(chunks),
             ChunksCollection::V2(chunks) => VersionedChunksIter::new(chunks),
         }
     }

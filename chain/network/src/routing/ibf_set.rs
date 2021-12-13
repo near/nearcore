@@ -118,7 +118,7 @@ mod test {
             a.remove_edge(&(i as u64));
         }
         for i in 0..10000 {
-            b.add_edge(&(i + 100 as u64), (i + 2000000) as SlotMapId);
+            b.add_edge(&(i + 100_u64), (i + 2000000) as SlotMapId);
         }
         for i in 10..=17 {
             let mut ibf1 = a.get_ibf(ValidIBFLevel(i));

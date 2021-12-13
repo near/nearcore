@@ -1,10 +1,12 @@
+#!/usr/bin/env python3
 # Spin up one validating node and make it produce blocks for more than one epoch
 # spin up another node that tracks the shard, make sure that it can state sync into the first node
 
 import sys, time
 import base58
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger

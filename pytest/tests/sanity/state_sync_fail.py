@@ -1,11 +1,13 @@
+#!/usr/bin/env python3
 # Spins up a node, wait until sharding is upgrade
 # and spins up another node
 # check that the node can't be started because it cannot state sync to the epoch
 # after the sharding upgrade
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import init_cluster, spin_up_node, load_config
 from configured_logger import logger
