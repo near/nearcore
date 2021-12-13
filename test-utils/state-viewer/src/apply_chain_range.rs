@@ -332,9 +332,9 @@ pub fn apply_chain_range(
     let range = (start_height..=end_height);
 
     if cfg!(feature = "single_threaded") {
-        range.into_par_iter().for_each(process_height);
-    } else {
         range.into_iter().for_each(process_height);
+    } else {
+        range.into_par_iter().for_each(process_height);
     }
 
     println!(
