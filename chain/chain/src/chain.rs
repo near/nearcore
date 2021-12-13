@@ -2476,7 +2476,7 @@ impl Chain {
         hash2: Option<MerkleHash>,
     ) -> Option<MerkleHash> {
         match (hash1, hash2) {
-            (Some(h1), Some(h2)) => Some(combine_hash(h1, h2)),
+            (Some(h1), Some(h2)) => Some(combine_hash(&h1, &h2)),
             (Some(h1), None) => Some(h1),
             (None, Some(_)) => {
                 debug_assert!(false, "Inconsistent state in merkle proof computation: left node is None but right node exists");
