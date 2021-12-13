@@ -1,17 +1,17 @@
 #![doc = include_str!("../README.md")]
 
-use std::fmt::{self, Error, Formatter};
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_account_id::AccountId;
 use near_rpc_error_macro::RpcError;
 use serde::{Deserialize, Serialize};
+use std::any::Any;
+use std::fmt::{self, Error, Formatter};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum VMError {
     FunctionCallError(FunctionCallError),
-    /// Serialized external error from External trait implementation.
-    ExternalError(Vec<u8>),
+    /// Type erased error from `External` trait implementation.
+    ExternalError(AnyError),
     /// An error that is caused by an operation on an inconsistent state.
     /// E.g. an integer overflow by using a value from the given context.
     InconsistentStateError(InconsistentStateError),
@@ -227,12 +227,12 @@ pub enum HostError {
     AltBn128SerializationError { msg: String },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum VMLogicError {
     /// Errors coming from native Wasm VM.
     HostError(HostError),
-    /// Serialized external error from External trait implementation.
-    ExternalError(Vec<u8>),
+    /// Type erased error from `External` trait implementation.
+    ExternalError(AnyError),
     /// An error that is caused by an operation on an inconsistent state.
     InconsistentStateError(InconsistentStateError),
 }
@@ -268,14 +268,14 @@ impl From<PrepareError> for VMError {
     }
 }
 
-impl From<&VMLogicError> for VMError {
-    fn from(err: &VMLogicError) -> Self {
+impl From<VMLogicError> for VMError {
+    fn from(err: VMLogicError) -> Self {
         match err {
             VMLogicError::HostError(h) => {
-                VMError::FunctionCallError(FunctionCallError::HostError(h.clone()))
+                VMError::FunctionCallError(FunctionCallError::HostError(h))
             }
-            VMLogicError::ExternalError(s) => VMError::ExternalError(s.clone()),
-            VMLogicError::InconsistentStateError(e) => VMError::InconsistentStateError(e.clone()),
+            VMLogicError::ExternalError(s) => VMError::ExternalError(s),
+            VMLogicError::InconsistentStateError(e) => VMError::InconsistentStateError(e),
         }
     }
 }
@@ -429,6 +429,62 @@ impl std::fmt::Display for HostError {
             AltBn128SerializationError { msg } => write!(f, "AltBn128 serialization error: {}", msg),
             ECRecoverError { msg } => write!(f, "ECDSA recover error: {}", msg),
         }
+    }
+}
+
+/// Type-erased error used to shuttle some concrete error coming from `External`
+/// through vm-logic.
+///
+/// The caller is supposed to downcast this to a concrete error type they should
+/// know. This would be just `Box<dyn Any + Eq>` if the latter actually worked.
+pub struct AnyError {
+    any: Box<dyn AnyEq>,
+}
+
+impl AnyError {
+    pub fn new<E: Any + Eq + Send + Sync + 'static>(err: E) -> AnyError {
+        AnyError { any: Box::new(err) }
+    }
+    pub fn downcast<E: Any + Eq + Send + Sync + 'static>(self) -> Result<E, ()> {
+        match self.any.into_any().downcast::<E>() {
+            Ok(it) => Ok(*it),
+            Err(_) => Err(()),
+        }
+    }
+}
+
+impl PartialEq for AnyError {
+    fn eq(&self, other: &Self) -> bool {
+        self.any.any_eq(&*other.any)
+    }
+}
+
+impl Eq for AnyError {}
+
+impl fmt::Debug for AnyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self.any.as_any(), f)
+    }
+}
+
+trait AnyEq: Any + Send + Sync {
+    fn any_eq(&self, rhs: &dyn AnyEq) -> bool;
+    fn as_any(&self) -> &dyn Any;
+    fn into_any(self: Box<Self>) -> Box<dyn Any>;
+}
+
+impl<T: Any + Eq + Sized + Send + Sync> AnyEq for T {
+    fn any_eq(&self, rhs: &dyn AnyEq) -> bool {
+        match rhs.as_any().downcast_ref::<Self>() {
+            Some(rhs) => self == rhs,
+            None => false,
+        }
+    }
+    fn as_any(&self) -> &dyn Any {
+        &*self
+    }
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
     }
 }
 
