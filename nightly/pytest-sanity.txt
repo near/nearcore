@@ -137,3 +137,6 @@ pytest sanity/restart.py --features nightly_protocol,nightly_protocol_features
 # Rosetta RPC tests
 pytest sanity/rosetta.py
 pytest sanity/rosetta.py --features nightly_protocol,nightly_protocol_features
+
+# Disabled, because it's flunky
+pytest sanity/upgradable.py
