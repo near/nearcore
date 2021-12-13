@@ -470,9 +470,16 @@ impl Graph {
             }
         }
 
+        // This takes 75% of the total time computation time of this function.
         self.compute_result(&mut routes, &distance)
     }
 
+    /// Converts representation of the result, from an array representation, to
+    /// a hashmap of PeerId -> Vec<PeerIds>
+    /// Arguments:
+    ///   - routes - for node given node at index `i`, give list of connected peers, which
+    ///     are on the optimal path
+    ///   - distances - not really needed: TODO remove this argument
     fn compute_result(&self, routes: &[u128], distance: &[i32]) -> HashMap<PeerId, Vec<PeerId>> {
         let mut res = HashMap::with_capacity(routes.len());
 
@@ -490,13 +497,16 @@ impl Graph {
             {
                 continue;
             }
-            let mut peer_set: Vec<PeerId> = Vec::with_capacity(cur_route.count_ones() as usize);
-
-            for (id, &neighbor) in neighbors.iter().enumerate().take(MAX_NUM_PEERS) {
-                if (cur_route & (1u128 << id)) != 0 {
-                    peer_set.push(self.id2p[neighbor as usize].clone());
-                };
-            }
+            // We convert list of peers, which are represented as bits
+            // to a list of Vec<PeerId>
+            // This is a bit wasteful representation, but that's ok.
+            let peer_set = neighbors
+                .iter()
+                .enumerate()
+                .take(MAX_NUM_PEERS)
+                .filter(|(id, _)| (cur_route & (1u128 << id)) != 0)
+                .map(|(_, &neighbor)| self.id2p[neighbor as usize].clone())
+                .collect();
             res.insert(self.id2p[key].clone(), peer_set);
         }
         if unreachable_nodes > 1000 {
