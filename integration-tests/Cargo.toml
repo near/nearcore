@@ -3,22 +3,21 @@ name = "integration-tests"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 
 [dependencies]
 actix = "=0.11.0-beta.2"
 actix-rt = "2"
-assert_matches = "1.3"
 borsh = "0.9"
 cached = "0.23"
 chrono = { version = "0.4.4", features = ["serde"] }
-funty = "=1.1.0" # Pin dependency to avoid compilation errors: https://github.com/myrrlyn/funty/issues/3
 futures = "0.3"
 hex = "0.4"
 hyper = { version = "0.14", features = ["full"] }
 lazy_static = "1.4"
 log = "0.4"
-portpicker = "0.1.1"
 primitive-types = "0.10.1"
 rand = "0.7"
 serde = { version = "1", features = ["derive"] }
@@ -27,6 +26,7 @@ tempfile = "3"
 tokio = { version = "1.1", features = ["full"] }
 tracing = "0.1.13"
 base64 = "0.11"
+wat = "1.0"
 
 near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
 near-chain = { path = "../chain/chain" }
@@ -38,7 +38,6 @@ near-crypto = { path = "../core/crypto" }
 near-jsonrpc = { path = "../chain/jsonrpc" }
 near-jsonrpc-client = { path = "../chain/jsonrpc/client" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
-near-logger-utils = { path = "../test-utils/logger" }
 near-metrics = { path = "../core/metrics" }
 near-network = { path = "../chain/network" }
 near-network-primitives = { path = "../chain/network-primitives" }
@@ -51,6 +50,11 @@ near-vm-runner = { path = "../runtime/near-vm-runner" }
 nearcore = { path = "../nearcore" }
 node-runtime = { path = "../runtime/runtime" }
 testlib = { path = "../test-utils/testlib" }
+
+[dev-dependencies]
+assert_matches = "1.3"
+near-logger-utils = { path = "../test-utils/logger" }
+portpicker = "0.1.1"
 
 [features]
 performance_stats = ["nearcore/performance_stats", "near-network/performance_stats"]

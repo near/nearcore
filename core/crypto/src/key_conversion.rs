@@ -8,7 +8,7 @@ use std::mem::transmute;
 pub fn is_valid_staking_key(public_key: &PublicKey) -> bool {
     // The valid staking key is ED25519, and can be converted to ristretto.
     match public_key {
-        PublicKey::ED25519(key) => convert_public_key(&key).is_some(),
+        PublicKey::ED25519(key) => convert_public_key(key).is_some(),
         PublicKey::SECP256K1(_) => false,
     }
 }

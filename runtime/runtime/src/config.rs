@@ -95,7 +95,7 @@ pub fn total_send_fees(
                 // Account for implicit account creation
                 let is_receiver_implicit =
                     is_implicit_account_creation_enabled(current_protocol_version)
-                        && AccountId::is_implicit(receiver_id.as_ref());
+                        && receiver_id.is_implicit();
                 transfer_send_fee(cfg, sender_is_receiver, is_receiver_implicit)
             }
             Stake(_) => cfg.stake_cost.send_fee(sender_is_receiver),
@@ -153,7 +153,7 @@ pub fn exec_fee(
             // Account for implicit account creation
             let is_receiver_implicit =
                 is_implicit_account_creation_enabled(current_protocol_version)
-                    && AccountId::is_implicit(receiver_id.as_ref());
+                    && receiver_id.is_implicit();
             transfer_exec_fee(cfg, is_receiver_implicit)
         }
         Stake(_) => cfg.stake_cost.exec_fee(),
@@ -189,7 +189,7 @@ pub fn tx_cost(
     gas_burnt = safe_add_gas(
         gas_burnt,
         total_send_fees(
-            &config,
+            config,
             sender_is_receiver,
             &transaction.actions,
             &transaction.receiver_id,
@@ -221,7 +221,7 @@ pub fn tx_cost(
     gas_remaining = safe_add_gas(
         gas_remaining,
         total_prepaid_exec_fees(
-            &config,
+            config,
             &transaction.actions,
             &transaction.receiver_id,
             current_protocol_version,
@@ -243,7 +243,7 @@ pub fn total_prepaid_exec_fees(
 ) -> Result<Gas, IntegerOverflowError> {
     let mut result = 0;
     for action in actions {
-        let delta = exec_fee(&config, action, receiver_id, current_protocol_version);
+        let delta = exec_fee(config, action, receiver_id, current_protocol_version);
         result = safe_add_gas(result, delta)?;
     }
     Ok(result)

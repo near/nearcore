@@ -1,6 +1,6 @@
+use crate::{ThrottleController, ThrottleToken};
 use actix::dev::MessageResponse;
 use actix::Message;
-use near_rate_limiter::{ThrottleController, ThrottleToken};
 
 // Wrapper around Actix messages, used to track size of all messages sent to PeerManager.
 // TODO(#5155) Finish implementation of this.
@@ -17,8 +17,8 @@ pub struct ActixMessageWrapper<T> {
 }
 
 impl<T> ActixMessageWrapper<T> {
-    pub fn new_without_size(msg: T, throttle_controller: ThrottleController) -> Self {
-        Self { msg, throttle_token: ThrottleToken::new(throttle_controller, 0) }
+    pub fn new_without_size(msg: T, throttle_controller: Option<ThrottleController>) -> Self {
+        Self { msg, throttle_token: ThrottleToken::new_without_size(throttle_controller) }
     }
 
     #[allow(unused)]

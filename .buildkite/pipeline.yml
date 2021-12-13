@@ -1,18 +1,38 @@
 steps:
-  - label: "cargo test"
+  - label: "cargo test integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --locked --workspace
+      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --locked -p 'integration-tests' -j 16
 
     timeout: 60
     agents:
     - "distro=amazonlinux"
     branches: "!master"
 
-  - label: "cargo test nightly"
+  - label: "cargo test not integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features,test_features
+      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --locked --workspace -p '*' --exclude 'integration-tests*' -j 16
+
+    timeout: 60
+    agents:
+    - "distro=amazonlinux"
+    branches: "!master"
+
+  - label: "cargo test nightly integration-tests*"
+    command: |
+      source ~/.cargo/env && set -eux
+      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --features nightly_protocol,nightly_protocol_features,test_features -p 'integration-tests' -j 16
+
+    timeout: 60
+    agents:
+    - "distro=amazonlinux"
+    branches: "!master"
+
+  - label: "cargo test nightly not integration-tests*"
+    command: |
+      source ~/.cargo/env && set -eux
+      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features,test_features,rosetta_rpc -p '*' --exclude 'integration-tests*' -j 16
 
     timeout: 60
     agents:
@@ -62,7 +82,6 @@ steps:
     command: |
       source ~/.cargo/env && set -eux
       source ~/.nvm/nvm.sh
-      source ~/.yarn/yarn.sh
       rustup default nightly-2020-05-15
       rustup target add wasm32-unknown-unknown
       scripts/test_nearlib.sh

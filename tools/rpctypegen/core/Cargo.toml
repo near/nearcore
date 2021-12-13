@@ -2,6 +2,8 @@
 name = "near-rpc-error-core"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/nearprotocol/nearcore"

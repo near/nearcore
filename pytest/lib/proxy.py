@@ -203,16 +203,13 @@ def check_finish(server, global_stopped, local_stopped, error):
         local_stopped.value = 2
 
 
-async def _read_exact(reader, length):
+async def _read_exact(reader, length, *, allow_eof=False):
     """Reads exactly `length` bytes from reader."""
-    data = b''
-    while True:
-        buf = await reader.read(length - len(data))
-        if not buf:
-            raise RuntimeError('Endpoint closed')
-        data += buf
-        if len(data) >= length:
-            return data
+    data = await reader.read(length)
+    if data or not allow_eof:
+        while len(data) < length:
+            data += await reader.read(length - len(data))
+    return data
 
 
 async def bridge(reader, writer, handler_fn, global_stopped, local_stopped,
@@ -223,14 +220,13 @@ async def bridge(reader, writer, handler_fn, global_stopped, local_stopped,
     try:
         while 0 == global_stopped.value and 0 >= local_stopped.value and 0 == error.value and 0 == bridge_stopped[
                 0]:
-            header = await _read_exact(reader, 4)
+            header = await _read_exact(reader, 4, allow_eof=True)
             if not header:
                 logging.debug(
                     f"Endpoint closed (Reader). port={_MY_PORT} bridge_id={bridge_id}"
                 )
                 break
 
-            assert len(header) == 4, header
             raw_message_len = struct.unpack('I', header)[0]
             raw_message = await _read_exact(reader, raw_message_len)
 

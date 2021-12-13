@@ -72,7 +72,7 @@ pub fn gen_unique_accounts(rng: &mut impl Rng, max_size: usize) -> Vec<AccountId
 
 pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
     let alphabet = &b"abcdefgh"[0..rng.gen_range(4, 8)];
-    let accounts = gen_accounts_from_alphabet(rng, max_size, &alphabet);
+    let accounts = gen_accounts_from_alphabet(rng, max_size, alphabet);
     accounts
         .iter()
         .map(|account_id| Receipt {

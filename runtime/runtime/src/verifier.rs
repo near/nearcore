@@ -62,7 +62,7 @@ pub fn validate_transaction(
 
     tx_cost(
         &config.transaction_costs,
-        &transaction,
+        transaction,
         gas_price,
         sender_is_receiver,
         current_protocol_version,
@@ -98,7 +98,7 @@ pub fn verify_and_charge_transaction(
             return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() }.into());
         }
     };
-    let mut access_key = match get_access_key(state_update, &signer_id, &transaction.public_key)? {
+    let mut access_key = match get_access_key(state_update, signer_id, &transaction.public_key)? {
         Some(access_key) => access_key,
         None => {
             return Err(InvalidTxError::InvalidAccessKeyError(
@@ -157,7 +157,7 @@ pub fn verify_and_charge_transaction(
         }
     }
 
-    match get_insufficient_storage_stake(&signer, &config) {
+    match get_insufficient_storage_stake(&signer, config) {
         Ok(None) => {}
         Ok(Some(amount)) => {
             return Err(InvalidTxError::LackBalanceForState {
@@ -465,7 +465,7 @@ mod tests {
             account_id.as_ref(),
         ));
 
-        let mut initial_state = tries.new_trie_update(ShardUId::default(), root);
+        let mut initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
         for (account_id, initial_balance, initial_locked, access_key) in accounts {
             let mut initial_account = account_new(initial_balance, hash(&[]));
             initial_account.set_locked(initial_locked);
@@ -481,10 +481,11 @@ mod tests {
         }
         initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap().0;
-        let (store_update, root) = tries.apply_all(&trie_changes, ShardUId::default()).unwrap();
+        let (store_update, root) =
+            tries.apply_all(&trie_changes, ShardUId::single_shard()).unwrap();
         store_update.commit().unwrap();
 
-        (signer, tries.new_trie_update(ShardUId::default(), root), 100)
+        (signer, tries.new_trie_update(ShardUId::single_shard(), root), 100)
     }
 
     fn assert_err_both_validations(
@@ -495,16 +496,16 @@ mod tests {
         expected_err: RuntimeError,
     ) {
         assert_eq!(
-            validate_transaction(&config, gas_price, &signed_transaction, true, PROTOCOL_VERSION)
+            validate_transaction(config, gas_price, signed_transaction, true, PROTOCOL_VERSION)
                 .expect_err("expected an error"),
             expected_err,
         );
         assert_eq!(
             verify_and_charge_transaction(
-                &config,
+                config,
                 state_update,
                 gas_price,
-                &signed_transaction,
+                signed_transaction,
                 true,
                 None,
                 PROTOCOL_VERSION,
