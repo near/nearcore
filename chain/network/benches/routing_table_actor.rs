@@ -2,10 +2,10 @@
 extern crate bencher;
 
 use bencher::{black_box, Bencher};
-use near_crypto::{KeyType, SecretKey, Signature};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use near_crypto::{KeyType, SecretKey, Signature};
 use near_network::test_utils::random_peer_id;
 use near_network::types::Edge;
 use near_network::RoutingTableActor;
