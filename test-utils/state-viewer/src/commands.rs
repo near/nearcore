@@ -595,6 +595,7 @@ pub(crate) fn print_epoch_info(
     epoch_infos.sort_by_key(|(_, epoch_info)| epoch_info.epoch_height());
 
     for (epoch_id, epoch_info) in &epoch_infos {
+        println!("-------------------------");
         println!("{:?}: {:#?}", epoch_id, epoch_info);
         if epoch_info.epoch_height() >= head_epoch_height {
             println!("Epoch information for this epoch is not yet available, skipping.");
@@ -611,10 +612,14 @@ pub(crate) fn print_epoch_info(
                     .clone()
                     .into_iter()
                     .filter(|&block_height| {
-                        epoch_info.sample_block_producer(block_height) == *validator_id
+                        epoch_manager
+                            .get_block_producer_info(epoch_id, block_height)
+                            .unwrap()
+                            .take_account_id()
+                            == account_id
                     })
                     .collect();
-                println!("Block producer for blocks: {:?}", bp_for_blocks);
+                println!("Block producer for {} blocks: {:?}", bp_for_blocks.len(), bp_for_blocks);
                 let shard_ids = 0..near_config.genesis.config.shard_layout.num_shards();
                 let cp_for_chunks: Vec<(BlockHeight, ShardId)> = block_height_range
                     .clone()
@@ -624,14 +629,18 @@ pub(crate) fn print_epoch_info(
                             .clone()
                             .map(|shard_id| (block_height, shard_id))
                             .filter(|&(block_height, shard_id)| {
-                                epoch_info.sample_chunk_producer(block_height, shard_id)
-                                    == *validator_id
+                                epoch_manager
+                                    .get_chunk_producer_info(epoch_id, block_height, shard_id)
+                                    .unwrap()
+                                    .take_account_id()
+                                    == account_id
                             })
                             .collect::<Vec<(BlockHeight, ShardId)>>()
                     })
                     .flatten()
                     .collect();
-                println!("Chunk producer for chunks: {:?}", cp_for_chunks);
+                println!("Chunk producer for {} chunks: {:?}", cp_for_chunks.len(), cp_for_chunks);
+                for (block_height, shard_id) in cp_for_chunks {}
             }
         }
     }
