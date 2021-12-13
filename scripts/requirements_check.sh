@@ -3,6 +3,7 @@
 set -e
 
 npm --version
+npm current node -v
 yarn --version
 python3 --version
 cargo --version
