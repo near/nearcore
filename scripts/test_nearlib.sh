@@ -1,13 +1,6 @@
 #!/usr/bin/env bash
 set -ex
 
-# export RUST_BACKTRACE=full
-# ./scripts/start_unittest.py --local &
-# export NEAR_PID=$!
-# trap 'pkill -15 -P $NEAR_PID' 0
-
-#./scripts/build_wasm.sh
-
 rm -rf near-api-js near-shell create-near-app
 git clone https://github.com/near/near-api-js.git
 git clone https://github.com/near/near-shell.git
@@ -23,17 +16,8 @@ export HOME=$SRC_DIR/../testdir
 cd near-api-js
 yarn
 yarn build
-# ../scripts/waitonserver.sh
+
 # Disabling yarn test for now
 yarn test
 yarn doc
 
-# Run create-near-app tests
-# cd ../create-near-app
-# yarn
-# yarn test
-
-# Run near-shell tests
-# cd ../near-shell
-# yarn
-# HOME=../testdir yarn test
