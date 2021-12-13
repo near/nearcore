@@ -645,9 +645,12 @@ pub(crate) fn print_epoch_info(
                 println!("Chunk producer for {} chunks: {:?}", cp_for_chunks.len(), cp_for_chunks);
                 let mut missing_chunks = vec![];
                 for (block_height, shard_id) in cp_for_chunks {
-                    let block_hash = chain_store.get_block_hash_by_height(block_height).unwrap();
-                    let block = chain_store.get_block(&block_hash).unwrap();
-                    if block.chunks()[shard_id as usize].height_included() != block_height {
+                    if let Ok(block_hash) = chain_store.get_block_hash_by_height(block_height) {
+                        let block = chain_store.get_block(&block_hash).unwrap();
+                        if block.chunks()[shard_id as usize].height_included() != block_height {
+                            missing_chunks.push((block_height, shard_id));
+                        }
+                    } else {
                         missing_chunks.push((block_height, shard_id));
                     }
                 }
@@ -659,6 +662,8 @@ pub(crate) fn print_epoch_info(
     println!("Found {} epochs", epoch_ids.len());
 }
 
+// Iterate over each epoch starting from the head. Find the requested epoch and its previous epoch
+// and use that to determine the block range corresponding to the epoch.
 fn get_block_height_range(
     epoch_info: &EpochInfo,
     chain_store: &ChainStore,
