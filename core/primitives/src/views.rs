@@ -922,7 +922,7 @@ impl fmt::Debug for FinalExecutionStatus {
             FinalExecutionStatus::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
             FinalExecutionStatus::SuccessValue(v) => f.write_fmt(format_args!(
                 "SuccessValue({})",
-                logging::pretty_utf8(&from_base64(&v).unwrap())
+                logging::pretty_utf8(&from_base64(v).unwrap())
             )),
         }
     }
@@ -963,7 +963,7 @@ impl fmt::Debug for ExecutionStatusView {
             ExecutionStatusView::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
             ExecutionStatusView::SuccessValue(v) => f.write_fmt(format_args!(
                 "SuccessValue({})",
-                logging::pretty_utf8(&from_base64(&v).unwrap())
+                logging::pretty_utf8(&from_base64(v).unwrap())
             )),
             ExecutionStatusView::SuccessReceiptId(receipt_id) => {
                 f.write_fmt(format_args!("SuccessReceiptId({})", receipt_id))
@@ -997,8 +997,8 @@ pub struct CostGasUsed {
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
 pub struct ExecutionMetadataView {
-    version: u32,
-    gas_profile: Option<Vec<CostGasUsed>>,
+    pub version: u32,
+    pub gas_profile: Option<Vec<CostGasUsed>>,
 }
 
 impl Default for ExecutionMetadataView {
@@ -1011,27 +1011,42 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
     fn from(metadata: ExecutionMetadata) -> Self {
         let gas_profile = match metadata {
             ExecutionMetadata::V1 => None,
-            ExecutionMetadata::V2(profile_data) => Some(
-                Cost::ALL
+            ExecutionMetadata::V2(profile_data) => {
+                let mut costs: Vec<_> = Cost::ALL
                     .iter()
                     .filter(|&cost| profile_data[*cost] > 0)
                     .map(|&cost| CostGasUsed {
                         cost_category: match cost {
                             Cost::ActionCost { .. } => "ACTION_COST",
                             Cost::ExtCost { .. } => "WASM_HOST_COST",
+                            Cost::WasmInstruction => "WASM_HOST_COST",
                         }
                         .to_string(),
                         cost: match cost {
                             Cost::ActionCost { action_cost_kind: action_cost } => {
-                                format!("{:?}", action_cost)
+                                format!("{:?}", action_cost).to_ascii_uppercase()
                             }
-                            Cost::ExtCost { ext_cost_kind: ext_cost } => format!("{:?}", ext_cost),
-                        }
-                        .to_ascii_uppercase(),
+                            Cost::ExtCost { ext_cost_kind: ext_cost } => {
+                                format!("{:?}", ext_cost).to_ascii_uppercase()
+                            }
+                            Cost::WasmInstruction => "WASM_INSTRUCTION".to_string(),
+                        },
                         gas_used: profile_data[cost],
                     })
-                    .collect(),
-            ),
+                    .collect();
+
+                // The order doesn't really matter, but the default one is just
+                // historical, which is especially unintuitive, so let's sort
+                // lexicographically.
+                //
+                // Can't `sort_by_key` here because lifetime inference in
+                // closures is limited.
+                costs.sort_by(|lhs, rhs| {
+                    lhs.cost_category.cmp(&rhs.cost_category).then(lhs.cost.cmp(&rhs.cost))
+                });
+
+                Some(costs)
+            }
         };
         ExecutionMetadataView { version: 1, gas_profile }
     }

@@ -263,7 +263,7 @@ pub mod wasmer2_cache {
 
         let prepared_code =
             prepare::prepare_contract(code, config).map_err(CompilationError::PrepareError)?;
-        wasmer::Module::new(&store, prepared_code).map_err(|err| match err {
+        wasmer::Module::new(store, prepared_code).map_err(|err| match err {
             wasmer::CompileError::Wasm(_) => {
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             }

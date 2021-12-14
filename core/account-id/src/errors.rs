@@ -1,66 +1,67 @@
 use std::fmt;
+use std::fmt::Write;
 
-/// An error occurred when parsing an invalid Account ID with [`AccountId::validate`](crate::AccountId::validate).
+/// An error which can be returned when parsing a NEAR Account ID.
 #[derive(Eq, Clone, Debug, PartialEq)]
-pub struct ParseAccountError(pub(crate) ParseErrorKind, pub(crate) String);
+pub struct ParseAccountError {
+    pub(crate) kind: ParseErrorKind,
+    pub(crate) char: Option<(usize, char)>,
+}
 
 impl ParseAccountError {
-    /// Returns the corresponding [`ParseErrorKind`] for this error.
+    /// Returns the specific cause why parsing the Account ID failed.
     pub fn kind(&self) -> &ParseErrorKind {
-        &self.0
-    }
-
-    /// Returns the corresponding [`AccountId`](crate::AccountId) for this error.
-    pub fn get_account_id(self) -> String {
-        self.1
+        &self.kind
     }
 }
 
 impl std::error::Error for ParseAccountError {}
 impl fmt::Display for ParseAccountError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[{}]: {}", self.1, self.0)
+        let mut buf = self.kind.to_string();
+        if let Some((idx, char)) = self.char {
+            write!(buf, " {:?} at index {}", char, idx)?
+        }
+        buf.fmt(f)
     }
 }
 
 /// A list of errors that occur when parsing an invalid Account ID.
+///
+/// Also see [Error kind precedence](crate::AccountId#error-kind-precedence).
 #[non_exhaustive]
 #[derive(Eq, Clone, Debug, PartialEq)]
 pub enum ParseErrorKind {
+    /// The Account ID is too long.
+    ///
+    /// Returned if the `AccountId` is longer than [`AccountId::MAX_LEN`](crate::AccountId::MAX_LEN).
     TooLong,
+    /// The Account ID is too short.
+    ///
+    /// Returned if the `AccountId` is shorter than [`AccountId::MIN_LEN`](crate::AccountId::MIN_LEN).
     TooShort,
-    Invalid,
-}
-
-impl ParseErrorKind {
-    /// Returns `true` if the Account ID was too long.
-    pub fn is_too_long(&self) -> bool {
-        matches!(self, ParseErrorKind::TooLong)
-    }
-
-    /// Returns `true` if the Account ID was too short.
-    pub fn is_too_short(&self) -> bool {
-        matches!(self, ParseErrorKind::TooShort)
-    }
-
-    /// Returns `true` if the Account ID was marked invalid.
+    /// The Account ID has a redundant separator.
     ///
-    /// This can happen for the following reasons:
+    /// This variant would be returned if the Account ID either begins with,
+    /// ends with or has separators immediately following each other.
     ///
-    /// - An invalid character was detected (could be an uppercase character, symbol or space).
-    /// - Separators immediately follow each other.
-    /// - Separators begin or end the Account ID.
-    pub fn is_invalid(&self) -> bool {
-        matches!(self, ParseErrorKind::Invalid)
-    }
+    /// Cases: `jane.`, `angela__moss`, `tyrell..wellick`
+    RedundantSeparator,
+    /// The Account ID contains an invalid character.
+    ///
+    /// This variant would be returned if the Account ID contains an upper-case character, non-separating symbol or space.
+    ///
+    /// Cases: `ƒelicia.near`, `user@app.com`, `Emily.near`.
+    InvalidChar,
 }
 
 impl fmt::Display for ParseErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ParseErrorKind::TooLong => write!(f, "the account ID is too long"),
-            ParseErrorKind::TooShort => write!(f, "the account ID is too short"),
-            _ => write!(f, "the account ID has an invalid format"),
+            ParseErrorKind::TooLong => "the Account ID is too long".fmt(f),
+            ParseErrorKind::TooShort => "the Account ID is too short".fmt(f),
+            ParseErrorKind::RedundantSeparator => "the Account ID has a redundant separator".fmt(f),
+            ParseErrorKind::InvalidChar => "the Account ID contains an invalid character".fmt(f),
         }
     }
 }

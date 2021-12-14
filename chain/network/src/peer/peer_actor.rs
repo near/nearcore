@@ -1,7 +1,7 @@
-use crate::common::message_wrapper::ActixMessageWrapper;
-use crate::peer::codec::{self, Codec};
+use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
-use crate::routing::edge::{Edge, PartialEdgeInfo};
+use crate::peer::utils;
+use crate::routing::network_protocol::{Edge, PartialEdgeInfo};
 use crate::stats::metrics::{self, NetworkMetrics};
 use crate::types::{
     Handshake, HandshakeFailureReason, HandshakeV2, NetworkClientMessages, NetworkClientResponses,
@@ -9,7 +9,7 @@ use crate::types::{
     PeerResponse, PeersRequest, PeersResponse, RegisterPeer, RegisterPeerResponse, SendMessage,
     Unregister,
 };
-use crate::{PeerInfo, PeerManagerActor};
+use crate::PeerManagerActor;
 use actix::{
     Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
@@ -20,9 +20,9 @@ use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::types::{
     Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2,
-    PeerIdOrHash, PeerManagerRequest, PeerStatsResult, PeerStatus, PeerType, QueryPeerStats,
-    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
-    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerStatsResult, PeerStatus, PeerType,
+    QueryPeerStats, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom,
+    StateResponseInfo, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
@@ -36,7 +36,7 @@ use near_primitives::version::{
     ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
 use near_primitives::{logging, unwrap_option_or_return};
-use near_rate_limiter::ThrottleController;
+use near_rate_limiter::{ActixMessageWrapper, ThrottleController};
 use near_rust_allocator_proxy::allocator::get_tid;
 use std::cmp::max;
 use std::fmt::Debug;
@@ -557,7 +557,7 @@ impl PeerActor {
     /// Check whenever we exceeded number of transactions we got since last block.
     /// If so, drop the transaction.
     fn should_we_drop_msg_without_decoding(&self, msg: &Vec<u8>) -> bool {
-        if codec::is_forward_transaction(msg).unwrap_or(false) {
+        if utils::is_forward_transaction(msg).unwrap_or(false) {
             let r = self.txns_since_last_block.load(Ordering::Acquire);
             if r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE {
                 return true;
@@ -832,6 +832,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         this_edge_info: self.partial_edge_info.clone(),
                         other_edge_info: handshake.partial_edge_info.clone(),
                         peer_protocol_version: self.protocol_version,
+                        throttle_controller: self.throttle_controller.clone(),
                     }), Some(self.throttle_controller.clone())))
                     .into_actor(self)
                     .then(move |res, act, ctx| {

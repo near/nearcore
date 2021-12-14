@@ -1,14 +1,12 @@
+use bytes::BytesMut;
+use futures_core::{ready, Stream};
+use log::trace;
+use pin_project_lite::pin_project;
 use std::borrow::BorrowMut;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
-
-use bytes::BytesMut;
-use futures_core::{ready, Stream};
-use log::trace;
-
-use pin_project_lite::pin_project;
 use tokio::io::AsyncRead;
 use tokio_util::codec::Decoder;
 use tokio_util::io::poll_read_buf;
@@ -46,8 +44,14 @@ pin_project! {
 pub struct ThrottleController {
     /// Total count of all messages that are tracked by `RateLimiterHelper`
     num_messages_in_progress: Arc<AtomicUsize>,
+    /// Maximum value of `num_messages_in_progress` recorded since last `consume` call.
+    max_messages_in_progress: Arc<AtomicUsize>,
     /// Total size of all messages that are tracked by `RateLimiterHelper`
     total_sizeof_messages_in_progress: Arc<AtomicUsize>,
+    /// Keeps track of read bandwidth.
+    bandwidth_read: Arc<AtomicUsize>,
+    /// Stores count of messages seen.
+    msg_seen: Arc<AtomicUsize>,
     /// We have an unbounded queue of messages, that we use to wake `ThrottledRateLimiter`.
     /// This is the sender part, which is used to notify `ThrottledRateLimiter` to try to
     /// read again from queue.
@@ -114,8 +118,11 @@ impl ThrottleController {
         max_total_sizeof_messages_in_progress: usize,
     ) -> Self {
         Self {
-            num_messages_in_progress: Arc::new(AtomicUsize::new(0)),
-            total_sizeof_messages_in_progress: Arc::new(AtomicUsize::new(0)),
+            num_messages_in_progress: Default::default(),
+            max_messages_in_progress: Default::default(),
+            total_sizeof_messages_in_progress: Default::default(),
+            bandwidth_read: Default::default(),
+            msg_seen: Default::default(),
             max_num_messages_in_progress,
             max_total_sizeof_messages_in_progress,
             semaphore,
@@ -132,7 +139,8 @@ impl ThrottleController {
 
     /// Tracks the message and increase limits by size of the message.
     pub fn add_msg(&self, msg_size: usize) {
-        self.num_messages_in_progress.fetch_add(1, Ordering::SeqCst);
+        let new_cnt = self.num_messages_in_progress.fetch_add(1, Ordering::SeqCst) + 1;
+        self.max_messages_in_progress.fetch_max(new_cnt, Ordering::Relaxed);
         if msg_size != 0 {
             self.total_sizeof_messages_in_progress.fetch_add(msg_size, Ordering::SeqCst);
         }
@@ -151,6 +159,26 @@ impl ThrottleController {
             // Notify throttled framed reader to start readin
             self.semaphore.add_permits(1);
         }
+    }
+
+    pub fn consume_bandwidth_used(&mut self) -> usize {
+        self.bandwidth_read.swap(0, Ordering::Relaxed)
+    }
+
+    pub fn report_bandwidth_used(&mut self, size: usize) -> usize {
+        self.bandwidth_read.fetch_add(size, Ordering::Relaxed)
+    }
+
+    pub fn consume_msg_seen(&mut self) -> usize {
+        self.msg_seen.swap(0, Ordering::Relaxed)
+    }
+
+    pub fn report_msg_seen(&mut self) -> usize {
+        self.msg_seen.fetch_add(1, Ordering::Relaxed)
+    }
+
+    pub fn consume_max_messages_in_progress(&mut self) -> usize {
+        self.max_messages_in_progress.swap(0, Ordering::Relaxed)
     }
 }
 
@@ -253,6 +281,7 @@ where
 
                 if let Some(frame) = pinned.codec.decode(&mut state.buffer)? {
                     trace!("frame decoded from buffer");
+                    pinned.throttle_controller.report_msg_seen();
                     return Poll::Ready(Some(Ok(frame)));
                 }
 
@@ -267,6 +296,8 @@ where
             state.buffer.reserve(1);
 
             let bytect = ready!(poll_read_buf(pinned.inner.as_mut(), cx, &mut state.buffer)?);
+
+            pinned.throttle_controller.report_bandwidth_used(bytect);
 
             if bytect == 0 {
                 state.eof = true;
@@ -367,5 +398,42 @@ mod tests {
         assert_eq!(throttle_controller.total_sizeof_messages_in_progress.load(SeqCst), 0);
 
         assert_eq!(semaphore.available_permits(), 1);
+    }
+
+    #[test]
+    fn test_throttle_controller() {
+        let max_messages_total_size = 500_000_000;
+        let semaphore = PollSemaphore::new(Arc::new(Semaphore::new(0)));
+        let mut throttle_controller =
+            ThrottleController::new(semaphore, 1000, max_messages_total_size);
+
+        assert_eq!(throttle_controller.consume_msg_seen(), 0);
+        throttle_controller.report_msg_seen();
+        throttle_controller.report_msg_seen();
+        throttle_controller.report_msg_seen();
+        assert_eq!(throttle_controller.consume_msg_seen(), 3);
+        assert_eq!(throttle_controller.consume_msg_seen(), 0);
+
+        assert_eq!(throttle_controller.consume_bandwidth_used(), 0);
+        throttle_controller.report_bandwidth_used(10);
+        throttle_controller.report_bandwidth_used(1000);
+        throttle_controller.report_bandwidth_used(5);
+        assert_eq!(throttle_controller.consume_bandwidth_used(), 1015);
+        assert_eq!(throttle_controller.consume_bandwidth_used(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_max_messages_in_progress() {
+        let semaphore = PollSemaphore::new(Arc::new(Semaphore::new(0)));
+        let mut throttle_controller = ThrottleController::new(semaphore, 1000, usize::MAX);
+
+        assert_eq!(throttle_controller.consume_max_messages_in_progress(), 0);
+        throttle_controller.add_msg(0);
+        throttle_controller.add_msg(0);
+        throttle_controller.remove_msg(0);
+        throttle_controller.remove_msg(0);
+
+        assert_eq!(throttle_controller.consume_max_messages_in_progress(), 2);
+        assert_eq!(throttle_controller.consume_max_messages_in_progress(), 0);
     }
 }

@@ -525,7 +525,7 @@ impl Block {
         }
 
         // Check that challenges root stored in the header matches the challenges root of the challenges
-        let challenges_root = Block::compute_challenges_root(&self.challenges());
+        let challenges_root = Block::compute_challenges_root(self.challenges());
         if self.header().challenges_root() != &challenges_root {
             return Err(InvalidChallengeRoot);
         }
@@ -586,7 +586,7 @@ impl<'a> ChunksCollection<'a> {
 
     pub fn iter<'b: 'a>(&'b self) -> VersionedChunksIter<'b> {
         match self {
-            ChunksCollection::V1(chunks) => VersionedChunksIter::new(&chunks),
+            ChunksCollection::V1(chunks) => VersionedChunksIter::new(chunks),
             ChunksCollection::V2(chunks) => VersionedChunksIter::new(chunks),
         }
     }

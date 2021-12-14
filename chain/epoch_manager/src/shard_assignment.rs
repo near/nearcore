@@ -1,5 +1,5 @@
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::Balance;
+use near_primitives::types::{Balance, NumShards, ShardId};
 use near_primitives::utils::min_heap::MinHeap;
 use std::cmp;
 
@@ -12,7 +12,7 @@ use std::cmp;
 /// `num_shards * min_validators_per_shard`.
 pub fn assign_shards<T: HasStake + Eq + Clone>(
     chunk_producers: Vec<T>,
-    num_shards: usize,
+    num_shards: NumShards,
     min_validators_per_shard: usize,
 ) -> Result<Vec<Vec<T>>, NotEnoughValidators> {
     // Initially, sort by number of validators, then total stake
@@ -27,7 +27,7 @@ pub fn assign_shards<T: HasStake + Eq + Clone>(
         return Err(NotEnoughValidators);
     }
     let required_validator_count =
-        cmp::max(num_chunk_producers, num_shards * min_validators_per_shard);
+        cmp::max(num_chunk_producers, (num_shards as usize) * min_validators_per_shard);
 
     let mut result: Vec<Vec<T>> = (0..num_shards).map(|_| Vec::new()).collect();
 
@@ -51,7 +51,7 @@ pub fn assign_shards<T: HasStake + Eq + Clone>(
                 shard_stake + cp.get_stake(),
                 shard_id,
             ));
-            result[shard_id].push(cp);
+            result[usize::try_from(shard_id).unwrap()].push(cp);
         }
 
         let mut cp_iter = cp_iter.peekable();
@@ -73,7 +73,7 @@ pub fn assign_shards<T: HasStake + Eq + Clone>(
                     least_validator_count + 1,
                     shard_id,
                 ));
-                result[shard_id].push(cp);
+                result[usize::try_from(shard_id).unwrap()].push(cp);
             }
         }
     } else {
@@ -104,11 +104,11 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = (usize, T)>
     shard_index: &mut MinHeap<(usize, Balance, ShardId)>,
     result: &mut Vec<Vec<T>>,
     cp_iter: &mut I,
-    num_shards: usize,
+    num_shards: NumShards,
     min_validators_per_shard: usize,
     num_chunk_producers: usize,
 ) {
-    let mut buffer = Vec::with_capacity(num_shards);
+    let mut buffer = Vec::with_capacity(usize::try_from(num_shards).unwrap());
 
     while shard_index.peek().unwrap().0 < min_validators_per_shard {
         let (assignment_index, cp) = cp_iter
@@ -116,12 +116,13 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = (usize, T)>
             .expect("cp_iter should contain enough elements to minimally fill each shard");
         let (least_validator_count, shard_stake, shard_id) =
             shard_index.pop().expect("shard_index should never be empty");
+        let shard_pos = usize::try_from(shard_id).unwrap();
 
         if assignment_index < num_chunk_producers {
             // no need to worry about duplicates yet; still on first pass through validators
             shard_index.push((least_validator_count + 1, shard_stake + cp.get_stake(), shard_id));
-            result[shard_id].push(cp);
-        } else if result[shard_id].contains(&cp) {
+            result[shard_pos].push(cp);
+        } else if result[shard_pos].contains(&cp) {
             // `cp` is already assigned to this shard, need to assign elsewhere
 
             // `buffer` tracks shards `cp` is already in, these will need to be pushed back into
@@ -135,7 +136,7 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = (usize, T)>
                 // assign a chunk producer right now.
                 let (least_validator_count, shard_stake, shard_id) =
                     shard_index.pop().expect("shard_index should never be empty");
-                if result[shard_id].contains(&cp) {
+                if result[shard_pos].contains(&cp) {
                     buffer.push((least_validator_count, shard_stake, shard_id))
                 } else {
                     shard_index.push((
@@ -143,7 +144,7 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = (usize, T)>
                         shard_stake + cp.get_stake(),
                         shard_id,
                     ));
-                    result[shard_id].push(cp);
+                    result[shard_pos].push(cp);
                     break;
                 }
             }
@@ -152,7 +153,7 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = (usize, T)>
             }
         } else {
             shard_index.push((least_validator_count + 1, shard_stake + cp.get_stake(), shard_id));
-            result[shard_id].push(cp);
+            result[shard_pos].push(cp);
         }
     }
 }
@@ -172,12 +173,10 @@ impl HasStake for ValidatorStake {
     }
 }
 
-type ShardId = usize;
-
 #[cfg(test)]
 mod tests {
     use super::{assign_shards, HasStake};
-    use near_primitives::types::Balance;
+    use near_primitives::types::{Balance, NumShards};
     use std::cmp;
     use std::collections::HashSet;
 
@@ -237,13 +236,13 @@ mod tests {
         assert_eq!(stake_1, 90);
     }
 
-    fn test_exponential_distribution_common(num_shards: usize, diff_tolerance: i128) {
+    fn test_exponential_distribution_common(num_shards: NumShards, diff_tolerance: i128) {
         let stakes = &EXPONENTIAL_STAKES;
         let chunk_producers = make_validators(stakes);
         let min_validators_per_shard = 2;
 
         let validators_per_shard =
-            cmp::max(chunk_producers.len() / num_shards, min_validators_per_shard);
+            cmp::max(chunk_producers.len() / (num_shards as usize), min_validators_per_shard);
         let average_stake_per_shard = (validators_per_shard as Balance)
             * stakes.iter().sum::<Balance>()
             / (stakes.len() as Balance);

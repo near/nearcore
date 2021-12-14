@@ -40,7 +40,7 @@ def docker_init(image, home_dir, init_flags):
 
 
 def nodocker_init(home_dir, is_release, init_flags):
-    target = './target/%s/near' % ('release' if is_release else 'debug')
+    target = './target/%s/neard' % ('release' if is_release else 'debug')
     cmd = [target]
     if home_dir:
         cmd.extend(['--home', home_dir])
@@ -229,7 +229,7 @@ def run_nodocker(home_dir, is_release, boot_nodes, telemetry_url, verbose):
     print("Starting NEAR client...")
     print(
         "Autoupdate is not supported at the moment for runs outside of docker")
-    cmd = ['./target/%s/near' % ('release' if is_release else 'debug')]
+    cmd = ['./target/%s/neard' % ('release' if is_release else 'debug')]
     cmd.extend(['--home', home_dir])
     if verbose:
         cmd += ['--verbose', '']

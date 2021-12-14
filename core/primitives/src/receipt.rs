@@ -48,12 +48,12 @@ impl Receipt {
     /// allowance of the access key. For gas refunds use `new_gas_refund`.
     pub fn new_balance_refund(receiver_id: &AccountId, refund: Balance) -> Self {
         Receipt {
-            predecessor_id: AccountId::system_account(),
+            predecessor_id: "system".parse().unwrap(),
             receiver_id: receiver_id.clone(),
             receipt_id: CryptoHash::default(),
 
             receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: AccountId::system_account(),
+                signer_id: "system".parse().unwrap(),
                 signer_public_key: PublicKey::empty(KeyType::ED25519),
                 gas_price: 0,
                 output_data_receivers: vec![],
@@ -75,7 +75,7 @@ impl Receipt {
         signer_public_key: PublicKey,
     ) -> Self {
         Receipt {
-            predecessor_id: AccountId::system_account(),
+            predecessor_id: "system".parse().unwrap(),
             receiver_id: receiver_id.clone(),
             receipt_id: CryptoHash::default(),
 

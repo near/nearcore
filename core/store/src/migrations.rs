@@ -162,7 +162,7 @@ pub fn migrate_9_to_10(path: &Path, is_archival: bool) {
         let num_parity_parts = num_total_parts - num_data_parts;
         let mut rs = ReedSolomonWrapper::new(num_data_parts, num_parity_parts);
         let signer =
-            InMemoryValidatorSigner::from_seed(AccountId::test_account(), KeyType::ED25519, "test");
+            InMemoryValidatorSigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
         let mut store_update = store.store_update();
         let batch_size_limit = 10_000_000;
         let mut batch_size = 0;
@@ -462,8 +462,8 @@ pub fn migrate_14_to_15(path: &Path) {
                     let local_receipt_id = create_receipt_id_from_transaction(
                         protocol_version,
                         transaction,
-                        &block.header().prev_hash(),
-                        &block.header().hash(),
+                        block.header().prev_hash(),
+                        block.header().hash(),
                     );
                     if execution_outcome_ids.contains(&local_receipt_id) {
                         local_receipt_ids.push(local_receipt_id);
