@@ -233,8 +233,8 @@ pub struct ChainGenesis {
 
 // to specify a part we always specify both part_id and num_parts together
 pub struct PartId {
-    pub idx:u64,
-    pub total:u64
+    pub idx: u64,
+    pub total: u64,
 }
 
 impl<T> From<T> for ChainGenesis
@@ -687,17 +687,12 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
         block_hash: &CryptoHash,
         state_root: &StateRoot,
-        part_id: PartId
+        part_id: PartId,
     ) -> Result<Vec<u8>, Error>;
 
     /// Validate state part that expected to be given state root with provided data.
     /// Returns false if the resulting part doesn't match the expected one.
-    fn validate_state_part(
-        &self,
-        state_root: &StateRoot,
-        part_id: PartId,
-        data: &Vec<u8>,
-    ) -> bool;
+    fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &Vec<u8>) -> bool;
 
     fn apply_update_to_split_states(
         &self,

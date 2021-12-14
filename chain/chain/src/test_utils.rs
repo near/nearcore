@@ -946,7 +946,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn validate_state_part(
         &self,
         _state_root: &StateRoot,
-        part_id:types::PartId,
+        part_id: types::PartId,
         _data: &Vec<u8>,
     ) -> bool {
         assert!(part_id.idx < part_id.total);
