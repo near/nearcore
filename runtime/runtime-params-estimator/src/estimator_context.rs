@@ -36,7 +36,7 @@ impl<'c> EstimatorContext<'c> {
     pub(crate) fn testbed(&mut self) -> Testbed<'_> {
         let inner = RuntimeTestbed::from_state_dump(&self.config.state_dump_path);
         Testbed {
-            config: &self.config,
+            config: self.config,
             inner,
             transaction_builder: TransactionBuilder::new(
                 (0..self.config.active_accounts).map(get_account_id).collect(),
