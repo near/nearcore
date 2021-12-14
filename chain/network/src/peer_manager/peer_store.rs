@@ -1,7 +1,6 @@
+use crate::peer_manager::db_types::{KnownPeerState, KnownPeerStatus};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_network_primitives::types::{
-    KnownPeerState, KnownPeerStatus, NetworkConfig, PeerInfo, ReasonForBan,
-};
+use near_network_primitives::types::{NetworkConfig, PeerInfo, ReasonForBan};
 use near_primitives::network::PeerId;
 use near_primitives::time::Utc;
 use near_primitives::utils::to_timestamp;
