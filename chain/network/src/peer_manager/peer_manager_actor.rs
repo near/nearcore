@@ -1988,7 +1988,10 @@ impl PeerManagerActor {
             // For unit tests
             NetworkRequests::FetchPingPongInfo => {
                 let (pings, pongs) = self.routing_table_view.fetch_ping_pong();
-                NetworkResponses::PingPongInfo { pings, pongs }
+                NetworkResponses::PingPongInfo {
+                    pings: pings.map(|(k, v)| (*k, v.clone())).collect(),
+                    pongs: pongs.map(|(k, v)| (*k, v.clone())).collect(),
+                }
             }
         }
     }
