@@ -105,22 +105,24 @@ use rand::Rng;
 // 5) checks if all needed parts and receipts are received and tries to reconstruct the full chunk.
 //    If successful, removes request for the chunk from the request pool.
 // Note that the last step requires the previous block of the chunk has been accepted.
-// If not, the function will return `NeedBlock`. To avoid a chunk gets stuck waiting on
-// the previous block, when a new block is accepted, client must remembers to call
+// If not, the function will return `NeedBlock`. To avoid a chunk getting stuck waiting on
+// the previous block, when a new block is accepted, client must remember to call
 // `get_incomplete_chunks` to get the list of incomplete chunks who are waiting on the block
 // and process them
 //
 // ** Validating chunks
-// PartialEncodedChunks will be validated in the following ways
-// 1) validating the chunk header is signed by the correct chunk producer and the chunk producer
+// Before `process_partial_encoded_chunk` returns HaveAllPartsAndReceipts, it will perform
+// the validation steps and return error if validation fails.
+// 1) validate the chunk header is signed by the correct chunk producer and the chunk producer
 //    is not slashed (see `validate_chunk_header`)
 // 2) validate the merkle proofs of the parts and receipts with regarding to the parts root and
 //    receipts root in the chunk header (see the beginning of `process_partial_encoded_chunk`)
 // 3) after the full chunk is reconstructed, validate chunk's proofs in the header matches the body
 //    (see validate_chunk_proofs)
 //
-// Before `process_partial_encoded_chunk` returns HaveAllPartsAndReceipts, it will perform all of the
-// above the validation steps and return error if validation fails.
+// We also guarantee that all entries stored inside ShardsManager::encoded_chunks have the chunk header
+// at least "partially" validated by `validate_chunk_header` (see the comments there for what "partial"
+// validation means).
 
 mod chunk_cache;
 pub mod test_utils;
@@ -1982,7 +1984,6 @@ mod test {
     use near_chain::test_utils::KeyValueRuntime;
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
     use std::time::Duration;
@@ -2239,7 +2240,7 @@ mod test {
         let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&fixture.mock_part_ords);
         let result = shards_manager
             .process_partial_encoded_chunk(
-                &partial_encoded_chunk,
+                MaybeValidated::from(&partial_encoded_chunk),
                 None,
                 &mut fixture.chain_store,
                 &mut fixture.rs,
