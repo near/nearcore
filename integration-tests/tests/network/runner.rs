@@ -75,7 +75,7 @@ pub fn setup_network_node(
         let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true);
         client_config.archive = config.archive;
         client_config.ttl_account_id_router = config.ttl_account_id_router;
-        let network_adapter = NetworkRecipient::new();
+        let network_adapter = NetworkRecipient::default();
         network_adapter.set_recipient(ctx.address().recipient());
         let network_adapter = Arc::new(network_adapter);
         #[cfg(feature = "test_features")]
@@ -353,7 +353,7 @@ impl StateMachine {
                                 .pm_addr
                                 .get(source)
                                 .unwrap()
-                                .send(StopSignal::new())
+                                .send(StopSignal::default())
                                 .map_err(|_| ())
                                 .and_then(move |_| {
                                     flag.store(true, Ordering::Relaxed);
