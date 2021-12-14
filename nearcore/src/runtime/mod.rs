@@ -1590,18 +1590,18 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         block_hash: &CryptoHash,
         state_root: &StateRoot,
-        partId: PartId,
+        part_id: near_chain::types::PartId,
     ) -> Result<Vec<u8>, Error> {
-        assert!(part_id < num_parts);
+        assert!(part_id.idx < part_id.total);
         let epoch_id = self.get_epoch_id(block_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
         let trie = self.tries.get_view_trie_for_shard(shard_uid);
-        let result = match trie.get_trie_nodes_for_part(part_id, num_parts, state_root) {
+        let result = match trie.get_trie_nodes_for_part(part_id.idx, part_id.total, state_root) {
             Ok(partial_state) => partial_state,
             Err(e) => {
                 error!(target: "runtime",
                        "Can't get_trie_nodes_for_part for {:?}, part_id {:?}, num_parts {:?}, {:?}",
-                       state_root, part_id, num_parts, e
+                       state_root, part_id.idx, part_id.total, e
                 );
                 return Err(e.to_string().into());
             }
@@ -1614,13 +1614,13 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn validate_state_part(
         &self,
         state_root: &StateRoot,
-        partId:PartId,
+        part_id:near_chain::types::PartId,
         data: &Vec<u8>,
     ) -> bool {
-        assert!(part_id < num_parts);
+        assert!(part_id.idx < part_id.total);
         match BorshDeserialize::try_from_slice(data) {
             Ok(trie_nodes) => {
-                match Trie::validate_trie_nodes_for_part(state_root, part_id, num_parts, trie_nodes)
+                match Trie::validate_trie_nodes_for_part(state_root, part_id.idx, part_id.total, trie_nodes)
                 {
                     Ok(_) => true,
                     // Storage error should not happen
@@ -2637,7 +2637,7 @@ mod test {
         env.step_default(vec![]);
         let block_hash = hash(&vec![env.head.height as u8]);
         let state_part =
-            env.runtime.obtain_state_part(0, &block_hash, &env.state_roots[0], PartId{idx:0,total:1}).unwrap();
+            env.runtime.obtain_state_part(0, &block_hash, &env.state_roots[0], near_chain::types::PartId{idx:0,total:1}).unwrap();
         let root_node =
             env.runtime.get_state_root_node(0, &block_hash, &env.state_roots[0]).unwrap();
         let mut new_env = TestEnv::new("test_state_sync", vec![validators.clone()], 2, false);
@@ -2686,8 +2686,8 @@ mod test {
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
         root_node_wrong.data = vec![123];
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
-        assert!(!new_env.runtime.validate_state_part(&StateRoot::default(), PartId{idx:0,total:1}, &state_part));
-        new_env.runtime.validate_state_part(&env.state_roots[0], PartId{idx:0,total:1}, &state_part);
+        assert!(!new_env.runtime.validate_state_part(&StateRoot::default(), near_chain::types::PartId{idx:0,total:1}, &state_part));
+        new_env.runtime.validate_state_part(&env.state_roots[0], near_chain::types::PartId{idx:0,total:1}, &state_part);
         let epoch_id = &new_env.head.epoch_id;
         new_env
             .runtime
