@@ -48,7 +48,10 @@ mod tests {
                 signature::SecretKey::ED25519(k) => k,
                 _ => unreachable!(),
             };
-            assert_eq!(convert_secret_key(&sk).public_key(), convert_public_key(&pk).unwrap());
+            assert_eq!(
+                convert_secret_key(&sk).public_key().clone(),
+                convert_public_key(&pk).unwrap()
+            );
         }
     }
 }
