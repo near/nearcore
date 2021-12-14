@@ -28,7 +28,7 @@ pub fn state_dump(
     );
     let genesis_height = last_block_header.height() + 1;
     let block_producers = runtime
-        .get_epoch_block_producers_ordered(&last_block_header.epoch_id(), last_block_header.hash())
+        .get_epoch_block_producers_ordered(last_block_header.epoch_id(), last_block_header.hash())
         .unwrap();
     let validators = block_producers
         .into_iter()
@@ -55,7 +55,7 @@ pub fn state_dump(
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie =
             runtime.get_trie_for_shard(shard_id as u64, last_block_header.prev_hash()).unwrap();
-        let trie = TrieIterator::new(&trie, &state_root).unwrap();
+        let trie = TrieIterator::new(&trie, state_root).unwrap();
         for item in trie {
             let (key, value) = item.unwrap();
             if let Some(mut sr) = StateRecord::from_raw_key_value(key, value) {
@@ -115,7 +115,6 @@ mod test {
     use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, SecretKey};
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::AccountId;
     use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks, ProtocolVersion};
     use near_primitives::version::ProtocolFeature::SimpleNightshade;
     use near_primitives::version::PROTOCOL_VERSION;
@@ -155,12 +154,12 @@ mod test {
             Config::default(),
             genesis.clone(),
             KeyFile {
-                account_id: AccountId::test_account(),
+                account_id: "test".parse().unwrap(),
                 public_key: PublicKey::empty(KeyType::ED25519),
                 secret_key: SecretKey::from_random(KeyType::ED25519),
             },
             Some(Arc::new(InMemoryValidatorSigner::from_random(
-                AccountId::test_account(),
+                "test".parse().unwrap(),
                 KeyType::ED25519,
             ))),
         );
@@ -368,12 +367,12 @@ mod test {
             Config::default(),
             genesis.clone(),
             KeyFile {
-                account_id: AccountId::test_account(),
+                account_id: "test".parse().unwrap(),
                 public_key: PublicKey::empty(KeyType::ED25519),
                 secret_key: SecretKey::from_random(KeyType::ED25519),
             },
             Some(Arc::new(InMemoryValidatorSigner::from_random(
-                AccountId::test_account(),
+                "test".parse().unwrap(),
                 KeyType::ED25519,
             ))),
         );
@@ -427,12 +426,12 @@ mod test {
             Config::default(),
             genesis.clone(),
             KeyFile {
-                account_id: AccountId::test_account(),
+                account_id: "test".parse().unwrap(),
                 public_key: PublicKey::empty(KeyType::ED25519),
                 secret_key: SecretKey::from_random(KeyType::ED25519),
             },
             Some(Arc::new(InMemoryValidatorSigner::from_random(
-                AccountId::test_account(),
+                "test".parse().unwrap(),
                 KeyType::ED25519,
             ))),
         );

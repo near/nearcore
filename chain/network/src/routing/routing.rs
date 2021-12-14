@@ -1,4 +1,4 @@
-use crate::routing::edge::{Edge, SimpleEdge};
+use crate::routing::network_protocol::{Edge, SimpleEdge};
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::PeerInfo;
 use actix::dev::{MessageResponse, ResponseChannel};
@@ -29,7 +29,6 @@ pub const DELETE_PEERS_AFTER_TIME: Duration = Duration::from_secs(3_600);
 pub const MAX_NUM_PEERS: usize = 128;
 
 #[derive(Debug)]
-#[cfg_attr(feature = "test_features", derive(serde::Serialize))]
 pub struct PeerRequestResult {
     pub peers: Vec<PeerInfo>,
 }
@@ -60,7 +59,7 @@ pub struct RoutingTableView {
     /// Active PeerId that are part of the shortest path to each PeerId.
     pub peer_forwarding: Arc<HashMap<PeerId, Vec<PeerId>>>,
     /// Store last update for known edges. This is limited to list of adjacent edges to `my_peer_id`.
-    pub local_edges_info: HashMap<(PeerId, PeerId), Edge>,
+    pub local_edges_info: HashMap<PeerId, Edge>,
     /// Hash of messages that requires routing back to respective previous hop.
     pub route_back: RouteBackCache,
     /// Access to store on disk
@@ -108,9 +107,8 @@ impl RoutingTableView {
 
     /// Checks whenever edge is newer than the one we already have.
     /// Works only for local edges.
-    pub fn is_local_edge_newer(&self, key: &(PeerId, PeerId), nonce: u64) -> bool {
-        assert!(key.0 == self.my_peer_id || key.1 == self.my_peer_id);
-        self.local_edges_info.get(key).map_or(0, |x| x.nonce()) < nonce
+    pub fn is_local_edge_newer(&self, other_peer: &PeerId, nonce: u64) -> bool {
+        self.local_edges_info.get(other_peer).map_or(0, |x| x.nonce()) < nonce
     }
 
     pub fn reachable_peers(&self) -> impl Iterator<Item = &PeerId> {
@@ -191,10 +189,13 @@ impl RoutingTableView {
         })
     }
 
-    pub fn remove_edges(&mut self, edges: &Vec<Edge>) {
+    pub fn remove_local_edges(&mut self, edges: &Vec<Edge>) {
         for edge in edges.iter() {
-            assert!(edge.key().0 == self.my_peer_id || edge.key().1 == self.my_peer_id);
-            self.local_edges_info.remove(edge.key());
+            if let Some(other_peer) = edge.other(&self.my_peer_id) {
+                self.local_edges_info.remove(other_peer);
+            } else {
+                panic!("We tried to remove non-local edge");
+            }
         }
     }
 
@@ -301,7 +302,7 @@ impl RoutingTableView {
                 .get_ser(ColAccountAnnouncements, account_id.as_ref().as_bytes())
                 .map(|res: Option<AnnounceAccount>| {
                     if let Some(announce_account) = res {
-                        self.add_account(announce_account.clone());
+                        self.account_peers.put(account_id.clone(), announce_account.clone());
                         Some(announce_account)
                     } else {
                         None
@@ -314,13 +315,11 @@ impl RoutingTableView {
         }
     }
 
-    pub fn get_edge(&self, peer0: PeerId, peer1: PeerId) -> Option<&Edge> {
-        assert!(peer0 == self.my_peer_id || peer1 == self.my_peer_id);
-
-        let key = Edge::make_key(peer0, peer1);
-        self.local_edges_info.get(&key)
+    pub fn get_local_edge(&self, other_peer: &PeerId) -> Option<&Edge> {
+        self.local_edges_info.get(other_peer)
     }
 }
+
 #[derive(Debug)]
 pub struct RoutingTableInfo {
     pub account_peers: HashMap<AccountId, PeerId>,

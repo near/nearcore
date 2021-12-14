@@ -27,7 +27,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> (Option<VMOutcome>, Option<
 
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
     vm_kind.runtime().unwrap().run(
-        &code,
+        code,
         &method_name,
         &mut fake_external,
         context,

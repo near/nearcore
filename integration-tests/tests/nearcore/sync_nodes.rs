@@ -68,7 +68,7 @@ fn add_blocks(
         let block = Block::produce(
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
-            &prev.header(),
+            prev.header(),
             prev.header().height() + 1,
             prev.header().block_ordinal() + 1,
             blocks[0].chunks().iter().cloned().collect(),

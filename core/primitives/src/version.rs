@@ -104,7 +104,7 @@ pub enum ProtocolFeature {
     MathExtension,
     /// Restore receipts that were previously stuck because of
     /// <https://github.com/near/nearcore/pull/4228>.
-    RestoreReceiptsAfterFix,
+    RestoreReceiptsAfterFixApplyChunks,
     /// This feature switch our WASM engine implementation from wasmer 0.* to
     /// wasmer 2.*, bringing better performance and reliability.
     ///
@@ -130,6 +130,8 @@ pub enum ProtocolFeature {
     /// https://github.com/near/NEPs/pull/167 for general description, note that we would not
     /// introduce chunk-only validators with this feature
     AliasValidatorSelectionAlgorithm,
+    /// Add `AccessKey` nonce range for implicit accounts, as in `AccessKeyNonceRange` feature.
+    AccessKeyNonceForImplicitAccounts,
 
     // nightly features
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -138,16 +140,13 @@ pub enum ProtocolFeature {
     ChunkOnlyProducers,
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingExchangeAlgorithm,
-    #[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
-    /// Add `AccessKey` nonce range for implicit accounts, as in `AccessKeyNonceRange` feature.
-    AccessKeyNonceForImplicitAccounts,
 }
 
 /// Current latest stable version of the protocol.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 49;
+pub const PROTOCOL_VERSION: ProtocolVersion = 50;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
@@ -169,7 +168,7 @@ impl ProtocolFeature {
             | ProtocolFeature::CapMaxGasPrice
             | ProtocolFeature::CountRefundReceiptsInGasLimit
             | ProtocolFeature::MathExtension => 46,
-            ProtocolFeature::RestoreReceiptsAfterFix => 47,
+            ProtocolFeature::RestoreReceiptsAfterFixApplyChunks => 47,
             ProtocolFeature::Wasmer2
             | ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost
             | ProtocolFeature::LowerRegularOpCost
@@ -178,6 +177,7 @@ impl ProtocolFeature {
             | ProtocolFeature::LimitContractFunctionsNumber
             | ProtocolFeature::BlockHeaderV3
             | ProtocolFeature::AliasValidatorSelectionAlgorithm => 49,
+            ProtocolFeature::AccessKeyNonceForImplicitAccounts => 50,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -186,8 +186,6 @@ impl ProtocolFeature {
             ProtocolFeature::ChunkOnlyProducers => 124,
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
-            #[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
-            ProtocolFeature::AccessKeyNonceForImplicitAccounts => 125,
         }
     }
 }
