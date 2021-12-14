@@ -735,36 +735,6 @@ pub struct Unregister {
     pub remove_from_peer_store: bool,
 }
 
-pub struct PeerList {
-    pub peers: Vec<PeerInfo>,
-}
-
-/// Requesting peers from peer manager to communicate to a peer.
-pub struct PeersRequest {}
-
-impl Message for PeersRequest {
-    type Result = PeerList;
-}
-
-/// Received new peers from another peer.
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct PeersResponse {
-    pub peers: Vec<PeerInfo>,
-}
-
-impl<A, M> MessageResponse<A, M> for PeerList
-where
-    A: Actor,
-    M: Message<Result = PeerList>,
-{
-    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-        if let Some(tx) = tx {
-            tx.send(self)
-        }
-    }
-}
-
 /// Ban reason.
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Copy)]
@@ -1110,9 +1080,6 @@ mod tests {
         assert_size!(InboundTcpConnect);
         assert_size!(OutboundTcpConnect);
         assert_size!(Unregister);
-        assert_size!(PeerList);
-        assert_size!(PeersRequest);
-        assert_size!(PeersResponse);
         assert_size!(Ban);
         assert_size!(StateResponseInfoV1);
         assert_size!(QueryPeerStats);

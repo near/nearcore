@@ -71,7 +71,7 @@ fn default_num_chunk_only_producer_seats() -> u64 {
 }
 
 fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
-    return Some(ShardLayout::v1(
+    Some(ShardLayout::v1(
         vec![],
         vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
             .into_iter()
@@ -79,7 +79,7 @@ fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
             .collect(),
         Some(vec![vec![0, 1, 2, 3]]),
         1,
-    ));
+    ))
 }
 
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
