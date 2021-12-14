@@ -42,6 +42,11 @@ pub struct EncodedChunksCacheEntry {
     pub receipts: HashMap<ShardId, ReceiptProof>,
     /// whether this entry has all parts and receipts
     pub complete: bool,
+    /// whether the header has been **fully** validated
+    /// every entry added to the cache already has their header "partially" validated
+    /// by validate_chunk_header. When the previous block is accepted, they must be
+    /// validated again to make sure they are fully validated
+    pub header_fully_validated: bool,
 }
 
 pub struct EncodedChunksCache {
@@ -70,6 +75,7 @@ impl EncodedChunksCacheEntry {
             parts: HashMap::new(),
             receipts: HashMap::new(),
             complete: false,
+            header_fully_validated: false,
         }
     }
 
@@ -105,15 +111,21 @@ impl EncodedChunksCache {
     }
 
     /// Mark an entry as complete, which means it has all parts and receipts needed
-    pub fn mark_entry_complete(&mut self, chunk_hash: ChunkHash) {
+    pub fn mark_entry_complete(&mut self, chunk_hash: &ChunkHash) {
         let mut previous_block_hash = None;
         self.encoded_chunks.entry(chunk_hash.clone()).and_modify(|e| {
             previous_block_hash = Some(e.header.prev_block_hash());
             e.complete = true;
         });
         if let Some(previous_block_hash) = previous_block_hash {
-            self.remove_incomplete_chunk(previous_block_hash, &chunk_hash);
+            self.remove_incomplete_chunk(previous_block_hash, chunk_hash);
         }
+    }
+
+    pub fn mark_entry_validated(&mut self, chunk_hash: ChunkHash) {
+        self.encoded_chunks.entry(chunk_hash).and_modify(|e| {
+            e.header_fully_validated = true;
+        });
     }
 
     /// Get a list of incomplete chunks whose previous block hash is `prev_block_hash`

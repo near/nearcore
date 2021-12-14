@@ -879,6 +879,7 @@ impl Client {
         let pec_v2: MaybeValidated<PartialEncodedChunkV2> = partial_encoded_chunk.map(Into::into);
         let process_result = self.shards_mgr.process_partial_encoded_chunk(
             pec_v2.as_ref(),
+            self.chain.head().ok().as_ref(),
             self.chain.mut_store(),
             &mut self.rs,
         )?;
@@ -886,7 +887,7 @@ impl Client {
         match process_result {
             ProcessPartialEncodedChunkResult::Known
             | ProcessPartialEncodedChunkResult::NeedBlock => Ok(vec![]),
-            ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(_) => {
+            ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts => {
                 self.record_receive_chunk_timestamp(
                     pec_v2.header.height_created(),
                     pec_v2.header.shard_id(),

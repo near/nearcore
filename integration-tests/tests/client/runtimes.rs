@@ -155,6 +155,7 @@ fn test_process_partial_encoded_chunk_with_missing_block() {
     // based on a missing block.
     let result = client.shards_mgr.process_partial_encoded_chunk(
         MaybeValidated::from(&mock_chunk),
+        None,
         client.chain.mut_store(),
         &mut client.rs,
     );
