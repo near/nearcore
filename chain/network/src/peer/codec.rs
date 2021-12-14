@@ -98,8 +98,7 @@ impl Decoder for Codec {
 #[cfg(test)]
 mod test {
     use crate::peer::codec::{Codec, NETWORK_MESSAGE_MAX_SIZE_BYTES};
-
-    use crate::routing::edge::PartialEdgeInfo;
+    use crate::routing::network_protocol::PartialEdgeInfo;
     use crate::types::{
         Handshake, HandshakeFailureReason, HandshakeV2, PeerMessage, RoutingTableUpdate,
     };
@@ -115,7 +114,6 @@ mod test {
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::CryptoHash;
     use near_primitives::network::{AnnounceAccount, PeerId};
-
     use near_primitives::types::EpochId;
     use near_primitives::version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION};
     use tokio_util::codec::{Decoder, Encoder};

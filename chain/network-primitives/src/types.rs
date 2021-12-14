@@ -694,14 +694,6 @@ impl KnownPeerState {
     }
 }
 
-impl TryFrom<Vec<u8>> for KnownPeerState {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(bytes: Vec<u8>) -> Result<KnownPeerState, Self::Error> {
-        KnownPeerState::try_from_slice(&bytes).map_err(|err| err.into())
-    }
-}
-
 /// Actor message that holds the TCP stream from an inbound TCP connection
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
@@ -741,36 +733,6 @@ pub struct Unregister {
     pub peer_id: PeerId,
     pub peer_type: PeerType,
     pub remove_from_peer_store: bool,
-}
-
-pub struct PeerList {
-    pub peers: Vec<PeerInfo>,
-}
-
-/// Requesting peers from peer manager to communicate to a peer.
-pub struct PeersRequest {}
-
-impl Message for PeersRequest {
-    type Result = PeerList;
-}
-
-/// Received new peers from another peer.
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct PeersResponse {
-    pub peers: Vec<PeerInfo>,
-}
-
-impl<A, M> MessageResponse<A, M> for PeerList
-where
-    A: Actor,
-    M: Message<Result = PeerList>,
-{
-    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-        if let Some(tx) = tx {
-            tx.send(self)
-        }
-    }
 }
 
 /// Ban reason.
@@ -1118,9 +1080,6 @@ mod tests {
         assert_size!(InboundTcpConnect);
         assert_size!(OutboundTcpConnect);
         assert_size!(Unregister);
-        assert_size!(PeerList);
-        assert_size!(PeersRequest);
-        assert_size!(PeersResponse);
         assert_size!(Ban);
         assert_size!(StateResponseInfoV1);
         assert_size!(QueryPeerStats);
