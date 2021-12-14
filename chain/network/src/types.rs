@@ -1,6 +1,6 @@
 use crate::peer::peer_actor::PeerActor;
 use crate::routing::network_protocol::SimpleEdge;
-use crate::routing::routing::{GetRoutingTableResult, PeerRequestResult, RoutingTableInfo};
+use crate::routing::routing::{PeerRequestResult, RoutingTableInfo};
 use crate::PeerInfo;
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, MailboxError, Message, Recipient};
