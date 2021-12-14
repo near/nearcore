@@ -56,7 +56,7 @@ use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::time::Clock;
 
-mod types;
+use crate::types;
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
 struct AccountNonce(AccountId, Nonce);
@@ -934,8 +934,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         state_root: &StateRoot,
         partId: types::PartId,
     ) -> Result<Vec<u8>, Error> {
-        assert!(part_id < num_parts);
-        if part_id != 0 {
+        assert!(partId.idx < partId.total);
+        if partId.idx != 0 {
             return Ok(vec![]);
         }
         let state = self.state.read().unwrap().get(state_root).unwrap().clone();
@@ -946,10 +946,10 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn validate_state_part(
         &self,
         _state_root: &StateRoot,
-        partId:PartId,
+        partId:types::PartId,
         _data: &Vec<u8>,
     ) -> bool {
-        assert!(part_id < num_parts);
+        assert!(partId.idx < partId.total);
         // We do not care about deeper validation in test_utils
         true
     }

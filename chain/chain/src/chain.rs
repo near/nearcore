@@ -69,7 +69,7 @@ use delay_detector::DelayDetector;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout, ShardUId};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
-mod types;
+use crates::types;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
