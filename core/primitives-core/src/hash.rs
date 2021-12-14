@@ -88,12 +88,7 @@ impl TryFrom<&[u8]> for CryptoHash {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() != 32 {
-            return Err("incorrect length for hash".into());
-        }
-        let mut buf = [0; 32];
-        buf.copy_from_slice(bytes);
-        Ok(CryptoHash(buf))
+        Ok(CryptoHash(bytes.try_into()?))
     }
 }
 
@@ -212,7 +207,7 @@ mod tests {
             format!("\"{}\"", "1".repeat(1000)),
         ] {
             match serde_json::from_str::<CryptoHash>(encoded) {
-                Err(e) if e.to_string() == "incorrect length for hash" => {}
+                Err(e) => if e.to_string() == "could not convert slice to array" {},
                 res => assert!(false, "should have failed with incorrect length error: {:?}", res),
             };
         }
