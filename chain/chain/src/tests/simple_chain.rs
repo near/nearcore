@@ -78,7 +78,7 @@ fn build_chain() {
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
         chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("5pXLqgQe98JSdhtQ66VQFjQzBRPdZaEiMaTpdGuziF4H").unwrap()
+        CryptoHash::from_str("3vG7bLc3AjfYKdESnu5qNX24gjD6SKB1PuiRBDpcBjWC").unwrap()
     );
 }
 
