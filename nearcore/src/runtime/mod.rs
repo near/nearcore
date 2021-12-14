@@ -637,11 +637,6 @@ impl NightshadeRuntime {
     }
 }
 
-pub struct PartId {
-    idx:u64,
-    total:u64
-}
-
 fn apply_delayed_receipts<'a>(
     tries: &ShardTries,
     orig_shard_uid: ShardUId,
