@@ -69,11 +69,6 @@ use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::{TrackedConfig, NEAR_BASE};
 use rand::Rng;
 
-pub struct PartId {
-    idx:u64,
-    total:u64
-}
-
 pub fn set_block_protocol_version(
     block: &mut Block,
     block_producer: AccountId,
