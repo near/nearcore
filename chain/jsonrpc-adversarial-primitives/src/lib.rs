@@ -2,7 +2,8 @@
 use deepsize::DeepSizeOf;
 #[cfg(feature = "ser_de")]
 use near_jsonrpc_primitives::errors::RpcError;
-use near_network::routing::{Edge, SimpleEdge};
+use near_network::routing::SimpleEdge;
+use near_network::types::Edge;
 use near_primitives::network::PeerId;
 #[cfg(feature = "ser_de")]
 use serde::Deserialize;

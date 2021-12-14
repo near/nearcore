@@ -33,7 +33,7 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
             Arc::new(nearcore::NightshadeRuntime::test(
                 Path::new("."),
                 create_test_store(),
-                &genesis,
+                genesis,
             )) as Arc<dyn RuntimeAdapter>
         })
         .collect()

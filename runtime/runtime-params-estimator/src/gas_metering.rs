@@ -179,7 +179,7 @@ pub fn compute_gas_metering_cost(
 
     // Warmup.
     let result = runtime.run(
-        &contract,
+        contract,
         "hello",
         &mut fake_external,
         fake_context.clone(),
@@ -195,7 +195,7 @@ pub fn compute_gas_metering_cost(
     let start = GasCost::measure(gas_metric);
     for _ in 0..repeats {
         let result = runtime.run(
-            &contract,
+            contract,
             "hello",
             &mut fake_external,
             fake_context.clone(),
@@ -211,7 +211,7 @@ pub fn compute_gas_metering_cost(
 
     let vm_config_no_gas = VMConfig::free();
     let result = runtime.run(
-        &contract,
+        contract,
         "hello",
         &mut fake_external,
         fake_context.clone(),
@@ -225,7 +225,7 @@ pub fn compute_gas_metering_cost(
     let start = GasCost::measure(gas_metric);
     for _ in 0..repeats {
         let result = runtime.run(
-            &contract,
+            contract,
             "hello",
             &mut fake_external,
             fake_context.clone(),

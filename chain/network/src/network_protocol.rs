@@ -3,7 +3,7 @@
 /// WARNING WARNING WARNING
 /// WARNING WARNING WARNING
 /// We need to maintain backwards compatibility, all changes to this file needs to be reviews.
-use crate::routing::{Edge, PartialEdgeInfo};
+pub use crate::routing::network_protocol::{Edge, PartialEdgeInfo};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_network_primitives::types::{
     PeerChainInfo, PeerChainInfoV2, PeerInfo, RoutedMessage, RoutedMessageBody,
@@ -320,9 +320,9 @@ pub enum PeerMessage {
     HandshakeV2(HandshakeV2),
 
     EpochSyncRequest(EpochId),
-    EpochSyncResponse(EpochSyncResponse),
+    EpochSyncResponse(Box<EpochSyncResponse>),
     EpochSyncFinalizationRequest(EpochId),
-    EpochSyncFinalizationResponse(EpochSyncFinalizationResponse),
+    EpochSyncFinalizationResponse(Box<EpochSyncFinalizationResponse>),
 
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingTableSyncV2(RoutingSyncV2),
