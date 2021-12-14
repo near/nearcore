@@ -24,7 +24,7 @@ fn empty_chain() {
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(hash, CryptoHash::from_str("3wFoFbJPPv7Jg1ZERuBWTCok4H9uRZ7Uagm1wiXdKpvV").unwrap());
     #[cfg(not(feature = "nightly_protocol"))]
-    assert_eq!(hash, CryptoHash::from_str("BkrZeGCDnYJGAdc3G1fb1P8FMbnNDhBn6w5DjhQeNAdp").unwrap());
+    assert_eq!(hash, CryptoHash::from_str("7mewJ6tbV1hZBg47qaCjtRfPQG4fBHykg2mzBjEbXwv9").unwrap());
     assert_eq!(count_utc, 1);
 }
 
@@ -53,7 +53,7 @@ fn build_chain() {
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
         prev_hash,
-        CryptoHash::from_str("6C474NRQK1cLkGYrdaCpeVPKbBbsTxGeB7ZZWkdbD3uL").unwrap()
+        CryptoHash::from_str("HdzZUsY2p3hmursbjgcG2PdYaw3UgchA9rXnFoEJLGH1").unwrap()
     );
 
     for i in 0..4 {
@@ -76,7 +76,7 @@ fn build_chain() {
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
         chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("5pXLqgQe98JSdhtQ66VQFjQzBRPdZaEiMaTpdGuziF4H").unwrap()
+        CryptoHash::from_str("3vG7bLc3AjfYKdESnu5qNX24gjD6SKB1PuiRBDpcBjWC").unwrap()
     );
 }
 
