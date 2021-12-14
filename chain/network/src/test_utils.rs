@@ -196,17 +196,13 @@ impl Handler<GetInfo> for PeerManagerActor {
 }
 
 // `StopSignal is used to stop PeerManagerActor for unit tests
-#[derive(Message)]
+#[derive(Message, Default)]
 #[rtype(result = "()")]
 pub struct StopSignal {
     pub should_panic: bool,
 }
 
 impl StopSignal {
-    pub fn new() -> Self {
-        Self { should_panic: false }
-    }
-
     pub fn should_panic() -> Self {
         Self { should_panic: true }
     }
