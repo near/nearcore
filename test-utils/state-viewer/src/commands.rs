@@ -17,9 +17,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{
-    BlockHeight, EpochHeight, EpochId, ProtocolVersion, ShardId, StateRoot,
-};
+use near_primitives::types::{BlockHeight, ShardId, StateRoot};
 use near_store::test_utils::create_test_store;
 use near_store::{Store, TrieIterator};
 use nearcore::{NearConfig, NightshadeRuntime};
@@ -493,11 +491,7 @@ pub(crate) fn check_block_chunk_existence(store: Arc<Store>, near_config: NearCo
 }
 
 pub(crate) fn print_epoch_info(
-    epoch_id: Option<EpochId>,
-    epoch_height: Option<EpochHeight>,
-    block_hash: Option<CryptoHash>,
-    block_height: Option<BlockHeight>,
-    protocol_version: Option<ProtocolVersion>,
+    epoch_selection: epoch_info::EpochSelection,
     validator_account_id: Option<AccountId>,
     home_dir: &Path,
     near_config: NearConfig,
@@ -517,11 +511,7 @@ pub(crate) fn print_epoch_info(
     ));
 
     epoch_info::print_epoch_info(
-        epoch_id,
-        epoch_height,
-        block_hash,
-        block_height,
-        protocol_version,
+        epoch_selection,
         validator_account_id,
         store,
         &mut chain_store,

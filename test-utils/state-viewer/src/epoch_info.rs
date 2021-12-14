@@ -1,4 +1,5 @@
 use borsh::BorshDeserialize;
+use clap::{ArgEnum, Clap};
 use core::ops::Range;
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_epoch_manager::EpochManager;
@@ -8,30 +9,36 @@ use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ProtocolVersion, ShardId};
 use near_store::{DBCol, Store};
+use std::str::FromStr;
 use std::sync::Arc;
 
+#[derive(Clap, ArgEnum, Debug, Clone)]
+pub(crate) enum EpochSelection {
+    /// Current epoch.
+    Current,
+    /// All epochs.
+    All,
+    /// Fetch the given epoch.
+    EpochId { epoch_id: String },
+    /// Fetch epochs at the given height.
+    EpochHeight { epoch_height: EpochHeight },
+    /// Fetch an epoch containing the given block hash.
+    BlockHash { block_hash: String },
+    /// Fetch an epoch containing the given block height.
+    BlockHeight { block_height: BlockHeight },
+    /// Fetch all epochs with the given protocol version.
+    ProtocolVersion { protocol_version: ProtocolVersion },
+}
+
 pub(crate) fn print_epoch_info(
-    epoch_id: Option<EpochId>,
-    epoch_height: Option<EpochHeight>,
-    block_hash: Option<CryptoHash>,
-    block_height: Option<BlockHeight>,
-    protocol_version: Option<ProtocolVersion>,
+    epoch_selection: EpochSelection,
     validator_account_id: Option<AccountId>,
     store: Arc<Store>,
     chain_store: &mut ChainStore,
     epoch_manager: &mut EpochManager,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
 ) {
-    let epoch_ids = get_epoch_ids(
-        epoch_id,
-        epoch_height,
-        block_hash,
-        block_height,
-        protocol_version,
-        store,
-        chain_store,
-        epoch_manager,
-    );
+    let epoch_ids = get_epoch_ids(epoch_selection, store, chain_store, epoch_manager);
 
     let head_block_info =
         epoch_manager.get_block_info(&chain_store.head().unwrap().last_block_hash).unwrap().clone();
@@ -43,6 +50,7 @@ pub(crate) fn print_epoch_info(
             (epoch_id.clone(), epoch_manager.get_epoch_info(&epoch_id).unwrap().clone())
         })
         .collect();
+    // Sorted output is much easier to follow.
     epoch_infos.sort_by_key(|(_, epoch_info)| epoch_info.epoch_height());
 
     for (epoch_id, epoch_info) in &epoch_infos {
@@ -96,36 +104,46 @@ fn get_block_height_range(
 
 // Converts a bunch of optional filtering options into a vector of EpochIds.
 fn get_epoch_ids(
-    epoch_id: Option<EpochId>,
-    epoch_height: Option<EpochHeight>,
-    block_hash: Option<CryptoHash>,
-    block_height: Option<BlockHeight>,
-    protocol_version: Option<ProtocolVersion>,
+    epoch_selection: EpochSelection,
     store: Arc<Store>,
     chain_store: &mut ChainStore,
     epoch_manager: &mut EpochManager,
 ) -> Vec<EpochId> {
-    if let Some(epoch_id) = epoch_id {
-        // Fetch the specified epoch.
-        vec![epoch_id]
-    } else if let Some(epoch_height) = epoch_height {
-        // Fetch epochs at the given height.
-        // There should only be one epoch at a given height. But this is a debug tool, let's check
-        // if there are multiple epochs at a given height.
-        iterate_and_filter(store, |epoch_info| epoch_info.epoch_height() == epoch_height)
-    } else if let Some(block_hash) = block_hash {
-        // Fetch an epoch containing the given block.
-        vec![epoch_manager.get_block_info(&block_hash).unwrap().epoch_id().clone()]
-    } else if let Some(block_height) = block_height {
-        // Fetch an epoch containing the given block height.
-        let block_hash = chain_store.get_block_hash_by_height(block_height).unwrap();
-        vec![epoch_manager.get_block_info(&block_hash).unwrap().epoch_id().clone()]
-    } else if let Some(protocol_version) = protocol_version {
-        // Fetch the first epoch of the given protocol version.
-        iterate_and_filter(store, |epoch_info| epoch_info.protocol_version() == protocol_version)
-    } else {
-        // Fetch all epochs.
-        iterate_and_filter(store, |_| true)
+    match epoch_selection {
+        EpochSelection::All => iterate_and_filter(store, |_| true),
+        EpochSelection::Current => {
+            let epoch_id = epoch_manager
+                .get_block_info(&chain_store.head().unwrap().last_block_hash)
+                .unwrap()
+                .epoch_id()
+                .clone();
+            vec![epoch_id]
+        }
+        EpochSelection::EpochId { epoch_id } => {
+            let epoch_id = EpochId(CryptoHash::from_str(&epoch_id).unwrap());
+            vec![epoch_id]
+        }
+        EpochSelection::EpochHeight { epoch_height } => {
+            // Fetch epochs at the given height.
+            // There should only be one epoch at a given height. But this is a debug tool, let's check
+            // if there are multiple epochs at a given height.
+            iterate_and_filter(store, |epoch_info| epoch_info.epoch_height() == epoch_height)
+        }
+        EpochSelection::BlockHash { block_hash } => {
+            let block_hash = CryptoHash::from_str(&block_hash).unwrap();
+            vec![epoch_manager.get_block_info(&block_hash).unwrap().epoch_id().clone()]
+        }
+        EpochSelection::BlockHeight { block_height } => {
+            // Fetch an epoch containing the given block height.
+            let block_hash = chain_store.get_block_hash_by_height(block_height).unwrap();
+            vec![epoch_manager.get_block_info(&block_hash).unwrap().epoch_id().clone()]
+        }
+        EpochSelection::ProtocolVersion { protocol_version } => {
+            // Fetch the first epoch of the given protocol version.
+            iterate_and_filter(store, |epoch_info| {
+                epoch_info.protocol_version() == protocol_version
+            })
+        }
     }
 }
 
@@ -164,50 +182,71 @@ fn display_epoch_info(
         return;
     }
     if let Some(account_id) = validator_account_id.clone() {
-        if let Some(kickout) = epoch_info.validator_kickout().get(&account_id) {
-            println!("Validator {} kickout: {:#?}", account_id, kickout);
-        }
-        if let Some(validator_id) = epoch_info.get_validator_id(&account_id) {
-            let block_height_range: Range<BlockHeight> =
-                get_block_height_range(&epoch_info, &chain_store, epoch_manager);
-            let bp_for_blocks: Vec<BlockHeight> = block_height_range
-                .clone()
-                .into_iter()
-                .filter(|&block_height| {
-                    epoch_info.sample_block_producer(block_height) == *validator_id
-                })
-                .collect();
-            println!("Block producer for {} blocks: {:?}", bp_for_blocks.len(), bp_for_blocks);
+        display_validator_info(
+            epoch_id,
+            epoch_info,
+            account_id,
+            chain_store,
+            epoch_manager,
+            runtime_adapter,
+        );
+    }
+}
 
-            let shard_ids = 0..runtime_adapter.num_shards(epoch_id).unwrap();
-            let cp_for_chunks: Vec<(BlockHeight, ShardId)> = block_height_range
-                .clone()
-                .into_iter()
-                .map(|block_height| {
-                    shard_ids
-                        .clone()
-                        .map(|shard_id| (block_height, shard_id))
-                        .filter(|&(block_height, shard_id)| {
-                            epoch_info.sample_chunk_producer(block_height, shard_id)
-                                == *validator_id
-                        })
-                        .collect::<Vec<(BlockHeight, ShardId)>>()
-                })
-                .flatten()
-                .collect();
-            println!("Chunk producer for {} chunks: {:?}", cp_for_chunks.len(), cp_for_chunks);
-            let mut missing_chunks = vec![];
-            for (block_height, shard_id) in cp_for_chunks {
-                if let Ok(block_hash) = chain_store.get_block_hash_by_height(block_height) {
-                    let block = chain_store.get_block(&block_hash).unwrap();
-                    if block.chunks()[shard_id as usize].height_included() != block_height {
-                        missing_chunks.push((block_height, shard_id));
-                    }
-                } else {
+fn display_validator_info(
+    epoch_id: &EpochId,
+    epoch_info: &EpochInfo,
+    account_id: AccountId,
+    chain_store: &mut ChainStore,
+    epoch_manager: &mut EpochManager,
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
+) {
+    if let Some(kickout) = epoch_info.validator_kickout().get(&account_id) {
+        println!("Validator {} kickout: {:#?}", account_id, kickout);
+    }
+    if let Some(validator_id) = epoch_info.get_validator_id(&account_id) {
+        let block_height_range: Range<BlockHeight> =
+            get_block_height_range(&epoch_info, &chain_store, epoch_manager);
+        let bp_for_blocks: Vec<BlockHeight> = block_height_range
+            .clone()
+            .into_iter()
+            .filter(|&block_height| epoch_info.sample_block_producer(block_height) == *validator_id)
+            .collect();
+        println!("Block producer for {} blocks: {:?}", bp_for_blocks.len(), bp_for_blocks);
+
+        let shard_ids = 0..runtime_adapter.num_shards(epoch_id).unwrap();
+        let cp_for_chunks: Vec<(BlockHeight, ShardId)> = block_height_range
+            .clone()
+            .into_iter()
+            .map(|block_height| {
+                shard_ids
+                    .clone()
+                    .map(|shard_id| (block_height, shard_id))
+                    .filter(|&(block_height, shard_id)| {
+                        epoch_info.sample_chunk_producer(block_height, shard_id) == *validator_id
+                    })
+                    .collect::<Vec<(BlockHeight, ShardId)>>()
+            })
+            .flatten()
+            .collect();
+        println!("Chunk producer for {} chunks: {:?}", cp_for_chunks.len(), cp_for_chunks);
+        let mut missing_chunks = vec![];
+        for (block_height, shard_id) in cp_for_chunks {
+            if let Ok(block_hash) = chain_store.get_block_hash_by_height(block_height) {
+                let block = chain_store.get_block(&block_hash).unwrap();
+                if block.chunks()[shard_id as usize].height_included() != block_height {
                     missing_chunks.push((block_height, shard_id));
                 }
+            } else {
+                missing_chunks.push((block_height, shard_id));
             }
-            println!("Missing {} chunks: {:?}", missing_chunks.len(), missing_chunks);
         }
+        println!("Missing {} chunks: {:?}", missing_chunks.len(), missing_chunks);
+    } else {
+        println!(
+            "Validator {} didn't validate in epoch #{}",
+            account_id,
+            epoch_info.epoch_height()
+        );
     }
 }

@@ -1,9 +1,9 @@
 use crate::commands::*;
+use crate::epoch_info;
 use clap::{AppSettings, Clap};
 use near_logger_utils::init_integration_logger;
 use near_primitives::account::id::AccountId;
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ProtocolVersion, ShardId};
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{DB_VERSION, PROTOCOL_VERSION};
 use near_store::{create_store, Store};
 use nearcore::{get_default_home, get_store_path, load_config, NearConfig};
@@ -249,21 +249,8 @@ impl DumpAccountStorageCmd {
 }
 #[derive(Clap)]
 pub struct EpochInfoCmd {
-    /// Fetch the given epoch.
-    #[clap(long)]
-    epoch_id: Option<String>,
-    /// Fetch epochs at the given height. There should be at most one, but this is a debug tool, it's ok to expect the unexpected.
-    #[clap(long)]
-    epoch_height: Option<EpochHeight>,
-    /// Fetch an epoch containing the given block height.
-    #[clap(long)]
-    block_hash: Option<String>,
-    /// Fetch an epoch containing the given block height.
-    #[clap(long)]
-    block_height: Option<BlockHeight>,
-    /// Fetch the first epoch with the given protocol version.
-    #[clap(long)]
-    protocol_version: Option<ProtocolVersion>,
+    #[clap(flatten)]
+    epoch_selection: epoch_info::EpochSelection,
     /// If given, print block heights and hashes for blocks the given validator needs to produce.
     #[clap(long)]
     validator_account_id: Option<String>,
@@ -272,11 +259,7 @@ pub struct EpochInfoCmd {
 impl EpochInfoCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
         print_epoch_info(
-            self.epoch_id.map(|s| EpochId(CryptoHash::from_str(&s).unwrap())),
-            self.epoch_height,
-            self.block_hash.map(|s| CryptoHash::from_str(&s).unwrap()),
-            self.block_height,
-            self.protocol_version,
+            self.epoch_selection,
             self.validator_account_id.map(|s| AccountId::from_str(&s).unwrap()),
             home_dir,
             near_config,
