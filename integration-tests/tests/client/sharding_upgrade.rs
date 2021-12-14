@@ -9,7 +9,7 @@ use near_logger_utils::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout, ShardUId};
+use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
@@ -23,7 +23,6 @@ use nearcore::NEAR_BASE;
 use tracing::debug;
 
 use assert_matches::assert_matches;
-use near_store::get_delayed_receipt_indices;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::{HashMap, HashSet};
@@ -627,7 +626,7 @@ fn test_shard_layout_upgrade_cross_contract_calls() {
 
     let (mut test_env, new_accounts) = setup_test_env_with_cross_contract_txs(epoch_length);
 
-    for i in 1..5 * epoch_length {
+    for _ in 1..5 * epoch_length {
         test_env.step(0.);
     }
 
