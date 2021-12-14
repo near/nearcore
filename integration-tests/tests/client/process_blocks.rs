@@ -1591,7 +1591,7 @@ fn test_process_block_after_state_sync() {
         .clone();
     let state_part = env.clients[0]
         .runtime_adapter
-        .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), PartId{idx:0,total:1})
+        .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), near_chain::types::PartId{idx:0,total:1})
         .unwrap();
     // reset cache
     for i in epoch_length * 3 - 1..sync_height - 1 {
@@ -4084,7 +4084,7 @@ mod contract_precompilation_tests {
             env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
         let state_part = env.clients[0]
             .runtime_adapter
-            .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), PartId{idx:0,total:1})
+            .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), near_chain::types::PartId{idx:0,total:1})
             .unwrap();
         env.clients[1]
             .runtime_adapter
