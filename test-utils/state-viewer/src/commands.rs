@@ -1,11 +1,7 @@
-use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
+use crate::apply_chain_range::apply_chain_range;
+use crate::epoch_info;
+use crate::state_dump::state_dump;
 use ansi_term::Color::Red;
-
 use borsh::BorshSerialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
@@ -13,6 +9,7 @@ use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_epoch_manager::EpochManager;
 use near_network::iter_peers_from_store;
+use near_primitives::account::id::AccountId;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
@@ -25,9 +22,11 @@ use near_store::test_utils::create_test_store;
 use near_store::{Store, TrieIterator};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
-
-use crate::apply_chain_range::apply_chain_range;
-use crate::state_dump::state_dump;
+use std::collections::HashMap;
+use std::fs::{self, File};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub(crate) fn peers(store: Arc<Store>) {
     iter_peers_from_store(store, |(peer_id, peer_info)| {
@@ -490,6 +489,37 @@ pub(crate) fn check_block_chunk_existence(store: Arc<Store>, near_config: NearCo
     }
     println!("Block check succeed");
 }
+
+pub(crate) fn print_epoch_info(
+    epoch_selection: epoch_info::EpochSelection,
+    validator_account_id: Option<AccountId>,
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Arc<Store>,
+) {
+    let genesis_height = near_config.genesis.config.genesis_height;
+    let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+    let mut epoch_manager =
+        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
+            .expect("Failed to start Epoch Manager");
+    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::with_config(
+        &home_dir,
+        store.clone(),
+        &near_config,
+        None,
+        near_config.client_config.max_gas_burnt_view,
+    ));
+
+    epoch_info::print_epoch_info(
+        epoch_selection,
+        validator_account_id,
+        store,
+        &mut chain_store,
+        &mut epoch_manager,
+        runtime_adapter,
+    );
+}
+
 #[allow(unused)]
 enum LoadTrieMode {
     /// Load latest state
