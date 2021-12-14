@@ -1402,8 +1402,8 @@ mod test {
     /// the peer doesn't get banned. (specifically, that the expected height downloaded gets properly
     /// adjusted for time passed)
     #[test]
-    fn test_slow_header_sync(x1: fn() -> MockPeerManagerAdapter) {
-        let network_adapter = Arc::new(x1());
+    fn test_slow_header_sync() {
+        let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let highest_height = 1000;
 
         // Setup header_sync with expectation of 25 headers/second
