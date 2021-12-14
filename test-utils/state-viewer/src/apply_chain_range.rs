@@ -83,7 +83,16 @@ fn maybe_add_to_csv(csv_file_mutex: &Mutex<Option<&mut File>>, s: &str) {
     }
 }
 
-fn apply_block_from_range(height: BlockHeight, shard_id: ShardId, store: Arc<Store>, runtime_adapter: Arc<dyn RuntimeAdapter>, progress_reporter: &ProgressReporter, verbose_output: bool, csv_file_mutex: Arc<Mutex<Option<&mut File>>>, only_contracts: bool) {
+fn apply_block_from_range(
+    height: BlockHeight,
+    shard_id: ShardId,
+    store: Arc<Store>,
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    progress_reporter: &ProgressReporter,
+    verbose_output: bool,
+    csv_file_mutex: Arc<Mutex<Option<&mut File>>>,
+    only_contracts: bool,
+) {
     let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height);
     let block_hash = match chain_store.get_block_hash_by_height(height) {
         Ok(block_hash) => block_hash,
@@ -179,7 +188,7 @@ fn apply_block_from_range(height: BlockHeight, shard_id: ShardId, store: Arc<Sto
                 }
             }
             if !has_contracts {
-                skipped_blocks.fetch_add(1, Ordering::Relaxed);
+                progress_reporter.skipped.fetch_add(1, Ordering::Relaxed);
                 return;
             }
         }
@@ -312,10 +321,19 @@ pub fn apply_chain_range(
         cnt: AtomicU64::new(0),
         ts: AtomicU64::new(timestamp()),
         all: end_height - start_height,
-        skipped: AtomicU64::new(0)
-    }
+        skipped: AtomicU64::new(0),
+    };
     let process_height = |height| {
-        apply_block_from_range(height, shard_id, store, runtime_adapter, &progress_reporter, verbose_output, csv_file_mutex,only_contracts);
+        apply_block_from_range(
+            height,
+            shard_id,
+            store,
+            runtime_adapter,
+            &progress_reporter,
+            verbose_output,
+            csv_file_mutex,
+            only_contracts,
+        );
     };
 
     if cfg!(feature = "single_threaded") {
