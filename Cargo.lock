@@ -2528,6 +2528,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-account-id-fuzz"
+version = "0.0.0"
+dependencies = [
+ "borsh 0.9.1",
+ "libfuzzer-sys",
+ "near-account-id",
+ "serde_json",
+]
+
+[[package]]
 name = "near-actix-test-utils"
 version = "0.0.0"
 dependencies = [
@@ -2810,6 +2820,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-jsonrpc-fuzz"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "actix_derive",
+ "arbitrary",
+ "awc",
+ "base64 0.13.0",
+ "bs58",
+ "lazy_static",
+ "libfuzzer-sys",
+ "near-jsonrpc",
+ "near-jsonrpc-tests",
+ "near-logger-utils",
+ "once_cell",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "near-jsonrpc-primitives"
 version = "0.0.0"
 dependencies = [
@@ -2914,7 +2945,6 @@ dependencies = [
  "deepsize",
  "near-crypto",
  "near-primitives",
- "serde",
  "strum",
  "tokio",
  "tracing",

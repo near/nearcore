@@ -22,7 +22,6 @@ use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransac
 use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fmt::{Debug, Error, Formatter};
@@ -44,7 +43,7 @@ pub const ROUTED_MESSAGE_TTL: u8 = 100;
 pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: Duration = Duration::from_secs(60);
 
 /// Peer information.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
 pub struct PeerInfo {
     pub id: PeerId,
     pub addr: Option<SocketAddr>,
@@ -167,7 +166,7 @@ impl From<PeerChainInfo> for PeerChainInfoV2 {
 
 /// Peer type.
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum PeerType {
     /// Inbound session
     Inbound,
@@ -650,7 +649,7 @@ impl FromStr for PatternAddr {
 }
 
 /// Status of the known peers.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Eq, PartialEq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug, Clone)]
 pub enum KnownPeerStatus {
     Unknown,
     NotConnected,
@@ -744,39 +743,9 @@ pub struct Unregister {
     pub remove_from_peer_store: bool,
 }
 
-pub struct PeerList {
-    pub peers: Vec<PeerInfo>,
-}
-
-/// Requesting peers from peer manager to communicate to a peer.
-pub struct PeersRequest {}
-
-impl Message for PeersRequest {
-    type Result = PeerList;
-}
-
-/// Received new peers from another peer.
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct PeersResponse {
-    pub peers: Vec<PeerInfo>,
-}
-
-impl<A, M> MessageResponse<A, M> for PeerList
-where
-    A: Actor,
-    M: Message<Result = PeerList>,
-{
-    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-        if let Some(tx) = tx {
-            tx.send(self)
-        }
-    }
-}
-
 /// Ban reason.
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq, Copy)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Copy)]
 pub enum ReasonForBan {
     None = 0,
     BadBlock = 1,
@@ -817,7 +786,7 @@ pub enum PeerManagerRequest {
 #[rtype(result = "()")]
 pub enum PeerRequest {}
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct KnownProducer {
     pub account_id: AccountId,
     pub addr: Option<SocketAddr>,
@@ -1119,9 +1088,6 @@ mod tests {
         assert_size!(InboundTcpConnect);
         assert_size!(OutboundTcpConnect);
         assert_size!(Unregister);
-        assert_size!(PeerList);
-        assert_size!(PeersRequest);
-        assert_size!(PeersResponse);
         assert_size!(Ban);
         assert_size!(StateResponseInfoV1);
         assert_size!(QueryPeerStats);

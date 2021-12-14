@@ -12,10 +12,9 @@ description = "This crate hosts NEAR network-related primitive types"
 
 [dependencies]
 actix = "=0.11.0-beta.2"
-tokio = { version = "1.1", features = ["full"] }
+tokio = { version = "1.1", features = ["net", "rt-multi-thread"] }
 chrono = { version = "0.4.4", features = ["serde"] }
 borsh = "0.9"
-serde = { version = "1", features = ["derive", "rc", "alloc"] }
 strum = { version = "0.20", features = ["derive"] }
 tracing = "0.1.13"
 deepsize = { version = "0.2.0", optional = true }
