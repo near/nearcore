@@ -1420,6 +1420,8 @@ pub struct CurrentEpochValidatorInfo {
     pub shards: Vec<ShardId>,
     pub num_produced_blocks: NumBlocks,
     pub num_expected_blocks: NumBlocks,
+    pub num_produced_chunks: NumBlocks,
+    pub num_expected_chunks: NumBlocks,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
