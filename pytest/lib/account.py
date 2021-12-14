@@ -85,8 +85,10 @@ class Account:
         return self.send_tx(tx)
 
     def get_amount_yoctonear(self):
-        j = self.json_rpc('query', {
-            'request_type': 'view_account',
-            'finality': 'optimistic',
-            'account_id': self.key.account_id})
-        return int(j.get('result',{}).get('amount',0))
+        j = self.json_rpc(
+            'query', {
+                'request_type': 'view_account',
+                'finality': 'optimistic',
+                'account_id': self.key.account_id
+            })
+        return int(j.get('result', {}).get('amount', 0))

@@ -611,8 +611,7 @@ def create_genesis_file(validator_node_names,
         account_id = node_account_name(node_name)
         logger.info(f'Adding account {account_id}')
         if increasing_stakes:
-            if i * 5 < num_seats * 3 and i < len(
-                    MAINNET_STAKES):
+            if i * 5 < num_seats * 3 and i < len(MAINNET_STAKES):
                 staked = MAINNET_STAKES[i] * ONE_NEAR
             elif prev_stake is None:
                 prev_stake = MIN_STAKE - STAKE_STEP
@@ -853,7 +852,8 @@ def reset_data(node, retries=0):
 def start_genesis_updater_script(script, genesis_filename_in,
                                  genesis_filename_out, chain_id,
                                  validator_nodes, rpc_nodes, done_filename,
-                                 epoch_length, node_pks, increasing_stakes, num_seats):
+                                 epoch_length, node_pks, increasing_stakes,
+                                 num_seats):
     return '''
         cd {dir}
         rm -f {done_filename}
@@ -944,7 +944,8 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
         if increasing_stakes:
             prev_stake = None
             for i, node in enumerate(validator_nodes):
-                if i * 5 < num_block_producer_seats * 3 and i < len(MAINNET_STAKES):
+                if i * 5 < num_block_producer_seats * 3 and i < len(
+                        MAINNET_STAKES):
                     staked = MAINNET_STAKES[i] * ONE_NEAR
                 elif prev_stake is None:
                     prev_stake = MIN_STAKE - STAKE_STEP
@@ -952,7 +953,7 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
                 else:
                     prev_stake = prev_stake + STAKE_STEP
                     staked = prev_stake * ONE_NEAR
-                stakes.append((staked,node))
+                stakes.append((staked, node))
                 print(f'{node_account_name(node.instance_name)} {staked}')
 
         else:
@@ -993,7 +994,7 @@ def compute_seats(stakes, num_block_producer_seats):
 
     # Compute seats assignment.
     l = 0
-    r = max_stake+1
+    r = max_stake + 1
     seat_price = -1
     while r - l > 1:
         tmp_seat_price = (l + r) // 2
@@ -1008,11 +1009,10 @@ def compute_seats(stakes, num_block_producer_seats):
     logger.info(f'compute_seats seat_price: {seat_price}')
 
     seats = []
-    for stake,item in stakes:
+    for stake, item in stakes:
         seats.append((stake // seat_price, stake, item))
     seats.sort(reverse=True)
     return seats
-
 
 
 def upgrade_nodes(epoch_height, upgrade_schedule, all_nodes):
@@ -1073,3 +1073,31 @@ def upgrade_node(node):
         time.sleep(1)
     if not success:
         raise Exception(f'Could not upgrade node {node.instance_name}')
+
+
+STAKING_TIMEOUT = 60
+
+
+def stake_available_amount(node_account, last_staking):
+    # Repeat the staking transactions in case the validator selection algorithm changes.
+    # Don't query the balance too often, avoid overloading the RPC node.
+    if time.time() - last_staking > STAKING_TIMEOUT:
+        NEAR_IN_YOCTONEAR = 10**24
+        # Make several attempts just in case the RPC node doesn't respond.
+        for attempt in range(3):
+            try:
+                stake_amount = node_account.get_amount_yoctonear()
+                logger.info(
+                    f'Amount of {node_account.key.account_id} is {stake_amount}'
+                )
+                if stake_amount > (10**3) * NEAR_IN_YOCTONEAR:
+                    logger.info(
+                        f'Staking {stake_amount} for {node_account.key.account_id}'
+                    )
+                    node_account.send_stake_tx(stake_amount)
+                logger.info(
+                    f'Staked {stake_amount} for {node_account.key.account_id}')
+                return time.time()
+            except Exception as e:
+                logger.info('Failed to stake')
+    return None

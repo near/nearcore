@@ -2,10 +2,9 @@
 # Nodes should be responsive again after this operation.
 
 import sys
-import time
-from rc import pmap
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 import mocknet
 
 nodes = mocknet.get_nodes()

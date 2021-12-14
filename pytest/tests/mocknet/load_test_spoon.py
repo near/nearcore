@@ -20,7 +20,6 @@ import argparse
 import random
 import sys
 import time
-import tempfile
 from rc import pmap
 import pathlib
 

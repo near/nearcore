@@ -17,7 +17,7 @@ from configured_logger import logger
 
 def main(argv):
     logger.info(argv)
-    assert len(argv) >= 11
+    assert len(argv) == 11
 
     genesis_filename_in = argv[1]
     genesis_filename_out = argv[2]
@@ -44,7 +44,6 @@ def main(argv):
     assert epoch_length
     assert node_pks
     assert rpc_node_names
-    assert increasing_stakes is not None
     assert num_seats
 
     mocknet.create_genesis_file(validator_node_names,
