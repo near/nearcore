@@ -15,7 +15,6 @@ use std::sync::Arc;
 static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(|| get_default_home());
 
 #[derive(Clap)]
-#[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
 pub struct StateViewerCmd {
     #[clap(flatten)]
     opts: StateViewerOpts,
@@ -48,6 +47,7 @@ impl StateViewerOpts {
 }
 
 #[derive(Clap)]
+#[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
 pub enum StateViewerSubCommand {
     #[clap(name = "peers")]
     Peers,
