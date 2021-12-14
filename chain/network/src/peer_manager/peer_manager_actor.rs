@@ -1,13 +1,13 @@
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
+use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 #[cfg(all(
     feature = "test_features",
     feature = "protocol_feature_routing_exchange_algorithm"
 ))]
-use crate::routing::edge::SimpleEdge;
-use crate::routing::edge::{Edge, EdgeState, PartialEdgeInfo};
-use crate::routing::edge_validator_actor::EdgeValidatorHelper;
+use crate::routing::network_protocol::SimpleEdge;
+use crate::routing::network_protocol::{Edge, EdgeState, PartialEdgeInfo};
 use crate::routing::routing::{
     PeerRequestResult, RoutingTableView, DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS,
 };
@@ -1228,21 +1228,19 @@ impl PeerManagerActor {
         // Reschedule the bootstrap peer task, starting of as quick as possible with exponential backoff.
         let wait = if self.monitor_peers_attempts >= EXPONENTIAL_BACKOFF_LIMIT {
             // This is expected to be 60 seconds
-            max_interval.as_millis() as u64
+            max_interval
         } else {
-            (10f64 * EXPONENTIAL_BACKOFF_RATIO.powf(self.monitor_peers_attempts as f64)) as u64
+            Duration::from_millis(
+                (10f64 * EXPONENTIAL_BACKOFF_RATIO.powf(self.monitor_peers_attempts as f64)) as u64,
+            )
         };
 
         self.monitor_peers_attempts =
             cmp::min(EXPONENTIAL_BACKOFF_LIMIT, self.monitor_peers_attempts + 1);
 
-        near_performance_metrics::actix::run_later(
-            ctx,
-            Duration::from_millis(wait),
-            move |act, ctx| {
-                act.monitor_peers_trigger(ctx, max_interval);
-            },
-        );
+        near_performance_metrics::actix::run_later(ctx, wait, move |act, ctx| {
+            act.monitor_peers_trigger(ctx, max_interval);
+        });
     }
 
     /// Sends list of edges, from peer `peer_id` to check their signatures to `EdgeValidatorActor`.
@@ -1453,15 +1451,14 @@ impl PeerManagerActor {
         }
     }
 
-    fn propose_edge(&self, peer1: PeerId, with_nonce: Option<u64>) -> PartialEdgeInfo {
+    fn propose_edge(&self, peer1: &PeerId, with_nonce: Option<u64>) -> PartialEdgeInfo {
         // When we create a new edge we increase the latest nonce by 2 in case we miss a removal
         // proposal from our partner.
         let nonce = with_nonce.unwrap_or_else(|| {
             self.routing_table_view.get_local_edge(&peer1).map_or(1, |edge| edge.next())
         });
 
-        let key = Edge::make_key(self.my_peer_id.clone(), peer1);
-        PartialEdgeInfo::new(&key.0, &key.1, nonce, &self.config.secret_key)
+        PartialEdgeInfo::new(&self.my_peer_id, &peer1, nonce, &self.config.secret_key)
     }
 
     // Ping pong useful functions.
@@ -1991,7 +1988,10 @@ impl PeerManagerActor {
             // For unit tests
             NetworkRequests::FetchPingPongInfo => {
                 let (pings, pongs) = self.routing_table_view.fetch_ping_pong();
-                NetworkResponses::PingPongInfo { pings, pongs }
+                NetworkResponses::PingPongInfo {
+                    pings: pings.map(|(k, v)| (*k, v.clone())).collect(),
+                    pongs: pongs.map(|(k, v)| (*k, v.clone())).collect(),
+                }
             }
         }
     }
@@ -2109,7 +2109,7 @@ impl PeerManagerActor {
                     Ok(res) => match res {
                         Ok(stream) => {
                             debug!(target: "network", "Connecting to {}", msg.peer_info);
-                            let edge_info = act.propose_edge(msg.peer_info.id.clone(), None);
+                            let edge_info = act.propose_edge(&msg.peer_info.id, None);
 
                             act.try_connect_peer(
                                 ctx.address(),
@@ -2206,7 +2206,7 @@ impl PeerManagerActor {
         let require_response = msg.this_edge_info.is_none();
 
         let edge_info = msg.this_edge_info.clone().unwrap_or_else(|| {
-            self.propose_edge(msg.peer_info.id.clone(), Some(msg.other_edge_info.nonce))
+            self.propose_edge(&msg.peer_info.id, Some(msg.other_edge_info.nonce))
         });
 
         let edge_info_response = if require_response { Some(edge_info.clone()) } else { None };
@@ -2418,7 +2418,7 @@ impl PeerManagerActor {
             delay_detector::DelayDetector::new(format!("peer request {}", msg.as_ref()).into());
         match msg {
             PeerRequest::UpdateEdge((peer, nonce)) => {
-                PeerResponse::UpdatedEdge(self.propose_edge(peer, Some(nonce)))
+                PeerResponse::UpdatedEdge(self.propose_edge(&peer, Some(nonce)))
             }
             PeerRequest::RouteBack(body, target) => {
                 trace!(target: "network", "Sending message to route back: {:?}", target);
