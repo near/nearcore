@@ -1,5 +1,5 @@
 use crate::peer::peer_actor::PeerActor;
-use crate::routing::edge::{Edge, PartialEdgeInfo, SimpleEdge};
+use crate::routing::network_protocol::SimpleEdge;
 use crate::routing::routing::{GetRoutingTableResult, PeerRequestResult, RoutingTableInfo};
 use crate::PeerInfo;
 use actix::dev::{MessageResponse, ResponseChannel};
@@ -36,7 +36,8 @@ use strum::AsStaticStr;
 
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    Handshake, HandshakeFailureReason, HandshakeV2, PeerMessage, RoutingTableUpdate,
+    Edge, Handshake, HandshakeFailureReason, HandshakeV2, PartialEdgeInfo, PeerMessage,
+    RoutingTableUpdate,
 };
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 pub use crate::network_protocol::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
