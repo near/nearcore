@@ -1,16 +1,16 @@
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
+use crate::commands::*;
+use crate::epoch_info;
 use clap::{AppSettings, Clap};
-use once_cell::sync::Lazy;
-
 use near_logger_utils::init_integration_logger;
+use near_primitives::account::id::AccountId;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{DB_VERSION, PROTOCOL_VERSION};
 use near_store::{create_store, Store};
 use nearcore::{get_default_home, get_store_path, load_config, NearConfig};
-
-use crate::commands::*;
+use once_cell::sync::Lazy;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::sync::Arc;
 
 static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(|| get_default_home());
 
@@ -80,6 +80,9 @@ pub enum StateViewerSubCommand {
     /// Dump contract data in storage of given account to binary file.
     #[clap(name = "dump_account_storage")]
     DumpAccountStorage(DumpAccountStorageCmd),
+    /// Print `EpochInfo` of an epoch given by `--epoch_id` or by `--epoch_height`.
+    #[clap(name = "epoch_info")]
+    EpochInfo(EpochInfoCmd),
 }
 
 impl StateViewerSubCommand {
@@ -98,6 +101,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::CheckBlock => check_block_chunk_existence(store, near_config),
             StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
         }
     }
 }
@@ -237,6 +241,26 @@ impl DumpAccountStorageCmd {
             self.storage_key,
             &self.output,
             self.block_height,
+            home_dir,
+            near_config,
+            store,
+        );
+    }
+}
+#[derive(Clap)]
+pub struct EpochInfoCmd {
+    #[clap(flatten)]
+    epoch_selection: epoch_info::EpochSelection,
+    /// Displays kickouts of the given validator and expected and missed blocks and chunks produced.
+    #[clap(long)]
+    validator_account_id: Option<String>,
+}
+
+impl EpochInfoCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
+        print_epoch_info(
+            self.epoch_selection,
+            self.validator_account_id.map(|s| AccountId::from_str(&s).unwrap()),
             home_dir,
             near_config,
             store,
