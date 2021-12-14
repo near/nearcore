@@ -52,14 +52,6 @@ impl PeerId {
     }
 }
 
-impl TryFrom<Vec<u8>> for PeerId {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(bytes: Vec<u8>) -> Result<PeerId, Self::Error> {
-        Ok(PeerId::new(PublicKey::try_from_slice(&bytes)?))
-    }
-}
-
 impl PartialEq for PeerId {
     fn eq(&self, other: &Self) -> bool {
         self.0 .0 == other.0 .0
