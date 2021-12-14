@@ -2,7 +2,7 @@ steps:
   - label: "cargo test integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      RUST_BACKTRACE=1 RUST_LOG=WARN cargo test --locked -p 'integration-tests' -j 16
+      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --locked -p 'integration-tests' -j 16
 
     timeout: 60
     agents:
@@ -12,7 +12,7 @@ steps:
   - label: "cargo test not integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      RUST_BACKTRACE=1 RUST_LOG=WARN cargo test --locked --workspace -p '*' --exclude 'integration-tests*' -j 16
+      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --locked --workspace -p '*' --exclude 'integration-tests*' -j 16
 
     timeout: 60
     agents:
@@ -22,7 +22,7 @@ steps:
   - label: "cargo test nightly integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      RUST_BACKTRACE=1 RUST_LOG=WARN cargo test --features nightly_protocol,nightly_protocol_features,test_features -p 'integration-tests' -j 16
+      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --features nightly_protocol,nightly_protocol_features,test_features -p 'integration-tests' -j 16
 
     timeout: 60
     agents:
@@ -32,7 +32,7 @@ steps:
   - label: "cargo test nightly not integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      RUST_BACKTRACE=1 RUST_LOG=WARN cargo test --workspace --features nightly_protocol,nightly_protocol_features,test_features,rosetta_rpc -p '*' --exclude 'integration-tests*' -j 16
+      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features,test_features,rosetta_rpc -p '*' --exclude 'integration-tests*' -j 16
 
     timeout: 60
     agents:
@@ -46,11 +46,11 @@ steps:
       if [ -e deny.toml ]; then
         cargo-deny --all-features check bans
       fi
-      RUST_LOG=WARN cargo check --workspace --all-targets --all-features
-      RUST_LOG=WARN cargo check -p neard --features test_features
-      RUST_LOG=WARN cargo check -p neard --features sandbox
+      RUSTFLAGS='-D warnings' cargo check --workspace --all-targets --all-features
+      RUSTFLAGS='-D warnings' cargo check -p neard --features test_features
+      RUSTFLAGS='-D warnings' cargo check -p neard --features sandbox
 
-      RUST_LOG=WARN cargo build -p neard --bin neard --features nightly_protocol,nightly_protocol_features
+      RUSTFLAGS='-D warnings' cargo build -p neard --bin neard --features nightly_protocol,nightly_protocol_features
       cd pytest
       python3 -m pip install --user -r requirements.txt
       python3 tests/sanity/spin_up_cluster.py
@@ -59,14 +59,14 @@ steps:
       # because spinning up non-nightly clusters is already covered
       # by other steps in the CI, e.g. upgradable.
 
-      RUST_LOG=WARN cargo build -p neard --bin neard
+      RUSTFLAGS='-D warnings' cargo build -p neard --bin neard
       python3 scripts/state/update_res.py check
 
       python3 scripts/check_nightly.py
       python3 scripts/check_pytests.py
       sh scripts/check_formatting.sh
       rm target/rpc_errors_schema.json
-      RUST_LOG=WARN cargo check -p near-jsonrpc --features dump_errors_schema
+      RUSTFLAGS='-D warnings' cargo check -p near-jsonrpc --features dump_errors_schema
       if ! git --no-pager diff --no-index chain/jsonrpc/res/rpc_errors_schema.json target/rpc_errors_schema.json; then
           set +x
           echo 'The RPC errors schema reflects outdated typing structure; please run'
@@ -132,7 +132,7 @@ steps:
       cd runtime/runtime-params-estimator/test-contract
       ./build.sh
       cd ..
-      RUST_LOG=WARN cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 --metric time
+      RUSTFLAGS='-D warnings' cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 --metric time
 
     branches: "!master !beta !stable"
     timeout: 60
