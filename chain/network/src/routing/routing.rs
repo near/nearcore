@@ -1,6 +1,5 @@
 use crate::routing::network_protocol::{Edge, SimpleEdge};
 use crate::routing::route_back_cache::RouteBackCache;
-use crate::routing::utils::cache_to_hashmap;
 use crate::PeerInfo;
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Message};
@@ -258,11 +257,14 @@ impl RoutingTableView {
         }
     }
 
-    // for unit tests
+    /// Fetch `ping_info` and `pong_info` for units tests.
     pub fn fetch_ping_pong(
         &self,
-    ) -> (HashMap<usize, (Ping, usize)>, HashMap<usize, (Pong, usize)>) {
-        (cache_to_hashmap(&self.ping_info), cache_to_hashmap(&self.pong_info))
+    ) -> (
+        impl Iterator<Item = (&usize, &(Ping, usize))>,
+        impl Iterator<Item = (&usize, &(Pong, usize))>,
+    ) {
+        (self.ping_info.iter(), self.pong_info.iter())
     }
 
     pub fn info(&mut self) -> RoutingTableInfo {

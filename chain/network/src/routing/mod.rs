@@ -9,7 +9,6 @@ pub(crate) mod network_protocol;
 mod route_back_cache;
 pub(crate) mod routing;
 pub(crate) mod routing_table_actor;
-mod utils;
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 pub use crate::routing::ibf_peer_set::SlotMapId;
