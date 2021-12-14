@@ -416,7 +416,8 @@ mod tests {
     fn init() -> (Chain, StoreValidator) {
         let store = create_test_store();
         let chain_genesis = ChainGenesis::test();
-        let runtime_adapter = Arc::new(KeyValueRuntime::new(store.clone()));
+        let runtime_adapter =
+            Arc::new(KeyValueRuntime::new(store.clone(), chain_genesis.epoch_length));
         let mut genesis = GenesisConfig::default();
         genesis.genesis_height = 0;
         let chain =

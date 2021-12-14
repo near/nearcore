@@ -1,4 +1,4 @@
-use crate::routing::edge::Edge;
+use crate::routing::network_protocol::Edge;
 use crate::types::{StopMsg, ValidateEdgeList};
 use actix::{Actor, Handler, SyncContext, System};
 use conqueue::{QueueReceiver, QueueSender};
