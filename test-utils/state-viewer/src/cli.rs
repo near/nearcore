@@ -251,7 +251,7 @@ impl DumpAccountStorageCmd {
 pub struct EpochInfoCmd {
     #[clap(flatten)]
     epoch_selection: epoch_info::EpochSelection,
-    /// If given, print block heights and hashes for blocks the given validator needs to produce.
+    /// Displays kickouts of the given validator and expected and missed blocks and chunks produced.
     #[clap(long)]
     validator_account_id: Option<String>,
 }
