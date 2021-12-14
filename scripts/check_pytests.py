@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Checks whether all pytest tests are mentioned in NayDuck or Buildkite
 
 Lists all Python scripts inside of pytest/tests directory and checks whether
@@ -18,10 +19,11 @@ import yaml
 import nayduck
 
 # List of globs of Python scripts in the pytest/tests directory which are not
-# test but rather helper scripts and libraries.
+# test but rather helper scripts and libraries.  The entire mocknet/ directory
+# is covered here as well since those tests are not run on NayDuck any more.
 HELPER_SCRIPTS = [
     'delete_remote_nodes.py',
-    'mocknet/helpers/*',
+    'mocknet/*',
     'stress/hundred_nodes/*',
 ]
 

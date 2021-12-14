@@ -11,8 +11,9 @@
 #     makes sure the balances are correct at the end
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 if len(sys.argv) < 3:
     logger.info("python state_sync.py [notx, onetx, manytx] <launch_at_block>")

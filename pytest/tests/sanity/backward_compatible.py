@@ -10,8 +10,9 @@ import subprocess
 import time
 import base58
 import json
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 import branches
 import cluster
@@ -21,8 +22,7 @@ from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_pay
 
 def main():
     node_root = get_near_tempdir('backward', clean=True)
-    branch = branches.latest_rc_branch()
-    executables = branches.prepare_ab_test(branch)
+    executables = branches.prepare_ab_test()
 
     # Setup local network.
     subprocess.check_call([

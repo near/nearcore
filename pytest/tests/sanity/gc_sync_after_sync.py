@@ -4,8 +4,9 @@
 # still sync. Repeat. Then check all old data is removed.
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 swap_nodes = False
 if "swap_nodes" in sys.argv:

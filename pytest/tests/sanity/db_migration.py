@@ -11,8 +11,9 @@ import sys
 import time
 import subprocess
 import base58
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 import branches
 import cluster
@@ -54,7 +55,7 @@ def send_some_tx(node):
 
 
 def main():
-    executables = branches.prepare_ab_test('master')
+    executables = branches.prepare_ab_test()
     node_root = get_near_tempdir('db_migration', clean=True)
 
     logging.info(f"The near root is {executables.stable.root}...")

@@ -256,7 +256,6 @@ fn max_num_peers_limit() {
 ///
 /// Do four rounds where 2, 3, 4 tries to connect to 0 and check that connection between 0 and 1 was never dropped.
 #[test]
-#[ignore]
 // TODO(#5389) fix this test, ignoring for now to unlock merging
 fn archival_node() {
     let mut runner = Runner::new(5, 5)
@@ -267,18 +266,25 @@ fn archival_node() {
         .set_as_archival(1);
 
     runner.push(Action::AddEdge(2, 0));
+    runner.push(Action::Wait(50));
     runner.push(Action::AddEdge(3, 0));
+    runner.push(Action::Wait(50));
     runner.push(Action::AddEdge(4, 0));
+    runner.push(Action::Wait(50));
     runner.push_action(check_expected_connections(0, Some(2), Some(2)));
 
     runner.push(Action::AddEdge(1, 0));
+    runner.push(Action::Wait(50));
     runner.push_action(check_expected_connections(0, Some(2), Some(2)));
     runner.push_action(check_direct_connection(0, 1));
 
     for _step in 0..4 {
         runner.push(Action::AddEdge(2, 0));
+        runner.push(Action::Wait(50));
         runner.push(Action::AddEdge(3, 0));
+        runner.push(Action::Wait(50));
         runner.push(Action::AddEdge(4, 0));
+        runner.push(Action::Wait(50));
         runner.push_action(check_expected_connections(0, Some(2), Some(2)));
         runner.push_action(check_direct_connection(0, 1));
     }

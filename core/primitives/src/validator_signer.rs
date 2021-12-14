@@ -62,7 +62,7 @@ pub trait ValidatorSigner: Sync + Send {
 /// Don't use in any production or code that requires signature verification.
 #[derive(smart_default::SmartDefault)]
 pub struct EmptyValidatorSigner {
-    #[default(AccountId::test_account())]
+    #[default("test".parse().unwrap())]
     account_id: AccountId,
 }
 
@@ -182,7 +182,7 @@ impl ValidatorSigner for InMemoryValidatorSigner {
     }
 
     fn sign_approval(&self, inner: &ApprovalInner, target_height: BlockHeight) -> Signature {
-        self.signer.sign(&Approval::get_data_for_sig(&inner, target_height))
+        self.signer.sign(&Approval::get_data_for_sig(inner, target_height))
     }
 
     fn sign_challenge(&self, challenge_body: &ChallengeBody) -> (CryptoHash, Signature) {
@@ -197,7 +197,7 @@ impl ValidatorSigner for InMemoryValidatorSigner {
         peer_id: &PeerId,
         epoch_id: &EpochId,
     ) -> Signature {
-        let hash = AnnounceAccount::build_header_hash(&account_id, &peer_id, epoch_id);
+        let hash = AnnounceAccount::build_header_hash(account_id, peer_id, epoch_id);
         self.signer.sign(hash.as_ref())
     }
 

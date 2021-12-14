@@ -448,7 +448,7 @@ pub fn remove_account(
 
     // Removing access keys
     let public_keys = state_update
-        .iter(&trie_key_parsers::get_raw_prefix_for_access_keys(&account_id))?
+        .iter(&trie_key_parsers::get_raw_prefix_for_access_keys(account_id))?
         .map(|raw_key| {
             trie_key_parsers::parse_public_key_from_access_key_key(&raw_key?, account_id).map_err(
                 |_e| {
@@ -465,7 +465,7 @@ pub fn remove_account(
 
     // Removing contract data
     let data_keys = state_update
-        .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(&account_id, &[]))?
+        .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(account_id, &[]))?
         .map(|raw_key| {
             trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, account_id)
                 .map_err(|_e| {

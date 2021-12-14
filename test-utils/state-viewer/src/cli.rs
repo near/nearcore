@@ -15,7 +15,6 @@ use crate::commands::*;
 static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(|| get_default_home());
 
 #[derive(Clap)]
-#[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
 pub struct StateViewerCmd {
     #[clap(flatten)]
     opts: StateViewerOpts,
@@ -48,6 +47,7 @@ impl StateViewerOpts {
 }
 
 #[derive(Clap)]
+#[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
 pub enum StateViewerSubCommand {
     #[clap(name = "peers")]
     Peers,
@@ -85,7 +85,7 @@ pub enum StateViewerSubCommand {
 impl StateViewerSubCommand {
     pub fn run(self, home_dir: &Path) {
         let near_config = load_config(home_dir);
-        let store = create_store(&get_store_path(&home_dir));
+        let store = create_store(&get_store_path(home_dir));
         match self {
             StateViewerSubCommand::Peers => peers(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
@@ -154,6 +154,8 @@ pub struct ApplyRangeCmd {
     verbose_output: bool,
     #[clap(long, parse(from_os_str))]
     csv_file: Option<PathBuf>,
+    #[clap(long)]
+    only_contracts: bool,
 }
 
 impl ApplyRangeCmd {
@@ -167,6 +169,7 @@ impl ApplyRangeCmd {
             home_dir,
             near_config,
             store,
+            self.only_contracts,
         );
     }
 }
