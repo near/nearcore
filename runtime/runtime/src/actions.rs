@@ -349,7 +349,7 @@ pub(crate) fn action_create_account(
     predecessor_id: &AccountId,
     result: &mut ActionResult,
 ) {
-    if AccountId::is_top_level_account_id(account_id) {
+    if account_id.is_top_level() {
         if account_id.len() < account_creation_config.min_allowed_top_level_account_length as usize
             && predecessor_id != &account_creation_config.registrar_account_id
         {
@@ -364,7 +364,7 @@ pub(crate) fn action_create_account(
         } else {
             // OK: Valid top-level Account ID
         }
-    } else if !account_id.is_sub_account_of(&predecessor_id) {
+    } else if !account_id.is_sub_account_of(predecessor_id) {
         // The sub-account can only be created by its root account. E.g. `alice.near` only by `near`
         result.result = Err(ActionErrorKind::CreateAccountNotAllowed {
             account_id: account_id.clone(),
@@ -521,7 +521,7 @@ pub(crate) fn action_delete_key(
     delete_key: &DeleteKeyAction,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
-    let access_key = get_access_key(state_update, &account_id, &delete_key.public_key)?;
+    let access_key = get_access_key(state_update, account_id, &delete_key.public_key)?;
     if let Some(access_key) = access_key {
         let storage_usage_config = &fee_config.storage_usage_config;
         let storage_usage = if current_protocol_version >= DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION

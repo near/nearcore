@@ -649,7 +649,7 @@ fn test_shard_layout_upgrade_cross_contract_calls() {
 
     let successful_txs = test_env.check_tx_outcomes(false, vec![2 * epoch_length + 1]);
     let new_accounts: Vec<_> =
-        successful_txs.iter().flat_map(|tx_hash| new_accounts.get(&tx_hash)).collect();
+        successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
     test_env.check_accounts(new_accounts);
 }
 
@@ -688,7 +688,7 @@ fn test_shard_layout_upgrade_missing_chunks(p_missing: f64) {
 
     let successful_txs = test_env.check_tx_outcomes(true, vec![2 * epoch_length + 1]);
     let new_accounts: Vec<_> =
-        successful_txs.iter().flat_map(|tx_hash| new_accounts.get(&tx_hash)).collect();
+        successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
     test_env.check_accounts(new_accounts);
 }
 

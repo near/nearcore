@@ -46,7 +46,7 @@ fn apply_block_at_height(
         return Ok(());
     }
 
-    let prev_block = chain_store.get_block(&block.header().prev_hash())?.clone();
+    let prev_block = chain_store.get_block(block.header().prev_hash())?.clone();
     let mut chain_store_update = ChainStoreUpdate::new(chain_store);
     let receipt_proof_response = chain_store_update.get_incoming_receipts_for_shard(
         shard_id,
@@ -61,7 +61,7 @@ fn apply_block_at_height(
     )?;
     let receipts = collect_receipts_from_response(&receipt_proof_response);
     let chunk_hash = block.chunks()[shard_id as usize].chunk_hash();
-    let chunk = get_chunk(&chain_store, chunk_hash);
+    let chunk = get_chunk(chain_store, chunk_hash);
     let chunk_header = ShardChunkHeader::V1(chunk.header);
     let apply_result = runtime_adapter
         .apply_transactions(
@@ -76,7 +76,7 @@ fn apply_block_at_height(
             chunk_header.validator_proposals(),
             prev_block.header().gas_price(),
             chunk_header.gas_limit(),
-            &block.header().challenges_result(),
+            block.header().challenges_result(),
             *block.header().random_value(),
             true,
             is_first_block_with_chunk_of_version,
@@ -235,13 +235,13 @@ pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
                             block.header().height(),
                             block.header().raw_timestamp(),
                             block.header().prev_hash(),
-                            &block.hash(),
+                            block.hash(),
                             &[],
                             &[],
                             new_extra.validator_proposals(),
                             block.header().gas_price(),
                             new_extra.gas_limit(),
-                            &block.header().challenges_result(),
+                            block.header().challenges_result(),
                             *block.header().random_value(),
                             // doesn't really matter here since the old blocks are on the old version
                             false,
@@ -253,7 +253,7 @@ pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
                         let (_, outcome_paths) =
                             ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
                         chain_store_update.save_outcomes_with_proofs(
-                            &block.hash(),
+                            block.hash(),
                             shard_id,
                             apply_result.outcomes,
                             outcome_paths,
@@ -274,7 +274,7 @@ pub fn migrate_22_to_23(path: &Path, near_config: &NearConfig) {
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
-        let runtime = NightshadeRuntime::with_config(path, store.clone(), &near_config, None, None);
+        let runtime = NightshadeRuntime::with_config(path, store.clone(), near_config, None, None);
         let shard_id = 0;
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
         let block_heights = vec![22633807];
@@ -304,13 +304,13 @@ pub fn migrate_22_to_23(path: &Path, near_config: &NearConfig) {
                         block.header().height(),
                         block.header().raw_timestamp(),
                         block.header().prev_hash(),
-                        &block.hash(),
+                        block.hash(),
                         &receipts,
                         chunk.transactions(),
                         chunk_header.validator_proposals(),
                         block.header().gas_price(),
                         chunk_header.gas_limit(),
-                        &block.header().challenges_result(),
+                        block.header().challenges_result(),
                         *block.header().random_value(),
                         true,
                         false,
@@ -321,7 +321,7 @@ pub fn migrate_22_to_23(path: &Path, near_config: &NearConfig) {
                     let (_, outcome_paths) =
                         ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
                     chain_store_update.save_outcomes_with_proofs(
-                        &block.hash(),
+                        block.hash(),
                         shard_id,
                         apply_result.outcomes,
                         outcome_paths,
@@ -369,7 +369,7 @@ pub fn migrate_24_to_25(path: &Path) {
         pub receipt_ids: Vec<CryptoHash>,
         pub gas_burnt: Gas,
         pub tokens_burnt: Balance,
-        #[default(AccountId::test_account())]
+        #[default("test".parse().unwrap())]
         pub executor_id: AccountId,
         pub status: ExecutionStatus,
     }

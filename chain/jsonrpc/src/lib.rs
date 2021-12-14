@@ -1098,7 +1098,7 @@ impl JsonRpcHandler {
                     ))
                     .await;
                 if let Ok(NetworkClientResponses::SandboxResult(
-                              near_network::types::SandboxResponse::SandboxPatchStateFinished(true),
+                              near_network_primitives::types::SandboxResponse::SandboxPatchStateFinished(true),
                 )) = patch_state_finished
                 {
                     break;
@@ -1301,7 +1301,7 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
     let mut cors = Cors::permissive();
     if cors_allowed_origins != ["*".to_string()] {
         for origin in cors_allowed_origins {
-            cors = cors.allowed_origin(&origin);
+            cors = cors.allowed_origin(origin);
         }
     }
     cors.allowed_methods(vec!["GET", "POST"])

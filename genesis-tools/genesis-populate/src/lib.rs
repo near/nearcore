@@ -216,7 +216,7 @@ impl GenesisBuilder {
 
         store_update.merge(
             self.runtime
-                .add_validator_proposals(BlockHeaderInfo::new(&genesis.header(), 0))
+                .add_validator_proposals(BlockHeaderInfo::new(genesis.header(), 0))
                 .unwrap(),
         );
         store_update
@@ -226,7 +226,7 @@ impl GenesisBuilder {
 
         for (chunk_header, state_root) in genesis.chunks().iter().zip(self.roots.values()) {
             store_update.save_chunk_extra(
-                &genesis.hash(),
+                genesis.hash(),
                 &ShardUId::from_shard_id_and_layout(
                     chunk_header.shard_id(),
                     &self.genesis.config.shard_layout,
@@ -242,7 +242,7 @@ impl GenesisBuilder {
             );
         }
 
-        let head = Tip::from_header(&genesis.header());
+        let head = Tip::from_header(genesis.header());
         store_update.save_head(&head).unwrap();
         store_update.save_final_head(&head).unwrap();
         store_update.commit().unwrap();

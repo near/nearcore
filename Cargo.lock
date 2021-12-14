@@ -1727,7 +1727,7 @@ dependencies = [
  "lazy-static-include",
  "near-chain-configs",
  "near-crypto",
- "near-network",
+ "near-network-primitives",
  "near-primitives",
  "nearcore",
  "node-runtime",
@@ -2106,7 +2106,6 @@ dependencies = [
  "borsh 0.9.1",
  "cached",
  "chrono",
- "funty",
  "futures",
  "hex",
  "hyper",
@@ -2143,6 +2142,7 @@ dependencies = [
  "testlib",
  "tokio",
  "tracing",
+ "wat",
 ]
 
 [[package]]
@@ -2528,11 +2528,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-account-id-fuzz"
+version = "0.0.0"
+dependencies = [
+ "borsh 0.9.1",
+ "libfuzzer-sys",
+ "near-account-id",
+ "serde_json",
+]
+
+[[package]]
 name = "near-actix-test-utils"
 version = "0.0.0"
 dependencies = [
  "actix-rt",
  "futures",
+]
+
+[[package]]
+name = "near-cache"
+version = "0.0.0"
+dependencies = [
+ "bencher",
+ "lru",
+ "rand 0.7.3",
 ]
 
 [[package]]
@@ -2559,7 +2578,6 @@ dependencies = [
  "once_cell",
  "rand 0.7.3",
  "rayon",
- "serde",
  "strum",
  "thiserror",
  "tracing",
@@ -2615,7 +2633,6 @@ dependencies = [
  "near-store",
  "rand 0.7.3",
  "reed-solomon-erasure",
- "serde",
 ]
 
 [[package]]
@@ -2658,7 +2675,6 @@ dependencies = [
  "once_cell",
  "rand 0.7.3",
  "reed-solomon-erasure",
- "serde",
  "serde_json",
  "strum",
  "sysinfo",
@@ -2726,7 +2742,6 @@ dependencies = [
  "primitive-types",
  "rand 0.6.5",
  "rand 0.7.3",
- "serde",
  "serde_json",
  "smart-default",
 ]
@@ -2802,6 +2817,27 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "near-jsonrpc-fuzz"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "actix_derive",
+ "arbitrary",
+ "awc",
+ "base64 0.13.0",
+ "bs58",
+ "lazy_static",
+ "libfuzzer-sys",
+ "near-jsonrpc",
+ "near-jsonrpc-tests",
+ "near-logger-utils",
+ "once_cell",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -2909,7 +2945,6 @@ dependencies = [
  "deepsize",
  "near-crypto",
  "near-primitives",
- "serde",
  "strum",
  "tokio",
  "tracing",
@@ -2999,6 +3034,7 @@ dependencies = [
 name = "near-rate-limiter"
 version = "0.0.0"
 dependencies = [
+ "actix",
  "bytes",
  "futures-core",
  "log",
@@ -5104,9 +5140,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-macros"
-version = "1.5.0"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2dd85aeaba7b68df939bd357c6afb36c87951be9e80bf9c859f2fc3e9fca0fd"
+checksum = "c9efc1aba077437943f7515666aa2b882dfabfbfdf89c819ea75a8d6e9eaba5e"
 dependencies = [
  "proc-macro2",
  "quote",
