@@ -5,6 +5,7 @@ use near_primitives::time::Clock;
 use near_primitives::utils::{from_timestamp, to_timestamp};
 
 /// Status of the known peers.
+/// `pub` is used by `test-utils` in `iter_peers_from_store`
 #[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug, Clone)]
 pub enum KnownPeerStatus {
     Unknown,
@@ -23,6 +24,7 @@ impl KnownPeerStatus {
 }
 
 /// Information node stores about known peers.
+/// `pub` is used by `test-utils` in `iter_peers_from_store`
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
 pub struct KnownPeerState {
     pub peer_info: PeerInfo,
