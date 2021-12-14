@@ -1098,7 +1098,7 @@ impl JsonRpcHandler {
                     ))
                     .await;
                 if let Ok(NetworkClientResponses::SandboxResult(
-                              near_network::types::SandboxResponse::SandboxPatchStateFinished(true),
+                              near_network_primitives::types::SandboxResponse::SandboxPatchStateFinished(true),
                 )) = patch_state_finished
                 {
                     break;

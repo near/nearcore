@@ -24,8 +24,9 @@ cd near-api-js
 yarn
 yarn build
 ../scripts/waitonserver.sh
-yarn test
-yarn doc
+# Disabling yarn test for now
+# yarn test
+# yarn doc
 
 # Run create-near-app tests
 # cd ../create-near-app
