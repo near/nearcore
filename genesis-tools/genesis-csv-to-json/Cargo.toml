@@ -18,7 +18,7 @@ near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 node-runtime = { path = "../../runtime/runtime" }
-near-network = { path = "../../chain/network" }
+near-network-primitives = { path = "../../chain/network-primitives" }
 
 [dev-dependencies]
 tempfile = "3"

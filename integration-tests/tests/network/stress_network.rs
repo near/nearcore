@@ -128,7 +128,7 @@ fn stress_test() {
 
                             actix::spawn(pms[ix].send(GetInfo {}).then(move |info| {
                                 if let Ok(info) = info {
-                                    if info.num_active_peers == num_nodes - 2 {
+                                    if info.num_connected_peers == num_nodes - 2 {
                                         flag1.store(true, Ordering::Relaxed);
                                     }
                                 } else {

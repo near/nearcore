@@ -29,6 +29,40 @@ mod utils;
 
 pub const BASE_PATH: &str = "";
 pub const API_VERSION: &str = "1.4.4";
+pub const BLOCKCHAIN: &str = "nearprotocol";
+
+/// Verifies that network identifier provided by the user is what we expect.
+///
+/// `blockchain` and `network` must match and `sub_network_identifier` must not
+/// be provided.  On success returns client actor’s status response.
+async fn check_network_identifier(
+    client_addr: &web::Data<Addr<ClientActor>>,
+    identifier: models::NetworkIdentifier,
+) -> Result<near_client::StatusResponse, errors::ErrorKind> {
+    if identifier.blockchain != BLOCKCHAIN {
+        return Err(errors::ErrorKind::WrongNetwork(format!(
+            "Invalid blockchain {}, expecting {}",
+            identifier.blockchain, BLOCKCHAIN
+        )));
+    }
+
+    if identifier.sub_network_identifier.is_some() {
+        return Err(errors::ErrorKind::WrongNetwork("Unexpected sub_network_identifier".into()));
+    }
+
+    let status = client_addr
+        .send(near_client::Status { is_health_check: false })
+        .await?
+        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
+    if status.chain_id != identifier.network {
+        return Err(errors::ErrorKind::WrongNetwork(format!(
+            "Invalid network {}, expecting {}",
+            identifier.network, status.chain_id
+        )));
+    }
+
+    Ok(status)
+}
 
 /// Get List of Available Networks
 ///
@@ -45,7 +79,7 @@ async fn network_list(
         .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     Ok(Json(models::NetworkListResponse {
         network_identifiers: vec![models::NetworkIdentifier {
-            blockchain: "nearprotocol".to_owned(),
+            blockchain: BLOCKCHAIN.to_string(),
             network: status.chain_id,
             sub_network_identifier: None,
         }],
@@ -63,18 +97,9 @@ async fn network_status(
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::NetworkRequest>,
 ) -> Result<Json<models::NetworkStatusResponse>, models::Error> {
-    // TODO: reduce copy-paste
-    let status = client_addr
-        .send(near_client::Status { is_health_check: false })
-        .await?
-        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
-    if status.chain_id != body.network_identifier.network {
-        return Err(models::Error {
-            code: 2,
-            message: "Wrong network (chain id)".to_string(),
-            retriable: true,
-        });
-    }
+    let Json(models::NetworkRequest { network_identifier }) = body;
+
+    let status = check_network_identifier(&client_addr, network_identifier).await?;
 
     let genesis_height = genesis.config.genesis_height;
     let (network_info, genesis_block, earliest_block) = tokio::try_join!(
@@ -116,7 +141,7 @@ async fn network_status(
             None
         },
         peers: network_info
-            .active_peers
+            .connected_peers
             .into_iter()
             .map(|peer| models::Peer { peer_id: peer.id.to_string() })
             .collect(),
@@ -135,18 +160,9 @@ async fn network_options(
     client_addr: web::Data<Addr<ClientActor>>,
     body: Json<models::NetworkRequest>,
 ) -> Result<Json<models::NetworkOptionsResponse>, models::Error> {
-    // TODO: reduce copy-paste
-    let status = client_addr
-        .send(near_client::Status { is_health_check: false })
-        .await?
-        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
-    if status.chain_id != body.network_identifier.network {
-        return Err(models::Error {
-            code: 2,
-            message: "Wrong network (chain id)".to_string(),
-            retriable: true,
-        });
-    }
+    let Json(models::NetworkRequest { network_identifier }) = body;
+
+    let status = check_network_identifier(&client_addr, network_identifier).await?;
 
     Ok(Json(models::NetworkOptionsResponse {
         version: models::Version {
@@ -192,18 +208,7 @@ async fn block_details(
 ) -> Result<Json<models::BlockResponse>, models::Error> {
     let Json(models::BlockRequest { network_identifier, block_identifier }) = body;
 
-    // TODO: reduce copy-paste
-    let status = client_addr
-        .send(near_client::Status { is_health_check: false })
-        .await?
-        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
-    if status.chain_id != network_identifier.network {
-        return Err(models::Error {
-            code: 2,
-            message: "Wrong network (chain id)".to_string(),
-            retriable: true,
-        });
-    }
+    check_network_identifier(&client_addr, network_identifier).await?;
 
     let block_id: near_primitives::types::BlockReference = block_identifier.try_into()?;
 
@@ -283,18 +288,7 @@ async fn block_transaction_details(
         transaction_identifier,
     }) = body;
 
-    // TODO: reduce copy-paste
-    let status = client_addr
-        .send(near_client::Status { is_health_check: false })
-        .await?
-        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
-    if status.chain_id != network_identifier.network {
-        return Err(models::Error {
-            code: 2,
-            message: "Wrong network (chain id)".to_string(),
-            retriable: true,
-        });
-    }
+    check_network_identifier(&client_addr, network_identifier).await?;
 
     let block_id: near_primitives::types::BlockReference = block_identifier.try_into()?;
 
@@ -344,18 +338,7 @@ async fn account_balance(
         account_identifier,
     }) = body;
 
-    // TODO: reduce copy-paste
-    let status = client_addr
-        .send(near_client::Status { is_health_check: false })
-        .await?
-        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
-    if status.chain_id != network_identifier.network {
-        return Err(models::Error {
-            code: 2,
-            message: "Wrong network (chain id)".to_string(),
-            retriable: true,
-        });
-    }
+    check_network_identifier(&client_addr, network_identifier).await?;
 
     let block_id: near_primitives::types::BlockReference = block_identifier
         .map(TryInto::try_into)
@@ -459,6 +442,8 @@ async fn construction_derive(
 ) -> Result<Json<models::ConstructionDeriveResponse>, models::Error> {
     let Json(models::ConstructionDeriveRequest { network_identifier, public_key }) = body;
 
+    check_network_identifier(&client_addr, network_identifier).await?;
+
     let public_key: near_crypto::PublicKey = (&public_key)
         .try_into()
         .map_err(|_| errors::ErrorKind::InvalidInput("Invalid PublicKey".to_string()))?;
@@ -470,19 +455,6 @@ async fn construction_derive(
         )
         .into());
     };
-
-    // TODO: reduce copy-paste
-    let status = client_addr
-        .send(near_client::Status { is_health_check: false })
-        .await?
-        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
-    if status.chain_id != network_identifier.network {
-        return Err(models::Error {
-            code: 2,
-            message: "Wrong network (chain id)".to_string(),
-            retriable: true,
-        });
-    }
 
     Ok(Json(models::ConstructionDeriveResponse {
         account_identifier: models::AccountIdentifier {
@@ -506,18 +478,7 @@ async fn construction_preprocess(
 ) -> Result<Json<models::ConstructionPreprocessResponse>, models::Error> {
     let Json(models::ConstructionPreprocessRequest { network_identifier, operations }) = body;
 
-    // TODO: reduce copy-paste
-    let status = client_addr
-        .send(near_client::Status { is_health_check: false })
-        .await?
-        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
-    if status.chain_id != network_identifier.network {
-        return Err(models::Error {
-            code: 2,
-            message: "Wrong network (chain id)".to_string(),
-            retriable: true,
-        });
-    }
+    check_network_identifier(&client_addr, network_identifier).await?;
 
     let near_actions: crate::adapters::NearActions = operations.try_into()?;
 
@@ -551,22 +512,11 @@ async fn construction_metadata(
     let Json(models::ConstructionMetadataRequest { network_identifier, options, public_keys }) =
         body;
 
+    check_network_identifier(&client_addr, network_identifier).await?;
+
     let signer_public_access_key = public_keys.into_iter().next().ok_or_else(|| {
         errors::ErrorKind::InvalidInput("exactly one public key is expected".to_string())
     })?;
-
-    // TODO: reduce copy-paste
-    let status = client_addr
-        .send(near_client::Status { is_health_check: false })
-        .await?
-        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
-    if status.chain_id != network_identifier.network {
-        return Err(models::Error {
-            code: 2,
-            message: "Wrong network (chain id)".to_string(),
-            retriable: true,
-        });
-    }
 
     let (block_hash, _block_height, access_key) = crate::utils::query_access_key(
         near_primitives::types::BlockReference::latest(),
@@ -613,6 +563,8 @@ async fn construction_payloads(
         metadata,
     }) = body;
 
+    check_network_identifier(&client_addr, network_identifier).await?;
+
     let signer_public_access_key: near_crypto::PublicKey = public_keys
         .iter()
         .next()
@@ -626,19 +578,6 @@ async fn construction_payloads(
                 err
             ))
         })?;
-
-    // TODO: reduce copy-paste
-    let status = client_addr
-        .send(near_client::Status { is_health_check: false })
-        .await?
-        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
-    if status.chain_id != network_identifier.network {
-        return Err(models::Error {
-            code: 2,
-            message: "Wrong network (chain id)".to_string(),
-            retriable: true,
-        });
-    }
 
     let crate::adapters::NearActions {
         sender_account_id: signer_account_id,
@@ -689,6 +628,8 @@ async fn construction_combine(
         signatures,
     }) = body;
 
+    check_network_identifier(&client_addr, network_identifier).await?;
+
     let signature = signatures
         .iter()
         .next()
@@ -699,19 +640,6 @@ async fn construction_combine(
         .map_err(|err: near_crypto::ParseSignatureError| {
             errors::ErrorKind::InvalidInput(err.to_string())
         })?;
-
-    // TODO: reduce copy-paste
-    let status = client_addr
-        .send(near_client::Status { is_health_check: false })
-        .await?
-        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
-    if status.chain_id != network_identifier.network {
-        return Err(models::Error {
-            code: 2,
-            message: "Wrong network (chain id)".to_string(),
-            retriable: true,
-        });
-    }
 
     let signed_transction = near_primitives::transaction::SignedTransaction::new(
         signature,
@@ -734,18 +662,7 @@ async fn construction_parse(
 ) -> Result<Json<models::ConstructionParseResponse>, models::Error> {
     let Json(models::ConstructionParseRequest { network_identifier, transaction, signed }) = body;
 
-    // TODO: reduce copy-paste
-    let status = client_addr
-        .send(near_client::Status { is_health_check: false })
-        .await?
-        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
-    if status.chain_id != network_identifier.network {
-        return Err(models::Error {
-            code: 2,
-            message: "Wrong network (chain id)".to_string(),
-            retriable: true,
-        });
-    }
+    check_network_identifier(&client_addr, network_identifier).await?;
 
     let near_primitives::transaction::Transaction {
         actions,
@@ -794,23 +711,12 @@ async fn construction_hash(
 ) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     let Json(models::ConstructionHashRequest { network_identifier, signed_transaction }) = body;
 
-    // TODO: reduce copy-paste
-    let status = client_addr
-        .send(near_client::Status { is_health_check: false })
-        .await?
-        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
-    if status.chain_id != network_identifier.network {
-        return Err(models::Error {
-            code: 2,
-            message: "Wrong network (chain id)".to_string(),
-            retriable: true,
-        });
-    }
+    check_network_identifier(&client_addr, network_identifier).await?;
 
     Ok(Json(models::TransactionIdentifierResponse {
-        transaction_identifier: models::TransactionIdentifier {
-            hash: signed_transaction.as_ref().get_hash().to_base(),
-        },
+        transaction_identifier: models::TransactionIdentifier::transaction(
+            &signed_transaction.as_ref().get_hash(),
+        ),
     }))
 }
 
@@ -829,20 +735,9 @@ async fn construction_submit(
 ) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     let Json(models::ConstructionSubmitRequest { network_identifier, signed_transaction }) = body;
 
-    // TODO: reduce copy-paste
-    let status = client_addr
-        .send(near_client::Status { is_health_check: false })
-        .await?
-        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
-    if status.chain_id != network_identifier.network {
-        return Err(models::Error {
-            code: 2,
-            message: "Wrong network (chain id)".to_string(),
-            retriable: true,
-        });
-    }
+    check_network_identifier(&client_addr, network_identifier).await?;
 
-    let transaction_hash = signed_transaction.as_ref().get_hash().to_base();
+    let transaction_hash = signed_transaction.as_ref().get_hash();
     let transaction_submittion = client_addr
         .send(near_network::types::NetworkClientMessages::Transaction {
             transaction: signed_transaction.into_inner(),
@@ -854,7 +749,9 @@ async fn construction_submit(
         near_network::types::NetworkClientResponses::ValidTx
         | near_network::types::NetworkClientResponses::RequestRouted => {
             Ok(Json(models::TransactionIdentifierResponse {
-                transaction_identifier: models::TransactionIdentifier { hash: transaction_hash },
+                transaction_identifier: models::TransactionIdentifier::transaction(
+                    &transaction_hash,
+                ),
             }))
         }
         near_network::types::NetworkClientResponses::InvalidTx(error) => {
@@ -872,7 +769,7 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
     let mut cors = Cors::permissive();
     if cors_allowed_origins != ["*".to_string()] {
         for origin in cors_allowed_origins {
-            cors = cors.allowed_origin(&origin);
+            cors = cors.allowed_origin(origin);
         }
     }
     cors.allowed_methods(vec!["GET", "POST"])
