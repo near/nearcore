@@ -932,10 +932,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         _shard_id: ShardId,
         _block_hash: &CryptoHash,
         state_root: &StateRoot,
-        partId: types::PartId,
+        part_id: types::PartId,
     ) -> Result<Vec<u8>, Error> {
-        assert!(partId.idx < partId.total);
-        if partId.idx != 0 {
+        assert!(part_id.idx < part_id.total);
+        if part_id.idx != 0 {
             return Ok(vec![]);
         }
         let state = self.state.read().unwrap().get(state_root).unwrap().clone();
@@ -946,10 +946,10 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn validate_state_part(
         &self,
         _state_root: &StateRoot,
-        partId:types::PartId,
+        part_id:types::PartId,
         _data: &Vec<u8>,
     ) -> bool {
-        assert!(partId.idx < partId.total);
+        assert!(part_id.idx < part_id.total);
         // We do not care about deeper validation in test_utils
         true
     }

@@ -687,7 +687,7 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
         block_hash: &CryptoHash,
         state_root: &StateRoot,
-        partId: PartId
+        part_id: PartId
     ) -> Result<Vec<u8>, Error>;
 
     /// Validate state part that expected to be given state root with provided data.
@@ -695,7 +695,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn validate_state_part(
         &self,
         state_root: &StateRoot,
-        partId: PartId,
+        part_id: PartId,
         data: &Vec<u8>,
     ) -> bool;
 
