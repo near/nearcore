@@ -651,6 +651,7 @@ pub trait PeerManagerAdapter: Sync + Send {
     fn do_send(&self, msg: PeerManagerMessageRequest);
 }
 
+#[derive(Default)]
 pub struct NetworkRecipient {
     peer_manager_recipient: RwLock<Option<Recipient<PeerManagerMessageRequest>>>,
 }
@@ -658,10 +659,6 @@ pub struct NetworkRecipient {
 unsafe impl Sync for NetworkRecipient {}
 
 impl NetworkRecipient {
-    pub fn new() -> Self {
-        Self { peer_manager_recipient: RwLock::new(None) }
-    }
-
     pub fn set_recipient(&self, peer_manager_recipient: Recipient<PeerManagerMessageRequest>) {
         *self.peer_manager_recipient.write().unwrap() = Some(peer_manager_recipient);
     }
