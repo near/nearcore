@@ -233,8 +233,8 @@ pub struct ChainGenesis {
 
 // to specify a part we always specify both part_id and num_parts together
 pub struct PartId {
-    idx:u64,
-    total:u64
+    pub idx:u64,
+    pub total:u64
 }
 
 impl<T> From<T> for ChainGenesis
