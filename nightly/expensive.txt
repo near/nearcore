@@ -56,9 +56,8 @@ expensive --timeout=500 near-client near_client tests::consensus::test_consensus
 expensive --timeout=500 near-client near_client tests::consensus::test_consensus_with_epoch_switches --features nightly_protocol,nightly_protocol_features
 
 # testnet rpc
-# Is disabled, because it has `#[ignore]`
-# expensive nearcore test_tps_regression test::test_highload
-# expensive nearcore test_tps_regression test::test_highload --features nightly_protocol,nightly_protocol_features
+expensive nearcore test_tps_regression test::test_highload
+expensive nearcore test_tps_regression test::test_highload --features nightly_protocol,nightly_protocol_features
 
 expensive integration-tests integration-tests tests::standard_cases::rpc::test::test_access_key_smart_contract_testnet
 expensive integration-tests integration-tests tests::standard_cases::rpc::test::test_access_key_smart_contract_testnet --features nightly_protocol,nightly_protocol_features
@@ -135,9 +134,8 @@ expensive integration-tests integration-tests tests::client::process_blocks::tes
 expensive integration-tests integration-tests tests::client::process_blocks::test_gc_after_state_sync --features nightly_protocol,nightly_protocol_features
 
 # other tests
-# Is disabled, because it has `#[ignore]`
-# expensive near-chunks near_chunks test::test_seal_removal
-# expensive --timeout=300 near-chain near_chain store::tests::test_clear_old_data_too_many_heights
+expensive near-chunks near_chunks test::test_seal_removal
+expensive --timeout=300 near-chain near_chain store::tests::test_clear_old_data_too_many_heights
 
 expensive integration-tests integration-tests tests::test_simple::test::test_2_10_multiple_nodes
 expensive integration-tests integration-tests tests::test_simple::test::test_2_10_multiple_nodes --features nightly_protocol,nightly_protocol_features
