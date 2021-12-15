@@ -1416,7 +1416,9 @@ pub struct CurrentEpochValidatorInfo {
     pub shards: Vec<ShardId>,
     pub num_produced_blocks: NumBlocks,
     pub num_expected_blocks: NumBlocks,
+    #[serde(default)]
     pub num_produced_chunks: NumBlocks,
+    #[serde(default)]
     pub num_expected_chunks: NumBlocks,
 }
 
