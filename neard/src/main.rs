@@ -59,6 +59,7 @@ fn main() {
         println!("WARNING WARNING WARNING");
         println!("Usage of `./near` binary is deprecated since May 2020!!!");
         println!("Use `./neard` instead");
+        panic!("Use ./neard build target");
     }
 
     // We use it to automatically search the for root certificates to perform HTTPS calls
