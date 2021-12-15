@@ -567,6 +567,7 @@ impl PeerManagerActor {
             full_peer_info.partial_edge_info.signature.clone(),
         );
 
+        let now = Time::now();
         self.connected_peers.insert(
             target_peer_id.clone(),
             ConnectedPeer {
@@ -574,9 +575,9 @@ impl PeerManagerActor {
                 full_peer_info,
                 sent_bytes_per_sec: 0,
                 received_bytes_per_sec: 0,
-                last_time_peer_requested: Time::now(),
-                last_time_received_message: Time::now(),
-                connection_established_time: Time::now(),
+                last_time_peer_requested: now,
+                last_time_received_message: now,
+                connection_established_time: now,
                 peer_type,
                 throttle_controller: throttle_controller.clone(),
             },
