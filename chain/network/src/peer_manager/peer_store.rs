@@ -196,6 +196,7 @@ impl PeerStore {
     pub(crate) fn unconnected_peers(
         &self,
         ignore_fn: impl Fn(&KnownPeerState) -> bool,
+        count: usize,
     ) -> Vec<PeerInfo> {
         self.find_peers(
             |p| {
@@ -203,7 +204,7 @@ impl PeerStore {
                     && !ignore_fn(p)
                     && p.peer_info.addr.is_some()
             },
-            usize::MAX,
+            count,
         )
     }
 
