@@ -335,10 +335,10 @@ mod tests {
         let mut throttle_controller =
             ThrottleController::new(semaphore.clone(), max_messages_count, 2000000);
         for _ in 0..max_messages_count {
-            assert_eq!(throttle_controller.is_ready(), true);
+            assert!(throttle_controller.is_ready());
             throttle_controller.add_msg(100);
         }
-        assert_eq!(throttle_controller.is_ready(), false);
+        assert!(!throttle_controller.is_ready());
 
         for _ in 0..max_messages_count {
             throttle_controller.add_msg(100);
@@ -354,15 +354,15 @@ mod tests {
         );
 
         for _ in 0..max_messages_count {
-            assert_eq!(throttle_controller.is_ready(), false);
+            assert!(!throttle_controller.is_ready());
             throttle_controller.remove_msg(100);
         }
 
-        assert_eq!(throttle_controller.is_ready(), false);
+        assert!(!throttle_controller.is_ready());
 
         for _ in 0..max_messages_count {
             throttle_controller.remove_msg(100);
-            assert_eq!(throttle_controller.is_ready(), true);
+            assert!(throttle_controller.is_ready());
         }
 
         assert_eq!(throttle_controller.num_messages_in_progress.load(SeqCst), 0);
