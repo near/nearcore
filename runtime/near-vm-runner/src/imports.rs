@@ -279,6 +279,7 @@ pub(crate) mod wasmer2 {
 
     #[derive(wasmer::WasmerEnv, Clone)]
     struct NearWasmerEnv {
+        #[allow(unused)]
         memory: wasmer::Memory,
         /// Hack to allow usage of non-'static VMLogic as an environment in host
         /// functions. Strictly speaking, this is unsound, but this is only
