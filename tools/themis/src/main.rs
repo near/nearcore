@@ -57,8 +57,13 @@ fn main() -> anyhow::Result<()> {
         rules::publishable_has_unified_license,
         rules::publishable_has_license_file,
         rules::publishable_has_description,
-        rules::publishable_has_readme,
         rules::publishable_has_near_link,
+    ];
+
+    let _unused_rules = [
+        // TODO: https://github.com/near/nearcore/issues/5849
+        // TODO: activate this rule when all non-private crates are sufficiently documented
+        rules::publishable_has_readme,
     ];
 
     let mut failed = false;
