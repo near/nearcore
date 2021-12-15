@@ -1077,6 +1077,7 @@ def upgrade_node(node):
 
 STAKING_TIMEOUT = 60
 
+
 # If the available amount of whole NEAR tokens is above 10**3, then stakes all available amount.
 # Runs only if `last_staking` is at least `STAKING_TIMEOUT` seconds in the past.
 def stake_available_amount(node_account, last_staking):
