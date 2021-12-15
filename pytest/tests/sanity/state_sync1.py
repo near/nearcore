@@ -10,6 +10,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
+import utils
 
 BLOCK_WAIT = 40
 EPOCH_LENGTH = 80
@@ -30,18 +31,15 @@ nodes = start_cluster(
 time.sleep(2)
 nodes[1].kill()
 
-cur_height = 0
 logger.info("step 1")
-while cur_height < BLOCK_WAIT:
-    status = nodes[0].get_status()
-    cur_height = status['sync_info']['latest_block_height']
-    time.sleep(2)
+utils.wait_for_blocks(nodes[0], target=BLOCK_WAIT)
 nodes[1].start(boot_node=nodes[1])
 time.sleep(2)
 
 logger.info("step 2")
 synced = False
-while cur_height <= EPOCH_LENGTH:
+block_height0 = block_height1 = -1
+while block_height0 <= EPOCH_LENGTH and block_height1 <= EPOCH_LENGTH:
     status0 = nodes[0].get_status()
     block_height0 = status0['sync_info']['latest_block_height']
     block_hash0 = status0['sync_info']['latest_block_hash']
@@ -65,7 +63,6 @@ while cur_height <= EPOCH_LENGTH:
                 synced = abs(block_height0 - block_height1) < 5
             except Exception:
                 pass
-    cur_height = max(block_height0, block_height1)
     time.sleep(1)
 
 if not synced:
