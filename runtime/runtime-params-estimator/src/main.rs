@@ -111,7 +111,8 @@ fn main() -> anyhow::Result<()> {
                 None,
                 None,
                 None,
-            );
+            )
+            .expect("init_configs");
 
             let near_config = load_config(&state_dump_path);
             let store = create_store(&get_store_path(&state_dump_path));

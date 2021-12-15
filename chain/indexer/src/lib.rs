@@ -152,4 +152,5 @@ pub fn indexer_init_configs(dir: &std::path::PathBuf, params: InitConfigArgs) {
         params.boot_nodes.as_deref(),
         params.max_gas_burnt_view,
     )
+    .expect("indexer_init_configs")
 }

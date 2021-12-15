@@ -3342,6 +3342,7 @@ dependencies = [
  "actix-rt",
  "actix-web",
  "actix_derive",
+ "anyhow",
  "awc",
  "borsh 0.9.1",
  "byteorder",
@@ -3393,6 +3394,7 @@ name = "neard"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "anyhow",
  "clap 3.0.0-beta.2",
  "futures",
  "git-version",

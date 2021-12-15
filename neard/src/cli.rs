@@ -1,4 +1,5 @@
 use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION};
+use anyhow::Context;
 use clap::{AppSettings, Clap};
 use futures::future::FutureExt;
 use near_primitives::types::{Gas, NumSeats, NumShards};
@@ -15,7 +16,7 @@ use tracing::metadata::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 /// NEAR Protocol Node
-#[derive(Clap)]
+#[derive(Clap, Debug)]
 #[clap(version = NEARD_VERSION_STRING.as_str())]
 #[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
 pub(super) struct NeardCmd {
@@ -26,7 +27,7 @@ pub(super) struct NeardCmd {
 }
 
 impl NeardCmd {
-    pub(super) fn parse_and_run() {
+    pub(super) fn parse_and_run() -> anyhow::Result<()> {
         let neard_cmd = Self::parse();
         neard_cmd.opts.init();
         info!(target: "neard", "Version: {}, Build: {}, Latest Protocol: {}", NEARD_VERSION.version, NEARD_VERSION.build, PROTOCOL_VERSION);
@@ -42,10 +43,14 @@ impl NeardCmd {
             }
         }
 
+        info!(message = "Cmd", ?neard_cmd);
         let home_dir = neard_cmd.opts.home;
 
         match neard_cmd.subcmd {
-            NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
+            NeardSubCommand::Init(cmd) => cmd
+                .clone()
+                .run(&home_dir)
+                .with_context(|| format!("Init command failed {:?}", cmd))?,
             NeardSubCommand::Testnet(cmd) => cmd.run(&home_dir),
             NeardSubCommand::Run(cmd) => cmd.run(&home_dir),
 
@@ -62,6 +67,7 @@ impl NeardCmd {
                 cmd.run(&home_dir);
             }
         }
+        Ok(())
     }
 }
 
@@ -82,7 +88,7 @@ impl NeardOpts {
     }
 }
 
-#[derive(Clap)]
+#[derive(Clap, Debug)]
 pub(super) enum NeardSubCommand {
     /// Initializes NEAR configuration
     #[clap(name = "init")]
@@ -107,7 +113,7 @@ pub(super) enum NeardSubCommand {
     StateViewer(StateViewerSubCommand),
 }
 
-#[derive(Clap)]
+#[derive(Clap, Debug, Clone)]
 pub(super) struct InitCmd {
     /// Download the verified NEAR genesis file automatically.
     #[clap(long)]
@@ -150,7 +156,7 @@ pub(super) struct InitCmd {
 }
 
 impl InitCmd {
-    pub(super) fn run(self, home_dir: &Path) {
+    pub(super) fn run(self, home_dir: &Path) -> anyhow::Result<()> {
         // TODO: Check if `home` exists. If exists check what networks we already have there.
         if (self.download_genesis || self.download_genesis_url.is_some()) && self.genesis.is_some()
         {
@@ -173,11 +179,12 @@ impl InitCmd {
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
-        );
+        )
+        .with_context(|| "nearcore::init_configs")
     }
 }
 
-#[derive(Clap)]
+#[derive(Clap, Debug)]
 pub(super) struct RunCmd {
     /// Keep old blocks in the storage (default false).
     #[clap(long)]
@@ -281,6 +288,7 @@ impl RunCmd {
             }
         }
 
+        info!("Creating system");
         let sys = actix::System::new();
         sys.block_on(async move {
             let nearcore::NearNode { rpc_servers, .. } =
@@ -310,7 +318,7 @@ impl RunCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Clap, Debug)]
 pub(super) struct TestnetCmd {
     /// Number of non-validators to initialize the testnet with.
     #[clap(long = "n", default_value = "0")]

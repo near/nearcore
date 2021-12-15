@@ -3,8 +3,9 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use anyhow::bail;
 use hyper::body::HttpBody;
 use near_primitives::time::Clock;
 use num_rational::Rational;
@@ -816,13 +817,23 @@ pub fn init_configs(
     download_config_url: Option<&str>,
     boot_nodes: Option<&str>,
     max_gas_burnt_view: Option<Gas>,
-) {
+) -> anyhow::Result<()> {
     fs::create_dir_all(dir).expect("Failed to create directory");
     // Check if config already exists in home dir.
     if dir.join(CONFIG_FILENAME).exists() {
         let config = Config::from_file(&dir.join(CONFIG_FILENAME));
-        let genesis_config = GenesisConfig::from_file(&dir.join(config.genesis_file));
-        panic!("Found existing config in {} with chain-id = {}. Use unsafe_reset_all to clear the folder.", dir.display(), genesis_config.chain_id);
+        let path = &dir.join(config.genesis_file);
+        let genesis_config = GenesisConfig::from_file(path);
+        bail!(
+            "Can't create new config, it already exists.
+             Use `neard unsafe_reset_all` to delete it.
+             folder = {:?}
+             chain_id = {:?}
+             path = {:?}",
+            dir.display(),
+            genesis_config.chain_id,
+            path
+        );
     }
 
     let mut config = Config::default();
@@ -978,6 +989,7 @@ pub fn init_configs(
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
         }
     }
+    Ok(())
 }
 
 pub fn create_testnet_configs_from_seeds(
@@ -1201,7 +1213,10 @@ impl From<NodeKeyFile> for KeyFile {
 
 pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME));
+    info!(message = "Loading genesis started");
+    let started = Instant::now();
     let genesis_config = GenesisConfig::from_file(&dir.join(&config.genesis_file));
+    info!(message = "Loading genesis done", took = ?started.elapsed());
     let genesis_records_file = if let Some(genesis_records_file) = &config.genesis_records_file {
         dir.join(genesis_records_file)
     } else {

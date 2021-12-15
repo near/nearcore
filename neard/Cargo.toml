@@ -13,6 +13,7 @@ path = "src/main.rs"
 name = "neard"
 
 [dependencies]
+anyhow = "1"
 clap = "=3.0.0-beta.2"
 actix = "=0.11.0-beta.2"
 tracing = "0.1.13"

@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(|| get_default_home());
 
-#[derive(Clap)]
+#[derive(Clap, Debug)]
 pub struct StateViewerCmd {
     #[clap(flatten)]
     opts: StateViewerOpts,
@@ -46,7 +46,7 @@ impl StateViewerOpts {
     }
 }
 
-#[derive(Clap)]
+#[derive(Clap, Debug)]
 #[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
 pub enum StateViewerSubCommand {
     #[clap(name = "peers")]
@@ -106,7 +106,7 @@ impl StateViewerSubCommand {
     }
 }
 
-#[derive(Clap)]
+#[derive(Clap, Debug)]
 pub struct DumpStateCmd {
     /// Optionally, can specify at which height to dump state.
     #[clap(long)]
@@ -130,7 +130,7 @@ impl DumpStateCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Clap, Debug)]
 pub struct ChainCmd {
     #[clap(long)]
     start_index: BlockHeight,
@@ -144,7 +144,7 @@ impl ChainCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Clap, Debug)]
 pub struct ReplayCmd {
     #[clap(long)]
     start_index: BlockHeight,
@@ -158,7 +158,7 @@ impl ReplayCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Clap, Debug)]
 pub struct ApplyRangeCmd {
     #[clap(long)]
     start_index: Option<BlockHeight>,
@@ -190,7 +190,7 @@ impl ApplyRangeCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Clap, Debug)]
 pub struct ApplyCmd {
     #[clap(long)]
     height: BlockHeight,
@@ -204,7 +204,7 @@ impl ApplyCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Clap, Debug)]
 pub struct ViewChainCmd {
     #[clap(long)]
     height: Option<BlockHeight>,
@@ -220,7 +220,7 @@ impl ViewChainCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Clap, Debug)]
 pub struct DumpCodeCmd {
     #[clap(long)]
     account_id: String,
@@ -234,7 +234,7 @@ impl DumpCodeCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Clap, Debug)]
 pub struct DumpAccountStorageCmd {
     #[clap(long)]
     account_id: String,
@@ -259,7 +259,7 @@ impl DumpAccountStorageCmd {
         );
     }
 }
-#[derive(Clap)]
+#[derive(Clap, Debug)]
 pub struct EpochInfoCmd {
     #[clap(flatten)]
     epoch_selection: epoch_info::EpochSelection,
