@@ -8,7 +8,7 @@ use crate::private_actix::{
 };
 use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::network_protocol::Edge;
-use crate::routing::routing::{RoutingTableView, DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS};
+use crate::routing::routing::{RoutingTableView, DELETE_PEERS_AFTER_TIME};
 use crate::routing::routing_table_actor::{
     Prune, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
 };
@@ -219,10 +219,6 @@ impl PeerManagerActor {
         view_client_addr: Recipient<NetworkViewClientMessages>,
         routing_table_addr: Addr<RoutingTableActor>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        if config.max_num_peers as usize > MAX_NUM_PEERS {
-            panic!("Exceeded max peer limit: {}", MAX_NUM_PEERS);
-        }
-
         let peer_store = PeerStore::new(store.clone(), &config.boot_nodes)?;
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
         debug!(target: "network", "Blacklist: {:?}", config.blacklist);
@@ -920,8 +916,7 @@ impl PeerManagerActor {
 
     /// Get a random peer we are not connected to from the known list.
     fn sample_random_peer(&self, ignore_fn: impl Fn(&KnownPeerState) -> bool) -> Option<PeerInfo> {
-        let unconnected_peers = self.peer_store.unconnected_peers(ignore_fn);
-        unconnected_peers.choose(&mut rand::thread_rng()).cloned()
+        self.peer_store.unconnected_peer(ignore_fn)
     }
 
     /// Query current peers for more peers.
@@ -2246,7 +2241,9 @@ impl PeerManagerActor {
     ) -> PeerRequestResult {
         #[cfg(feature = "delay_detector")]
         let _d = delay_detector::DelayDetector::new("peers request".into());
-        PeerRequestResult { peers: self.peer_store.healthy_peers(self.config.max_send_peers) }
+        PeerRequestResult {
+            peers: self.peer_store.healthy_peers(self.config.max_send_peers as usize),
+        }
     }
 
     fn handle_msg_peers_response(&mut self, msg: PeersResponse, _ctx: &mut Context<Self>) {

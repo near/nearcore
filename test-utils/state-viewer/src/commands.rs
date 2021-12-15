@@ -51,6 +51,8 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Arc<Store>)
 
 pub(crate) fn dump_state(
     height: Option<BlockHeight>,
+    stream: bool,
+    file: Option<PathBuf>,
     home_dir: &Path,
     near_config: NearConfig,
     store: Arc<Store>,
@@ -63,14 +65,20 @@ pub(crate) fn dump_state(
         load_trie_stop_at_height(store, home_dir, &near_config, mode);
     let height = header.height();
     let home_dir = PathBuf::from(&home_dir);
-    let output_dir = home_dir.join("output");
 
-    let records_path = output_dir.join("records.json");
-    let new_near_config =
-        state_dump(runtime, state_roots.clone(), header, &near_config, &records_path);
-
-    println!("Saving state at {:?} @ {} into {}", state_roots, height, output_dir.display(),);
-    new_near_config.save_to_dir(&output_dir);
+    if stream {
+        let output_dir = file.unwrap_or(home_dir.join("output"));
+        let records_path = output_dir.join("records.json");
+        let new_near_config =
+            state_dump(runtime, &state_roots, header, &near_config, Some(&records_path));
+        println!("Saving state at {:?} @ {} into {}", state_roots, height, output_dir.display(),);
+        new_near_config.save_to_dir(&output_dir);
+    } else {
+        let new_near_config = state_dump(runtime, &state_roots, header, &near_config, None);
+        let output_file = file.unwrap_or(home_dir.join("output.json"));
+        println!("Saving state at {:?} @ {} into {}", state_roots, height, output_file.display(),);
+        new_near_config.genesis.to_file(&output_file);
+    }
 }
 
 pub(crate) fn apply_range(
