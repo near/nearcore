@@ -524,7 +524,7 @@ mod tests {
                     break;
                 }
                 Poll::Ready(val) => {
-                    assert!(false, "unexpected got {:?}", val);
+                    panic!("unexpected got {:?}", val);
                 }
             }
         }
@@ -537,7 +537,7 @@ mod tests {
                 // this expected
             }
             Poll::Ready(x) => {
-                assert!(false, "got {:?}", x);
+                panic!("got {:?}", x);
             }
         }
 
