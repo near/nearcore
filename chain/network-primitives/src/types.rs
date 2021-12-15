@@ -585,6 +585,10 @@ impl NetworkConfig {
     }
 
     pub fn verify(&self) {
+        if self.max_send_peers == 0 {
+            panic!("max_send_peers can't be 0");
+        }
+
         if self.ideal_connections_lo + 1 >= self.ideal_connections_hi {
             error!(target: "network",
             "Invalid ideal_connections values. lo({}) > hi({}).",
