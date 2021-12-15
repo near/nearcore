@@ -693,6 +693,12 @@ impl KnownPeerState {
     pub fn set_last_seen(&mut self, last_seen: Time) {
         self.last_seen = last_seen.to_unix_timestamp();
     }
+
+    pub fn banned_at(&mut self, ban_reason: ReasonForBan, now: Time) {
+        let now = now.to_unix_timestamp();
+        self.last_seen = now;
+        self.status = KnownPeerStatus::Banned(ban_reason, now);
+    }
 }
 
 /// Actor message that holds the TCP stream from an inbound TCP connection

@@ -149,8 +149,7 @@ impl PeerStore {
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
             let now = Time::now();
-            peer_state.set_last_seen(now);
-            peer_state.status = KnownPeerStatus::Banned(ban_reason, now.to_unix_timestamp());
+            peer_state.banned_at(ban_reason, now);
             Self::save_to_db(&self.store, peer_id.try_to_vec()?.as_slice(), peer_state)
         } else {
             Err(format!("Peer {} is missing in the peer store", peer_id).into())

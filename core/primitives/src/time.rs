@@ -338,8 +338,10 @@ mod time {
             Self::UNIX_EPOCH + Duration::from_nanos(Clock::utc().timestamp_nanos() as u64)
         }
 
+        /// Computes saturating duration since `rhs`.
+        /// A value of `0` will returned in case given timestamp is greater than self.
         pub fn duration_since(&self, rhs: &Self) -> Duration {
-            self.system_time.duration_since(rhs.system_time).unwrap_or(Duration::from_millis(0))
+            self.system_time.duration_since(rhs.system_time).unwrap_or_default()
         }
 
         pub fn elapsed(&self) -> Duration {
@@ -362,10 +364,6 @@ mod time {
 
         pub fn inner(self) -> SystemTime {
             self.system_time
-        }
-
-        pub fn saturating_duration_since(&self, rhs: &Self) -> Duration {
-            self.system_time.duration_since(rhs.system_time).unwrap_or(Duration::from_millis(0))
         }
 
         pub fn sub(&self, rhs: Duration) -> Time {
