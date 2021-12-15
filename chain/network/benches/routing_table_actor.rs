@@ -2,15 +2,14 @@
 extern crate bencher;
 
 use bencher::{black_box, Bencher};
-use std::collections::HashMap;
-use std::sync::Arc;
-
 use near_crypto::{KeyType, SecretKey, Signature};
+use near_network::routing::Edge;
 use near_network::test_utils::random_peer_id;
-use near_network::types::Edge;
 use near_network::RoutingTableActor;
 use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 fn build_graph(depth: usize, size: usize) -> RoutingTableActor {
     let source = random_peer_id();

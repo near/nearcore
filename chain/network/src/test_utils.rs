@@ -2,8 +2,7 @@ use crate::types::{
     NetworkInfo, NetworkResponses, PeerManagerAdapter, PeerManagerMessageRequest,
     PeerManagerMessageResponse,
 };
-use crate::PeerInfo;
-use crate::PeerManagerActor;
+use crate::{PeerInfo, PeerManagerActor};
 use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::future::BoxFuture;
 use futures::{future, FutureExt};

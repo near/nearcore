@@ -162,7 +162,7 @@ impl PeerStore {
         peer_state: &KnownPeerState,
     ) -> Result<(), Box<dyn Error>> {
         let mut store_update = store.store_update();
-        store_update.set_ser(ColPeers, &peer_id, peer_state)?;
+        store_update.set_ser(ColPeers, peer_id, peer_state)?;
         store_update.commit().map_err(|err| err.into())
     }
 
@@ -375,7 +375,7 @@ where
     F: Fn((&PeerId, &KnownPeerState)),
 {
     let peer_store = PeerStore::new(store, &[]).unwrap();
-    peer_store.iter().for_each(|x| f(x));
+    peer_store.iter().for_each(f);
 }
 
 #[cfg(test)]
