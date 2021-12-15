@@ -1174,9 +1174,8 @@ impl PeerManagerActor {
         let now = Time::now();
         for (peer_id, peer_state) in self.peer_store.iter() {
             if let KnownPeerStatus::Banned(_, last_banned) = peer_state.status {
-                let interval = now.duration_since(last_banned);
-                if interval > self.config.ban_window {
-                    info!(target: "network", "Monitor peers: unbanned {} after {:?}.", peer_id, interval);
+                if now.duration_since(last_banned) > self.config.ban_window {
+                    info!(target: "network", "Monitor peers: unbanned {} after {:?}.", peer_id, now.duration_since(last_banned));
                     to_unban.push(peer_id.clone());
                 }
             }
