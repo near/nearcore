@@ -721,7 +721,6 @@ impl PeerManagerActor {
             self.remove_active_peer(ctx, &peer_id, Some(peer_type));
             if let Err(err) = self.peer_store.peer_disconnected(&peer_id) {
                 error!(target: "network", message = "Failed to save peer data", ?err);
-                return;
             };
         }
     }
@@ -1173,7 +1172,7 @@ impl PeerManagerActor {
 
         for peer_id in to_unban {
             if let Err(err) = self.peer_store.peer_unban(&peer_id) {
-                error!(message = "Failed to unban a peer", ?err);
+                error!(target: "network", message = "Failed to unban a peer", ?err);
                 // TODO: Do we really want to return?
                 // Doesn't this stop the trigger?
                 return;
@@ -1209,7 +1208,7 @@ impl PeerManagerActor {
         }
 
         if let Err(err) = self.peer_store.remove_expired(&self.config) {
-            error!(message = "Failed to remove expired peers", ?err);
+            error!(target: "network", message = "Failed to remove expired peers", ?err);
             // TODO: Do we really want to return?
             return;
         };
@@ -2251,7 +2250,7 @@ impl PeerManagerActor {
         if let Err(err) = self.peer_store.add_indirect_peers(
             msg.peers.into_iter().filter(|peer_info| peer_info.id != self.my_peer_id).collect(),
         ) {
-            error!(message = "Fail to update peer store", ?err);
+            error!(target: "network", message = "Fail to update peer store", ?err);
         };
     }
 }
