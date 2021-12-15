@@ -205,7 +205,7 @@ impl RoutingTableActor {
                             if cur_nonce == component_nonce {
                                 // Mark it as reachable and delete from database.
                                 self.peer_last_time_reachable
-                                    .insert(peer_id.clone(), Time::now().sub(SAVE_PEERS_MAX_TIME));
+                                    .insert(peer_id.clone(), Time::now() - SAVE_PEERS_MAX_TIME);
                                 update.delete(
                                     ColPeerComponent,
                                     peer_id.try_to_vec().unwrap().as_ref(),

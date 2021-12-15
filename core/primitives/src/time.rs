@@ -301,7 +301,7 @@ mod time {
 
     impl BorshSerialize for Time {
         fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
-            let nanos = self.to_unix_timestamp_nanos().as_nanos() as u64;
+            let nanos = self.duration_since(Time::from(UNIX_EPOCH)).as_nanos() as u64;
             BorshSerialize::serialize(&nanos, writer)
         }
     }
@@ -339,21 +339,9 @@ mod time {
             self.system_time.duration_since(rhs.system_time).unwrap_or_default()
         }
 
+        /// Time in `std::Duration` since `self`.
         pub fn elapsed(&self) -> Duration {
             Self::now().duration_since(*self)
-        }
-
-        pub fn to_unix_timestamp_nanos(&self) -> Duration {
-            // doesn't truncate, because self::UNIX_EPOCH is 0
-            self.duration_since(Self::UNIX_EPOCH)
-        }
-
-        pub fn inner(self) -> SystemTime {
-            self.system_time
-        }
-
-        pub fn sub(&self, rhs: Duration) -> Time {
-            Time::from(self.system_time.checked_sub(rhs).unwrap_or(UNIX_EPOCH))
         }
     }
 
@@ -395,7 +383,10 @@ mod time {
             let t_nc = now_nc + Duration::from_nanos(123456);
             let t_st = now_st + Duration::from_nanos(123456);
 
-            assert_eq!(t_nc.inner(), t_st);
+            assert_eq!(
+                t_nc.duration_since(Time::UNIX_EPOCH),
+                t_st.duration_since(UNIX_EPOCH).unwrap_or_default()
+            );
         }
 
         #[test]
