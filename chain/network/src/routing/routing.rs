@@ -1,7 +1,7 @@
 use crate::network_protocol::Edge;
 use crate::routing::route_back_cache::RouteBackCache;
 use lru::LruCache;
-use near_network_primitives::types::{PeerIdOrHash, Ping, Pong};
+use near_network_primitives::types::{PeerIdOrHash, Ping, Pong, MAX_NUM_PEERS};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::time::Clock;
@@ -22,8 +22,6 @@ const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
 /// seconds will be removed from cache and persisted in disk.
 pub const SAVE_PEERS_MAX_TIME: Duration = Duration::from_secs(7_200);
 pub const DELETE_PEERS_AFTER_TIME: Duration = Duration::from_secs(3_600);
-/// Graph implementation supports up to 128 peers.
-pub const MAX_NUM_PEERS: usize = 128;
 
 pub struct RoutingTableView {
     /// PeerId associated with this instance.

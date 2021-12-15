@@ -39,6 +39,8 @@ pub const ROUTED_MESSAGE_TTL: u8 = 100;
 /// but wait some "small" timeout between updates to avoid a lot of messages between
 /// Peer and PeerManager.
 pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: Duration = Duration::from_secs(60);
+/// Due to implementation limits of `Graph` in `near-network`, we support up to 128 client.
+pub const MAX_NUM_PEERS: usize = 128;
 
 /// Peer information.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
@@ -597,6 +599,13 @@ impl NetworkConfig {
             error!(target: "network",
                 "max_num_peers({}) is below ideal_connections_hi({}) which may lead to connection saturation and declining new connections.",
                 self.max_num_peers, self.ideal_connections_hi
+            );
+        }
+
+        if self.max_num_peers as usize >= MAX_NUM_PEERS {
+            error!(target: "network",
+                "max_num_peers({}) is higher than MAX_NUM_PEERS({}) due to implementation limits",
+                self.max_num_peers, MAX_NUM_PEERS
             );
         }
 
