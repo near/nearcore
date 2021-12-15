@@ -4,13 +4,14 @@
 # transactions to that node and make sure it doesn't crash.
 
 import sys, time, base58
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster, Key
 from configured_logger import logger
 from transaction import sign_payment_tx
-from utils import LogTracker
+import utils
 
 MAX_SYNC_WAIT = 30
 EPOCH_LENGTH = 20
@@ -32,21 +33,13 @@ time.sleep(2)
 nodes[1].kill()
 logger.info('node1 is killed')
 
-status = nodes[0].get_status()
-block_hash = status['sync_info']['latest_block_hash']
-cur_height = status['sync_info']['latest_block_height']
-
-target_height = 60
-while cur_height < target_height:
-    status = nodes[0].get_status()
-    cur_height = status['sync_info']['latest_block_height']
-    time.sleep(1)
+cur_height, _ = utils.wait_for_blocks(nodes[0], target=60)
 
 genesis_block = nodes[0].json_rpc('block', [0])
 genesis_hash = genesis_block['result']['header']['hash']
 
 nodes[1].start(boot_node=nodes[1])
-tracker = LogTracker(nodes[1])
+tracker = utils.LogTracker(nodes[1])
 time.sleep(1)
 
 start_time = time.time()

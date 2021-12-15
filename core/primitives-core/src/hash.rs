@@ -1,8 +1,6 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-#[cfg(feature = "deepsize_feature")]
-use deepsize::DeepSizeOf;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::Digest;
 
@@ -10,7 +8,7 @@ use crate::borsh::BorshSerialize;
 use crate::logging::pretty_hash;
 use crate::serialize::{from_base, to_base, BaseDecode};
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, derive_more::AsRef, derive_more::AsMut)]
 #[as_ref(forward)]
 #[as_mut(forward)]
@@ -88,12 +86,7 @@ impl TryFrom<&[u8]> for CryptoHash {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() != 32 {
-            return Err("incorrect length for hash".into());
-        }
-        let mut buf = [0; 32];
-        buf.copy_from_slice(bytes);
-        Ok(CryptoHash(buf))
+        Ok(CryptoHash(bytes.try_into()?))
     }
 }
 
@@ -182,21 +175,21 @@ mod tests {
     #[test]
     fn test_deserialize_default() {
         let encoded = "{\"hash\":\"11111111111111111111111111111111\"}";
-        let decoded: Struct = serde_json::from_str(&encoded).unwrap();
+        let decoded: Struct = serde_json::from_str(encoded).unwrap();
         assert_eq!(decoded.hash, CryptoHash::default().into());
     }
 
     #[test]
     fn test_deserialize_success() {
         let encoded = "{\"hash\":\"CjNSmWXTWhC3EhRVtqLhRmWMTkRbU96wUACqxMtV1uGf\"}";
-        let decoded: Struct = serde_json::from_str(&encoded).unwrap();
+        let decoded: Struct = serde_json::from_str(encoded).unwrap();
         assert_eq!(decoded.hash, hash(&[0, 1, 2]).into());
     }
 
     #[test]
     fn test_deserialize_not_base58() {
         let encoded = "\"---\"";
-        match serde_json::from_str(&encoded) {
+        match serde_json::from_str(encoded) {
             Ok(CryptoHash(_)) => assert!(false, "should have failed"),
             Err(_) => (),
         }
@@ -211,8 +204,8 @@ mod tests {
             format!("\"{}\"", "1".repeat(33)),
             format!("\"{}\"", "1".repeat(1000)),
         ] {
-            match serde_json::from_str::<CryptoHash>(&encoded) {
-                Err(e) if e.to_string() == "incorrect length for hash" => {}
+            match serde_json::from_str::<CryptoHash>(encoded) {
+                Err(e) => if e.to_string() == "could not convert slice to array" {},
                 res => assert!(false, "should have failed with incorrect length error: {:?}", res),
             };
         }

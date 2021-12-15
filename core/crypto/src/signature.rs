@@ -6,13 +6,7 @@ use std::io::{Error, ErrorKind, Write};
 use std::str::FromStr;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-// We need to import ed25519::signature::Signature, because we use traits from those structs.
-// However, `Signature` symbol is already used to define a different data structure.
-#[cfg(feature = "deepsize_feature")]
-use deepsize::DeepSizeOf;
-use ed25519_dalek::ed25519::signature::{Signature as _Signature, Signer, Verifier};
-#[cfg(feature = "deepsize_feature")]
-use ed25519_dalek::SIGNATURE_LENGTH;
+use ed25519_dalek::ed25519::signature::{Signature as _, Signer, Verifier};
 use once_cell::sync::Lazy;
 use primitive_types::U256;
 use rand_core::OsRng;
@@ -77,7 +71,7 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::errors::Pa
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct Secp256K1PublicKey([u8; 64]);
 
 #[cfg(feature = "deepsize_feature")]
@@ -153,8 +147,8 @@ impl Ord for Secp256K1PublicKey {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(Copy, Clone, derive_more::AsRef)]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Clone, derive_more::AsRef)]
 #[as_ref(forward)]
 pub struct ED25519PublicKey(pub [u8; ed25519_dalek::PUBLIC_KEY_LENGTH]);
 
@@ -202,10 +196,12 @@ impl Ord for ED25519PublicKey {
 }
 
 /// Public key container supporting different curves.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq)]
 pub enum PublicKey {
+    /// 256 bit elliptic curve based public-key.
     ED25519(ED25519PublicKey),
+    /// 512 bit elliptic curve based public-key used in Bitcoin's public-key cryptography.
     SECP256K1(Secp256K1PublicKey),
 }
 
@@ -242,7 +238,7 @@ impl PublicKey {
 
     pub fn unwrap_as_ed25519(&self) -> &ED25519PublicKey {
         match self {
-            Self::ED25519(key) => &key,
+            Self::ED25519(key) => key,
             Self::SECP256K1(_) => panic!(),
         }
     }
@@ -351,7 +347,7 @@ impl FromStr for PublicKey {
     type Err = crate::errors::ParseKeyError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let (key_type, key_data) = split_key_type_data(&value)?;
+        let (key_type, key_data) = split_key_type_data(value)?;
         match key_type {
             KeyType::ED25519 => {
                 let mut array = [0; ed25519_dalek::PUBLIC_KEY_LENGTH];
@@ -487,7 +483,7 @@ impl SecretKey {
 
     pub fn unwrap_as_ed25519(&self) -> &ED25519SecretKey {
         match self {
-            SecretKey::ED25519(key) => &key,
+            SecretKey::ED25519(key) => key,
             SecretKey::SECP256K1(_) => panic!(),
         }
     }
@@ -507,7 +503,7 @@ impl FromStr for SecretKey {
     type Err = crate::errors::ParseKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (key_type, key_data) = split_key_type_data(&s)?;
+        let (key_type, key_data) = split_key_type_data(s)?;
         match key_type {
             KeyType::ED25519 => {
                 let mut array = [0; ed25519_dalek::KEYPAIR_LENGTH];
@@ -687,7 +683,7 @@ pub enum Signature {
 impl deepsize::DeepSizeOf for Signature {
     fn deep_size_of_children(&self, _context: &mut deepsize::Context) -> usize {
         match self {
-            Signature::ED25519(_) => SIGNATURE_LENGTH,
+            Signature::ED25519(_) => ed25519_dalek::SIGNATURE_LENGTH,
             Signature::SECP256K1(_) => SECP256K1_SIGNATURE_LENGTH,
         }
     }
@@ -847,7 +843,7 @@ impl FromStr for Signature {
     type Err = crate::errors::ParseSignatureError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let (sig_type, sig_data) = split_key_type_data(&value)?;
+        let (sig_type, sig_data) = split_key_type_data(value)?;
         match sig_type {
             KeyType::ED25519 => {
                 let mut array = [0; ed25519_dalek::SIGNATURE_LENGTH];

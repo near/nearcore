@@ -3,12 +3,14 @@ members = [
     "core/chain-configs",
     "core/crypto",
     "core/account-id",
+    "core/account-id/fuzz",
     "core/primitives",
     "core/primitives-core",
     "core/store",
     "core/metrics",
     "runtime/near-vm-logic",
     "runtime/near-vm-runner",
+    "runtime/near-vm-runner/fuzz",
     "runtime/near-vm-runner-standalone",
     "runtime/runtime",
     "runtime/runtime-params-estimator",
@@ -21,6 +23,7 @@ members = [
     "chain/network",
     "chain/indexer",
     "chain/jsonrpc",
+    "chain/jsonrpc/fuzz",
     "chain/jsonrpc/client",
     "chain/jsonrpc/jsonrpc-tests",
     "chain/jsonrpc-primitives",
@@ -46,6 +49,7 @@ members = [
     "tools/restored-receipts-verifier",
     "integration-tests",
     "utils/near-rate-limiter",
+    "utils/near-cache",
 ]
 
 [workspace.metadata.workspaces]

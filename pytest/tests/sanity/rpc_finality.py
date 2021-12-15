@@ -7,10 +7,11 @@
 # the moment when doomslug is there, but finality is not.
 
 import sys, time, base58
+import pathlib
 
 import unittest
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger

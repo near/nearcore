@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 import os
 from testlib import clean_binary_tests, build_tests, test_binaries, current_path
-from concurrent.futures import ThreadPoolExecutor, as_completed, wait
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import subprocess
-import sys
 import glob
 from itertools import zip_longest
 from multiprocessing import cpu_count

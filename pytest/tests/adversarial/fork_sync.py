@@ -6,11 +6,13 @@
 # and produce blocks
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
+import utils
 
 TIMEOUT = 120
 FIRST_STEP_WAIT = 20
@@ -30,21 +32,13 @@ for i in range(0, 4):
     assert 'result' in res, res
 
 # step 1, let nodes run for some time
-while cur_height < FIRST_STEP_WAIT:
-    status = nodes[0].get_status()
-    cur_height = status['sync_info']['latest_block_height']
-    logger.info(status)
-    time.sleep(0.9)
+utils.wait_for_blocks(nodes[0], target=FIRST_STEP_WAIT)
 
 for i in range(2):
     nodes[i].kill()
 
 logger.info("killing node 0 and 1")
-while fork1_height < FIRST_STEP_WAIT + SECOND_STEP_WAIT:
-    status = nodes[2].get_status()
-    fork1_height = status['sync_info']['latest_block_height']
-    logger.info(status)
-    time.sleep(0.9)
+utils.wait_for_blocks(nodes[2], target=FIRST_STEP_WAIT + SECOND_STEP_WAIT)
 
 for i in range(2, 4):
     nodes[i].kill()
@@ -58,11 +52,7 @@ for i in range(2):
 
 time.sleep(1)
 
-while fork2_height < FIRST_STEP_WAIT + SECOND_STEP_WAIT:
-    status = nodes[0].get_status()
-    fork2_height = status['sync_info']['latest_block_height']
-    logger.info(status)
-    time.sleep(0.9)
+utils.wait_for_blocks(nodes[0], target=FIRST_STEP_WAIT + SECOND_STEP_WAIT)
 
 for i in range(2, 4):
     nodes[i].start(boot_node=nodes[i])

@@ -3,6 +3,8 @@ name = "runtime-tester-fuzz"
 version = "0.0.0"
 authors = ["Automatically generated"]
 publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 
 [package.metadata]

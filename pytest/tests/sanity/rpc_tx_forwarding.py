@@ -5,8 +5,9 @@
 # We then send one transaction synchronously through the first observer, and expect it to pass and apply due to rpc tx forwarding
 
 import sys, time, base58, random
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger

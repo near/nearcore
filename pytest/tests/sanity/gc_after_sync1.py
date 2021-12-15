@@ -6,16 +6,18 @@
 # collected blocks.
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
+import utils
 
 TARGET_HEIGHT1 = 15
 TARGET_HEIGHT2 = 35
 TARGET_HEIGHT3 = 105
-TIME_OUT = 80
+TIMEOUT = 80
 
 node0_config = {"gc_blocks_limit": 10}
 
@@ -40,32 +42,17 @@ nodes = start_cluster(
 status1 = nodes[1].get_status()
 height = status1['sync_info']['latest_block_height']
 
-start = time.time()
-while height < TARGET_HEIGHT1:
-    assert time.time() - start < TIME_OUT
-    time.sleep(1)
-    status1 = nodes[1].get_status()
-    height = status1['sync_info']['latest_block_height']
+utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT1, timeout=TIMEOUT)
 
 logger.info('Kill node 1')
 nodes[1].kill()
 
-start = time.time()
-while height < TARGET_HEIGHT2:
-    assert time.time() - start < TIME_OUT
-    time.sleep(1)
-    status0 = nodes[0].get_status()
-    height = status0['sync_info']['latest_block_height']
+utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT2, timeout=TIMEOUT)
 
 logger.info('Restart node 1')
 nodes[1].start(boot_node=nodes[0])
 
-start = time.time()
-while height < TARGET_HEIGHT3:
-    assert time.time() - start < TIME_OUT
-    time.sleep(2)
-    status0 = nodes[0].get_status()
-    height = status0['sync_info']['latest_block_height']
+utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT3, timeout=TIMEOUT)
 
 nodes[0].kill()
 

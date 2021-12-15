@@ -75,7 +75,7 @@ pub fn setup_network_node(
         let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true);
         client_config.archive = config.archive;
         client_config.ttl_account_id_router = config.ttl_account_id_router;
-        let network_adapter = NetworkRecipient::new();
+        let network_adapter = NetworkRecipient::default();
         network_adapter.set_recipient(ctx.address().recipient());
         let network_adapter = Arc::new(network_adapter);
         #[cfg(feature = "test_features")]
@@ -305,7 +305,7 @@ impl StateMachine {
                                         res.as_network_response()
                                     {
                                         if expected_known.into_iter().all(|validator| {
-                                            routing_table.account_peers.contains_key(&validator)
+                                            routing_table.account_peers.contains_key(validator.as_ref())
                                         }) {
                                             flag.store(true, Ordering::Relaxed);
                                         }
@@ -353,7 +353,7 @@ impl StateMachine {
                                 .pm_addr
                                 .get(source)
                                 .unwrap()
-                                .send(StopSignal::new())
+                                .send(StopSignal::default())
                                 .map_err(|_| ())
                                 .and_then(move |_| {
                                     flag.store(true, Ordering::Relaxed);
@@ -797,7 +797,7 @@ pub fn check_expected_connections(
               _ctx: &mut Context<WaitOrTimeoutActor>,
               _runner| {
             if can_write_log.swap(false, Ordering::Relaxed) == true {
-                debug!(target: "network", message = "runner.rs check_expected_connections", node_id, expected_connections_lo, ?expected_connections_hi);
+                debug!(target: "network", message = "runner.rs: check_expected_connections", node_id, expected_connections_lo, ?expected_connections_hi);
             }
 
             actix::spawn(
@@ -810,13 +810,13 @@ pub fn check_expected_connections(
                     .map_err(|_| ())
                     .and_then(move |res| {
                         let left = if let Some(expected_connections_lo) = expected_connections_lo {
-                            expected_connections_lo <= res.num_active_peers
+                            expected_connections_lo <= res.num_connected_peers
                         } else {
                             true
                         };
 
                         let right = if let Some(expected_connections_hi) = expected_connections_hi {
-                            res.num_active_peers <= expected_connections_hi
+                            res.num_connected_peers <= expected_connections_hi
                         } else {
                             true
                         };
@@ -835,6 +835,8 @@ pub fn check_expected_connections(
 /// Check that `node_id` has a direct connection to `target_id`.
 pub fn check_direct_connection(node_id: usize, target_id: usize) -> ActionFn {
     let can_write_log = Arc::new(AtomicBool::new(true));
+    let can_write_log2 = Arc::new(AtomicBool::new(true));
+    let can_write_log3 = Arc::new(AtomicBool::new(true));
     Box::new(
         move |info: SharedRunningInfo,
               flag: Arc<AtomicBool>,
@@ -843,8 +845,10 @@ pub fn check_direct_connection(node_id: usize, target_id: usize) -> ActionFn {
             let info = info.read().unwrap();
             let target_peer_id = info.peers_info[target_id].id.clone();
             if can_write_log.swap(false, Ordering::Relaxed) == true {
-                debug!(target: "network",  message = "runner.rs check_direct_connection", node_id, ?target_id);
+                debug!(target: "network",  message = "runner.rs: check_direct_connection", node_id, ?target_id);
             }
+            let can_write_log2 = can_write_log2.clone();
+            let can_write_log3 = can_write_log3.clone();
 
             actix::spawn(
                 info.pm_addr
@@ -863,7 +867,22 @@ pub fn check_direct_connection(node_id: usize, target_id: usize) -> ActionFn {
                                 if routes.contains(&target_peer_id) {
                                     flag.store(true, Ordering::Relaxed);
                                 }
+                                if can_write_log2.swap(false, Ordering::Relaxed) == true {
+                                    debug!(target: "network",  message = "runner.rs: check_direct_connection", 
+                                        ?target_peer_id, ?routes, flag = flag.load(Ordering::Relaxed),
+                                        node_id, target_id);
+                                }
                             }
+                            else {
+                                if can_write_log3.swap(false, Ordering::Relaxed) == true {
+                                    debug!(target: "network",  message = "runner.rs: check_direct_connection NO ROUTES!", 
+                                        ?target_peer_id, flag = flag.load(Ordering::Relaxed),
+                                        node_id, target_id,
+                                    );
+                                }
+                            }
+                        } else {
+                            panic!("IMPOSSIBLE");
                         }
                         future::ok(())
                     })
@@ -882,7 +901,7 @@ pub fn restart(node_id: usize) -> ActionFn {
               _ctx: &mut Context<WaitOrTimeoutActor>,
               runner: Addr<Runner>| {
             if can_write_log.swap(false, Ordering::Relaxed) == true {
-                debug!(target: "network", message = "runner.rs restart", ?node_id);
+                debug!(target: "network", message = "runner.rs: restart", ?node_id);
             }
             actix::spawn(
                 runner
@@ -907,7 +926,7 @@ pub fn ban_peer(target_peer: usize, banned_peer: usize) -> ActionFn {
               _ctx: &mut Context<WaitOrTimeoutActor>,
               _runner| {
             if can_write_log.swap(false, Ordering::Relaxed) == true {
-                debug!(target: "network", message = "runner.rs ban_peer", target_peer, banned_peer);
+                debug!(target: "network", message = "runner.rs: ban_peer", target_peer, banned_peer);
             }
             let info = info.read().unwrap();
             let banned_peer_id = info.peers_info[banned_peer].id.clone();
@@ -937,7 +956,7 @@ pub fn change_account_id(node_id: usize, account_id: AccountId) -> ActionFn {
               _ctx: &mut Context<WaitOrTimeoutActor>,
               runner: Addr<Runner>| {
             if can_write_log.swap(false, Ordering::Relaxed) == true {
-                debug!(target: "network",  message = "runner.rs change_account_id", ?node_id, ?account_id);
+                debug!(target: "network",  message = "runner.rs: change_account_id", ?node_id, ?account_id);
             }
             actix::spawn(
                 runner
@@ -954,6 +973,7 @@ pub fn change_account_id(node_id: usize, account_id: AccountId) -> ActionFn {
 }
 
 /// Wait for predicate to return True.
+#[cfg(feature = "test_features")]
 pub fn wait_for<T>(predicate: T) -> ActionFn
 where
     T: 'static + Fn() -> bool,
@@ -965,7 +985,7 @@ where
               _ctx: &mut Context<WaitOrTimeoutActor>,
               _runner: Addr<Runner>| {
             if can_write_log.swap(false, Ordering::Relaxed) == true {
-                debug!(target: "network", "runner.rs wait_for predicate");
+                debug!(target: "network", "runner.rs: wait_for predicate");
             }
             if predicate() {
                 flag.store(true, Ordering::Relaxed);

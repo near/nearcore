@@ -96,7 +96,7 @@ impl StoreValidator {
             me,
             config,
             runtime_adapter,
-            store: store.clone(),
+            store: store,
             inner: StoreValidatorCache::new(),
             timeout: None,
             start_time: Clock::instant(),
@@ -416,13 +416,14 @@ mod tests {
     fn init() -> (Chain, StoreValidator) {
         let store = create_test_store();
         let chain_genesis = ChainGenesis::test();
-        let runtime_adapter = Arc::new(KeyValueRuntime::new(store.clone()));
+        let runtime_adapter =
+            Arc::new(KeyValueRuntime::new(store.clone(), chain_genesis.epoch_length));
         let mut genesis = GenesisConfig::default();
         genesis.genesis_height = 0;
         let chain =
             Chain::new(runtime_adapter.clone(), &chain_genesis, DoomslugThresholdMode::NoApprovals)
                 .unwrap();
-        (chain, StoreValidator::new(None, genesis.clone(), runtime_adapter, store))
+        (chain, StoreValidator::new(None, genesis, runtime_adapter, store))
     }
 
     #[test]
@@ -461,7 +462,7 @@ mod tests {
     fn test_db_not_found() {
         let (mut chain, mut sv) = init();
         let block = chain.get_block_by_height(0).unwrap();
-        assert!(validate::block_header_exists(&mut sv, &block.hash(), block).is_ok());
+        assert!(validate::block_header_exists(&mut sv, block.hash(), block).is_ok());
         match validate::block_header_exists(&mut sv, &CryptoHash::default(), block) {
             Err(StoreValidatorError::DBNotFound { .. }) => {}
             _ => assert!(false),

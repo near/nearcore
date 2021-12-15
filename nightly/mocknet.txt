@@ -1,5 +1,0 @@
-# TODO(#4726): Mocknet is not operational at the moment.
-#mocknet --timeout=300 mocknet/sanity.py
-#mocknet --timeout=300 mocknet/bounce.py
-#mocknet --timeout=2700 mocknet/outage.py
-#mocknet --timeout=3600 mocknet/load_test_spoon.py

@@ -30,7 +30,7 @@ mod tests {
     #[test]
     fn test_deserialize_some() {
         let encoded = "{\"data\":\"ChQe\"}";
-        let decoded: OptionBytesStruct = serde_json::from_str(&encoded).unwrap();
+        let decoded: OptionBytesStruct = serde_json::from_str(encoded).unwrap();
         assert_eq!(decoded.data, Some(vec![10, 20, 30]));
     }
 
@@ -44,7 +44,7 @@ mod tests {
     #[test]
     fn test_deserialize_none() {
         let encoded = "{\"data\":null}";
-        let decoded: OptionBytesStruct = serde_json::from_str(&encoded).unwrap();
+        let decoded: OptionBytesStruct = serde_json::from_str(encoded).unwrap();
         assert_eq!(decoded.data, None);
     }
 
@@ -58,7 +58,7 @@ mod tests {
     #[test]
     fn test_deserialize_store_key() {
         let encoded = "{\"store_key\":\"ChQe\"}";
-        let decoded: StoreKeyStruct = serde_json::from_str(&encoded).unwrap();
+        let decoded: StoreKeyStruct = serde_json::from_str(encoded).unwrap();
         assert_eq!(decoded.store_key, StoreKey::from(vec![10, 20, 30]));
     }
 }

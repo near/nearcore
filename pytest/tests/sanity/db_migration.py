@@ -11,13 +11,14 @@ import sys
 import time
 import subprocess
 import base58
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 import branches
 import cluster
-from utils import wait_for_blocks_or_timeout, load_test_contract, get_near_tempdir
 from transaction import sign_deploy_contract_tx, sign_function_call_tx
+import utils
 
 logging.basicConfig(level=logging.INFO)
 
@@ -26,10 +27,10 @@ def deploy_contract(node):
     status = node.get_status()
     hash_ = status['sync_info']['latest_block_hash']
     hash_ = base58.b58decode(hash_.encode('utf8'))
-    tx = sign_deploy_contract_tx(node.signer_key, load_test_contract(), 10,
-                                 hash_)
+    tx = sign_deploy_contract_tx(node.signer_key, utils.load_test_contract(),
+                                 10, hash_)
     node.send_tx_and_wait(tx, timeout=15)
-    wait_for_blocks_or_timeout(node, 3, 100)
+    utils.wait_for_blocks(node, count=3)
 
 
 def send_some_tx(node):
@@ -50,12 +51,12 @@ def send_some_tx(node):
         res = node.send_tx_and_wait(tx2, timeout=15)
         assert 'error' not in res, res
         assert 'Failure' not in res['result']['status'], res
-    wait_for_blocks_or_timeout(node, 3, 100)
+    utils.wait_for_blocks(node, count=3)
 
 
 def main():
     executables = branches.prepare_ab_test()
-    node_root = get_near_tempdir('db_migration', clean=True)
+    node_root = utils.get_near_tempdir('db_migration', clean=True)
 
     logging.info(f"The near root is {executables.stable.root}...")
     logging.info(f"The node root is {node_root}...")
@@ -75,7 +76,7 @@ def main():
                                 0)
 
     logging.info("Running the stable node...")
-    wait_for_blocks_or_timeout(node, 20, 100)
+    utils.wait_for_blocks(node, count=20)
     logging.info("Blocks are being produced, sending some tx...")
     deploy_contract(node)
     send_some_tx(node)
@@ -92,7 +93,7 @@ def main():
     node.start(boot_node=node)
 
     logging.info("Running the current node...")
-    wait_for_blocks_or_timeout(node, 20, 100)
+    utils.wait_for_blocks(node, count=20)
     logging.info("Blocks are being produced, sending some tx...")
     send_some_tx(node)
 
@@ -104,7 +105,7 @@ def main():
     logging.info("Restarting the current node...")
 
     node.start(boot_node=node)
-    wait_for_blocks_or_timeout(node, 20, 100)
+    utils.wait_for_blocks(node, count=20)
 
 
 if __name__ == "__main__":
