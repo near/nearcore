@@ -32,7 +32,6 @@ use std::collections::VecDeque;
 use std::default::Default;
 pub use std::time::{Duration, Instant};
 pub use time::Time;
-pub type UnixTime = u64;
 
 #[derive(Default)]
 struct MockClockPerState {
@@ -289,7 +288,7 @@ mod tests {
 }
 
 mod time {
-    use crate::time::{Clock, Duration, UnixTime, Utc};
+    use crate::time::{Clock, Duration, Utc};
     use borsh::{BorshDeserialize, BorshSerialize};
     use chrono::DateTime;
     use std::ops::{Add, Sub};
@@ -312,7 +311,7 @@ mod time {
         fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
             let nanos: u64 = borsh::BorshDeserialize::deserialize(buf)?;
 
-            Ok(Time::from_unix_timestamp(nanos))
+            Ok(Time::UNIX_EPOCH + Duration::from_nanos(nanos))
         }
     }
 
@@ -340,26 +339,17 @@ mod time {
 
         /// Computes saturating duration since `rhs`.
         /// A value of `0` will returned in case given timestamp is greater than self.
-        pub fn duration_since(&self, rhs: &Self) -> Duration {
+        pub fn duration_since(&self, rhs: Self) -> Duration {
             self.system_time.duration_since(rhs.system_time).unwrap_or_default()
         }
 
         pub fn elapsed(&self) -> Duration {
-            Self::now().duration_since(self)
+            Self::now().duration_since(*self)
         }
 
         pub fn to_unix_timestamp_nanos(&self) -> Duration {
             // doesn't truncate, because self::UNIX_EPOCH is 0
-            self.duration_since(&Self::UNIX_EPOCH)
-        }
-
-        pub fn from_unix_timestamp(unix_time: UnixTime) -> Self {
-            Self::UNIX_EPOCH + Duration::from_nanos(unix_time)
-        }
-
-        pub fn to_unix_timestamp(&self) -> UnixTime {
-            // doesn't truncate, because self::UNIX_EPOCH is 0
-            self.duration_since(&Self::UNIX_EPOCH).as_nanos() as UnixTime
+            self.duration_since(Self::UNIX_EPOCH)
         }
 
         pub fn inner(self) -> SystemTime {

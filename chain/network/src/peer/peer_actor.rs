@@ -685,7 +685,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
             let now = Time::now();
             if let Some(time) = self.routed_message_cache.get(&key) {
-                if now.duration_since(time) <= DROP_DUPLICATED_MESSAGES_PERIOD {
+                if now.duration_since(*time) <= DROP_DUPLICATED_MESSAGES_PERIOD {
                     debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
                     return;
                 }

@@ -199,7 +199,7 @@ impl RoutingTableView {
         if let Some(nonces) = self.waiting_pong.get_mut(&pong.source) {
             res = nonces
                 .pop(&(pong.nonce as usize))
-                .map(|sent| Time::now().duration_since(&sent).as_secs_f64() * 1000f64);
+                .map(|sent| Time::now().duration_since(sent).as_secs_f64() * 1000f64);
         }
 
         let cnt = self.pong_info.get(&(pong.nonce as usize)).map(|v| v.1).unwrap_or(0);

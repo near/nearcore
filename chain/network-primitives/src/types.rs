@@ -14,7 +14,7 @@ use near_primitives::syncing::{
     EpochSyncFinalizationResponse, EpochSyncResponse, ShardStateSyncResponse,
     ShardStateSyncResponseV1,
 };
-use near_primitives::time::{Time, UnixTime};
+use near_primitives::time::Time;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
@@ -667,13 +667,13 @@ impl KnownPeerStatus {
 pub struct KnownPeerState {
     pub peer_info: PeerInfo,
     pub status: KnownPeerStatus,
-    first_seen: UnixTime,
-    last_seen: UnixTime,
+    first_seen: u64,
+    last_seen: u64,
 }
 
 impl KnownPeerState {
     pub fn new(peer_info: PeerInfo) -> Self {
-        let now = Time::now().to_unix_timestamp();
+        let now = Time::now().duration_since(Time::UNIX_EPOCH).as_nanos() as u64;
         KnownPeerState {
             peer_info,
             status: KnownPeerStatus::Unknown,
@@ -683,19 +683,19 @@ impl KnownPeerState {
     }
 
     pub fn first_seen(&self) -> Time {
-        Time::from_unix_timestamp(self.first_seen)
+        Time::UNIX_EPOCH + Duration::from_nanos(self.first_seen)
     }
 
     pub fn last_seen(&self) -> Time {
-        Time::from_unix_timestamp(self.last_seen)
+        Time::UNIX_EPOCH + Duration::from_nanos(self.last_seen)
     }
 
     pub fn set_last_seen(&mut self, last_seen: Time) {
-        self.last_seen = last_seen.to_unix_timestamp();
+        self.last_seen = last_seen.duration_since(Time::UNIX_EPOCH).as_nanos() as u64;
     }
 
     pub fn banned_at(&mut self, ban_reason: ReasonForBan, now: Time) {
-        let now = now.to_unix_timestamp();
+        let now = now.duration_since(Time::UNIX_EPOCH).as_nanos() as u64;
         self.last_seen = now;
         self.status = KnownPeerStatus::Banned(ban_reason, now);
     }
