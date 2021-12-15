@@ -31,7 +31,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::default::Default;
 pub use std::time::{Duration, Instant};
-pub use time::Time;
+pub use time_struct::Time;
 
 #[derive(Default)]
 struct MockClockPerState {
@@ -287,7 +287,7 @@ mod tests {
     }
 }
 
-mod time {
+mod time_struct {
     use crate::time::{Clock, Duration, Utc};
     use borsh::{BorshDeserialize, BorshSerialize};
     use chrono::DateTime;
