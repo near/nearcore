@@ -305,7 +305,7 @@ impl StateMachine {
                                         res.as_network_response()
                                     {
                                         if expected_known.into_iter().all(|validator| {
-                                            routing_table.account_peers.contains_key(&validator)
+                                            routing_table.account_peers.contains_key(validator.as_ref())
                                         }) {
                                             flag.store(true, Ordering::Relaxed);
                                         }
