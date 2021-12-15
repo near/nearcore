@@ -7,9 +7,15 @@ use std::hash::{Hash, Hasher};
 /// Wraps around `Edge` struct. The main feature of this struct, is that it's hashed by
 /// `(Edge::key.0, Edge::key.1)` pair instead of `(Edge::key.0, Edge::key.1, Edge::nonce)`
 /// triple.
-#[derive(Eq, PartialEq)]
+#[derive(Eq)]
 pub struct EdgeIndexedByKey {
     inner: Edge,
+}
+
+impl PartialEq for EdgeIndexedByKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.key() == other.inner.key()
+    }
 }
 
 impl Borrow<(PeerId, PeerId)> for EdgeIndexedByKey {
@@ -24,14 +30,9 @@ impl Hash for EdgeIndexedByKey {
     }
 }
 
+#[derive(Default)]
 pub(crate) struct EdgeSet {
     repr: HashSet<EdgeIndexedByKey>,
-}
-
-impl Default for EdgeSet {
-    fn default() -> Self {
-        Self { repr: HashSet::new() }
-    }
 }
 
 impl EdgeSet {
