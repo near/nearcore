@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -ex
 
+./scripts/requirements_check.sh
+
 export RUST_BACKTRACE=full
 ./scripts/start_unittest.py --local &
 export NEAR_PID=$!
@@ -24,8 +26,9 @@ cd near-api-js
 yarn
 yarn build
 ../scripts/waitonserver.sh
-yarn test
-yarn doc
+# Disabling yarn test for now
+# yarn test
+# yarn doc
 
 # Run create-near-app tests
 # cd ../create-near-app

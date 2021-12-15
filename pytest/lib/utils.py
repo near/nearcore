@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import typing
 
 from retrying import retry
 from rc import gcloud
@@ -306,20 +307,35 @@ def compute_merkle_root_from_path(path, leaf_hash):
     return res
 
 
-def wait_for_blocks_or_timeout(node,
-                               num_blocks,
-                               timeout,
-                               callback=None,
-                               check_sec=1):
-    status = node.get_status()
-    start_height = status['sync_info']['latest_block_height']
-    max_height = 0
+def poll_blocks(node: LocalNode,
+                *,
+                timeout: float = 120,
+                poll_interval: float = 0.25,
+                **kw) -> typing.Iterable[typing.Tuple[int, str]]:
     started = time.time()
-    while max_height < start_height + num_blocks:
+    previous = -1
+    while True:
         assert time.time() - started < timeout
-        status = node.get_status()
-        max_height = status['sync_info']['latest_block_height']
-        if callback is not None:
-            if callback():
-                break
-        time.sleep(check_sec)
+        sync_info = node.get_status(**kw)['sync_info']
+        height = sync_info['latest_block_height']
+        if height != previous:
+            yield height, sync_info['latest_block_hash']
+            previous = height
+        time.sleep(poll_interval)
+
+
+def wait_for_blocks(node: LocalNode,
+                    *,
+                    count: typing.Optional[int] = None,
+                    target: typing.Optional[int] = None,
+                    **kw) -> typing.Tuple[int, str]:
+    if target is None:
+        if count is None:
+            raise TypeError('Expected `count` or `target` keyword argument')
+        target = node.get_status()['sync_info']['latest_block_height'] + count
+    elif count is not None:
+        raise TypeError('Expected at most one of `count` or `target` arguments')
+    for height, block_hash in poll_blocks(node, **kw):
+        if height >= target:
+            return height, block_hash
+        logger.info(f'#{height} {block_hash}  (waiting for #{target})')

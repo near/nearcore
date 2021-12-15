@@ -243,7 +243,7 @@ impl Runtime {
                 let transaction = &signed_transaction.transaction;
                 let receipt_id = create_receipt_id_from_transaction(
                     apply_state.current_protocol_version,
-                    &signed_transaction,
+                    signed_transaction,
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                 );
@@ -327,7 +327,7 @@ impl Runtime {
             return Ok(result);
         }
         // Permission validation
-        if let Err(e) = check_actor_permissions(action, account, &actor_id, account_id) {
+        if let Err(e) = check_actor_permissions(action, account, actor_id, account_id) {
             result.result = Err(e);
             return Ok(result);
         }
@@ -349,9 +349,9 @@ impl Runtime {
                 action_deploy_contract(
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
-                    &account_id,
+                    account_id,
                     deploy_contract,
-                    &apply_state,
+                    apply_state,
                     apply_state.current_protocol_version,
                 )?;
             }
@@ -525,7 +525,7 @@ impl Runtime {
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
             let action_hash = create_action_hash(
                 apply_state.current_protocol_version,
-                &receipt,
+                receipt,
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 action_index,
@@ -713,7 +713,7 @@ impl Runtime {
             .filter_map(|(receipt_index, mut new_receipt)| {
                 let receipt_id = create_receipt_id_from_receipt(
                     apply_state.current_protocol_version,
-                    &receipt,
+                    receipt,
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                     receipt_index,
@@ -737,7 +737,7 @@ impl Runtime {
             Ok(ReturnData::ReceiptIndex(receipt_index)) => {
                 ExecutionStatus::SuccessReceiptId(create_receipt_id_from_receipt(
                     apply_state.current_protocol_version,
-                    &receipt,
+                    receipt,
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                     receipt_index as usize,
@@ -777,7 +777,7 @@ impl Runtime {
         let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?;
         let prepaid_exec_gas = safe_add_gas(
             total_prepaid_exec_fees(
-                &transaction_costs,
+                transaction_costs,
                 &action_receipt.actions,
                 &receipt.receiver_id,
                 current_protocol_version,
@@ -846,8 +846,6 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
-        let _span = tracing::debug_span!(target: "runtime", "Runtime::process_receipt").entered();
-
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
             ReceiptEnum::Data(ref data_receipt) => {
@@ -983,7 +981,7 @@ impl Runtime {
                         &pending_data_count,
                     );
                     // Save the receipt itself into the state.
-                    set_postponed_receipt(state_update, &receipt);
+                    set_postponed_receipt(state_update, receipt);
                 }
             }
         };
@@ -1058,7 +1056,7 @@ impl Runtime {
         }
 
         for (account_id, stake) in validator_accounts_update.slashing_info.iter() {
-            if let Some(mut account) = get_account(state_update, &account_id)? {
+            if let Some(mut account) = get_account(state_update, account_id)? {
                 let amount_to_slash = stake.unwrap_or(account.locked());
                 debug!(target: "runtime", "slashing {} of {} from {}", amount_to_slash, account.locked(), account_id);
                 if account.locked() < amount_to_slash {
@@ -1148,9 +1146,10 @@ impl Runtime {
 
         // Re-introduce receipts lost because of a bug in apply_chunks.
         // We take the first block with existing chunk in the first epoch in which protocol feature
-        // RestoreReceiptsAfterFix was enabled, and put the restored receipts there.
+        // RestoreReceiptsAfterFixApplyChunks was enabled, and put the restored receipts there.
         // See https://github.com/near/nearcore/pull/4248/ for more details.
-        let receipts_to_restore = if ProtocolFeature::RestoreReceiptsAfterFix.protocol_version()
+        let receipts_to_restore = if ProtocolFeature::RestoreReceiptsAfterFixApplyChunks
+            .protocol_version()
             == protocol_version
             && migration_flags.is_first_block_with_chunk_of_version
         {
@@ -1275,7 +1274,8 @@ impl Runtime {
                                    state_update: &mut TrieUpdate,
                                    total_gas_burnt: &mut Gas|
          -> Result<_, RuntimeError> {
-            self.process_receipt(
+            let _span = tracing::debug_span!(target: "runtime", "Runtime::process_receipt", receipt_id = %receipt.receipt_id, node_counter = state_update.trie.counter.get()).entered();
+            let result = self.process_receipt(
                 state_update,
                 apply_state,
                 receipt,
@@ -1283,9 +1283,9 @@ impl Runtime {
                 &mut validator_proposals,
                 &mut stats,
                 epoch_info_provider,
-            )?
-            .into_iter()
-            .try_for_each(
+            );
+            tracing::debug!(target: "runtime", node_counter = state_update.trie.counter.get());
+            result?.into_iter().try_for_each(
                 |outcome_with_id: ExecutionOutcomeWithId| -> Result<(), RuntimeError> {
                     *total_gas_burnt =
                         safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
@@ -1303,7 +1303,7 @@ impl Runtime {
             if total_gas_burnt < gas_limit {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
-                process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
+                process_receipt(receipt, &mut state_update, &mut total_gas_burnt)?;
             } else {
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
             }
@@ -1343,10 +1343,10 @@ impl Runtime {
         for receipt in incoming_receipts.iter() {
             // Validating new incoming no matter whether we have available gas or not. We don't
             // want to store invalid receipts in state as delayed.
-            validate_receipt(&apply_state.config.wasm_config.limit_config, &receipt)
+            validate_receipt(&apply_state.config.wasm_config.limit_config, receipt)
                 .map_err(RuntimeError::ReceiptValidationError)?;
             if total_gas_burnt < gas_limit {
-                process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
+                process_receipt(receipt, &mut state_update, &mut total_gas_burnt)?;
             } else {
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
             }

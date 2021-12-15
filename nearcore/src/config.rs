@@ -468,7 +468,7 @@ impl Config {
             .unwrap_or_else(|_| panic!("Could not open config file: `{}`", path.display()));
         let mut content = String::new();
         file.read_to_string(&mut content).expect("Could not read from config file.");
-        Config::from(content.as_str())
+        serde_json::from_str::<Config>(&content).expect("Deserializing config failed")
     }
 
     pub fn write_to_file(&self, path: &Path) {
@@ -493,12 +493,6 @@ impl Config {
         {
             self.rpc.get_or_insert(Default::default()).addr = addr;
         }
-    }
-}
-
-impl From<&str> for Config {
-    fn from(content: &str) -> Self {
-        serde_json::from_str(content).expect("Failed to deserialize config")
     }
 }
 
@@ -1136,7 +1130,7 @@ async fn download_file_impl(
 pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     let uri = url.parse()?;
     let (tmp_file, tmp_path) = {
-        let tmp_dir = path.parent().unwrap_or(&Path::new("."));
+        let tmp_dir = path.parent().unwrap_or(Path::new("."));
         tempfile::NamedTempFile::new_in(tmp_dir).map_err(FileDownloadError::OpenError)?.into_parts()
     };
 
@@ -1163,13 +1157,13 @@ pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
 
 pub fn download_genesis(url: &String, path: &Path) {
     info!(target: "near", "Downloading genesis file from: {} ...", url);
-    download_file(&url, &path).expect("Failed to download the genesis file");
+    download_file(url, path).expect("Failed to download the genesis file");
     info!(target: "near", "Saved the genesis file to: {} ...", path.display());
 }
 
 pub fn download_config(url: &String, path: &Path) {
     info!(target: "near", "Downloading config file from: {} ...", url);
-    download_file(&url, &path).expect("Failed to download the configuration file");
+    download_file(url, path).expect("Failed to download the configuration file");
     info!(target: "near", "Saved the config file to: {} ...", path.display());
 }
 

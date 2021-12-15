@@ -123,7 +123,7 @@ impl ShardTries {
             store_update.update_refcount(
                 DBCol::ColState,
                 key.as_ref(),
-                &trie_node_or_value,
+                trie_node_or_value,
                 -(*rc as i64),
             );
         }
@@ -147,7 +147,7 @@ impl ShardTries {
             store_update.update_refcount(
                 DBCol::ColState,
                 key.as_ref(),
-                &trie_node_or_value,
+                trie_node_or_value,
                 *rc as i64,
             );
         }

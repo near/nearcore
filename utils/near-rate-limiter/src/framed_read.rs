@@ -44,10 +44,12 @@ pin_project! {
 pub struct ThrottleController {
     /// Total count of all messages that are tracked by `RateLimiterHelper`
     num_messages_in_progress: Arc<AtomicUsize>,
+    /// Maximum value of `num_messages_in_progress` recorded since last `consume` call.
+    max_messages_in_progress: Arc<AtomicUsize>,
     /// Total size of all messages that are tracked by `RateLimiterHelper`
     total_sizeof_messages_in_progress: Arc<AtomicUsize>,
-    /// Stores amount of bandwidth used.
-    bandwidth_used: Arc<AtomicUsize>,
+    /// Keeps track of read bandwidth.
+    bandwidth_read: Arc<AtomicUsize>,
     /// Stores count of messages seen.
     msg_seen: Arc<AtomicUsize>,
     /// We have an unbounded queue of messages, that we use to wake `ThrottledRateLimiter`.
@@ -117,8 +119,9 @@ impl ThrottleController {
     ) -> Self {
         Self {
             num_messages_in_progress: Default::default(),
+            max_messages_in_progress: Default::default(),
             total_sizeof_messages_in_progress: Default::default(),
-            bandwidth_used: Default::default(),
+            bandwidth_read: Default::default(),
             msg_seen: Default::default(),
             max_num_messages_in_progress,
             max_total_sizeof_messages_in_progress,
@@ -136,7 +139,8 @@ impl ThrottleController {
 
     /// Tracks the message and increase limits by size of the message.
     pub fn add_msg(&self, msg_size: usize) {
-        self.num_messages_in_progress.fetch_add(1, Ordering::SeqCst);
+        let new_cnt = self.num_messages_in_progress.fetch_add(1, Ordering::SeqCst) + 1;
+        self.max_messages_in_progress.fetch_max(new_cnt, Ordering::Relaxed);
         if msg_size != 0 {
             self.total_sizeof_messages_in_progress.fetch_add(msg_size, Ordering::SeqCst);
         }
@@ -158,11 +162,11 @@ impl ThrottleController {
     }
 
     pub fn consume_bandwidth_used(&mut self) -> usize {
-        self.bandwidth_used.swap(0, Ordering::Relaxed)
+        self.bandwidth_read.swap(0, Ordering::Relaxed)
     }
 
     pub fn report_bandwidth_used(&mut self, size: usize) -> usize {
-        self.bandwidth_used.fetch_add(size, Ordering::Relaxed)
+        self.bandwidth_read.fetch_add(size, Ordering::Relaxed)
     }
 
     pub fn consume_msg_seen(&mut self) -> usize {
@@ -171,6 +175,10 @@ impl ThrottleController {
 
     pub fn report_msg_seen(&mut self) -> usize {
         self.msg_seen.fetch_add(1, Ordering::Relaxed)
+    }
+
+    pub fn consume_max_messages_in_progress(&mut self) -> usize {
+        self.max_messages_in_progress.swap(0, Ordering::Relaxed)
     }
 }
 
@@ -256,7 +264,7 @@ where
             while !pinned.throttle_controller.is_ready() {
                 // This will cause us to subscribe to notifier when something gets pushed to
                 // `pinned.receiver`. If there is an element in the queue, we will check again.
-                ready!(PollSemaphore::poll_next(Pin::new(pinned.semaphore), cx));
+                ready!(pinned.semaphore.poll_acquire(cx));
             }
 
             // Repeatedly call `decode` or `decode_eof` as long as it is
@@ -397,7 +405,7 @@ mod tests {
         let max_messages_total_size = 500_000_000;
         let semaphore = PollSemaphore::new(Arc::new(Semaphore::new(0)));
         let mut throttle_controller =
-            ThrottleController::new(semaphore.clone(), 1000, max_messages_total_size);
+            ThrottleController::new(semaphore, 1000, max_messages_total_size);
 
         assert_eq!(throttle_controller.consume_msg_seen(), 0);
         throttle_controller.report_msg_seen();
@@ -412,5 +420,20 @@ mod tests {
         throttle_controller.report_bandwidth_used(5);
         assert_eq!(throttle_controller.consume_bandwidth_used(), 1015);
         assert_eq!(throttle_controller.consume_bandwidth_used(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_max_messages_in_progress() {
+        let semaphore = PollSemaphore::new(Arc::new(Semaphore::new(0)));
+        let mut throttle_controller = ThrottleController::new(semaphore, 1000, usize::MAX);
+
+        assert_eq!(throttle_controller.consume_max_messages_in_progress(), 0);
+        throttle_controller.add_msg(0);
+        throttle_controller.add_msg(0);
+        throttle_controller.remove_msg(0);
+        throttle_controller.remove_msg(0);
+
+        assert_eq!(throttle_controller.consume_max_messages_in_progress(), 2);
+        assert_eq!(throttle_controller.consume_max_messages_in_progress(), 0);
     }
 }
