@@ -12,6 +12,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from cluster import start_cluster
 from configured_logger import logger
 from transaction import sign_staking_tx
+import utils
 
 EPOCH_LENGTH = 20
 tracked_shards = {"tracked_shards": [0, 1, 2, 3]}
@@ -36,18 +37,15 @@ for i in range(4):
     nodes[0].send_tx(tx)
     logger.info("test%s stakes %d" % (i, stake))
 
-cur_height = 0
-while cur_height < EPOCH_LENGTH * 2:
-    status = nodes[0].get_status()
-    cur_height = status['sync_info']['latest_block_height']
+for cur_height, _ in utils.poll_blocks(nodes[0], poll_interval=1):
+    if cur_height >= EPOCH_LENGTH * 2:
+        break
     if cur_height > EPOCH_LENGTH + 1:
-        validator_info = nodes[0].json_rpc('validators', 'latest')
-        assert len(
-            validator_info['result']
-            ['next_validators']) == 1, "Number of validators do not match"
-        assert validator_info['result']['next_validators'][0][
-            'account_id'] == "test3"
-    time.sleep(1)
+        info = nodes[0].json_rpc('validators', 'latest')
+        count = len(info['result']['next_validators'])
+        assert count == 1, 'Number of validators do not match'
+        validator = info['result']['next_validators'][0]['account_id']
+        assert validator == 'test3'
 
 synced = False
 while cur_height <= EPOCH_LENGTH * 3:
