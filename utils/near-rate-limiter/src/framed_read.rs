@@ -1,6 +1,5 @@
 use bytes::BytesMut;
 use futures_core::{ready, Stream};
-use log::trace;
 use pin_project_lite::pin_project;
 use std::borrow::BorrowMut;
 use std::pin::Pin;
@@ -8,9 +7,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::io::AsyncRead;
+use tokio_stream::StreamExt;
 use tokio_util::codec::Decoder;
 use tokio_util::io::poll_read_buf;
 use tokio_util::sync::PollSemaphore;
+use tracing::trace;
 
 // Initial capacity of read buffer.
 const INITIAL_CAPACITY: usize = 8 * 1024;
@@ -324,6 +325,7 @@ mod tests {
     use tokio::net::{TcpListener, TcpStream};
     use tokio::sync::Semaphore;
     use tokio::time::Instant;
+    use tokio_stream::StreamExt;
     use tokio_util::codec::Decoder;
     use tokio_util::sync::PollSemaphore;
 
@@ -504,19 +506,26 @@ mod tests {
 
         let waker = noop_waker();
         let mut context = Context::from_waker(&waker);
-        server_tcp_stream.flush().await?;
         let start = Instant::now();
         // Unfortunately, the test times out for some reason.
         loop {
+            let msg = read.next().await;
+            if let Some(msg) = msg {
+                tracing::info!(message = "GOT", ?msg);
+            }
+
             assert!(start.elapsed() < Duration::from_secs(10), "timed out {:?}", start.elapsed());
 
             match Pin::new(&mut read).poll_next(&mut context) {
                 Poll::Pending => {
                     // this expected
                 }
-                Poll::Ready(x) => {
-                    assert!(false, "got {:?}", x);
+                Poll::Ready(Some(Ok(101))) => {
+                    // got 'h' as expected
                     break;
+                }
+                Poll::Ready(val) => {
+                    assert!(false, "unexpected got {:?}", val);
                 }
             }
         }

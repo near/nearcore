@@ -3037,10 +3037,11 @@ dependencies = [
  "actix",
  "bytes",
  "futures-core",
- "log",
  "pin-project-lite",
  "tokio",
+ "tokio-stream",
  "tokio-util",
+ "tracing",
 ]
 
 [[package]]
