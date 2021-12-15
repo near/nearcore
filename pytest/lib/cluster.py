@@ -230,11 +230,14 @@ class BaseNode(object):
         return self.json_rpc('validators', [None])
 
     def get_account(self, acc, finality='optimistic'):
-        return self.json_rpc('query', {
+        res = self.json_rpc('query', {
             "request_type": "view_account",
             "account_id": acc,
             "finality": finality
         })
+        assert 'error' not in res, res
+
+        return res
 
     def call_function(self,
                       acc,
