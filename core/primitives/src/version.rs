@@ -148,14 +148,12 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = MAIN_NET_PROTOCOL
 /// the corresponding version
 const MAIN_NET_PROTOCOL_VERSION: ProtocolVersion = 50;
 
-/// Current latest nightly version of the protocol.
-const TEST_NET_PROTOCOL_VERSION: ProtocolVersion = 125;
-
 /// Version used by this binary.
 #[cfg(not(feature = "nightly_protocol"))]
 pub const PROTOCOL_VERSION: ProtocolVersion = MAIN_NET_PROTOCOL_VERSION;
+/// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = TEST_NET_PROTOCOL_VERSION;
+pub const PROTOCOL_VERSION: ProtocolVersion = 125;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
