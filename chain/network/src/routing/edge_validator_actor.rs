@@ -1,5 +1,5 @@
-use crate::routing::network_protocol::Edge;
-use crate::types::{StopMsg, ValidateEdgeList};
+use crate::network_protocol::Edge;
+use crate::private_actix::{StopMsg, ValidateEdgeList};
 use actix::{Actor, Handler, SyncContext, System};
 use conqueue::{QueueReceiver, QueueSender};
 use near_performance_metrics_macros::perf;

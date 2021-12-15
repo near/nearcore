@@ -1,29 +1,24 @@
+use crate::network_protocol::{EdgeState, PartialEdgeInfo};
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
-use crate::routing::edge_validator_actor::EdgeValidatorHelper;
-#[cfg(all(
-    feature = "test_features",
-    feature = "protocol_feature_routing_exchange_algorithm"
-))]
-use crate::routing::network_protocol::SimpleEdge;
-use crate::routing::network_protocol::{Edge, EdgeState, PartialEdgeInfo};
-use crate::routing::routing::{
-    PeerRequestResult, RoutingTableView, DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS,
+use crate::private_actix::{
+    PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, SendMessage, StopMsg,
+    Unregister, ValidateEdgeList,
 };
+use crate::routing::edge_validator_actor::EdgeValidatorHelper;
+use crate::routing::network_protocol::Edge;
+use crate::routing::routing::{RoutingTableView, DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS};
 use crate::routing::routing_table_actor::{
     Prune, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
 };
 use crate::stats::metrics;
 use crate::stats::metrics::NetworkMetrics;
-use crate::types::{FullPeerInfo, NetworkClientMessages, NetworkRequests, NetworkResponses};
 use crate::types::{
-    NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerRequest,
-    PeerResponse, PeersRequest, PeersResponse, RegisterPeer, RegisterPeerResponse,
-    RoutingTableUpdate, SendMessage, StopMsg, Unregister, ValidateEdgeList,
+    FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerRequest, PeerResponse,
+    PeersResponse, RoutingTableUpdate,
 };
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::types::{RoutingSyncV2, RoutingVersion2};
 use crate::PeerInfo;
 use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
@@ -952,7 +947,7 @@ impl PeerManagerActor {
     fn adv_remove_edges_from_routing_table(
         &mut self,
         ctx: &mut Context<Self>,
-        edges: Vec<SimpleEdge>,
+        edges: Vec<crate::network_protocol::SimpleEdge>,
     ) {
         // Create fake edges with no signature for unit test purposes
         let edges: Vec<Edge> = edges
@@ -1455,10 +1450,10 @@ impl PeerManagerActor {
         // When we create a new edge we increase the latest nonce by 2 in case we miss a removal
         // proposal from our partner.
         let nonce = with_nonce.unwrap_or_else(|| {
-            self.routing_table_view.get_local_edge(&peer1).map_or(1, |edge| edge.next())
+            self.routing_table_view.get_local_edge(peer1).map_or(1, |edge| edge.next())
         });
 
-        PartialEdgeInfo::new(&self.my_peer_id, &peer1, nonce, &self.config.secret_key)
+        PartialEdgeInfo::new(&self.my_peer_id, peer1, nonce, &self.config.secret_key)
     }
 
     // Ping pong useful functions.
@@ -1914,7 +1909,7 @@ impl PeerManagerActor {
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             NetworkRequests::IbfMessage { peer_id, ibf_msg } => match ibf_msg {
-                RoutingSyncV2::Version2(ibf_msg) => {
+                crate::network_protocol::RoutingSyncV2::Version2(ibf_msg) => {
                     if let Some(addr) = self.connected_peers.get(&peer_id).map(|p| p.addr.clone()) {
                         self.process_ibf_msg(ctx, &peer_id, ibf_msg, addr, throttle_controller)
                     }
@@ -2000,7 +1995,7 @@ impl PeerManagerActor {
     #[perf]
     fn handle_msg_start_routing_table_sync(
         &mut self,
-        msg: crate::types::StartRoutingTableSync,
+        msg: crate::private_actix::StartRoutingTableSync,
         ctx: &mut Context<Self>,
         throttle_controller: Option<ThrottleController>,
     ) {
@@ -2079,10 +2074,10 @@ impl PeerManagerActor {
     #[perf]
     fn handle_msg_get_peer_id(
         &mut self,
-        msg: crate::types::GetPeerId,
+        msg: crate::private_actix::GetPeerId,
         _ctx: &mut Context<Self>,
-    ) -> crate::types::GetPeerIdResult {
-        crate::types::GetPeerIdResult { peer_id: self.my_peer_id.clone() }
+    ) -> crate::private_actix::GetPeerIdResult {
+        crate::private_actix::GetPeerIdResult { peer_id: self.my_peer_id.clone() }
     }
 
     #[perf]
@@ -2450,7 +2445,7 @@ impl PeerManagerActor {
         &mut self,
         ctx: &mut Context<PeerManagerActor>,
         peer_id: &PeerId,
-        mut ibf_msg: RoutingVersion2,
+        mut ibf_msg: crate::network_protocol::RoutingVersion2,
         addr: Addr<PeerActor>,
         throttle_controller: Option<ThrottleController>,
     ) {
@@ -2475,9 +2470,11 @@ impl PeerManagerActor {
                     }) => {
                         if let Some(response_ibf_msg) = response_ibf_msg {
                             let _ = addr.do_send(SendMessage {
-                                message: PeerMessage::RoutingTableSyncV2(RoutingSyncV2::Version2(
-                                    response_ibf_msg,
-                                )),
+                                message: PeerMessage::RoutingTableSyncV2(
+                                    crate::network_protocol::RoutingSyncV2::Version2(
+                                        response_ibf_msg,
+                                    ),
+                                ),
                             });
                         }
                     }

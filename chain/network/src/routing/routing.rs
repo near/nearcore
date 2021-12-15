@@ -1,8 +1,5 @@
-use crate::routing::network_protocol::{Edge, SimpleEdge};
+use crate::network_protocol::Edge;
 use crate::routing::route_back_cache::RouteBackCache;
-use crate::PeerInfo;
-use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, Message};
 use lru::LruCache;
 use near_network_primitives::types::{PeerIdOrHash, Ping, Pong};
 use near_primitives::hash::CryptoHash;
@@ -27,29 +24,6 @@ pub const SAVE_PEERS_MAX_TIME: Duration = Duration::from_secs(7_200);
 pub const DELETE_PEERS_AFTER_TIME: Duration = Duration::from_secs(3_600);
 /// Graph implementation supports up to 128 peers.
 pub const MAX_NUM_PEERS: usize = 128;
-
-#[derive(Debug)]
-pub struct PeerRequestResult {
-    pub peers: Vec<PeerInfo>,
-}
-
-impl<A, M> MessageResponse<A, M> for PeerRequestResult
-where
-    A: Actor,
-    M: Message<Result = PeerRequestResult>,
-{
-    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-        if let Some(tx) = tx {
-            tx.send(self)
-        }
-    }
-}
-
-#[derive(MessageResponse, Debug)]
-#[cfg_attr(feature = "test_features", derive(serde::Serialize))]
-pub struct GetRoutingTableResult {
-    pub edges_info: Vec<SimpleEdge>,
-}
 
 pub struct RoutingTableView {
     /// PeerId associated with this instance.

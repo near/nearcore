@@ -103,8 +103,7 @@ mod test {
         Handshake, HandshakeFailureReason, HandshakeV2, PeerMessage, RoutingTableUpdate,
     };
     use crate::PeerInfo;
-    use borsh::BorshDeserialize;
-    use borsh::BorshSerialize;
+    use borsh::{BorshDeserialize, BorshSerialize};
     use bytes::{BufMut, BytesMut};
     use near_crypto::{KeyType, PublicKey, SecretKey};
     use near_network_primitives::types::{
