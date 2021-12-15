@@ -4,7 +4,6 @@ use near_network_primitives::types::{
 };
 use near_primitives::network::PeerId;
 use near_primitives::time::Time;
-
 use near_store::{ColPeers, Store};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
