@@ -297,7 +297,7 @@ impl RawTrieNode {
             RawTrieNode::Leaf(key, value_length, value_hash) => {
                 cursor.write_u8(LEAF_NODE)?;
                 cursor.write_u32::<LittleEndian>(key.len() as u32)?;
-                cursor.write_all(&key)?;
+                cursor.write_all(key)?;
                 cursor.write_u32::<LittleEndian>(*value_length)?;
                 cursor.write_all(value_hash.as_ref())?;
             }
@@ -329,7 +329,7 @@ impl RawTrieNode {
             RawTrieNode::Extension(key, child) => {
                 cursor.write_u8(EXTENSION_NODE)?;
                 cursor.write_u32::<LittleEndian>(key.len() as u32)?;
-                cursor.write_all(&key)?;
+                cursor.write_all(key)?;
                 cursor.write_all(child.as_ref())?;
             }
         }

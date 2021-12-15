@@ -36,7 +36,7 @@ fn setup_env(genesis: &Genesis) -> TestEnv {
         .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::test(
             Path::new("."),
             store1,
-            &genesis,
+            genesis,
         )) as Arc<dyn RuntimeAdapter>])
         .build()
 }

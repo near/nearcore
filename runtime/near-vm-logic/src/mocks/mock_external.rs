@@ -202,8 +202,6 @@ impl External for MockedExternal {
         0
     }
 
-    fn reset_touched_nodes_counter(&mut self) {}
-
     fn validator_stake(&self, account_id: &AccountId) -> Result<Option<Balance>> {
         Ok(self.validators.get(account_id).cloned())
     }

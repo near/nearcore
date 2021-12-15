@@ -26,15 +26,14 @@ use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
+use near_network::types::PartialEdgeInfo;
 use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
-use near_primitives::block::{Approval, ApprovalInner};
-use near_primitives::block_header::BlockHeader;
-
-use near_network::routing::PartialEdgeInfo;
 use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
+use near_primitives::block::{Approval, ApprovalInner};
+use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::TxExecutionError;
@@ -950,7 +949,7 @@ fn client_sync_headers() {
             }),
         );
         client.do_send(NetworkClientMessages::NetworkInfo(NetworkInfo {
-            active_peers: vec![FullPeerInfo {
+            connected_peers: vec![FullPeerInfo {
                 peer_info: peer_info2.clone(),
                 chain_info: PeerChainInfoV2 {
                     genesis_id: Default::default(),
@@ -960,7 +959,7 @@ fn client_sync_headers() {
                 },
                 partial_edge_info: PartialEdgeInfo::default(),
             }],
-            num_active_peers: 1,
+            num_connected_peers: 1,
             peer_max_count: 1,
             highest_height_peers: vec![FullPeerInfo {
                 peer_info: peer_info2.clone(),
@@ -1426,7 +1425,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
                 .get_all_block_hashes_by_height(i as BlockHeight)
                 .is_err());
         } else {
-            assert!(env.clients[0].chain.get_block(&blocks[i as usize].hash()).is_ok());
+            assert!(env.clients[0].chain.get_block(blocks[i as usize].hash()).is_ok());
             assert!(env.clients[0].chain.get_block_by_height(i).is_ok());
             assert!(env.clients[0]
                 .chain
@@ -1743,7 +1742,7 @@ fn test_not_resync_old_blocks() {
     }
     for i in 2..epoch_length {
         let block = blocks[i as usize - 1].clone();
-        assert!(env.clients[0].chain.get_block(&block.hash()).is_err());
+        assert!(env.clients[0].chain.get_block(block.hash()).is_err());
         let (_, res) = env.clients[0].process_block(block.into(), Provenance::NONE);
         assert!(matches!(res, Err(x) if matches!(x.kind(), ErrorKind::Orphan)));
         assert_eq!(env.clients[0].chain.orphans_len(), 0);
@@ -1952,7 +1951,7 @@ fn test_block_merkle_proof_with_len(n: NumBlocks) {
     let head = blocks.pop().unwrap();
     let root = head.header().block_merkle_root();
     for block in blocks {
-        let proof = env.clients[0].chain.get_block_proof(&block.hash(), &head.hash()).unwrap();
+        let proof = env.clients[0].chain.get_block_proof(block.hash(), head.hash()).unwrap();
         assert!(verify_hash(*root, &proof, *block.hash()));
     }
 }
@@ -1969,7 +1968,7 @@ fn test_block_merkle_proof_same_hash() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let proof =
-        env.clients[0].chain.get_block_proof(&genesis_block.hash(), &genesis_block.hash()).unwrap();
+        env.clients[0].chain.get_block_proof(genesis_block.hash(), genesis_block.hash()).unwrap();
     assert!(proof.is_empty());
 }
 
@@ -2661,6 +2660,116 @@ fn test_wasmer2_upgrade() {
 }
 
 #[test]
+fn test_execution_metadata() {
+    // Prepare TestEnv with a very simple WASM contract.
+    let wasm_code = wat::parse_str(
+        r#"
+(module
+    (import "env" "block_index" (func $block_index (result i64)))
+    (func (export "main")
+        (call $block_index)
+        drop
+    )
+)"#,
+    )
+    .unwrap();
+
+    let mut env = {
+        let epoch_length = 5;
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        genesis.config.epoch_length = epoch_length;
+        let chain_genesis = ChainGenesis::from(&genesis);
+        let mut env = TestEnv::builder(chain_genesis)
+            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+            .build();
+
+        deploy_test_contract(&mut env, "test0".parse().unwrap(), &wasm_code, epoch_length, 1);
+        env
+    };
+
+    // Call the contract and get the execution outcome.
+    let execution_outcome = {
+        let tip = env.clients[0].chain.head().unwrap();
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+        let tx = Transaction {
+            signer_id: "test0".parse().unwrap(),
+            receiver_id: "test0".parse().unwrap(),
+            public_key: signer.public_key(),
+            actions: vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "main".to_string(),
+                args: Vec::new(),
+                gas: 100_000_000_000_000,
+                deposit: 0,
+            })],
+
+            nonce: 10,
+            block_hash: tip.last_block_hash,
+        }
+        .sign(&signer);
+        let tx_hash = tx.get_hash();
+
+        env.clients[0].process_tx(tx, false, false);
+        for i in 0..3 {
+            env.produce_block(0, tip.height + i + 1);
+        }
+        env.query_transaction_status(&tx_hash)
+    };
+
+    // Now, let's assert that we get the cost breakdown we expect.
+    let config = RuntimeConfigStore::test().get_config(PROTOCOL_VERSION).clone();
+
+    // Total costs for creating a function call receipt.
+    let expected_receipt_cost = config.transaction_costs.action_receipt_creation_config.execution
+        + config.transaction_costs.action_creation_config.function_call_cost.exec_fee()
+        + config.transaction_costs.action_creation_config.function_call_cost_per_byte.exec_fee()
+            * "main".len() as u64;
+
+    // Profile for what's happening *inside* wasm vm during function call.
+    let expected_profile = serde_json::json!([
+      // Inside the contract, we called one host function.
+      {
+        "cost_category": "WASM_HOST_COST",
+        "cost": "BASE",
+        "gas_used": config.wasm_config.ext_costs.base.to_string()
+      },
+      // We include compilation costs into running the function.
+      {
+        "cost_category": "WASM_HOST_COST",
+        "cost": "CONTRACT_COMPILE_BASE",
+        "gas_used": config.wasm_config.ext_costs.contract_compile_base.to_string()
+      },
+      {
+        "cost_category": "WASM_HOST_COST",
+        "cost": "CONTRACT_COMPILE_BYTES",
+        "gas_used": "18423750"
+      },
+      // We spend two wasm instructions (call & drop).
+      {
+        "cost_category": "WASM_HOST_COST",
+        "cost": "WASM_INSTRUCTION",
+        "gas_used": (config.wasm_config.regular_op_cost as u64 * 2).to_string()
+      }
+    ]);
+    let outcome = &execution_outcome.receipts_outcome[0].outcome;
+    let metadata = &outcome.metadata;
+
+    let actual_profile = serde_json::to_value(&metadata.gas_profile).unwrap();
+    assert_eq!(expected_profile, actual_profile);
+
+    let actual_receipt_cost = outcome.gas_burnt
+        - metadata
+            .gas_profile
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|it| it.gas_used)
+            .sum::<u64>();
+
+    assert_eq!(expected_receipt_cost, actual_receipt_cost)
+}
+
+#[test]
 fn test_epoch_protocol_version_change() {
     init_test_logger();
     let epoch_length = 5;
@@ -3134,7 +3243,7 @@ fn test_congestion_receipt_execution() {
     }
 
     for tx_hash in &tx_hashes {
-        let final_outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+        let final_outcome = env.clients[0].chain.get_final_transaction_result(tx_hash).unwrap();
         assert!(matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_)));
 
         // Check that all receipt ids have corresponding execution outcomes. This means that all receipts generated are executed.
@@ -3450,7 +3559,6 @@ mod access_key_nonce_range_tests {
     }
 
     /// Test that duplicate transactions from implicit accounts are properly rejected.
-    #[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
     #[test]
     fn test_transaction_hash_collision_for_implicit_account_fail() {
         let protocol_version =
@@ -3464,11 +3572,8 @@ mod access_key_nonce_range_tests {
     /// Test that duplicate transactions from implicit accounts are not rejected until protocol upgrade.
     #[test]
     fn test_transaction_hash_collision_for_implicit_account_ok() {
-        #[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
         let protocol_version =
             ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
-        #[cfg(not(feature = "protocol_feature_access_key_nonce_for_implicit_accounts"))]
-        let protocol_version = PROTOCOL_VERSION;
         assert!(matches!(
             get_status_of_tx_hash_collision_for_implicit_account(protocol_version),
             NetworkClientResponses::ValidTx
@@ -3683,7 +3788,8 @@ mod protocol_feature_restore_receipts_after_fix_tests {
     ) {
         init_test_logger();
 
-        let protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
+        let protocol_version =
+            ProtocolFeature::RestoreReceiptsAfterFixApplyChunks.protocol_version() - 1;
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.chain_id = String::from(chain_id);
@@ -3732,7 +3838,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             set_block_protocol_version(
                 &mut block,
                 "test0".parse().unwrap(),
-                ProtocolFeature::RestoreReceiptsAfterFix.protocol_version(),
+                ProtocolFeature::RestoreReceiptsAfterFixApplyChunks.protocol_version(),
             );
 
             env.process_block(0, block, Provenance::PRODUCED);
@@ -3747,7 +3853,8 @@ mod protocol_feature_restore_receipts_after_fix_tests {
                 if env.clients[0].chain.get_execution_outcome(receipt_id).is_ok() {
                     assert!(
                         protocol_version
-                            >= ProtocolFeature::RestoreReceiptsAfterFix.protocol_version(),
+                            >= ProtocolFeature::RestoreReceiptsAfterFixApplyChunks
+                                .protocol_version(),
                         "Restored receipt {} was executed before protocol upgrade",
                         receipt_id
                     );
@@ -3757,7 +3864,9 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             }
 
             // Update last updated height anyway if upgrade did not happen
-            if protocol_version < ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() {
+            if protocol_version
+                < ProtocolFeature::RestoreReceiptsAfterFixApplyChunks.protocol_version()
+            {
                 last_update_height = height;
             }
             height += 1;
