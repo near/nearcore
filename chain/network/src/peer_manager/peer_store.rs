@@ -430,7 +430,7 @@ mod test {
         let tmp_dir = tempfile::Builder::new().prefix("_test_store_ban").tempdir().unwrap();
         let peer_info_a = gen_peer_info(0);
         let peer_info_to_ban = gen_peer_info(1);
-        let boot_nodes = vec![peer_info_a, peer_info_to_ban.clone()];
+        let boot_nodes = vec![peer_info_a, peer_info_to_ban];
         {
             let store = create_store(tmp_dir.path());
             let peer_store = PeerStore::new(store, &boot_nodes).unwrap();
