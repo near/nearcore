@@ -84,6 +84,7 @@ def test_upgrade() -> None:
     node_dirs = [os.path.join(node_root, 'test%d' % i) for i in range(4)]
     for i, node_dir in enumerate(node_dirs):
         cluster.apply_genesis_changes(node_dir, genesis_config_changes)
+        cluster.apply_config_changes(node_dir, {'tracked_shards': [0]})
 
     # Start 3 stable nodes and one current node.
     config = executables.stable.node_config()
