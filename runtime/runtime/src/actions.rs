@@ -25,7 +25,7 @@ use near_store::{
     StorageError, TrieUpdate,
 };
 use near_vm_errors::{
-    CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMError,
+    AnyError, CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMError,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{VMContext, VMOutcome};
@@ -62,9 +62,7 @@ pub(crate) fn execute_function_call(
         Err(e) => {
             return (
                 None,
-                Some(VMError::InconsistentStateError(InconsistentStateError::StorageError(
-                    e.to_string(),
-                ))),
+                Some(VMError::ExternalError(AnyError::new(ExternalError::StorageError(e)))),
             );
         }
     };
@@ -208,13 +206,8 @@ pub(crate) fn action_function_call(
                 ExternalError::ValidatorError(err) => Err(RuntimeError::ValidatorError(err)),
             };
         }
-        Some(VMError::InconsistentStateError(err)) => {
-            let message = match err {
-                InconsistentStateError::StorageError(_)
-                | InconsistentStateError::IntegerOverflow => err.to_string(),
-            };
-
-            return Err(StorageError::StorageInconsistentState(message.to_string()).into());
+        Some(VMError::InconsistentStateError(err @ InconsistentStateError::IntegerOverflow)) => {
+            return Err(StorageError::StorageInconsistentState(err.to_string()).into());
         }
         Some(VMError::CacheError(err)) => {
             let message = match err {

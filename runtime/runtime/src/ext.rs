@@ -18,7 +18,7 @@ use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider};
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
 use near_store::{get_code, TrieUpdate, TrieUpdateValuePtr};
-use near_vm_errors::{AnyError, HostError, InconsistentStateError, VMLogicError};
+use near_vm_errors::{AnyError, HostError, VMLogicError};
 use near_vm_logic::{External, ValuePtr};
 
 pub struct RuntimeExt<'a> {
@@ -191,11 +191,7 @@ impl<'a> External for RuntimeExt<'a> {
         let data_keys = self
             .trie_update
             .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(self.account_id, prefix))
-            .map_err(|err| {
-                VMLogicError::InconsistentStateError(InconsistentStateError::StorageError(
-                    err.to_string(),
-                ))
-            })?
+            .map_err(wrap_storage_error)?
             .map(|raw_key| {
                 trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, self.account_id)
                     .map_err(|_e| {
@@ -206,11 +202,7 @@ impl<'a> External for RuntimeExt<'a> {
                     .map(Vec::from)
             })
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|err| {
-                VMLogicError::InconsistentStateError(InconsistentStateError::StorageError(
-                    err.to_string(),
-                ))
-            })?;
+            .map_err(wrap_storage_error)?;
         for key in data_keys {
             self.trie_update
                 .remove(TrieKey::ContractData { account_id: self.account_id.clone(), key });
