@@ -185,6 +185,9 @@ impl PeerStore {
     {
         let peers: Vec<_> =
             self.peer_states.values().filter(filter).map(|p| &p.peer_info).collect();
+        if count >= peers.len() {
+            return peers.iter().cloned().collect();
+        }
         peers.choose_multiple(&mut thread_rng(), count).cloned().cloned().collect()
     }
 
