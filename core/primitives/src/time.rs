@@ -406,6 +406,7 @@ mod time {
             BorshSerialize::serialize(&now_nc, &mut v).unwrap();
 
             let v2: &mut &[u8] = &mut v.as_slice();
+            assert_eq!(v2.len(), 8);
 
             let now2: Time = BorshDeserialize::deserialize(v2).unwrap();
             assert_eq!(now_nc, now2);
