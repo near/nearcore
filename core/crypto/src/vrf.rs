@@ -7,9 +7,9 @@ use rand_core::OsRng;
 use std::borrow::Borrow;
 use subtle::{ConditionallySelectable, ConstantTimeEq};
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct PublicKey(pub(crate) [u8; 32], pub(crate) Point);
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct SecretKey(pub(crate) Scalar, pub(crate) PublicKey);
 value_type!(pub, Value, 32, "value");
 value_type!(pub, Proof, 64, "proof");
@@ -75,8 +75,8 @@ impl SecretKey {
         Self::from_scalar(Scalar::random(&mut OsRng))
     }
 
-    pub fn public_key(&self) -> PublicKey {
-        self.1
+    pub fn public_key(&self) -> &PublicKey {
+        &self.1
     }
 
     pub fn compute_vrf(&self, input: &impl Borrow<[u8]>) -> Value {
@@ -131,13 +131,13 @@ mod tests {
     #[test]
     fn test_conversion() {
         let sk = SecretKey::random();
-        let sk2 = SecretKey::from_bytes(&sk.into()).unwrap();
+        let sk2 = SecretKey::from_bytes(&sk.clone().into()).unwrap();
         assert_eq!(sk, sk2);
         let pk = sk.public_key();
         let pk2 = sk2.public_key();
         let pk3 = PublicKey::from_bytes(&pk2.into()).unwrap();
         assert_eq!(pk, pk2);
-        assert_eq!(pk, pk3);
+        assert_eq!(pk.clone(), pk3);
     }
 
     #[test]
@@ -155,7 +155,7 @@ mod tests {
         let sk = SecretKey::random();
         let sk2 = SecretKey::random();
         assert_ne!(sk, sk2);
-        assert_ne!(Into::<[u8; 32]>::into(sk), Into::<[u8; 32]>::into(sk2));
+        assert_ne!(Into::<[u8; 32]>::into(sk.clone()), Into::<[u8; 32]>::into(sk2.clone()));
         let pk = sk.public_key();
         let pk2 = sk2.public_key();
         assert_ne!(pk, pk2);
@@ -185,7 +185,7 @@ mod tests {
         assert_eq!((val, proof), (val3, proof3));
         let pk = sk.public_key();
         let pk2 = sk2.public_key();
-        let pk3 = round_trip(&pk);
+        let pk3 = round_trip(pk);
         assert!(pk.is_vrf_valid(b"Test", &val, &proof));
         assert!(pk2.is_vrf_valid(b"Test", &val, &proof));
         assert!(pk3.is_vrf_valid(b"Test", &val, &proof));

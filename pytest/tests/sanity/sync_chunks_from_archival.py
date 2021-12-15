@@ -21,6 +21,7 @@ from configured_logger import logger
 from messages.block import ShardChunkHeaderV1, ShardChunkHeaderV2, ShardChunkHeaderV3
 from transaction import sign_staking_tx
 from proxy import ProxyHandler, NodesProxy
+import utils
 
 TIMEOUT = 200
 EPOCH_LENGTH = 10
@@ -170,14 +171,10 @@ if __name__ == '__main__':
     def get_validators(node):
         return set([x['account_id'] for x in node.get_status()['validators']])
 
-    logging.info("Getting to height %s" % HEIGHTS_BEFORE_ROTATE)
-    while True:
-        assert time.time() - started < TIMEOUT
-        status = boot_node.get_status()
-        new_height = status['sync_info']['latest_block_height']
-        if new_height > HEIGHTS_BEFORE_ROTATE:
-            break
-        time.sleep(1)
+    logging.info(f'Getting to height {HEIGHTS_BEFORE_ROTATE}')
+    utils.wait_for_blocks(boot_node,
+                          target=HEIGHTS_BEFORE_ROTATE,
+                          timeout=TIMEOUT)
 
     node2 = spin_up_node(config,
                          near_root,
@@ -228,15 +225,11 @@ if __name__ == '__main__':
     boot_node.kill()
     node1.kill()
 
-    logging.info("Getting to height %s" % (start_height + HEIGHTS_BEFORE_CHECK))
-    while True:
-        assert time.time() - started < TIMEOUT
-        status = node2.get_status()
-        new_height = status['sync_info']['latest_block_height']
-        if new_height > start_height + HEIGHTS_BEFORE_CHECK:
-            height_to_sync_to = new_height
-            break
-        time.sleep(1)
+    target = start_height + HEIGHTS_BEFORE_CHECK
+    logging.info(f'Getting to height {target}')
+    height_to_sync_to, _ = utils.wait_for_blocks(node2,
+                                                 target=target,
+                                                 timeout=TIMEOUT)
 
     logging.info("Spinning up one more node")
     node4 = spin_up_node(config, near_root, node_dirs[4], 4, boot_node=node2)

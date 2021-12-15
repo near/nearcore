@@ -13,6 +13,7 @@ from cluster import start_cluster
 from configured_logger import logger
 from key import Key
 from transaction import sign_staking_tx, sign_create_account_with_full_access_key_and_balance_tx
+import utils
 
 MAX_SYNC_WAIT = 30
 EPOCH_LENGTH = 10
@@ -53,11 +54,7 @@ for i in range(num_new_accounts):
     res = nodes[0].send_tx_and_wait(create_account_tx, timeout=15)
     assert 'error' not in res, res
 
-target_height = 50
-while cur_height < target_height:
-    status = nodes[0].get_status()
-    cur_height = status['sync_info']['latest_block_height']
-    time.sleep(1)
+cur_height, _ = utils.wait_for_blocks(nodes[0], target=50)
 
 status = nodes[0].get_status()
 block_hash = status['sync_info']['latest_block_hash']
@@ -70,22 +67,11 @@ for signer_key in account_keys:
     res = nodes[0].send_tx_and_wait(staking_tx, timeout=15)
     assert 'error' not in res
 
-target_height = 80
-while cur_height < target_height:
-    status = nodes[0].get_status()
-    cur_height = status['sync_info']['latest_block_height']
-    time.sleep(1)
+cur_height, _ = utils.wait_for_blocks(nodes[0], target=80)
 
 logger.info('restart node1')
 nodes[1].start(boot_node=nodes[1])
 logger.info('node1 restarted')
 time.sleep(3)
 
-start_time = time.time()
-node1_height = 0
-while node1_height <= cur_height:
-    if time.time() - start_time > MAX_SYNC_WAIT:
-        assert False, "state sync timed out"
-    status1 = nodes[1].get_status()
-    node1_height = status1['sync_info']['latest_block_height']
-    time.sleep(2)
+utils.wait_for_blocks(nodes[1], target=cur_height)
