@@ -47,11 +47,7 @@ pub struct RoutingTableView {
     /// Ping received by nonce.
     pong_info: LruCache<usize, (Pong, usize)>,
     /// List of pings sent for which we haven't received any pong yet.
-<<<<<<< HEAD
-    waiting_pong: LruCache<PeerId, LruCache<usize, Instant>>,
-=======
-    waiting_pong: SizedCache<PeerId, SizedCache<usize, Time>>,
->>>>>>> Reorganize imports in near-network
+    waiting_pong: LruCache<PeerId, LruCache<usize, Time>>,
     /// Last nonce sent to each peer through pings.
     last_ping_nonce: LruCache<PeerId, usize>,
 }
@@ -200,17 +196,10 @@ impl RoutingTableView {
     pub fn add_pong(&mut self, pong: Pong) -> Option<f64> {
         let mut res = None;
 
-<<<<<<< HEAD
         if let Some(nonces) = self.waiting_pong.get_mut(&pong.source) {
-            res = nonces.pop(&(pong.nonce as usize)).map(|sent| {
-                Clock::instant().saturating_duration_since(sent).as_secs_f64() * 1000f64
-            });
-=======
-        if let Some(nonces) = self.waiting_pong.cache_get_mut(&pong.source) {
             res = nonces
-                .cache_remove(&(pong.nonce as usize))
+                .pop(&(pong.nonce as usize))
                 .map(|sent| Time::now().saturating_duration_since(&sent).as_secs_f64() * 1000f64);
->>>>>>> Reorganize imports in near-network
         }
 
         let cnt = self.pong_info.get(&(pong.nonce as usize)).map(|v| v.1).unwrap_or(0);
@@ -229,11 +218,7 @@ impl RoutingTableView {
             self.waiting_pong.get_mut(&target).unwrap()
         };
 
-<<<<<<< HEAD
-        entry.put(nonce, Clock::instant());
-=======
-        entry.cache_set(nonce, Time::now());
->>>>>>> Reorganize imports in near-network
+        entry.put(nonce, Time::now());
     }
 
     pub fn get_ping(&mut self, peer_id: PeerId) -> usize {

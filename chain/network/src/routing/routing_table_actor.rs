@@ -17,11 +17,6 @@ use near_rate_limiter::{ActixMessageResponse, ActixMessageWrapper, ThrottleToken
 use near_store::db::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
 use near_store::{Store, StoreUpdate};
 use std::collections::{HashMap, HashSet};
-<<<<<<< HEAD
-=======
-use std::mem::swap;
-use std::ops::Sub;
->>>>>>> Reorganize imports in near-network
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, trace, warn};

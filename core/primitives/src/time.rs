@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 /// Provides structs used for getting time.
 /// WARNING WARNING WARNING
 /// WARNING WARNING WARNING
@@ -32,6 +31,8 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::default::Default;
 pub use std::time::{Duration, Instant};
+pub use time::Time;
+pub type UnixTime = u64;
 
 #[derive(Default)]
 struct MockClockPerState {
@@ -58,84 +59,11 @@ impl MockClockPerThread {
     {
         thread_local! {
             static INSTANCE: RefCell<MockClockPerThread> = RefCell::default()
-=======
-// TODO#(5174) don't export external types from your own crate
-pub use chrono::Utc;
-pub use clock::{Clock, MockClockGuard};
-// TODO#(5174) don't export external types from your own crate
-pub use std::time::{Duration, Instant};
-pub use time::Time;
-pub use time::UnixTime;
-
-mod clock {
-    use crate::time::{Duration, Instant, Time, Utc};
-    use chrono;
-    use chrono::DateTime;
-    use std::cell::RefCell;
-    use std::collections::VecDeque;
-    use std::default::Default;
-
-    struct MockClockPerThread {
-        utc: VecDeque<DateTime<Utc>>,
-        durations: VecDeque<Duration>,
-        utc_call_count: u64,
-        instant_call_count: u64,
-        instant: Instant,
-        is_mock: bool,
-    }
-
-    pub struct Clock {}
-
-    impl MockClockPerThread {
-        pub fn reset(&mut self) {
-            self.utc.clear();
-            self.durations.clear();
-            self.utc_call_count = 0;
-            self.instant_call_count = 0;
-            self.instant = Instant::now();
-            self.is_mock = false;
         }
-
-        fn with<F, T>(f: F) -> T
-        where
-            F: FnOnce(&mut MockClockPerThread) -> T,
-        {
-            thread_local! {
-                static INSTANCE: RefCell<MockClockPerThread> = RefCell::default()
-            }
-            INSTANCE.with(|it| f(&mut *it.borrow_mut()))
-        }
-
-        fn pop_utc(&mut self) -> Option<DateTime<chrono::Utc>> {
-            self.utc_call_count += 1;
-            self.utc.pop_front()
-        }
-        fn pop_instant(&mut self) -> Option<Instant> {
-            self.instant_call_count += 1;
-            let x = self.durations.pop_front();
-            match x {
-                Some(t) => self.instant.checked_add(t),
-                None => None,
-            }
-        }
-    }
-
-    impl Default for MockClockPerThread {
-        fn default() -> Self {
-            Self {
-                utc: VecDeque::with_capacity(16),
-                durations: VecDeque::with_capacity(16),
-                utc_call_count: 0,
-                instant_call_count: 0,
-                instant: Instant::now(),
-                is_mock: false,
-            }
->>>>>>> Reorganize imports in near-network
-        }
+        INSTANCE.with(|it| f(&mut *it.borrow_mut()))
     }
 }
 
-<<<<<<< HEAD
 pub struct MockClockGuard {}
 
 impl MockClockGuard {
@@ -183,130 +111,20 @@ impl MockClockGuard {
         })
     }
 }
-=======
-    pub struct MockClockGuard {}
 
-    impl Default for MockClockGuard {
-        fn default() -> Self {
-            Clock::set_mock();
-            Self {}
-        }
-    }
-
-    impl Drop for MockClockGuard {
-        fn drop(&mut self) {
-            Clock::reset();
-        }
-    }
-
-    impl Clock {
-        fn set_mock() {
-            MockClockPerThread::with(|clock| {
-                clock.is_mock = true;
-            });
-        }
-        fn reset() {
-            MockClockPerThread::with(|clock| {
-                clock.reset();
-            });
-        }
-        pub fn add_utc(mock_date: DateTime<chrono::Utc>) {
-            MockClockPerThread::with(|clock| {
-                if clock.is_mock {
-                    clock.utc.push_back(mock_date);
-                } else {
-                    panic!("Use MockClockGuard in your test");
-                }
-            });
-        }
-
-        pub fn add_instant(mock_instant: Duration) {
-            MockClockPerThread::with(|clock| {
-                if clock.is_mock {
-                    clock.durations.push_back(mock_instant);
-                } else {
-                    panic!("Use MockClockGuard in your test");
-                }
-            });
-        }
-
-        pub fn utc() -> DateTime<chrono::Utc> {
-            MockClockPerThread::with(|clock| {
-                if clock.is_mock {
-                    let x = clock.pop_utc();
-                    match x {
-                        Some(t) => t,
-                        None => {
-                            panic!("Mock clock run out of samples");
-                        }
-                    }
-                } else {
-                    chrono::Utc::now()
-                }
-            })
-        }
-
-        pub fn instant() -> Instant {
-            MockClockPerThread::with(|clock| {
-                if clock.is_mock {
-                    let x = clock.pop_instant();
-                    match x {
-                        Some(t) => t,
-                        None => {
-                            panic!("Mock clock run out of samples");
-                        }
-                    }
-                } else {
-                    Instant::now()
-                }
-            })
-        }
-
-        pub fn now() -> Time {
-            Clock::utc().into()
-        }
-
-        pub fn instant_call_count() -> u64 {
-            MockClockPerThread::with(|clock| clock.instant_call_count)
-        }
-
-        pub fn utc_call_count() -> u64 {
-            MockClockPerThread::with(|clock| clock.utc_call_count)
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        // TODO(#5345) Add tests for mock
-        use super::*;
->>>>>>> Reorganize imports in near-network
-
-        #[test]
-        fn test_mock() {
-            Clock::set_mock();
-            let utc = Utc::now();
-
-            Clock::add_utc(utc);
-
-            assert_eq!(Clock::utc(), utc);
-        }
+impl Default for MockClockGuard {
+    fn default() -> Self {
+        Clock::set_mock();
+        Self {}
     }
 }
 
-mod time {
-    use crate::time::{Clock, Duration, Utc};
-    use borsh::{BorshDeserialize, BorshSerialize};
-    use chrono::DateTime;
-    use std::ops::{Add, Sub};
-    use std::time::SystemTime;
-    pub type UnixTime = u64;
-
-    #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-    pub struct Time {
-        system_time: SystemTime,
+impl Drop for MockClockGuard {
+    fn drop(&mut self) {
+        Clock::reset();
     }
+}
 
-<<<<<<< HEAD
 /// We switched to using `Clock` in production for time mocking.
 /// You are supposed to use `Clock` to get current time.
 pub struct Clock {}
@@ -359,37 +177,6 @@ impl Clock {
             }
             None => chrono::Utc::now(),
         })
-=======
-    impl BorshSerialize for Time {
-        fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
-            let nanos = self.to_unix_timestamp() as u64;
-            BorshSerialize::serialize(&nanos, writer).unwrap();
-            Ok(())
-        }
-    }
-
-    impl BorshDeserialize for Time {
-        fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
-            let nanos: u64 = borsh::BorshDeserialize::deserialize(buf)?;
-
-            Ok(Time::from_unix_timestamp(nanos))
-        }
-    }
-
-    impl From<SystemTime> for Time {
-        fn from(system_time: SystemTime) -> Self {
-            Self { system_time }
-        }
-    }
-
-    impl From<DateTime<Utc>> for Time {
-        fn from(utc: DateTime<Utc>) -> Self {
-            // utc.timestamp_nanos() returns i64
-            let nanos = utc.timestamp_nanos() as u64;
-
-            Self::UNIX_EPOCH + Duration::from_nanos(nanos)
-        }
->>>>>>> Reorganize imports in near-network
     }
 }
 
@@ -423,7 +210,6 @@ mod tests {
         assert_eq!(mock_clock_guard2.instant_call_count(), 0);
     }
 
-<<<<<<< HEAD
     #[test]
     fn test_clock_utc() {
         let mock_clock_guard = MockClockGuard::default();
@@ -499,7 +285,52 @@ mod tests {
                 assert_eq!(mock_clock_guard.instant_call_count(), 0);
             }
         });
-=======
+    }
+}
+
+mod time {
+    use crate::time::{Clock, Duration, UnixTime, Utc};
+    use borsh::{BorshDeserialize, BorshSerialize};
+    use chrono::DateTime;
+    use std::ops::{Add, Sub};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+    pub struct Time {
+        system_time: SystemTime,
+    }
+
+    impl BorshSerialize for Time {
+        fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+            let nanos = self.to_unix_timestamp_nanos().as_nanos() as u64;
+            BorshSerialize::serialize(&nanos, writer).unwrap();
+            Ok(())
+        }
+    }
+
+    impl BorshDeserialize for Time {
+        fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
+            let nanos: u64 = borsh::BorshDeserialize::deserialize(buf)?;
+
+            Ok(Time::from_unix_timestamp(nanos))
+        }
+    }
+
+    impl From<SystemTime> for Time {
+        fn from(system_time: SystemTime) -> Self {
+            Self { system_time }
+        }
+    }
+
+    impl From<DateTime<Utc>> for Time {
+        fn from(utc: DateTime<Utc>) -> Self {
+            // utc.timestamp_nanos() returns i64
+            let nanos = utc.timestamp_nanos() as u64;
+
+            Self::UNIX_EPOCH + Duration::from_nanos(nanos)
+        }
+    }
+
     impl Time {
         pub const UNIX_EPOCH: Time = Time { system_time: SystemTime::UNIX_EPOCH };
 
@@ -511,12 +342,13 @@ mod tests {
             self.system_time.duration_since(rhs.system_time).unwrap_or(Duration::from_millis(0))
         }
 
-        pub fn saturating_duration_since(&self, rhs: &Self) -> Duration {
-            self.system_time.duration_since(rhs.system_time).unwrap_or(Duration::from_millis(0))
-        }
-
         pub fn elapsed(&self) -> Duration {
             Self::now().duration_since(self)
+        }
+
+        pub fn to_unix_timestamp_nanos(&self) -> Duration {
+            // doesn't truncate, because self::UNIX_EPOCH is 0
+            self.duration_since(&Self::UNIX_EPOCH)
         }
 
         pub fn from_unix_timestamp(unix_time: UnixTime) -> Self {
@@ -530,6 +362,14 @@ mod tests {
 
         pub fn inner(self) -> SystemTime {
             self.system_time
+        }
+
+        pub fn saturating_duration_since(&self, rhs: &Self) -> Duration {
+            self.system_time.duration_since(rhs.system_time).unwrap_or(Duration::from_millis(0))
+        }
+
+        pub fn sub(&self, rhs: Duration) -> Time {
+            Time::from(self.system_time.checked_sub(rhs).unwrap_or(UNIX_EPOCH))
         }
     }
 
@@ -553,9 +393,7 @@ mod tests {
         type Output = Time;
 
         fn sub(self, other: Duration) -> Self::Output {
-            Time {
-                system_time: self.system_time.checked_sub(other).unwrap_or(SystemTime::UNIX_EPOCH),
-            }
+            Time::from(self.system_time.checked_sub(other).unwrap_or(UNIX_EPOCH))
         }
     }
 
@@ -588,6 +426,5 @@ mod tests {
             let now2: Time = BorshDeserialize::deserialize(v2).unwrap();
             assert_eq!(now_nc, now2);
         }
->>>>>>> Reorganize imports in near-network
     }
 }

@@ -79,16 +79,12 @@ impl PeerStore {
             }
         }
 
-        let now = to_timestamp(Utc::now());
+        let now = Time::now().to_unix_timestamp();
         for (key, value) in store.iter(ColPeers) {
             let peer_id: PeerId = PeerId::try_from_slice(key.as_ref())?;
             let mut peer_state: KnownPeerState = KnownPeerState::try_from_slice(value.as_ref())?;
             // Mark loaded node last seen to now, to avoid deleting them as soon as they are loaded.
-<<<<<<< HEAD
             peer_state.last_seen = now;
-=======
-            peer_state.last_seen = Time::now().to_unix_timestamp();
->>>>>>> Reorganize imports in near-network
             match peer_state.status {
                 KnownPeerStatus::Banned(_, _) => {}
                 _ => peer_state.status = KnownPeerStatus::NotConnected,
@@ -152,18 +148,10 @@ impl PeerStore {
         ban_reason: ReasonForBan,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
-<<<<<<< HEAD
-            peer_state.last_seen = to_timestamp(Utc::now());
-            peer_state.status = KnownPeerStatus::Banned(ban_reason, to_timestamp(Utc::now()));
-            Self::save_to_db(&self.store, peer_id.try_to_vec()?.as_slice(), peer_state)
-=======
             let now = Time::now().to_unix_timestamp();
             peer_state.last_seen = now;
             peer_state.status = KnownPeerStatus::Banned(ban_reason, now);
-            let mut store_update = self.store.store_update();
-            store_update.set_ser(ColPeers, &peer_id.try_to_vec()?, peer_state)?;
-            store_update.commit().map_err(|err| err.into())
->>>>>>> Reorganize imports in near-network
+            Self::save_to_db(&self.store, peer_id.try_to_vec()?.as_slice(), peer_state)
         } else {
             Err(format!("Peer {} is missing in the peer store", peer_id).into())
         }

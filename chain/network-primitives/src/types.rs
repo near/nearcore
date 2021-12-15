@@ -1,12 +1,6 @@
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
-<<<<<<< HEAD
-use chrono::DateTime;
-=======
-#[cfg(feature = "deepsize_feature")]
-use deepsize::DeepSizeOf;
->>>>>>> Reorganize imports in near-network
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_primitives::block::{Approval, Block, BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;

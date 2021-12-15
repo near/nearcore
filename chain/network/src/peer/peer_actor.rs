@@ -104,11 +104,7 @@ pub struct PeerActor {
     /// How many peer actors are created
     peer_counter: Arc<AtomicUsize>,
     /// Cache of recently routed messages, this allows us to drop duplicates
-<<<<<<< HEAD
-    routed_message_cache: LruCache<(PeerId, PeerIdOrHash, Signature), Instant>,
-=======
-    routed_message_cache: SizedCache<(PeerId, PeerIdOrHash, Signature), Time>,
->>>>>>> Reorganize imports in near-network
+    routed_message_cache: LruCache<(PeerId, PeerIdOrHash, Signature), Time>,
     /// A helper data structure for limiting reading
     #[allow(unused)]
     throttle_controller: ThrottleController,
@@ -687,15 +683,9 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
         // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
         if let PeerMessage::Routed(msg) = &peer_msg {
             let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
-<<<<<<< HEAD
-            let now = Clock::instant();
-            if let Some(time) = self.routed_message_cache.get(&key) {
-                if now.saturating_duration_since(*time) <= DROP_DUPLICATED_MESSAGES_PERIOD {
-=======
             let now = Time::now();
-            if let Some(time) = self.routed_message_cache.cache_get(&key) {
+            if let Some(time) = self.routed_message_cache.get(&key) {
                 if now.saturating_duration_since(time) <= DROP_DUPLICATED_MESSAGES_PERIOD {
->>>>>>> Reorganize imports in near-network
                     debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
                     return;
                 }

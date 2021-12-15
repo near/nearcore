@@ -648,13 +648,8 @@ impl PeerManagerActor {
 
             // Ask for peers list on connection.
             let _ = addr.do_send(SendMessage { message: PeerMessage::PeersRequest });
-<<<<<<< HEAD
             if let Some(active_peer) = act.connected_peers.get_mut(&target_peer_id) {
-                active_peer.last_time_peer_requested = Clock::instant();
-=======
-            if let Some(active_peer) = act.active_peers.get_mut(&target_peer_id) {
                 active_peer.last_time_peer_requested = Time::now();
->>>>>>> Reorganize imports in near-network
             }
 
             if peer_type == PeerType::Outbound {
