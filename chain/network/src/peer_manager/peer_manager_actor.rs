@@ -8,7 +8,7 @@ use crate::private_actix::{
 };
 use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::network_protocol::Edge;
-use crate::routing::routing::{RoutingTableView, DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS};
+use crate::routing::routing::{RoutingTableView, DELETE_PEERS_AFTER_TIME};
 use crate::routing::routing_table_actor::{
     Prune, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
 };
@@ -219,10 +219,6 @@ impl PeerManagerActor {
         view_client_addr: Recipient<NetworkViewClientMessages>,
         routing_table_addr: Addr<RoutingTableActor>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        if config.max_num_peers as usize > MAX_NUM_PEERS {
-            panic!("Exceeded max peer limit: {}", MAX_NUM_PEERS);
-        }
-
         let peer_store = PeerStore::new(store.clone(), &config.boot_nodes)?;
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
         debug!(target: "network", "Blacklist: {:?}", config.blacklist);
