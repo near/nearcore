@@ -379,10 +379,10 @@ mod tests {
             ThrottleController::new(semaphore.clone(), 1000, max_messages_total_size);
 
         for _ in 0..8 {
-            assert_eq!(throttle_controller.is_ready(), true);
+            assert!(throttle_controller.is_ready());
             throttle_controller.add_msg(max_messages_total_size / 8);
         }
-        assert_eq!(throttle_controller.is_ready(), false);
+        assert!(!throttle_controller.is_ready());
 
         for _ in 0..8 {
             throttle_controller.add_msg(max_messages_total_size / 8);
@@ -395,15 +395,15 @@ mod tests {
         );
 
         for _ in 0..8 {
-            assert_eq!(throttle_controller.is_ready(), false);
+            assert!(!throttle_controller.is_ready());
             throttle_controller.remove_msg(max_messages_total_size / 8);
         }
 
-        assert_eq!(throttle_controller.is_ready(), false);
+        assert!(!throttle_controller.is_ready());
 
         for _ in 0..8 {
             throttle_controller.remove_msg(max_messages_total_size / 8);
-            assert_eq!(throttle_controller.is_ready(), true);
+            assert!(throttle_controller.is_ready());
         }
 
         assert_eq!(throttle_controller.num_messages_in_progress.load(SeqCst), 0);
