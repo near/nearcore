@@ -7,7 +7,7 @@ use crate::private_actix::{
     Unregister, ValidateEdgeList,
 };
 use crate::routing::edge_validator_actor::EdgeValidatorHelper;
-use crate::routing::network_protocol::{Edge, SimpleEdge};
+use crate::routing::network_protocol::Edge;
 use crate::routing::routing::{RoutingTableView, DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS};
 use crate::routing::routing_table_actor::{
     Prune, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
