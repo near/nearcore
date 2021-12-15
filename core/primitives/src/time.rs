@@ -302,8 +302,7 @@ mod time {
     impl BorshSerialize for Time {
         fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
             let nanos = self.to_unix_timestamp_nanos().as_nanos() as u64;
-            BorshSerialize::serialize(&nanos, writer).unwrap();
-            Ok(())
+            BorshSerialize::serialize(&nanos, writer)
         }
     }
 
