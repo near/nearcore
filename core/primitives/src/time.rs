@@ -357,7 +357,7 @@ mod time {
         type Output = Duration;
 
         fn sub(self, other: Self) -> Self::Output {
-            self.system_time.duration_since(other.system_time).unwrap_or(Duration::from_millis(0))
+            self.system_time.duration_since(other.system_time).unwrap_or_default()
         }
     }
 
