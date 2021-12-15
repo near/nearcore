@@ -322,10 +322,7 @@ mod time {
 
     impl From<DateTime<Utc>> for Time {
         fn from(utc: DateTime<Utc>) -> Self {
-            // utc.timestamp_nanos() returns i64
-            let nanos = utc.timestamp_nanos() as u64;
-
-            Self::UNIX_EPOCH + Duration::from_nanos(nanos)
+            Self::UNIX_EPOCH + Duration::from_nanos(utc.timestamp_nanos() as u64)
         }
     }
 
