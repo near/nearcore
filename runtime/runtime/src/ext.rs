@@ -6,7 +6,7 @@ use log::debug;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::contract::ContractCode;
-use near_primitives::errors::{ExternalError, StorageError};
+use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceiver, Receipt, ReceiptEnum};
 use near_primitives::transaction::{
@@ -18,7 +18,7 @@ use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider};
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
 use near_store::{get_code, TrieUpdate, TrieUpdateValuePtr};
-use near_vm_errors::{HostError, InconsistentStateError, VMLogicError};
+use near_vm_errors::{AnyError, HostError, InconsistentStateError, VMLogicError};
 use near_vm_logic::{External, ValuePtr};
 
 pub struct RuntimeExt<'a> {
@@ -35,6 +35,22 @@ pub struct RuntimeExt<'a> {
     last_block_hash: &'a CryptoHash,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
+}
+
+/// Error used by `RuntimeExt`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ExternalError {
+    /// Unexpected error which is typically related to the node storage corruption.
+    /// It's possible the input state is invalid or malicious.
+    StorageError(StorageError),
+    /// Error when accessing validator information. Happens inside epoch manager.
+    ValidatorError(EpochError),
+}
+
+impl From<ExternalError> for VMLogicError {
+    fn from(err: ExternalError) -> Self {
+        VMLogicError::ExternalError(AnyError::new(err))
+    }
 }
 
 pub struct RuntimeExtValuePtr<'a>(TrieUpdateValuePtr<'a>);
