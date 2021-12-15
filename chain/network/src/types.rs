@@ -5,8 +5,6 @@ pub use crate::network_protocol::{
 };
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 pub use crate::network_protocol::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
-#[cfg(feature = "test_features")]
-use crate::private_actix::{GetPeerId, GetPeerIdResult, StartRoutingTableSync};
 use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, Unregister,
 };
@@ -14,8 +12,6 @@ use crate::routing::routing::RoutingTableInfo;
 use crate::PeerInfo;
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, MailboxError, Message, Recipient};
-#[cfg(feature = "deepsize_feature")]
-use deepsize::DeepSizeOf;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use near_network_primitives::types::{
@@ -40,7 +36,7 @@ use std::fmt::Debug;
 use std::sync::RwLock;
 use strum::AsStaticStr;
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Clone, Debug)]
 #[cfg(feature = "test_features")]
 pub struct SetAdvOptions {
@@ -89,7 +85,7 @@ pub enum PeerResponse {
 }
 
 /// Received new peers from another peer.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Message, Debug, Clone)]
 #[rtype(result = "()")]
 pub struct PeersResponse {
@@ -99,7 +95,7 @@ pub struct PeersResponse {
 /// List of all messages, which PeerManagerActor accepts through Actix. There is also another list
 /// which contains reply for each message to PeerManager.
 /// There is 1 to 1 mapping between an entry in `PeerManagerMessageRequest` and `PeerManagerMessageResponse`.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug)]
 pub enum PeerManagerMessageRequest {
     RoutedMessageFrom(RoutedMessageFrom),
@@ -109,14 +105,14 @@ pub enum PeerManagerMessageRequest {
     PeersResponse(PeersResponse),
     PeerRequest(PeerRequest),
     #[cfg(feature = "test_features")]
-    GetPeerId(GetPeerId),
+    GetPeerId(crate::private_actix::GetPeerId),
     OutboundTcpConnect(OutboundTcpConnect),
     InboundTcpConnect(InboundTcpConnect),
     Unregister(Unregister),
     Ban(Ban),
     #[cfg(feature = "test_features")]
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    StartRoutingTableSync(StartRoutingTableSync),
+    StartRoutingTableSync(crate::private_actix::StartRoutingTableSync),
     #[cfg(feature = "test_features")]
     SetAdvOptions(SetAdvOptions),
     #[cfg(feature = "test_features")]
@@ -156,7 +152,7 @@ pub enum PeerManagerMessageResponse {
     PeersResponseResult(()),
     PeerResponse(PeerResponse),
     #[cfg(feature = "test_features")]
-    GetPeerIdResult(GetPeerIdResult),
+    GetPeerIdResult(crate::private_actix::GetPeerIdResult),
     OutboundTcpConnect(()),
     InboundTcpConnect(()),
     Unregister(()),
@@ -213,7 +209,7 @@ impl PeerManagerMessageResponse {
     }
 
     #[cfg(feature = "test_features")]
-    pub fn as_peer_id_result(self) -> GetPeerIdResult {
+    pub fn as_peer_id_result(self) -> crate::private_actix::GetPeerIdResult {
         if let PeerManagerMessageResponse::GetPeerIdResult(item) = self {
             item
         } else {
@@ -229,7 +225,7 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
 }
 
 // TODO(#1313): Use Box
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkRequests {
@@ -545,7 +541,7 @@ impl PeerManagerAdapter for NetworkRecipient {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub struct SetRoutingTable {

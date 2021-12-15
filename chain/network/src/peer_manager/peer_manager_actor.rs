@@ -947,7 +947,7 @@ impl PeerManagerActor {
     fn adv_remove_edges_from_routing_table(
         &mut self,
         ctx: &mut Context<Self>,
-        edges: Vec<SimpleEdge>,
+        edges: Vec<crate::network_protocol::SimpleEdge>,
     ) {
         // Create fake edges with no signature for unit test purposes
         let edges: Vec<Edge> = edges
