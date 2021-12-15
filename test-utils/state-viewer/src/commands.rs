@@ -1,6 +1,4 @@
 use crate::apply_chain_range::apply_chain_range;
-use crate::state_dump::state_dump;
-use crate::apply_chain_range::apply_chain_range;
 use crate::epoch_info;
 use crate::state_dump::state_dump;
 use ansi_term::Color::Red;

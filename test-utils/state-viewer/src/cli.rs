@@ -1,5 +1,4 @@
 use crate::commands::*;
-use crate::commands::*;
 use crate::epoch_info;
 use clap::{AppSettings, Clap};
 use near_logger_utils::init_integration_logger;
@@ -8,9 +7,6 @@ use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{DB_VERSION, PROTOCOL_VERSION};
 use near_store::{create_store, Store};
 use nearcore::{get_default_home, get_store_path, load_config, NearConfig};
-use once_cell::sync::Lazy;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use once_cell::sync::Lazy;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
