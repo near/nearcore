@@ -650,7 +650,7 @@ pub enum KnownPeerStatus {
     Unknown,
     NotConnected,
     Connected,
-    Banned(ReasonForBan, u64),
+    Banned(ReasonForBan, Time),
 }
 
 impl KnownPeerStatus {
@@ -667,13 +667,13 @@ impl KnownPeerStatus {
 pub struct KnownPeerState {
     pub peer_info: PeerInfo,
     pub status: KnownPeerStatus,
-    first_seen: u64,
-    last_seen: u64,
+    first_seen: Time,
+    last_seen: Time,
 }
 
 impl KnownPeerState {
     pub fn new(peer_info: PeerInfo) -> Self {
-        let now = Time::now().duration_since(Time::UNIX_EPOCH).as_nanos() as u64;
+        let now = Time::now();
         KnownPeerState {
             peer_info,
             status: KnownPeerStatus::Unknown,
@@ -683,19 +683,18 @@ impl KnownPeerState {
     }
 
     pub fn first_seen(&self) -> Time {
-        Time::UNIX_EPOCH + Duration::from_nanos(self.first_seen)
+        self.first_seen
     }
 
     pub fn last_seen(&self) -> Time {
-        Time::UNIX_EPOCH + Duration::from_nanos(self.last_seen)
+        self.last_seen
     }
 
     pub fn set_last_seen(&mut self, last_seen: Time) {
-        self.last_seen = last_seen.duration_since(Time::UNIX_EPOCH).as_nanos() as u64;
+        self.last_seen = last_seen
     }
 
     pub fn banned_at(&mut self, ban_reason: ReasonForBan, now: Time) {
-        let now = now.duration_since(Time::UNIX_EPOCH).as_nanos() as u64;
         self.last_seen = now;
         self.status = KnownPeerStatus::Banned(ban_reason, now);
     }
@@ -1135,13 +1134,7 @@ mod tests {
 
         let now = now + Duration::from_nanos(123);
         kps.banned_at(ReasonForBan::Abusive, now);
-        assert_eq!(
-            kps.status,
-            KnownPeerStatus::Banned(
-                ReasonForBan::Abusive,
-                now.duration_since(Time::UNIX_EPOCH).as_nanos() as u64
-            )
-        );
+        assert_eq!(kps.status, KnownPeerStatus::Banned(ReasonForBan::Abusive, now));
         assert_eq!(kps.last_seen(), now);
     }
 }

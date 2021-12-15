@@ -40,7 +40,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::time::{Clock, Time};
 use near_primitives::types::{AccountId, ProtocolVersion};
-use near_primitives::utils::from_timestamp;
 use near_rate_limiter::{
     ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleToken,
     ThrottledFrameRead,
@@ -1173,10 +1172,7 @@ impl PeerManagerActor {
         let mut to_unban = vec![];
         for (peer_id, peer_state) in self.peer_store.iter() {
             if let KnownPeerStatus::Banned(_, last_banned) = peer_state.status {
-                let interval = unwrap_or_error!(
-                    (Clock::utc() - from_timestamp(last_banned)).to_std(),
-                    "Failed to convert time"
-                );
+                let interval = Time::now().duration_since(last_banned);
                 if interval > self.config.ban_window {
                     info!(target: "network", "Monitor peers: unbanned {} after {:?}.", peer_id, interval);
                     to_unban.push(peer_id.clone());
