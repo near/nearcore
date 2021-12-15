@@ -193,19 +193,20 @@ impl PeerStore {
 
     /// Return unconnected or peers with unknown status that we can try to connect to.
     /// Peers with unknown addresses are filtered out.
-    pub(crate) fn unconnected_peers(
+    pub(crate) fn unconnected_peer(
         &self,
         ignore_fn: impl Fn(&KnownPeerState) -> bool,
-        count: usize,
-    ) -> Vec<PeerInfo> {
+    ) -> Option<PeerInfo> {
         self.find_peers(
             |p| {
                 (p.status == KnownPeerStatus::NotConnected || p.status == KnownPeerStatus::Unknown)
                     && !ignore_fn(p)
                     && p.peer_info.addr.is_some()
             },
-            count,
+            1,
         )
+        .get(0)
+        .cloned()
     }
 
     /// Return healthy known peers up to given amount.
@@ -421,6 +422,20 @@ mod test {
             let store_new = create_store(tmp_dir.path());
             let peer_store_new = PeerStore::new(store_new, &boot_nodes).unwrap();
             assert_eq!(peer_store_new.healthy_peers(3).len(), 1);
+        }
+    }
+
+    #[test]
+    fn test_unconnected_peer() {
+        let tmp_dir = tempfile::Builder::new().prefix("_test_store_ban").tempdir().unwrap();
+        let peer_info_a = gen_peer_info(0);
+        let peer_info_to_ban = gen_peer_info(1);
+        let boot_nodes = vec![peer_info_a, peer_info_to_ban.clone()];
+        {
+            let store = create_store(tmp_dir.path());
+            let peer_store = PeerStore::new(store, &boot_nodes).unwrap();
+            assert!(peer_store.unconnected_peer(|_| false).is_some());
+            assert!(peer_store.unconnected_peer(|_| true).is_none());
         }
     }
 

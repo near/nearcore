@@ -920,7 +920,7 @@ impl PeerManagerActor {
 
     /// Get a random peer we are not connected to from the known list.
     fn sample_random_peer(&self, ignore_fn: impl Fn(&KnownPeerState) -> bool) -> Option<PeerInfo> {
-        self.peer_store.unconnected_peers(ignore_fn, 1).get(0).cloned()
+        self.peer_store.unconnected_peer(ignore_fn)
     }
 
     /// Query current peers for more peers.
