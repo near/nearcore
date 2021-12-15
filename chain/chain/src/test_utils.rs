@@ -1479,6 +1479,7 @@ mod test {
 
     #[test]
     #[ignore]
+    /// Disabled, see more details in #5836
     fn test_build_receipt_hashes() {
         for num_shards in 1..10 {
             test_build_receipt_hashes_with_num_shard(num_shards);
