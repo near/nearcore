@@ -672,8 +672,8 @@ pub struct KnownPeerState {
 }
 
 impl KnownPeerState {
-    pub fn new(peer_info: PeerInfo) -> Self {
-        let now = Time::now();
+    pub fn new(peer_info: PeerInfo, time: Time) -> Self {
+        let now = time;
         KnownPeerState {
             peer_info,
             status: KnownPeerStatus::Unknown,
@@ -1125,7 +1125,7 @@ mod tests {
     #[test]
     fn test_known_peer_state() {
         let pi = PeerInfo::random();
-        let mut kps = KnownPeerState::new(pi);
+        let mut kps = KnownPeerState::new(pi, Time::now());
 
         let now = Time::now();
         kps.set_last_seen(now);

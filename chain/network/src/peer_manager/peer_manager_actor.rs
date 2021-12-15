@@ -551,8 +551,9 @@ impl PeerManagerActor {
         if self.outgoing_peers.contains(&full_peer_info.peer_info.id) {
             self.outgoing_peers.remove(&full_peer_info.peer_info.id);
         }
+        let now = Time::now();
         unwrap_or_error!(
-            self.peer_store.peer_connected(&full_peer_info.peer_info),
+            self.peer_store.peer_connected(&full_peer_info.peer_info, now),
             "Failed to save peer data"
         );
 
@@ -566,7 +567,6 @@ impl PeerManagerActor {
             full_peer_info.partial_edge_info.signature.clone(),
         );
 
-        let now = Time::now();
         self.connected_peers.insert(
             target_peer_id.clone(),
             ConnectedPeer {
@@ -596,7 +596,7 @@ impl PeerManagerActor {
                     ctx,
                     throttle_controller,
                 );
-                self.send_sync(peer_type, addr, ctx, target_peer_id, new_edge, Vec::new());
+                self.send_sync(peer_type, addr, ctx, target_peer_id, new_edge, Vec::new(), now);
                 return;
             }
         );
@@ -618,6 +618,7 @@ impl PeerManagerActor {
                             target_peer_id.clone(),
                             new_edge,
                             routing_table,
+                            now,
                         );
                     }
                     _ => error!(target: "network", "expected AddIbfSetResponse"),
@@ -634,6 +635,7 @@ impl PeerManagerActor {
         target_peer_id: PeerId,
         new_edge: Edge,
         known_edges: Vec<Edge>,
+        now: Time,
     ) {
         near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act, ctx| {
             // Start syncing network point of view. Wait until both parties are connected before start
@@ -649,7 +651,7 @@ impl PeerManagerActor {
             // Ask for peers list on connection.
             let _ = addr.do_send(SendMessage { message: PeerMessage::PeersRequest });
             if let Some(active_peer) = act.connected_peers.get_mut(&target_peer_id) {
-                active_peer.last_time_peer_requested = Time::now();
+                active_peer.last_time_peer_requested = now;
             }
 
             if peer_type == PeerType::Outbound {
@@ -732,7 +734,7 @@ impl PeerManagerActor {
         if remove_from_peer_store {
             self.remove_active_peer(ctx, &peer_id, Some(peer_type));
             unwrap_or_error!(
-                self.peer_store.peer_disconnected(&peer_id),
+                self.peer_store.peer_disconnected(&peer_id, Time::now()),
                 "Failed to save peer data"
             );
         }
@@ -744,7 +746,10 @@ impl PeerManagerActor {
     fn ban_peer(&mut self, ctx: &mut Context<Self>, peer_id: &PeerId, ban_reason: ReasonForBan) {
         warn!(target: "network", "Banning peer {:?} for {:?}", peer_id, ban_reason);
         self.remove_active_peer(ctx, peer_id, None);
-        unwrap_or_error!(self.peer_store.peer_ban(peer_id, ban_reason), "Failed to save peer data");
+        unwrap_or_error!(
+            self.peer_store.peer_ban(peer_id, ban_reason, Time::now()),
+            "Failed to save peer data"
+        );
     }
 
     /// Ban peer. Stop peer instance if it is still active,
@@ -925,10 +930,9 @@ impl PeerManagerActor {
     }
 
     /// Query current peers for more peers.
-    fn query_active_peers_for_more_peers(&mut self, ctx: &mut Context<Self>) {
+    fn query_active_peers_for_more_peers(&mut self, ctx: &mut Context<Self>, now: Time) {
         let mut requests = futures::stream::FuturesUnordered::new();
         let msg = SendMessage { message: PeerMessage::PeersRequest };
-        let now = Time::now();
         for (_, active_peer) in self.connected_peers.iter_mut() {
             if active_peer.last_time_peer_requested.elapsed() > REQUEST_PEERS_INTERVAL {
                 active_peer.last_time_peer_requested = now;
@@ -1204,7 +1208,7 @@ impl PeerManagerActor {
                     peer_info,
                 }));
             } else {
-                self.query_active_peers_for_more_peers(ctx);
+                self.query_active_peers_for_more_peers(ctx, now);
             }
         }
 
@@ -1214,7 +1218,7 @@ impl PeerManagerActor {
         }
 
         unwrap_or_error!(
-            self.peer_store.remove_expired(&self.config),
+            self.peer_store.remove_expired(&self.config, now),
             "Failed to remove expired peers"
         );
 
@@ -2252,7 +2256,8 @@ impl PeerManagerActor {
         let _d = delay_detector::DelayDetector::new("peers response".into());
         unwrap_or_error!(
             self.peer_store.add_indirect_peers(
-                msg.peers.into_iter().filter(|peer_info| peer_info.id != self.my_peer_id).collect()
+                msg.peers.into_iter().filter(|peer_info| peer_info.id != self.my_peer_id).collect(),
+                Time::now()
             ),
             "Fail to update peer store"
         );
@@ -2422,7 +2427,9 @@ impl PeerManagerActor {
                 PeerResponse::NoResponse
             }
             PeerRequest::UpdatePeerInfo(peer_info) => {
-                if let Err(err) = self.peer_store.add_trusted_peer(peer_info, TrustLevel::Direct) {
+                if let Err(err) =
+                    self.peer_store.add_trusted_peer(peer_info, TrustLevel::Direct, Time::now())
+                {
                     error!(target: "network", "Fail to update peer store: {}", err);
                 }
                 PeerResponse::NoResponse
