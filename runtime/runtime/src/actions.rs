@@ -209,7 +209,12 @@ pub(crate) fn action_function_call(
             };
         }
         Some(VMError::InconsistentStateError(err)) => {
-            return Err(StorageError::StorageInconsistentState(err.to_string()).into());
+            let message = match err {
+                InconsistentStateError::StorageError(_)
+                | InconsistentStateError::IntegerOverflow => err.to_string(),
+            };
+
+            return Err(StorageError::StorageInconsistentState(message.to_string()).into());
         }
         Some(VMError::CacheError(err)) => {
             let message = match err {
