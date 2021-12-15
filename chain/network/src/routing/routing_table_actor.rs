@@ -186,6 +186,7 @@ impl RoutingTableActor {
         let my_peer_id = self.my_peer_id().clone();
 
         // Get the "row" (a.k.a nonce) at which we've stored a given peer in the past (when we pruned it).
+        let now = Time::now();
         if let Ok(component_nonce) = self.component_nonce_from_peer(other_peer_id) {
             let mut update = self.store.store_update();
 
@@ -205,7 +206,7 @@ impl RoutingTableActor {
                             if cur_nonce == component_nonce {
                                 // Mark it as reachable and delete from database.
                                 self.peer_last_time_reachable
-                                    .insert(peer_id.clone(), Time::now() - SAVE_PEERS_MAX_TIME);
+                                    .insert(peer_id.clone(), now - SAVE_PEERS_MAX_TIME);
                                 update.delete(
                                     ColPeerComponent,
                                     peer_id.try_to_vec().unwrap().as_ref(),
@@ -221,7 +222,7 @@ impl RoutingTableActor {
                 warn!(target: "network", "Error removing network component from store. {:?}", e);
             }
         } else {
-            self.peer_last_time_reachable.insert(other_peer_id.clone(), Time::now());
+            self.peer_last_time_reachable.insert(other_peer_id.clone(), now);
         }
     }
 
