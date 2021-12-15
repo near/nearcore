@@ -56,9 +56,9 @@ def heights_report():
 while max_height < BLOCKS:
     assert time.time() - started < TIMEOUT
     for i, node in enumerate(nodes):
-        status = node.get_status()
-        height = status['sync_info']['latest_block_height']
-        hash_ = status['sync_info']['latest_block_hash']
+        block = node.get_latest_block()
+        height = block.height
+        hash_ = block.hash
 
         if height > max_height:
             max_height = height

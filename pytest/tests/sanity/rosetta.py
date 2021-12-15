@@ -338,11 +338,6 @@ class RosettaTestCase(unittest.TestCase):
             self.fail(f'Account {account.account_id} does not exist')
         return None
 
-    def _get_latest_block_height(self) -> int:
-        """Returns latest block’s height."""
-        block_hash = self.node.get_status()['sync_info']['latest_block_hash']
-        return self.node.get_block(block_hash)['result']['header']['height']
-
     def test_implicit_account(self) -> None:
         """Tests creating and deleting implicit account
 
@@ -355,7 +350,7 @@ class RosettaTestCase(unittest.TestCase):
         implicit = key.Key.implicit_account()
 
         # Create implicit account.
-        old_block = self._get_latest_block_height()
+        old_block = self.node.get_latest_block().height
         logger.info(f'Creating implicit account: {implicit.account_id}')
         tx_hash = self.rosetta.transfer(src=validator,
                                         dst=implicit,
@@ -368,7 +363,7 @@ class RosettaTestCase(unittest.TestCase):
                 self.assertEqual(test_amount, balance)
                 break
 
-        new_block = self._get_latest_block_height()
+        new_block = self.node.get_latest_block().height
 
         # Scan all the blocks until we find the transaction that created the
         # account.
@@ -414,7 +409,7 @@ class RosettaTestCase(unittest.TestCase):
         }], block['transactions'])
 
         # And finally, delete the account.
-        old_block = self._get_latest_block_height()
+        old_block = self.node.get_latest_block().height
         logger.info(f'Deleting implicit account: {implicit.account_id}')
         tx_hash = self.rosetta.delete_account(implicit, refund_to=validator)
 
@@ -426,7 +421,7 @@ class RosettaTestCase(unittest.TestCase):
         else:
             self.fail(f'Account {implicit.account_id} wasn’t deleted')
 
-        new_block = self._get_latest_block_height()
+        new_block = self.node.get_latest_block().height
 
         # Scan all the blocks until we find the transaction that created the
         # account.
