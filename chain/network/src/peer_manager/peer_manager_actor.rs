@@ -928,9 +928,10 @@ impl PeerManagerActor {
     fn query_active_peers_for_more_peers(&mut self, ctx: &mut Context<Self>) {
         let mut requests = futures::stream::FuturesUnordered::new();
         let msg = SendMessage { message: PeerMessage::PeersRequest };
+        let now = Time::now();
         for (_, active_peer) in self.connected_peers.iter_mut() {
             if active_peer.last_time_peer_requested.elapsed() > REQUEST_PEERS_INTERVAL {
-                active_peer.last_time_peer_requested = Time::now();
+                active_peer.last_time_peer_requested = now;
                 requests.push(active_peer.addr.send(msg.clone()));
             }
         }
