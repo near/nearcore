@@ -37,9 +37,8 @@ impl Default for EdgeSet {
 impl EdgeSet {
     /// Note: We need to remove the value first.
     /// The insert inside HashSet, will not remove existing element if it has the same key.
-    pub(crate) fn insert(&mut self, edge: Edge) -> bool {
-        self.remove(edge.key());
-        self.repr.insert(EdgeIndexedByKey { inner: edge })
+    pub(crate) fn insert(&mut self, edge: Edge) {
+        self.repr.replace(EdgeIndexedByKey { inner: edge });
     }
 
     pub(crate) fn get(&self, key: &(PeerId, PeerId)) -> Option<&Edge> {
