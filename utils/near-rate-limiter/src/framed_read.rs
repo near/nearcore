@@ -264,7 +264,7 @@ where
             while !pinned.throttle_controller.is_ready() {
                 // This will cause us to subscribe to notifier when something gets pushed to
                 // `pinned.receiver`. If there is an element in the queue, we will check again.
-                ready!(PollSemaphore::poll_next(Pin::new(pinned.semaphore), cx));
+                ready!(pinned.semaphore.poll_acquire(cx));
             }
 
             // Repeatedly call `decode` or `decode_eof` as long as it is
