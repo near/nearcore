@@ -667,8 +667,8 @@ impl KnownPeerStatus {
 pub struct KnownPeerState {
     pub peer_info: PeerInfo,
     pub status: KnownPeerStatus,
-    pub first_seen: UnixTime,
-    pub last_seen: UnixTime,
+    first_seen: UnixTime,
+    last_seen: UnixTime,
 }
 
 impl KnownPeerState {
@@ -688,6 +688,10 @@ impl KnownPeerState {
 
     pub fn last_seen(&self) -> Time {
         Time::from_unix_timestamp(self.last_seen)
+    }
+
+    pub fn set_last_seen(&mut self, last_seen: Time) {
+        self.last_seen = last_seen.to_unix_timestamp();
     }
 }
 

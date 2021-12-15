@@ -79,12 +79,12 @@ impl PeerStore {
             }
         }
 
-        let now = Time::now().to_unix_timestamp();
+        let now = Time::now();
         for (key, value) in store.iter(ColPeers) {
             let peer_id: PeerId = PeerId::try_from_slice(key.as_ref())?;
             let mut peer_state: KnownPeerState = KnownPeerState::try_from_slice(value.as_ref())?;
             // Mark loaded node last seen to now, to avoid deleting them as soon as they are loaded.
-            peer_state.last_seen = now;
+            peer_state.set_last_seen(now);
             match peer_state.status {
                 KnownPeerStatus::Banned(_, _) => {}
                 _ => peer_state.status = KnownPeerStatus::NotConnected,
@@ -124,7 +124,7 @@ impl PeerStore {
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.add_trusted_peer(peer_info.clone(), TrustLevel::Signed)?;
         let entry = self.peer_states.get_mut(&peer_info.id).unwrap();
-        entry.last_seen = Time::now().to_unix_timestamp();
+        entry.set_last_seen(Time::now());
         entry.status = KnownPeerStatus::Connected;
         Self::save_to_db(&self.store, peer_info.id.try_to_vec()?.as_slice(), entry)
     }
@@ -134,7 +134,7 @@ impl PeerStore {
         peer_id: &PeerId,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
-            peer_state.last_seen = Time::now().to_unix_timestamp();
+            peer_state.set_last_seen(Time::now());
             peer_state.status = KnownPeerStatus::NotConnected;
             Self::save_to_db(&self.store, peer_id.try_to_vec()?.as_slice(), peer_state)
         } else {
@@ -148,9 +148,9 @@ impl PeerStore {
         ban_reason: ReasonForBan,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
-            let now = Time::now().to_unix_timestamp();
-            peer_state.last_seen = now;
-            peer_state.status = KnownPeerStatus::Banned(ban_reason, now);
+            let now = Time::now();
+            peer_state.set_last_seen(now);
+            peer_state.status = KnownPeerStatus::Banned(ban_reason, now.to_unix_timestamp());
             Self::save_to_db(&self.store, peer_id.try_to_vec()?.as_slice(), peer_state)
         } else {
             Err(format!("Peer {} is missing in the peer store", peer_id).into())
