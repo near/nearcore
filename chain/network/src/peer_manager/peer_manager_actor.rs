@@ -38,7 +38,7 @@ use near_performance_metrics_macros::perf;
 use near_primitives::checked_feature;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::time::{Clock, Time};
+use near_primitives::time::Time;
 use near_primitives::types::{AccountId, ProtocolVersion};
 use near_rate_limiter::{
     ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleToken,
@@ -404,7 +404,7 @@ impl PeerManagerActor {
         ctx: &mut Context<PeerManagerActor>,
         interval: Duration,
     ) {
-        let start = Clock::instant();
+        let start = Time::now();
         let mut new_edges = Vec::new();
         while let Some(edge) = self.routing_table_exchange_helper.edges_to_add_receiver.pop() {
             new_edges.push(edge);
