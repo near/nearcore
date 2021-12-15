@@ -7,7 +7,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::io::AsyncRead;
-use tokio_stream::StreamExt;
 use tokio_util::codec::Decoder;
 use tokio_util::io::poll_read_buf;
 use tokio_util::sync::PollSemaphore;
