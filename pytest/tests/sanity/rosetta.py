@@ -326,7 +326,7 @@ class RosettaTestCase(unittest.TestCase):
             require: If True, require that the account exists.
         """
         account_id = account.account_id
-        result = self.node.get_account(account_id)
+        result = self.node.get_account(account_id, do_assert=False)
         error = result.get('error')
         if error is None:
             amount = int(result['result']['amount'])
