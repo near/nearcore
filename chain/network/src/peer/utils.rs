@@ -138,13 +138,16 @@ mod tests {
             )
         };
 
-        PeerMessage::Routed(RoutedMessage {
-            target,
-            author,
-            signature,
-            ttl: 99,
-            body: RoutedMessageBody::ForwardTx(tx),
-        })
+        PeerMessage::Routed(
+            RoutedMessage {
+                target,
+                author,
+                signature,
+                ttl: 99,
+                body: RoutedMessageBody::ForwardTx(tx),
+            }
+            .into(),
+        )
     }
 
     #[test]
