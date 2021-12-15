@@ -26,15 +26,14 @@ use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
+use near_network::types::PartialEdgeInfo;
 use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
-use near_primitives::block::{Approval, ApprovalInner};
-use near_primitives::block_header::BlockHeader;
-
-use near_network::routing::PartialEdgeInfo;
 use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
+use near_primitives::block::{Approval, ApprovalInner};
+use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::TxExecutionError;
@@ -3560,7 +3559,6 @@ mod access_key_nonce_range_tests {
     }
 
     /// Test that duplicate transactions from implicit accounts are properly rejected.
-    #[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
     #[test]
     fn test_transaction_hash_collision_for_implicit_account_fail() {
         let protocol_version =
@@ -3574,11 +3572,8 @@ mod access_key_nonce_range_tests {
     /// Test that duplicate transactions from implicit accounts are not rejected until protocol upgrade.
     #[test]
     fn test_transaction_hash_collision_for_implicit_account_ok() {
-        #[cfg(feature = "protocol_feature_access_key_nonce_for_implicit_accounts")]
         let protocol_version =
             ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
-        #[cfg(not(feature = "protocol_feature_access_key_nonce_for_implicit_accounts"))]
-        let protocol_version = PROTOCOL_VERSION;
         assert!(matches!(
             get_status_of_tx_hash_collision_for_implicit_account(protocol_version),
             NetworkClientResponses::ValidTx

@@ -8,7 +8,6 @@ rust-version = "1.56.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/near/nearcore"
-homepage = "https://github.com/near/nearcore"
 description = "This crate contains the Account ID primitive and its validation facilities"
 
 [features]

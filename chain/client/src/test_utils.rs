@@ -20,11 +20,10 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
-use near_network::routing::PartialEdgeInfo;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRecipient, NetworkRequests,
-    NetworkResponses, PeerManagerAdapter,
+    NetworkResponses, PartialEdgeInfo, PeerManagerAdapter,
 };
 use near_network::PeerManagerActor;
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
@@ -274,7 +273,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     >,
     transaction_validity_period: NumBlocks,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
-    let network_adapter = Arc::new(NetworkRecipient::new());
+    let network_adapter = Arc::new(NetworkRecipient::default());
     let mut vca: Option<Addr<ViewClientActor>> = None;
     let client_addr = ClientActor::create(|ctx: &mut Context<ClientActor>| {
         let (_, client, view_client_addr) = setup(
@@ -992,7 +991,7 @@ pub fn setup_mock_all_validators(
                 Box::new(Some(resp))
             }))
             .start();
-            let network_adapter = NetworkRecipient::new();
+            let network_adapter = NetworkRecipient::default();
             network_adapter.set_recipient(pm.recipient());
             let (block, client, view_client_addr) = setup(
                 validators_clone1.clone(),

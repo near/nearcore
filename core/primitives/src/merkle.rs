@@ -1,12 +1,10 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "deepsize_feature")]
-use deepsize::DeepSizeOf;
 use serde::{Deserialize, Serialize};
 
 use crate::hash::{hash, CryptoHash};
 use crate::types::MerkleHash;
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub struct MerklePathItem {
     pub hash: MerkleHash,
@@ -15,7 +13,7 @@ pub struct MerklePathItem {
 
 pub type MerklePath = Vec<MerklePathItem>;
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub enum Direction {
     Left,
@@ -135,7 +133,7 @@ pub fn compute_root_from_path_and_item<T: BorshSerialize>(
 /// The root can be computed by folding `path` from right but is not explicitly
 /// maintained to save space.
 /// The size of the object is O(log(n)) where n is the number of leaves in the tree, i.e, `size`.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Default, Clone, BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug)]
 pub struct PartialMerkleTree {
     /// Path for the next leaf.

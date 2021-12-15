@@ -1,21 +1,22 @@
+use crate::network_protocol::{Edge, PartialEdgeInfo};
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
 use crate::peer::utils;
-use crate::routing::edge::{Edge, PartialEdgeInfo};
+use crate::private_actix::{
+    PeersRequest, RegisterPeer, RegisterPeerResponse, SendMessage, Unregister,
+};
 use crate::stats::metrics::{self, NetworkMetrics};
 use crate::types::{
     Handshake, HandshakeFailureReason, HandshakeV2, NetworkClientMessages, NetworkClientResponses,
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerMessage, PeerRequest,
-    PeerResponse, PeersRequest, PeersResponse, RegisterPeer, RegisterPeerResponse, SendMessage,
-    Unregister,
+    PeerResponse, PeersResponse,
 };
 use crate::PeerManagerActor;
 use actix::{
     Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
-use borsh::BorshDeserialize;
-use borsh::BorshSerialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::types::{
@@ -33,7 +34,7 @@ use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::time::Clock;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
-    ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
+    ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
 use near_primitives::{logging, unwrap_option_or_return};
 use near_rate_limiter::{ActixMessageWrapper, ThrottleController};
@@ -585,7 +586,7 @@ impl PeerActor {
                 self.my_node_info.clone(),
                 HandshakeFailureReason::ProtocolVersionMismatch {
                     version: PROTOCOL_VERSION,
-                    oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
+                    oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
                 },
             ));
         } else {
@@ -731,7 +732,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         if target_version
                             >= std::cmp::max(
                                 oldest_supported_version,
-                                OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
+                                PEER_MIN_ALLOWED_PROTOCOL_VERSION,
                             )
                         {
                             // Use target_version as protocol_version to talk with this peer
@@ -739,7 +740,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                             self.send_handshake(ctx);
                             return;
                         } else {
-                            warn!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {:?}, their: {:?}", peer_info, (PROTOCOL_VERSION, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION), (version, oldest_supported_version));
+                            warn!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {:?}, their: {:?}", peer_info, (PROTOCOL_VERSION, PEER_MIN_ALLOWED_PROTOCOL_VERSION), (version, oldest_supported_version));
                         }
                     }
                     HandshakeFailureReason::InvalidTarget => {
@@ -758,7 +759,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.my_node_info.id, handshake);
 
                 debug_assert!(
-                    OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION <= handshake.protocol_version
+                    PEER_MIN_ALLOWED_PROTOCOL_VERSION <= handshake.protocol_version
                         && handshake.protocol_version <= PROTOCOL_VERSION
                 );
 

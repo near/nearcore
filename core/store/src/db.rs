@@ -596,9 +596,9 @@ impl Database for RocksDB {
     fn write(&self, transaction: DBTransaction) -> Result<(), DBError> {
         if let Err(check) = self.pre_write_check() {
             if check.is_io() {
-                warn!("unable to verify remaing disk space: {}, continueing write without verifying (this may result in unrecoverable data loss if disk space is exceeded", check)
+                warn!("unable to verify remaing disk space: {:?}, continueing write without verifying (this may result in unrecoverable data loss if disk space is exceeded", check)
             } else {
-                panic!("{}", check)
+                panic!("{:?}", check)
             }
         }
 
