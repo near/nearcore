@@ -42,9 +42,9 @@ impl RoutingTableTest {
             peers: vec![me.clone()],
             rev_peers: vec![(me, 0)].into_iter().collect(),
             times: vec![
-                now.sub(DELETE_PEERS_AFTER_TIME / 2),
-                now.sub((DELETE_PEERS_AFTER_TIME + SAVE_PEERS_MAX_TIME) / 2),
-                now.sub(SAVE_PEERS_MAX_TIME * 3 / 2 - DELETE_PEERS_AFTER_TIME / 2),
+                now - (DELETE_PEERS_AFTER_TIME / 2),
+                now - ((DELETE_PEERS_AFTER_TIME + SAVE_PEERS_MAX_TIME) / 2),
+                now - (SAVE_PEERS_MAX_TIME * 3 / 2 - DELETE_PEERS_AFTER_TIME / 2),
             ],
         }
     }
