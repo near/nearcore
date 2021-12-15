@@ -7,10 +7,6 @@ use crate::private_actix::{
     Unregister, ValidateEdgeList,
 };
 use crate::routing::edge_validator_actor::EdgeValidatorHelper;
-#[cfg(all(
-    feature = "test_features",
-    feature = "protocol_feature_routing_exchange_algorithm"
-))]
 use crate::routing::network_protocol::{Edge, SimpleEdge};
 use crate::routing::routing::{RoutingTableView, DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS};
 use crate::routing::routing_table_actor::{
@@ -23,8 +19,6 @@ use crate::types::{
     PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerRequest, PeerResponse,
     PeersResponse, RoutingTableUpdate,
 };
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::types::{RoutingSyncV2, RoutingVersion2};
 use crate::PeerInfo;
 use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
@@ -1915,7 +1909,7 @@ impl PeerManagerActor {
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             NetworkRequests::IbfMessage { peer_id, ibf_msg } => match ibf_msg {
-                RoutingSyncV2::Version2(ibf_msg) => {
+                crate::network_protocol::RoutingSyncV2::Version2(ibf_msg) => {
                     if let Some(addr) = self.connected_peers.get(&peer_id).map(|p| p.addr.clone()) {
                         self.process_ibf_msg(ctx, &peer_id, ibf_msg, addr, throttle_controller)
                     }
@@ -2451,7 +2445,7 @@ impl PeerManagerActor {
         &mut self,
         ctx: &mut Context<PeerManagerActor>,
         peer_id: &PeerId,
-        mut ibf_msg: RoutingVersion2,
+        mut ibf_msg: crate::network_protocol::RoutingVersion2,
         addr: Addr<PeerActor>,
         throttle_controller: Option<ThrottleController>,
     ) {
@@ -2476,9 +2470,11 @@ impl PeerManagerActor {
                     }) => {
                         if let Some(response_ibf_msg) = response_ibf_msg {
                             let _ = addr.do_send(SendMessage {
-                                message: PeerMessage::RoutingTableSyncV2(RoutingSyncV2::Version2(
-                                    response_ibf_msg,
-                                )),
+                                message: PeerMessage::RoutingTableSyncV2(
+                                    crate::network_protocol::RoutingSyncV2::Version2(
+                                        response_ibf_msg,
+                                    ),
+                                ),
                             });
                         }
                     }
