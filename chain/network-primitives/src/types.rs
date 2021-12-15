@@ -1122,4 +1122,26 @@ mod tests {
             ],
         );
     }
+
+    #[test]
+    fn test_known_peer_state() {
+        let pi = PeerInfo::random();
+        let mut kps = KnownPeerState::new(pi);
+
+        let now = Time::now();
+        kps.set_last_seen(now);
+
+        assert_eq!(kps.last_seen(), now);
+
+        let now = now + Duration::from_nanos(123);
+        kps.banned_at(ReasonForBan::Abusive, now);
+        assert_eq!(
+            kps.status,
+            KnownPeerStatus::Banned(
+                ReasonForBan::Abusive,
+                now.duration_since(Time::UNIX_EPOCH).as_nanos() as u64
+            )
+        );
+        assert_eq!(kps.last_seen(), now);
+    }
 }
