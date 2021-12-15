@@ -42,7 +42,25 @@ static ALLOC: MyAllocator<tikv_jemallocator::Jemalloc> =
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
+fn prog() -> Option<String> {
+    env::args()
+        .next()
+        .as_ref()
+        .map(std::path::Path::new)
+        .and_then(std::path::Path::file_name)
+        .and_then(std::ffi::OsStr::to_str)
+        .map(String::from)
+}
+
 fn main() {
+    if prog().map(|name| name == "near").unwrap_or_default() {
+        println!("WARNING WARNING WARNING");
+        println!("WARNING WARNING WARNING");
+        println!("WARNING WARNING WARNING");
+        println!("Usage of `./near` binary is deprecated since May 2020!!!");
+        println!("Use `./neard` instead");
+    }
+
     // We use it to automatically search the for root certificates to perform HTTPS calls
     // (sending telemetry and downloading genesis)
     openssl_probe::init_ssl_cert_env_vars();
