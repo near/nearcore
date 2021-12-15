@@ -2,16 +2,10 @@ use std::collections::HashSet;
 
 use crate::test_utils::TestEnv;
 use near_chain::ChainGenesis;
-use near_crypto::KeyType;
-use near_logger_utils::{init_integration_logger, init_test_logger};
+use near_logger_utils::init_integration_logger;
 use near_network::types::NetworkRequests;
 use near_network_primitives::types::PartialEncodedChunkRequestMsg;
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV2,
-};
-use near_primitives::types::BlockHeight;
-use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::hash::CryptoHash;
 
 #[test]
 fn test_request_chunk_restart() {
@@ -49,46 +43,5 @@ fn test_request_chunk_restart() {
     } else {
         println!("{:?}", response);
         assert!(false);
-    }
-}
-
-fn update_chunk_hash(chunk: PartialEncodedChunkV2, new_hash: ChunkHash) -> PartialEncodedChunkV2 {
-    let new_header = match chunk.header {
-        ShardChunkHeader::V1(mut header) => {
-            header.hash = new_hash;
-            ShardChunkHeader::V1(header)
-        }
-        ShardChunkHeader::V2(mut header) => {
-            header.hash = new_hash;
-            ShardChunkHeader::V2(header)
-        }
-        ShardChunkHeader::V3(mut header) => {
-            header.hash = new_hash;
-            ShardChunkHeader::V3(header)
-        }
-    };
-    PartialEncodedChunkV2 { header: new_header, parts: chunk.parts, receipts: chunk.receipts }
-}
-
-fn update_chunk_height_created(
-    header: ShardChunkHeader,
-    new_height: BlockHeight,
-) -> ShardChunkHeader {
-    match header {
-        ShardChunkHeader::V1(mut header) => {
-            header.inner.height_created = new_height;
-            ShardChunkHeader::V1(header)
-        }
-        ShardChunkHeader::V2(mut header) => {
-            header.inner.height_created = new_height;
-            ShardChunkHeader::V2(header)
-        }
-        ShardChunkHeader::V3(mut header) => {
-            match &mut header.inner {
-                ShardChunkHeaderInner::V1(inner) => inner.height_created = new_height,
-                ShardChunkHeaderInner::V2(inner) => inner.height_created = new_height,
-            }
-            ShardChunkHeader::V3(header)
-        }
     }
 }
