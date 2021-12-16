@@ -37,10 +37,10 @@ def get_stakes():
     ]
 
 
-hash = nodes[2].get_latest_block().hash_bytes
+hash_ = nodes[2].get_latest_block().hash_bytes
 
 tx = sign_staking_tx(nodes[2].signer_key, nodes[2].validator_key,
-                     100000000000000000000000000000000, 2, hash)
+                     100000000000000000000000000000000, 2, hash_)
 nodes[0].send_tx(tx)
 
 logger.info("Initial stakes: %s" % get_stakes())
@@ -50,10 +50,10 @@ for height, _ in utils.poll_blocks(nodes[0], timeout=TIMEOUT):
         assert 20 <= height <= 25, height
         break
 
-tx = sign_staking_tx(nodes[2].signer_key, nodes[2].validator_key, 0, 3, hash)
+tx = sign_staking_tx(nodes[2].signer_key, nodes[2].validator_key, 0, 3, hash_)
 nodes[2].send_tx(tx)
 
-for height, hash in utils.poll_blocks(nodes[0], timeout=TIMEOUT):
+for height, _ in utils.poll_blocks(nodes[0], timeout=TIMEOUT):
     if 'test2' not in get_validators():
         logger.info("DONE")
         assert 40 <= height <= 45, height
