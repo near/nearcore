@@ -96,6 +96,9 @@ impl IntoVMError for wasmer::InstantiationError {
             wasmer::InstantiationError::Link(e) => {
                 VMError::FunctionCallError(FunctionCallError::LinkError { msg: e.to_string() })
             }
+            wasmer::InstantiationError::CpuFeature(e) => {
+                panic!("host does not support the CPU features required to run contracts: {}", e)
+            }
             wasmer::InstantiationError::Start(e) => e.into_vm_error(),
             wasmer::InstantiationError::HostEnvInitialization(_) => {
                 VMError::FunctionCallError(FunctionCallError::CompilationError(
@@ -289,7 +292,7 @@ impl Wasmer2Config {
 //  major version << 6
 //  minor version
 const WASMER2_CONFIG: Wasmer2Config = Wasmer2Config {
-    seed: (1 << 10) | (3 << 6) | 0,
+    seed: (1 << 10) | (4 << 6) | 0,
     engine: WasmerEngine::Universal,
     compiler: WasmerCompiler::Singlepass,
 };
@@ -375,15 +378,6 @@ impl crate::runner::VM for Wasmer2VM {
             %method_name
         )
         .entered();
-        // NaN behavior is deterministic as of now: https://github.com/wasmerio/wasmer/issues/1269
-        // So doesn't require x86. However, when it is on x86, AVX is required:
-        // https://github.com/wasmerio/wasmer/issues/1567
-        #[cfg(not(feature = "no_cpu_compatibility_checks"))]
-        if (cfg!(target_arch = "x86") || !cfg!(target_arch = "x86_64"))
-            && !is_x86_feature_detected!("avx")
-        {
-            panic!("AVX support is required in order to run Wasmer VM Singlepass backend.");
-        }
 
         if method_name.is_empty() {
             return (

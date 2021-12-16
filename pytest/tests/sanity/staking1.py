@@ -11,6 +11,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from cluster import start_cluster
 from configured_logger import logger
 from transaction import sign_staking_tx
+import utils
 
 TIMEOUT = 150
 
@@ -44,43 +45,19 @@ tx = sign_staking_tx(nodes[2].signer_key, nodes[2].validator_key,
                      base58.b58decode(hash_.encode('utf8')))
 nodes[0].send_tx(tx)
 
-max_height = 0
-
 logger.info("Initial stakes: %s" % get_stakes())
-
-while True:
-    assert time.time() - started < TIMEOUT
-
-    status = nodes[0].get_status()
-    height = status['sync_info']['latest_block_height']
-
+for height, _ in utils.poll_blocks(nodes[0], timeout=TIMEOUT):
     if 'test2' in get_validators():
         logger.info("Normalin, normalin")
-        assert 20 <= height <= 25
+        assert 20 <= height <= 25, height
         break
-
-    if height > max_height:
-        max_height = height
-        logger.info("..Reached height %s, no luck yet" % height)
-    time.sleep(0.1)
 
 tx = sign_staking_tx(nodes[2].signer_key, nodes[2].validator_key, 0, 3,
                      base58.b58decode(hash_.encode('utf8')))
 nodes[2].send_tx(tx)
 
-while True:
-    assert time.time() - started < TIMEOUT
-
-    status = nodes[0].get_status()
-    height = status['sync_info']['latest_block_height']
-    hash_ = status['sync_info']['latest_block_hash']
-
+for height, hash in utils.poll_blocks(nodes[0], timeout=TIMEOUT):
     if 'test2' not in get_validators():
         logger.info("DONE")
-        assert 40 <= height <= 45
+        assert 40 <= height <= 45, height
         break
-
-    if height > max_height:
-        max_height = height
-        logger.info("..Reached height %s, no luck yet" % height)
-    time.sleep(0.1)
