@@ -7,10 +7,6 @@ use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
-use tracing::debug;
-#[cfg(feature = "test_features")]
-use tracing::error;
-use tracing::info;
 use tracing::metadata::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
@@ -29,15 +25,15 @@ impl NeardCmd {
     pub(super) fn parse_and_run() {
         let neard_cmd = Self::parse();
         neard_cmd.opts.init();
-        info!(target: "neard", "Version: {}, Build: {}, Latest Protocol: {}", NEARD_VERSION.version, NEARD_VERSION.build, PROTOCOL_VERSION);
+        tracing::info!(target: "neard", "Version: {}, Build: {}, Latest Protocol: {}", NEARD_VERSION.version, NEARD_VERSION.build, PROTOCOL_VERSION);
 
         #[cfg(feature = "test_features")]
         {
-            error!("THIS IS A NODE COMPILED WITH ADVERSARIAL BEHAVIORS. DO NOT USE IN PRODUCTION.");
+            tracing::error!("THIS IS A NODE COMPILED WITH ADVERSARIAL BEHAVIORS. DO NOT USE IN PRODUCTION.");
 
             if env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
-                error!("To run a node with adversarial behavior enabled give your consent by setting variable:");
-                error!("ADVERSARY_CONSENT=1");
+                tracing::error!("To run a node with adversarial behavior enabled give your consent by setting variable:");
+                tracing::error!("ADVERSARY_CONSENT=1");
                 std::process::exit(1);
             }
         }
@@ -52,11 +48,11 @@ impl NeardCmd {
 
             NeardSubCommand::UnsafeResetData => {
                 let store_path = get_store_path(&home_dir);
-                info!(target: "neard", "Removing all data from {}", store_path.display());
+                tracing::info!(target: "neard", "Removing all data from {}", store_path.display());
                 fs::remove_dir_all(store_path).expect("Removing data failed");
             }
             NeardSubCommand::UnsafeResetAll => {
-                info!(target: "neard", "Removing all data and config from {}", home_dir.to_string_lossy());
+                tracing::info!(target: "neard", "Removing all data and config from {}", home_dir.to_string_lossy());
                 fs::remove_dir_all(home_dir).expect("Removing data and config failed.");
             }
             NeardSubCommand::StateViewer(cmd) => {
@@ -226,8 +222,10 @@ pub(super) struct RunCmd {
 impl RunCmd {
     pub(super) fn run(self, home_dir: &Path, genesis_validation: bool) {
         // Load configs from home.
+        tracing::info!("run");
         let mut near_config =
             nearcore::config::load_config_without_genesis_records(home_dir, genesis_validation);
+        tracing::info!("run !1 after load_config_without_genesis_records");
         // Set current version in client config.
         near_config.client_config.version = super::NEARD_VERSION.clone();
         // Override some parameters from command line.
@@ -302,10 +300,10 @@ impl RunCmd {
                 tokio::signal::ctrl_c().await.unwrap();
                 "Ctrl+C"
             };
-            info!(target: "neard", "Got {}, stopping...", sig);
+            tracing::info!(target: "neard", "Got {}, stopping...", sig);
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
-                debug!(target: "neard", "{} server stopped", name);
+                tracing::debug!(target: "neard", "{} server stopped", name);
             }))
             .await;
             actix::System::current().stop();
