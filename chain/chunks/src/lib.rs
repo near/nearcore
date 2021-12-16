@@ -2047,6 +2047,7 @@ mod test {
         near_crypto::KeyType, near_logger_utils::init_test_logger,
         near_primitives::merkle::merklize, near_primitives::sharding::ReedSolomonWrapper,
         near_primitives::validator_signer::InMemoryValidatorSigner,
+        near_primitives::version::PROTOCOL_VERSION,
     };
 
     const TEST_SEED: RngSeed = [3; 32];
