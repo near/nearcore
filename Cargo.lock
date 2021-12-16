@@ -787,6 +787,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a4f925191b4367301851c6d99b09890311d74b0d43f274c0b34c86d308a3663"
 
 [[package]]
+name = "camino"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52d74260d9bf6944e2208aa46841b4b8f0d7ffc0849a06837b2f510337f86b2b"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "capstone"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -804,6 +813,28 @@ checksum = "aebe07897b48983847943662bfc3198aabfa51636c81313c1955d04d857ed739"
 dependencies = [
  "cc",
  "libc",
+]
+
+[[package]]
+name = "cargo-platform"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cbdb825da8a5df079a43676dbe042702f1707b1109f713a01420fbb4cc71fa27"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "cargo_metadata"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba2ae6de944143141f6155a473a6b02f66c7c3f9f47316f802f80204ebfe6e12"
+dependencies = [
+ "camino",
+ "cargo-platform",
+ "semver 1.0.4",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3607,7 +3638,7 @@ dependencies = [
  "paperclip-core",
  "paperclip-macros",
  "parking_lot 0.11.2",
- "semver",
+ "semver 0.9.0",
  "serde",
  "serde_derive",
  "serde_json",
@@ -4468,7 +4499,7 @@ version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "138e3e0acb6c9fb258b19b67cb8abd63c00679d2851805ea151465464fe9030a"
 dependencies = [
- "semver",
+ "semver 0.9.0",
 ]
 
 [[package]]
@@ -4535,6 +4566,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d7eb9ef2c18661902cc47e535f9bc51b78acd254da71d375c2f6720d9a40403"
 dependencies = [
  "semver-parser",
+]
+
+[[package]]
+name = "semver"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "568a8e6258aa33c13358f81fd834adb854c6f7c9468520910a9b1e8fac068012"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -5046,6 +5086,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "203008d98caf094106cfaba70acfed15e18ed3ddb7d94e49baec153a2b462789"
 dependencies = [
  "unicode-width",
+]
+
+[[package]]
+name = "themis"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "cargo_metadata",
+ "semver 1.0.4",
+ "serde",
+ "toml",
 ]
 
 [[package]]
