@@ -563,7 +563,7 @@ impl Runtime {
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
                 if let Some(amount) = get_insufficient_storage_stake(account, &apply_state.config)
-                    .map_err(|err| StorageError::StorageInconsistentState(err))?
+                    .map_err(StorageError::StorageInconsistentState)?
                 {
                     result.merge(ActionResult {
                         result: Err(ActionError {
@@ -1204,7 +1204,7 @@ impl Runtime {
                 &apply_state.migration_flags,
                 apply_state.current_protocol_version,
             )
-            .map_err(|e| RuntimeError::StorageError(e))?;
+            .map_err(RuntimeError::StorageError)?;
         // If we have receipts that need to be restored, prepend them to the list of incoming receipts
         let incoming_receipts = if receipts_to_restore.is_empty() {
             incoming_receipts
