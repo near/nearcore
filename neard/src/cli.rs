@@ -29,7 +29,9 @@ impl NeardCmd {
 
         #[cfg(feature = "test_features")]
         {
-            tracing::error!("THIS IS A NODE COMPILED WITH ADVERSARIAL BEHAVIORS. DO NOT USE IN PRODUCTION.");
+            tracing::error!(
+                "THIS IS A NODE COMPILED WITH ADVERSARIAL BEHAVIORS. DO NOT USE IN PRODUCTION."
+            );
 
             if env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
                 tracing::error!("To run a node with adversarial behavior enabled give your consent by setting variable:");

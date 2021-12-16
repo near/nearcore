@@ -1209,13 +1209,8 @@ pub fn load_config_without_genesis_records(dir: &Path, genesis_validation: bool)
     tracing::info!("load_config_without_genesis_records !1");
     let config = Config::from_file(&dir.join(CONFIG_FILENAME));
     tracing::info!("load_config_without_genesis_records !2");
-    let genesis_config = GenesisConfig::from_file(&dir.join(&config.genesis_file));
     tracing::info!("load_config_without_genesis_records !3");
-    let genesis_records_file = if let Some(genesis_records_file) = &config.genesis_records_file {
-        dir.join(genesis_records_file)
-    } else {
-        dir.join(&config.genesis_file)
-    };
+    let genesis_file = dir.join(&config.genesis_file);
     tracing::info!("load_config_without_genesis_records !4");
     let validator_signer = if dir.join(&config.validator_key_file).exists() {
         let signer =
@@ -1225,30 +1220,24 @@ pub fn load_config_without_genesis_records(dir: &Path, genesis_validation: bool)
     } else {
         None
     };
-    tracing::info!("load_config_without_genesis_records !5");
     let network_signer = NodeKeyFile::from_file(&dir.join(&config.node_key_file));
+    tracing::info!("load_config_without_genesis_records !5");
+
     tracing::info!("load_config_without_genesis_records !6");
+    let genesis_records_file = config.genesis_records_file.clone();
     NearConfig::new(
         config,
-        Genesis::new_with_path(genesis_config, genesis_records_file, genesis_validation),
+        match genesis_records_file {
+            Some(genesis_records_file) => Genesis::from_files(&genesis_file, &dir.join(genesis_records_file), genesis_validation),
+            None => Genesis::from_file(&genesis_file, genesis_validation),
+        },
         network_signer.into(),
         validator_signer,
     )
 }
 
 pub fn load_config(dir: &Path, genesis_validation: bool) -> NearConfig {
-    let mut near_config = load_config_without_genesis_records(dir, genesis_validation);
-    near_config.genesis =
-        if let Some(ref genesis_records_file) = near_config.config.genesis_records_file {
-            Genesis::from_files(
-                &dir.join(&near_config.config.genesis_file),
-                &dir.join(genesis_records_file),
-                genesis_validation,
-            )
-        } else {
-            Genesis::from_file(&dir.join(&near_config.config.genesis_file), genesis_validation)
-        };
-    near_config
+    load_config_without_genesis_records(dir, genesis_validation)
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
