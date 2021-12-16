@@ -9,7 +9,7 @@ use near_logger_utils::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout, ShardUId};
+use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
@@ -23,7 +23,6 @@ use nearcore::NEAR_BASE;
 use tracing::debug;
 
 use assert_matches::assert_matches;
-use near_store::get_delayed_receipt_indices;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::{HashMap, HashSet};
@@ -627,24 +626,8 @@ fn test_shard_layout_upgrade_cross_contract_calls() {
 
     let (mut test_env, new_accounts) = setup_test_env_with_cross_contract_txs(epoch_length);
 
-    for i in 1..5 * epoch_length {
+    for _ in 1..5 * epoch_length {
         test_env.step(0.);
-        if i == epoch_length || i == 2 * epoch_length {
-            // check that there are delayed receipts
-            let client = &mut test_env.env.clients[0];
-            let block_hash = client.chain.head().unwrap().last_block_hash;
-            let chunk_extra =
-                client.chain.get_chunk_extra(&block_hash, &ShardUId::single_shard()).unwrap();
-            let trie_update = client
-                .runtime_adapter
-                .get_tries()
-                .new_trie_update_view(ShardUId::single_shard(), *chunk_extra.state_root());
-            let delayed_receipt_indices = get_delayed_receipt_indices(&trie_update).unwrap();
-            assert_ne!(
-                delayed_receipt_indices.first_index,
-                delayed_receipt_indices.next_available_index
-            );
-        }
     }
 
     let successful_txs = test_env.check_tx_outcomes(false, vec![2 * epoch_length + 1]);
