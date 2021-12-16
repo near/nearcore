@@ -4,8 +4,6 @@ import random
 import sys
 import typing
 
-import toml
-
 import nayduck
 
 REPO_DIR = pathlib.Path(__file__).parent.parent
