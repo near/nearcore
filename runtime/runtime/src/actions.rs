@@ -443,7 +443,7 @@ pub(crate) fn action_deploy_contract(
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
     let prev_code_length = prev_code.map(|code| code.code().len() as u64).unwrap_or_default();
-    account.set_storage_usage(account.storage_usage().checked_sub(prev_code_length).unwrap_or(0));
+    account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_length));
     account.set_storage_usage(
         account.storage_usage().checked_add(code.code().len() as u64).ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
@@ -532,7 +532,7 @@ pub(crate) fn action_delete_key(
         };
         // Remove access key
         remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
-        account.set_storage_usage(account.storage_usage().checked_sub(storage_usage).unwrap_or(0));
+        account.set_storage_usage(account.storage_usage().saturating_sub(storage_usage));
     } else {
         result.result = Err(ActionErrorKind::DeleteKeyDoesNotExist {
             public_key: delete_key.public_key.clone(),

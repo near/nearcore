@@ -281,7 +281,7 @@ impl Runtime {
             Err(e) => {
                 metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                 state_update.rollback();
-                return Err(e);
+                Err(e)
             }
         }
     }
@@ -720,10 +720,7 @@ impl Runtime {
                 );
 
                 new_receipt.receipt_id = receipt_id;
-                let is_action = match &new_receipt.receipt {
-                    ReceiptEnum::Action(_) => true,
-                    _ => false,
-                };
+                let is_action = matches!(&new_receipt.receipt, ReceiptEnum::Action(_));
                 outgoing_receipts.push(new_receipt);
                 if is_action {
                     Some(receipt_id)
@@ -1128,16 +1125,13 @@ impl Runtime {
             && migration_flags.is_first_block_of_version
         {
             for (account_id, delta) in &migration_data.storage_usage_delta {
-                match get_account(state_update, account_id)? {
-                    Some(mut account) => {
-                        // Storage usage is saved in state, hence it is nowhere close to max value
-                        // of u64, and maximal delta is 4196, se we can add here without checking
-                        // for overflow
-                        account.set_storage_usage(account.storage_usage() + delta);
-                        set_account(state_update, account_id.clone(), &account);
-                    }
-                    // Account could have been deleted in the meantime
-                    None => {}
+                // Account could have been deleted in the meantime, so we check if it is still Some
+                if let Some(mut account) = get_account(state_update, account_id)? {
+                    // Storage usage is saved in state, hence it is nowhere close to max value
+                    // of u64, and maximal delta is 4196, se we can add here without checking
+                    // for overflow
+                    account.set_storage_usage(account.storage_usage() + delta);
+                    set_account(state_update, account_id.clone(), &account);
                 }
             }
             gas_used += migration_data.storage_usage_fix_gas;
