@@ -78,24 +78,24 @@ def find_nightly_fuzz_tests() -> typing.Iterable[typing.Tuple[str, str]]:
 
 
 def main() -> typing.Optional[str]:
-    targets = find_fuzz_targets()
-    missing = sorted(set(targets) - set(find_nightly_fuzz_tests()))
-    cnt = len(missing)
-    if not cnt:
+    targets = set(find_fuzz_targets())
+    missing = list(targets.difference(find_nightly_fuzz_tests()))
+    count = len(missing)
+    if not count:
         print(f'All {len(targets)} fuzz targets included')
         return None
 
     pkg_len = max(len(package) for package, _ in missing)
-
+    missing.sort()
     lines = tuple(f'    pytest --skip-build --timeout=2h fuzz.py {pkg} {target}'
                   for pkg, target in missing)
     return '''\
-Found {count} fuzz targets which aren’t included in any of the nightly/*.txt files:
+Found {count} fuzz target{s} which aren’t included in any of the nightly/*.txt files:
 
 {missing}
 
-Add the test{s} to the list in nightly/fuzzing.txt file (or other appropriate
-nightly/*.txt file).  For example as:
+Add the test{s} to the list in nightly/fuzzing.txt (or another appropriate
+nightly/*.txt) file.  For example as:
 
 {lines}
 
@@ -107,8 +107,8 @@ example:
 
 Note that the TODO comment must reference a GitHub issue (i.e. must
 contain a #<number> string).'''.format(
-    count=len(missing),
-    s='s' if len(missing) > 1 else '',
+    count=count,
+    s='s' if count > 1 else '',
     missing = '\n'.join(f'  * {package.ljust(pkg_len)} {target}'
                         for package, target in missing),
     lines='\n'.join(lines),
