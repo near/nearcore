@@ -214,27 +214,6 @@ def user_name():
     return username
 
 
-# from https://stackoverflow.com/questions/107705/disable-output-buffering
-# this class allows making print always flush by executing
-#
-#     sys.stdout = Unbuffered(sys.stdout)
-class Unbuffered(object):
-
-    def __init__(self, stream):
-        self.stream = stream
-
-    def write(self, data):
-        self.stream.write(data)
-        self.stream.flush()
-
-    def writelines(self, datas):
-        self.stream.writelines(datas)
-        self.stream.flush()
-
-    def __getattr__(self, attr):
-        return getattr(self.stream, attr)
-
-
 def collect_gcloud_config(num_nodes):
     tempdir = get_near_tempdir()
     keys = []
