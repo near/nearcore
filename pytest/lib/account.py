@@ -83,3 +83,12 @@ class Account:
         tx = sign_staking_tx(self.key, self.key, stake_amount, self.nonce,
                              self.base_block_hash)
         return self.send_tx(tx)
+
+    def get_amount_yoctonear(self):
+        j = self.json_rpc(
+            'query', {
+                'request_type': 'view_account',
+                'finality': 'optimistic',
+                'account_id': self.key.account_id
+            })
+        return int(j.get('result', {}).get('amount', 0))
