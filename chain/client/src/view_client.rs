@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
-use cached::{Cached, SizedCache};
 use log::{debug, error, info, trace, warn};
+use lru::LruCache;
 
 use near_chain::types::ValidatorInfoIdentifier;
 use near_chain::{
@@ -70,15 +70,15 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 /// Request and response manager across all instances of ViewClientActor.
 pub struct ViewClientRequestManager {
     /// Transaction query that needs to be forwarded to other shards
-    pub tx_status_requests: SizedCache<CryptoHash, Instant>,
+    pub tx_status_requests: LruCache<CryptoHash, Instant>,
     /// Transaction status response
-    pub tx_status_response: SizedCache<CryptoHash, FinalExecutionOutcomeView>,
+    pub tx_status_response: LruCache<CryptoHash, FinalExecutionOutcomeView>,
     /// Query requests that need to be forwarded to other shards
-    pub query_requests: SizedCache<String, Instant>,
+    pub query_requests: LruCache<String, Instant>,
     /// Query responses from other nodes (can be errors)
-    pub query_responses: SizedCache<String, Result<QueryResponse, String>>,
+    pub query_responses: LruCache<String, Result<QueryResponse, String>>,
     /// Receipt outcome requests
-    pub receipt_outcome_requests: SizedCache<CryptoHash, Instant>,
+    pub receipt_outcome_requests: LruCache<CryptoHash, Instant>,
 }
 
 #[cfg(feature = "test_features")]
@@ -107,11 +107,11 @@ pub struct ViewClientActor {
 impl ViewClientRequestManager {
     pub fn new() -> Self {
         Self {
-            tx_status_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
-            tx_status_response: SizedCache::with_size(QUERY_REQUEST_LIMIT),
-            query_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
-            query_responses: SizedCache::with_size(QUERY_REQUEST_LIMIT),
-            receipt_outcome_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
+            tx_status_requests: LruCache::new(QUERY_REQUEST_LIMIT),
+            tx_status_response: LruCache::new(QUERY_REQUEST_LIMIT),
+            query_requests: LruCache::new(QUERY_REQUEST_LIMIT),
+            query_responses: LruCache::new(QUERY_REQUEST_LIMIT),
+            receipt_outcome_requests: LruCache::new(QUERY_REQUEST_LIMIT),
         }
     }
 }
@@ -159,14 +159,14 @@ impl ViewClientActor {
         }
     }
 
-    fn need_request<K: Hash + Eq + Clone>(key: K, cache: &mut SizedCache<K, Instant>) -> bool {
+    fn need_request<K: Hash + Eq + Clone>(key: K, cache: &mut LruCache<K, Instant>) -> bool {
         let now = Clock::instant();
-        let need_request = match cache.cache_get(&key) {
+        let need_request = match cache.get(&key) {
             Some(time) => now - *time > Duration::from_millis(REQUEST_WAIT_TIME),
             None => true,
         };
         if need_request {
-            cache.cache_set(key, now);
+            cache.put(key, now);
         }
         need_request
     }
@@ -363,8 +363,8 @@ impl ViewClientActor {
     ) -> Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError> {
         {
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
-            if let Some(res) = request_manager.tx_status_response.cache_remove(&tx_hash) {
-                request_manager.tx_status_requests.cache_remove(&tx_hash);
+            if let Some(res) = request_manager.tx_status_response.pop(&tx_hash) {
+                request_manager.tx_status_requests.pop(&tx_hash);
                 return Ok(Some(FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(res)));
             }
         }
@@ -1018,8 +1018,8 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             NetworkViewClientMessages::TxStatusResponse(tx_result) => {
                 let tx_hash = tx_result.transaction_outcome.id;
                 let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
-                if request_manager.tx_status_requests.cache_remove(&tx_hash).is_some() {
-                    request_manager.tx_status_response.cache_set(tx_hash, *tx_result);
+                if request_manager.tx_status_requests.pop(&tx_hash).is_some() {
+                    request_manager.tx_status_response.put(tx_hash, *tx_result);
                 }
                 NetworkViewClientResponses::NoResponse
             }
@@ -1037,7 +1037,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 //                let have_request = {
                 //                    let mut request_manager =
                 //                        self.request_manager.write().expect(POISONED_LOCK_ERR);
-                //                    request_manager.receipt_outcome_requests.cache_remove(response.id()).is_some()
+                //                    request_manager.receipt_outcome_requests.pop(response.id()).is_some()
                 //                };
                 //
                 //                if have_request {

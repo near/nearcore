@@ -22,7 +22,6 @@ num-traits = "0.2.11"
 hex = "0.4.2"
 rayon = "1.5"
 thiserror = "1.0"
-
 borsh = "0.9"
 
 near-chain-configs = { path = "../../core/chain-configs" }

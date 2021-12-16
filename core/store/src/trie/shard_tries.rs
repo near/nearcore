@@ -86,7 +86,7 @@ impl ShardTries {
                 DBOp::UpdateRefcount { col, ref key, ref value } if *col == DBCol::ColState => {
                     let (shard_uid, hash) =
                         TrieCachingStorage::get_shard_uid_and_hash_from_key(key)?;
-                    shards.entry(shard_uid).or_insert(vec![]).push((hash, Some(value.clone())));
+                    shards.entry(shard_uid).or_insert(vec![]).push((hash, Some(value)));
                 }
                 DBOp::Insert { col, .. } if *col == DBCol::ColState => unreachable!(),
                 DBOp::Delete { col, .. } if *col == DBCol::ColState => unreachable!(),

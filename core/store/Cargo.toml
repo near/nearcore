@@ -17,7 +17,6 @@ lazy_static = "1.4"
 rocksdb = "0.16.0"
 serde = { version = "1", features = [ "derive" ] }
 serde_json = "1"
-cached = "0.23"
 num_cpus = "1.11"
 rand = "0.7"
 strum = { version = "0.20", features = ["derive"] }
@@ -26,6 +25,7 @@ tracing = "0.1"
 borsh = "0.9"
 thiserror = "1"
 smart-default = "0.6"
+lru = "0.*"
 
 near-crypto = { path = "../crypto" }
 near-primitives = { path = "../primitives" }

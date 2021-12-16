@@ -732,11 +732,11 @@ fn rocksdb_read_options() -> ReadOptions {
     read_options
 }
 
-fn rocksdb_block_based_options(cache_size: usize) -> BlockBasedOptions {
+fn rocksdb_block_based_options(len: usize) -> BlockBasedOptions {
     let mut block_opts = BlockBasedOptions::default();
     block_opts.set_block_size(16 * bytesize::KIB as usize);
     // We create block_cache for each of 47 columns, so the total cache size is 32 * 47 = 1504mb
-    block_opts.set_block_cache(&Cache::new_lru_cache(cache_size).unwrap());
+    block_opts.set_block_cache(&Cache::new_lru_cache(len).unwrap());
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
     block_opts.set_cache_index_and_filter_blocks(true);
     block_opts.set_bloom_filter(10, true);

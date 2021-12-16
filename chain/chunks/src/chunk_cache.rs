@@ -1,6 +1,5 @@
+use lru::LruCache;
 use std::collections::{HashMap, HashSet};
-
-use cached::{Cached, SizedCache};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{
@@ -52,7 +51,7 @@ pub struct EncodedChunksCache {
     height_map: HashMap<BlockHeight, HashSet<ChunkHash>>,
     /// A sized cache mapping a block hash to the chunk headers that are ready
     /// to be included when producing the next block after the block
-    block_hash_to_chunk_headers: SizedCache<CryptoHash, HashMap<ShardId, ShardChunkHeader>>,
+    block_hash_to_chunk_headers: LruCache<CryptoHash, HashMap<ShardId, ShardChunkHeader>>,
 }
 
 impl EncodedChunksCacheEntry {
@@ -82,7 +81,7 @@ impl EncodedChunksCache {
             largest_seen_height: 0,
             encoded_chunks: HashMap::new(),
             height_map: HashMap::new(),
-            block_hash_to_chunk_headers: SizedCache::with_size(NUM_BLOCK_HASH_TO_CHUNK_HEADER),
+            block_hash_to_chunk_headers: LruCache::new(NUM_BLOCK_HASH_TO_CHUNK_HEADER),
         }
     }
 
@@ -178,11 +177,10 @@ impl EncodedChunksCache {
             let prev_block_hash = header.prev_block_hash();
             let mut block_hash_to_chunk_headers = self
                 .block_hash_to_chunk_headers
-                .cache_remove(&prev_block_hash)
+                .pop(&prev_block_hash)
                 .unwrap_or_else(|| HashMap::new());
             block_hash_to_chunk_headers.insert(shard_id, header);
-            self.block_hash_to_chunk_headers
-                .cache_set(prev_block_hash, block_hash_to_chunk_headers);
+            self.block_hash_to_chunk_headers.put(prev_block_hash, block_hash_to_chunk_headers);
         }
     }
 
@@ -192,15 +190,13 @@ impl EncodedChunksCache {
         &mut self,
         prev_block_hash: &CryptoHash,
     ) -> HashMap<ShardId, ShardChunkHeader> {
-        self.block_hash_to_chunk_headers
-            .cache_remove(prev_block_hash)
-            .unwrap_or_else(|| HashMap::new())
+        self.block_hash_to_chunk_headers.pop(prev_block_hash).unwrap_or_else(|| HashMap::new())
     }
 
     /// Returns number of chunks that are ready to be included in the next block
     pub fn num_chunks_for_block(&mut self, prev_block_hash: &CryptoHash) -> ShardId {
         self.block_hash_to_chunk_headers
-            .cache_get(prev_block_hash)
+            .get(prev_block_hash)
             .map(|x| x.len() as ShardId)
             .unwrap_or_else(|| 0)
     }

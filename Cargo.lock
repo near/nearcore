@@ -350,30 +350,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b34d609dfbaf33d6889b2b7106d3ca345eacad44200913df5ba02bfd31d2ba9"
 
 [[package]]
-name = "async-mutex"
-version = "1.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "479db852db25d9dbf6204e6cb6253698f175c15726470f78af0d918e99d6156e"
-dependencies = [
- "event-listener",
-]
-
-[[package]]
 name = "async-recursion"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7d78656ba01f1b93024b7c3a0467f1608e4be67d725749fdcd7d2c7678fd7a2"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "async-trait"
-version = "0.1.51"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44318e776df68115a881de9a8fd1b9e53368d7a4a5ce4cc48517da3393233a5e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -752,39 +732,6 @@ dependencies = [
  "cipher",
  "ppv-lite86",
 ]
-
-[[package]]
-name = "cached"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e2afe73808fbaac302e39c9754bfc3c4b4d0f99c9c240b9f4e4efc841ad1b74"
-dependencies = [
- "async-mutex",
- "async-trait",
- "cached_proc_macro",
- "cached_proc_macro_types",
- "futures",
- "hashbrown 0.9.1",
- "once_cell",
-]
-
-[[package]]
-name = "cached_proc_macro"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4230b8d9f5db741004bfaef172c5b2dbf0eb94f105204cc6147a220080daaa85"
-dependencies = [
- "cached_proc_macro_types",
- "darling",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "cached_proc_macro_types"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a4f925191b4367301851c6d99b09890311d74b0d43f274c0b34c86d308a3663"
 
 [[package]]
 name = "camino"
@@ -1546,12 +1493,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "event-listener"
-version = "2.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7531096570974c3a9dcf9e4b8e1cede1ec26cf5046219fb3b9d897503b9be59"
-
-[[package]]
 name = "failure"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2165,7 +2106,6 @@ dependencies = [
  "assert_matches",
  "base64 0.11.0",
  "borsh 0.9.1",
- "cached",
  "chrono",
  "futures",
  "hex",
@@ -2194,6 +2134,7 @@ dependencies = [
  "near-vm-runner",
  "nearcore",
  "node-runtime",
+ "once_cell",
  "portpicker",
  "primitive-types",
  "rand 0.7.3",
@@ -2630,12 +2571,12 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "borsh 0.9.1",
- "cached",
  "chrono",
  "delay-detector",
  "failure",
  "failure_derive",
  "itertools",
+ "lru",
  "near-chain-configs",
  "near-chain-primitives",
  "near-crypto",
@@ -2688,10 +2629,10 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "borsh 0.9.1",
- "cached",
  "chrono",
  "futures",
  "log",
+ "lru",
  "near-chain",
  "near-chunks-primitives",
  "near-crypto",
@@ -2720,11 +2661,11 @@ dependencies = [
  "actix-rt",
  "ansi_term 0.12.1",
  "borsh 0.9.1",
- "cached",
  "chrono",
  "delay-detector",
  "futures",
  "log",
+ "lru",
  "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
@@ -2800,9 +2741,9 @@ name = "near-epoch-manager"
 version = "0.0.0"
 dependencies = [
  "borsh 0.9.1",
- "cached",
  "chrono",
  "log",
+ "lru",
  "near-chain",
  "near-chain-configs",
  "near-crypto",
@@ -3191,11 +3132,11 @@ dependencies = [
  "borsh 0.9.1",
  "byteorder",
  "bytesize",
- "cached",
  "derive_more",
  "elastic-array",
  "fs2",
  "lazy_static",
+ "lru",
  "near-crypto",
  "near-primitives",
  "num_cpus",

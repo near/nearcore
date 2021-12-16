@@ -4,9 +4,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use borsh::BorshSerialize;
-use cached::{Cached, SizedCache};
 use chrono::DateTime;
 use log::{debug, error, warn};
+use lru::LruCache;
 use near_primitives::time::Utc;
 use rand::seq::IteratorRandom;
 use rand::seq::SliceRandom;
@@ -205,7 +205,7 @@ pub struct SealsManager {
 
     active_demurs: HashMap<ChunkHash, ActiveSealDemur>,
     past_seals: BTreeMap<BlockHeight, HashSet<ChunkHash>>,
-    dont_include_chunks_from: SizedCache<AccountId, ()>,
+    dont_include_chunks_from: LruCache<AccountId, ()>,
 }
 
 impl SealsManager {
@@ -215,7 +215,7 @@ impl SealsManager {
             runtime_adapter,
             active_demurs: HashMap::new(),
             past_seals: BTreeMap::new(),
-            dont_include_chunks_from: SizedCache::with_size(CHUNK_PRODUCER_BLACKLIST_SIZE),
+            dont_include_chunks_from: LruCache::new(CHUNK_PRODUCER_BLACKLIST_SIZE),
         }
     }
 
@@ -367,7 +367,7 @@ impl SealsManager {
             // note chunk producers that failed to make parts available
             if parts_remain && accepting_period_over {
                 warn!(target: "client", "Couldn't reconstruct chunk {:?} from {:?}, I'm {:?}", chunk_hash, seal.chunk_producer, me);
-                dont_include_chunks_from.cache_set(seal.chunk_producer.clone(), ());
+                dont_include_chunks_from.put(seal.chunk_producer.clone(), ());
                 Self::insert_past_seal(past_seals, seal.height, chunk_hash.clone());
 
                 // Do not retain this demur, it has expired
@@ -381,7 +381,7 @@ impl SealsManager {
     }*/
 
     fn should_trust_chunk_producer(&mut self, chunk_producer: &AccountId) -> bool {
-        self.dont_include_chunks_from.cache_get(chunk_producer).is_none()
+        self.dont_include_chunks_from.get(chunk_producer).is_none()
     }
 }
 
@@ -400,7 +400,7 @@ pub struct ShardsManager {
     /// A partial chunk is removed here if it is processed or it is too old
     stored_partial_encoded_chunks:
         HashMap<BlockHeight, HashMap<ShardId, Vec<PartialEncodedChunkV2>>>,
-    chunk_forwards_cache: SizedCache<ChunkHash, HashMap<u64, PartialEncodedChunkPart>>,
+    chunk_forwards_cache: LruCache<ChunkHash, HashMap<u64, PartialEncodedChunkPart>>,
 
     seals_mgr: SealsManager,
     /// Useful to make tests deterministic and reproducible,
@@ -428,7 +428,7 @@ impl ShardsManager {
                 Duration::from_millis(CHUNK_REQUEST_RETRY_MAX_MS),
             ),
             stored_partial_encoded_chunks: HashMap::new(),
-            chunk_forwards_cache: SizedCache::with_size(CHUNK_FORWARD_CACHE_SIZE),
+            chunk_forwards_cache: LruCache::new(CHUNK_FORWARD_CACHE_SIZE),
             seals_mgr: SealsManager::new(me, runtime_adapter),
             rng_seed,
         }
@@ -1190,7 +1190,7 @@ impl ShardsManager {
     pub fn insert_forwarded_chunk(&mut self, forward: PartialEncodedChunkForwardMsg) {
         let chunk_hash = forward.chunk_hash.clone();
         let num_total_parts = self.runtime_adapter.num_total_parts() as u64;
-        match self.chunk_forwards_cache.cache_get_mut(&chunk_hash) {
+        match self.chunk_forwards_cache.get_mut(&chunk_hash) {
             None => {
                 // Never seen this chunk hash before, collect the parts and cache them
                 let parts = forward.parts.into_iter().filter_map(|part| {
@@ -1202,7 +1202,7 @@ impl ShardsManager {
                         Some((part_ord, part))
                     }
                 }).collect();
-                self.chunk_forwards_cache.cache_set(chunk_hash, parts);
+                self.chunk_forwards_cache.put(chunk_hash, parts);
             }
 
             Some(existing_parts) => {
@@ -1446,7 +1446,7 @@ impl ShardsManager {
             return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(prev_block_hash));
         }
 
-        match self.chunk_forwards_cache.cache_remove(&chunk_hash) {
+        match self.chunk_forwards_cache.pop(&chunk_hash) {
             None => Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts),
 
             Some(forwarded_parts) => {
