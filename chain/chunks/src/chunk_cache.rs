@@ -45,7 +45,7 @@ pub struct EncodedChunksCacheEntry {
     /// whether the header has been **fully** validated
     /// every entry added to the cache already has their header "partially" validated
     /// by validate_chunk_header. When the previous block is accepted, they must be
-    /// validated again to make sure they are fully validated
+    /// validated again to make sure they are fully validated.
     pub header_fully_validated: bool,
 }
 
@@ -107,7 +107,7 @@ impl EncodedChunksCache {
     }
 
     pub fn get(&self, chunk_hash: &ChunkHash) -> Option<&EncodedChunksCacheEntry> {
-        self.encoded_chunks.get(&chunk_hash)
+        self.encoded_chunks.get(chunk_hash)
     }
 
     /// Mark an entry as complete, which means it has all parts and receipts needed

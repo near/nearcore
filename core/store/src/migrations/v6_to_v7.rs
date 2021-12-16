@@ -111,7 +111,7 @@ pub(crate) fn migrate_receipts_refcount(store: &Store, store_update: &mut StoreU
         // We need to write records for them to maintain store invariant, because gc-ing the chunks is
         // will decrement rc for receipts.
         //
-        let num_shards = get_num_shards(&store);
+        let num_shards = get_num_shards(store);
         for (receipt_id, (receipt, rc)) in receipts {
             let shard_id = account_id_to_shard_id_v6(&receipt.receiver_id, num_shards)
                 .try_to_vec()

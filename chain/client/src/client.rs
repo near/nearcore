@@ -135,8 +135,8 @@ impl Client {
             genesis_block.header().next_epoch_id().clone(),
             runtime_adapter
                 .get_epoch_block_producers_ordered(
-                    &genesis_block.header().epoch_id(),
-                    &genesis_block.hash(),
+                    genesis_block.header().epoch_id(),
+                    genesis_block.hash(),
                 )?
                 .iter()
                 .map(|x| x.0.clone().into())
@@ -215,7 +215,7 @@ impl Client {
             if block.header().height() == chunk_header.height_included() {
                 if self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
-                    &block.header().prev_hash(),
+                    block.header().prev_hash(),
                     shard_id,
                     true,
                 ) {
@@ -238,7 +238,7 @@ impl Client {
             if block.header().height() == chunk_header.height_included() {
                 if self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
-                    &block.header().prev_hash(),
+                    block.header().prev_hash(),
                     shard_id,
                     false,
                 ) {
@@ -300,7 +300,7 @@ impl Client {
             return Ok(true);
         }
 
-        if !self.is_me_block_producer(account_id, &next_block_proposer) {
+        if !self.is_me_block_producer(account_id, next_block_proposer) {
             info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
             return Ok(true);
         }
@@ -313,7 +313,7 @@ impl Client {
         }
 
         if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
-            if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
+            if !self.chain.prev_block_is_caught_up(prev_prev_hash, prev_hash)? {
                 // Currently state for the chunks we are interested in this epoch
                 // are not yet caught up (e.g. still state syncing).
                 // We reschedule block production.
@@ -368,7 +368,7 @@ impl Client {
             &prev_prev_hash,
             next_height,
             known_height,
-            &validator_signer.validator_id(),
+            validator_signer.validator_id(),
             &next_block_proposer,
         )? {
             return Ok(None);
@@ -497,7 +497,7 @@ impl Client {
         let block = Block::produce(
             this_epoch_protocol_version,
             next_epoch_protocol_version,
-            &prev_header,
+            prev_header,
             next_height,
             block_ordinal,
             chunks,
@@ -568,7 +568,7 @@ impl Client {
             validator_signer.validator_id()
         );
 
-        let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, &epoch_id)?;
+        let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, epoch_id)?;
         let chunk_extra = self
             .chain
             .get_chunk_extra(&prev_block_hash, &shard_uid)
@@ -647,7 +647,7 @@ impl Client {
         let Self { chain, shards_mgr, runtime_adapter, .. } = self;
 
         let next_epoch_id =
-            runtime_adapter.get_epoch_id_from_prev_block(&prev_block_header.hash())?;
+            runtime_adapter.get_epoch_id_from_prev_block(prev_block_header.hash())?;
         let protocol_version = runtime_adapter.get_epoch_protocol_version(&next_epoch_id)?;
 
         let transactions = if let Some(mut iter) = shards_mgr.get_pool_iterator(shard_id) {
@@ -667,7 +667,7 @@ impl Client {
                     chain
                         .mut_store()
                         .check_transaction_validity_period(
-                            &prev_block_header,
+                            prev_block_header,
                             &tx.transaction.block_hash,
                             transaction_validity_period,
                         )
@@ -787,7 +787,7 @@ impl Client {
     }
 
     pub fn rebroadcast_block(&mut self, block: &Block) {
-        if self.rebroadcasted_blocks.cache_get(&block.hash()).is_none() {
+        if self.rebroadcasted_blocks.cache_get(block.hash()).is_none() {
             self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Block { block: block.clone() },
             ));
@@ -1128,7 +1128,7 @@ impl Client {
                 // Produce new chunks
                 let epoch_id = self
                     .runtime_adapter
-                    .get_epoch_id_from_prev_block(&block.header().hash())
+                    .get_epoch_id_from_prev_block(block.header().hash())
                     .unwrap();
                 for shard_id in 0..self.runtime_adapter.num_shards(&epoch_id).unwrap() {
                     let chunk_proposer = self
@@ -1395,7 +1395,7 @@ impl Client {
                     return;
                 }
             };
-        self.doomslug.on_approval_message(Clock::instant(), &approval, &block_producer_stakes);
+        self.doomslug.on_approval_message(Clock::instant(), approval, &block_producer_stakes);
     }
 
     /// Forwards given transaction to upcoming validators.
@@ -1520,7 +1520,7 @@ impl Client {
 
         if let Some(err) = self
             .runtime_adapter
-            .validate_tx(gas_price, None, &tx, true, &epoch_id, protocol_version)
+            .validate_tx(gas_price, None, tx, true, &epoch_id, protocol_version)
             .expect("no storage errors")
         {
             debug!(target: "client", "Invalid tx during basic validation: {:?}", err);
@@ -1550,7 +1550,7 @@ impl Client {
             };
             if let Some(err) = self
                 .runtime_adapter
-                .validate_tx(gas_price, Some(state_root), &tx, false, &epoch_id, protocol_version)
+                .validate_tx(gas_price, Some(state_root), tx, false, &epoch_id, protocol_version)
                 .expect("no storage errors")
             {
                 debug!(target: "client", "Invalid tx: {:?}", err);

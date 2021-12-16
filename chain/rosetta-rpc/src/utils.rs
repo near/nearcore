@@ -269,7 +269,7 @@ fn get_liquid_balance_for_storage(
     runtime_config: &near_primitives::runtime::config::RuntimeConfig,
 ) -> near_primitives::types::Balance {
     account.set_amount(0);
-    near_primitives::runtime::get_insufficient_storage_stake(&account, &runtime_config)
+    near_primitives::runtime::get_insufficient_storage_stake(&account, runtime_config)
         .expect("get_insufficient_storage_stake never fails when state is consistent")
         .unwrap_or(0)
 }
@@ -349,7 +349,7 @@ pub(crate) async fn query_accounts(
     futures::stream::iter(account_ids)
         .map(|account_id| async move {
             let (_, _, account_info) =
-                query_account(block_id.clone(), account_id.clone(), &view_client_addr).await?;
+                query_account(block_id.clone(), account_id.clone(), view_client_addr).await?;
             Ok((account_id.clone(), account_info))
         })
         .buffer_unordered(10)

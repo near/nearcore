@@ -364,7 +364,7 @@ pub(crate) fn action_create_account(
         } else {
             // OK: Valid top-level Account ID
         }
-    } else if !account_id.is_sub_account_of(&predecessor_id) {
+    } else if !account_id.is_sub_account_of(predecessor_id) {
         // The sub-account can only be created by its root account. E.g. `alice.near` only by `near`
         result.result = Err(ActionErrorKind::CreateAccountNotAllowed {
             account_id: account_id.clone(),
@@ -403,11 +403,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
     let mut access_key = AccessKey::full_access();
     // Set default nonce for newly created access key to avoid transaction hash collision.
     // See <https://github.com/near/nearcore/issues/3779>.
-    if checked_feature!(
-        "protocol_feature_access_key_nonce_for_implicit_accounts",
-        AccessKeyNonceForImplicitAccounts,
-        current_protocol_version
-    ) {
+    if checked_feature!("stable", AccessKeyNonceForImplicitAccounts, current_protocol_version) {
         access_key.nonce = (block_height - 1)
             * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
     }
@@ -521,7 +517,7 @@ pub(crate) fn action_delete_key(
     delete_key: &DeleteKeyAction,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
-    let access_key = get_access_key(state_update, &account_id, &delete_key.public_key)?;
+    let access_key = get_access_key(state_update, account_id, &delete_key.public_key)?;
     if let Some(access_key) = access_key {
         let storage_usage_config = &fee_config.storage_usage_config;
         let storage_usage = if current_protocol_version >= DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION

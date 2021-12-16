@@ -127,7 +127,7 @@ fn test_infinite_loop() {
                 if state_value == 0 {
                     actix::spawn(pm2.clone().send(GetInfo {}).then(move |res| {
                         if let Ok(info) = res {
-                            if !info.active_peers.is_empty() {
+                            if !info.connected_peers.is_empty() {
                                 state1.store(1, Ordering::SeqCst);
                             }
                         }

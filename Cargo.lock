@@ -2142,6 +2142,7 @@ dependencies = [
  "testlib",
  "tokio",
  "tracing",
+ "wat",
 ]
 
 [[package]]
@@ -2527,6 +2528,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-account-id-fuzz"
+version = "0.0.0"
+dependencies = [
+ "borsh 0.9.1",
+ "libfuzzer-sys",
+ "near-account-id",
+ "serde_json",
+]
+
+[[package]]
 name = "near-actix-test-utils"
 version = "0.0.0"
 dependencies = [
@@ -2567,7 +2578,6 @@ dependencies = [
  "once_cell",
  "rand 0.7.3",
  "rayon",
- "serde",
  "strum",
  "thiserror",
  "tracing",
@@ -2623,7 +2633,6 @@ dependencies = [
  "near-store",
  "rand 0.7.3",
  "reed-solomon-erasure",
- "serde",
 ]
 
 [[package]]
@@ -2666,7 +2675,6 @@ dependencies = [
  "once_cell",
  "rand 0.7.3",
  "reed-solomon-erasure",
- "serde",
  "serde_json",
  "strum",
  "sysinfo",
@@ -2734,7 +2742,6 @@ dependencies = [
  "primitive-types",
  "rand 0.6.5",
  "rand 0.7.3",
- "serde",
  "serde_json",
  "smart-default",
 ]
@@ -2810,6 +2817,27 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "near-jsonrpc-fuzz"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "actix_derive",
+ "arbitrary",
+ "awc",
+ "base64 0.13.0",
+ "bs58",
+ "lazy_static",
+ "libfuzzer-sys",
+ "near-jsonrpc",
+ "near-jsonrpc-tests",
+ "near-logger-utils",
+ "once_cell",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -2917,7 +2945,6 @@ dependencies = [
  "deepsize",
  "near-crypto",
  "near-primitives",
- "serde",
  "strum",
  "tokio",
  "tracing",
@@ -3007,6 +3034,7 @@ dependencies = [
 name = "near-rate-limiter"
 version = "0.0.0"
 dependencies = [
+ "actix",
  "bytes",
  "futures-core",
  "log",
@@ -3177,13 +3205,14 @@ dependencies = [
  "assert_matches",
  "base64 0.13.0",
  "borsh 0.9.1",
- "cached",
  "memoffset",
+ "near-cache",
  "near-primitives",
  "near-stable-hasher",
  "near-test-contracts",
  "near-vm-errors",
  "near-vm-logic",
+ "once_cell",
  "parity-wasm",
  "pwasm-utils",
  "serde",

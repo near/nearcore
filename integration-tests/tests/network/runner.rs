@@ -75,7 +75,7 @@ pub fn setup_network_node(
         let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true);
         client_config.archive = config.archive;
         client_config.ttl_account_id_router = config.ttl_account_id_router;
-        let network_adapter = NetworkRecipient::new();
+        let network_adapter = NetworkRecipient::default();
         network_adapter.set_recipient(ctx.address().recipient());
         let network_adapter = Arc::new(network_adapter);
         #[cfg(feature = "test_features")]
@@ -353,7 +353,7 @@ impl StateMachine {
                                 .pm_addr
                                 .get(source)
                                 .unwrap()
-                                .send(StopSignal::new())
+                                .send(StopSignal::default())
                                 .map_err(|_| ())
                                 .and_then(move |_| {
                                     flag.store(true, Ordering::Relaxed);
@@ -810,13 +810,13 @@ pub fn check_expected_connections(
                     .map_err(|_| ())
                     .and_then(move |res| {
                         let left = if let Some(expected_connections_lo) = expected_connections_lo {
-                            expected_connections_lo <= res.num_active_peers
+                            expected_connections_lo <= res.num_connected_peers
                         } else {
                             true
                         };
 
                         let right = if let Some(expected_connections_hi) = expected_connections_hi {
-                            res.num_active_peers <= expected_connections_hi
+                            res.num_connected_peers <= expected_connections_hi
                         } else {
                             true
                         };
@@ -973,6 +973,7 @@ pub fn change_account_id(node_id: usize, account_id: AccountId) -> ActionFn {
 }
 
 /// Wait for predicate to return True.
+#[cfg(feature = "test_features")]
 pub fn wait_for<T>(predicate: T) -> ActionFn
 where
     T: 'static + Fn() -> bool,
