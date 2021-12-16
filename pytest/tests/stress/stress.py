@@ -95,23 +95,20 @@ def get_recent_hash(node, sync_timeout):
 
     for attempt in range(sync_timeout):
         # use timeout=10 throughout, because during header sync processing headers takes up to 3-10s
-        status = node.get_status(timeout=10)
-        hash_ = status['sync_info']['latest_block_hash']
-        info = node.json_rpc('block', [hash_], timeout=10)
-
-        is_syncing = status['sync_info']['syncing']
-        sync_error = 'error' in info and 'unavailable on the node' in info[
-            'error']['data']
-        if is_syncing or sync_error:
-            time.sleep(1)
-        else:
+        sync_info = node.get_status(timeout=10)['sync_info']
+        block_hash = sync_info['latest_block_hash']
+        info = node.json_rpc('block', [block_hash], timeout=10)
+        sync_error = ('error' in info and
+                      'unavailable on the node' in info['error']['data'])
+        if not sync_info['syncing'] and not sync_error:
             break
+        time.sleep(1)
     else:
         assert False, "Node hasn't synced in %s seconds" % sync_timeout
 
     assert 'result' in info, info
     hash_ = info['result']['header']['last_final_block']
-    return hash_, status['sync_info']['latest_block_height']
+    return hash_, sync_info['latest_block_height']
 
 
 def get_validator_ids(nodes):

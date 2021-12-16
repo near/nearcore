@@ -39,18 +39,14 @@ figure_out_binary()
 nodes = start_cluster(1, 0, 1, CONFIG, [["epoch_length", 10]], {})
 
 # deploy contract
-status = nodes[0].get_status()
-hash_ = status['sync_info']['latest_block_hash']
-hash_ = base58.b58decode(hash_.encode('utf8'))
+hash_ = nodes[0].get_latest_block().hash
 tx = sign_deploy_contract_tx(nodes[0].signer_key, load_test_contract(), 10,
                              hash_)
 nodes[0].send_tx(tx)
 time.sleep(3)
 
 # store a key value
-status2 = nodes[0].get_status()
-hash_2 = status2['sync_info']['latest_block_hash']
-hash_2 = base58.b58decode(hash_2.encode('utf8'))
+hash_2 = nodes[0].get_latest_block().hash
 k = (10).to_bytes(8, byteorder="little")
 v = (20).to_bytes(8, byteorder="little")
 tx2 = sign_function_call_tx(nodes[0].signer_key, nodes[0].signer_key.account_id,

@@ -122,20 +122,17 @@ def serialize_execution_outcome_with_id(outcome, id):
 
 
 def check_transaction_outcome_proof(nodes, should_succeed, nonce):
-    status = nodes[1].get_status()
-    latest_block_hash = status['sync_info']['latest_block_hash']
+    latest_block_hash = nodes[1].get_latest_block().hash_bytes
     function_caller_key = nodes[0].signer_key
     gas = 300000000000000 if should_succeed else 1000
 
     function_call_1_tx = transaction.sign_function_call_tx(
         function_caller_key, nodes[0].signer_key.account_id, 'write_key_value',
-        struct.pack('<QQ', 42, 10), gas, 100000000000, nonce,
-        base58.b58decode(latest_block_hash.encode('utf8')))
+        struct.pack('<QQ', 42, 10), gas, 100000000000, nonce, latest_block_hash)
     function_call_result = nodes[1].send_tx_and_wait(function_call_1_tx, 15)
     assert 'error' not in function_call_result
 
-    status = nodes[0].get_status()
-    latest_block_height = status['sync_info']['latest_block_height']
+    latest_block_height = nodes[0].get_latest_block().height
 
     # wait for finalization
     light_client_request_block_hash = None
@@ -219,11 +216,9 @@ def test_outcome_proof():
         2, 0, 1, None,
         [["epoch_length", 1000], ["block_producer_kickout_threshold", 80]], {})
 
-    status = nodes[0].get_status()
-    latest_block_hash = status['sync_info']['latest_block_hash']
+    latest_block_hash = nodes[0].get_latest_block().hash_bytes
     deploy_contract_tx = transaction.sign_deploy_contract_tx(
-        nodes[0].signer_key, utils.load_test_contract(), 10,
-        base58.b58decode(latest_block_hash.encode('utf8')))
+        nodes[0].signer_key, utils.load_test_contract(), 10, latest_block_hash)
     deploy_contract_response = nodes[0].send_tx_and_wait(deploy_contract_tx, 15)
     assert 'error' not in deploy_contract_response, deploy_contract_response
 

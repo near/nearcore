@@ -35,9 +35,7 @@ assert 'result' in res, res
 cur_height = 0
 last_fork = FORK_EACH_BLOCKS * 2
 while cur_height < NUM_BLOCKS_TOTAL:
-    status = nodes[0].get_status()
-    cur_height = status['sync_info']['latest_block_height']
-    logger.info(status)
+    cur_height = nodes[0].get_latest_block(verbose=True).height
     if cur_height > last_fork:
         new_height = cur_height - random.randint(1, FORK_EACH_BLOCKS)
         nodes[1].kill()
