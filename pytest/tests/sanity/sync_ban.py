@@ -100,11 +100,8 @@ while True:
         if tracker1.check(BAN_STRING):
             break
     else:
-        status = nodes[0].get_status()
-        cur_height = status['sync_info']['latest_block_height']
-
-        status1 = nodes[1].get_status()
-        node1_height = status1['sync_info']['latest_block_height']
+        cur_height = nodes[0].get_latest_block().height
+        node1_height = nodes[1].get_latest_block().height
         if (abs(node1_height - cur_height) < 5 and
                 status1['sync_info']['syncing'] is False):
             break

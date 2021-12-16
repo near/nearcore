@@ -238,8 +238,7 @@ def chain_measure_bps_and_tps(archival_node,
                               start_time,
                               end_time,
                               duration=None):
-    latest_block_hash = archival_node.get_status(
-    )['sync_info']['latest_block_hash']
+    latest_block_hash = archival_node.get_latest_block().hash
     curr_block = archival_node.get_block(latest_block_hash)['result']
     curr_time = get_timestamp(curr_block)
 
@@ -360,8 +359,7 @@ def transfer_between_nodes(nodes):
     logger.info(f'Alice initial balance: {alice_initial_balance}')
     logger.info(f'Bob initial balance: {bob_initial_balance}')
 
-    last_block_hash = node.get_status()['sync_info']['latest_block_hash']
-    last_block_hash_decoded = base58.b58decode(last_block_hash.encode('utf8'))
+    last_block_hash = node.get_latest_block().hash_bytes
 
     tx, tx_hash = sign_payment_tx_and_get_hash(alice, bob.account_id,
                                                transfer_amount, alice_nonce + 1,
