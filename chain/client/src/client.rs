@@ -2,7 +2,6 @@
 //! This client works completely synchronously and must be operated by some async actor outside.
 
 use std::collections::{HashMap, HashSet};
-use std::iter;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
@@ -858,11 +857,14 @@ impl Client {
             debug!(target:"client", "try to process incomplete chunks {:?}, prev_block: {:?}", chunk_header.chunk_hash(), prev_block_hash);
             // create a fake partial encoded chunk message with empty parts and receipts
             // because we just want to reconstruct the chunk
-            let res = self.process_partial_encoded_chunk(MaybeValidated::from_validated(
-                PartialEncodedChunk::new(chunk_header, vec![], vec![]),
-            ));
+            let res = self.shards_mgr.check_chunk_have_all_parts_and_receipts(
+                &chunk_header,
+                self.chain.mut_store(),
+                &mut self.rs,
+            );
             match res {
-                Ok(new_accepted_blocks) => accepted_blocks.extend(new_accepted_blocks),
+                Ok(res) => accepted_blocks
+                    .extend(self.process_process_partial_encoded_chunk_result(chunk_header, res)),
                 Err(err) => {
                     error!(target:"client", "unexpected error processing orphan chunk {:?}", err)
                 }
@@ -883,27 +885,27 @@ impl Client {
             self.chain.mut_store(),
             &mut self.rs,
         )?;
+        debug!(target:"client", "process partial encoded chunk {:?}, result: {:?}", chunk_hash, process_result);
 
+        Ok(self.process_process_partial_encoded_chunk_result(
+            pec_v2.into_inner().header,
+            process_result,
+        ))
+    }
+
+    fn process_process_partial_encoded_chunk_result(
+        &mut self,
+        header: ShardChunkHeader,
+        process_result: ProcessPartialEncodedChunkResult,
+    ) -> Vec<AcceptedBlock> {
         match process_result {
             ProcessPartialEncodedChunkResult::Known
-            | ProcessPartialEncodedChunkResult::NeedBlock => Ok(vec![]),
+            | ProcessPartialEncodedChunkResult::NeedBlock
+            | ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts => vec![],
             ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts => {
-                self.record_receive_chunk_timestamp(
-                    pec_v2.header.height_created(),
-                    pec_v2.header.shard_id(),
-                );
-                self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_hash);
-                Ok(self.process_blocks_with_missing_chunks())
-            }
-            ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts => {
-                let chunk_header = pec_v2.into_inner().header;
-                let prev_hash = chunk_header.prev_block_hash();
-                self.shards_mgr.request_chunks(
-                    iter::once(chunk_header),
-                    prev_hash,
-                    &self.chain.header_head()?,
-                );
-                Ok(vec![])
+                self.record_receive_chunk_timestamp(header.height_created(), header.shard_id());
+                self.chain.blocks_with_missing_chunks.accept_chunk(&header.chunk_hash());
+                self.process_blocks_with_missing_chunks()
             }
         }
     }

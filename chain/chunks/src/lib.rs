@@ -1365,6 +1365,7 @@ impl ShardsManager {
         chain_store: &mut ChainStore,
         rs: &mut ReedSolomonWrapper,
     ) -> Result<ProcessPartialEncodedChunkResult, Error> {
+        debug!(target: "chunks", "process partial encoded chunk {:?}, me: {:?}", partial_encoded_chunk.header.chunk_hash(), self.me);
         let header = &partial_encoded_chunk.header;
         let chunk_hash = header.chunk_hash();
         // Verify the partial encoded chunk is valid and worth processing
@@ -1468,6 +1469,34 @@ impl ShardsManager {
             }
         }
 
+        // 4. Forward my parts to others tracking this chunk's shard
+        let epoch_id = match self
+            .runtime_adapter
+            .get_epoch_id_from_prev_block(&partial_encoded_chunk.header.prev_block_hash())
+        {
+            Ok(epoch_id) => epoch_id,
+            Err(_) => {
+                return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
+            }
+        };
+        let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
+        if checked_feature!("stable", ForwardChunkParts, protocol_version) {
+            self.send_partial_encoded_chunk_to_chunk_trackers(partial_encoded_chunk)?;
+        };
+
+        self.check_chunk_have_all_parts_and_receipts(&partial_encoded_chunk.header, chain_store, rs)
+    }
+
+    /// Checks if the chunk has all parts and receipts, if so and if the node cares about the shard,
+    /// decode and persist the full chunk
+    /// `header`: header of the chunk. It must be known by `ShardsManager`, either
+    ///           by previous call to `process_partial_encoded_chunk` or `request_partial_encoded_chunk`
+    pub fn check_chunk_have_all_parts_and_receipts(
+        &mut self,
+        header: &ShardChunkHeader,
+        chain_store: &mut ChainStore,
+        rs: &mut ReedSolomonWrapper,
+    ) -> Result<ProcessPartialEncodedChunkResult, Error> {
         // The logic from now on requires previous block is processed because
         // calculating owner parts requires that
         let prev_block_hash = header.prev_block_hash();
@@ -1478,35 +1507,35 @@ impl ShardsManager {
             }
         };
         let chunk_hash = header.chunk_hash();
-        // 4. validate the header again now that prev_block is processed
-        if !self.encoded_chunks.get(&chunk_hash).unwrap().header_fully_validated {
-            let res = self.validate_chunk_header(None, header);
-            match res {
-                Ok(()) => {
-                    self.encoded_chunks.mark_entry_validated(chunk_hash.clone());
-                }
-                Err(err) => {
-                    return match err {
-                        Error::ChainError(chain_error) => Err(chain_error.into()),
-                        _ => {
-                            // the chunk header is invalid
-                            // remove this entry from the cache and remove the request from the request pool
-                            self.encoded_chunks.remove(&chunk_hash);
-                            self.requested_partial_encoded_chunks.remove(&chunk_hash);
-                            Err(err)
-                        }
-                    };
+        // check the header exists in encoded_chunks and validate it again (full validation)
+        // now that prev_block is processed
+        if let Some(chunk_entry) = self.encoded_chunks.get(&chunk_hash) {
+            if !chunk_entry.header_fully_validated {
+                let res = self.validate_chunk_header(None, header);
+                match res {
+                    Ok(()) => {
+                        self.encoded_chunks.mark_entry_validated(chunk_hash.clone());
+                    }
+                    Err(err) => {
+                        return match err {
+                            Error::ChainError(chain_error) => Err(chain_error.into()),
+                            _ => {
+                                // the chunk header is invalid
+                                // remove this entry from the cache and remove the request from the request pool
+                                self.encoded_chunks.remove(&chunk_hash);
+                                self.requested_partial_encoded_chunks.remove(&chunk_hash);
+                                Err(err)
+                            }
+                        };
+                    }
                 }
             }
+        } else {
+            return Err(Error::UnknownChunk);
         }
 
-        // 5. Forward my parts to others tracking this chunk's shard
-        let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
-        if checked_feature!("stable", ForwardChunkParts, protocol_version) {
-            self.send_partial_encoded_chunk_to_chunk_trackers(partial_encoded_chunk)?;
-        };
-
-        // 6. Now check whether we have all parts and receipts for the given chunk
+        // Now check whether we have all parts and receipts for the given chunk
+        // we can safely unwrap here because we already checked that chunk_hash exist in encoded_chunks
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
         let have_all_parts = self.has_all_parts(&prev_block_hash, entry)?;
         let have_all_receipts = self.has_all_receipts(&prev_block_hash, entry)?;
@@ -1524,6 +1553,7 @@ impl ShardsManager {
         if have_all_parts && self.seals_mgr.should_trust_chunk_producer(&chunk_producer) {
             self.encoded_chunks.insert_chunk_header(header.shard_id(), header.clone());
         }
+        // we can safely unwrap here because we already checked that chunk_hash exist in encoded_chunks
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
 
         // TODO(#3180): seals are disabled in single shard setting
@@ -1563,6 +1593,7 @@ impl ShardsManager {
 
         if can_reconstruct {
             let height = header.height_created();
+            let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
             let mut encoded_chunk = EncodedShardChunk::from_header(
                 header.clone(),
                 self.runtime_adapter.num_total_parts(),
@@ -1587,6 +1618,8 @@ impl ShardsManager {
             return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts);
         }
 
+        // add the chunk to the request pool in case it is not there already
+        self.request_chunk_single_mark_only(header);
         Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts)
     }
 
