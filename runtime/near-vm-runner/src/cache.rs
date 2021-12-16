@@ -230,7 +230,7 @@ pub mod wasmer0_cache {
         config: &VMConfig,
         cache: Option<&dyn CompiledContractCache>,
     ) -> Result<Result<wasmer_runtime::Module, CompilationError>, CacheError> {
-        WASMER_CACHE.get_or_insert(key, |key| {
+        WASMER_CACHE.get_or_put(key, |key| {
             compile_module_cached_wasmer_impl(*key, code.code(), config, cache)
         })
     }
@@ -354,7 +354,7 @@ pub mod wasmer2_cache {
         cache: Option<&dyn CompiledContractCache>,
         store: &wasmer::Store,
     ) -> Result<Result<wasmer::Module, CompilationError>, CacheError> {
-        WASMER2_CACHE.get_or_insert(key, |key| {
+        WASMER2_CACHE.get_or_put(key, |key| {
             compile_module_cached_wasmer2_impl(*key, code.code(), config, cache, store)
         })
     }

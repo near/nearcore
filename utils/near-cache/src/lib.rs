@@ -32,9 +32,9 @@ where
     }
 
     /// Puts a key-value pair into cache. If the key already exists in the cache,
-    /// then it updates the key's value and returns the old value. Otherwise, None is returned.
-    pub fn put(&self, key: K, value: V) -> Option<V> {
-        self.inner.lock().unwrap().put(key, value)
+    /// then it updates the key's value.
+    pub fn put(&self, key: K, value: V) {
+        self.inner.lock().unwrap().put(key, value);
     }
 
     /// Returns the value of the key in the cache or None if it is not present in the cache.
