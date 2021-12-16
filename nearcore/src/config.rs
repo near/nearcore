@@ -1206,13 +1206,17 @@ impl From<NodeKeyFile> for KeyFile {
 }
 
 pub fn load_config_without_genesis_records(dir: &Path, genesis_validation: bool) -> NearConfig {
+    tracing::info!("load_config_without_genesis_records !1");
     let config = Config::from_file(&dir.join(CONFIG_FILENAME));
+    tracing::info!("load_config_without_genesis_records !2");
     let genesis_config = GenesisConfig::from_file(&dir.join(&config.genesis_file));
+    tracing::info!("load_config_without_genesis_records !3");
     let genesis_records_file = if let Some(genesis_records_file) = &config.genesis_records_file {
         dir.join(genesis_records_file)
     } else {
         dir.join(&config.genesis_file)
     };
+    tracing::info!("load_config_without_genesis_records !4");
     let validator_signer = if dir.join(&config.validator_key_file).exists() {
         let signer =
             Arc::new(InMemoryValidatorSigner::from_file(&dir.join(&config.validator_key_file)))
@@ -1221,7 +1225,9 @@ pub fn load_config_without_genesis_records(dir: &Path, genesis_validation: bool)
     } else {
         None
     };
+    tracing::info!("load_config_without_genesis_records !5");
     let network_signer = NodeKeyFile::from_file(&dir.join(&config.node_key_file));
+    tracing::info!("load_config_without_genesis_records !6");
     NearConfig::new(
         config,
         Genesis::new_with_path(genesis_config, genesis_records_file, genesis_validation),
