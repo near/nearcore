@@ -284,7 +284,7 @@ impl JsonRpcHandler {
                     self.peer_manager_addr
                         .send(
                             near_network::types::PeerManagerMessageRequest::StartRoutingTableSync(
-                                near_network::types::StartRoutingTableSync {
+                                near_network::private_actix::StartRoutingTableSync {
                                     peer_id: params.peer_id,
                                 },
                             ),
@@ -299,7 +299,7 @@ impl JsonRpcHandler {
                     let response = self
                         .peer_manager_addr
                         .send(near_network::types::PeerManagerMessageRequest::GetPeerId(
-                            near_network::types::GetPeerId {},
+                            near_network::private_actix::GetPeerId {},
                         ))
                         .await?;
                     Some(

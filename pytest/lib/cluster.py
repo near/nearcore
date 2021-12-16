@@ -189,11 +189,16 @@ class BaseNode(object):
                              [base64.b64encode(signed_tx).decode('utf8')],
                              timeout=timeout)
 
-    def get_status(self, check_storage=True, timeout=4):
+    def get_status(self,
+                   check_storage: bool = True,
+                   timeout: float = 4,
+                   verbose: bool = False):
         r = requests.get("http://%s:%s/status" % self.rpc_addr(),
                          timeout=timeout)
         r.raise_for_status()
         status = json.loads(r.content)
+        if verbose:
+            logger.info(f'Status: {status}')
         if check_storage and status['sync_info']['syncing'] == False:
             # Storage is not guaranteed to be in consistent state while syncing
             self.check_store()
@@ -224,12 +229,16 @@ class BaseNode(object):
     def get_validators(self):
         return self.json_rpc('validators', [None])
 
-    def get_account(self, acc, finality='optimistic'):
-        return self.json_rpc('query', {
+    def get_account(self, acc, finality='optimistic', do_assert=True):
+        res = self.json_rpc('query', {
             "request_type": "view_account",
             "account_id": acc,
             "finality": finality
         })
+        if do_assert:
+            assert 'error' not in res, res
+
+        return res
 
     def call_function(self,
                       acc,
