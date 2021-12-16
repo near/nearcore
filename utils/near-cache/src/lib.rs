@@ -21,13 +21,37 @@ where
     /// Return the value of they key in the cache otherwise computes the value and inserts it into
     /// the cache. If the key is already in the cache, they gets gets moved to the head of
     /// the LRU list.
-    pub fn get_or_put(&self, key: K, f: impl FnOnce(&K) -> V) -> V {
-        self.get(&key).unwrap_or_else(|| {
-            let val = f(&key);
-            let val_clone = val.clone();
-            self.inner.lock().unwrap().put(key, val_clone);
-            val
-        })
+    pub fn get_or_put<F>(&self, key: K, f: F) -> V
+    where
+        V: Clone,
+        F: FnOnce(&K) -> V,
+    {
+        match self.get_or_try_put(key, |k| Ok::<V, std::convert::Infallible>(f(k))) {
+            Ok(it) => it,
+            Err(never) => match never {},
+        }
+    }
+
+    /// Returns the value of they key in the cache if present, otherwise
+    /// computes the value using the provided closure.
+    ///
+    /// If the key is already in the cache, it gets moved to the head of the LDU
+    /// list.
+    ///
+    /// If the provided closure fails, the error is returned and the cache is
+    /// not updated.
+    pub fn get_or_try_put<F, E>(&self, key: K, f: F) -> Result<V, E>
+    where
+        V: Clone,
+        F: FnOnce(&K) -> Result<V, E>,
+    {
+        if let Some(result) = self.get(&key) {
+            return Ok(result);
+        }
+        let val = f(&key)?;
+        let val_clone = val.clone();
+        self.inner.lock().unwrap().put(key, val_clone);
+        Ok(val)
     }
 
     /// Puts a key-value pair into cache. If the key already exists in the cache,

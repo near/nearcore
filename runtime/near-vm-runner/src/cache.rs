@@ -113,18 +113,12 @@ const CACHE_SIZE: usize = 128;
 
 #[cfg(not(feature = "no_cache"))]
 static WASMER_CACHE: once_cell::sync::Lazy<
-    near_cache::SyncLruCache<
-        CryptoHash,
-        Result<Result<wasmer_runtime::Module, CompilationError>, CacheError>,
-    >,
+    near_cache::SyncLruCache<CryptoHash, Result<wasmer_runtime::Module, CompilationError>>,
 > = once_cell::sync::Lazy::new(|| near_cache::SyncLruCache::new(CACHE_SIZE));
 
 #[cfg(not(feature = "no_cache"))]
 static WASMER2_CACHE: once_cell::sync::Lazy<
-    near_cache::SyncLruCache<
-        CryptoHash,
-        Result<Result<wasmer::Module, CompilationError>, CacheError>,
-    >,
+    near_cache::SyncLruCache<CryptoHash, Result<wasmer::Module, CompilationError>>,
 > = once_cell::sync::Lazy::new(|| near_cache::SyncLruCache::new(CACHE_SIZE));
 
 #[cfg(feature = "wasmer0_vm")]
@@ -231,7 +225,7 @@ pub mod wasmer0_cache {
         let key = get_contract_cache_key(code, VMKind::Wasmer0, config);
 
         #[cfg(not(feature = "no_cache"))]
-        return WASMER_CACHE.get_or_put(key, |key| {
+        return WASMER_CACHE.get_or_try_put(key, |key| {
             compile_module_cached_wasmer_impl(*key, code.code(), config, cache)
         });
 
@@ -347,7 +341,7 @@ pub mod wasmer2_cache {
         let key = get_contract_cache_key(code, VMKind::Wasmer2, config);
 
         #[cfg(not(feature = "no_cache"))]
-        return WASMER2_CACHE.get_or_put(key, |key| {
+        return WASMER2_CACHE.get_or_try_put(key, |key| {
             compile_module_cached_wasmer2_impl(*key, code, config, cache, store)
         });
 
