@@ -298,9 +298,12 @@ impl GenesisConfig {
     /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
     /// GenesisConfig structure.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
+        tracing::info!("GenesisConfig::from_file !1");
         let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
+        tracing::info!("GenesisConfig::from_file !2");
         let genesis_config: GenesisConfig =
             serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.");
+        tracing::info!("GenesisConfig::from_file !3");
         genesis_config
     }
 
