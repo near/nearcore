@@ -362,10 +362,8 @@ impl PeerManagerActor {
                 || total_msg_received_count > REPORT_BANDWIDTH_THRESHOLD_COUNT
             {
                 warn!(
-                    message = "Peer bandwidth exceeded threshold",
                     ?peer_id,
-                    bandwidth_used,
-                    msg_received_count
+                    bandwidth_used, msg_received_count, "Peer bandwidth exceeded threshold",
                 );
             }
             total_bandwidth_used_by_all_peers += bandwidth_used;
@@ -375,10 +373,8 @@ impl PeerManagerActor {
         }
 
         info!(
-            message = "Bandwidth stats",
             total_bandwidth_used_by_all_peers,
-            total_msg_received_count,
-            max_max_record_num_messages_in_progress
+            total_msg_received_count, max_max_record_num_messages_in_progress, "Bandwidth stats"
         );
 
         near_performance_metrics::actix::run_later(ctx, every, move |act, ctx| {
@@ -1073,9 +1069,10 @@ impl PeerManagerActor {
     ///             find the one we connected earlier and add it to the safe set.
     ///         else break
     fn try_stop_active_connection(&self) {
-        debug!(target: "network", message = "Trying to stop an active connection.",
+        debug!(target: "network",
             connected_peers_len = self.connected_peers.len(),
             ideal_connections_hi = self.config.ideal_connections_hi,
+            "Trying to stop an active connection.",
         );
 
         // Build safe set
@@ -1579,7 +1576,7 @@ impl Actor for PeerManagerActor {
         self.push_network_info_trigger(ctx, self.config.push_info_period);
 
         // Periodically starts peer monitoring.
-        debug!(target: "network", message = "monitor_peers_trigger", interval = ?self.config.bootstrap_peers_period);
+        debug!(target: "network", interval = ?self.config.bootstrap_peers_period, "monitor_peers_trigger");
         self.monitor_peers_trigger(ctx, self.config.bootstrap_peers_period);
 
         // Periodically starts active peer stats querying.
@@ -2164,9 +2161,10 @@ impl PeerManagerActor {
 
         if msg.peer_type == PeerType::Inbound && !self.is_inbound_allowed() {
             // TODO(1896): Gracefully drop inbound connection for other peer.
-            debug!(target: "network", message = "Inbound connection dropped (network at max capacity).",
+            debug!(target: "network",
                 active_peers = self.connected_peers.len(), outgoing_peers = self.outgoing_peers.len(),
-                max_num_peers = self.config.max_num_peers
+                max_num_peers = self.config.max_num_peers,
+                "Inbound connection dropped (network at max capacity)."
             );
             return RegisterPeerResponse::Reject;
         }
