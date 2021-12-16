@@ -24,9 +24,7 @@ logging.basicConfig(level=logging.INFO)
 
 
 def deploy_contract(node):
-    status = node.get_status()
-    hash_ = status['sync_info']['latest_block_hash']
-    hash_ = base58.b58decode(hash_.encode('utf8'))
+    hash_ = node.get_latest_block().hash_bytes
     tx = sign_deploy_contract_tx(node.signer_key, utils.load_test_contract(),
                                  10, hash_)
     node.send_tx_and_wait(tx, timeout=15)
@@ -38,15 +36,13 @@ def send_some_tx(node):
     nonce = node.get_nonce_for_pk(node.signer_key.account_id,
                                   node.signer_key.pk) + 10
     for i in range(10):
-        status2 = node.get_status()
-        hash_2 = status2['sync_info']['latest_block_hash']
-        hash_2 = base58.b58decode(hash_2.encode('utf8'))
+        hash_ = node.get_latest_block().hash_bytes
         keyvalue = bytearray(16)
         keyvalue[0] = (nonce // 10) % 256
         keyvalue[8] = (nonce // 10) % 255
         tx2 = sign_function_call_tx(node.signer_key, node.signer_key.account_id,
                                     'write_key_value', bytes(keyvalue),
-                                    10000000000000, 100000000000, nonce, hash_2)
+                                    10000000000000, 100000000000, nonce, hash_)
         nonce += 10
         res = node.send_tx_and_wait(tx2, timeout=15)
         assert 'error' not in res, res

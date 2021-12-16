@@ -48,9 +48,7 @@ def main():
     started = time.time()
 
     # Create account, transfer tokens, deploy contract, invoke function call
-    status = stable_node.get_status()
-    block_hash = base58.b58decode(
-        status['sync_info']['latest_block_hash'].encode('utf-8'))
+    block_hash = stable_node.get_latest_block().hash_bytes
 
     new_account_id = 'test_account.test0'
     new_signer_key = cluster.Key(new_account_id, stable_node.signer_key.pk,
@@ -67,8 +65,7 @@ def main():
     res = stable_node.send_tx_and_wait(transfer_tx, timeout=20)
     assert 'error' not in res, res
 
-    status = stable_node.get_status()
-    block_height = status['sync_info']['latest_block_height']
+    block_height = stable_node.get_latest_block().height
     nonce = block_height * 1_000_000 - 1
 
     tx = sign_deploy_contract_tx(new_signer_key, utils.load_test_contract(),

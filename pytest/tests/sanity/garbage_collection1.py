@@ -67,7 +67,5 @@ logger.info('Restart node 2')
 nodes[2].start(boot_node=nodes[2])
 time.sleep(2)
 
-status = nodes[0].get_status()
-node0_height = status['sync_info']['latest_block_height']
-
-utils.wait_for_blocks(nodes[2], target=node0_height, timeout=TIMEOUT)
+target = nodes[0].get_latest_block().height
+utils.wait_for_blocks(nodes[2], target=target, timeout=TIMEOUT)
