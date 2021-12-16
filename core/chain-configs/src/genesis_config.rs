@@ -487,12 +487,15 @@ impl Genesis {
         records_file: PathBuf,
         genesis_validation: bool,
     ) -> Self {
+        tracing::info!("Genesis::new_with_path !1");
         let genesis = Self { config, records: GenesisRecords(vec![]), records_file };
+        tracing::info!("Genesis::new_with_path !2");
         if genesis_validation {
             validate_genesis(&genesis);
         } else {
             warn!("Skipped genesis validation");
         }
+        tracing::info!("Genesis::new_with_path !3");
         genesis
     }
 
