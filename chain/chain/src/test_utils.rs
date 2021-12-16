@@ -1418,6 +1418,7 @@ pub fn process_block_test(
         |_| {},
         |_| {},
         |_| {},
+        |_| {},
     )
 }
 
@@ -1426,6 +1427,7 @@ use rand_chacha::ChaCha8Rng;
 use rand_distr::{Distribution, Exp};
 
 pub fn fill_mock_clock_utc(
+    guard: &MockClockGuard,
     mock_date: chrono::DateTime<Utc>,
     num_samples: u64,
     average_interval_in_miliseconds: f64,
@@ -1438,7 +1440,7 @@ pub fn fill_mock_clock_utc(
         let f = exp.sample(&mut rng) as i64;
         let d = Duration::milliseconds(f);
         if let Some(t) = utc.checked_add_signed(d) {
-            Clock::add_utc(utc.clone());
+            guard.add_utc(utc.clone());
             utc = t;
         }
     }
@@ -1449,8 +1451,9 @@ pub fn build_chain_from_random_data(data: &[u8]) {
         let (a, b) = data.split_at(8);
         let seed = u64::from_be_bytes(a.try_into().unwrap());
         let num_blocks = b.len() as u64;
-        let _mock_clock_guard = MockClockGuard::default();
+        let mock_clock_guard = MockClockGuard::default();
         fill_mock_clock_utc(
+            &mock_clock_guard,
             chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444),
             num_blocks * 2 + 1,
             100.0,
@@ -1468,8 +1471,8 @@ pub fn build_chain_from_random_data(data: &[u8]) {
             }
         }
         assert_eq!(chain.head().unwrap().height, num_blocks);
-        let count_instant = Clock::instant_call_count();
-        let count_utc = Clock::utc_call_count();
+        let count_instant = mock_clock_guard.instant_call_count();
+        let count_utc = mock_clock_guard.utc_call_count();
         assert_eq!(count_utc, 2 * num_blocks + 1);
         assert_eq!(count_instant, 0);
     }
