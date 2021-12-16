@@ -10,7 +10,6 @@ license = "Apache-2.0"
 readme = "README.md"
 categories = ["wasm"]
 repository = "https://github.com/nearprotocol/nearcore"
-homepage = "https://github.com/nearprotocol/nearcore"
 description = """
 A command line wrapper around `near-vm-runner.`
 All error messages that can be raised during the contract execution are raised by `near-vm-runner`

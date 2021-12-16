@@ -1,6 +1,5 @@
 use crate::routing::ibf::{Ibf, IbfBox};
-use crate::routing::ibf_peer_set::SlotMapId;
-use crate::routing::ibf_peer_set::{ValidIBFLevel, MAX_IBF_LEVEL, MIN_IBF_LEVEL};
+use crate::routing::ibf_peer_set::{SlotMapId, ValidIBFLevel, MAX_IBF_LEVEL, MIN_IBF_LEVEL};
 use near_stable_hasher::StableHasher;
 use std::collections::HashMap;
 use std::fmt;
@@ -102,8 +101,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::routing::ibf_peer_set::SlotMapId;
-    use crate::routing::ibf_peer_set::ValidIBFLevel;
+    use crate::routing::ibf_peer_set::{SlotMapId, ValidIBFLevel};
     use crate::routing::ibf_set::IbfSet;
 
     #[test]

@@ -32,9 +32,9 @@ impl TrackedConfig {
 // bit mask for which shard to track
 type BitMask = Vec<bool>;
 
-/// Tracker that tracks shard ids and accounts. It maintains two items: `tracked_accounts` and
-/// `tracked_shards`. The shards that are actually tracked are the union of shards that `tracked_accounts`
-/// are in and `tracked_shards`.
+/// Tracker that tracks shard ids and accounts. Right now, it only supports two modes
+/// TrackedConfig::Accounts(accounts): track the shards where `accounts` belong to
+/// TrackedConfig::AllShards: track all shards
 pub struct ShardTracker {
     tracked_config: TrackedConfig,
     /// Stores shard tracking information by epoch, only useful if TrackedState == Accounts

@@ -9,6 +9,7 @@
 
 import sys, time, functools, asyncio
 import pathlib
+from multiprocessing import Value
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -16,9 +17,7 @@ from cluster import start_cluster
 from configured_logger import logger
 from peer import *
 from proxy import ProxyHandler
-
-from multiprocessing import Value
-from utils import LogTracker
+import utils
 
 should_ban = sys.argv[1] == 'true'
 
@@ -83,13 +82,7 @@ nodes = start_cluster(1, 1, 1, None, [["epoch_length", EPOCH_LENGTH]], {
     1: node1_config
 }, Handler)
 
-status = nodes[0].get_status()
-cur_height = status['sync_info']['latest_block_height']
-
-while cur_height <= 110:
-    status = nodes[0].get_status()
-    cur_height = status['sync_info']['latest_block_height']
-    time.sleep(2)
+utils.wait_for_blocks(nodes[0], target=110, timeout=TIMEOUT, poll_interval=2)
 
 should_sync.value = True
 
@@ -97,8 +90,8 @@ logger.info("sync node 1")
 
 start = time.time()
 
-tracker0 = LogTracker(nodes[0])
-tracker1 = LogTracker(nodes[1])
+tracker0 = utils.LogTracker(nodes[0])
+tracker1 = utils.LogTracker(nodes[1])
 
 while True:
     assert time.time() - start < TIMEOUT
@@ -112,8 +105,8 @@ while True:
 
         status1 = nodes[1].get_status()
         node1_height = status1['sync_info']['latest_block_height']
-        if abs(node1_height -
-               cur_height) < 5 and status1['sync_info']['syncing'] is False:
+        if (abs(node1_height - cur_height) < 5 and
+                status1['sync_info']['syncing'] is False):
             break
     time.sleep(2)
 
