@@ -42,8 +42,6 @@ mod borsh;
 #[cfg(feature = "serde")]
 mod serde;
 
-#[cfg(feature = "deepsize_feature")]
-use deepsize::DeepSizeOf;
 pub use errors::{ParseAccountError, ParseErrorKind};
 
 /// NEAR Account Identifier.
@@ -63,7 +61,7 @@ pub use errors::{ParseAccountError, ParseErrorKind};
 ///
 /// assert!("ƒelicia.near".parse::<AccountId>().is_err()); // (ƒ is not f)
 /// ```
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Eq, Ord, Hash, Clone, Debug, PartialEq, PartialOrd)]
 pub struct AccountId(Box<str>);
 

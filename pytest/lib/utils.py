@@ -10,11 +10,12 @@ import subprocess
 import sys
 import tempfile
 import time
+import typing
 
 from retrying import retry
 from rc import gcloud
 
-from cluster import LocalNode, GCloudNode, CONFIG_ENV_VAR
+import cluster
 from configured_logger import logger
 from transaction import sign_payment_tx
 
@@ -73,12 +74,12 @@ class LogTracker:
 
     def __init__(self, node):
         self.node = node
-        if type(node) is LocalNode:
+        if type(node) is cluster.LocalNode:
             self.fname = node.stderr_name
             with open(self.fname) as f:
                 f.seek(0, 2)
                 self.offset = f.tell()
-        elif type(node) is GCloudNode:
+        elif type(node) is cluster.GCloudNode:
             self.offset = int(
                 node.machine.run("python3",
                                  input='''
@@ -92,13 +93,13 @@ with open('/tmp/python-rc.log') as f:
 
     # Check whether there is at least on occurrence of pattern in new logs
     def check(self, pattern):
-        if type(self.node) is LocalNode:
+        if type(self.node) is cluster.LocalNode:
             with open(self.fname) as f:
                 f.seek(self.offset)
                 ret = pattern in f.read()
                 self.offset = f.tell()
             return ret
-        elif type(self.node) is GCloudNode:
+        elif type(self.node) is cluster.GCloudNode:
             ret, offset = map(
                 int,
                 node.machine.run("python3",
@@ -119,13 +120,13 @@ with open('/tmp/python-rc.log') as f:
 
     # Count number of occurrences of pattern in new logs
     def count(self, pattern):
-        if type(self.node) is LocalNode:
+        if type(self.node) is cluster.LocalNode:
             with open(self.fname) as f:
                 f.seek(self.offset)
                 ret = f.read().count(pattern)
                 self.offset = f.tell()
             return ret
-        elif type(self.node) == GCloudNode:
+        elif type(self.node) == cluster.GCloudNode:
             ret, offset = node.machine.run("python3",
                                            input=f'''
 with open('/tmp/python-rc.log') as f:
@@ -146,10 +147,7 @@ def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
     If block_hash is None, it query latest block hash
     It query at most max_blocks, or if it's -1, all blocks back to genesis
     """
-    if block_hash is None:
-        status = node.get_status()
-        block_hash = status['sync_info']['latest_block_hash']
-
+    block_hash = block_hash or node.get_latest_block().hash
     initial_validators = node.validators()
 
     if max_blocks == -1:
@@ -271,7 +269,7 @@ def collect_gcloud_config(num_nodes):
     outfile = tempdir / 'gcloud_config.json'
     with open(outfile, 'w') as f:
         json.dump(res, f)
-    os.environ[CONFIG_ENV_VAR] = str(outfile)
+    os.environ[cluster.CONFIG_ENV_VAR] = str(outfile)
 
 
 def obj_to_string(obj, extra='    ', full=False):
@@ -306,20 +304,34 @@ def compute_merkle_root_from_path(path, leaf_hash):
     return res
 
 
-def wait_for_blocks_or_timeout(node,
-                               num_blocks,
-                               timeout,
-                               callback=None,
-                               check_sec=1):
-    status = node.get_status()
-    start_height = status['sync_info']['latest_block_height']
-    max_height = 0
+def poll_blocks(node: cluster.LocalNode,
+                *,
+                timeout: float = 120,
+                poll_interval: float = 0.25,
+                **kw) -> typing.Iterable[cluster.BlockId]:
     started = time.time()
-    while max_height < start_height + num_blocks:
+    previous = -1
+    while True:
         assert time.time() - started < timeout
-        status = node.get_status()
-        max_height = status['sync_info']['latest_block_height']
-        if callback is not None:
-            if callback():
-                break
-        time.sleep(check_sec)
+        latest = node.get_latest_block(**kw)
+        if latest.height != previous:
+            yield latest
+            previous = latest.height
+        time.sleep(poll_interval)
+
+
+def wait_for_blocks(node: cluster.LocalNode,
+                    *,
+                    count: typing.Optional[int] = None,
+                    target: typing.Optional[int] = None,
+                    **kw) -> cluster.BlockId:
+    if target is None:
+        if count is None:
+            raise TypeError('Expected `count` or `target` keyword argument')
+        target = node.get_latest_block().height + count
+    elif count is not None:
+        raise TypeError('Expected at most one of `count` or `target` arguments')
+    for latest in poll_blocks(node, **kw):
+        logger.info(f'{latest}  (waiting for #{target})')
+        if latest.height >= target:
+            return latest

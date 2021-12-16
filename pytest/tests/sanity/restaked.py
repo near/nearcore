@@ -15,6 +15,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster, load_config
 from configured_logger import logger
+import utils
 
 TIMEOUT = 150
 EPOCH_LENGTH = 10
@@ -41,10 +42,6 @@ def start_restaked(node_dir, rpc_port, config):
     atexit.register(atexit_stop_restaked, pid)
 
 
-def get_height(node):
-    return node.get_status()['sync_info']['latest_block_height']
-
-
 # Local:
 nodes = start_cluster(
     4, 0, 1, None,
@@ -54,29 +51,18 @@ nodes = start_cluster(
 # Remote:
 # NEAR_PYTEST_CONFIG=remote.json python tests/sanity/block_production.py
 
-started = time.time()
-
 # Wait until at least one block is generated since otherwise we will get
 # UnknownEpoch errors inside of restaked binary when asking for validators info.
-while not (b := get_height(nodes[1])):
-    time.sleep(0.1)
+utils.wait_for_blocks(nodes[1], target=1, timeout=TIMEOUT, poll_interval=0.1)
 
 restaked_pid = start_restaked(nodes[0].node_dir, nodes[1].rpc_port, {})
 nodes[0].kill()
 
-while time.time() - started < TIMEOUT:
-    height = get_height(nodes[1])
-    # epoch boundary may have shifted due to validator being offline
-    if height > EPOCH_LENGTH * 5 + 5:
-        # 5 epochs later.
-        validators = nodes[1].get_validators()['result']
-        present = False
-        for validator in validators['current_validators']:
-            if validator['account_id'] == 'test0':
-                present = True
-                break
-        if not present:
-            assert False, "Validator test0 is not in current validators after 5 epochs"
-        else:
-            break
-    time.sleep(1)
+# Epoch boundary may have shifted due to validator being offline
+utils.wait_for_blocks(nodes[1], target=EPOCH_LENGTH * 5 + 5, timeout=TIMEOUT)
+
+# 5 epochs later.
+validators = nodes[1].get_validators()['result']
+present = any(validator['account_id'] == 'test0'
+              for validator in validators['current_validators'])
+assert present, 'Validator test0 is not in current validators after 5 epochs'

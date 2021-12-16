@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -ex
 
+./scripts/requirements_check.sh
+
 export RUST_BACKTRACE=full
 ./scripts/start_unittest.py --local &
 export NEAR_PID=$!
