@@ -25,7 +25,8 @@ fn test_random_epochs() {
 fn minimal_repro(epoch_length: u64, num_heights: u64, max_seed: u64) {
     let mut epoch_length = epoch_length;
     let mut num_heights = num_heights;
-    if std::panic::catch_unwind(move || run_with_seed_range(epoch_length, num_heights, max_seed)).is_ok()
+    if std::panic::catch_unwind(move || run_with_seed_range(epoch_length, num_heights, max_seed))
+        .is_ok()
     {
         println!("PASS");
         return;

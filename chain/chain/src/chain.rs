@@ -845,11 +845,13 @@ impl Chain {
                 {
                     return Err(ErrorKind::InvalidChunk.into());
                 }
-            } else if chunk_header.height_created() == block.header().height() && !runtime_adapter.verify_chunk_header_signature(
+            } else if chunk_header.height_created() == block.header().height()
+                && !runtime_adapter.verify_chunk_header_signature(
                     &chunk_header.clone(),
                     block.header().epoch_id(),
                     block.header().prev_hash(),
-                )? {
+                )?
+            {
                 byzantine_assert!(false);
                 return Err(ErrorKind::InvalidChunk.into());
             }
@@ -1557,9 +1559,8 @@ impl Chain {
             let prev_hash = queue[queue_idx];
             // check within the descendents of `prev_hash` to see if there are orphans there that
             // are ready to request missing chunks for
-            let orphans_to_check = self
-                .orphans
-                .get_orphans_within_depth(prev_hash, NUM_ORPHAN_ANCESTORS_CHECK);
+            let orphans_to_check =
+                self.orphans.get_orphans_within_depth(prev_hash, NUM_ORPHAN_ANCESTORS_CHECK);
             for orphan_hash in orphans_to_check {
                 let orphan = self.orphans.get(&orphan_hash).unwrap().block.clone();
                 if let Some(orphan_missing_chunks) =
@@ -2567,9 +2568,7 @@ impl Chain {
                         .get_block_merkle_tree_from_ordinal(cur_tree_size)?
                         .get_path()
                         .last()
-                        .ok_or_else(|| {
-                            ErrorKind::Other("Merkle tree node missing".to_string())
-                        })?,
+                        .ok_or_else(|| ErrorKind::Other("Merkle tree node missing".to_string()))?,
                 )
             };
             tree_nodes.insert((index, level), maybe_hash);
@@ -3365,11 +3364,7 @@ impl<'a> ChainUpdate<'a> {
         apply_results: Vec<Result<ApplyChunkResult, Error>>,
     ) -> Result<(), Error> {
         apply_results.into_iter().try_for_each(|result| -> Result<(), Error> {
-            self.process_apply_chunk_result(
-                result?,
-                *block.hash(),
-                *prev_block.hash(),
-            )
+            self.process_apply_chunk_result(result?, *block.hash(), *prev_block.hash())
         })
     }
 

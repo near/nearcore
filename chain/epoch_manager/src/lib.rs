@@ -207,7 +207,8 @@ impl EpochManager {
                 continue;
             }
             let block_stats = block_validator_tracker
-                .get(&(i as u64)).unwrap_or(&ValidatorStats { expected: 0, produced: 0 });
+                .get(&(i as u64))
+                .unwrap_or(&ValidatorStats { expected: 0, produced: 0 });
             // Note, validator_kickout_threshold is 0..100, so we use * 100 to keep this in integer space.
             if block_stats.produced * 100
                 < u64::from(block_producer_kickout_threshold) * block_stats.expected
@@ -975,8 +976,7 @@ impl EpochManager {
         let mut validator_to_shard = (0..cur_epoch_info.validators_len())
             .map(|_| HashSet::default())
             .collect::<Vec<HashSet<ShardId>>>();
-        for (shard_id, validators) in
-            cur_epoch_info.chunk_producers_settlement().iter().enumerate()
+        for (shard_id, validators) in cur_epoch_info.chunk_producers_settlement().iter().enumerate()
         {
             for validator_id in validators {
                 validator_to_shard[*validator_id as usize].insert(shard_id as ShardId);
@@ -1029,7 +1029,8 @@ impl EpochManager {
                     .map(|(validator_id, info)| {
                         let validator_stats = aggregator
                             .block_tracker
-                            .get(&(validator_id as u64)).unwrap_or(&ValidatorStats { produced: 0, expected: 0 })
+                            .get(&(validator_id as u64))
+                            .unwrap_or(&ValidatorStats { produced: 0, expected: 0 })
                             .clone();
                         let mut shards = validator_to_shard[validator_id]
                             .clone()
@@ -1502,7 +1503,8 @@ mod tests2 {
                 self.get_and_update_epoch_info_aggregator(epoch_id, last_known_block_hash, true)?;
             Ok(aggregator
                 .block_tracker
-                .get(&validator_id).unwrap_or(&ValidatorStats { produced: 0, expected: 0 })
+                .get(&validator_id)
+                .unwrap_or(&ValidatorStats { produced: 0, expected: 0 })
                 .clone())
         }
     }
@@ -1816,7 +1818,6 @@ mod tests2 {
                 test2_expected_blocks += 1;
             } else if block_producer.account_id().as_ref() == "test1" && epoch_id != init_epoch_id {
                 // test1 skips its blocks in subsequent epochs
-                
             } else {
                 record_block(&mut epoch_manager, prev_block, *curr_block, height, vec![]);
                 prev_block = *curr_block;
@@ -3549,7 +3550,6 @@ mod tests2 {
             } else if height < 5 * EPOCH_LENGTH {
                 // no one produces blocks during epochs 3, 4, 5
                 // (but only 2 get kicked out because we can't kickout all)
-                
             } else if height < 6 * EPOCH_LENGTH {
                 // produce blocks normally during epoch 6
                 record_block(&mut epoch_manager, prev_block, *curr_block, height, Vec::new());

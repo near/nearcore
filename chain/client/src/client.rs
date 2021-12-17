@@ -213,12 +213,14 @@ impl Client {
     pub fn remove_transactions_for_block(&mut self, me: AccountId, block: &Block) {
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_id as ShardId;
-            if block.header().height() == chunk_header.height_included() && self.shards_mgr.cares_about_shard_this_or_next_epoch(
+            if block.header().height() == chunk_header.height_included()
+                && self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
                     block.header().prev_hash(),
                     shard_id,
                     true,
-                ) {
+                )
+            {
                 self.shards_mgr.remove_transactions(
                     shard_id,
                     // By now the chunk must be in store, otherwise the block would have been orphaned
@@ -234,12 +236,14 @@ impl Client {
     pub fn reintroduce_transactions_for_block(&mut self, me: AccountId, block: &Block) {
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_id as ShardId;
-            if block.header().height() == chunk_header.height_included() && self.shards_mgr.cares_about_shard_this_or_next_epoch(
+            if block.header().height() == chunk_header.height_included()
+                && self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
                     block.header().prev_hash(),
                     shard_id,
                     false,
-                ) {
+                )
+            {
                 self.shards_mgr.reintroduce_transactions(
                     shard_id,
                     // By now the chunk must be in store, otherwise the block would have been orphaned
@@ -309,7 +313,9 @@ impl Client {
             }
         }
 
-        if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? && !self.chain.prev_block_is_caught_up(prev_prev_hash, prev_hash)? {
+        if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)?
+            && !self.chain.prev_block_is_caught_up(prev_prev_hash, prev_hash)?
+        {
             // Currently state for the chunks we are interested in this epoch
             // are not yet caught up (e.g. still state syncing).
             // We reschedule block production.
@@ -1293,10 +1299,8 @@ impl Client {
                     return;
                 }
             }
-            let mut entry = self
-                .pending_approvals
-                .cache_remove(&approval.inner)
-                .unwrap_or_else(HashMap::new);
+            let mut entry =
+                self.pending_approvals.cache_remove(&approval.inner).unwrap_or_else(HashMap::new);
             entry.insert(approval.account_id.clone(), (approval.clone(), approval_type));
             self.pending_approvals.cache_set(approval.inner.clone(), entry);
         }

@@ -791,10 +791,7 @@ mod tests {
             action_result.result,
             Err(ActionError {
                 index: None,
-                kind: ActionErrorKind::CreateAccountNotAllowed {
-                    account_id,
-                    predecessor_id,
-                },
+                kind: ActionErrorKind::CreateAccountNotAllowed { account_id, predecessor_id },
             })
         );
     }

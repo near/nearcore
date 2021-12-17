@@ -230,9 +230,7 @@ impl SealsManager {
             Some(hashes) if hashes.contains(chunk_hash) => Ok(Seal::Past),
 
             // None | Some(hashes) if !hashes.contains(chunk_hash)
-            _ => self
-                .get_active_seal(chunk_hash, parent_hash, height, shard_id)
-                .map(Seal::Active),
+            _ => self.get_active_seal(chunk_hash, parent_hash, height, shard_id).map(Seal::Active),
         }
     }
 
@@ -1548,7 +1546,9 @@ impl ShardsManager {
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(prev_block_hash)?;
         for shard_id in 0..self.runtime_adapter.num_shards(&epoch_id)? {
             let shard_id = shard_id as ShardId;
-            if !chunk_entry.receipts.contains_key(&shard_id) && self.need_receipt(prev_block_hash, shard_id) {
+            if !chunk_entry.receipts.contains_key(&shard_id)
+                && self.need_receipt(prev_block_hash, shard_id)
+            {
                 return Ok(false);
             }
         }
@@ -1565,7 +1565,9 @@ impl ShardsManager {
     ) -> Result<bool, Error> {
         for part_ord in 0..self.runtime_adapter.num_total_parts() {
             let part_ord = part_ord as u64;
-            if !chunk_entry.parts.contains_key(&part_ord) && self.need_part(prev_block_hash, part_ord)? {
+            if !chunk_entry.parts.contains_key(&part_ord)
+                && self.need_part(prev_block_hash, part_ord)?
+            {
                 return Ok(false);
             }
         }

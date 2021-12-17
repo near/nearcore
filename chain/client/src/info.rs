@@ -240,20 +240,20 @@ fn display_sync_status(
             shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
             for (shard_id, shard_status) in shard_statuses {
                 res += format!(
-                        "[{}: {}]",
-                        shard_id,
-                        match shard_status.status {
-                            ShardSyncStatus::StateDownloadHeader => "header".to_string(),
-                            ShardSyncStatus::StateDownloadParts => "parts".to_string(),
-                            ShardSyncStatus::StateDownloadScheduling => "scheduling".to_string(),
-                            ShardSyncStatus::StateDownloadApplying => "applying".to_string(),
-                            ShardSyncStatus::StateDownloadComplete => "download complete".to_string(),
-                            ShardSyncStatus::StateSplitScheduling => "split scheduling".to_string(),
-                            ShardSyncStatus::StateSplitApplying => "split applying".to_string(),
-                            ShardSyncStatus::StateSyncDone => "done".to_string(),
-                        }
-                    )
-                    .as_str();
+                    "[{}: {}]",
+                    shard_id,
+                    match shard_status.status {
+                        ShardSyncStatus::StateDownloadHeader => "header".to_string(),
+                        ShardSyncStatus::StateDownloadParts => "parts".to_string(),
+                        ShardSyncStatus::StateDownloadScheduling => "scheduling".to_string(),
+                        ShardSyncStatus::StateDownloadApplying => "applying".to_string(),
+                        ShardSyncStatus::StateDownloadComplete => "download complete".to_string(),
+                        ShardSyncStatus::StateSplitScheduling => "split scheduling".to_string(),
+                        ShardSyncStatus::StateSplitApplying => "split applying".to_string(),
+                        ShardSyncStatus::StateSyncDone => "done".to_string(),
+                    }
+                )
+                .as_str();
             }
             res
         }

@@ -455,8 +455,11 @@ impl BlockSync {
         }
 
         // Don't run State Sync if header head is not more than one epoch ahead.
-        if head.epoch_id != header_head.epoch_id && head.next_epoch_id != header_head.epoch_id && head.height < header_head.height.saturating_sub(self.block_fetch_horizon)
-                && !self.archive {
+        if head.epoch_id != header_head.epoch_id
+            && head.next_epoch_id != header_head.epoch_id
+            && head.height < header_head.height.saturating_sub(self.block_fetch_horizon)
+            && !self.archive
+        {
             // Epochs are different and we are too far from horizon, State Sync is needed
             return Ok(true);
         }

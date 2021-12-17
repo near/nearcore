@@ -372,7 +372,7 @@ impl NightshadeRuntime {
             if has_records {
                 warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
             }
-            
+
             Self::genesis_state_from_dump(store, home_dir)
         } else {
             Self::genesis_state_from_records(store, genesis)
@@ -1756,9 +1756,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             false
         } else {
             match Trie::get_memory_usage_from_serialized(&state_root_node.data) {
-                Ok(memory_usage) => {
-                    memory_usage == state_root_node.memory_usage
-                }
+                Ok(memory_usage) => memory_usage == state_root_node.memory_usage,
                 Err(_) => false, // Invalid state_root_node
             }
         }

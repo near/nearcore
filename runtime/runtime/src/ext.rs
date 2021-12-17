@@ -214,7 +214,8 @@ impl<'a> External for RuntimeExt<'a> {
         for receipt_index in receipt_indices {
             let data_id = self.new_data_id();
             self.action_receipts
-                .get_mut(receipt_index as usize).ok_or(HostError::InvalidReceiptIndex { receipt_index })?
+                .get_mut(receipt_index as usize)
+                .ok_or(HostError::InvalidReceiptIndex { receipt_index })?
                 .1
                 .output_data_receivers
                 .push(DataReceiver { data_id, receiver_id: receiver_id.clone() });

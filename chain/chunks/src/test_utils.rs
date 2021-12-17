@@ -179,7 +179,6 @@ impl Default for ChunkForwardingTestFixture {
                 if *v == &mock_chunk_producer {
                     false
                 } else {
-                    
                     mock_runtime.cares_about_shard(
                         Some(*v),
                         &mock_parent_hash,

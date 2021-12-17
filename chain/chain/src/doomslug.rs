@@ -516,7 +516,9 @@ impl Doomslug {
             .or_insert_with(DoomslugApprovalsTrackersAtHeight::new)
             .process_approval(now, approval, stakes, threshold_mode);
 
-        if ret != DoomslugBlockProductionReadiness::NotReady && approval.target_height > self.largest_threshold_height {
+        if ret != DoomslugBlockProductionReadiness::NotReady
+            && approval.target_height > self.largest_threshold_height
+        {
             self.largest_threshold_height = approval.target_height;
         }
 

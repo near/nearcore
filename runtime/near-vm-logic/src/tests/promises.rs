@@ -3,7 +3,6 @@ use crate::tests::helpers::*;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::types::PromiseResult;
 
-
 #[test]
 fn test_promise_results() {
     let mut promise_results = vec![];

@@ -192,9 +192,7 @@ impl EncodedChunksCache {
         &mut self,
         prev_block_hash: &CryptoHash,
     ) -> HashMap<ShardId, ShardChunkHeader> {
-        self.block_hash_to_chunk_headers
-            .cache_remove(prev_block_hash)
-            .unwrap_or_else(HashMap::new)
+        self.block_hash_to_chunk_headers.cache_remove(prev_block_hash).unwrap_or_else(HashMap::new)
     }
 
     /// Returns number of chunks that are ready to be included in the next block

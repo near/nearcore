@@ -1007,7 +1007,8 @@ impl Runtime {
                     account.set_locked(
                         account
                             .locked()
-                            .checked_add(*reward).ok_or(RuntimeError::UnexpectedIntegerOverflow)?,
+                            .checked_add(*reward)
+                            .ok_or(RuntimeError::UnexpectedIntegerOverflow)?,
                     );
                 }
 
@@ -1026,17 +1027,20 @@ impl Runtime {
                     *validator_accounts_update.last_proposals.get(account_id).unwrap_or(&0);
                 let return_stake = account
                     .locked()
-                    .checked_sub(max(*max_of_stakes, last_proposal)).ok_or(RuntimeError::UnexpectedIntegerOverflow)?;
+                    .checked_sub(max(*max_of_stakes, last_proposal))
+                    .ok_or(RuntimeError::UnexpectedIntegerOverflow)?;
                 debug!(target: "runtime", "account {} return stake {}", account_id, return_stake);
                 account.set_locked(
                     account
                         .locked()
-                        .checked_sub(return_stake).ok_or(RuntimeError::UnexpectedIntegerOverflow)?,
+                        .checked_sub(return_stake)
+                        .ok_or(RuntimeError::UnexpectedIntegerOverflow)?,
                 );
                 account.set_amount(
                     account
                         .amount()
-                        .checked_add(return_stake).ok_or(RuntimeError::UnexpectedIntegerOverflow)?,
+                        .checked_add(return_stake)
+                        .ok_or(RuntimeError::UnexpectedIntegerOverflow)?,
                 );
 
                 set_account(state_update, account_id.clone(), &account);
@@ -1062,11 +1066,13 @@ impl Runtime {
                 }
                 stats.slashed_burnt_amount = stats
                     .slashed_burnt_amount
-                    .checked_add(amount_to_slash).ok_or(RuntimeError::UnexpectedIntegerOverflow)?;
+                    .checked_add(amount_to_slash)
+                    .ok_or(RuntimeError::UnexpectedIntegerOverflow)?;
                 account.set_locked(
                     account
                         .locked()
-                        .checked_sub(amount_to_slash).ok_or(RuntimeError::UnexpectedIntegerOverflow)?,
+                        .checked_sub(amount_to_slash)
+                        .ok_or(RuntimeError::UnexpectedIntegerOverflow)?,
                 );
                 set_account(state_update, account_id.clone(), &account);
             } else {
@@ -1099,7 +1105,8 @@ impl Runtime {
                 account.set_amount(
                     account
                         .amount()
-                        .checked_add(treasury_reward).ok_or(RuntimeError::UnexpectedIntegerOverflow)?,
+                        .checked_add(treasury_reward)
+                        .ok_or(RuntimeError::UnexpectedIntegerOverflow)?,
                 );
                 set_account(state_update, account_id.clone(), &account);
             }

@@ -110,9 +110,7 @@ pub trait ChainStoreAccess {
     ) -> Result<ShardChunk, Error> {
         let shard_chunk_result = self.get_chunk(&header.chunk_hash());
         match shard_chunk_result {
-            Err(_) => {
-                Err(ErrorKind::ChunksMissing(vec![header.clone()]).into())
-            }
+            Err(_) => Err(ErrorKind::ChunksMissing(vec![header.clone()]).into()),
             Ok(shard_chunk) => {
                 byzantine_assert!(header.height_included() > 0 || header.height_created() == 0);
                 if header.height_included() == 0 && header.height_created() > 0 {
@@ -549,7 +547,10 @@ impl ChainStore {
         &self,
         id: &CryptoHash,
     ) -> Result<Vec<ExecutionOutcomeWithIdAndProof>, Error> {
-        Ok(self.store.get_ser(ColTransactionResult, id.as_ref())?.unwrap_or_else(std::vec::Vec::new))
+        Ok(self
+            .store
+            .get_ser(ColTransactionResult, id.as_ref())?
+            .unwrap_or_else(std::vec::Vec::new))
     }
 
     /// Returns a vector of Outcome ids for given block and shard id
@@ -1013,13 +1014,14 @@ impl ChainStoreAccess for ChainStore {
     }
 
     fn get_blocks_to_catchup(&self, hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {
-        Ok(self.store.get_ser(ColBlocksToCatchup, hash.as_ref())?.unwrap_or_else(std::vec::Vec::new))
+        Ok(self
+            .store
+            .get_ser(ColBlocksToCatchup, hash.as_ref())?
+            .unwrap_or_else(std::vec::Vec::new))
     }
 
     fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error> {
-        return Ok(self
-            .store
-            .get_ser(ColChallengedBlocks, hash.as_ref())?.unwrap_or(false));
+        return Ok(self.store.get_ser(ColChallengedBlocks, hash.as_ref())?.unwrap_or(false));
     }
 
     fn is_invalid_chunk(
@@ -2251,9 +2253,10 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn gc_outgoing_receipts(&mut self, block_hash: &CryptoHash, shard_id: ShardId) {
         let mut store_update = self.store().store_update();
-        match self.get_outgoing_receipts(block_hash, shard_id).map(|receipts| {
-            receipts.iter().map(|receipt| receipt.receipt_id).collect::<Vec<_>>()
-        }) {
+        match self
+            .get_outgoing_receipts(block_hash, shard_id)
+            .map(|receipts| receipts.iter().map(|receipt| receipt.receipt_id).collect::<Vec<_>>())
+        {
             Ok(receipt_ids) => {
                 for receipt_id in receipt_ids {
                     let key: Vec<u8> = receipt_id.into();
@@ -2483,9 +2486,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     Ok(m) => m.clone(),
                     Err(_) => HashMap::new(),
                 };
-            map.entry(block.header().epoch_id().clone())
-                .or_insert_with(HashSet::new)
-                .insert(*hash);
+            map.entry(block.header().epoch_id().clone()).or_insert_with(HashSet::new).insert(*hash);
             store_update.set_ser(
                 ColBlockPerHeight,
                 &index_to_bytes(block.header().height()),
