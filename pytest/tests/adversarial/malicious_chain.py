@@ -26,8 +26,7 @@ logger.info(f'Waiting for {BLOCKS} blocks...')
 height, _ = utils.wait_for_blocks(nodes[1], target=BLOCKS, timeout=TIMEOUT)
 logger.info(f'Got to {height} blocks, getting to fun stuff')
 
-status = nodes[1].get_status()
-logger.info(status)
+nodes[1].get_status(verbose=True)
 
 tracker0 = utils.LogTracker(nodes[0])
 res = nodes[1].json_rpc('adv_produce_blocks',
@@ -36,9 +35,8 @@ assert 'result' in res, res
 logger.info("Generated %s malicious blocks" % MALICIOUS_BLOCKS)
 
 time.sleep(10)
-status = nodes[0].get_status()
-logger.info(status)
-height = status['sync_info']['latest_block_height']
+
+height = nodes[0].get_latest_block(verbose=True).height
 
 assert height < 40
 

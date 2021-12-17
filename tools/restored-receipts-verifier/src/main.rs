@@ -149,7 +149,7 @@ mod tests {
         assert_eq!(receipt_hashes_not_verified, vec![extra_hash]);
         assert!(receipt_hashes_still_missing.is_empty());
 
-        let mut receipt_hashes_missing = receipt_hashes_in_repo.clone();
+        let mut receipt_hashes_missing = receipt_hashes_in_repo;
         receipt_hashes_missing.push(CryptoHash::default());
         let (receipt_hashes_not_verified, receipt_hashes_still_missing) =
             get_differences_with_hashes_from_repo(receipt_hashes_missing);

@@ -1871,11 +1871,11 @@ mod tests2 {
             stake("test2".parse().unwrap(), amount_staked),
         ];
         let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
+            store,
+            config,
             PROTOCOL_VERSION,
             default_reward_calculator(),
-            validators.clone(),
+            validators,
         )
         .unwrap();
         let h = hash_range(8);
@@ -1941,11 +1941,11 @@ mod tests2 {
             stake("test2".parse().unwrap(), amount_staked),
         ];
         let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
+            store,
+            config,
             PROTOCOL_VERSION,
             default_reward_calculator(),
-            validators.clone(),
+            validators,
         )
         .unwrap();
 
@@ -2013,11 +2013,11 @@ mod tests2 {
             stake("test2".parse().unwrap(), amount_staked),
         ];
         let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
+            store,
+            config,
             PROTOCOL_VERSION,
             default_reward_calculator(),
-            validators.clone(),
+            validators,
         )
         .unwrap();
 
@@ -3687,14 +3687,8 @@ mod tests2 {
             stake("test1".parse().unwrap(), amount_staked),
             stake("test2".parse().unwrap(), amount_staked),
         ];
-        let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
-            0,
-            default_reward_calculator(),
-            validators.clone(),
-        )
-        .unwrap();
+        let mut epoch_manager =
+            EpochManager::new(store, config, 0, default_reward_calculator(), validators).unwrap();
         let h = hash_range(8);
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
         let mut block_info1 =
@@ -3733,11 +3727,11 @@ mod tests2 {
         ];
         let new_protocol_version = SimpleNightshade.protocol_version();
         let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
+            store,
+            config,
             new_protocol_version - 1,
             default_reward_calculator(),
-            validators.clone(),
+            validators,
         )
         .unwrap();
         let h = hash_range(8);
@@ -3824,14 +3818,8 @@ mod tests2 {
             stake("test1".parse().unwrap(), amount_staked),
             stake("test2".parse().unwrap(), amount_staked / 5),
         ];
-        let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
-            0,
-            default_reward_calculator(),
-            validators.clone(),
-        )
-        .unwrap();
+        let mut epoch_manager =
+            EpochManager::new(store, config, 0, default_reward_calculator(), validators).unwrap();
         let h = hash_range(50);
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
         let mut block_info1 =
@@ -3862,11 +3850,11 @@ mod tests2 {
             stake("test2".parse().unwrap(), amount_staked),
         ];
         let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
+            store,
+            config,
             UPGRADABILITY_FIX_PROTOCOL_VERSION,
             default_reward_calculator(),
-            validators.clone(),
+            validators,
         )
         .unwrap();
         let h = hash_range(5 * epoch_length);

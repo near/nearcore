@@ -143,12 +143,11 @@ impl ClientActor {
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
-        let runtime_adapter_clone = Arc::clone(&runtime_adapter);
         let sync_jobs_actor_addr = SyncJobsActor::start_in_arbiter(
             &state_parts_arbiter.handle(),
             move |ctx: &mut Context<SyncJobsActor>| -> SyncJobsActor {
                 ctx.set_mailbox_capacity(SyncJobsActor::MAILBOX_CAPACITY);
-                SyncJobsActor { runtime: runtime_adapter_clone, client_addr: self_addr }
+                SyncJobsActor { client_addr: self_addr }
             },
         );
         wait_until_genesis(&chain_genesis.time);
@@ -1521,7 +1520,6 @@ impl Drop for ClientActor {
 }
 
 struct SyncJobsActor {
-    runtime: Arc<dyn RuntimeAdapter>,
     client_addr: Addr<ClientActor>,
 }
 
@@ -1532,13 +1530,13 @@ impl SyncJobsActor {
         &mut self,
         msg: &ApplyStatePartsRequest,
     ) -> Result<(), near_chain_primitives::error::Error> {
-        let store = self.runtime.get_store();
+        let store = msg.runtime.get_store();
 
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
             let part = store.get(ColStateParts, &key)?.unwrap();
 
-            self.runtime.apply_state_part(
+            msg.runtime.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
                 part_id,
@@ -1621,7 +1619,7 @@ impl Handler<StateSplitRequest> for SyncJobsActor {
     type Result = ();
 
     fn handle(&mut self, msg: StateSplitRequest, _: &mut Self::Context) -> Self::Result {
-        let results = self.runtime.build_state_for_split_shards(
+        let results = msg.runtime.build_state_for_split_shards(
             msg.shard_uid,
             &msg.state_root,
             &msg.next_epoch_shard_layout,

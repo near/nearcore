@@ -299,8 +299,7 @@ impl NightshadeRuntime {
             }
         });
         assert!(has_protocol_account, "Genesis spec doesn't have protocol treasury account");
-        let tries =
-            ShardTries::new(store.clone(), genesis.config.shard_layout.version(), num_shards);
+        let tries = ShardTries::new(store, genesis.config.shard_layout.version(), num_shards);
         let runtime = Runtime::new();
         let runtime_config_store =
             NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id);
@@ -647,7 +646,7 @@ fn apply_delayed_receipts<'a>(
     let orig_trie_update = tries.new_trie_update_view(orig_shard_uid.clone(), orig_state_root);
 
     let mut start_index = None;
-    let mut new_state_roots = state_roots.clone();
+    let mut new_state_roots = state_roots;
     while let Some((next_index, receipts)) =
         get_delayed_receipts(&orig_trie_update, start_index, STATE_PART_MEMORY_LIMIT)?
     {
@@ -1693,7 +1692,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             let trie_items = trie.get_trie_items_for_part(part_id, num_parts, state_root)?;
             let (store_update, new_state_roots) = self.tries.add_values_to_split_states(
                 &state_roots,
-                trie_items.into_iter().map(|(key, value)| (key, Some(value.clone()))).collect(),
+                trie_items.into_iter().map(|(key, value)| (key, Some(value))).collect(),
                 &checked_account_id_to_shard_id,
             )?;
             state_roots = new_state_roots;
@@ -2637,7 +2636,7 @@ mod test {
             env.runtime.obtain_state_part(0, &block_hash, &env.state_roots[0], 0, 1).unwrap();
         let root_node =
             env.runtime.get_state_root_node(0, &block_hash, &env.state_roots[0]).unwrap();
-        let mut new_env = TestEnv::new("test_state_sync", vec![validators.clone()], 2, false);
+        let mut new_env = TestEnv::new("test_state_sync", vec![validators], 2, false);
         for i in 1..=2 {
             let prev_hash = hash(&[new_env.head.height as u8]);
             let cur_hash = hash(&[(new_env.head.height + 1) as u8]);
@@ -2678,7 +2677,7 @@ mod test {
             new_env.time += 10u64.pow(9);
         }
         assert!(new_env.runtime.validate_state_root_node(&root_node, &env.state_roots[0]));
-        let mut root_node_wrong = root_node.clone();
+        let mut root_node_wrong = root_node;
         root_node_wrong.memory_usage += 1;
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
         root_node_wrong.data = vec![123];
@@ -2798,7 +2797,7 @@ mod test {
             response,
             EpochValidatorInfo {
                 current_validators: current_epoch_validator_info.clone(),
-                next_validators: next_epoch_validator_info.clone(),
+                next_validators: next_epoch_validator_info,
                 current_fishermen: vec![],
                 next_fishermen: vec![],
                 current_proposals: vec![ValidatorStake::new(
@@ -3124,7 +3123,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new("test_challenges", vec![validators.clone()], 5, false);
+        let mut env = TestEnv::new("test_challenges", vec![validators], 5, false);
         env.step(
             vec![vec![]],
             vec![true],
