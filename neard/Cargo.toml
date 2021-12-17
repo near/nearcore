@@ -12,10 +12,6 @@ default-run = "neard"
 path = "src/main.rs"
 name = "neard"
 
-[[bin]]
-path = "src/../src/main.rs"
-name = "near"
-
 [dependencies]
 clap = "=3.0.0-beta.2"
 actix = "=0.11.0-beta.2"
