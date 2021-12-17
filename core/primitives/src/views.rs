@@ -535,10 +535,7 @@ impl From<BlockHeaderView> for BlockHeader {
                         .collect(),
                     chunk_mask: view.chunk_mask,
                     gas_price: view.gas_price,
-                    block_ordinal: match view.block_ordinal {
-                        Some(value) => value,
-                        None => 0,
-                    },
+                    block_ordinal: view.block_ordinal.unwrap_or(0),
                     total_supply: view.total_supply,
                     challenges_result: view.challenges_result,
                     last_final_block: view.last_final_block,
