@@ -838,11 +838,13 @@ pub fn init_configs(
         .unwrap_or_else(random_chain_id);
 
     if let Some(url) = download_config_url {
-        download_config(&url.to_string(), &dir.join(CONFIG_FILENAME));
+        download_config(&url.to_string(), &dir.join(CONFIG_FILENAME))
+            .context("Failed to download the config file")?;
         config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     } else if should_download_config {
         let url = get_config_url(&chain_id);
-        download_config(&url, &dir.join(CONFIG_FILENAME));
+        download_config(&url, &dir.join(CONFIG_FILENAME))
+            .context("Failed to download the config file")?;
         config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     }
 
@@ -893,18 +895,23 @@ pub fn init_configs(
                 genesis_path.to_str().with_context(|| "Genesis path must be initialized")?;
 
             if let Some(url) = download_genesis_url {
-                download_genesis(&url.to_string(), &genesis_path);
+                download_genesis(&url.to_string(), &genesis_path)
+                    .context("Failed to download the genesis file")?;
             } else if should_download_genesis {
                 let url = get_genesis_url(&chain_id);
-                download_genesis(&url, &genesis_path);
+                download_genesis(&url, &genesis_path)
+                    .context("Failed to download the genesis file")?;
             } else {
-                genesis_path_str = genesis.unwrap_or_else(|| {
-                    panic!(
-                        "Genesis file is required for {}.\
-                         Use <--genesis|--download-genesis>",
-                        &chain_id
-                    );
-                });
+                genesis_path_str = match genesis {
+                    Some(g) => g,
+                    None => {
+                        bail!(
+                            "Genesis file is required for {}.\
+                             Use <--genesis|--download-genesis>",
+                            &chain_id
+                        );
+                    }
+                };
             }
 
             let mut genesis = Genesis::from_file(&genesis_path_str);
@@ -1165,16 +1172,22 @@ pub fn download_file(url: &str, path: &Path) -> anyhow::Result<(), FileDownloadE
     })
 }
 
-pub fn download_genesis(url: &str, path: &Path) {
+pub fn download_genesis(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     info!(target: "near", "Downloading genesis file from: {} ...", url);
-    download_file(url, path).expect("Failed to download the genesis file");
-    info!(target: "near", "Saved the genesis file to: {} ...", path.display());
+    let result = download_file(url, path);
+    if result.is_ok() {
+        info!(target: "near", "Saved the genesis file to: {} ...", path.display());
+    }
+    result
 }
 
-pub fn download_config(url: &str, path: &Path) {
+pub fn download_config(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     info!(target: "near", "Downloading config file from: {} ...", url);
-    download_file(url, path).expect("Failed to download the configuration file");
-    info!(target: "near", "Saved the config file to: {} ...", path.display());
+    let result = download_file(url, path);
+    if result.is_ok() {
+        info!(target: "near", "Saved the config file to: {} ...", path.display());
+    }
+    result
 }
 
 #[derive(Deserialize)]
