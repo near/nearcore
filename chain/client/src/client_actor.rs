@@ -113,8 +113,8 @@ pub struct PartId {
     pub total: u64,
 }
 impl PartId {
-    pub fn new(part_id: u64, num_parts: u64) -> Result<PartId, Err> {
-        assert!(part_id.idx < part_id.total);
+    pub fn new(part_id: u64, num_parts: u64) -> PartId {
+        assert!(part_id < num_parts);
         PartId { idx: part_id, total: num_parts }
     }
 }

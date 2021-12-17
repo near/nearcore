@@ -21,7 +21,7 @@ pub struct PartId {
 }
 impl PartId {
     pub fn new(part_id: u64, num_parts: u64) -> PartId {
-        assert!(part_id.idx < part_id.total);
+        assert!(part_id < num_parts);
         PartId { idx: part_id, total: num_parts }
     }
 }
