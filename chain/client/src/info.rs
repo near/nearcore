@@ -235,7 +235,7 @@ fn display_sync_status(
             )
         }
         SyncStatus::StateSync(sync_hash, shard_statuses) => {
-            let mut res = format!("State {:?}", sync_hash).to_string();
+            let mut res = format!("State {:?}", sync_hash);
             let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
             shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
             for (shard_id, shard_status) in shard_statuses {
