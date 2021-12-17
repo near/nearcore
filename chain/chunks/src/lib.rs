@@ -59,11 +59,14 @@ use rand::Rng;
 // **How chunks are propagated in the network
 // Instead sending the full chunk, chunk content is communicated between nodes through
 // PartialEncodedChunk, which includes the chunk header, some parts and receipts of the chunk.
-// Full chunk can be reconstructed if a node receipts enough chunk parts.
+// Full chunk can be reconstructed if a node receives enough chunk parts.
 // A node receives partial encoded chunks in three ways,
-// - by requesting for it and receive a PartialEncodedChunkResponse,
+// - by requesting it and receiving a PartialEncodedChunkResponse,
 // - by receiving a PartialEncodedChunk, which is sent from the original chunk producer to the part owners
-// - by receiving a PartialEncodedChunkForward, which is sent from part owners to validators.
+//   after the chunk is produced
+// - by receiving a PartialEncodedChunkForward, which is sent from part owners to validators who
+//   track the shard, when a validator first receives a part it owns.
+//   TODO: this is actually not the current behavior. https://github.com/near/nearcore/issues/5886
 // Note that last two messages are only be sent from validators to validators, so the only way a
 // non-validator receives a partial encoded chunk is by requesting for it.
 //
@@ -90,9 +93,9 @@ use rand::Rng;
 // ** Forwarding chunks
 // To save messages and time for chunks to propagate among validators, we implemented a feature
 // called ForwardChunkParts. When a validator receives a part it owns, it forwards the part to
-// other validators who track the shard through a PartialEncodedChunkForward message. This saves
-// the number of requests validators need to send to get all parts they need. A forwarded part
-// can only be processed after the node has the corresponding chunk header, either from blocks
+// other validators who are assigned to track the shard through a PartialEncodedChunkForward message.
+// This saves the number of requests validators need to send to get all parts they need. A forwarded
+// part can only be processed after the node has the corresponding chunk header, either from blocks
 // or partial chunk requests. Before that, they are temporarily stored in `chunk_forwards_cache`.
 // After that, they are processed as a PartialEncodedChunk message only containing one part.
 //
@@ -754,7 +757,7 @@ impl ShardsManager {
             return;
         }
 
-        self.encoded_chunks.try_insert(chunk_hash.clone(), chunk_header.clone());
+        self.encoded_chunks.try_insert(chunk_hash.clone(), &chunk_header);
 
         let prev_block_hash = chunk_header.prev_block_hash();
         self.requested_partial_encoded_chunks.insert(
@@ -1388,9 +1391,6 @@ impl ShardsManager {
         let chunk_hash = header.chunk_hash();
         // Verify the partial encoded chunk is valid and worth processing
         // 1.a Leave if we received known chunk
-        // Note that we have to still process the chunk even if all parts and receipts included
-        // in `partial_encoded_chunk` are already in `encoded_chunks`. This is because
-        // `try_process_full_chunk` can only succ
         if let Some(entry) = self.encoded_chunks.get(&chunk_hash) {
             if entry.complete {
                 return Ok(ProcessPartialEncodedChunkResult::Known);
@@ -1401,7 +1401,7 @@ impl ShardsManager {
         let chunk_requested = self.requested_partial_encoded_chunks.contains_key(&chunk_hash);
         if !chunk_requested {
             if !self.encoded_chunks.height_within_horizon(header.height_created()) {
-                return Ok(ProcessPartialEncodedChunkResult::Known);
+                return Err(Error::ChainError(ErrorKind::InvalidChunkHeight.into()));
             }
             // We shouldn't process unrequested chunk if we have seen one with same (height_created + shard_id)
             if let Ok(hash) = chain_store
@@ -1420,6 +1420,8 @@ impl ShardsManager {
             .validate_with(|pec| self.validate_chunk_header(chain_head, &pec.header).map(|()| true))
         {
             Err(Error::ChainError(chain_error)) => match chain_error.kind() {
+                // validate_chunk_header returns DBNotFoundError if the previous block is not ready
+                // in this case, we return NeedBlock instead of error
                 ErrorKind::DBNotFoundErr(_) => {
                     return Ok(ProcessPartialEncodedChunkResult::NeedBlock)
                 }
@@ -1434,12 +1436,16 @@ impl ShardsManager {
         let num_total_parts = self.runtime_adapter.num_total_parts();
         for part_info in partial_encoded_chunk.parts.iter() {
             // TODO: only validate parts we care about
+            // https://github.com/near/nearcore/issues/5885
             self.validate_part(header.encoded_merkle_root(), part_info, num_total_parts)?;
         }
 
         // 1.e Checking receipts validity
         for proof in partial_encoded_chunk.receipts.iter() {
             // TODO: only validate receipts we care about
+            // https://github.com/near/nearcore/issues/5885
+            // we can't simply use prev_block_hash to check if the node tracks this shard or not
+            // because prev_block_hash may not be ready
             let shard_id = proof.1.to_shard_id;
             let ReceiptProof(shard_receipts, receipt_proof) = proof;
             let receipt_hash = hash(&ReceiptList(shard_id, shard_receipts).try_to_vec().unwrap());
@@ -1476,6 +1482,8 @@ impl ShardsManager {
                 // Make sure we mark this chunk as being requested so that it is handled
                 // properly in the next call. Note no requests are actually sent at this point.
                 self.request_chunk_single_mark_only(header);
+                // Call process_partial_encoded_chunk recursively, "simulating" as that forwarded
+                // part is just received from the network
                 return self.process_partial_encoded_chunk(
                     // We can assert the signature on the header is valid because
                     // it would have been checked in an earlier call to this function.
@@ -1937,6 +1945,7 @@ impl ShardsManager {
         self.encoded_chunks.merge_in_partial_encoded_chunk(&partial_chunk);
 
         // Save the partial chunk for data availability
+        // the unwrap is save because `merge_in_partial_encoded_chunk` just added the chunk
         let cache_entry = self.encoded_chunks.get(&partial_chunk.header.chunk_hash()).unwrap();
         self.persist_partial_chunk_for_data_availability(cache_entry, store_update);
 
