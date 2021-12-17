@@ -174,12 +174,12 @@ fn store_partial_encoded_chunk_sanity() {
     assert_eq!(partial_encoded_chunks[&0], vec![partial_encoded_chunk.clone()]);
     assert_eq!(
         partial_encoded_chunks[&173465755],
-        vec![partial_encoded_chunk2.clone(), partial_encoded_chunk3.clone()]
+        vec![partial_encoded_chunk2, partial_encoded_chunk3]
     );
 
     // Check horizon
     env.produce_block(0, 3);
-    let mut partial_encoded_chunk3 = partial_encoded_chunk.clone();
+    let mut partial_encoded_chunk3 = partial_encoded_chunk;
     let mut h = ShardChunkHeader::V2(ShardChunkHeaderV2::new(
         CryptoHash::default(),
         CryptoHash::default(),
@@ -208,9 +208,7 @@ fn store_partial_encoded_chunk_sanity() {
         .store_partial_encoded_chunk(block.header(), partial_encoded_chunk3.clone());
     assert_eq!(env.clients[0].shards_mgr.pop_stored_partial_encoded_chunks(9).len(), 0);
     h = update_chunk_height_created(h, 5);
-    partial_encoded_chunk3.header = h.clone();
-    env.clients[0]
-        .shards_mgr
-        .store_partial_encoded_chunk(block.header(), partial_encoded_chunk3.clone());
+    partial_encoded_chunk3.header = h;
+    env.clients[0].shards_mgr.store_partial_encoded_chunk(block.header(), partial_encoded_chunk3);
     assert_eq!(env.clients[0].shards_mgr.pop_stored_partial_encoded_chunks(5).len(), 1);
 }

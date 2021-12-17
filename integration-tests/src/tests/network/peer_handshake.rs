@@ -173,7 +173,7 @@ fn peer_recover() {
                         actix::spawn(pm0.send(GetInfo {}).then(move |res| {
                             if let Ok(info) = res {
                                 if info.connected_peers.len() == 1 {
-                                    flag1.clone().store(true, Ordering::Relaxed);
+                                    flag1.store(true, Ordering::Relaxed);
                                 }
                             }
                             future::ready(())

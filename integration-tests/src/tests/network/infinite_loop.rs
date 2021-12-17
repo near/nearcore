@@ -67,7 +67,7 @@ pub fn make_peer_manager(
 
     let net_config = NetworkConfig::from_seed(seed, port);
     let routing_table_addr =
-        start_routing_table_actor(PeerId::new(net_config.public_key.clone()), store.clone());
+        start_routing_table_actor(PeerId::new(net_config.public_key), store.clone());
 
     let peer_id = PeerId::new(config.public_key.clone());
     (
@@ -107,10 +107,10 @@ fn test_infinite_loop() {
             }]),
         };
         let request2 = NetworkRequests::SyncRoutingTable {
-            peer_id: peer_id1.clone(),
+            peer_id: peer_id1,
             routing_table_update: RoutingTableUpdate::from_accounts(vec![AnnounceAccount {
                 account_id: "near".parse().unwrap(),
-                peer_id: peer_id2.clone(),
+                peer_id: peer_id2,
                 epoch_id: Default::default(),
                 signature: Default::default(),
             }]),
