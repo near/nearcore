@@ -123,6 +123,9 @@ struct ConnectedPeer {
     peer_type: PeerType,
     /// A helper data structure for limiting reading, reporting stats.
     throttle_controller: ThrottleController,
+    /// Protocol version of the connected peer. Reserved for future use.
+    #[allow(unused)]
+    protocol_version: ProtocolVersion,
 }
 
 /// Actor that manages peers connections.
@@ -524,7 +527,7 @@ impl PeerManagerActor {
         partial_edge_info: PartialEdgeInfo,
         peer_type: PeerType,
         addr: Addr<PeerActor>,
-        #[allow(unused_variables)] peer_protocol_version: ProtocolVersion,
+        peer_protocol_version: ProtocolVersion,
         throttle_controller: ThrottleController,
         ctx: &mut Context<Self>,
     ) {
@@ -562,6 +565,7 @@ impl PeerManagerActor {
                 connection_established_time: Clock::instant(),
                 peer_type,
                 throttle_controller: throttle_controller.clone(),
+                protocol_version: peer_protocol_version,
             },
         );
 
