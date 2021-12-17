@@ -480,6 +480,7 @@ pub fn migrate_24_to_25(path: &Path) {
 }
 
 /// Fix an issue with block ordinal (#5761)
+// This migration takes at least 3 hours to complete on mainnet
 pub fn migrate_30_to_31(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
