@@ -320,7 +320,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     let chain_genesis = ChainGenesis::from(&config.genesis);
 
     let node_id = PeerId::new(config.network_config.public_key.clone().into());
-    let network_adapter = Arc::new(NetworkRecipient::new());
+    let network_adapter = Arc::new(NetworkRecipient::default());
     #[cfg(feature = "test_features")]
     let adv = Arc::new(std::sync::RwLock::new(AdversarialControls::default()));
 

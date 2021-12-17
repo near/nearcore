@@ -1,2 +1,5 @@
-pytest --skip-build --timeout=2h runtime/fuzz_runtime.py
-pytest --skip-build --timeout=2h runtime/fuzz_wasm_vm.py
+pytest --skip-build --timeout=2h fuzz.py test-utils/runtime-tester/fuzz runtime-fuzzer
+pytest --skip-build --timeout=2h fuzz.py runtime/near-vm-runner/fuzz runner
+pytest --skip-build --timeout=2h fuzz.py core/account-id/fuzz borsh
+pytest --skip-build --timeout=2h fuzz.py core/account-id/fuzz serde
+pytest --skip-build --timeout=2h fuzz.py chain/jsonrpc/fuzz fuzz_target_1

@@ -4,10 +4,20 @@
 
 ### Protocol Changes
 
+* Enable access key nonce range for implicit accounts to prevent tx hash collisions [#5482](https://github.com/near/nearcore/pull/5482)
+
+## `1.23.0` [13-12-2021]
+
+### Protocol Changes
+
 * Further lower regular_op_cost from 2_207_874 to 822_756.
 * Limit number of wasm functions in one contract to 10_000. [#4954](https://github.com/near/nearcore/pull/4954)
 * Add block header v3, required by new validator selection algorithm
 * Move to new validator selection and sampling algorithm. Now we would be able to use all available seats. First step to enable chunk only producers. 
+
+### Non-protocol Changes
+
+* Increase RocksDB cache size to 512 MB for state column to speed up blocks processing [#5212](https://github.com/near/nearcore/pull/5212)
 
 ## `1.22.0` [11-15-2021]
 
