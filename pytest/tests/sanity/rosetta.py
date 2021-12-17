@@ -44,11 +44,118 @@ def trans_identifier(trans_id: TransIdentifier) -> _Dict:
         f'{type(trans_id).__name__} is not a transaction identifier')
 
 
+class RosettaExecResult:
+    _rpc: 'RosettaRPC'
+    _block: BlockIdentifier
+    identifier: typing.Dict[str, str]
+    _data: typing.Optional[typing.Tuple[_Dict, _Dict]] = None
+
+    def __init__(self, rpc: 'RosettaRPC', block: BlockIdentifier,
+                 identifier: typing.Union[_Dict, str]) -> None:
+        self._rpc = rpc
+        self._block = block
+        self.identifier = identifier
+
+    @property
+    def hash(self) -> str:
+        """The Rosetta hash of the transaction identifier.
+
+        This will be a value in ‘<prefix>:<base58-hash>’ format as used in
+        Rosetta RPC where prefix is either ‘tx’ for transactions or ‘receipt’
+        for receipts.
+        """
+        return self.identifier['hash']
+
+    @property
+    def near_hash(self) -> str:
+        """A NEAR transaction hash in base85.
+
+        Compared to `hash` it’s just the `<base58-hash>’ part of the Rosetta
+        identifier which is the NEAR transaction or receipt hash (depending on
+        what comes before the colon).  This can be used to query NEAR through
+        JSON RPC.
+        """
+        return self.identifier['hash'].split(':')[1]
+
+    def block(self) -> _Dict:
+        """Returns the block in which the transaction was executed.
+
+        When this method or `transaction` method is called the first time, it
+        queries the node to find the node which includes the transaction.  The
+        return value is memoised so subsequent calls won’t do the querying.
+
+        Returns:
+            A Rosetta RPC block data object.
+        """
+        return self.__get_transaction()[0]
+
+    def transaction(self) -> _Dict:
+        """Returns the transaction details from Rosetta RPC.
+
+        When this method or `block` method is called the first time, it queries
+        the node to find the node which includes the transaction.  The return
+        value is memoised so subsequent calls won’t do the querying.
+
+        Returns:
+            A Rosetta RPC transaction data object.
+        """
+        return self.__get_transaction()[1]
+
+    def related(self, num: int) -> typing.Optional[_Dict]:
+        """Returns related transaction or None if there aren’t that many.
+
+        The method uses `transaction` method so all comments regarding fetching
+        the data from node apply to it as well.
+
+        Returns:
+            If the transaction has at least `num+1` related transactions returns
+            a new `RosettaExecResult` object which can be used to fetch the
+            transaction.  Otherwise, returns None.
+        """
+        block, transaction = self.__get_transaction()
+        related = transaction.get('related_transactions', ())
+        if len(related) <= num:
+            return None
+        return type(self)(self._rpc, block['block_identifier'],
+                          related[num]['transaction_identifier'])
+
+    def __get_transaction(self) -> typing.Tuple[_Dict, _Dict]:
+        if self._data:
+            return self._data
+        tx_hash = self.hash
+        for _ in range(40):
+            while True:
+                try:
+                    block = self._rpc.get_block(block_id=self._block)
+                except RuntimeError:
+                    block = None
+                if not block:
+                    break
+                for tx in block['transactions']:
+                    if tx['transaction_identifier']['hash'] == tx_hash:
+                        related = ', '.join(
+                            related['transaction_identifier']['hash']
+                            for related in tx.get('related_transactions',
+                                                  ())) or 'none'
+                        logger.info(f'Receipts of {tx_hash}: {related}')
+                        self._data = (block, tx)
+                        return self._data
+                self._block = int(block['block_identifier']['index']) + 1
+            time.sleep(0.25)
+        assert False, f'Transaction {tx_hash} did not complete in 10 seconds'
+
+
 class RosettaRPC:
+    node: cluster.BaseNode
     href: str
     network_identifier: _Dict
 
-    def __init__(self, *, host: str = '127.0.0.1', port: int = 5040) -> None:
+    def __init__(self,
+                 *,
+                 node: cluster.BaseNode,
+                 host: str = '127.0.0.1',
+                 port: int = 5040) -> None:
+        self.node = node
         self.href = f'http://{host}:{port}'
         self.network_identifier = self.get_network_identifier()
 
@@ -70,7 +177,24 @@ class RosettaRPC:
             raise RuntimeError(f'Got error from {path}:\n{json.dumps(data)}')
         return data
 
-    def exec_operations(self, signer: key.Key, *operations) -> str:
+    def _get_latest_block_height(self) -> int:
+        """Returns latest block’s height."""
+        block_hash = self.node.get_status()['sync_info']['latest_block_hash']
+        return self.node.get_block(block_hash)['result']['header']['height']
+
+    def exec_operations(self, signer: key.Key,
+                        *operations) -> RosettaExecResult:
+        """Sends given operations to Construction API.
+
+        Args:
+            signer: Account signing the operations.
+            operations: List of operations to perform.
+        Returns:
+            A RosettaExecResult object which can be used to get hash of the
+            submitted transaction or wait on the transaction completion.
+        """
+        height = self._get_latest_block_height()
+
         public_key = {
             'hex_bytes': signer.decoded_pk().hex(),
             'curve_type': 'edwards25519'
@@ -98,9 +222,10 @@ class RosettaRPC:
         tx = self.rpc('/construction/submit', signed_transaction=signed)
         tx_hash = tx['transaction_identifier']['hash']
         logger.info(f'Transaction hash: {tx_hash}')
-        return tx_hash
+        return RosettaExecResult(self, height, tx['transaction_identifier'])
 
-    def transfer(self, *, src: key.Key, dst: key.Key, amount: int) -> str:
+    def transfer(self, *, src: key.Key, dst: key.Key, amount: int,
+                 **kw) -> RosettaExecResult:
         currency = {'symbol': 'NEAR', 'decimals': 24}
         return self.exec_operations(
             src, {
@@ -130,12 +255,12 @@ class RosettaRPC:
                     'value': str(amount),
                     'currency': currency
                 },
-            })
+            }, **kw)
 
-    def delete_account(self, account: key.Key, refund_to: key.Key) -> str:
+    def delete_account(self, account: key.Key, refund_to: key.Key,
+                       **kw) -> RosettaExecResult:
         return self.exec_operations(
-            account,
-            {
+            account, {
                 'operation_identifier': {
                     'index': 0
                 },
@@ -143,8 +268,7 @@ class RosettaRPC:
                 'account': {
                     'address': account.account_id
                 },
-            },
-            {
+            }, {
                 'operation_identifier': {
                     'index': 0
                 },
@@ -152,8 +276,7 @@ class RosettaRPC:
                 'account': {
                     'address': account.account_id
                 },
-            },
-            {
+            }, {
                 'operation_identifier': {
                     'index': 0
                 },
@@ -161,8 +284,7 @@ class RosettaRPC:
                 'account': {
                     'address': refund_to.account_id
                 },
-            },
-        )
+            }, **kw)
 
     def get_block(self, *, block_id: BlockIdentifier) -> _Dict:
         res = self.rpc('/block', block_identifier=block_identifier(block_id))
@@ -194,7 +316,7 @@ class RosettaTestCase(unittest.TestCase):
                 },
             }
         })[0]
-        cls.rosetta = RosettaRPC(host=cls.node.rpc_addr()[0])
+        cls.rosetta = RosettaRPC(node=cls.node, host=cls.node.rpc_addr()[0])
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -349,39 +471,32 @@ class RosettaTestCase(unittest.TestCase):
         validator = self.node.validator_key
         implicit = key.Key.implicit_account()
 
-        # Create implicit account.
-        old_block = self.node.get_latest_block().height
+        ### 1. Create implicit account.
         logger.info(f'Creating implicit account: {implicit.account_id}')
-        tx_hash = self.rosetta.transfer(src=validator,
-                                        dst=implicit,
-                                        amount=test_amount)
+        result = self.rosetta.transfer(src=validator,
+                                       dst=implicit,
+                                       amount=test_amount)
+        # Get the transaction through Rosetta RPC.
+        block = result.block()
+        tx = result.transaction()
+        # Also get it from JSON RPC to compare receipt ids.
+        json_res = self.node.get_tx(result.near_hash, implicit.account_id)
+        json_res = json_res['result']
+        receipt_ids = json_res['transaction_outcome']['outcome']['receipt_ids']
+        self.assertEqual(1, len(receipt_ids))
+        receipt_id = {'hash': 'receipt:' + receipt_ids[0]}
 
-        for i in range(10):
-            time.sleep(1)
-            balance = self._get_account_balance(implicit, require=i == 9)
-            if balance is not None:
-                self.assertEqual(test_amount, balance)
-                break
-
-        new_block = self.node.get_latest_block().height
-
-        # Scan all the blocks until we find the transaction that created the
-        # account.
-        for height in range(old_block, new_block + 1):
-            block = self.rosetta.get_block(block_id=height)
-            tx = next((tx for tx in block['transactions']
-                       if tx['transaction_identifier']['hash'] == tx_hash),
-                      None)
-            if tx:
-                break
-        else:
-            self.fail(f'Transaction {tx_hash} not found')
+        def get(arr: typing.Sequence[str], idx: int) -> str:
+            if idx < len(arr):
+                return arr[idx]
+            return '<hash>'
 
         # The actual amount subtracted is more than test_amount because of the
         # gas payment.
         value = -int(tx['operations'][0]['amount']['value'])
         logger.info(f'Took {value} from validator account')
-        self.assertLess(10**22, value)
+        self.assertLess(test_amount, value)
+
         self.assertEqual([{
             'metadata': {
                 'type': 'TRANSACTION'
@@ -403,97 +518,215 @@ class RosettaTestCase(unittest.TestCase):
                 'status': 'SUCCESS',
                 'type': 'TRANSFER'
             }],
-            'transaction_identifier': {
-                'hash': tx_hash
-            }
+            'related_transactions': [{
+                'direction': 'forward',
+                'transaction_identifier': receipt_id,
+            }],
+            'transaction_identifier': result.identifier,
         }], block['transactions'])
 
-        # And finally, delete the account.
-        old_block = self.node.get_latest_block().height
+        # Fetch the receipt through Rosetta RPC.
+        result = RosettaExecResult(self.rosetta, block, receipt_id)
+        related = result.related(0)
+        self.assertEqual(
+            {
+                'transaction_identifier': result.identifier,
+                'operations': [{
+                    'operation_identifier': {
+                        'index': 0
+                    },
+                    'type': 'TRANSFER',
+                    'status': 'SUCCESS',
+                    'account': {
+                        'address': implicit.account_id,
+                    },
+                    'amount': {
+                        'value': '8180000000000000000000',
+                        'currency': {
+                            'symbol': 'NEAR',
+                            'decimals': 24
+                        }
+                    }
+                }, {
+                    'operation_identifier': {
+                        'index': 1
+                    },
+                    'type': 'TRANSFER',
+                    'status': 'SUCCESS',
+                    'account': {
+                        'address': implicit.account_id,
+                        'sub_account': {
+                            'address': 'LIQUID_BALANCE_FOR_STORAGE'
+                        }
+                    },
+                    'amount': {
+                        'value': '1820000000000000000000',
+                        'currency': {
+                            'symbol': 'NEAR',
+                            'decimals': 24
+                        }
+                    }
+                }],
+                'related_transactions': [{
+                    'direction': 'forward',
+                    'transaction_identifier': related and related.identifier
+                }],
+                'metadata': {
+                    'type': 'TRANSACTION'
+                }
+            }, result.transaction())
+
+        # Fetch the next receipt through Rosetta RPC.
+        self.assertEqual(
+            {
+                'metadata': {
+                    'type': 'TRANSACTION'
+                },
+                'operations': [{
+                    'account': {
+                        'address': 'test0'
+                    },
+                    'amount': {
+                        'currency': {
+                            'decimals': 24,
+                            'symbol': 'NEAR'
+                        },
+                        'value': '12736651875000000000'
+                    },
+                    'operation_identifier': {
+                        'index': 0
+                    },
+                    'status': 'SUCCESS',
+                    'type': 'TRANSFER'
+                }],
+                'transaction_identifier': related.identifier
+            }, related.transaction())
+
+        ### 2. Delete the account.
         logger.info(f'Deleting implicit account: {implicit.account_id}')
-        tx_hash = self.rosetta.delete_account(implicit, refund_to=validator)
-
-        for _ in range(10):
-            time.sleep(1)
-            amount = self._get_account_balance(implicit, require=False)
-            if amount is None:
-                break
-        else:
-            self.fail(f'Account {implicit.account_id} wasn’t deleted')
-
-        new_block = self.node.get_latest_block().height
-
-        # Scan all the blocks until we find the transaction that created the
-        # account.
-        for height in range(old_block, new_block + 1):
-            block = self.rosetta.get_block(block_id=height)
-            tx = next((tx for tx in block['transactions']
-                       if tx['transaction_identifier']['hash'] == tx_hash),
-                      None)
-            if tx:
-                break
-        else:
-            self.fail(f'Transaction {tx_hash} not found')
+        result = self.rosetta.delete_account(implicit, refund_to=validator)
 
         self.assertEqual(
             test_amount, -sum(
                 int(op['amount']['value'])
-                for tx in block['transactions']
+                for tx in result.block()['transactions']
                 for op in tx['operations']))
 
-        transactions = sorted(block['transactions'],
-                              key=lambda tx: len(tx['operations']))
-        rx_hash = transactions[1]['transaction_identifier']['hash']
-        self.assertEqual([{
-            'metadata': {
-                'type': 'TRANSACTION'
-            },
-            'operations': [{
-                'account': {
-                    'address': implicit.account_id,
+        json_res = self.node.get_tx(result.near_hash, implicit.account_id)
+        json_res = json_res['result']
+        receipt_ids = json_res['transaction_outcome']['outcome']['receipt_ids']
+        self.assertEqual(1, len(receipt_ids))
+        receipt_id = {'hash': 'receipt:' + receipt_ids[0]}
+
+        receipt_ids = json_res['receipts_outcome'][0]['outcome']['receipt_ids']
+        self.assertEqual(1, len(receipt_ids))
+        receipt_id_2 = {'hash': 'receipt:' + receipt_ids[0]}
+
+        self.assertEqual(
+            {
+                'metadata': {
+                    'type': 'TRANSACTION'
                 },
-                'amount': transactions[0]['operations'][0]['amount'],
-                'operation_identifier': {
-                    'index': 0
+                'operations': [{
+                    'account': {
+                        'address': implicit.account_id,
+                    },
+                    'amount': {
+                        'currency': {
+                            'decimals': 24,
+                            'symbol': 'NEAR'
+                        },
+                        'value': '-511097000000000000000'
+                    },
+                    'operation_identifier': {
+                        'index': 0
+                    },
+                    'status': 'SUCCESS',
+                    'type': 'TRANSFER'
+                }],
+                'related_transactions': [{
+                    'direction': 'forward',
+                    'transaction_identifier': receipt_id,
+                }],
+                'transaction_identifier': result.identifier
+            }, result.transaction())
+
+        # Fetch the receipt
+        result = RosettaExecResult(self.rosetta, block, receipt_id)
+        self.assertEqual(
+            {
+                'metadata': {
+                    'type': 'TRANSACTION'
                 },
-                'status': 'SUCCESS',
-                'type': 'TRANSFER'
-            }],
-            'transaction_identifier': {
-                'hash': tx_hash
-            }
-        }, {
-            'metadata': {
-                'type': 'TRANSACTION'
-            },
-            'operations': [{
-                'account': {
-                    'address': implicit.account_id,
+                'operations': [{
+                    'account': {
+                        'address': implicit.account_id,
+                    },
+                    'amount': {
+                        'currency': {
+                            'decimals': 24,
+                            'symbol': 'NEAR'
+                        },
+                        'value': '-7668903000000000000000'
+                    },
+                    'operation_identifier': {
+                        'index': 0
+                    },
+                    'status': 'SUCCESS',
+                    'type': 'TRANSFER'
+                }, {
+                    'account': {
+                        'address': implicit.account_id,
+                        'sub_account': {
+                            'address': 'LIQUID_BALANCE_FOR_STORAGE'
+                        }
+                    },
+                    'amount': {
+                        'currency': {
+                            'decimals': 24,
+                            'symbol': 'NEAR'
+                        },
+                        'value': '-1820000000000000000000'
+                    },
+                    'operation_identifier': {
+                        'index': 1
+                    },
+                    'status': 'SUCCESS',
+                    'type': 'TRANSFER'
+                }],
+                'related_transactions': [{
+                    'direction': 'forward',
+                    'transaction_identifier': receipt_id_2
+                }],
+                'transaction_identifier': receipt_id
+            }, result.transaction())
+
+        # Fetch receipt’s receipt
+        result = RosettaExecResult(self.rosetta, block, receipt_id_2)
+        self.assertEqual(
+            {
+                'metadata': {
+                    'type': 'TRANSACTION'
                 },
-                'amount': transactions[1]['operations'][0]['amount'],
-                'operation_identifier': {
-                    'index': 0
-                },
-                'status': 'SUCCESS',
-                'type': 'TRANSFER'
-            }, {
-                'account': {
-                    'address': implicit.account_id,
-                    'sub_account': {
-                        'address': 'LIQUID_BALANCE_FOR_STORAGE'
-                    }
-                },
-                'amount': transactions[1]['operations'][1]['amount'],
-                'operation_identifier': {
-                    'index': 1
-                },
-                'status': 'SUCCESS',
-                'type': 'TRANSFER'
-            }],
-            'transaction_identifier': {
-                'hash': rx_hash,
-            }
-        }], transactions)
+                'operations': [{
+                    'account': {
+                        'address': 'test0'
+                    },
+                    'amount': {
+                        'currency': {
+                            'decimals': 24,
+                            'symbol': 'NEAR'
+                        },
+                        'value': '9488903000000000000000'
+                    },
+                    'operation_identifier': {
+                        'index': 0
+                    },
+                    'status': 'SUCCESS',
+                    'type': 'TRANSFER'
+                }],
+                'transaction_identifier': receipt_id_2
+            }, result.transaction())
 
 
 if __name__ == '__main__':

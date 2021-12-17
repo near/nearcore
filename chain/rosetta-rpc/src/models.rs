@@ -951,7 +951,34 @@ pub(crate) struct Transaction {
     /// Transactions that are related to other transactions (like a cross-shard
     /// transaction) should include the transaction_identifier of these
     /// transactions in the metadata.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub related_transactions: Vec<RelatedTransaction>,
+
     pub metadata: TransactionMetadata,
+}
+
+/// Transaction related to another [`Transaction`] such as matching transfer or
+/// a cross-shard transaction.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+pub(crate) struct RelatedTransaction {
+    // Rosetta API defines network_identifier as well but since all our related
+    // transactions are always on the same network we can leave out this field.
+    // pub network_identifier: NetworkIdentifier,
+    pub transaction_identifier: TransactionIdentifier,
+
+    pub direction: RelatedTransactionDirection,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RelatedTransactionDirection {
+    Forward,
+}
+
+impl RelatedTransaction {
+    pub fn forward(transaction_identifier: TransactionIdentifier) -> Self {
+        Self { transaction_identifier, direction: RelatedTransactionDirection::Forward }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]

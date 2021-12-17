@@ -36,6 +36,7 @@ Transaction {
             metadata: None,
         },
     ],
+    related_transactions: [],
     metadata: TransactionMetadata {
         type_: Transaction,
     },
