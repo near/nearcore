@@ -9,7 +9,7 @@ import nayduck
 REPO_DIR = pathlib.Path(__file__).parent.parent
 
 
-def discard(elements: typing.List[str], element: str) -> None:
+def discard(elements: typing.List[str], element: str) -> Boolean:
     """Discard element from a list if it exists there.
 
     Args:
