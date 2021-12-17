@@ -545,13 +545,12 @@ mod tests {
                 assert_eq!(receipts, all_receipts[start_index as usize..next_index as usize]);
                 start_index = next_index;
 
-                let total_memory_use = receipts.iter().fold(0_u64, |sum, receipt| {
-                    sum + receipt.try_to_vec().unwrap().len() as u64
-                });
-                let memory_use_without_last_receipt =
-                    receipts[..receipts.len() - 1].iter().fold(0_u64, |sum, receipt| {
-                        sum + receipt.try_to_vec().unwrap().len() as u64
-                    });
+                let total_memory_use = receipts
+                    .iter()
+                    .fold(0_u64, |sum, receipt| sum + receipt.try_to_vec().unwrap().len() as u64);
+                let memory_use_without_last_receipt = receipts[..receipts.len() - 1]
+                    .iter()
+                    .fold(0_u64, |sum, receipt| sum + receipt.try_to_vec().unwrap().len() as u64);
 
                 assert!(
                     total_memory_use >= memory_limit.as_u64()

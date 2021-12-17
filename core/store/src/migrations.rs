@@ -747,10 +747,10 @@ pub fn migrate_28_to_29(path: &Path) {
 }
 
 pub fn migrate_29_to_30(path: &Path) {
-    use near_primitives::epoch_manager::block_info::{BlockInfo};
+    use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::epoch_manager::epoch_info::EpochSummary;
     use near_primitives::epoch_manager::AGGREGATOR_KEY;
-    use near_primitives::types::chunk_extra::{ChunkExtra};
+    use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::validator_stake::ValidatorStakeV1;
     use near_primitives::types::{
         BlockChunkValidatorStats, EpochId, ProtocolVersion, ShardId, ValidatorId,

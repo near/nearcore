@@ -1084,8 +1084,7 @@ mod tests {
             (b"dog".to_vec(), Some(b"puppy".to_vec())),
             (b"h".to_vec(), Some(b"value".to_vec())),
         ];
-        let root =
-            test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
+        let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
 
         let tries2 = ShardTries::new(store, 0, 1);
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard());
@@ -1106,8 +1105,7 @@ mod tests {
             (b"dog".to_vec(), Some(b"puppy".to_vec())),
             (b"h".to_vec(), Some(b"value".to_vec())),
         ];
-        let root =
-            test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
+        let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
 
         let trie2 = tries.get_trie_for_shard(ShardUId::single_shard()).recording_reads();
         trie2.get(&root, b"dog").unwrap();
@@ -1130,8 +1128,7 @@ mod tests {
             (b"doge".to_vec(), Some(b"coin".to_vec())),
             (b"docu".to_vec(), Some(b"value".to_vec())),
         ];
-        let root =
-            test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
+        let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
         // Trie: extension -> branch -> 2 leaves
         {
             let trie2 = tries.get_trie_for_shard(ShardUId::single_shard()).recording_reads();
@@ -1166,8 +1163,7 @@ mod tests {
             (b"doge".to_vec(), Some(b"coin".to_vec())),
             (b"docu".to_vec(), Some(b"value".to_vec())),
         ];
-        let root =
-            test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
+        let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
         let dir = tempfile::Builder::new().prefix("test_dump_load_trie").tempdir().unwrap();
         store.save_to_file(ColState, &dir.path().join("test.bin")).unwrap();
         let store2 = create_test_store();
