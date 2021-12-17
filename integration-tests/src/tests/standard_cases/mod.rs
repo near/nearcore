@@ -32,10 +32,7 @@ use testlib::runtime_utils::{
 const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
 
 fn fee_helper(node: &impl Node) -> FeeHelper {
-    FeeHelper::new(
-        RuntimeConfig::test().transaction_costs.clone(),
-        node.genesis().config.min_gas_price,
-    )
+    FeeHelper::new(RuntimeConfig::test().transaction_costs, node.genesis().config.min_gas_price)
 }
 
 /// Adds given access key to the given account_id using signer2.
