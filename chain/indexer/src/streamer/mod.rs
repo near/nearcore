@@ -152,9 +152,13 @@ async fn build_streamer_message(
 
                     prev_block_hash = prev_block.header.prev_hash;
 
-                    if let Some(receipt) =
-                        find_local_receipt_by_id_in_block(&client, prev_block, execution_outcome.id)
-                            .await?
+                    if let Some(receipt) = find_local_receipt_by_id_in_block(
+                        &client,
+                        &protocol_config_view,
+                        prev_block,
+                        execution_outcome.id,
+                    )
+                    .await?
                     {
                         break 'find_local_receipt receipt;
                     }
@@ -222,11 +226,11 @@ async fn build_streamer_message(
 /// otherwise returns None
 async fn find_local_receipt_by_id_in_block(
     client: &Addr<near_client::ViewClientActor>,
+    protocol_config_view: &near_chain_configs::ProtocolConfigView,
     block: views::BlockView,
     receipt_id: near_primitives::hash::CryptoHash,
 ) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
     let chunks = fetch_block_chunks(&client, &block).await?;
-    let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
 
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
 
