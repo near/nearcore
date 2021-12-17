@@ -72,7 +72,7 @@ impl MemoryLike for WasmtimeMemory {
 
 fn trap_to_error(trap: &wasmtime::Trap) -> VMError {
     if trap.i32_exit_status() == Some(239) {
-        match imports::last_wasmtime_error() {
+        match imports::wasmtime::last_error() {
             Some(VMLogicError::HostError(h)) => {
                 VMError::FunctionCallError(FunctionCallError::HostError(h.clone()))
             }
@@ -231,7 +231,7 @@ impl crate::runner::VM for WasmtimeVM {
         // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
         // lifetimes of the logic instance and pass raw pointers here.
         let raw_logic = &mut logic as *mut _ as *mut c_void;
-        imports::link_wasmtime(&mut linker, memory_copy, raw_logic, current_protocol_version);
+        imports::wasmtime::link(&mut linker, memory_copy, raw_logic, current_protocol_version);
         if method_name.is_empty() {
             return (
                 None,

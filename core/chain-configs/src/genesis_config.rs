@@ -53,7 +53,7 @@ fn default_protocol_upgrade_stake_threshold() -> Rational {
 }
 
 fn default_shard_layout() -> ShardLayout {
-    ShardLayout::default()
+    ShardLayout::v0_single_shard()
 }
 
 fn default_minimum_stake_ratio() -> Rational {
@@ -71,7 +71,7 @@ fn default_num_chunk_only_producer_seats() -> u64 {
 }
 
 fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
-    return Some(ShardLayout::v1(
+    Some(ShardLayout::v1(
         vec![],
         vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
             .into_iter()
@@ -79,7 +79,7 @@ fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
             .collect(),
         Some(vec![vec![0, 1, 2, 3]]),
         1,
-    ));
+    ))
 }
 
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
@@ -162,7 +162,7 @@ pub struct GenesisConfig {
     pub minimum_stake_divisor: u64,
     /// Layout information regarding how to split accounts to shards
     #[serde(default = "default_shard_layout")]
-    #[default(ShardLayout::default())]
+    #[default(ShardLayout::v0_single_shard())]
     pub shard_layout: ShardLayout,
     #[serde(default = "default_simple_nightshade_shard_layout")]
     pub simple_nightshade_shard_layout: Option<ShardLayout>,
@@ -695,7 +695,7 @@ mod test {
             "b": "random",
             "records": []
         }"#;
-        stream_records_from_json_str(&genesis).expect("error reading empty records");
+        stream_records_from_json_str(genesis).expect("error reading empty records");
     }
 
     #[test]
@@ -705,7 +705,7 @@ mod test {
             "a": [1, 2],
             "b": "random"
         }"#;
-        stream_records_from_json_str(&genesis).unwrap();
+        stream_records_from_json_str(genesis).unwrap();
     }
 
     #[test]
@@ -737,7 +737,7 @@ mod test {
                     }
                 }]
         }"#;
-        stream_records_from_json_str(&genesis).unwrap();
+        stream_records_from_json_str(genesis).unwrap();
     }
 
     #[test]
@@ -763,7 +763,7 @@ mod test {
                 "e": []
             }
         }"#;
-        stream_records_from_json_str(&genesis).expect("error reading records with a field after");
+        stream_records_from_json_str(genesis).expect("error reading records with a field after");
     }
 
     #[test]
@@ -789,7 +789,7 @@ mod test {
                 }
             ]
         }"#;
-        stream_records_from_json_str(&genesis).expect("error reading records from genesis");
+        stream_records_from_json_str(genesis).expect("error reading records from genesis");
     }
 
     #[test]
@@ -826,6 +826,6 @@ mod test {
                 }
             ]
         }"#;
-        stream_records_from_json_str(&genesis).expect("error reading records from genesis");
+        stream_records_from_json_str(genesis).expect("error reading records from genesis");
     }
 }

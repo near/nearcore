@@ -1,8 +1,6 @@
 use crate::serialize::u128_dec_format;
 use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "deepsize_feature")]
-use deepsize::DeepSizeOf;
 use near_crypto::PublicKey;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
@@ -12,7 +10,7 @@ use near_rpc_error_macro::RpcError;
 use near_vm_errors::{CompilationError, FunctionCallErrorSer, MethodResolveError, VMLogicError};
 
 /// Error returned in the ExecutionOutcome in case of failure
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -104,7 +102,7 @@ impl std::fmt::Display for StorageError {
 impl std::error::Error for StorageError {}
 
 /// An error happened during TX execution
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -151,7 +149,7 @@ pub enum InvalidTxError {
     TransactionSizeExceeded { size: u64, limit: u64 },
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -178,7 +176,7 @@ pub enum InvalidAccessKeyError {
 }
 
 /// Describes the error for validating a list of actions.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
 )]
@@ -210,7 +208,7 @@ pub enum ActionsValidationError {
 }
 
 /// Describes the error for validating a receipt.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
 )]
@@ -327,7 +325,7 @@ impl Display for ActionsValidationError {
 }
 
 /// An error happened during Acton execution
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -339,7 +337,7 @@ pub struct ActionError {
     pub kind: ActionErrorKind,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, RpcError)]
 pub enum ContractCallError {
     MethodResolveError(MethodResolveError),
@@ -378,7 +376,7 @@ impl From<FunctionCallErrorSer> for ContractCallError {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]

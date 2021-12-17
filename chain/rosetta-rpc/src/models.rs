@@ -979,6 +979,36 @@ pub(crate) struct TransactionIdentifier {
     pub hash: String,
 }
 
+impl TransactionIdentifier {
+    /// Returns an identifier for a NEAR transaction with given hash.
+    pub(crate) fn transaction(tx_hash: &near_primitives::hash::CryptoHash) -> Self {
+        Self::from_prefix_and_hash("tx", tx_hash)
+    }
+
+    /// Returns an identifier for a NEAR receipt with given hash.
+    pub(crate) fn receipt(receipt_hash: &near_primitives::hash::CryptoHash) -> Self {
+        Self::from_prefix_and_hash("receipt", receipt_hash)
+    }
+
+    /// Returns an identifier for block events constructed as <prefix>:<hash>.
+    ///
+    /// Note: If constructing identifiers for transactions or receipts, use
+    /// [`transaction`] or [`receipt`] methods instead.
+    pub(crate) fn block_event(
+        prefix: &'static str,
+        block_hash: &near_primitives::hash::CryptoHash,
+    ) -> Self {
+        Self::from_prefix_and_hash(prefix, block_hash)
+    }
+
+    fn from_prefix_and_hash(
+        prefix: &'static str,
+        hash: &near_primitives::hash::CryptoHash,
+    ) -> Self {
+        Self { hash: format!("{}:{}", prefix, hash.to_base()) }
+    }
+}
+
 /// The Version object is utilized to inform the client of the versions of
 /// different components of the Rosetta implementation.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]

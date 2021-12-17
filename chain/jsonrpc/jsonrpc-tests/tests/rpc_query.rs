@@ -407,7 +407,7 @@ fn test_health_fail() {
     init_test_logger();
 
     run_actix(async {
-        let client = new_client(&"http://127.0.0.1:12322/health");
+        let client = new_client("http://127.0.0.1:12322/health");
         actix::spawn(client.health().then(|res| {
             assert!(res.is_err());
             System::current().stop();
@@ -446,7 +446,7 @@ fn test_health_fail_no_blocks() {
 fn test_health_ok() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let health = client.health().await;
-        assert!(health.is_ok());
+        assert_eq!(health, Ok(()));
     });
 }
 

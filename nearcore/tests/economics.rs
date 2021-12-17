@@ -36,7 +36,7 @@ fn setup_env(genesis: &Genesis) -> TestEnv {
         .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::test(
             Path::new("."),
             store1,
-            &genesis,
+            genesis,
         )) as Arc<dyn RuntimeAdapter>])
         .build()
 }
@@ -77,8 +77,7 @@ fn test_burn_mint() {
         .get_protocol_config(&EpochId::default())
         .unwrap()
         .runtime_config
-        .transaction_costs
-        .clone();
+        .transaction_costs;
     let fee_helper = FeeHelper::new(transaction_costs, genesis.config.min_gas_price);
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let initial_total_supply = env.chain_genesis.total_supply;

@@ -22,9 +22,7 @@ nodes = start_cluster(
     }})
 
 # Deploy contract
-status = nodes[0].get_status()
-hash_ = status['sync_info']['latest_block_hash']
-hash_ = base58.b58decode(hash_.encode('utf8'))
+hash_ = nodes[0].get_latest_block().hash_bytes
 tx = sign_deploy_contract_tx(nodes[0].signer_key, load_test_contract(), 10,
                              hash_)
 nodes[0].send_tx(tx)
@@ -33,9 +31,7 @@ time.sleep(3)
 
 # Write 10 values to storage
 for i in range(10):
-    status2 = nodes[1].get_status()
-    hash_2 = status2['sync_info']['latest_block_hash']
-    hash_2 = base58.b58decode(hash_2.encode('utf8'))
+    hash_ = nodes[1].get_latest_block().hash_bytes
     keyvalue = bytearray(16)
     keyvalue[0] = i
     keyvalue[8] = i
@@ -43,7 +39,7 @@ for i in range(10):
                                 nodes[0].signer_key.account_id,
                                 'write_key_value', bytes(keyvalue),
                                 10000000000000, 100000000000, 20 + i * 10,
-                                hash_2)
+                                hash_)
     res = nodes[1].send_tx(tx2)
 
 time.sleep(3)

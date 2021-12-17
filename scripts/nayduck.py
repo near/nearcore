@@ -7,7 +7,7 @@ To request a new run, use the following command:
        --branch    <your_branch>   \
        --test_file <test_file>.txt
 
-Scheduled runs can be seen at <http://nayduck.near.org/>.
+Scheduled runs can be seen at <https://nayduck.near.org/>.
 
 See README.md in nightly directory for documentation of the test suite file
 format.  Note that you must be a member of the Near or Near Protocol
@@ -20,12 +20,15 @@ import getpass
 import json
 import os
 import pathlib
+import shlex
 import subprocess
 import sys
 import typing
 
+REPO_DIR = pathlib.Path(__file__).resolve().parents[1]
+
 DEFAULT_TEST_FILE = 'nightly/nightly.txt'
-NAYDUCK_BASE_HREF = 'http://nayduck.near.org'
+NAYDUCK_BASE_HREF = 'https://nayduck.near.org'
 
 
 def _parse_args():
@@ -54,6 +57,11 @@ def _parse_args():
                         '-l',
                         action='store_true',
                         help='Run tests locally.')
+    parser.add_argument(
+        '--dry-run',
+        '-n',
+        action='store_true',
+        help='Prints list of tests to execute, without doing anything')
     args = parser.parse_args()
 
     return args
@@ -177,25 +185,51 @@ def github_auth(code_path: pathlib.Path):
     return code
 
 
-def run_locally(tests):
+def _parse_timeout(timeout: typing.Optional[str]) -> typing.Optional[int]:
+    """Parses timeout interval and converts it into number of seconds.
+
+    Args:
+        timeout: An integer with an optional ‘h’, ‘m’ or ‘s’ suffix which
+            multiply the integer by 3600, 60 and 1 respectively.
+    Returns:
+        Interval in seconds.
+    """
+    if not timeout:
+        return None
+    mul_ary = {'h': 3600, 'm': 60, 's': 1}
+    mul = mul_ary.get(timeout[-1])
+    if mul:
+        timeout = timeout[:-1]
+    else:
+        mul = 1
+    return int(timeout) * mul
+
+
+def run_locally(args, tests):
     for test in tests:
         # See nayduck specs at https://github.com/near/nayduck/blob/master/lib/testspec.py
         fields = test.split()
 
+        timeout = None
         index = 1
+        ignored = []
         while len(fields) > index and fields[index].startswith('--'):
+            if fields[index].startswith("--timeout="):
+                timeout = fields[index][10:]
+            elif fields[index] != '--skip-build':
+                ignored.append(fields[index])
             index += 1
 
-        ignored = fields[1:index]
         del fields[1:index]
         message = f'Running ‘{"".join(fields)}’'
         if ignored:
-            message = f'{message} (ignoring flags ‘{"".join(ignored)}`)'
-        print(message)
+            message = f'{message} (ignoring flags ‘{" ".join(ignored)}`)'
+        if not args.dry_run:
+            print(message)
 
         if fields[0] == 'expensive':
             # TODO --test doesn't work
-            cmd = (
+            cmd = [
                 'cargo',
                 'test',
                 '-p',
@@ -204,18 +238,24 @@ def run_locally(tests):
                 'expensive_tests',
                 '--',
                 '--exact',
-                fields[3])
-            cwd = None
+                fields[3]
+            ]
+            cwd = REPO_DIR
         elif fields[0] in ('pytest', 'mocknet'):
             fields[0] = sys.executable
             fields[1] = os.path.join('tests', fields[1])
             cmd = fields
-            cwd = 'pytest'
+            cwd = REPO_DIR / 'pytest'
         else:
             print(f'Unrecognised test category ‘{fields[0]}’', file=sys.stderr)
             continue
+        if args.dry_run:
+            print('( cd {} && {} )'.format(
+                shlex.quote(str(cwd)),
+                ' '.join(shlex.quote(str(arg)) for arg in cmd)))
+            continue
         print("RUNNING COMMAND cwd=%s cmd = %s", (cwd, cmd))
-        subprocess.check_call(cmd, cwd=cwd)
+        subprocess.check_call(cmd, cwd=cwd, timeout=_parse_timeout(timeout))
 
 
 def run_remotely(args, tests):
@@ -236,11 +276,17 @@ def run_remotely(args, tests):
     else:
         code = github_auth(code_path)
 
+    if args.dry_run:
+        for test in tests:
+            print(test)
+        return
+
     post = {
         'branch': args.branch or get_current_branch().strip(),
         'sha': args.sha or get_curent_sha().strip(),
         'tests': list(tests)
     }
+
     while True:
         print('Sending request ...')
         res = requests.post(NAYDUCK_BASE_HREF + '/api/run/new',
@@ -250,6 +296,7 @@ def run_remotely(args, tests):
             break
         print(f'{styles[0]}Unauthorised.{styles[2]}\n')
         code = github_auth(code_path)
+
     if res.status_code == 200:
         json_res = json.loads(res.text)
         print(styles[json_res['code'] == 0] + json_res['response'] + styles[2])
@@ -270,7 +317,7 @@ def main():
         tests = list(read_tests_from_file(pathlib.Path(args.test_file)))
 
     if args.run_locally:
-        run_locally(tests)
+        run_locally(args, tests)
     else:
         run_remotely(args, tests)
 

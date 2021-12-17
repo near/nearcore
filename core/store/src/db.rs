@@ -46,25 +46,74 @@ impl Into<io::Error> for DBError {
     }
 }
 
+/// This enum holds the information about the columns that we use within the RocksDB storage.
+/// You can think about our storage as 2-dimensional table (with key and column as indexes/coordinates).
+// TODO(mm-near): add info about the RC in the columns.
 #[derive(PartialEq, Debug, Copy, Clone, EnumIter, BorshDeserialize, BorshSerialize, Hash, Eq)]
 pub enum DBCol {
     /// Column to indicate which version of database this is.
+    /// - *Rows*: single row [VERSION_KEY]
+    /// - *Content type*: The version of the database (u32), serialized as JSON.
     ColDbVersion = 0,
+    /// Column that store Misc cells.
+    /// - *Rows*: multiple, for example "GENESIS_JSON_HASH", "HEAD_KEY", [LATEST_KNOWN_KEY] etc.
+    /// - *Content type*: cell specific.
     ColBlockMisc = 1,
+    /// Column that stores Block content.
+    /// - *Rows*: block hash (CryptHash)
+    /// - *Content type*: [near_primitives::block::Block]
     ColBlock = 2,
+    /// Column that stores Block headers.
+    /// - *Rows*: block hash (CryptoHash)
+    /// - *Content type*: [near_primitives::block_header::BlockHeader]
     ColBlockHeader = 3,
+    /// Column that stores mapping from block height to block hash.
+    /// - *Rows*: height (u64)
+    /// - *Content type*: block hash (CryptoHash)
     ColBlockHeight = 4,
+    /// Column that stores the Trie state.
+    /// - *Rows*: trie_node_or_value_hash (CryptoHash)
+    /// - *Content type*: Serializd RawTrieNodeWithSize or value ()
     ColState = 5,
+    /// Mapping from BlockChunk to ChunkExtra
+    /// - *Rows*: BlockChunk (block_hash, shard_uid)
+    /// - *Content type*: [near_primitives::types::ChunkExtra]
     ColChunkExtra = 6,
+    /// Mapping from transaction outcome id (CryptoHash) to list of outcome ids with proofs.
+    /// - *Rows*: outcome id (CryptoHash)
+    /// - *Content type*: Vec of [near_primitives::transactions::ExecutionOutcomeWithIdAndProof]
     ColTransactionResult = 7,
+    /// Mapping from Block + Shard to list of outgoing receipts.
+    /// - *Rows*: block + shard
+    /// - *Content type*: Vec of [near_primitives::receipt::Receipt]
     ColOutgoingReceipts = 8,
+    /// Mapping from Block + Shard to list of incoming receipt proofs.
+    /// Each proof might prove multiple receipts.
+    /// - *Rows*: (block, shard)
+    /// - *Content type*: Vec of [near_primitives::sharding::ReceiptProof]
     ColIncomingReceipts = 9,
+    /// Info about the peers that we are connected to. Mapping from peer_id to KnownPeerState.
+    /// - *Rows*: peer_id (PublicKey)
+    /// - *Content type*: [network_primitives::types::KnownPeerState]
     ColPeers = 10,
+    /// Mapping from EpochId to EpochInfo
+    /// - *Rows*: EpochId (CryptoHash)
+    /// - *Content type*: [near_primitives::epoch_manager::EpochInfo]
     ColEpochInfo = 11,
+    /// Mapping from BlockHash to BlockInfo
+    /// - *Rows*: BlockHash (CryptoHash)
+    /// - *Content type*: [near_primitives::epoch_manager::BlockInfo]
     ColBlockInfo = 12,
+    /// Mapping from ChunkHash to ShardChunk.
+    /// - *Rows*: ChunkHash (CryptoHash)
+    /// - *Content type*: [near_primitives::sharding::ShardChunk]
     ColChunks = 13,
+    /// Storage for  PartialEncodedChunk.
+    /// - *Rows*: ChunkHash (CryptoHash)
+    /// - *Content type*: [near_primitives::sharding::PartialEncodedChunkV1]
     ColPartialChunks = 14,
     /// Blocks for which chunks need to be applied after the state is downloaded for a particular epoch
+    /// TODO: describe what is exactly inside the rows/cells.
     ColBlocksToCatchup = 15,
     /// Blocks for which the state is being downloaded
     ColStateDlInfos = 16,
@@ -83,15 +132,44 @@ pub enum DBCol {
     /// `LightClientBlock`s corresponding to the last final block of each completed epoch
     ColEpochLightClientBlocks = 26,
     ColReceiptIdToShardId = 27,
+    // Deprecated.
     _ColNextBlockWithNewChunk = 28,
+    // Deprecated.
     _ColLastBlockWithNewChunk = 29,
-    /// Map each saved peer on disk with its component id.
+    /// Network storage:
+    ///   When given edge is removed (or we didn't get any ping from it for a while), we remove it from our 'in memory'
+    ///   view and persist into storage.
+    ///
+    ///   This is done, so that we prevent the attack, when someone tries to introduce the edge/peer again into the network,
+    ///   but with the 'old' nonce.
+    ///
+    ///   When we write things to storage, we do it in groups (here they are called 'components') - this naming is a little bit
+    ///   unfortunate, as the peers/edges that we persist don't need to be connected or form any other 'component' (in a graph theory sense).
+    ///
+    ///   Each such component gets a new identifier (here called 'nonce').
+    ///
+    ///   We store this info in the three columns below:
+    ///     - LastComponentNonce: keeps info on what is the next identifier (nonce) that can be used.
+    ///     - PeerComponent: keep information on mapping from the peer to the last component that it belonged to (so that if a new peer shows
+    ///         up we know which 'component' to load)
+    ///     - ComponentEdges: keep the info about the edges that were connecting these peers that were removed.
+
+    /// Map each saved peer on disk with its component id (a.k.a. nonce).
+    /// - *Rows*: peer_id
+    /// - *Column type*:  (nonce) u64
     ColPeerComponent = 30,
-    /// Map component id with all edges in this component.
+    /// Map component id  (a.k.a. nonce) with all edges in this component.
+    /// These are all the edges that were purged and persisted to disk at the same time.
+    /// - *Rows*: nonce
+    /// - *Column type*: `Vec<near_network::routing::Edge>`
     ColComponentEdges = 31,
-    /// Biggest nonce used.
+    /// Biggest component id (a.k.a nonce) used.
+    /// - *Rows*: single row (empty row name)
+    /// - *Column type*: (nonce) u64
     ColLastComponentNonce = 32,
-    /// Transactions
+    /// Map of transactions
+    /// - *Rows*: transaction hash
+    /// - *Column type*: SignedTransaction
     ColTransactions = 33,
     ColChunkPerHeightShard = 34,
     /// Changes to key-values that we have recorded.
@@ -399,7 +477,7 @@ impl RocksDBOptions {
     /// Opens the database in read/write mode.
     pub fn read_write<P: AsRef<std::path::Path>>(self, path: P) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
-        let options = self.rocksdb_options.unwrap_or_else(|| rocksdb_options());
+        let options = self.rocksdb_options.unwrap_or_else(rocksdb_options);
         let cf_names = self
             .cf_names
             .unwrap_or_else(|| DBCol::iter().map(|col| format!("col{}", col as usize)).collect());
@@ -518,9 +596,9 @@ impl Database for RocksDB {
     fn write(&self, transaction: DBTransaction) -> Result<(), DBError> {
         if let Err(check) = self.pre_write_check() {
             if check.is_io() {
-                warn!("unable to verify remaing disk space: {}, continueing write without verifying (this may result in unrecoverable data loss if disk space is exceeded", check)
+                warn!("unable to verify remaing disk space: {:?}, continueing write without verifying (this may result in unrecoverable data loss if disk space is exceeded", check)
             } else {
-                panic!("{}", check)
+                panic!("{:?}", check)
             }
         }
 
@@ -601,7 +679,7 @@ impl Database for TestDB {
                 DBOp::UpdateRefcount { col, key, value } => {
                     let mut val = db[col as usize].get(&key).cloned().unwrap_or_default();
                     merge_refcounted_records(&mut val, &value);
-                    if val.len() != 0 {
+                    if !val.is_empty() {
                         db[col as usize].insert(key, val);
                     } else {
                         db[col as usize].remove(&key);
@@ -645,7 +723,7 @@ fn rocksdb_options() -> Options {
         opts.set_level_zero_stop_writes_trigger(100000000);
     }
 
-    return opts;
+    opts
 }
 
 fn rocksdb_read_options() -> ReadOptions {
