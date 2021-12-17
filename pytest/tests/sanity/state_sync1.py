@@ -40,12 +40,8 @@ logger.info("step 2")
 synced = False
 block_height0 = block_height1 = -1
 while block_height0 <= EPOCH_LENGTH and block_height1 <= EPOCH_LENGTH:
-    status0 = nodes[0].get_status()
-    block_height0 = status0['sync_info']['latest_block_height']
-    block_hash0 = status0['sync_info']['latest_block_hash']
-    status1 = nodes[1].get_status()
-    block_height1 = status0['sync_info']['latest_block_height']
-    block_hash1 = status0['sync_info']['latest_block_hash']
+    block_height0, block_hash0 = nodes[0].get_latest_block()
+    block_height1, block_hash1 = nodes[1].get_latest_block()
     if block_height0 > BLOCK_WAIT:
         if block_height0 > block_height1:
             try:

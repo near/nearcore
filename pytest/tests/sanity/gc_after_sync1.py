@@ -39,8 +39,7 @@ nodes = start_cluster(
          1: node1_config
      })
 
-status1 = nodes[1].get_status()
-height = status1['sync_info']['latest_block_height']
+height = nodes[1].get_latest_block().height
 
 utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT1, timeout=TIMEOUT)
 

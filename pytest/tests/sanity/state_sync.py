@@ -85,8 +85,7 @@ for height, block_hash in utils.poll_blocks(boot_node,
     if height >= observed_height:
         break
     if mode == 'manytx' and ctx.get_balances() == ctx.expected_balances:
-        status = boot_node.get_status()
-        boot_height = status['sync_info']['latest_block_height']
+        boot_height = boot_node.get_latest_block().height
         ctx.send_moar_txs(block_hash, 3, False)
         logger.info(f'Sending moar txs at height {boot_height}')
 

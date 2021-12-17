@@ -2097,6 +2097,7 @@ impl Chain {
         let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
 
         state_parts_task_scheduler(ApplyStatePartsRequest {
+            runtime: Arc::clone(&self.runtime_adapter),
             shard_id,
             state_root,
             num_parts,
@@ -2156,6 +2157,7 @@ impl Chain {
         assert_ne!(shard_layout, next_epoch_shard_layout);
 
         state_split_scheduler(StateSplitRequest {
+            runtime: Arc::clone(&self.runtime_adapter),
             sync_hash: sync_hash.clone(),
             shard_id,
             shard_uid,
@@ -4800,6 +4802,7 @@ pub fn collect_receipts_from_response(
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct ApplyStatePartsRequest {
+    pub runtime: Arc<dyn RuntimeAdapter>,
     pub shard_id: ShardId,
     pub state_root: StateRoot,
     pub num_parts: u64,
@@ -4834,6 +4837,7 @@ pub struct BlockCatchUpResponse {
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct StateSplitRequest {
+    pub runtime: Arc<dyn RuntimeAdapter>,
     pub sync_hash: CryptoHash,
     pub shard_id: ShardId,
     pub shard_uid: ShardUId,

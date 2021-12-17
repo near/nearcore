@@ -35,9 +35,7 @@ time.sleep(2)
 nodes[1].kill()
 logger.info('node1 is killed')
 
-status = nodes[0].get_status()
-block_hash = status['sync_info']['latest_block_hash']
-cur_height = status['sync_info']['latest_block_height']
+block_hash = nodes[0].get_latest_block().hash_bytes
 
 num_new_accounts = 10
 balance = 50000000000000000000000000000000
@@ -48,22 +46,19 @@ for i in range(num_new_accounts):
                      nodes[0].signer_key.sk)
     create_account_tx = sign_create_account_with_full_access_key_and_balance_tx(
         nodes[0].signer_key, account_name, signer_key,
-        balance // num_new_accounts, i + 1,
-        base58.b58decode(block_hash.encode('utf8')))
+        balance // num_new_accounts, i + 1, block_hash)
     account_keys.append(signer_key)
     res = nodes[0].send_tx_and_wait(create_account_tx, timeout=15)
     assert 'error' not in res, res
 
-cur_height, _ = utils.wait_for_blocks(nodes[0], target=50)
-
-status = nodes[0].get_status()
-block_hash = status['sync_info']['latest_block_hash']
+latest_block = utils.wait_for_blocks(nodes[0], target=50)
+cur_height = latest_block.height
+block_hash = latest_block.hash_bytes
 
 for signer_key in account_keys:
     staking_tx = sign_staking_tx(signer_key, nodes[0].validator_key,
                                  balance // (num_new_accounts * 2),
-                                 cur_height * 1_000_000 - 1,
-                                 base58.b58decode(block_hash.encode('utf8')))
+                                 cur_height * 1_000_000 - 1, block_hash)
     res = nodes[0].send_tx_and_wait(staking_tx, timeout=15)
     assert 'error' not in res
 

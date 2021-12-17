@@ -183,8 +183,7 @@ logger.info("stage 4 done")
 
 ctx.next_nonce = 100
 # 5. Record the latest height and bring down the first node, wait for couple epochs to pass
-status = observer.get_status()
-last_height = status['sync_info']['latest_block_height']
+last_height = observer.get_latest_block().height
 
 ctx.nodes = [boot_node, node2, node3, node4, observer]
 ctx.act_to_val = [4, 4, 4, 4, 4]
