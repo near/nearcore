@@ -568,9 +568,9 @@ impl ShardsManager {
                     chunk_hash: chunk_hash.clone(),
                     part_ords,
                     tracking_shards: if target_account == shard_representative_target {
-                        shards_to_fetch_receipts.clone()
+                        shards_to_fetch_receipts.iter().cloned().collect()
                     } else {
-                        HashSet::new()
+                        Default::default()
                     },
                 };
                 let target = AccountIdOrPeerTrackingShard {

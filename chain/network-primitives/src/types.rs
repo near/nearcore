@@ -995,7 +995,7 @@ impl Message for QueryPeerStats {
 pub struct PartialEncodedChunkRequestMsg {
     pub chunk_hash: ChunkHash,
     pub part_ords: Vec<u64>,
-    pub tracking_shards: HashSet<ShardId>,
+    pub tracking_shards: Vec<ShardId>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]

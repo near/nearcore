@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use crate::test_utils::TestEnv;
 use near_chain::ChainGenesis;
 use near_crypto::KeyType;
@@ -25,7 +23,7 @@ fn test_request_chunk_restart() {
     let request = PartialEncodedChunkRequestMsg {
         chunk_hash: block1.chunks()[0].chunk_hash(),
         part_ords: vec![0],
-        tracking_shards: HashSet::default(),
+        tracking_shards: Default::default(),
     };
     let client = &mut env.clients[0];
     client.shards_mgr.process_partial_encoded_chunk_request(
