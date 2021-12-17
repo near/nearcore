@@ -2722,27 +2722,35 @@ mod test {
         );
         let staking_transaction = stake(1, &signer, &block_producers[0], 0);
         let mut expected_blocks = [0, 0];
-        let update_expected_blocks = |env: &mut TestEnv, expected_blocks: &mut [u64]| {
-            let bp = {
+        let mut expected_chunks = [0, 0];
+        let update_validator_stats =
+            |env: &mut TestEnv, expected_blocks: &mut [u64], expected_chunks: &mut [u64]| {
                 let epoch_id = env.head.epoch_id.clone();
                 let height = env.head.height;
                 let mut em = env.runtime.epoch_manager.0.write().unwrap();
-                em.get_block_producer_info(&epoch_id, height).unwrap()
+                let bp = em.get_block_producer_info(&epoch_id, height).unwrap();
+                let cp = em.get_chunk_producer_info(&epoch_id, height, 0).unwrap();
+
+                if bp.account_id().as_ref() == "test1" {
+                    expected_blocks[0] += 1;
+                } else {
+                    expected_blocks[1] += 1;
+                }
+
+                if cp.account_id().as_ref() == "test1" {
+                    expected_chunks[0] += 1;
+                } else {
+                    expected_chunks[1] += 1;
+                }
             };
-            if bp.account_id().as_ref() == "test1" {
-                expected_blocks[0] += 1;
-            } else {
-                expected_blocks[1] += 1;
-            }
-        };
         env.step_default(vec![staking_transaction]);
-        update_expected_blocks(&mut env, &mut expected_blocks);
+        update_validator_stats(&mut env, &mut expected_blocks, &mut expected_chunks);
         assert!(env
             .runtime
             .get_validator_info(ValidatorInfoIdentifier::EpochId(env.head.epoch_id.clone()))
             .is_err());
         env.step_default(vec![]);
-        update_expected_blocks(&mut env, &mut expected_blocks);
+        update_validator_stats(&mut env, &mut expected_blocks, &mut expected_chunks);
         let mut current_epoch_validator_info = vec![
             CurrentEpochValidatorInfo {
                 account_id: "test1".parse().unwrap(),
@@ -2752,6 +2760,8 @@ mod test {
                 shards: vec![0],
                 num_produced_blocks: expected_blocks[0],
                 num_expected_blocks: expected_blocks[0],
+                num_produced_chunks: expected_chunks[0],
+                num_expected_chunks: expected_chunks[0],
             },
             CurrentEpochValidatorInfo {
                 account_id: "test2".parse().unwrap(),
@@ -2761,6 +2771,8 @@ mod test {
                 shards: vec![0],
                 num_produced_blocks: expected_blocks[1],
                 num_expected_blocks: expected_blocks[1],
+                num_produced_chunks: expected_chunks[1],
+                num_expected_chunks: expected_chunks[1],
             },
         ];
         let next_epoch_validator_info = vec![
@@ -2802,8 +2814,9 @@ mod test {
             }
         );
         expected_blocks = [0, 0];
+        expected_chunks = [0, 0];
         env.step_default(vec![]);
-        update_expected_blocks(&mut env, &mut expected_blocks);
+        update_validator_stats(&mut env, &mut expected_blocks, &mut expected_chunks);
         let response = env
             .runtime
             .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
@@ -2811,8 +2824,12 @@ mod test {
 
         current_epoch_validator_info[0].num_produced_blocks = expected_blocks[0];
         current_epoch_validator_info[0].num_expected_blocks = expected_blocks[0];
+        current_epoch_validator_info[0].num_produced_chunks = expected_chunks[0];
+        current_epoch_validator_info[0].num_expected_chunks = expected_chunks[0];
         current_epoch_validator_info[1].num_produced_blocks = expected_blocks[1];
         current_epoch_validator_info[1].num_expected_blocks = expected_blocks[1];
+        current_epoch_validator_info[1].num_produced_chunks = expected_chunks[1];
+        current_epoch_validator_info[1].num_expected_chunks = expected_chunks[1];
         assert_eq!(response.current_validators, current_epoch_validator_info);
         assert_eq!(
             response.next_validators,
