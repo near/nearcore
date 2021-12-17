@@ -22,13 +22,11 @@ where
     /// the cache. If the key is already in the cache, they gets gets moved to the head of
     /// the LRU list.
     pub fn get_or_put(&self, key: K, f: impl FnOnce(&K) -> V) -> V {
-        if let Some(result) = self.get(&key) {
-            result
-        } else {
+        self.get(&key).unwrap_or_else(|| {
             let val = f(&key);
             self.inner.lock().unwrap().put(key, val.clone());
             val
-        }
+        })
     }
 
     /// Puts a key-value pair into cache. If the key already exists in the cache,
