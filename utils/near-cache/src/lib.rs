@@ -24,7 +24,8 @@ where
     pub fn get_or_put(&self, key: K, f: impl FnOnce(&K) -> V) -> V {
         self.get(&key).unwrap_or_else(|| {
             let val = f(&key);
-            self.inner.lock().unwrap().put(key, val.clone());
+            let val_clone = val.clone();
+            self.inner.lock().unwrap().put(key, val_clone);
             val
         })
     }
