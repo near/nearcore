@@ -15,6 +15,8 @@ use near_primitives::types::{
 };
 use std::collections::HashMap;
 
+mod state_parts;
+
 impl Trie {
     /// Computes the set of trie items (nodes with keys and values) for a state part.
     ///
