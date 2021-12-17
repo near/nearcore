@@ -37,6 +37,7 @@ cur_height, _ = utils.wait_for_blocks(nodes[0], target=60)
 
 genesis_block = nodes[0].json_rpc('block', [0])
 genesis_hash = genesis_block['result']['header']['hash']
+genesis_hash = base58.b58decode(genesis_hash.encode('ascii'))
 
 nodes[1].start(boot_node=nodes[1])
 tracker = utils.LogTracker(nodes[1])
@@ -49,11 +50,8 @@ while node1_height <= cur_height:
     if time.time() - start_time > MAX_SYNC_WAIT:
         assert False, "state sync timed out"
     if nonce % 5 == 0:
-        status1 = nodes[1].get_status()
-        logger.info(status1)
-        node1_height = status1['sync_info']['latest_block_height']
-    tx = sign_payment_tx(nodes[0].signer_key, 'test1', 1, nonce,
-                         base58.b58decode(genesis_hash.encode('utf8')))
+        node1_height = nodes[1].get_latest_block(verbose=True).height
+    tx = sign_payment_tx(nodes[0].signer_key, 'test1', 1, nonce, genesis_hash)
     nodes[1].send_tx(tx)
     nonce += 1
     time.sleep(0.05)

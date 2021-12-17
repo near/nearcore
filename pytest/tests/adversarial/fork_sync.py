@@ -64,26 +64,20 @@ time.sleep(1)
 logger.info("all nodes restarted")
 
 while cur_height < TIMEOUT:
-    statuses = []
-    for i, node in enumerate(nodes):
-        cur_status = node.get_status()
-        statuses.append((i, cur_status['sync_info']['latest_block_height'],
-                         cur_status['sync_info']['latest_block_hash']))
-    statuses.sort(key=lambda x: x[1])
-    last = statuses[-1]
-    cur_height = last[1]
+    statuses = sorted((enumerate(node.get_latest_block() for node in nodes)),
+                      key=lambda element: element[1].height)
+    last = statuses.pop()
+    cur_height = last[1].height
     node = nodes[last[0]]
     succeed = True
-    for i in range(len(statuses) - 1):
-        status = statuses[i]
+    for _, block in statuses:
         try:
-            node.get_block(status[-1])
+            node.get_block(block.hash)
         except Exception:
             succeed = False
             break
-    if statuses[0][1] > FINAL_HEIGHT_THRESHOLD and succeed:
-        logger.info("Epic")
-        exit(0)
+    if statuses[0][1].height > FINAL_HEIGHT_THRESHOLD and succeed:
+        sys.exit(0)
     time.sleep(0.5)
 
 assert False, "timed out waiting for forks to resolve"

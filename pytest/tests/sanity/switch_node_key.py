@@ -28,9 +28,7 @@ nodes = start_cluster(
      ], ["total_supply", "3100000000000000000000000000000000"]], {1: config1})
 time.sleep(2)
 
-status1 = nodes[1].get_status()
-height1 = status1['sync_info']['latest_block_height']
-block = nodes[1].get_block(height1)
+block = nodes[1].get_block(nodes[1].get_latest_block().height)
 epoch_id = block['result']['header']['epoch_id']
 
 utils.wait_for_blocks(nodes[1], target=STOP_HEIGHT1)

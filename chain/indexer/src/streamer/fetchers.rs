@@ -67,14 +67,6 @@ pub(crate) async fn fetch_state_changes(
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
 
-/// Fetches single chunk (as `near_primitives::views::ChunkView`) by provided `near_client::GetChunk` enum
-async fn fetch_single_chunk(
-    client: &Addr<near_client::ViewClientActor>,
-    get_chunk: near_client::GetChunk,
-) -> Result<views::ChunkView, FailedToFetchData> {
-    client.send(get_chunk).await?.map_err(|err| FailedToFetchData::String(err.to_string()))
-}
-
 /// Fetch all ExecutionOutcomeWithId for current block
 /// Returns a HashMap where the key is shard id IndexerExecutionOutcomeWithOptionalReceipt
 pub(crate) async fn fetch_outcomes(
@@ -129,26 +121,35 @@ async fn fetch_receipt_by_id(
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
 
-/// Fetches all the chunks by their hashes.
-/// Includes transactions and receipts in custom struct (to provide more info).
-/// Returns Chunks as a `Vec`
-pub(crate) async fn fetch_chunks(
+/// Fetches single chunk (as `near_primitives::views::ChunkView`) by provided
+/// chunk hash.
+async fn fetch_single_chunk(
     client: &Addr<near_client::ViewClientActor>,
-    chunk_hashes: Vec<CryptoHash>,
+    chunk_hash: near_primitives::hash::CryptoHash,
+) -> Result<views::ChunkView, FailedToFetchData> {
+    client
+        .send(near_client::GetChunk::ChunkHash(chunk_hash.into()))
+        .await?
+        .map_err(|err| FailedToFetchData::String(err.to_string()))
+}
+
+/// Fetches all chunks belonging to given block.
+/// Includes transactions and receipts in custom struct (to provide more info).
+pub(crate) async fn fetch_block_chunks(
+    client: &Addr<near_client::ViewClientActor>,
+    block: &views::BlockView,
 ) -> Result<Vec<views::ChunkView>, FailedToFetchData> {
-    let mut chunks: futures::stream::FuturesUnordered<_> = chunk_hashes
-        .into_iter()
-        .map(|chunk_hash| {
-            fetch_single_chunk(&client, near_client::GetChunk::ChunkHash(chunk_hash.into()))
-        })
+    let mut futures: futures::stream::FuturesUnordered<_> = block
+        .chunks
+        .iter()
+        .filter(|chunk| chunk.height_included == block.header.height)
+        .map(|chunk| fetch_single_chunk(&client, chunk.chunk_hash))
         .collect();
-    let mut response = Vec::<views::ChunkView>::with_capacity(chunks.len());
-
-    while let Some(chunk) = chunks.next().await {
-        response.push(chunk?);
+    let mut chunks = Vec::<views::ChunkView>::with_capacity(futures.len());
+    while let Some(chunk) = futures.next().await {
+        chunks.push(chunk?);
     }
-
-    Ok(response)
+    Ok(chunks)
 }
 
 pub(crate) async fn fetch_protocol_config(

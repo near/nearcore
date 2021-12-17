@@ -109,19 +109,16 @@ def test_upgrade() -> None:
     time.sleep(2)
 
     # deploy a contract
-    status = nodes[0].get_status()
-    hash = status['sync_info']['latest_block_hash']
+    hash = nodes[0].get_latest_block().hash_bytes
     tx = sign_deploy_contract_tx(nodes[0].signer_key,
-                                 utils.load_test_contract(), 1,
-                                 base58.b58decode(hash.encode('utf8')))
+                                 utils.load_test_contract(), 1, hash)
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
 
     # write some random value
     tx = sign_function_call_tx(nodes[0].signer_key,
                                nodes[0].signer_key.account_id,
-                               'write_random_value', [], 10**13, 0, 2,
-                               base58.b58decode(hash.encode('utf8')))
+                               'write_random_value', [], 10**13, 0, 2, hash)
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
@@ -143,13 +140,13 @@ def test_upgrade() -> None:
         "Latest protocol version %d should match active protocol version %d" % (
         latest_protocol_version, protocol_version)
 
-    hash = status0['sync_info']['latest_block_hash']
+    hash = base58.b58decode(
+        status0['sync_info']['latest_block_hash'].encode('ascii'))
 
     # write some random value again
     tx = sign_function_call_tx(nodes[0].signer_key,
                                nodes[0].signer_key.account_id,
-                               'write_random_value', [], 10**13, 0, 4,
-                               base58.b58decode(hash.encode('utf8')))
+                               'write_random_value', [], 10**13, 0, 4, hash)
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
@@ -160,7 +157,7 @@ def test_upgrade() -> None:
                          to=hex_account_id,
                          amount=10**25,
                          nonce=5,
-                         blockHash=base58.b58decode(hash.encode('utf8')))
+                         blockHash=hash)
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     # Successfully created a new account on transfer to hex
     assert 'error' not in res, res

@@ -115,15 +115,13 @@ for catch_up_height, hash_ in utils.poll_blocks(node4,
     if catch_up_height >= observed_height:
         break
     assert time.time() - started < TIMEOUT, "Waiting for node 4 to catch up"
-    status = node4.get_status()
-    new_height = status['sync_info']['latest_block_height']
+    new_height = node4.get_latest_block().height
     logger.info(f"Latest block at: {new_height}")
     if new_height > catch_up_height:
         catch_up_height = new_height
         logger.info(f"Last observer got to height {new_height}")
 
-    status = boot_node.get_status()
-    boot_height = status['sync_info']['latest_block_height']
+    boot_height = boot_node.get_latest_block().height
 
     if mode == 'manytx':
         if ctx.get_balances() == ctx.expected_balances:

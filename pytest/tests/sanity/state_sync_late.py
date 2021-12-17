@@ -72,8 +72,7 @@ for catch_up_height, hash_ in utils.poll_blocks(node2,
     if catch_up_height >= observed_height:
         break
 
-    status = boot_node.get_status()
-    boot_height = status['sync_info']['latest_block_height']
+    boot_height = boot_node.get_latest_block().height
     if mode == 'manytx':
         if ctx.get_balances() == ctx.expected_balances:
             ctx.send_moar_txs(hash_, 3, False)

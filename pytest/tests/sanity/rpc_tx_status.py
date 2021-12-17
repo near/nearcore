@@ -43,10 +43,7 @@ def test_tx_status():
          ["transaction_validity_period", 10000]], {})
 
     signer_key = nodes[0].signer_key
-    status = nodes[0].get_status()
-    block_hash = status['sync_info']['latest_block_hash']
-    encoded_block_hash = base58.b58decode(block_hash.encode('ascii'))
-
+    encoded_block_hash = nodes[0].get_latest_block().hash_bytes
     payment_tx = transaction.sign_payment_tx(signer_key, 'test1', 100, 1,
                                              encoded_block_hash)
     submit_tx_and_check(nodes, 0, payment_tx)

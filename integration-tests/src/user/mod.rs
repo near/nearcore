@@ -214,7 +214,7 @@ pub trait User {
         beneficiary_id: AccountId,
     ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
-            signer_id.clone(),
+            signer_id,
             receiver_id,
             vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
         )
