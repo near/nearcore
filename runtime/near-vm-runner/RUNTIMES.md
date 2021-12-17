@@ -8,8 +8,8 @@ validator. Some of them are already listed in the
 [FAQ](FAQ.md#practical-aspects-of-the-execution-engines) document. Listed roughly in the order of
 importance:
 
-* correctness – does the runtime do what it claims to do;
 * security – how well does the runtime deal with untrusted input;
+* correctness – does the runtime do what it claims to do;
 * reliability – how much confidence is there in the implementation of runtime;
 * platform support – does the runtime support targets that we want to target;
 * runtime performance – how quickly can the runtime execute the prepared Wasm code;
@@ -18,6 +18,22 @@ importance:
 # Requirements
 
 Within each criteria we have specific requirements relevant to the NEAR validator.
+
+## Security
+
+NEAR protocol validators execute arbitrary Wasm code submitted by the participants of the network,
+much like e.g. web browsers execute untrusted JavaScript code. It is critical that the runtime
+executes the Wasm code in its own isolated environment. The contract code must not be presented
+with an opportunity to access resources from the system running a validator node outside of what is
+enabled via host functions exposed by the validator implementation itself.
+
+Additionally, contracts should be isolated from each other as well. Never should there be a
+situation where it is possible for a contract to recover and extradite state of a different
+contract.
+
+A bug in the runtime is most likely to take a form of some sort of memory management issue, where
+the memory is reused by the contract without zeroing it, or where the memory accesses aren't
+validated correctly and allow access outside of the memory regions allocated for the contract.
 
 ## Correctness
 
@@ -43,24 +59,8 @@ signs and payloads are always deterministic.
 
 Another detail to keep an eye out is whether the floating point results are being rounded
 correctly. It is well known that the x87 co-processor does not necessarily round the results
-correctly, so a special attention to the implementation of the specification on the 32-bit x86
-targets is warranted here.
-
-## Security
-
-NEAR protocol validators execute arbitrary Wasm code submitted by the participants of the network,
-much like e.g. web browsers execute untrusted JavaScript code. It is critical that the runtime
-executes the Wasm code in its own isolated environment. The contract code must not be presented
-with an opportunity to access resources from the system running a validator node outside of what is
-enabled via host functions exposed by the validator implementation itself.
-
-Additionally, contracts should be isolated from each other as well. Never should there be a
-situation where it is possible for a contract to recover and extradite state of a different
-contract.
-
-A bug in the runtime is most likely to take a form of some sort of memory management issue, where
-the memory is reused by the contract without zeroing it, or where the memory accesses aren't
-validated correctly and allow access outside of the memory regions allocated for the contract.
+correctly, so a special attention to how a runtime implements the floating point operations on the
+32-bit x86 targets is warranted.
 
 ## Reliability
 
