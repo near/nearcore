@@ -41,16 +41,6 @@ where
     pub fn get(&self, key: &K) -> Option<V> {
         self.inner.lock().unwrap().get(key).cloned()
     }
-
-    /// Clear the contents of the cache.
-    pub fn clear(&self) {
-        self.inner.lock().unwrap().clear()
-    }
-
-    /// Returns the number of key-value pairs currently stored in the cache.
-    pub fn len(&self) -> usize {
-        self.inner.lock().unwrap().len()
-    }
 }
 
 #[cfg(test)]
@@ -65,9 +55,5 @@ mod tests {
         assert_eq!(cache.get_or_put(123u64, |key| vec![*key, 123]), vec![123u64, 123]);
         assert_eq!(cache.get(&123u64), Some(vec![123u64, 123]));
         assert_eq!(cache.get(&0u64), None);
-
-        assert_eq!(cache.len(), 1);
-        cache.clear();
-        assert_eq!(cache.len(), 0);
     }
 }
