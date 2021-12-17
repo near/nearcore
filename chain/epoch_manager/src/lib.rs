@@ -997,8 +997,10 @@ impl EpochManager {
                         let validator_stats = epoch_summary
                             .validator_block_chunk_stats
                             .get(info.account_id())
-                            .map(|stats| stats.block_stats.clone())
-                            .unwrap_or_else(|| ValidatorStats { produced: 0, expected: 0 });
+                            .unwrap_or(&BlockChunkValidatorStats {
+                                block_stats: ValidatorStats { produced: 0, expected: 0 },
+                                chunk_stats: ValidatorStats { produced: 0, expected: 0 },
+                            });
                         let mut shards = validator_to_shard[validator_id]
                             .iter()
                             .cloned()
@@ -1011,8 +1013,10 @@ impl EpochManager {
                             public_key,
                             stake,
                             shards,
-                            num_produced_blocks: validator_stats.produced,
-                            num_expected_blocks: validator_stats.expected,
+                            num_produced_blocks: validator_stats.block_stats.produced,
+                            num_expected_blocks: validator_stats.block_stats.expected,
+                            num_produced_chunks: validator_stats.chunk_stats.produced,
+                            num_expected_chunks: validator_stats.chunk_stats.expected,
                         })
                     })
                     .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
@@ -1028,11 +1032,19 @@ impl EpochManager {
                     .validators_iter()
                     .enumerate()
                     .map(|(validator_id, info)| {
-                        let validator_stats = aggregator
+                        let block_stats = aggregator
                             .block_tracker
                             .get(&(validator_id as u64))
                             .unwrap_or_else(|| &ValidatorStats { produced: 0, expected: 0 })
                             .clone();
+
+                        let mut chunk_stats = ValidatorStats { produced: 0, expected: 0 };
+                        for (_shard, tracker) in aggregator.shard_tracker.iter() {
+                            if let Some(stats) = tracker.get(&(validator_id as u64)) {
+                                chunk_stats.produced += stats.produced;
+                                chunk_stats.expected += stats.expected;
+                            }
+                        }
                         let mut shards = validator_to_shard[validator_id]
                             .clone()
                             .into_iter()
@@ -1045,8 +1057,10 @@ impl EpochManager {
                             public_key,
                             stake,
                             shards,
-                            num_produced_blocks: validator_stats.produced,
-                            num_expected_blocks: validator_stats.expected,
+                            num_produced_blocks: block_stats.produced,
+                            num_expected_blocks: block_stats.expected,
+                            num_produced_chunks: chunk_stats.produced,
+                            num_expected_chunks: chunk_stats.expected,
                         })
                     })
                     .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
