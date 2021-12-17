@@ -49,7 +49,7 @@ impl RuntimeConfigStore {
             store.insert(0, Arc::new(config.clone()));
 
             config.storage_amount_per_byte = 10u128.pow(19);
-            store.insert(42, Arc::new(config.clone()));
+            store.insert(42, Arc::new(config));
         }
 
         Self { store }
