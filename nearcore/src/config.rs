@@ -1228,7 +1228,11 @@ pub fn load_config_without_genesis_records(dir: &Path, genesis_validation: bool)
     NearConfig::new(
         config,
         match genesis_records_file {
-            Some(genesis_records_file) => Genesis::from_files(&genesis_file, &dir.join(genesis_records_file), genesis_validation),
+            Some(genesis_records_file) => Genesis::from_files(
+                &genesis_file,
+                &dir.join(genesis_records_file),
+                genesis_validation,
+            ),
             None => Genesis::from_file(&genesis_file, genesis_validation),
         },
         network_signer.into(),
