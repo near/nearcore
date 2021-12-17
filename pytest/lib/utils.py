@@ -322,8 +322,8 @@ def poll_blocks(node: cluster.LocalNode,
     Args:
         node: Node to query about its latest block.
         timeout: Total timeout from the first status request sent to the node.
-        poll_interval: How long to wait between each status request sent to the
-            node.
+        poll_interval: How long to wait in seconds between each status request
+            sent to the node.
         kw: Keyword arguments passed to `BaseDone.get_latest_block` method.
     Yields:
         A `cluster.BlockId` object for each each time node’s latest block
@@ -363,7 +363,7 @@ def wait_for_blocks(node: cluster.LocalNode,
                     target: typing.Optional[int] = None,
                     count: typing.Optional[int] = None,
                     **kw) -> cluster.BlockId:
-    """Waits until given block reaches expected target block height.
+    """Waits until given node reaches expected target block height.
 
     Exactly one of `target` or `count` arguments must be specified.  Specifying
     `count` is equivalent to setting `target` to node’s current height plus the
@@ -376,7 +376,7 @@ def wait_for_blocks(node: cluster.LocalNode,
             target is calculated as node’s current block height plus the given
             count.
         kw: Keyword arguments passed to `poll_blocks`.  `timeout` and
-            `poll_interval` are likeli of most interest.
+            `poll_interval` are likely of most interest.
     Returns:
         A `cluster.BlockId` of the block at target height.
     Raises:
