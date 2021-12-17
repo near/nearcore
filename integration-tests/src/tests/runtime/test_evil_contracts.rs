@@ -21,7 +21,7 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
     let node_user = node.user();
     let transaction_result = node_user
         .create_account(
-            account_id.clone(),
+            account_id,
             "test_contract".parse().unwrap(),
             node.signer().public_key(),
             TESTING_INIT_BALANCE / 2,

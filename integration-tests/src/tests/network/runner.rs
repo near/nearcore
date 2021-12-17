@@ -55,13 +55,8 @@ pub fn setup_network_node(
 
     let num_validators = validators.len() as ValidatorId;
 
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators(
-        store.clone(),
-        vec![validators.clone()],
-        1,
-        1,
-        5,
-    ));
+    let runtime =
+        Arc::new(KeyValueRuntime::new_with_validators(store.clone(), vec![validators], 1, 1, 5));
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         account_id.clone(),
         KeyType::ED25519,
@@ -97,7 +92,7 @@ pub fn setup_network_node(
             config.account_id.clone(),
             chain_genesis.clone(),
             runtime.clone(),
-            network_adapter.clone(),
+            network_adapter,
             client_config,
             #[cfg(feature = "test_features")]
             adv.clone(),
