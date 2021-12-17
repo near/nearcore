@@ -345,7 +345,7 @@ impl HeaderSync {
                 locator.push(x);
             } else {
                 // Walk backwards to find last known hash.
-                let last_loc = locator.last().unwrap().clone();
+                let last_loc = *locator.last().unwrap();
                 if let Ok(header) = chain.get_header_by_height(h) {
                     if header.height() != last_loc.0 {
                         locator.push((header.height(), *header.hash()));
@@ -367,7 +367,7 @@ fn close_enough(locator: &Vec<(u64, CryptoHash)>, height: u64) -> Option<(u64, C
     }
     // Check boundaries, if lower than the last.
     if locator.last().unwrap().0 >= height {
-        return locator.last().map(|x| x.clone());
+        return locator.last().map(|x| *x);
     }
     // Higher than first and first is within acceptable gap.
     if locator[0].0 < height && height.saturating_sub(127) < locator[0].0 {
@@ -376,9 +376,9 @@ fn close_enough(locator: &Vec<(u64, CryptoHash)>, height: u64) -> Option<(u64, C
     for h in locator.windows(2) {
         if height <= h[0].0 && height > h[1].0 {
             if h[0].0 - height < height - h[1].0 {
-                return Some(h[0].clone());
+                return Some(h[0]);
             } else {
-                return Some(h[1].clone());
+                return Some(h[1]);
             }
         }
     }
@@ -511,7 +511,7 @@ impl BlockSync {
             loop {
                 match chain.mut_store().get_next_block_hash(&ret_hash) {
                     Ok(hash) => {
-                        let hash = hash.clone();
+                        let hash = *hash;
                         if chain.block_exists(&hash)? {
                             ret_hash = hash;
                         } else {
@@ -698,7 +698,7 @@ impl StateSync {
             status: ShardSyncStatus::StateDownloadHeader,
         };
 
-        let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
+        let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let prev_epoch_id = chain.get_block_header(&prev_hash)?.epoch_id().clone();
         let epoch_id = chain.get_block_header(&sync_hash)?.epoch_id().clone();
         if chain.runtime_adapter.get_shard_layout(&prev_epoch_id)?
@@ -953,8 +953,8 @@ impl StateSync {
     ) -> Result<CryptoHash, near_chain::Error> {
         let mut header = chain.get_block_header(sync_hash)?;
         let mut epoch_id = header.epoch_id().clone();
-        let mut hash = header.hash().clone();
-        let mut prev_hash = header.prev_hash().clone();
+        let mut hash = *header.hash();
+        let mut prev_hash = *header.prev_hash();
         loop {
             if prev_hash == CryptoHash::default() {
                 return Ok(hash);
@@ -964,8 +964,8 @@ impl StateSync {
                 return Ok(hash);
             }
             epoch_id = header.epoch_id().clone();
-            hash = header.hash().clone();
-            prev_hash = header.prev_hash().clone();
+            hash = *header.hash();
+            prev_hash = *header.prev_hash();
         }
     }
 
@@ -1172,7 +1172,7 @@ impl StateSync {
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<StateSyncResult, near_chain::Error> {
-        let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
+        let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let now = Clock::utc();
 
         let (request_block, have_block) = self.sync_block_status(&prev_hash, chain, now)?;
@@ -1493,7 +1493,7 @@ mod test {
                 vec![],
                 vec![],
                 &*signers[3],
-                last_block.header().next_bp_hash().clone(),
+                *last_block.header().next_bp_hash(),
                 block_merkle_tree.root(),
             );
             block_merkle_tree.insert(*block.hash());

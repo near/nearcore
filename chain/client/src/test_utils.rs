@@ -372,10 +372,10 @@ impl BlockStats {
 
         if let Some(last_hash2) = self.last_hash {
             self.max_divergence =
-                max(self.max_divergence, self.calculate_distance(last_hash2, block.hash().clone()));
+                max(self.max_divergence, self.calculate_distance(last_hash2, *block.hash()));
         }
 
-        self.last_hash = Some(block.hash().clone());
+        self.last_hash = Some(*block.hash());
     }
 
     pub fn check_stats(&mut self, force: bool) {
@@ -551,7 +551,7 @@ pub fn setup_mock_all_validators(
                     for (i, name) in validators_clone2.iter().flatten().enumerate() {
                         if name == &account_id {
                             my_key_pair = Some(key_pairs[i].clone());
-                            my_address = Some(addresses[i].clone());
+                            my_address = Some(addresses[i]);
                             my_ord = Some(i);
                         }
                     }
@@ -950,7 +950,7 @@ pub fn setup_mock_all_validators(
                                         approval.target_height;
 
                                     if let Some(prev_height) =
-                                        hash_to_height1.read().unwrap().get(&parent_hash).clone()
+                                        hash_to_height1.read().unwrap().get(&parent_hash)
                                     {
                                         assert_eq!(prev_height + 1, approval.target_height);
                                     }
@@ -1248,7 +1248,7 @@ impl TestEnvBuilder {
                 .zip(network_adapters.iter())
                 .map(|(account_id, network_adapter)| {
                     let rng_seed = match seeds.get(&account_id) {
-                        Some(seed) => seed.clone(),
+                        Some(seed) => *seed,
                         None => TEST_SEED,
                     };
                     setup_client(
@@ -1272,7 +1272,7 @@ impl TestEnvBuilder {
                     .zip(runtime_adapters.into_iter())
                     .map(|((account_id, network_adapter), runtime_adapter)| {
                         let rng_seed = match seeds.get(&account_id) {
-                            Some(seed) => seed.clone(),
+                            Some(seed) => *seed,
                             None => TEST_SEED,
                         };
                         setup_client_with_runtime(
@@ -1516,7 +1516,7 @@ impl TestEnv {
         let store = self.clients[idx].chain.store().owned_store();
         let account_id = self.get_client_id(idx).clone();
         let rng_seed = match self.seeds.get(&account_id) {
-            Some(seed) => seed.clone(),
+            Some(seed) => *seed,
             None => TEST_SEED,
         };
         self.clients[idx] = setup_client(

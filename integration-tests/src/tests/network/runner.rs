@@ -636,7 +636,7 @@ impl Runner {
         }));
 
         let mut network_config =
-            NetworkConfig::from_seed(accounts_id[node_id].as_ref(), ports[node_id].clone());
+            NetworkConfig::from_seed(accounts_id[node_id].as_ref(), ports[node_id]);
 
         network_config.ban_window = test_config.ban_window;
         network_config.max_num_peers = test_config.max_num_peers;
@@ -659,7 +659,7 @@ impl Runner {
         setup_network_node(
             accounts_id[node_id].clone(),
             self.validators.clone().unwrap(),
-            self.genesis_time.clone().unwrap(),
+            self.genesis_time.unwrap(),
             network_config,
         )
     }
