@@ -14,8 +14,8 @@ use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
 
 use self::errors::FailedToFetchData;
 use self::fetchers::{
-    fetch_block_by_hash, fetch_block_by_height, fetch_chunks, fetch_latest_block, fetch_outcomes,
-    fetch_state_changes, fetch_status,
+    fetch_block_by_hash, fetch_block_by_height, fetch_block_chunks, fetch_latest_block,
+    fetch_outcomes, fetch_state_changes, fetch_status,
 };
 pub use self::types::{
     IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
@@ -70,18 +70,7 @@ async fn build_streamer_message(
     client: &Addr<near_client::ViewClientActor>,
     block: views::BlockView,
 ) -> Result<StreamerMessage, FailedToFetchData> {
-    let chunks_to_fetch = block
-        .chunks
-        .iter()
-        .filter_map(|c| {
-            if c.height_included == block.header.height {
-                Some(c.chunk_hash)
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    let chunks = fetch_chunks(&client, chunks_to_fetch).await?;
+    let chunks = fetch_block_chunks(&client, &block).await?;
 
     let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
     let num_shards = protocol_config_view.num_block_producer_seats_per_shard.len()
@@ -240,18 +229,7 @@ async fn find_local_receipt_by_id_in_block(
     block: views::BlockView,
     receipt_id: near_primitives::hash::CryptoHash,
 ) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
-    let chunks_to_fetch = block
-        .chunks
-        .iter()
-        .filter_map(|c| {
-            if c.height_included == block.header.height {
-                Some(c.chunk_hash)
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    let chunks = fetch_chunks(&client, chunks_to_fetch).await?;
+    let chunks = fetch_block_chunks(&client, &block).await?;
     let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
 
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
