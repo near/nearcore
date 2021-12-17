@@ -153,7 +153,7 @@ impl InfoHelper {
         (metrics::IS_VALIDATOR.set(is_validator as i64));
         (metrics::RECEIVED_BYTES_PER_SECOND.set(network_info.received_bytes_per_sec as i64));
         (metrics::SENT_BYTES_PER_SECOND.set(network_info.sent_bytes_per_sec as i64));
-        (metrics::BLOCKS_PER_MINUTE.set((avg_bls * (60 as f64)) as i64));
+        (metrics::BLOCKS_PER_MINUTE.set((avg_bls * 60_f64) as i64));
         (metrics::CPU_USAGE.set(cpu_usage as i64));
         (metrics::MEMORY_USAGE.set((memory_usage * 1024) as i64));
         let teragas = 1_000_000_000_000u64;
@@ -239,26 +239,25 @@ fn display_sync_status(
             let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
             shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
             for (shard_id, shard_status) in shard_statuses {
-                res = res
-                    + format!(
+                res += format!(
                         "[{}: {}]",
                         shard_id,
                         match shard_status.status {
-                            ShardSyncStatus::StateDownloadHeader => format!("header"),
-                            ShardSyncStatus::StateDownloadParts => format!("parts"),
-                            ShardSyncStatus::StateDownloadScheduling => format!("scheduling"),
-                            ShardSyncStatus::StateDownloadApplying => format!("applying"),
-                            ShardSyncStatus::StateDownloadComplete => format!("download complete"),
-                            ShardSyncStatus::StateSplitScheduling => format!("split scheduling"),
-                            ShardSyncStatus::StateSplitApplying => format!("split applying"),
-                            ShardSyncStatus::StateSyncDone => format!("done"),
+                            ShardSyncStatus::StateDownloadHeader => "header".to_string(),
+                            ShardSyncStatus::StateDownloadParts => "parts".to_string(),
+                            ShardSyncStatus::StateDownloadScheduling => "scheduling".to_string(),
+                            ShardSyncStatus::StateDownloadApplying => "applying".to_string(),
+                            ShardSyncStatus::StateDownloadComplete => "download complete".to_string(),
+                            ShardSyncStatus::StateSplitScheduling => "split scheduling".to_string(),
+                            ShardSyncStatus::StateSplitApplying => "split applying".to_string(),
+                            ShardSyncStatus::StateSyncDone => "done".to_string(),
                         }
                     )
                     .as_str();
             }
             res
         }
-        SyncStatus::StateSyncDone => format!("State sync done"),
+        SyncStatus::StateSyncDone => "State sync done".to_string(),
     }
 }
 

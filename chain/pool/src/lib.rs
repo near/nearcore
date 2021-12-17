@@ -449,9 +449,9 @@ mod tests {
         assert_eq!(pool.len(), 10);
         let txs = prepare_transactions(&mut pool, 5);
         assert_eq!(txs.len(), 5);
-        nonces.sort();
+        nonces.sort_unstable();
         let mut new_nonces = txs.iter().map(|tx| tx.transaction.nonce).collect::<Vec<_>>();
-        new_nonces.sort();
+        new_nonces.sort_unstable();
         assert_ne!(nonces, new_nonces);
     }
 }

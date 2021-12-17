@@ -443,7 +443,7 @@ pub(crate) fn action_deploy_contract(
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
     let prev_code_length = prev_code.map(|code| code.code().len() as u64).unwrap_or_default();
-    account.set_storage_usage(account.storage_usage().checked_sub(prev_code_length).unwrap_or(0));
+    account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_length));
     account.set_storage_usage(
         account.storage_usage().checked_add(code.code().len() as u64).ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
@@ -532,7 +532,7 @@ pub(crate) fn action_delete_key(
         };
         // Remove access key
         remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
-        account.set_storage_usage(account.storage_usage().checked_sub(storage_usage).unwrap_or(0));
+        account.set_storage_usage(account.storage_usage().saturating_sub(storage_usage));
     } else {
         result.result = Err(ActionErrorKind::DeleteKeyDoesNotExist {
             public_key: delete_key.public_key.clone(),
@@ -653,24 +653,22 @@ pub(crate) fn check_account_existence(
                     account_id: account_id.clone(),
                 }
                 .into());
-            } else {
-                if is_implicit_account_creation_enabled(current_protocol_version)
-                    && account_id.is_implicit()
-                {
-                    // If the account doesn't exist and it's 64-length hex account ID, then you
-                    // should only be able to create it using single transfer action.
-                    // Because you should not be able to add another access key to the account in
-                    // the same transaction.
-                    // Otherwise you can hijack an account without having the private key for the
-                    // public key. We've decided to make it an invalid transaction to have any other
-                    // actions on the 64-length hex accounts.
-                    // The easiest way is to reject the `CreateAccount` action.
-                    // See https://github.com/nearprotocol/NEPs/pull/71
-                    return Err(ActionErrorKind::OnlyImplicitAccountCreationAllowed {
-                        account_id: account_id.clone(),
-                    }
-                    .into());
+            } else if is_implicit_account_creation_enabled(current_protocol_version)
+                && account_id.is_implicit()
+            {
+                // If the account doesn't exist and it's 64-length hex account ID, then you
+                // should only be able to create it using single transfer action.
+                // Because you should not be able to add another access key to the account in
+                // the same transaction.
+                // Otherwise you can hijack an account without having the private key for the
+                // public key. We've decided to make it an invalid transaction to have any other
+                // actions on the 64-length hex accounts.
+                // The easiest way is to reject the `CreateAccount` action.
+                // See https://github.com/nearprotocol/NEPs/pull/71
+                return Err(ActionErrorKind::OnlyImplicitAccountCreationAllowed {
+                    account_id: account_id.clone(),
                 }
+                .into());
             }
         }
         Action::Transfer(_) => {
@@ -794,8 +792,8 @@ mod tests {
             Err(ActionError {
                 index: None,
                 kind: ActionErrorKind::CreateAccountNotAllowed {
-                    account_id: account_id,
-                    predecessor_id: predecessor_id,
+                    account_id,
+                    predecessor_id,
                 },
             })
         );
@@ -812,9 +810,9 @@ mod tests {
             Err(ActionError {
                 index: None,
                 kind: ActionErrorKind::CreateAccountOnlyByRegistrar {
-                    account_id: account_id,
+                    account_id,
                     registrar_account_id: "registrar".parse().unwrap(),
-                    predecessor_id: predecessor_id,
+                    predecessor_id,
                 },
             })
         );

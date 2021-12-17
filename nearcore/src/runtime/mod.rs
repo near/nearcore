@@ -372,8 +372,8 @@ impl NightshadeRuntime {
             if has_records {
                 warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
             }
-            let state_roots = Self::genesis_state_from_dump(store, home_dir);
-            state_roots
+            
+            Self::genesis_state_from_dump(store, home_dir)
         } else {
             Self::genesis_state_from_records(store, genesis)
         }
@@ -591,7 +591,7 @@ impl NightshadeRuntime {
                 shard_uid,
                 apply_result.trie_changes,
                 apply_result.state_changes,
-                block_hash.clone(),
+                *block_hash,
             ),
             new_root: apply_result.state_root,
             outcomes: apply_result.outcomes,
@@ -643,7 +643,7 @@ fn apply_delayed_receipts<'a>(
     state_roots: HashMap<ShardUId, StateRoot>,
     account_id_to_shard_id: &(dyn Fn(&AccountId) -> ShardUId + 'a),
 ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-    let orig_trie_update = tries.new_trie_update_view(orig_shard_uid.clone(), orig_state_root);
+    let orig_trie_update = tries.new_trie_update_view(orig_shard_uid, orig_state_root);
 
     let mut start_index = None;
     let mut new_state_roots = state_roots;
@@ -934,7 +934,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let message_to_sign = Approval::get_data_for_sig(
             &if prev_block_height + 1 == block_height {
-                ApprovalInner::Endorsement(prev_block_hash.clone())
+                ApprovalInner::Endorsement(*prev_block_hash)
             } else {
                 ApprovalInner::Skip(prev_block_height)
             },
@@ -976,7 +976,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let message_to_sign = Approval::get_data_for_sig(
             &if prev_block_height + 1 == block_height {
-                ApprovalInner::Endorsement(prev_block_hash.clone())
+                ApprovalInner::Endorsement(*prev_block_hash)
             } else {
                 ApprovalInner::Skip(prev_block_height)
             },
@@ -1651,7 +1651,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     shard_uid,
                     trie_changes,
                     vec![],
-                    block_hash.clone(),
+                    *block_hash,
                 ),
             })
             .collect())
@@ -1701,7 +1701,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_roots = apply_delayed_receipts(
             &self.tries,
             shard_uid,
-            state_root.clone(),
+            *state_root,
             state_roots,
             &checked_account_id_to_shard_id,
         )?;
@@ -1757,12 +1757,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         } else {
             match Trie::get_memory_usage_from_serialized(&state_root_node.data) {
                 Ok(memory_usage) => {
-                    if memory_usage != state_root_node.memory_usage {
-                        // Invalid value of memory_usage
-                        false
-                    } else {
-                        true
-                    }
+                    memory_usage == state_root_node.memory_usage
                 }
                 Err(_) => false, // Invalid state_root_node
             }
@@ -2118,7 +2113,7 @@ mod test {
                 Some(RuntimeConfigStore::free()),
             );
             let (_store, state_roots) = runtime.genesis_state();
-            let genesis_hash = hash(&vec![0]);
+            let genesis_hash = hash(&[0]);
             runtime
                 .add_validator_proposals(BlockHeaderInfo {
                     prev_hash: CryptoHash::default(),
@@ -2160,7 +2155,7 @@ mod test {
             chunk_mask: Vec<bool>,
             challenges_result: ChallengesResult,
         ) {
-            let new_hash = hash(&vec![(self.head.height + 1) as u8]);
+            let new_hash = hash(&[(self.head.height + 1) as u8]);
             let num_shards = self.runtime.num_shards(&self.head.epoch_id).unwrap();
             assert_eq!(transactions.len() as NumShards, num_shards);
             assert_eq!(chunk_mask.len() as NumShards, num_shards);
@@ -2631,7 +2626,7 @@ mod test {
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
         env.step_default(vec![staking_transaction]);
         env.step_default(vec![]);
-        let block_hash = hash(&vec![env.head.height as u8]);
+        let block_hash = hash(&[env.head.height as u8]);
         let state_part =
             env.runtime.obtain_state_part(0, &block_hash, &env.state_roots[0], 0, 1).unwrap();
         let root_node =
@@ -2689,7 +2684,7 @@ mod test {
             .runtime
             .apply_state_part(0, &env.state_roots[0], 0, 1, &state_part, epoch_id)
             .unwrap();
-        new_env.state_roots[0] = env.state_roots[0].clone();
+        new_env.state_roots[0] = env.state_roots[0];
         for _ in 3..=5 {
             new_env.step_default(vec![]);
         }
@@ -2821,8 +2816,7 @@ mod test {
                 public_key: block_producers[1].public_key(),
                 stake: TESTING_INIT_STAKE,
                 shards: vec![0],
-            }
-            .into()]
+            }]
         );
         assert!(response.current_proposals.is_empty());
         assert_eq!(

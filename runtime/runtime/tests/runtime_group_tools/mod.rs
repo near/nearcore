@@ -216,7 +216,7 @@ impl RuntimeGroup {
                 state_records.push(StateRecord::AccessKey {
                     account_id: account_id.clone(),
                     public_key: signer.public_key.clone(),
-                    access_key: AccessKey::full_access().into(),
+                    access_key: AccessKey::full_access(),
                 });
                 state_records
                     .push(StateRecord::Contract { account_id, code: contract_code.to_vec() });

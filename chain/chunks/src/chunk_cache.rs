@@ -97,7 +97,7 @@ impl EncodedChunksCache {
     pub fn insert(&mut self, chunk_hash: ChunkHash, entry: EncodedChunksCacheEntry) {
         self.height_map
             .entry(entry.header.height_created())
-            .or_insert_with(|| HashSet::default())
+            .or_insert_with(HashSet::default)
             .insert(chunk_hash.clone());
         self.encoded_chunks.insert(chunk_hash, entry);
     }
@@ -135,7 +135,7 @@ impl EncodedChunksCache {
             self.get_or_insert_from_header(chunk_hash.clone(), &partial_encoded_chunk.header);
         let height = entry.header.height_created();
         entry.merge_in_partial_encoded_chunk(partial_encoded_chunk);
-        self.height_map.entry(height).or_insert_with(|| HashSet::default()).insert(chunk_hash);
+        self.height_map.entry(height).or_insert_with(HashSet::default).insert(chunk_hash);
     }
 
     /// Remove a chunk from the cache if it is outside of horizon
@@ -179,7 +179,7 @@ impl EncodedChunksCache {
             let mut block_hash_to_chunk_headers = self
                 .block_hash_to_chunk_headers
                 .cache_remove(&prev_block_hash)
-                .unwrap_or_else(|| HashMap::new());
+                .unwrap_or_else(HashMap::new);
             block_hash_to_chunk_headers.insert(shard_id, header);
             self.block_hash_to_chunk_headers
                 .cache_set(prev_block_hash, block_hash_to_chunk_headers);
@@ -194,7 +194,7 @@ impl EncodedChunksCache {
     ) -> HashMap<ShardId, ShardChunkHeader> {
         self.block_hash_to_chunk_headers
             .cache_remove(prev_block_hash)
-            .unwrap_or_else(|| HashMap::new())
+            .unwrap_or_else(HashMap::new)
     }
 
     /// Returns number of chunks that are ready to be included in the next block

@@ -56,7 +56,7 @@ pub fn validate_transaction(
     }
 
     validate_actions(&config.wasm_config.limit_config, &transaction.actions)
-        .map_err(|e| InvalidTxError::ActionsValidation(e))?;
+        .map_err(InvalidTxError::ActionsValidation)?;
 
     let sender_is_receiver = &transaction.receiver_id == signer_id;
 
@@ -258,7 +258,7 @@ fn validate_action_receipt(
         });
     }
     validate_actions(limit_config, &receipt.actions)
-        .map_err(|e| ReceiptValidationError::ActionsValidation(e))
+        .map_err(ReceiptValidationError::ActionsValidation)
 }
 
 /// Validates given data receipt. Checks validity of the length of the returned data.
@@ -1231,7 +1231,7 @@ mod tests {
         let limit_config = VMLimitConfig::test();
         validate_actions(
             &limit_config,
-            &vec![Action::FunctionCall(FunctionCallAction {
+            &[Action::FunctionCall(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
                 gas: 100,

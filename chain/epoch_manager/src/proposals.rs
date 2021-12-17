@@ -49,7 +49,7 @@ pub fn proposals_to_epoch_info(
     last_epoch_version: ProtocolVersion,
 ) -> Result<EpochInfo, EpochError> {
     if checked_feature!("stable", AliasValidatorSelectionAlgorithm, last_epoch_version) {
-        return crate::validator_selection::proposals_to_epoch_info(
+        crate::validator_selection::proposals_to_epoch_info(
             epoch_config,
             rng_seed,
             prev_epoch_info,
@@ -58,9 +58,9 @@ pub fn proposals_to_epoch_info(
             validator_reward,
             minted_amount,
             next_version,
-        );
+        )
     } else {
-        return old_validator_selection::proposals_to_epoch_info(
+        old_validator_selection::proposals_to_epoch_info(
             epoch_config,
             rng_seed,
             prev_epoch_info,
@@ -69,7 +69,7 @@ pub fn proposals_to_epoch_info(
             validator_reward,
             minted_amount,
             next_version,
-        );
+        )
     }
 }
 

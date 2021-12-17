@@ -659,7 +659,7 @@ pub(crate) fn outcome_by_outcome_id_exists(
             "Can't get TransactionResult from storage with Outcome id {:?}",
             outcome_id
         );
-        if outcomes.iter().find(|outcome| &outcome.block_hash == block_hash).is_none() {
+        if !outcomes.iter().any(|outcome| &outcome.block_hash == block_hash) {
             panic!("Invalid TransactionResult {:?} stored", outcomes);
         }
     }
@@ -790,10 +790,8 @@ pub(crate) fn gc_col_count(
 ) -> Result<(), StoreValidatorError> {
     if SHOULD_COL_GC[*col as usize] {
         sv.inner.gc_col[*col as usize] = *count;
-    } else {
-        if *count > 0 {
-            err!("DBCol is cleared by mistake")
-        }
+    } else if *count > 0 {
+        err!("DBCol is cleared by mistake")
     }
     Ok(())
 }
@@ -803,12 +801,12 @@ pub(crate) fn tx_refcount(
     tx_hash: &CryptoHash,
     refcount: &u64,
 ) -> Result<(), StoreValidatorError> {
-    let expected = sv.inner.tx_refcount.get(tx_hash).map(|&rc| rc).unwrap_or_default();
+    let expected = sv.inner.tx_refcount.get(tx_hash).copied().unwrap_or_default();
     if *refcount != expected {
         err!("Invalid tx refcount, expected {:?}, found {:?}", expected, refcount)
     } else {
         sv.inner.tx_refcount.remove(tx_hash);
-        return Ok(());
+        Ok(())
     }
 }
 
@@ -817,12 +815,12 @@ pub(crate) fn receipt_refcount(
     receipt_id: &CryptoHash,
     refcount: &u64,
 ) -> Result<(), StoreValidatorError> {
-    let expected = sv.inner.receipt_refcount.get(receipt_id).map(|&rc| rc).unwrap_or_default();
+    let expected = sv.inner.receipt_refcount.get(receipt_id).copied().unwrap_or_default();
     if *refcount != expected {
         err!("Invalid receipt refcount, expected {:?}, found {:?}", expected, refcount)
     } else {
         sv.inner.receipt_refcount.remove(receipt_id);
-        return Ok(());
+        Ok(())
     }
 }
 
@@ -913,7 +911,7 @@ pub(crate) fn gc_col_count_final(sv: &mut StoreValidator) -> Result<(), StoreVal
     }
     let mut gc_col_count = 0;
     for gc_col in SHOULD_COL_GC.iter() {
-        if *gc_col == true {
+        if *gc_col {
             gc_col_count += 1;
         }
     }

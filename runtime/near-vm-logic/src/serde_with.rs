@@ -15,7 +15,7 @@ pub mod bytes_as_base64 {
         D: Deserializer<'de>,
     {
         let s = Cow::<'_, str>::deserialize(deserializer)?;
-        Ok(base64::decode(s.as_ref()).map_err(de::Error::custom)?)
+        base64::decode(s.as_ref()).map_err(de::Error::custom)
     }
 }
 
@@ -56,7 +56,7 @@ pub mod bytes_as_base58 {
         D: Deserializer<'de>,
     {
         let s = Cow::<'_, str>::deserialize(deserializer)?;
-        Ok(bs58::decode(s.as_ref()).into_vec().map_err(de::Error::custom)?)
+        bs58::decode(s.as_ref()).into_vec().map_err(de::Error::custom)
     }
 }
 

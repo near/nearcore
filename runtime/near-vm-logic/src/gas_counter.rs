@@ -83,7 +83,7 @@ impl GasCounter {
                 gas_limit: min(max_gas_burnt, prepaid_gas),
                 opcode_cost: Gas::from(opcode_cost),
             },
-            max_gas_burnt: max_gas_burnt,
+            max_gas_burnt,
             promises_gas: 0,
             prepaid_gas,
             is_view,

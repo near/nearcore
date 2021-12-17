@@ -69,7 +69,7 @@ pub fn validate_chunk_proofs(
     }
     // 2c. Checking that chunk receipts are valid
     if height_created == 0 {
-        return Ok(receipts.len() == 0 && outgoing_receipts_root == CryptoHash::default());
+        return Ok(receipts.is_empty() && outgoing_receipts_root == CryptoHash::default());
     } else {
         let shard_layout = {
             let prev_block_hash = match chunk {
@@ -304,7 +304,7 @@ fn validate_chunk_proofs_challenge(
     }
 
     // The chunk is fine. It's a malicious challenge.
-    return Err(ErrorKind::MaliciousChallenge.into());
+    Err(ErrorKind::MaliciousChallenge.into())
 }
 
 fn validate_chunk_state_challenge(

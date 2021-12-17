@@ -5,7 +5,7 @@ use std::env;
 use self::cli::NeardCmd;
 use clap::crate_version;
 use git_version::git_version;
-use near_performance_metrics;
+
 use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
 #[cfg(feature = "memory_stats")]
 use near_rust_allocator_proxy::allocator::MyAllocator;
@@ -31,7 +31,7 @@ static NEARD_VERSION_STRING: Lazy<String> = Lazy::new(|| {
         NEARD_VERSION.version, NEARD_VERSION.build, PROTOCOL_VERSION, DB_VERSION
     )
 });
-static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(|| get_default_home());
+static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(get_default_home);
 
 #[cfg(feature = "memory_stats")]
 #[global_allocator]

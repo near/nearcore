@@ -96,7 +96,7 @@ impl StoreValidator {
             me,
             config,
             runtime_adapter,
-            store: store,
+            store,
             inner: StoreValidatorCache::new(),
             timeout: None,
             start_time: Clock::instant(),
@@ -108,7 +108,7 @@ impl StoreValidator {
         self.timeout = Some(timeout)
     }
     pub fn is_failed(&self) -> bool {
-        self.tests == 0 || self.errors.len() > 0
+        self.tests == 0 || !self.errors.is_empty()
     }
     pub fn get_gc_counters(&self) -> Vec<(String, u64)> {
         let mut res = vec![];

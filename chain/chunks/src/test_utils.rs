@@ -73,7 +73,7 @@ impl Default for SealsManagerTestFixture {
             Default::default(),
             Default::default(),
         );
-        let mock_distant_block_hash = mock_distant_block_header.hash().clone();
+        let mock_distant_block_hash = *mock_distant_block_header.hash();
         Self::store_block_header(store, mock_distant_block_header);
 
         Self {
@@ -179,7 +179,8 @@ impl Default for ChunkForwardingTestFixture {
                 if *v == &mock_chunk_producer {
                     false
                 } else {
-                    let tracks_shard = mock_runtime.cares_about_shard(
+                    
+                    mock_runtime.cares_about_shard(
                         Some(*v),
                         &mock_parent_hash,
                         mock_shard_id,
@@ -189,8 +190,7 @@ impl Default for ChunkForwardingTestFixture {
                         &mock_parent_hash,
                         mock_shard_id,
                         false,
-                    );
-                    tracks_shard
+                    )
                 }
             })
             .cloned()

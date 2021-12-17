@@ -1,6 +1,6 @@
 use crate::test_utils::setup;
 use crate::{Block, ChainStoreAccess, ErrorKind};
-use chrono;
+
 use chrono::TimeZone;
 use near_logger_utils::init_test_logger;
 use near_primitives::hash::CryptoHash;
@@ -108,7 +108,7 @@ fn build_chain_with_orhpans() {
         vec![],
         vec![],
         &*signer,
-        last_block.header().next_bp_hash().clone(),
+        *last_block.header().next_bp_hash(),
         CryptoHash::default(),
     );
     assert_eq!(chain.process_block_test(&None, block).unwrap_err().kind(), ErrorKind::Orphan);

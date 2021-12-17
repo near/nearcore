@@ -158,7 +158,7 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
             {
                 if record_account_id.as_ref() == &seed {
                     is_account_record_found = true;
-                    account.set_code_hash(ContractCode::new(code.to_vec(), None).hash().clone());
+                    account.set_code_hash(*ContractCode::new(code.to_vec(), None).hash());
                 }
             }
         }

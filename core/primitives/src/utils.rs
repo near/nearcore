@@ -191,7 +191,7 @@ pub fn get_block_shard_id_rev(
             std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid key length").into()
         );
     }
-    let block_hash_vec: Vec<u8> = key[0..32].iter().cloned().collect();
+    let block_hash_vec: Vec<u8> = key[0..32].to_vec();
     let block_hash = CryptoHash::try_from(block_hash_vec)?;
     let mut shard_id_arr: [u8; 8] = Default::default();
     shard_id_arr.copy_from_slice(&key[key.len() - 8..]);

@@ -319,12 +319,10 @@ fn test_long_gap_between_blocks() {
                         }));
                         if approval_message.approval.target_height < target_height {
                             (NetworkResponses::NoResponse.into(), false)
+                        } else if approval_message.target.as_ref() == "test1" {
+                            (NetworkResponses::NoResponse.into(), true)
                         } else {
-                            if approval_message.target.as_ref() == "test1" {
-                                (NetworkResponses::NoResponse.into(), true)
-                            } else {
-                                (NetworkResponses::NoResponse.into(), false)
-                            }
+                            (NetworkResponses::NoResponse.into(), false)
                         }
                     }
                     _ => (NetworkResponses::NoResponse.into(), true),

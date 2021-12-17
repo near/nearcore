@@ -13,7 +13,7 @@ fn test_storage_write_with_register() {
     logic.wrapped_internal_write_register(1, key).unwrap();
     logic.wrapped_internal_write_register(2, val).unwrap();
 
-    logic.storage_write(u64::MAX, 1 as _, u64::MAX, 2 as _, 0).expect("storage write ok");
+    logic.storage_write(u64::MAX, 1_u64, u64::MAX, 2_u64, 0).expect("storage write ok");
 
     let value_ptr = logic_builder.ext.storage_get(key).unwrap().unwrap();
     assert_eq!(value_ptr.deref().unwrap(), val.to_vec());
@@ -31,7 +31,7 @@ fn test_storage_read_with_register() {
 
     logic.wrapped_internal_write_register(1, key).unwrap();
 
-    logic.storage_read(u64::MAX, 1 as _, 0).expect("storage read ok");
+    logic.storage_read(u64::MAX, 1_u64, 0).expect("storage read ok");
     let res = [0u8; 3];
     logic.read_register(0, res.as_ptr() as _).unwrap();
     assert_eq!(&res, b"bar");
@@ -51,7 +51,7 @@ fn test_storage_remove_with_register() {
 
     logic.wrapped_internal_write_register(1, key).unwrap();
 
-    logic.storage_remove(u64::MAX, 1 as _, 0).expect("storage remove ok");
+    logic.storage_remove(u64::MAX, 1_u64, 0).expect("storage remove ok");
     let res = [0u8; 3];
     logic.read_register(0, res.as_ptr() as _).unwrap();
     assert_eq!(&res, b"bar");
@@ -69,5 +69,5 @@ fn test_storage_has_key_with_register() {
 
     logic.wrapped_internal_write_register(1, key).unwrap();
 
-    assert_eq!(logic.storage_has_key(u64::MAX, 1 as _), Ok(1));
+    assert_eq!(logic.storage_has_key(u64::MAX, 1_u64), Ok(1));
 }

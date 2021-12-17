@@ -36,7 +36,7 @@ use near_network::types::{
 use near_network_primitives::types::NetworkAdversarialMessage;
 #[cfg(feature = "sandbox")]
 use near_network_primitives::types::NetworkSandboxMessage;
-use near_performance_metrics;
+
 use near_performance_metrics_macros::{perf, perf_with_debug};
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
@@ -619,7 +619,7 @@ impl Handler<Status> for ClientActor {
         let head = self.client.chain.head()?;
         let head_header = self.client.chain.get_block_header(&head.last_block_hash)?;
         let latest_block_time = head_header.raw_timestamp();
-        let latest_state_root = head_header.prev_state_root().clone().into();
+        let latest_state_root = *head_header.prev_state_root();
         if msg.is_health_check {
             let now = Utc::now();
             let block_timestamp = from_timestamp(latest_block_time);
@@ -673,10 +673,10 @@ impl Handler<Status> for ClientActor {
             protocol_version,
             latest_protocol_version: PROTOCOL_VERSION,
             chain_id: self.client.config.chain_id.clone(),
-            rpc_addr: self.client.config.rpc_addr.as_ref().map(|addr| addr.clone()),
+            rpc_addr: self.client.config.rpc_addr.as_ref().cloned(),
             validators,
             sync_info: StatusSyncInfo {
-                latest_block_hash: head.last_block_hash.into(),
+                latest_block_hash: head.last_block_hash,
                 latest_block_height: head.height,
                 latest_state_root,
                 latest_block_time: from_timestamp(latest_block_time),
@@ -1098,7 +1098,7 @@ impl ClientActor {
 
     fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {
         info!(target: "client", "Received {} block headers from {}", headers.len(), peer_id);
-        if headers.len() == 0 {
+        if headers.is_empty() {
             return true;
         }
         match self.client.sync_block_headers(headers) {
@@ -1156,19 +1156,17 @@ impl ClientActor {
                 );
                 is_syncing = false;
             }
-        } else {
-            if full_peer_info.chain_info.height
-                > head.height + self.client.config.sync_height_threshold
-            {
-                info!(
-                    target: "client",
-                    "Sync: height: {}, peer id/height: {}/{}, enabling sync",
-                    head.height,
-                    full_peer_info.peer_info.id,
-                    full_peer_info.chain_info.height,
-                );
-                is_syncing = true;
-            }
+        } else if full_peer_info.chain_info.height
+            > head.height + self.client.config.sync_height_threshold
+        {
+            info!(
+                target: "client",
+                "Sync: height: {}, peer id/height: {}/{}, enabling sync",
+                head.height,
+                full_peer_info.peer_info.id,
+                full_peer_info.chain_info.height,
+            );
+            is_syncing = true;
         }
         Ok((is_syncing, full_peer_info.chain_info.height))
     }
@@ -1282,7 +1280,7 @@ impl ClientActor {
 
         f(self, ctx);
 
-        return now.checked_add_signed(chrono::Duration::from_std(duration).unwrap()).unwrap();
+        now.checked_add_signed(chrono::Duration::from_std(duration).unwrap()).unwrap()
     }
 
     /// Main syncing job responsible for syncing client with other peers.
@@ -1358,7 +1356,7 @@ impl ClientActor {
                 let (sync_hash, mut new_shard_sync, just_enter_state_sync) =
                     match &self.client.sync_status {
                         SyncStatus::StateSync(sync_hash, shard_sync) => {
-                            (sync_hash.clone(), shard_sync.clone(), false)
+                            (*sync_hash, shard_sync.clone(), false)
                         }
                         _ => {
                             let sync_hash = unwrap_or_run_later!(self.find_sync_hash());
@@ -1369,7 +1367,7 @@ impl ClientActor {
                 let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
                 let block_header =
                     unwrap_or_run_later!(self.client.chain.get_block_header(&sync_hash));
-                let prev_hash = block_header.prev_hash().clone();
+                let prev_hash = *block_header.prev_hash();
                 let epoch_id = self.client.chain.get_block_header(&sync_hash).unwrap().epoch_id();
                 let shards_to_sync = (0..self.client.runtime_adapter.num_shards(epoch_id).unwrap())
                     .filter(|x| {

@@ -53,7 +53,7 @@ pub const NS_PER_SECOND: u128 = 1_000_000_000;
 
 /// Get random peer from the hightest height peers.
 pub fn highest_height_peer(highest_height_peers: &Vec<FullPeerInfo>) -> Option<FullPeerInfo> {
-    if highest_height_peers.len() == 0 {
+    if highest_height_peers.is_empty() {
         return None;
     }
 
@@ -263,32 +263,30 @@ impl HeaderSync {
 
             if all_headers_received {
                 self.stalling_ts = None;
-            } else {
-                if let Some(ref stalling_ts) = self.stalling_ts {
-                    if let Some(ref peer) = self.syncing_peer {
-                        match sync_status {
-                            SyncStatus::HeaderSync { highest_height, .. } => {
-                                if now > *stalling_ts + self.stall_ban_timeout
-                                    && *highest_height == peer.chain_info.height
-                                {
-                                    warn!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}",
-                                        peer.peer_info, peer.chain_info.height);
-                                    self.network_adapter.do_send(
-                                        PeerManagerMessageRequest::NetworkRequests(
-                                            NetworkRequests::BanPeer {
-                                                peer_id: peer.peer_info.id.clone(),
-                                                ban_reason: near_network_primitives::types::ReasonForBan::HeightFraud,
-                                            },
-                                        ),
-                                    );
-                                    // This peer is fraudulent, let's skip this beat and wait for
-                                    // the next one when this peer is not in the list anymore.
-                                    self.syncing_peer = None;
-                                    return false;
-                                }
+            } else if let Some(ref stalling_ts) = self.stalling_ts {
+                if let Some(ref peer) = self.syncing_peer {
+                    match sync_status {
+                        SyncStatus::HeaderSync { highest_height, .. } => {
+                            if now > *stalling_ts + self.stall_ban_timeout
+                                && *highest_height == peer.chain_info.height
+                            {
+                                warn!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}",
+                                    peer.peer_info, peer.chain_info.height);
+                                self.network_adapter.do_send(
+                                    PeerManagerMessageRequest::NetworkRequests(
+                                        NetworkRequests::BanPeer {
+                                            peer_id: peer.peer_info.id.clone(),
+                                            ban_reason: near_network_primitives::types::ReasonForBan::HeightFraud,
+                                        },
+                                    ),
+                                );
+                                // This peer is fraudulent, let's skip this beat and wait for
+                                // the next one when this peer is not in the list anymore.
+                                self.syncing_peer = None;
+                                return false;
                             }
-                            _ => (),
                         }
+                        _ => (),
                     }
                 }
             }
@@ -345,7 +343,7 @@ impl HeaderSync {
                 locator.push(x);
             } else {
                 // Walk backwards to find last known hash.
-                let last_loc = locator.last().unwrap().clone();
+                let last_loc = *locator.last().unwrap();
                 if let Ok(header) = chain.get_header_by_height(h) {
                     if header.height() != last_loc.0 {
                         locator.push((header.height(), *header.hash()));
@@ -362,12 +360,12 @@ impl HeaderSync {
 
 /// Check if there is a close enough value to provided height in the locator.
 fn close_enough(locator: &Vec<(u64, CryptoHash)>, height: u64) -> Option<(u64, CryptoHash)> {
-    if locator.len() == 0 {
+    if locator.is_empty() {
         return None;
     }
     // Check boundaries, if lower than the last.
     if locator.last().unwrap().0 >= height {
-        return locator.last().map(|x| x.clone());
+        return locator.last().copied();
     }
     // Higher than first and first is within acceptable gap.
     if locator[0].0 < height && height.saturating_sub(127) < locator[0].0 {
@@ -376,9 +374,9 @@ fn close_enough(locator: &Vec<(u64, CryptoHash)>, height: u64) -> Option<(u64, C
     for h in locator.windows(2) {
         if height <= h[0].0 && height > h[1].0 {
             if h[0].0 - height < height - h[1].0 {
-                return Some(h[0].clone());
+                return Some(h[0]);
             } else {
-                return Some(h[1].clone());
+                return Some(h[1]);
             }
         }
     }
@@ -435,11 +433,9 @@ impl BlockSync {
         highest_height: BlockHeight,
         highest_height_peers: &[FullPeerInfo],
     ) -> Result<bool, near_chain::Error> {
-        if self.block_sync_due(chain)? {
-            if self.block_sync(chain, highest_height_peers)? {
-                debug!(target: "sync", "Sync: transition to State Sync.");
-                return Ok(true);
-            }
+        if self.block_sync_due(chain)? && self.block_sync(chain, highest_height_peers)? {
+            debug!(target: "sync", "Sync: transition to State Sync.");
+            return Ok(true);
         }
 
         let head = chain.head()?;
@@ -459,13 +455,10 @@ impl BlockSync {
         }
 
         // Don't run State Sync if header head is not more than one epoch ahead.
-        if head.epoch_id != header_head.epoch_id && head.next_epoch_id != header_head.epoch_id {
-            if head.height < header_head.height.saturating_sub(self.block_fetch_horizon)
-                && !self.archive
-            {
-                // Epochs are different and we are too far from horizon, State Sync is needed
-                return Ok(true);
-            }
+        if head.epoch_id != header_head.epoch_id && head.next_epoch_id != header_head.epoch_id && head.height < header_head.height.saturating_sub(self.block_fetch_horizon)
+                && !self.archive {
+            // Epochs are different and we are too far from horizon, State Sync is needed
+            return Ok(true);
         }
 
         Ok(false)
@@ -511,7 +504,7 @@ impl BlockSync {
             loop {
                 match chain.mut_store().get_next_block_hash(&ret_hash) {
                     Ok(hash) => {
-                        let hash = hash.clone();
+                        let hash = *hash;
                         if chain.block_exists(&hash)? {
                             ret_hash = hash;
                         } else {
@@ -698,7 +691,7 @@ impl StateSync {
             status: ShardSyncStatus::StateDownloadHeader,
         };
 
-        let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
+        let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let prev_epoch_id = chain.get_block_header(&prev_hash)?.epoch_id().clone();
         let epoch_id = chain.get_block_header(&sync_hash)?.epoch_id().clone();
         if chain.runtime_adapter.get_shard_layout(&prev_epoch_id)?
@@ -895,7 +888,7 @@ impl StateSync {
                       sync_hash,
                       match shard_sync_download.status {
                           ShardSyncStatus::StateDownloadHeader => format!("{} requests sent {}, last target {:?}",
-                                                                          Purple.bold().paint(format!("HEADER")),
+                                                                          Purple.bold().paint("HEADER".to_string()),
                                                                           shard_sync_download.downloads[0].state_requests_count,
                                                                           shard_sync_download.downloads[0].last_target),
                           ShardSyncStatus::StateDownloadParts => { let mut text = "".to_string();
@@ -953,8 +946,8 @@ impl StateSync {
     ) -> Result<CryptoHash, near_chain::Error> {
         let mut header = chain.get_block_header(sync_hash)?;
         let mut epoch_id = header.epoch_id().clone();
-        let mut hash = header.hash().clone();
-        let mut prev_hash = header.prev_hash().clone();
+        let mut hash = *header.hash();
+        let mut prev_hash = *header.prev_hash();
         loop {
             if prev_hash == CryptoHash::default() {
                 return Ok(hash);
@@ -964,8 +957,8 @@ impl StateSync {
                 return Ok(hash);
             }
             epoch_id = header.epoch_id().clone();
-            hash = header.hash().clone();
-            prev_hash = header.prev_hash().clone();
+            hash = *header.hash();
+            prev_hash = *header.prev_hash();
         }
     }
 
@@ -1172,7 +1165,7 @@ impl StateSync {
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<StateSyncResult, near_chain::Error> {
-        let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
+        let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let now = Clock::utc();
 
         let (request_block, have_block) = self.sync_block_status(&prev_hash, chain, now)?;
@@ -1493,7 +1486,7 @@ mod test {
                 vec![],
                 vec![],
                 &*signers[3],
-                last_block.header().next_bp_hash().clone(),
+                *last_block.header().next_bp_hash(),
                 block_merkle_tree.root(),
             );
             block_merkle_tree.insert(*block.hash());

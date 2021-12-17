@@ -2,7 +2,7 @@ use crate::tests::fixtures::get_context;
 use crate::tests::helpers::*;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::types::PromiseResult;
-use serde_json;
+
 
 #[test]
 fn test_promise_results() {

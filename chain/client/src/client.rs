@@ -140,7 +140,7 @@ impl Client {
                     genesis_block.hash(),
                 )?
                 .iter()
-                .map(|x| x.0.clone().into())
+                .map(|x| x.0.clone())
                 .collect(),
             EPOCH_SYNC_REQUEST_TIMEOUT,
             EPOCH_SYNC_PEER_TIMEOUT,
@@ -213,19 +213,17 @@ impl Client {
     pub fn remove_transactions_for_block(&mut self, me: AccountId, block: &Block) {
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_id as ShardId;
-            if block.header().height() == chunk_header.height_included() {
-                if self.shards_mgr.cares_about_shard_this_or_next_epoch(
+            if block.header().height() == chunk_header.height_included() && self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
                     block.header().prev_hash(),
                     shard_id,
                     true,
                 ) {
-                    self.shards_mgr.remove_transactions(
-                        shard_id,
-                        // By now the chunk must be in store, otherwise the block would have been orphaned
-                        self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions(),
-                    );
-                }
+                self.shards_mgr.remove_transactions(
+                    shard_id,
+                    // By now the chunk must be in store, otherwise the block would have been orphaned
+                    self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions(),
+                );
             }
         }
         for challenge in block.challenges().iter() {
@@ -236,19 +234,17 @@ impl Client {
     pub fn reintroduce_transactions_for_block(&mut self, me: AccountId, block: &Block) {
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_id as ShardId;
-            if block.header().height() == chunk_header.height_included() {
-                if self.shards_mgr.cares_about_shard_this_or_next_epoch(
+            if block.header().height() == chunk_header.height_included() && self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
                     block.header().prev_hash(),
                     shard_id,
                     false,
                 ) {
-                    self.shards_mgr.reintroduce_transactions(
-                        shard_id,
-                        // By now the chunk must be in store, otherwise the block would have been orphaned
-                        self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions(),
-                    );
-                }
+                self.shards_mgr.reintroduce_transactions(
+                    shard_id,
+                    // By now the chunk must be in store, otherwise the block would have been orphaned
+                    self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions(),
+                );
             }
         }
         for challenge in block.challenges().iter() {
@@ -313,18 +309,16 @@ impl Client {
             }
         }
 
-        if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
-            if !self.chain.prev_block_is_caught_up(prev_prev_hash, prev_hash)? {
-                // Currently state for the chunks we are interested in this epoch
-                // are not yet caught up (e.g. still state syncing).
-                // We reschedule block production.
-                // Alex's comment:
-                // The previous block is not caught up for the next epoch relative to the previous
-                // block, which is the current epoch for this block, so this block cannot be applied
-                // at all yet, block production must to be rescheduled
-                debug!(target: "client", "Produce block: prev block is not caught up");
-                return Ok(true);
-            }
+        if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? && !self.chain.prev_block_is_caught_up(prev_prev_hash, prev_hash)? {
+            // Currently state for the chunks we are interested in this epoch
+            // are not yet caught up (e.g. still state syncing).
+            // We reschedule block production.
+            // Alex's comment:
+            // The previous block is not caught up for the next epoch relative to the previous
+            // block, which is the current epoch for this block, so this block cannot be applied
+            // at all yet, block production must to be rescheduled
+            debug!(target: "client", "Produce block: prev block is not caught up");
+            return Ok(true);
         }
 
         Ok(false)
@@ -1234,7 +1228,7 @@ impl Client {
         let me =
             self.validator_signer.as_ref().map(|validator_signer| validator_signer.validator_id());
         self.chain.check_blocks_with_missing_chunks(
-            &me.map(|x| x.clone()),
+            &me.cloned(),
             |accepted_block| {
                 debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", accepted_block.hash);
                 accepted_blocks.write().unwrap().push(accepted_block);
@@ -1302,7 +1296,7 @@ impl Client {
             let mut entry = self
                 .pending_approvals
                 .cache_remove(&approval.inner)
-                .unwrap_or_else(|| HashMap::new());
+                .unwrap_or_else(HashMap::new);
             entry.insert(approval.account_id.clone(), (approval.clone(), approval_type));
             self.pending_approvals.cache_set(approval.inner.clone(), entry);
         }
@@ -1324,7 +1318,7 @@ impl Client {
         let Approval { inner, account_id, target_height, signature } = approval;
 
         let parent_hash = match inner {
-            ApprovalInner::Endorsement(parent_hash) => parent_hash.clone(),
+            ApprovalInner::Endorsement(parent_hash) => *parent_hash,
             ApprovalInner::Skip(parent_height) => {
                 match self.chain.get_header_by_height(*parent_height) {
                     Ok(header) => *header.hash(),
@@ -1655,7 +1649,7 @@ impl Client {
             let network_adapter1 = self.network_adapter.clone();
 
             let new_shard_sync = {
-                let prev_hash = self.chain.get_block(&sync_hash)?.header().prev_hash().clone();
+                let prev_hash = *self.chain.get_block(&sync_hash)?.header().prev_hash();
                 let need_to_split_states =
                     self.runtime_adapter.will_shard_layout_change_next_epoch(&prev_hash)?;
                 if need_to_split_states {
@@ -1697,7 +1691,7 @@ impl Client {
                     (
                         StateSync::new(network_adapter1, state_sync_timeout),
                         new_shard_sync,
-                        BlocksCatchUpState::new(sync_hash.clone(), epoch_id),
+                        BlocksCatchUpState::new(sync_hash, epoch_id),
                     )
                 });
 

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use actix::{Actor, Addr, Arbiter};
 use actix_rt::ArbiterHandle;
-use actix_web;
+
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::allocator::reset_memory_usage_max;
 use tracing::{error, info, trace};
@@ -319,7 +319,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::from(&config.genesis);
 
-    let node_id = PeerId::new(config.network_config.public_key.clone().into());
+    let node_id = PeerId::new(config.network_config.public_key.clone());
     let network_adapter = Arc::new(NetworkRecipient::default());
     #[cfg(feature = "test_features")]
     let adv = Arc::new(std::sync::RwLock::new(AdversarialControls::default()));

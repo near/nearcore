@@ -93,7 +93,7 @@ pub fn genesis_chunks(
         .map(|i| {
             let (encoded_chunk, _) = EncodedShardChunk::new(
                 CryptoHash::default(),
-                state_roots[i as usize % state_roots.len()].clone(),
+                state_roots[i as usize % state_roots.len()],
                 CryptoHash::default(),
                 genesis_height,
                 i,
@@ -271,7 +271,7 @@ impl Block {
             this_epoch_protocol_version,
             next_epoch_protocol_version,
             height,
-            prev.hash().clone(),
+            *prev.hash(),
             Block::compute_state_root(&chunks),
             Block::compute_chunk_receipts_root(&chunks),
             Block::compute_chunk_headers_root(&chunks).0,
@@ -289,8 +289,8 @@ impl Block {
             new_total_supply,
             challenges_result,
             signer,
-            last_final_block.clone(),
-            last_ds_final_block.clone(),
+            *last_final_block,
+            *last_ds_final_block,
             epoch_sync_data_hash,
             approvals,
             next_bp_hash,
@@ -619,8 +619,8 @@ impl Tip {
     pub fn from_header(header: &BlockHeader) -> Tip {
         Tip {
             height: header.height(),
-            last_block_hash: header.hash().clone(),
-            prev_block_hash: header.prev_hash().clone(),
+            last_block_hash: *header.hash(),
+            prev_block_hash: *header.prev_hash(),
             epoch_id: header.epoch_id().clone(),
             next_epoch_id: header.next_epoch_id().clone(),
         }

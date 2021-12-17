@@ -513,13 +513,11 @@ impl Doomslug {
         let ret = self
             .approval_tracking
             .entry(approval.target_height)
-            .or_insert_with(|| DoomslugApprovalsTrackersAtHeight::new())
+            .or_insert_with(DoomslugApprovalsTrackersAtHeight::new)
             .process_approval(now, approval, stakes, threshold_mode);
 
-        if ret != DoomslugBlockProductionReadiness::NotReady {
-            if approval.target_height > self.largest_threshold_height {
-                self.largest_threshold_height = approval.target_height;
-            }
+        if ret != DoomslugBlockProductionReadiness::NotReady && approval.target_height > self.largest_threshold_height {
+            self.largest_threshold_height = approval.target_height;
         }
 
         ret
@@ -633,7 +631,7 @@ mod tests {
         ds.set_tip(now, hash(&[1]), 1, 1);
         assert_eq!(ds.process_timer(now + Duration::from_millis(399)).len(), 0);
         let approval =
-            ds.process_timer(now + Duration::from_millis(400)).into_iter().nth(0).unwrap();
+            ds.process_timer(now + Duration::from_millis(400)).into_iter().next().unwrap();
         assert_eq!(approval.inner, ApprovalInner::Endorsement(hash(&[1])));
         assert_eq!(approval.target_height, 2);
 
@@ -645,7 +643,7 @@ mod tests {
 
         // But one second should trigger the skip
         match ds.process_timer(now + Duration::from_millis(1000)) {
-            approvals if approvals.len() == 0 => assert!(false),
+            approvals if approvals.is_empty() => assert!(false),
             approvals => {
                 assert_eq!(approvals[0].inner, ApprovalInner::Skip(1));
                 assert_eq!(approvals[0].target_height, 3);
@@ -665,7 +663,7 @@ mod tests {
         // But at height 3 should (also neither block has finality set, keep last final at 0 for now)
         ds.set_tip(now, hash(&[3]), 3, 0);
         let approval =
-            ds.process_timer(now + Duration::from_millis(400)).into_iter().nth(0).unwrap();
+            ds.process_timer(now + Duration::from_millis(400)).into_iter().next().unwrap();
         assert_eq!(approval.inner, ApprovalInner::Endorsement(hash(&[3])));
         assert_eq!(approval.target_height, 4);
 
@@ -675,7 +673,7 @@ mod tests {
         assert_eq!(ds.process_timer(now + Duration::from_millis(199)), vec![]);
 
         match ds.process_timer(now + Duration::from_millis(200)) {
-            approvals if approvals.len() == 0 => assert!(false),
+            approvals if approvals.is_empty() => assert!(false),
             approvals if approvals.len() == 1 => {
                 assert_eq!(approvals[0].inner, ApprovalInner::Skip(3));
                 assert_eq!(approvals[0].target_height, 5);
@@ -690,7 +688,7 @@ mod tests {
         assert_eq!(ds.process_timer(now + Duration::from_millis(499)), vec![]);
 
         match ds.process_timer(now + Duration::from_millis(500)) {
-            approvals if approvals.len() == 0 => assert!(false),
+            approvals if approvals.is_empty() => assert!(false),
             approvals => {
                 assert_eq!(approvals[0].inner, ApprovalInner::Skip(3));
                 assert_eq!(approvals[0].target_height, 6);
@@ -704,7 +702,7 @@ mod tests {
         assert_eq!(ds.process_timer(now + Duration::from_millis(899)), vec![]);
 
         match ds.process_timer(now + Duration::from_millis(900)) {
-            approvals if approvals.len() == 0 => assert!(false),
+            approvals if approvals.is_empty() => assert!(false),
             approvals => {
                 assert_eq!(approvals[0].inner, ApprovalInner::Skip(3));
                 assert_eq!(approvals[0].target_height, 7);
@@ -735,7 +733,7 @@ mod tests {
         assert_eq!(ds.process_timer(now + Duration::from_millis(1099)), vec![]);
 
         match ds.process_timer(now + Duration::from_millis(1100)) {
-            approvals if approvals.len() == 0 => assert!(false),
+            approvals if approvals.is_empty() => assert!(false),
             approvals => {
                 assert_eq!(approvals[0].inner, ApprovalInner::Skip(6));
                 assert_eq!(approvals[0].target_height, 8);
