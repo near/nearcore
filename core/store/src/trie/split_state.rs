@@ -336,7 +336,7 @@ pub fn get_delayed_receipts(
 
 #[cfg(test)]
 mod tests {
-    use crate::split_state::{apply_delayed_receipts_to_split_states_impl, get_delayed_receipts};
+    use crate::split_state::{apply_delayed_receipts_to_split_states_impl, get_delayed_receipts,PartId};
     use crate::test_utils::{
         create_tries, gen_changes, gen_larger_changes, gen_receipts, gen_unique_accounts,
         simplify_changes, test_populate_trie,

@@ -946,6 +946,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn validate_state_part(
         &self,
         _state_root: &StateRoot,
+        _part_id: types::PartId,
         _data: &Vec<u8>,
     ) -> bool {
         // We do not care about deeper validation in test_utils
