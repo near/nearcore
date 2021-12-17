@@ -472,12 +472,10 @@ impl Config {
         Ok(config)
     }
 
-    pub fn write_to_file(&self, path: &Path) {
-        let mut file = File::create(path).expect("Failed to create / write a config file.");
-        let str = serde_json::to_string_pretty(self).expect("Error serializing the config.");
-        if let Err(err) = file.write_all(str.as_bytes()) {
-            panic!("Failed to write a config file {}", err);
-        }
+    pub fn write_to_file(&self, path: &Path) -> std::io::Result<()> {
+        let mut file = File::create(path)?;
+        let str = serde_json::to_string_pretty(self)?;
+        file.write_all(str.as_bytes())
     }
 
     pub fn rpc_addr(&self) -> Option<&str> {
@@ -733,7 +731,7 @@ impl NearConfig {
     pub fn save_to_dir(&self, dir: &Path) {
         fs::create_dir_all(dir).expect("Failed to create directory");
 
-        self.config.write_to_file(&dir.join(CONFIG_FILENAME));
+        self.config.write_to_file(&dir.join(CONFIG_FILENAME)).expect("Error writing config");
 
         if let Some(validator_signer) = &self.validator_signer {
             validator_signer.write_to_file(&dir.join(&self.config.validator_key_file));
@@ -862,7 +860,9 @@ pub fn init_configs(
                 bail!("Test seed is not supported for MainNet");
             }
             config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
-            config.write_to_file(&dir.join(CONFIG_FILENAME));
+            config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
+                format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
+            })?;
 
             let genesis = mainnet_genesis();
             if let Some(account_id) = account_id {
@@ -880,7 +880,9 @@ pub fn init_configs(
                 bail!("Test seed is not supported for official testnet");
             }
             config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.replace("{}", &chain_id));
-            config.write_to_file(&dir.join(CONFIG_FILENAME));
+            config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
+                format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
+            })?;
 
             if let Some(account_id) = account_id {
                 generate_validator_key(account_id, &dir.join(config.validator_key_file));
@@ -929,7 +931,9 @@ pub fn init_configs(
                 config.consensus.max_block_production_delay =
                     Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
             }
-            config.write_to_file(&dir.join(CONFIG_FILENAME));
+            config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
+                format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
+            })?;
 
             let account_id = account_id.unwrap_or_else(|| "test.near".parse().unwrap());
 
@@ -1090,7 +1094,7 @@ pub fn init_testnet_configs(
         network_signers[i].write_to_file(&node_dir.join(&configs[i].node_key_file));
 
         genesis.to_file(&node_dir.join(&configs[i].genesis_file));
-        configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME));
+        configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME)).expect("Error writing config");
         info!(target: "near", "Generated node key, validator key, genesis file in {}", node_dir.display());
     }
 }
