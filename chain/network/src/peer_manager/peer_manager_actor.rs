@@ -35,7 +35,6 @@ use near_network_primitives::types::{
 };
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
-use near_primitives::checked_feature;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::time::Clock;
@@ -525,7 +524,7 @@ impl PeerManagerActor {
         partial_edge_info: PartialEdgeInfo,
         peer_type: PeerType,
         addr: Addr<PeerActor>,
-        peer_protocol_version: ProtocolVersion,
+        #[allow(unused_variables)] peer_protocol_version: ProtocolVersion,
         throttle_controller: ThrottleController,
         ctx: &mut Context<Self>,
     ) {
@@ -568,10 +567,11 @@ impl PeerManagerActor {
 
         self.add_verified_edges_to_routing_table(ctx, vec![new_edge.clone()], false);
 
-        checked_feature!(
-            "protocol_feature_routing_exchange_algorithm",
-            RoutingExchangeAlgorithm,
-            peer_protocol_version,
+        #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+        {
+            if peer_protocol_version
+                >= near_primitives::version::ProtocolFeature::RoutingExchangeAlgorithm
+                    .protocol_version()
             {
                 self.initialize_routing_table_exchange(
                     peer_id,
@@ -583,7 +583,8 @@ impl PeerManagerActor {
                 self.send_sync(peer_type, addr, ctx, target_peer_id, new_edge, Vec::new());
                 return;
             }
-        );
+        }
+
         near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act, ctx| {
             act.routing_table_addr
                 .send(ActixMessageWrapper::new_without_size(
