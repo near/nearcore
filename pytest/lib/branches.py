@@ -95,6 +95,41 @@ def _compile_current(branch: str) -> Executables:
     return Executables(_OUT_DIR, neard, state_viewer)
 
 
+def patch_binary(binary: pathlib.Path) -> None:
+    """
+    Patch a specified external binary if doing so is necessary for the host
+    system to be able to run it.
+
+    Currently only supports NixOS.
+    """
+    # Are we running on NixOS and require patching…?
+    try:
+        with open('/etc/os-release', 'r') as f:
+            if not any(line.strip() == 'ID=nixos' for line in f):
+                return
+    except FileNotFoundError:
+        return
+    if os.path.exists('/lib'):
+        return
+    # Build an output with patchelf and interpreter in it
+    nix_expr = '''
+    with (import <nixpkgs> {});
+    symlinkJoin {
+      name = "nearcore-dependencies";
+      paths = [patchelf stdenv.cc.bintools];
+    }
+    '''
+    path = subprocess.run(('nix-build', '-E', nix_expr),
+                          capture_output=True,
+                          encoding='utf-8').stdout.strip()
+    # Set the interpreter for the binary to NixOS'.
+    patchelf = f'{path}/bin/patchelf'
+    cmd = (patchelf, '--set-interpreter', f'{path}/nix-support/dynamic-linker',
+           binary)
+    logger.debug('Patching for NixOS ' + ' '.join(cmd))
+    subprocess.check_call(cmd)
+
+
 def __download_file_if_missing(filename: pathlib.Path, url: str) -> None:
     """Downloads a file from given URL if it does not exist already.
 
@@ -122,6 +157,7 @@ def __download_file_if_missing(filename: pathlib.Path, url: str) -> None:
             name = pathlib.Path(tmp.name)
             logger.debug('Executing ' + ' '.join(cmd))
             subprocess.check_call(cmd, stdout=tmp)
+        patch_binary(name)
         name.chmod(0o555)
         name.rename(filename)
         name = None

@@ -178,40 +178,40 @@ impl PeerStore {
         }
     }
 
-    fn find_peers<F>(&self, mut filter: F, count: u32) -> Vec<PeerInfo>
+    /// Find a random subset of peers based on filter.
+    fn find_peers<F>(&self, filter: F, count: usize) -> Vec<PeerInfo>
     where
-        F: FnMut(&KnownPeerState) -> bool,
+        F: FnMut(&&KnownPeerState) -> bool,
     {
-        let mut peers = self
-            .peer_states
-            .values()
-            .filter_map(|p| if filter(p) { Some(p.peer_info.clone()) } else { None })
-            .collect::<Vec<_>>();
-        if count == 0 {
-            return peers;
+        let peers: Vec<_> =
+            self.peer_states.values().filter(filter).map(|p| &p.peer_info).collect();
+        if count >= peers.len() {
+            peers.iter().cloned().cloned().collect()
+        } else {
+            peers.choose_multiple(&mut thread_rng(), count).cloned().cloned().collect()
         }
-        peers.shuffle(&mut thread_rng());
-        peers.iter().take(count as usize).cloned().collect::<Vec<_>>()
     }
 
     /// Return unconnected or peers with unknown status that we can try to connect to.
     /// Peers with unknown addresses are filtered out.
-    pub(crate) fn unconnected_peers(
+    pub(crate) fn unconnected_peer(
         &self,
         ignore_fn: impl Fn(&KnownPeerState) -> bool,
-    ) -> Vec<PeerInfo> {
+    ) -> Option<PeerInfo> {
         self.find_peers(
             |p| {
                 (p.status == KnownPeerStatus::NotConnected || p.status == KnownPeerStatus::Unknown)
                     && !ignore_fn(p)
                     && p.peer_info.addr.is_some()
             },
-            0,
+            1,
         )
+        .get(0)
+        .cloned()
     }
 
     /// Return healthy known peers up to given amount.
-    pub(crate) fn healthy_peers(&self, max_count: u32) -> Vec<PeerInfo> {
+    pub(crate) fn healthy_peers(&self, max_count: usize) -> Vec<PeerInfo> {
         self.find_peers(
             |p| match p.status {
                 KnownPeerStatus::Banned(_, _) => false,
@@ -423,6 +423,20 @@ mod test {
             let store_new = create_store(tmp_dir.path());
             let peer_store_new = PeerStore::new(store_new, &boot_nodes).unwrap();
             assert_eq!(peer_store_new.healthy_peers(3).len(), 1);
+        }
+    }
+
+    #[test]
+    fn test_unconnected_peer() {
+        let tmp_dir = tempfile::Builder::new().prefix("_test_store_ban").tempdir().unwrap();
+        let peer_info_a = gen_peer_info(0);
+        let peer_info_to_ban = gen_peer_info(1);
+        let boot_nodes = vec![peer_info_a, peer_info_to_ban];
+        {
+            let store = create_store(tmp_dir.path());
+            let peer_store = PeerStore::new(store, &boot_nodes).unwrap();
+            assert!(peer_store.unconnected_peer(|_| false).is_some());
+            assert!(peer_store.unconnected_peer(|_| true).is_none());
         }
     }
 
