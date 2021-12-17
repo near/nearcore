@@ -298,12 +298,9 @@ impl GenesisConfig {
     /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
     /// GenesisConfig structure.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
-        tracing::info!("GenesisConfig::from_file !1");
         let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
-        tracing::info!("GenesisConfig::from_file !2");
         let genesis_config: GenesisConfig =
             serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.");
-        tracing::info!("GenesisConfig::from_file !3");
         genesis_config
     }
 
@@ -471,13 +468,25 @@ impl GenesisJsonHasher {
     }
 }
 
+pub enum GenesisValidationMode {
+    Full,
+    UnsafeFast,
+}
+
 impl Genesis {
-    pub fn new(config: GenesisConfig, records: GenesisRecords, genesis_validation: bool) -> Self {
+    pub fn new(
+        config: GenesisConfig,
+        records: GenesisRecords,
+        genesis_validation: GenesisValidationMode,
+    ) -> Self {
         let genesis = Self { config, records, records_file: PathBuf::new() };
-        if genesis_validation {
-            validate_genesis(&genesis);
-        } else {
-            warn!("Skipped genesis validation");
+        match genesis_validation {
+            GenesisValidationMode::Full => {
+                validate_genesis(&genesis);
+            }
+            GenesisValidationMode::UnsafeFast => {
+                warn!("Skipped genesis validation");
+            }
         }
         genesis
     }
@@ -485,35 +494,42 @@ impl Genesis {
     pub fn new_with_path(
         config: GenesisConfig,
         records_file: PathBuf,
-        genesis_validation: bool,
+        genesis_validation: GenesisValidationMode,
     ) -> Self {
-        tracing::info!("Genesis::new_with_path !1");
         let genesis = Self { config, records: GenesisRecords(vec![]), records_file };
-        tracing::info!("Genesis::new_with_path !2");
-        if genesis_validation {
-            validate_genesis(&genesis);
-        } else {
-            warn!("Skipped genesis validation");
+        match genesis_validation {
+            GenesisValidationMode::Full => {
+                validate_genesis(&genesis);
+            }
+            GenesisValidationMode::UnsafeFast => {
+                warn!("Skipped genesis validation");
+            }
         }
-        tracing::info!("Genesis::new_with_path !3");
         genesis
     }
 
     /// Reads Genesis from a single file.
-    pub fn from_file<P: AsRef<Path>>(path: P, genesis_validation: bool) -> Self {
+    pub fn from_file<P: AsRef<Path>>(path: P, genesis_validation: GenesisValidationMode) -> Self {
         let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
         let genesis: Genesis =
             serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.");
-        if genesis_validation {
-            validate_genesis(&genesis);
-        } else {
-            warn!("Skipped genesis validation");
+        match genesis_validation {
+            GenesisValidationMode::Full => {
+                validate_genesis(&genesis);
+            }
+            GenesisValidationMode::UnsafeFast => {
+                warn!("Skipped genesis validation");
+            }
         }
         genesis
     }
 
     /// Reads Genesis from config and records files.
-    pub fn from_files<P1, P2>(config_path: P1, records_path: P2, genesis_validation: bool) -> Self
+    pub fn from_files<P1, P2>(
+        config_path: P1,
+        records_path: P2,
+        genesis_validation: GenesisValidationMode,
+    ) -> Self
     where
         P1: AsRef<Path>,
         P2: AsRef<Path>,

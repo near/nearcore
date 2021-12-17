@@ -1,15 +1,14 @@
-use std::collections::HashSet;
-use std::io::Result;
-use std::path::Path;
-
 use clap::{App, Arg};
-
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
+use near_chain_configs::GenesisValidationMode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_store::create_store;
 use nearcore::migrations::load_migration_data;
 use nearcore::{get_default_home, get_store_path, load_config, NightshadeRuntime, TrackedConfig};
+use std::collections::HashSet;
+use std::io::Result;
+use std::path::Path;
 
 fn get_receipt_hashes_in_repo() -> Vec<CryptoHash> {
     let receipt_result = load_migration_data(&"mainnet".to_string()).restored_receipts;
@@ -44,7 +43,7 @@ fn main() -> Result<()> {
 
     let shard_id = 0u64;
     let home_dir = matches.value_of("home").map(Path::new).unwrap();
-    let near_config = load_config(home_dir, true);
+    let near_config = load_config(home_dir, GenesisValidationMode::Full);
     let store = create_store(&get_store_path(home_dir));
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime = NightshadeRuntime::new(

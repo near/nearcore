@@ -3336,7 +3336,7 @@ dependencies = [
 
 [[package]]
 name = "nearcore"
-version = "1.23.0"
+version = "0.0.0"
 dependencies = [
  "actix",
  "actix-rt",
@@ -3390,12 +3390,13 @@ dependencies = [
 
 [[package]]
 name = "neard"
-version = "1.23.0"
+version = "0.0.0"
 dependencies = [
  "actix",
  "clap 3.0.0-beta.2",
  "futures",
  "git-version",
+ "near-chain-configs",
  "near-performance-metrics",
  "near-primitives",
  "near-rust-allocator-proxy",
@@ -4352,6 +4353,7 @@ version = "0.0.0"
 dependencies = [
  "clap 3.0.0-beta.2",
  "near-chain",
+ "near-chain-configs",
  "near-jsonrpc",
  "near-primitives",
  "near-store",
@@ -6023,19 +6025,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52144d4c78e5cf8b055ceab8e5fa22814ce4315d6002ad32cfd914f37c12fd65"
 
 [[package]]
-name = "wasmparser"
-version = "0.81.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98930446519f63d00a836efdc22f67766ceae8dbcc1571379f2bcabc6b2b9abc"
-
-[[package]]
 name = "wasmprinter"
-version = "0.2.31"
+version = "0.2.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a00ad4a51ba74183137c776ab37dea50b9f71db7454d7b654c2ba69ac5d9b223"
+checksum = "2ccec894c70710c2e4669320a532cb2b9cfb97adb0429745642f8ce76916ed85"
 dependencies = [
  "anyhow",
- "wasmparser 0.81.0",
+ "wasmparser 0.78.2",
 ]
 
 [[package]]

@@ -15,8 +15,6 @@ pub(crate) struct Opts {
     pub home_dir: Option<std::path::PathBuf>,
     #[clap(subcommand)]
     pub subcmd: SubCommand,
-    #[clap(long)]
-    pub unsafe_skip_genesis_validation: bool,
 }
 
 #[derive(Clap, Debug)]

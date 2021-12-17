@@ -1,6 +1,7 @@
 use crate::commands::*;
 use crate::epoch_info;
 use clap::{AppSettings, Clap};
+use near_chain_configs::GenesisValidationMode;
 use near_logger_utils::init_integration_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -29,7 +30,11 @@ impl StateViewerCmd {
         println!("state_viewer: Latest Protocol: {}, DB Version: {}", PROTOCOL_VERSION, DB_VERSION);
 
         let home_dir = state_viewer_cmd.opts.home;
-        let genesis_validation = !state_viewer_cmd.opts.unsafe_skip_genesis_validation;
+        let genesis_validation = if state_viewer_cmd.opts.unsafe_fast_startup {
+            GenesisValidationMode::UnsafeFast
+        } else {
+            GenesisValidationMode::Full
+        };
         state_viewer_cmd.subcmd.run(&home_dir, genesis_validation);
     }
 }
@@ -40,7 +45,7 @@ struct StateViewerOpts {
     #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
     home: PathBuf,
     #[clap(long)]
-    pub unsafe_skip_genesis_validation: bool,
+    pub unsafe_fast_startup: bool,
 }
 
 impl StateViewerOpts {
@@ -89,9 +94,9 @@ pub enum StateViewerSubCommand {
 }
 
 impl StateViewerSubCommand {
-    pub fn run(self, home_dir: &Path, genesis_validation: bool) {
+    pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
         let near_config = load_config(home_dir, genesis_validation);
-        let store = create_store(&get_store_path(&home_dir));
+        let store = create_store(&get_store_path(home_dir));
         match self {
             StateViewerSubCommand::Peers => peers(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),

@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::path::Path;
 
-use near_chain_configs::{Genesis, GenesisConfig};
+use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode};
 use near_primitives::types::{Balance, NumShards, ShardId};
 use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -82,7 +82,7 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
         fishermen_threshold: FISHERMEN_THRESHOLD,
         ..Default::default()
     };
-    let genesis = Genesis::new(genesis_config, records.into(), true);
+    let genesis = Genesis::new(genesis_config, records.into(), GenesisValidationMode::Full);
     verify_total_supply(genesis.config.total_supply, &chain_id);
 
     // Write all configs to files.

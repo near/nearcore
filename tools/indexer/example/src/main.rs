@@ -265,7 +265,6 @@ fn main() {
 
     let home_dir =
         opts.home_dir.unwrap_or(std::path::PathBuf::from(near_indexer::get_default_home()));
-    let genesis_validation = !opts.unsafe_skip_genesis_validation;
 
     match opts.subcmd {
         SubCommand::Run => {
@@ -276,7 +275,7 @@ fn main() {
             };
             let system = actix::System::new();
             system.block_on(async move {
-                let indexer = near_indexer::Indexer::new(indexer_config, genesis_validation);
+                let indexer = near_indexer::Indexer::new(indexer_config);
                 let stream = indexer.streamer();
                 actix::spawn(listen_blocks(stream));
             });

@@ -13,7 +13,8 @@ use tokio::io::AsyncWriteExt;
 use tracing::info;
 
 use near_chain_configs::{
-    get_initial_supply, ClientConfig, Genesis, GenesisConfig, LogSummaryStyle,
+    get_initial_supply, ClientConfig, Genesis, GenesisConfig, GenesisValidationMode,
+    LogSummaryStyle,
 };
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
@@ -554,7 +555,7 @@ impl Genesis {
             shard_layout,
             ..Default::default()
         };
-        Genesis::new(config, records.into(), true)
+        Genesis::new(config, records.into(), GenesisValidationMode::Full)
     }
 
     pub fn test(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
@@ -897,7 +898,7 @@ pub fn init_configs(
                     genesis.unwrap_or_else(|| panic!("Genesis file is required for {}.", &chain_id))
             }
 
-            let mut genesis = Genesis::from_file(&genesis_path_str, true);
+            let mut genesis = Genesis::from_file(&genesis_path_str, GenesisValidationMode::Full);
             genesis.config.chain_id = chain_id.clone();
 
             genesis.to_file(&dir.join(config.genesis_file));
@@ -973,7 +974,7 @@ pub fn init_configs(
                 min_gas_price: MIN_GAS_PRICE,
                 ..Default::default()
             };
-            let genesis = Genesis::new(genesis_config, records.into(), true);
+            let genesis = Genesis::new(genesis_config, records.into(), GenesisValidationMode::Full);
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
         }
@@ -1199,13 +1200,9 @@ impl From<NodeKeyFile> for KeyFile {
     }
 }
 
-pub fn load_config_without_genesis_records(dir: &Path, genesis_validation: bool) -> NearConfig {
-    tracing::info!("load_config_without_genesis_records !1");
+pub fn load_config(dir: &Path, genesis_validation: GenesisValidationMode) -> NearConfig {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME));
-    tracing::info!("load_config_without_genesis_records !2");
-    tracing::info!("load_config_without_genesis_records !3");
     let genesis_file = dir.join(&config.genesis_file);
-    tracing::info!("load_config_without_genesis_records !4");
     let validator_signer = if dir.join(&config.validator_key_file).exists() {
         let signer =
             Arc::new(InMemoryValidatorSigner::from_file(&dir.join(&config.validator_key_file)))
@@ -1215,9 +1212,7 @@ pub fn load_config_without_genesis_records(dir: &Path, genesis_validation: bool)
         None
     };
     let network_signer = NodeKeyFile::from_file(&dir.join(&config.node_key_file));
-    tracing::info!("load_config_without_genesis_records !5");
 
-    tracing::info!("load_config_without_genesis_records !6");
     let genesis_records_file = config.genesis_records_file.clone();
     NearConfig::new(
         config,
@@ -1232,10 +1227,6 @@ pub fn load_config_without_genesis_records(dir: &Path, genesis_validation: bool)
         network_signer.into(),
         validator_signer,
     )
-}
-
-pub fn load_config(dir: &Path, genesis_validation: bool) -> NearConfig {
-    load_config_without_genesis_records(dir, genesis_validation)
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {

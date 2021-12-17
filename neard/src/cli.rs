@@ -1,12 +1,17 @@
 use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION};
 use clap::{AppSettings, Clap};
 use futures::future::FutureExt;
+use near_chain_configs::GenesisValidationMode;
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
+use tracing::debug;
+#[cfg(feature = "test_features")]
+use tracing::error;
+use tracing::info;
 use tracing::metadata::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
@@ -25,23 +30,25 @@ impl NeardCmd {
     pub(super) fn parse_and_run() {
         let neard_cmd = Self::parse();
         neard_cmd.opts.init();
-        tracing::info!(target: "neard", "Version: {}, Build: {}, Latest Protocol: {}", NEARD_VERSION.version, NEARD_VERSION.build, PROTOCOL_VERSION);
+        info!(target: "neard", "Version: {}, Build: {}, Latest Protocol: {}", NEARD_VERSION.version, NEARD_VERSION.build, PROTOCOL_VERSION);
 
         #[cfg(feature = "test_features")]
         {
-            tracing::error!(
-                "THIS IS A NODE COMPILED WITH ADVERSARIAL BEHAVIORS. DO NOT USE IN PRODUCTION."
-            );
+            error!("THIS IS A NODE COMPILED WITH ADVERSARIAL BEHAVIORS. DO NOT USE IN PRODUCTION.");
 
             if env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
-                tracing::error!("To run a node with adversarial behavior enabled give your consent by setting variable:");
-                tracing::error!("ADVERSARY_CONSENT=1");
+                error!("To run a node with adversarial behavior enabled give your consent by setting variable:");
+                error!("ADVERSARY_CONSENT=1");
                 std::process::exit(1);
             }
         }
 
         let home_dir = neard_cmd.opts.home;
-        let genesis_validation = !neard_cmd.opts.unsafe_fast_startup;
+        let genesis_validation = if neard_cmd.opts.unsafe_fast_startup {
+            GenesisValidationMode::UnsafeFast
+        } else {
+            GenesisValidationMode::Full
+        };
 
         match neard_cmd.subcmd {
             NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
@@ -50,11 +57,11 @@ impl NeardCmd {
 
             NeardSubCommand::UnsafeResetData => {
                 let store_path = get_store_path(&home_dir);
-                tracing::info!(target: "neard", "Removing all data from {}", store_path.display());
+                info!(target: "neard", "Removing all data from {}", store_path.display());
                 fs::remove_dir_all(store_path).expect("Removing data failed");
             }
             NeardSubCommand::UnsafeResetAll => {
-                tracing::info!(target: "neard", "Removing all data and config from {}", home_dir.to_string_lossy());
+                info!(target: "neard", "Removing all data and config from {}", home_dir.to_string_lossy());
                 fs::remove_dir_all(home_dir).expect("Removing data and config failed.");
             }
             NeardSubCommand::StateViewer(cmd) => {
@@ -222,12 +229,9 @@ pub(super) struct RunCmd {
 }
 
 impl RunCmd {
-    pub(super) fn run(self, home_dir: &Path, genesis_validation: bool) {
+    pub(super) fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
         // Load configs from home.
-        tracing::info!("run");
-        let mut near_config =
-            nearcore::config::load_config_without_genesis_records(home_dir, genesis_validation);
-        tracing::info!("run !1 after load_config_without_genesis_records");
+        let mut near_config = nearcore::config::load_config(home_dir, genesis_validation);
         // Set current version in client config.
         near_config.client_config.version = super::NEARD_VERSION.clone();
         // Override some parameters from command line.
@@ -302,10 +306,10 @@ impl RunCmd {
                 tokio::signal::ctrl_c().await.unwrap();
                 "Ctrl+C"
             };
-            tracing::info!(target: "neard", "Got {}, stopping...", sig);
+            info!(target: "neard", "Got {}, stopping...", sig);
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
-                tracing::debug!(target: "neard", "{} server stopped", name);
+                debug!(target: "neard", "{} server stopped", name);
             }))
             .await;
             actix::System::current().stop();
