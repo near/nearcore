@@ -254,7 +254,7 @@ impl Trie {
         match RawTrieNodeWithSize::decode(bytes) {
             Ok(value) => Ok(TrieNodeWithSize::from_raw(value).memory_usage),
             Err(_) => {
-                Err(StorageError::StorageInconsistentState("Failed to decode node".to_string()))
+                Err(StorageError::StorageInconsistentState(format!("Failed to decode node",)))
             }
         }
     }

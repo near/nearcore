@@ -112,7 +112,7 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) -> Result<(), StorageError> {
-        store_update.tries = Some(tries);
+        store_update.tries = Some(tries.clone());
         for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
             deletions.iter()
         {
