@@ -58,9 +58,8 @@ impl TestShardUpgradeEnv {
         gas_limit: Option<u64>,
     ) -> Self {
         let mut rng = thread_rng();
-        let validators: Vec<AccountId> = (0..num_validators)
-            .map(|i| format!("test{}", i).to_string().parse().unwrap())
-            .collect();
+        let validators: Vec<AccountId> =
+            (0..num_validators).map(|i| format!("test{}", i).parse().unwrap()).collect();
         let initial_accounts =
             [validators, gen_unique_accounts(&mut rng, num_init_accounts)].concat();
         let genesis =
@@ -585,7 +584,7 @@ fn setup_test_env_with_cross_contract_txs(
                         nonce,
                         &genesis_hash,
                     );
-                    new_accounts.insert(tx.get_hash(), account_id.clone());
+                    new_accounts.insert(tx.get_hash(), account_id);
                     return tx;
                 }
             })
