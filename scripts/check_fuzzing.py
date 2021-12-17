@@ -44,7 +44,10 @@ def find_fuzz_targets() -> typing.Iterable[typing.Tuple[str, str]]:
         name of the target (`borsh` or `serde` in the example above.
     """
     for dirpath, dirnames, filenames in os.walk(REPO_DIR):
-        dirnames[:] = [name for name in dirnames if name[0] != '.' and name not in ('target', 'res', 'pytest')]
+        dirnames[:] = [
+            name for name in dirnames
+            if name[0] != '.' and name not in ('target', 'res', 'pytest')
+        ]
         try:
             dirnames.remove('fuzz_targets')
         except ValueError:
@@ -107,12 +110,12 @@ example:
 
 Note that the TODO comment must reference a GitHub issue (i.e. must
 contain a #<number> string).'''.format(
-    count=count,
-    s='s' if count > 1 else '',
-    missing = '\n'.join(f'  * {package.ljust(pkg_len)} {target}'
-                        for package, target in missing),
-    lines='\n'.join(lines),
-    example=random.choice(lines).lstrip())
+        count=count,
+        s='s' if count > 1 else '',
+        missing='\n'.join(f'  * {package.ljust(pkg_len)} {target}'
+                          for package, target in missing),
+        lines='\n'.join(lines),
+        example=random.choice(lines).lstrip())
 
 
 if __name__ == '__main__':
