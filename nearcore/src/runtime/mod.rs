@@ -1587,7 +1587,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: &StateRoot,
         part_id: near_chain::types::PartId,
     ) -> Result<Vec<u8>, Error> {
-        assert!(part_id.idx < part_id.total);
         let epoch_id = self.get_epoch_id(block_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
         let trie = self.tries.get_view_trie_for_shard(shard_uid);
@@ -1612,7 +1611,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         part_id: near_chain::types::PartId,
         data: &Vec<u8>,
     ) -> bool {
-        assert!(part_id.idx < part_id.total);
         match BorshDeserialize::try_from_slice(data) {
             Ok(trie_nodes) => {
                 match Trie::validate_trie_nodes_for_part(
@@ -2641,7 +2639,7 @@ mod test {
                 0,
                 &block_hash,
                 &env.state_roots[0],
-                near_chain::types::PartId { idx: 0, total: 1 },
+                near_chain::types::PartId::new(0, 1),
             )
             .unwrap();
         let root_node =

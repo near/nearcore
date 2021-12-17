@@ -26,15 +26,13 @@ impl Trie {
     /// StorageError if the storage is corrupted
     pub fn get_trie_items_for_part(
         &self,
-        part_id: u64,
-        num_parts: u64,
+        part_id: state_parts::PartId,
         state_root: &StateRoot,
     ) -> Result<Vec<TrieItem>, StorageError> {
-        assert!(part_id < num_parts);
         assert!(self.storage.as_caching_storage().is_some());
 
-        let path_begin = self.find_path_for_part_boundary(state_root, part_id, num_parts)?;
-        let path_end = self.find_path_for_part_boundary(state_root, part_id + 1, num_parts)?;
+        let path_begin = self.find_path_for_part_boundary(state_root, part_id.idx, part_id.total)?;
+        let path_end = self.find_path_for_part_boundary(state_root, part_id.idx + 1, part_id.total)?;
         self.iter(state_root)?.get_trie_items(&path_begin, &path_end)
     }
 }
@@ -440,12 +438,12 @@ mod tests {
         expected_trie_items.sort();
 
         let trie = tries.get_trie_for_shard(ShardUId::single_shard());
-        let total_trie_items = trie.get_trie_items_for_part(0, 1, &state_root).unwrap();
+        let total_trie_items = trie.get_trie_items_for_part(state_parts::PartId::new(0, 1), &state_root).unwrap();
         assert_eq!(expected_trie_items, total_trie_items);
 
         let mut combined_trie_items = vec![];
         for part_id in 0..num_parts {
-            let trie_items = trie.get_trie_items_for_part(part_id, num_parts, &state_root).unwrap();
+            let trie_items = trie.get_trie_items_for_part(state_parts::PartId::new(part_id, num_parts), &state_root).unwrap();
             combined_trie_items.extend_from_slice(&trie_items);
             // check that items are split relatively evenly across all parts
             assert!(
@@ -681,7 +679,7 @@ mod tests {
         let mut split_state_roots = {
             let trie_items = tries
                 .get_view_trie_for_shard(ShardUId::single_shard())
-                .get_trie_items_for_part(0, 1, &state_root)
+                .get_trie_items_for_part(state_parts::PartId::new(0, 1), &state_root)
                 .unwrap();
             let split_state_roots: HashMap<_, _> = (0..num_shards)
                 .map(|shard_id| {

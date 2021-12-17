@@ -69,6 +69,17 @@ use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::{TrackedConfig, NEAR_BASE};
 use rand::Rng;
 
+pub struct PartId {
+    pub idx: u64,
+    pub total: u64,
+}
+impl PartId {
+    pub fn new(part_id: u64, num_parts: u64) -> Result<PartId, Err> {
+        assert!(part_id.idx < part_id.total);
+        PartId { idx: part_id, total: num_parts }
+    }
+}
+
 pub fn set_block_protocol_version(
     block: &mut Block,
     block_producer: AccountId,
@@ -1590,7 +1601,7 @@ fn test_process_block_after_state_sync() {
             0,
             &sync_hash,
             chunk_extra.state_root(),
-            near_chain::types::PartId { idx: 0, total: 1 },
+            near_chain::types::PartId::new(0, 1),
         )
         .unwrap();
     // reset cache
@@ -2338,7 +2349,7 @@ fn test_catchup_gas_price_change() {
     for i in 0..num_parts {
         env.clients[1]
             .chain
-            .set_state_part(0, sync_hash, i, num_parts, &state_sync_parts[i as usize])
+            .set_state_part(0, sync_hash, PartId::new(i, num_parts), &state_sync_parts[i as usize])
             .unwrap();
     }
     let rt = Arc::clone(&env.clients[1].runtime_adapter);
@@ -4084,7 +4095,7 @@ mod contract_precompilation_tests {
                 0,
                 &sync_hash,
                 chunk_extra.state_root(),
-                near_chain::types::PartId { idx: 0, total: 1 },
+                near_chain::types::PartId::new(0, 1),
             )
             .unwrap();
         env.clients[1]

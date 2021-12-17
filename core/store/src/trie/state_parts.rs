@@ -14,6 +14,18 @@ use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
 use near_primitives::contract::ContractCode;
 use near_primitives::state_record::is_contract_code_key;
 
+// to specify a part we always specify both part_id and num_parts together
+pub struct PartId {
+    pub idx: u64,
+    pub total: u64,
+}
+impl PartId {
+    pub fn new(part_id: u64, num_parts: u64) -> Result<PartId, Err> {
+        assert!(part_id.idx < part_id.total);
+        PartId { idx: part_id, total: num_parts }
+    }
+}
+
 impl Trie {
     /// Computes the set of trie nodes for a state part.
     ///
@@ -25,15 +37,12 @@ impl Trie {
     /// StorageError if the storage is corrupted
     pub fn get_trie_nodes_for_part(
         &self,
-        part_id: u64,
-        num_parts: u64,
+        part_id: PartId,
         state_root: &StateRoot,
     ) -> Result<PartialState, StorageError> {
-        assert!(part_id < num_parts);
         assert!(self.storage.as_caching_storage().is_some());
-
         let with_recording = self.recording_reads();
-        with_recording.visit_nodes_for_state_part(state_root, part_id, num_parts)?;
+        with_recording.visit_nodes_for_state_part(state_root, part_id.idx, part_id.total)?;
         let recorded = with_recording.recorded_storage().unwrap();
 
         let trie_nodes = recorded.nodes;
@@ -442,17 +451,17 @@ mod tests {
 
         pub fn get_trie_nodes_for_part_old(
             &self,
-            part_id: u64,
-            num_parts: u64,
+            part_id: PartId,
             state_root: &StateRoot,
         ) -> Result<PartialState, StorageError> {
-            assert!(part_id < num_parts);
             assert!(self.storage.as_caching_storage().is_some());
             let root_node = self.retrieve_node(state_root)?;
             let total_size = root_node.memory_usage;
-            let size_start = (total_size + num_parts - 1) / num_parts * part_id;
-            let size_end =
-                std::cmp::min((total_size + num_parts - 1) / num_parts * (part_id + 1), total_size);
+            let size_start = (total_size + part_id.total - 1) / part_id.total * part_id.idx;
+            let size_end = std::cmp::min(
+                (total_size + part_id.total - 1) / part_id.total * (part_id.idx + 1),
+                total_size,
+            );
 
             let with_recording = self.recording_reads();
             with_recording.visit_nodes_for_size_range_old(state_root, size_start, size_end)?;
@@ -558,7 +567,9 @@ mod tests {
             let approximate_size_per_part = memory_size / num_parts;
             let parts = (0..num_parts)
                 .map(|part_id| {
-                    trie.get_trie_nodes_for_part(part_id, num_parts, &state_root).unwrap().0
+                    trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts), &state_root)
+                        .unwrap()
+                        .0
                 })
                 .collect::<Vec<_>>();
             let part_nodecounts_vec = parts.iter().map(|nodes| nodes.len()).collect::<Vec<_>>();
@@ -631,7 +642,9 @@ mod tests {
                 let num_parts = rng.gen_range(2, 10);
                 let parts = (0..num_parts)
                     .map(|part_id| {
-                        trie.get_trie_nodes_for_part(part_id, num_parts, &state_root).unwrap().0
+                        trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts), &state_root)
+                            .unwrap()
+                            .0
                     })
                     .collect::<Vec<_>>();
 
@@ -713,10 +726,12 @@ mod tests {
                 // Test that creating and validating are consistent
                 let num_parts = rng.gen_range(1, 10);
                 let part_id = rng.gen_range(0, num_parts);
-                let trie_nodes =
-                    trie.get_trie_nodes_for_part(part_id, num_parts, &state_root).unwrap();
-                let trie_nodes2 =
-                    trie.get_trie_nodes_for_part_old(part_id, num_parts, &state_root).unwrap();
+                let trie_nodes = trie
+                    .get_trie_nodes_for_part(PartId::new(part_id, num_parts), &state_root)
+                    .unwrap();
+                let trie_nodes2 = trie
+                    .get_trie_nodes_for_part_old(PartId::new(part_id, num_parts), &state_root)
+                    .unwrap();
                 assert_eq!(trie_nodes, trie_nodes2);
                 Trie::validate_trie_nodes_for_part(&state_root, part_id, num_parts, trie_nodes)
                     .expect("validate ok");

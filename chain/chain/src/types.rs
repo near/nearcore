@@ -236,6 +236,12 @@ pub struct PartId {
     pub idx: u64,
     pub total: u64,
 }
+impl PartId {
+    pub fn new(part_id: u64, num_parts: u64) -> Result<PartId, Err> {
+        assert!(part_id.idx < part_id.total);
+        PartId { idx: part_id, total: num_parts }
+    }
+}
 
 impl<T> From<T> for ChainGenesis
 where

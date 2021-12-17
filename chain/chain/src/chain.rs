@@ -1862,7 +1862,7 @@ impl Chain {
                 shard_id,
                 &sync_prev_hash,
                 &state_root,
-                types::PartId { idx: part_id, total: num_parts },
+                types::PartId::new(part_id, num_parts),
             )
             .log_storage_error("obtain_state_part fail")?;
 
@@ -2063,18 +2063,13 @@ impl Chain {
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        part_id: u64,
-        num_parts: u64,
+        part_id: types::PartId,
         data: &Vec<u8>,
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let chunk = shard_state_header.take_chunk();
         let state_root = *chunk.take_header().take_inner().prev_state_root();
-        if !self.runtime_adapter.validate_state_part(
-            &state_root,
-            types::PartId { idx: part_id, total: num_parts },
-            data,
-        ) {
+        if !self.runtime_adapter.validate_state_part(&state_root, part_id, data) {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
                 "set_state_part failed: validate_state_part failed".into(),
@@ -2084,7 +2079,7 @@ impl Chain {
 
         // Saving the part data.
         let mut store_update = self.store.owned_store().store_update();
-        let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+        let key = StatePartKey(sync_hash, shard_id, part_id.idx).try_to_vec()?;
         store_update.set(ColStateParts, &key, data);
         store_update.commit()?;
         Ok(())

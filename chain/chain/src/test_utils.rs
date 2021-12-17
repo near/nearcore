@@ -949,7 +949,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         part_id: types::PartId,
         _data: &Vec<u8>,
     ) -> bool {
-        assert!(part_id.idx < part_id.total);
         // We do not care about deeper validation in test_utils
         true
     }

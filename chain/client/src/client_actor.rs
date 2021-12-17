@@ -107,6 +107,18 @@ pub struct ClientActor {
     state_parts_client_arbiter: Arbiter,
 }
 
+// to specify a part we always specify both part_id and num_parts together
+pub struct PartId {
+    pub idx: u64,
+    pub total: u64,
+}
+impl PartId {
+    pub fn new(part_id: u64, num_parts: u64) -> Result<PartId, Err> {
+        assert!(part_id.idx < part_id.total);
+        PartId { idx: part_id, total: num_parts }
+    }
+}
+
 /// Blocks the program until given genesis time arrives.
 fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
     loop {
@@ -521,11 +533,12 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                     return NetworkClientResponses::NoResponse;
                                 }
                                 if !shard_sync_download.downloads[part_id as usize].done {
-                                    match self
-                                        .client
-                                        .chain
-                                        .set_state_part(shard_id, hash, part_id, num_parts, &data)
-                                    {
+                                    match self.client.chain.set_state_part(
+                                        shard_id,
+                                        hash,
+                                        PartId::new(part_id, num_parts),
+                                        &data,
+                                    ) {
                                         Ok(()) => {
                                             shard_sync_download.downloads[part_id as usize].done =
                                                 true;
