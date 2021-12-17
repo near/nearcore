@@ -535,7 +535,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                     match self.client.chain.set_state_part(
                                         shard_id,
                                         hash,
-                                        PartId::new(part_id, num_parts),
+                                        &PartId::new(part_id, num_parts),
                                         &data,
                                     ) {
                                         Ok(()) => {

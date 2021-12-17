@@ -2352,7 +2352,7 @@ fn test_catchup_gas_price_change() {
     for i in 0..num_parts {
         env.clients[1]
             .chain
-            .set_state_part(0, sync_hash, PartId::new(i, num_parts), &state_sync_parts[i as usize])
+            .set_state_part(0, sync_hash, &PartId::new(i, num_parts), &state_sync_parts[i as usize])
             .unwrap();
     }
     let rt = Arc::clone(&env.clients[1].runtime_adapter);
