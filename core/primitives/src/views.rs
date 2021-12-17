@@ -1026,6 +1026,10 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                             }
                             Cost::WasmInstruction => "WASM_INSTRUCTION".to_string(),
                         },
+                            Cost::ExtCost { ext_cost_kind: ext_cost } => {
+                                format!("{:?}", ext_cost).to_ascii_uppercase()
+                            }
+                        },
                         gas_used: profile_data[cost],
                     })
                     .collect();
