@@ -487,15 +487,27 @@ pub fn migrate_30_to_31(path: &Path, near_config: &NearConfig) {
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let head = chain_store.head().unwrap();
         let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
+        let mut count = 0;
         // we manually checked mainnet archival data and the first block where the discrepancy happened is `47443088`.
         for height in 47443088..=head.height {
             if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
                 let block_ordinal = chain_store.get_block_merkle_tree(&block_hash).unwrap().size();
-                store_update
-                    .set_ser(DBCol::ColBlockOrdinal, &index_to_bytes(block_ordinal), &block_hash)
-                    .expect("BorshSerialize should not fail");
+                let block_hash_from_block_ordinal =
+                    chain_store.get_block_hash_from_ordinal(block_ordinal).unwrap();
+                if *block_hash_from_block_ordinal != block_hash {
+                    println!("Inconsistency in block ordinal to block hash mapping found at block height {}", height);
+                    count += 1;
+                    store_update
+                        .set_ser(
+                            DBCol::ColBlockOrdinal,
+                            &index_to_bytes(block_ordinal),
+                            &block_hash,
+                        )
+                        .expect("BorshSerialize should not fail");
+                }
             }
         }
+        println!("total inconsistency count: {}", count);
         store_update.finish().expect("Failed to migrate");
     }
     set_store_version(&store, 31);

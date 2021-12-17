@@ -1937,6 +1937,7 @@ fn test_block_merkle_proof_with_len(n: NumBlocks, rng: &mut StdRng) {
             env.process_block(0, block.clone(), Provenance::PRODUCED);
             let next_block = env.clients[0].produce_block(cur_height + 2).unwrap().unwrap();
             assert_eq!(next_block.header().prev_hash(), block.hash());
+            // simulate blocks arriving in random order
             if rng.gen_bool(0.5) {
                 env.process_block(0, fork_block, Provenance::PRODUCED);
                 env.process_block(0, next_block.clone(), Provenance::PRODUCED);
@@ -1957,7 +1958,7 @@ fn test_block_merkle_proof_with_len(n: NumBlocks, rng: &mut StdRng) {
 
     let head = blocks.pop().unwrap();
     let root = head.header().block_merkle_root();
-    // verify that block ordinal to block hash map is correct
+    // verify that the mapping from block ordinal to block hash is correct
     for h in 0..head.header().height() {
         if let Ok(block) = env.clients[0].chain.get_block_by_height(h).map(Clone::clone) {
             let block_hash = *block.hash();
