@@ -1,15 +1,9 @@
-use near_primitives::time::Instant;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-
 use actix::actors::mocker::Mocker;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
-
 use near_actix_test_utils::run_actix;
 use near_client::ClientActor;
 use near_logger_utils::init_integration_logger;
-
 use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeoutActor};
 use near_network::types::{
@@ -21,7 +15,10 @@ use near_network_primitives::types::{
 };
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::time::Instant;
 use near_store::test_utils::create_test_store;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 /// Make Peer Manager with mocked client ready to accept any announce account.
 /// Used for `test_infinite_loop`

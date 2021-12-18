@@ -1,16 +1,9 @@
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
-
 use actix::actors::mocker::Mocker;
 use actix::{Actor, AsyncContext, System};
 use futures::FutureExt;
-use tracing::info;
-
 use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_test_logger_allow_panic;
-
 use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::{
     convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeoutActor,
@@ -22,6 +15,10 @@ use near_network_primitives::types::{
 };
 use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+use tracing::info;
 
 type ClientMock = Mocker<ClientActor>;
 type ViewClientMock = Mocker<ViewClientActor>;

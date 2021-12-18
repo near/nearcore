@@ -271,12 +271,12 @@ fn archival_node() {
     runner.push(Action::Wait(50));
     runner.push(Action::AddEdge(4, 0));
     runner.push(Action::Wait(50));
-    runner.push_action(check_expected_connections(0, Some(2), Some(2)));
+    runner.push_action_fn(check_expected_connections(0, Some(2), Some(2)));
 
     runner.push(Action::AddEdge(1, 0));
     runner.push(Action::Wait(50));
-    runner.push_action(check_expected_connections(0, Some(2), Some(2)));
-    runner.push_action(check_direct_connection(0, 1));
+    runner.push_action_fn(check_expected_connections(0, Some(2), Some(2)));
+    runner.push_action_fn(check_direct_connection(0, 1));
 
     for _step in 0..4 {
         runner.push(Action::AddEdge(2, 0));
@@ -285,8 +285,8 @@ fn archival_node() {
         runner.push(Action::Wait(50));
         runner.push(Action::AddEdge(4, 0));
         runner.push(Action::Wait(50));
-        runner.push_action(check_expected_connections(0, Some(2), Some(2)));
-        runner.push_action(check_direct_connection(0, 1));
+        runner.push_action_fn(check_expected_connections(0, Some(2), Some(2)));
+        runner.push_action_fn(check_direct_connection(0, 1));
     }
 
     start_test(runner);

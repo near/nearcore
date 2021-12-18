@@ -1,20 +1,12 @@
 pub use crate::tests::network::runner::*;
-use std::net::{SocketAddr, TcpStream};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
-
 use actix::actors::mocker::Mocker;
 use actix::System;
 use actix::{Actor, Arbiter};
 use futures::{future, FutureExt};
-
 use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_test_logger;
-
 use near_network::routing::start_routing_table_actor;
-
 use near_network::test_utils::{
     convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeoutActor,
 };
@@ -23,10 +15,10 @@ use near_network::PeerManagerActor;
 use near_network_primitives::types::{
     NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
 };
-#[cfg(test)]
-use near_primitives::network::PeerId;
-#[cfg(test)]
-use near_store::test_utils::create_test_store;
+use std::net::{SocketAddr, TcpStream};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 type ClientMock = Mocker<ClientActor>;
 type ViewClientMock = Mocker<ViewClientActor>;
@@ -38,7 +30,7 @@ fn make_peer_manager(
     boot_nodes: Vec<(&str, u16)>,
     peer_max_count: u32,
 ) -> PeerManagerActor {
-    let store = create_test_store();
+    let store = near_store::test_utils::create_test_store();
     let mut config = NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
     config.max_num_peers = peer_max_count;
@@ -61,8 +53,10 @@ fn make_peer_manager(
         }
     }))
     .start();
-    let routing_table_addr =
-        start_routing_table_actor(PeerId::new(config.public_key.clone()), store.clone());
+    let routing_table_addr = start_routing_table_actor(
+        near_primitives::network::PeerId::new(config.public_key.clone()),
+        store.clone(),
+    );
 
     PeerManagerActor::new(
         store,
@@ -223,9 +217,9 @@ fn check_connection_with_new_identity() {
     runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
 
     runner.push(Action::Stop(1));
-    runner.push_action(change_account_id(1, "far".parse().unwrap()));
+    runner.push_action_fn(change_account_id(1, "far".parse().unwrap()));
     runner.push(Action::CheckRoutingTable(0, vec![]));
-    runner.push_action(restart(1));
+    runner.push_action_fn(restart(1));
 
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
     runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
@@ -234,7 +228,7 @@ fn check_connection_with_new_identity() {
 
     // Check the no node tried to connect to itself in this process.
     #[cfg(feature = "test_features")]
-    runner.push_action(wait_for(|| near_network::RECEIVED_INFO_ABOUT_ITSELF.get() == 0));
+    runner.push_action_fn(wait_for(|| near_network::RECEIVED_INFO_ABOUT_ITSELF.get() == 0));
 
     start_test(runner);
 }

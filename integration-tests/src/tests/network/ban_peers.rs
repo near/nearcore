@@ -13,7 +13,7 @@ fn dont_connect_to_banned_peer() {
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
     runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
 
-    runner.push_action(ban_peer(0, 1));
+    runner.push_action_fn(ban_peer(0, 1));
     // It needs to wait a large timeout so we are sure both peer don't establish a connection.
     runner.push(Action::Wait(1000));
 
@@ -36,7 +36,7 @@ fn connect_to_unbanned_peer() {
     runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
 
     // Ban peer 1
-    runner.push_action(ban_peer(0, 1));
+    runner.push_action_fn(ban_peer(0, 1));
 
     runner.push(Action::Wait(1000));
     // During two seconds peer is banned so no connection is possible.

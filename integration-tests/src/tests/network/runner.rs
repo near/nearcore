@@ -1,15 +1,6 @@
-use std::collections::HashSet;
-use std::iter::Iterator;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
-
 use actix::{Actor, Addr, AsyncContext, Context, Handler, Message, System};
 use chrono::DateTime;
 use futures::{future, FutureExt, TryFutureExt};
-use near_primitives::time::Utc;
-use tracing::debug;
-
 use near_actix_test_utils::run_actix;
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
@@ -17,12 +8,11 @@ use near_chain_configs::ClientConfig;
 use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
+use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::{
     convert_boot_nodes, expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal,
     GetInfo, StopSignal, WaitOrTimeoutActor,
 };
-
-use near_network::routing::start_routing_table_actor;
 #[cfg(feature = "test_features")]
 use near_network::types::SetAdvOptions;
 use near_network::types::{NetworkRecipient, NetworkRequests, NetworkResponses};
@@ -33,10 +23,17 @@ use near_network_primitives::types::{
 };
 use near_network_primitives::utils::blacklist_from_iter;
 use near_primitives::network::PeerId;
+use near_primitives::time::Utc;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
+use std::collections::HashSet;
+use std::iter::Iterator;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
+use tracing::debug;
 
 pub type SharedRunningInfo = Arc<RwLock<RunningInfo>>;
 
@@ -603,7 +600,7 @@ impl Runner {
 
     /// Add an action to be executed by the Runner. Actions are executed sequentially.
     /// Each action is executed after the previous action succeed.
-    pub fn push_action(&mut self, action: ActionFn) {
+    pub fn push_action_fn(&mut self, action: ActionFn) {
         self.state_machine.as_mut().unwrap().push_action(action);
     }
 
