@@ -16,6 +16,15 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - uses: actions/cache@v2
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-build
     - name: Build
       run: RUSTFLAGS='-D warnings' cargo build --verbose --workspace
 
@@ -25,6 +34,15 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - uses: actions/cache@v2
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-tests
     - name: Run tests
       run: RUSTFLAGS='-D warnings' cargo test --verbose --workspace
 
@@ -34,6 +52,15 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - uses: actions/cache@v2
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-clippy
     - name: Run clippy
       run: |
         cargo clippy --all-features --no-deps -p near-cache -p near-performance-metrics -p near-performance-metrics-macros -p near-rate-limiter -p near-stable-hasher -- -D clippy::all
@@ -47,6 +74,15 @@ jobs:
       run: |
         cargo install cargo-deny
     - uses: actions/checkout@v2
+    - uses: actions/cache@v2
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-cargo-deny
     - name: Run cargo-deny
       run: |
         cargo-deny --all-features --workspace check Advisories Bans Sources
