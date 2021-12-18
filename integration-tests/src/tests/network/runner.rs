@@ -533,7 +533,7 @@ impl Runner {
 
     /// Specify boot nodes. By default there are no boot nodes.
     pub fn use_boot_nodes(mut self, boot_nodes: Vec<usize>) -> Self {
-        self.apply_all(move |test_config| {
+        self.test_config.iter_mut().for_each(move |test_config| {
             test_config.boot_nodes = boot_nodes.clone();
         });
         self
@@ -544,28 +544,28 @@ impl Runner {
         ideal_connections_lo: u32,
         ideal_connections_hi: u32,
     ) -> Self {
-        self.apply_all(move |test_config| {
+        self.test_config.iter_mut().for_each(move |test_config| {
             test_config.ideal_connections = Some((ideal_connections_lo, ideal_connections_hi));
         });
         self
     }
 
     pub fn minimum_outbound_peers(mut self, minimum_outbound_peers: u32) -> Self {
-        self.apply_all(move |test_config| {
+        self.test_config.iter_mut().for_each(move |test_config| {
             test_config.minimum_outbound_peers = Some(minimum_outbound_peers);
         });
         self
     }
 
     pub fn safe_set_size(mut self, safe_set_size: u32) -> Self {
-        self.apply_all(move |test_config| {
+        self.test_config.iter_mut().for_each(move |test_config| {
             test_config.safe_set_size = Some(safe_set_size);
         });
         self
     }
 
     pub fn max_num_peers(mut self, max_num_peers: u32) -> Self {
-        self.apply_all(move |test_config| {
+        self.test_config.iter_mut().for_each(move |test_config| {
             test_config.max_num_peers = max_num_peers;
         });
         self
@@ -573,13 +573,15 @@ impl Runner {
 
     /// Set ban window range.
     pub fn ban_window(mut self, ban_window: Duration) -> Self {
-        self.apply_all(move |test_config| test_config.ban_window = ban_window);
+        self.test_config
+            .iter_mut()
+            .for_each(move |test_config| test_config.ban_window = ban_window);
         self
     }
 
     /// Set routed message ttl.
     pub fn routed_message_ttl(mut self, routed_message_ttl: u8) -> Self {
-        self.apply_all(move |test_config| {
+        self.test_config.iter_mut().for_each(move |test_config| {
             test_config.routed_message_ttl = routed_message_ttl;
         });
         self
@@ -587,7 +589,7 @@ impl Runner {
 
     /// Allow message to connect among themselves without triggering new connections.
     pub fn enable_outbound(mut self) -> Self {
-        self.apply_all(|test_config| {
+        self.test_config.iter_mut().for_each(|test_config| {
             test_config.outbound_disabled = false;
         });
         self
@@ -603,15 +605,6 @@ impl Runner {
     /// Each action is executed after the previous action succeed.
     pub fn push_action(&mut self, action: ActionFn) {
         self.state_machine.as_mut().unwrap().push_action(action);
-    }
-
-    fn apply_all<F>(&mut self, mut apply: F)
-    where
-        F: FnMut(&mut TestConfig) -> (),
-    {
-        for test_config in self.test_config.iter_mut() {
-            apply(test_config);
-        }
     }
 
     fn setup_node(&self, node_id: usize) -> Addr<PeerManagerActor> {
