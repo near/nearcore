@@ -144,7 +144,7 @@ steps:
   - label: "clippy"
     command: |
       source ~/.cargo/env && set -eux
-      cargo clippy --no-deps -p near-network -p near-network-primitives -p near-cache -p near-performance-metrics -p near-rate-limiter -p -near-stable-hasher -- -D clippy::all
+      cargo clippy --no-deps -p near-network -p near-network-primitives -p near-cache -p near-performance-metrics -p near-rate-limiter -p near-stable-hasher -- -D clippy::all
 
     branches: "!master !beta !stable"
     timeout: 60
