@@ -43,8 +43,10 @@ jobs:
     runs-on: ubuntu-20.04
 
     steps:
+    - name: Install cargo-deny
+      run: |
+        cargo install cargo-deny
     - uses: actions/checkout@v2
     - name: Run cargo-deny
       run: |
-        cargo install cargo-deny
         cargo-deny --all-features --workspace check Advisories Bans Sources
