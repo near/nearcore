@@ -36,7 +36,7 @@ jobs:
     - uses: actions/checkout@v2
     - name: Run clippy
       run: |
-        cargo clippy --no-deps -p near-performance-metrics -- -D clippy::all
+        cargo clippy --all-features --no-deps -p near-cache -p near-performance-metrics -p near-performance-metrics-macros -p near-rate-limiter -p near-stable-hasher -- -D clippy::all
 
   cargo-deny:
 
