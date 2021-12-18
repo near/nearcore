@@ -7,11 +7,10 @@ use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
-use tracing::debug;
 #[cfg(feature = "test_features")]
 use tracing::error;
-use tracing::info;
 use tracing::metadata::LevelFilter;
+use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 
 /// NEAR Protocol Node
@@ -149,6 +148,32 @@ pub(super) struct InitCmd {
     max_gas_burnt_view: Option<Gas>,
 }
 
+fn check_release_build(chain: &str) {
+    let is_release_build =
+        option_env!("NEAR_RELEASE_BUILD").map(|value| value == "yes").unwrap_or(false);
+    let is_nightly_build = cfg!(feature = "nightly_protocol");
+    let is_mainnet_build = is_release_build && !is_nightly_build;
+    let is_testnet_build = is_release_build && is_nightly_build;
+    if (chain == "mainnet" && !is_mainnet_build) || (chain == "testnet" && !is_testnet_build) {
+        let make_cmd = if chain == "mainnet" { "make release" } else { "make nightly-release" };
+        warn!(
+            target: "neard",
+            "Running a neard executable which wasn’t built with `{}` command \
+             isn’t supported on {}.",
+            make_cmd, chain
+        );
+        warn!(
+            target: "neard",
+            "Note that `cargo build --release` builds lack optimisations which \
+             may be needed to run properly on {}",
+            chain
+        );
+        warn!(
+                        target: "neard",
+"Consider recompiling the binary using `{}` command.", make_cmd);
+    }
+}
+
 impl InitCmd {
     pub(super) fn run(self, home_dir: &Path) {
         // TODO: Check if `home` exists. If exists check what networks we already have there.
@@ -158,6 +183,8 @@ impl InitCmd {
                     "Please specify a local genesis file or download the NEAR genesis or specify your own."
                 );
         }
+
+        self.chain_id.as_ref().map(|chain| check_release_build(chain));
 
         nearcore::init_configs(
             home_dir,
@@ -224,6 +251,9 @@ impl RunCmd {
     pub(super) fn run(self, home_dir: &Path) {
         // Load configs from home.
         let mut near_config = nearcore::config::load_config_without_genesis_records(home_dir);
+
+        check_release_build(&near_config.client_config.chain_id);
+
         // Set current version in client config.
         near_config.client_config.version = super::NEARD_VERSION.clone();
         // Override some parameters from command line.
