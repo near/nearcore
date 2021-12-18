@@ -85,4 +85,4 @@ jobs:
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-cargo-deny
     - name: Run cargo-deny
       run: |
-        cargo-deny --all-features --workspace check Advisories Bans Sources
+        cargo-deny --all-features --workspace check Bans Sources
