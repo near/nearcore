@@ -70,4 +70,4 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Run cargo fmt
-      run: cargo fmt --all-features -- --check
+      run: cargo fmt --all -- --check
