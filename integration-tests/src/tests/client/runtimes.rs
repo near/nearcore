@@ -68,7 +68,7 @@ fn test_invalid_approvals() {
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let mut env = TestEnv::builder(ChainGenesis::test())
         .runtime_adapters(create_runtimes(1))
-        .network_adapters(vec![network_adapter.clone()])
+        .network_adapters(vec![network_adapter])
         .build();
     let signer =
         InMemoryValidatorSigner::from_seed("random".parse().unwrap(), KeyType::ED25519, "random");

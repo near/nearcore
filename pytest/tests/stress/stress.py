@@ -34,11 +34,9 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import init_cluster, spin_up_node, load_config
 from configured_logger import logger
-from utils import TxContext, Unbuffered
 from transaction import sign_payment_tx, sign_staking_tx
 from proxy_instances import RejectListProxy
 
-sys.stdout = Unbuffered(sys.stdout)
 logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
 
 TIMEOUT = 1500  # after how much time to shut down the test
@@ -79,9 +77,8 @@ def stress_process(func):
     def wrapper(stopped, error, *args):
         try:
             func(stopped, error, *args)
-        except Exception as e:
-            traceback.print_exc()
-            logger.info(f"Process {func.__name__} failed with {repr(e)}")
+        except Exception as ex:
+            logger.info(f'Process {func.__name__} failed', exc_info=ex)
             error.value = 1
 
     wrapper.__name__ = func.__name__
