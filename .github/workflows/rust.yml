@@ -46,6 +46,42 @@ jobs:
     - name: Run tests
       run: RUSTFLAGS='-D warnings' cargo test --verbose --workspace
 
+  cargo-check:
+
+    runs-on: ubuntu-20.04
+
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/cache@v2
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-check
+    - name: Run cargo check
+      run: RUSTFLAGS='-D warnings' cargo check --verbose --workspace
+
+  cargo-check-all:
+
+    runs-on: ubuntu-20.04
+
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/cache@v2
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-check-all
+    - name: Run cargo check --all-features
+      run: RUSTFLAGS='-D warnings' cargo check --verbose --workspace --all-features
+
   clippy:
 
     runs-on: ubuntu-20.04
@@ -70,11 +106,9 @@ jobs:
     runs-on: ubuntu-20.04
 
     steps:
-    - name: Install cargo-deny
-      run: |
-        cargo install cargo-deny
     - uses: actions/checkout@v2
     - uses: actions/cache@v2
+      id: deny-cache
       with:
         path: |
           ~/.cargo/bin/
@@ -83,6 +117,10 @@ jobs:
           ~/.cargo/git/db/
           target/
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-cargo-deny
+    - name: Install cargo-deny
+      if: steps.deny-cache.outputs.cache-hit != 'true'
+      run: |
+        cargo install cargo-deny
     - name: Run cargo-deny
       run: |
         cargo-deny --all-features --workspace check Bans Sources
