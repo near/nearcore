@@ -1,0 +1,50 @@
+name: Rust
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-20.04
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build
+      run: RUSTFLAGS='-D warnings' cargo build --verbose --workspace
+
+  tests:
+
+    runs-on: ubuntu-20.04
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Run tests
+      run: RUSTFLAGS='-D warnings' cargo test --verbose --workspace
+
+  clippy:
+
+    runs-on: ubuntu-20.04
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Run clippy
+      run: |
+        cargo clippy -- -D clippy::all
+
+  cargo-deny:
+
+    runs-on: ubuntu-20.04
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Run clippy
+      run: |
+        cargo install cargo-deny
+        cargo-deny --all-features --workspace check Advisories Bans Sources
