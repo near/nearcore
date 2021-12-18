@@ -36,7 +36,7 @@ jobs:
     - uses: actions/checkout@v2
     - name: Run clippy
       run: |
-        cargo clippy -- -D clippy::all
+        cargo clippy --no-deps -p near-performance-metrics -- -D clippy::all
 
   cargo-deny:
 
@@ -44,7 +44,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    - name: Run clippy
+    - name: Run cargo-deny
       run: |
         cargo install cargo-deny
         cargo-deny --all-features --workspace check Advisories Bans Sources
