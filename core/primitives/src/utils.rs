@@ -470,7 +470,7 @@ impl fmt::Debug for dyn CompiledContractCache {
 /// objects using tracing.
 ///
 /// tracing::debug!(target: "diagnostic", value=%ser(&object));
-pub fn ser<T>(object: &T) -> Serializable<T>
+pub fn ser<T>(object: &T) -> Serializable<'_, T>
 where
     T: serde::Serialize,
 {
