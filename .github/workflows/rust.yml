@@ -11,6 +11,25 @@ env:
 
 jobs:
 
+  check-near-network:
+
+    runs-on: ubuntu-20.04
+
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/cache@v2
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-check-near-network
+    - name: Check near-network
+      run: |
+        cargo check -p near-network
+
   clippy:
 
     runs-on: ubuntu-20.04
@@ -48,11 +67,9 @@ jobs:
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-cargo-deny
     - name: Install cargo-deny
       if: steps.deny-cache.outputs.cache-hit != 'true'
-      run: |
-        cargo install cargo-deny
+      run: cargo install cargo-deny
     - name: Run cargo-deny
-      run: |
-        cargo-deny --all-features --workspace check Bans Sources
+      run: cargo-deny --all-features --workspace check Bans Sources
 
   yapf:
     runs-on: ubuntu-20.04
@@ -69,5 +86,14 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - uses: actions/cache@v2
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-cargo-fmt
     - name: Run cargo fmt
       run: cargo fmt --all -- --check
