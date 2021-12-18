@@ -46,4 +46,5 @@ jobs:
     - uses: actions/checkout@v2
     - name: Run cargo-deny
       run: |
-        cargo deny --all-features --workspace check Advisories Bans Sources
+        cargo install cargo-deny
+        cargo-deny --all-features --workspace check Advisories Bans Sources
