@@ -11,25 +11,6 @@ env:
 
 jobs:
 
-  check-near-network:
-
-    runs-on: ubuntu-20.04
-
-    steps:
-    - uses: actions/checkout@v2
-    - uses: actions/cache@v2
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-check-near-network
-    - name: Check near-network
-      run: |
-        cargo check -p near-network
-
   clippy:
 
     runs-on: ubuntu-20.04
