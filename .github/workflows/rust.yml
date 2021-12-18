@@ -53,3 +53,21 @@ jobs:
     - name: Run cargo-deny
       run: |
         cargo-deny --all-features --workspace check Bans Sources
+
+  yapf:
+    runs-on: ubuntu-20.04
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Run yapf
+      run: |
+        python3 -m pip install -q --user yapf
+        yapf -pdr pytest scripts
+
+  cargo-fmt:
+    runs-on: ubuntu-20.04
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Run cargo fmt
+      run: cargo fmt -- --check
