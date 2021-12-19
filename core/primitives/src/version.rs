@@ -128,6 +128,7 @@ pub enum ProtocolFeature {
     /// https://github.com/near/NEPs/pull/167 for general description, note that we would not
     /// introduce chunk-only validators with this feature
     AliasValidatorSelectionAlgorithm,
+    SynchronizeBlockChunkProduction,
 
     // nightly features
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -142,7 +143,7 @@ pub enum ProtocolFeature {
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 49;
+pub const PROTOCOL_VERSION: ProtocolVersion = 50;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
@@ -173,6 +174,7 @@ impl ProtocolFeature {
             | ProtocolFeature::LimitContractFunctionsNumber
             | ProtocolFeature::BlockHeaderV3
             | ProtocolFeature::AliasValidatorSelectionAlgorithm => 49,
+            ProtocolFeature::SynchronizeBlockChunkProduction => 50,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]

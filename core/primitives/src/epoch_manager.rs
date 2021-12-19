@@ -832,7 +832,22 @@ pub mod epoch_info {
                     shard_cps[(height as u64 % (shard_cps.len() as u64)) as usize]
                 }
                 Self::V3(v3) => {
-                    let seed = {
+                    let protocol_verstion = self.protocol_version();
+                    let seed = if checked_feature!(
+                        "stable",
+                        SynchronizeBlockChunkProduction,
+                        protocol_verstion
+                    ) && !checked_feature!(
+                        "protocol_feature_chunk_only_producers",
+                        ChunkOnlyProducers,
+                        protocol_verstion
+                    ) {
+                        // 32 bytes from epoch_seed, 8 bytes from height
+                        let mut buffer = [0u8; 40];
+                        buffer[0..32].copy_from_slice(&v3.rng_seed);
+                        buffer[32..40].copy_from_slice(&height.to_le_bytes());
+                        hash(&buffer).0
+                    } else {
                         // 32 bytes from epoch_seed, 8 bytes from height, 8 bytes from shard_id
                         let mut buffer = [0u8; 48];
                         buffer[0..32].copy_from_slice(&v3.rng_seed);
