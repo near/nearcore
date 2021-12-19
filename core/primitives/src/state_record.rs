@@ -62,7 +62,7 @@ impl StateRecord {
         match column {
             col::ACCOUNT => Some(StateRecord::Account {
                 account_id: parse_account_id_from_account_key(&key).unwrap(),
-                account: Account::try_from_slice(&value).unwrap().into(),
+                account: Account::try_from_slice(&value).unwrap(),
             }),
             col::CONTRACT_DATA => {
                 let account_id = parse_account_id_from_contract_data_key(&key).unwrap();

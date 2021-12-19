@@ -327,7 +327,7 @@ pub mod trie_key_parsers {
     pub fn parse_account_id_from_raw_key(
         raw_key: &[u8],
     ) -> Result<Option<AccountId>, std::io::Error> {
-        for (col, col_name) in col::NON_DELAYED_RECEIPT_COLUMNS.into_iter() {
+        for (col, col_name) in col::NON_DELAYED_RECEIPT_COLUMNS {
             if parse_account_id_prefix(col, raw_key).is_err() {
                 continue;
             }
