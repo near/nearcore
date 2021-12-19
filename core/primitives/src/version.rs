@@ -128,6 +128,8 @@ pub enum ProtocolFeature {
     /// https://github.com/near/NEPs/pull/167 for general description, note that we would not
     /// introduce chunk-only validators with this feature
     AliasValidatorSelectionAlgorithm,
+    /// Make block producers produce chunks for the same block they would later produce to avoid
+    /// network delays
     SynchronizeBlockChunkProduction,
 
     // nightly features

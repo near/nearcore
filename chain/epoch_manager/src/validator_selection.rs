@@ -546,13 +546,11 @@ mod tests {
             let bp = epoch_info.sample_block_producer(h);
             for shard_id in 0..num_shards {
                 let cp = epoch_info.sample_chunk_producer(h, shard_id);
-                if checked_feature!("stable", SynchronizeBlockChunkProduction, PROTOCOL_VERSION)
-                    && !checked_feature!(
-                        "protocol_feature_chunk_only_producers",
-                        ChunkOnlyProducers,
-                        PROTOCOL_VERSION
-                    )
-                {
+                if !checked_feature!(
+                    "protocol_feature_chunk_only_producers",
+                    ChunkOnlyProducers,
+                    PROTOCOL_VERSION
+                ) {
                     assert_eq!(bp, cp);
                 }
             }

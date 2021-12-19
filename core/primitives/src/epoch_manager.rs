@@ -843,6 +843,7 @@ pub mod epoch_info {
                         protocol_verstion
                     ) {
                         // 32 bytes from epoch_seed, 8 bytes from height
+                        // This is same seed that used for determining block producer
                         let mut buffer = [0u8; 40];
                         buffer[0..32].copy_from_slice(&v3.rng_seed);
                         buffer[32..40].copy_from_slice(&height.to_le_bytes());
