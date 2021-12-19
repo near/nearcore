@@ -511,7 +511,7 @@ mod tests {
 
     #[test]
     fn test_block_producer_sampling() {
-        let num_shards = 2;
+        let num_shards = 4;
         let epoch_config = create_epoch_config(
             num_shards,
             2,
