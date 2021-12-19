@@ -189,8 +189,7 @@ if __name__ == '__main__':
                          boot_node=boot_node,
                          proxy=proxy)
 
-    status = boot_node.get_status()
-    hash_ = status['sync_info']['latest_block_hash']
+    hash_ = boot_node.get_latest_block().hash_bytes
 
     logging.info("Waiting for the new nodes to sync")
     while True:
@@ -207,7 +206,7 @@ if __name__ == '__main__':
         logging.info("Rotating validators")
         for ord_, node in enumerate(reversed(nodes)):
             tx = sign_staking_tx(node.signer_key, node.validator_key, stake, 10,
-                                 base58.b58decode(hash_.encode('utf8')))
+                                 hash_)
             boot_node.send_tx(tx)
 
         logging.info("Waiting for rotation to occur")
@@ -218,8 +217,7 @@ if __name__ == '__main__':
             else:
                 time.sleep(1)
 
-    status = boot_node.get_status()
-    start_height = status['sync_info']['latest_block_height']
+    start_height = boot_node.get_latest_block().height
 
     logging.info("Killing old nodes")
     boot_node.kill()
@@ -238,9 +236,9 @@ if __name__ == '__main__':
                  (time.time() - started))
     while True:
         assert time.time() - started < TIMEOUT
-        status = node4.get_status()
-        new_height = status['sync_info']['latest_block_height']
-        if not status['sync_info']['syncing']:
+        sync_info = node4.get_status()['sync_info']
+        if not sync_info['syncing']:
+            new_height = sync_info['latest_block_height']
             assert new_height > height_to_sync_to, "new height %s height to sync to %s" % (
                 new_height, height_to_sync_to)
             break

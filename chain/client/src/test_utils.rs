@@ -226,10 +226,10 @@ pub fn setup_only_view(
 
     start_view_client(
         Some(signer.validator_id().clone()),
-        chain_genesis.clone(),
-        runtime.clone(),
+        chain_genesis,
+        runtime,
         network_adapter.clone(),
-        config.clone(),
+        config,
         #[cfg(feature = "test_features")]
         adv.clone(),
     )
@@ -1277,7 +1277,7 @@ impl TestEnvBuilder {
                         };
                         setup_client_with_runtime(
                             u64::try_from(num_validators).unwrap(),
-                            Some(account_id.clone()),
+                            Some(account_id),
                             false,
                             network_adapter.clone(),
                             chain_genesis.clone(),

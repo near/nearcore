@@ -187,12 +187,9 @@ for (left, right, common, TIMEOUT) in tests:
 
     # wait for sync
     started = time.time()
-    while True:
+    while success.value != 1:
         assert time.time() - started < TIMEOUT
-        status = nodes[0].get_status(timeout=30)
-        height = status['sync_info']['latest_block_height']
-        if success.value == 1:
-            break
+        nodes[0].get_status(timeout=30)
         time.sleep(1)
 
     # wait some time for node to process adding edges

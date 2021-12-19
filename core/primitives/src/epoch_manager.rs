@@ -93,10 +93,7 @@ impl AllEpochConfig {
             config.avg_hidden_validator_seats_per_shard = avg_hidden_validator_seats_per_shard;
             config.shard_layout = shard_layout;
         }
-        Self {
-            genesis_epoch_config: genesis_epoch_config.clone(),
-            simple_nightshade_epoch_config: config,
-        }
+        Self { genesis_epoch_config: genesis_epoch_config, simple_nightshade_epoch_config: config }
     }
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> &EpochConfig {
