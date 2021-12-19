@@ -212,6 +212,7 @@ use std::{io, task};
 use actix::{Actor, ActorContext, ActorFuture, AsyncContext, Running, SpawnHandle};
 use bitflags::bitflags;
 use bytes::BytesMut;
+use bytesize::MIB;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio_util::codec::Encoder;
 
@@ -456,6 +457,10 @@ where
                     let len = inner.buffer.len();
                     let capacity = inner.buffer.capacity();
                     inner.callback.drained(n, len, capacity);
+                    // Fix memory leak see (#TODO)
+                    if inner.buffer.is_empty() && inner.buffer.capacity() >= MIB as usize {
+                        std::mem::take(&mut inner.buffer);
+                    }
                 }
                 Poll::Ready(Err(ref e)) if e.kind() == io::ErrorKind::WouldBlock => {
                     if inner.buffer.len() > inner.high {
@@ -552,6 +557,10 @@ where
                     let len = inner.buffer.len();
                     let capacity = inner.buffer.capacity();
                     inner.callback.drained(n, len, capacity);
+                    // Fix memory leak see (#TODO)
+                    if inner.buffer.is_empty() && inner.buffer.capacity() >= MIB as usize {
+                        std::mem::take(&mut inner.buffer);
+                    }
                 }
                 Poll::Ready(Err(ref e)) if e.kind() == io::ErrorKind::WouldBlock => {
                     return if inner.buffer.len() < inner.low {
