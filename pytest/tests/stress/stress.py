@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Chaos Monkey test. Simulates random events and failures and makes sure the blockchain continues operating as expected
 #
 #     _.-._         ..-..         _.-._
@@ -26,17 +27,16 @@
 # This test also completely disables rewards, which simplifies ensuring total supply invariance and balance invariances
 
 import sys, time, base58, random, inspect, traceback, requests, logging
+import pathlib
 from multiprocessing import Process, Value, Lock
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import init_cluster, spin_up_node, load_config
 from configured_logger import logger
-from utils import TxContext, Unbuffered
 from transaction import sign_payment_tx, sign_staking_tx
 from proxy_instances import RejectListProxy
 
-sys.stdout = Unbuffered(sys.stdout)
 logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
 
 TIMEOUT = 1500  # after how much time to shut down the test
@@ -77,9 +77,8 @@ def stress_process(func):
     def wrapper(stopped, error, *args):
         try:
             func(stopped, error, *args)
-        except Exception as e:
-            traceback.print_exc()
-            logger.info(f"Process {func.__name__} failed with {repr(e)}")
+        except Exception as ex:
+            logger.info(f'Process {func.__name__} failed', exc_info=ex)
             error.value = 1
 
     wrapper.__name__ = func.__name__
@@ -93,23 +92,20 @@ def get_recent_hash(node, sync_timeout):
 
     for attempt in range(sync_timeout):
         # use timeout=10 throughout, because during header sync processing headers takes up to 3-10s
-        status = node.get_status(timeout=10)
-        hash_ = status['sync_info']['latest_block_hash']
-        info = node.json_rpc('block', [hash_], timeout=10)
-
-        is_syncing = status['sync_info']['syncing']
-        sync_error = 'error' in info and 'unavailable on the node' in info[
-            'error']['data']
-        if is_syncing or sync_error:
-            time.sleep(1)
-        else:
+        sync_info = node.get_status(timeout=10)['sync_info']
+        block_hash = sync_info['latest_block_hash']
+        info = node.json_rpc('block', [block_hash], timeout=10)
+        sync_error = ('error' in info and
+                      'unavailable on the node' in info['error']['data'])
+        if not sync_info['syncing'] and not sync_error:
             break
+        time.sleep(1)
     else:
         assert False, "Node hasn't synced in %s seconds" % sync_timeout
 
     assert 'result' in info, info
     hash_ = info['result']['header']['last_final_block']
-    return hash_, status['sync_info']['latest_block_height']
+    return hash_, sync_info['latest_block_height']
 
 
 def get_validator_ids(nodes):

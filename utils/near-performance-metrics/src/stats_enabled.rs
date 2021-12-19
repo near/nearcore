@@ -321,7 +321,8 @@ where
     stat.lock().unwrap().pre_log(start);
     let result = f(msg);
 
-    let took = start.elapsed();
+    let ended = Instant::now();
+    let took = ended.saturating_duration_since(start);
 
     let peak_memory =
         ByteSize::b(current_thread_peak_memory_usage().saturating_sub(initial_memory_usage) as u64);
@@ -360,8 +361,6 @@ where
             );
         }
     }
-    let ended = Instant::now();
-    let took = ended.saturating_duration_since(start);
     stat.lock().unwrap().log(
         class_name,
         std::any::type_name::<Message>(),

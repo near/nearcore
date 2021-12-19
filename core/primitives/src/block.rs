@@ -4,8 +4,6 @@ use crate::time::{Clock, Utc};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use chrono::DateTime;
-#[cfg(feature = "deepsize_feature")]
-use deepsize::DeepSizeOf;
 use near_crypto::Signature;
 use num_rational::Rational;
 use primitive_types::U256;
@@ -28,7 +26,7 @@ use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use std::ops::Index;
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct GenesisId {
     /// Chain Id
@@ -37,7 +35,7 @@ pub struct GenesisId {
     pub hash: CryptoHash,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
 pub enum BlockValidityError {
     InvalidStateRoot,
@@ -48,7 +46,7 @@ pub enum BlockValidityError {
     InvalidChallengeRoot,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockV1 {
     pub header: BlockHeader,
@@ -60,7 +58,7 @@ pub struct BlockV1 {
     pub vrf_proof: near_crypto::vrf::Proof,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockV2 {
     pub header: BlockHeader,
@@ -74,7 +72,7 @@ pub struct BlockV2 {
 
 /// Versioned Block data structure.
 /// For each next version, document what are the changes between versions.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub enum Block {
     BlockV1(Box<BlockV1>),
@@ -121,14 +119,14 @@ pub fn genesis_chunks(
 
 impl Block {
     fn block_from_protocol_version(
-        protocol_version: ProtocolVersion,
+        next_epoch_protocol_version: ProtocolVersion,
         header: BlockHeader,
         chunks: Vec<ShardChunkHeader>,
         challenges: Challenges,
         vrf_value: near_crypto::vrf::Value,
         vrf_proof: near_crypto::vrf::Proof,
     ) -> Block {
-        if protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
+        if next_epoch_protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
             let legacy_chunks = chunks
                 .into_iter()
                 .map(|chunk| match chunk {
@@ -197,7 +195,8 @@ impl Block {
 
     /// Produces new block from header of previous block, current state root and set of transactions.
     pub fn produce(
-        protocol_version: ProtocolVersion,
+        this_epoch_protocol_version: ProtocolVersion,
+        next_epoch_protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
         block_ordinal: NumBlocks,
@@ -269,7 +268,8 @@ impl Block {
         };
 
         let header = BlockHeader::new(
-            protocol_version,
+            this_epoch_protocol_version,
+            next_epoch_protocol_version,
             height,
             prev.hash().clone(),
             Block::compute_state_root(&chunks),
@@ -299,7 +299,7 @@ impl Block {
         );
 
         Self::block_from_protocol_version(
-            protocol_version,
+            next_epoch_protocol_version,
             header,
             chunks,
             challenges,
@@ -523,7 +523,7 @@ impl Block {
         }
 
         // Check that challenges root stored in the header matches the challenges root of the challenges
-        let challenges_root = Block::compute_challenges_root(&self.challenges());
+        let challenges_root = Block::compute_challenges_root(self.challenges());
         if self.header().challenges_root() != &challenges_root {
             return Err(InvalidChallengeRoot);
         }
@@ -584,7 +584,7 @@ impl<'a> ChunksCollection<'a> {
 
     pub fn iter<'b: 'a>(&'b self) -> VersionedChunksIter<'b> {
         match self {
-            ChunksCollection::V1(chunks) => VersionedChunksIter::new(&chunks),
+            ChunksCollection::V1(chunks) => VersionedChunksIter::new(chunks),
             ChunksCollection::V2(chunks) => VersionedChunksIter::new(chunks),
         }
     }

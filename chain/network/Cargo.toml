@@ -3,31 +3,30 @@ name = "near-network"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 
 [dependencies]
 actix = "=0.11.0-beta.2"
-borsh = { version = "0.9", features = ["rc"]}
-byteorder = "1.2"
+borsh = { version = "0.9", features = ["rc"] }
 bytes = "1"
 bytesize = "1.1"
-cached = "0.23"
-chrono = { version = "0.4.4", features = ["serde"] }
 conqueue = "0.4.0"
 futures = "0.3"
-lazy_static = "1.4"
+lru = "0.6.5"
 near-rust-allocator-proxy = "0.3.0"
 once_cell = "1.5.2"
 rand = "0.7"
 serde = { version = "1", features = ["derive", "rc", "alloc"], optional=true }
 strum = { version = "0.20", features = ["derive"] }
-tokio = { version = "1.1", features = ["full"] }
+tokio = { version = "1.1", features = ["net", "rt-multi-thread"] }
 tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.6", features = ["codec"] }
 tracing = "0.1.13"
 deepsize = { version = "0.2.0", optional = true }
 
-delay-detector = { path = "../../tools/delay_detector", optional = true}
+delay-detector = { path = "../../tools/delay_detector", optional = true }
 near-crypto = { path = "../../core/crypto" }
 near-metrics = { path = "../../core/metrics" }
 near-network-primitives = { path = "../network-primitives" }
@@ -35,20 +34,17 @@ near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
 near-primitives = { path = "../../core/primitives" }
 near-rate-limiter = { path = "../../utils/near-rate-limiter" }
-near-stable-hasher = { path = "../../utils/near-stable-hasher" }
+near-stable-hasher = { path = "../../utils/near-stable-hasher", optional = true }
 near-store = { path = "../../core/store" }
 
 [dev-dependencies]
 bencher = "0.1.5"
-near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
-near-chain = { path = "../chain" }
-near-logger-utils = {path = "../../test-utils/logger"}
 tempfile = "3"
 
 [features]
 delay_detector = ["delay-detector"]
 performance_stats = ["near-performance-metrics/performance_stats"]
-protocol_feature_routing_exchange_algorithm = ["near-primitives/protocol_feature_routing_exchange_algorithm"]
+protocol_feature_routing_exchange_algorithm = ["near-primitives/protocol_feature_routing_exchange_algorithm", "near-stable-hasher"]
 sandbox = ["near-network-primitives/sandbox"]
 test_features = ["near-network-primitives/test_features", "serde"]
 deepsize_feature = ["deepsize", "near-primitives/deepsize_feature", "near-crypto/deepsize_feature", "near-network-primitives/deepsize_feature"]

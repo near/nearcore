@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import base58
 from enum import Enum
 import os
@@ -7,7 +8,7 @@ import sys
 import tempfile
 import time
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from cluster import GCloudNode, Key
 from configured_logger import logger
 from transaction import sign_staking_tx
@@ -71,16 +72,14 @@ class RemoteNode(GCloudNode):
             self.account_key_nonce = None
 
     def send_staking_tx(self, stake):
-        status = self.get_status()
-        hash_ = status['sync_info']['latest_block_hash']
+        hash_ = self.get_latest_block().hash_bytes
         if self.account_key_nonce is None:
             self.account_key_nonce = self.get_nonce_for_pk(
                 self.signer_key.account_id, self.signer_key.pk)
         self.account_key_nonce += 1
         tx = sign_staking_tx(nodes[index].signer_key,
                              nodes[index].validator_key, stake,
-                             self.account_key_nonce,
-                             base58.b58decode(hash_.encode('utf8')))
+                             self.account_key_nonce, hash_)
         logger.info(f'{self.signer_key.account_id} stakes {stake}')
         res = self.send_tx_and_wait(tx, timeout=15)
         if 'error' in res or 'Failure' in res['result']['status']:

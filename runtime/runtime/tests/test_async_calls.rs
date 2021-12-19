@@ -27,7 +27,7 @@ fn test_simple_func_call() {
     let signed_transaction = SignedTransaction::from_actions(
         1,
         signer_sender.account_id.clone(),
-        signer_receiver.account_id.clone(),
+        signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "sum_n".to_string(),
@@ -73,7 +73,7 @@ fn test_single_promise_no_callback() {
     let signed_transaction = SignedTransaction::from_actions(
         1,
         signer_sender.account_id.clone(),
-        signer_receiver.account_id.clone(),
+        signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
@@ -139,7 +139,7 @@ fn test_single_promise_with_callback() {
     let signed_transaction = SignedTransaction::from_actions(
         1,
         signer_sender.account_id.clone(),
-        signer_receiver.account_id.clone(),
+        signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
@@ -223,7 +223,7 @@ fn test_two_promises_no_callbacks() {
     let signed_transaction = SignedTransaction::from_actions(
         1,
         signer_sender.account_id.clone(),
-        signer_receiver.account_id.clone(),
+        signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
@@ -317,7 +317,7 @@ fn test_two_promises_with_two_callbacks() {
     let signed_transaction = SignedTransaction::from_actions(
         1,
         signer_sender.account_id.clone(),
-        signer_receiver.account_id.clone(),
+        signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
@@ -408,7 +408,7 @@ fn test_single_promise_no_callback_batch() {
     let signed_transaction = SignedTransaction::from_actions(
         1,
         signer_sender.account_id.clone(),
-        signer_receiver.account_id.clone(),
+        signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
@@ -480,7 +480,7 @@ fn test_single_promise_with_callback_batch() {
     let signed_transaction = SignedTransaction::from_actions(
         1,
         signer_sender.account_id.clone(),
-        signer_receiver.account_id.clone(),
+        signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
@@ -554,7 +554,7 @@ fn test_simple_transfer() {
     let signed_transaction = SignedTransaction::from_actions(
         1,
         signer_sender.account_id.clone(),
-        signer_receiver.account_id.clone(),
+        signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
@@ -621,7 +621,7 @@ fn test_create_account_with_transfer_and_full_key() {
     let signed_transaction = SignedTransaction::from_actions(
         1,
         signer_sender.account_id.clone(),
-        signer_receiver.account_id.clone(),
+        signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
@@ -879,7 +879,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
     let signed_transaction = SignedTransaction::from_actions(
         1,
         signer_sender.account_id.clone(),
-        signer_receiver.account_id.clone(),
+        signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
@@ -973,7 +973,7 @@ fn test_transfer_64len_hex() {
     let signed_transaction = SignedTransaction::from_actions(
         1,
         signer_sender.account_id.clone(),
-        signer_receiver.account_id.clone(),
+        signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
@@ -1039,7 +1039,7 @@ fn test_create_transfer_64len_hex_fail() {
     let signed_transaction = SignedTransaction::from_actions(
         1,
         signer_sender.account_id.clone(),
-        signer_receiver.account_id.clone(),
+        signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),

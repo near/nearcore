@@ -2,10 +2,12 @@
 name = "near-client-primitives"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
+publish = true
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/near/nearcore"
-homepage = "https://github.com/near/nearcore"
 description = "This crate hosts NEAR client-related error types"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -13,7 +15,6 @@ description = "This crate hosts NEAR client-related error types"
 [dependencies]
 actix = "=0.11.0-beta.2"
 chrono = { version = "0.4.4", features = ["serde"] }
-serde = { version = "1", features = ["derive"] }
 strum = { version = "0.20", features = ["derive"] }
 thiserror = "1.0"
 

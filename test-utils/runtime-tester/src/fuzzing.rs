@@ -532,7 +532,7 @@ impl Scope {
     }
 
     pub fn deploy_contract(&mut self, receiver_account: &Account, contract_id: usize) {
-        let acc_id = self.usize_id(&receiver_account);
+        let acc_id = self.usize_id(receiver_account);
         self.accounts[acc_id].deployed_contract = Some(contract_id);
     }
 
@@ -576,7 +576,7 @@ impl Scope {
         u: &mut Unstructured,
         account: &Account,
     ) -> Result<InMemorySigner> {
-        let account_idx = self.usize_id(&account);
+        let account_idx = self.usize_id(account);
         let possible_signers = self.accounts[account_idx].full_access_keys();
         if possible_signers.is_empty() {
             // this transaction will be invalid
@@ -596,7 +596,7 @@ impl Scope {
         account: &Account,
         receiver_id: &String,
     ) -> Result<InMemorySigner> {
-        let account_idx = self.usize_id(&account);
+        let account_idx = self.usize_id(account);
         let possible_signers = self.accounts[account_idx].function_call_keys(receiver_id);
         if possible_signers.is_empty() {
             // this transaction will be invalid
@@ -615,7 +615,7 @@ impl Scope {
         u: &mut Unstructured,
         account: &Account,
     ) -> Result<PublicKey> {
-        let account_idx = self.usize_id(&account);
+        let account_idx = self.usize_id(account);
         let (nonce, key) = self.accounts[account_idx].random_key(u)?;
         let public_key = key.signer.public_key.clone();
         self.accounts[account_idx].keys.remove(&nonce);

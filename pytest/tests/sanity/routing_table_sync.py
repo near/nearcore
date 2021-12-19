@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Simulates routing table exchange with two nodes A, B. We are testing a few test cases depending on the number of
 # edges A, has but B doesn't and vise-versa. For each configuration, we simulate doing routing table exchange, and
 # we check whenever both have the same version of routing table at the end.
@@ -6,12 +7,15 @@
 # edge pruning in order to eliminate those factors for sake of testing. In addition uses JsonRPC to add/remove edges
 # check current state of routing table on both sites.
 
-import sys, time
+import os
+import sys
+import time
+import pathlib
 
 import base58
 import ed25519
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from peer import logger
@@ -183,12 +187,9 @@ for (left, right, common, TIMEOUT) in tests:
 
     # wait for sync
     started = time.time()
-    while True:
+    while success.value != 1:
         assert time.time() - started < TIMEOUT
-        status = nodes[0].get_status(timeout=30)
-        height = status['sync_info']['latest_block_height']
-        if success.value == 1:
-            break
+        nodes[0].get_status(timeout=30)
         time.sleep(1)
 
     # wait some time for node to process adding edges

@@ -111,8 +111,8 @@ impl Display for StateRecord {
                 f,
                 "Storage {:?},{:?}: {:?}",
                 account_id,
-                to_printable(&data_key),
-                to_printable(&value)
+                to_printable(data_key),
+                to_printable(value)
             ),
             StateRecord::Contract { account_id, code: _ } => {
                 write!(f, "Code for {:?}: ...", account_id)
@@ -125,7 +125,7 @@ impl Display for StateRecord {
                 "Received data {:?},{:?}: {:?}",
                 account_id,
                 data_id,
-                data.as_ref().map(|v| to_printable(&v))
+                data.as_ref().map(|v| to_printable(v))
             ),
             StateRecord::PostponedReceipt(receipt) => write!(f, "Postponed receipt {:?}", receipt),
             StateRecord::DelayedReceipt(receipt) => write!(f, "Delayed receipt {:?}", receipt),

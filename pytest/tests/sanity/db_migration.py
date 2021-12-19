@@ -11,25 +11,24 @@ import sys
 import time
 import subprocess
 import base58
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 import branches
 import cluster
-from utils import wait_for_blocks_or_timeout, load_test_contract, get_near_tempdir
 from transaction import sign_deploy_contract_tx, sign_function_call_tx
+import utils
 
 logging.basicConfig(level=logging.INFO)
 
 
 def deploy_contract(node):
-    status = node.get_status()
-    hash_ = status['sync_info']['latest_block_hash']
-    hash_ = base58.b58decode(hash_.encode('utf8'))
-    tx = sign_deploy_contract_tx(node.signer_key, load_test_contract(), 10,
-                                 hash_)
+    hash_ = node.get_latest_block().hash_bytes
+    tx = sign_deploy_contract_tx(node.signer_key, utils.load_test_contract(),
+                                 10, hash_)
     node.send_tx_and_wait(tx, timeout=15)
-    wait_for_blocks_or_timeout(node, 3, 100)
+    utils.wait_for_blocks(node, count=3)
 
 
 def send_some_tx(node):
@@ -37,25 +36,23 @@ def send_some_tx(node):
     nonce = node.get_nonce_for_pk(node.signer_key.account_id,
                                   node.signer_key.pk) + 10
     for i in range(10):
-        status2 = node.get_status()
-        hash_2 = status2['sync_info']['latest_block_hash']
-        hash_2 = base58.b58decode(hash_2.encode('utf8'))
+        hash_ = node.get_latest_block().hash_bytes
         keyvalue = bytearray(16)
         keyvalue[0] = (nonce // 10) % 256
         keyvalue[8] = (nonce // 10) % 255
         tx2 = sign_function_call_tx(node.signer_key, node.signer_key.account_id,
                                     'write_key_value', bytes(keyvalue),
-                                    10000000000000, 100000000000, nonce, hash_2)
+                                    10000000000000, 100000000000, nonce, hash_)
         nonce += 10
         res = node.send_tx_and_wait(tx2, timeout=15)
         assert 'error' not in res, res
         assert 'Failure' not in res['result']['status'], res
-    wait_for_blocks_or_timeout(node, 3, 100)
+    utils.wait_for_blocks(node, count=3)
 
 
 def main():
-    executables = branches.prepare_ab_test('master')
-    node_root = get_near_tempdir('db_migration', clean=True)
+    executables = branches.prepare_ab_test()
+    node_root = utils.get_near_tempdir('db_migration', clean=True)
 
     logging.info(f"The near root is {executables.stable.root}...")
     logging.info(f"The node root is {node_root}...")
@@ -75,7 +72,7 @@ def main():
                                 0)
 
     logging.info("Running the stable node...")
-    wait_for_blocks_or_timeout(node, 20, 100)
+    utils.wait_for_blocks(node, count=20)
     logging.info("Blocks are being produced, sending some tx...")
     deploy_contract(node)
     send_some_tx(node)
@@ -92,7 +89,7 @@ def main():
     node.start(boot_node=node)
 
     logging.info("Running the current node...")
-    wait_for_blocks_or_timeout(node, 20, 100)
+    utils.wait_for_blocks(node, count=20)
     logging.info("Blocks are being produced, sending some tx...")
     send_some_tx(node)
 
@@ -104,7 +101,7 @@ def main():
     logging.info("Restarting the current node...")
 
     node.start(boot_node=node)
-    wait_for_blocks_or_timeout(node, 20, 100)
+    utils.wait_for_blocks(node, count=20)
 
 
 if __name__ == "__main__":

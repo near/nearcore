@@ -1,6 +1,4 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "deepsize_feature")]
-use deepsize::DeepSizeOf;
 use serde::{Deserialize, Serialize};
 
 use near_crypto::Signature;
@@ -14,12 +12,12 @@ use crate::validator_signer::ValidatorSigner;
 /// Serialized TrieNodeWithSize
 pub type StateItem = Vec<u8>;
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct PartialState(pub Vec<StateItem>);
 
 /// Double signed block.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct BlockDoubleSign {
     pub left_block_header: Vec<u8>,
@@ -33,7 +31,7 @@ impl std::fmt::Display for BlockDoubleSign {
 }
 
 /// Invalid chunk (body of the chunk doesn't match proofs or invalid encoding).
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct ChunkProofs {
     /// Encoded block header that contains invalid chunk.
@@ -48,7 +46,7 @@ pub struct ChunkProofs {
 /// `Decoded` is used to avoid re-encoding an already decoded chunk to construct a challenge.
 /// `Encoded` is still needed in case a challenge challenges an invalid encoded chunk that can't be
 /// decoded.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum MaybeEncodedShardChunk {
     Encoded(EncodedShardChunk),
@@ -56,7 +54,7 @@ pub enum MaybeEncodedShardChunk {
 }
 
 /// Doesn't match post-{state root, outgoing receipts, gas used, etc} results after applying previous chunk.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct ChunkState {
     /// Encoded prev block header.
@@ -75,7 +73,7 @@ pub struct ChunkState {
     pub partial_state: PartialState,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
@@ -85,7 +83,7 @@ pub enum ChallengeBody {
     ChunkState(ChunkState),
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 #[borsh_init(init)]
 pub struct Challenge {
@@ -110,7 +108,7 @@ impl Challenge {
 
 pub type Challenges = Vec<Challenge>;
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct SlashedValidator {
     pub account_id: AccountId,

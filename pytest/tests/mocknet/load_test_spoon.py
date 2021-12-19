@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Runs a loadtest on mocknet.
 
@@ -19,10 +20,10 @@ import argparse
 import random
 import sys
 import time
-import tempfile
 from rc import pmap
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from helpers import load_test_spoon_helper
 from helpers import load_testing_add_and_delete_helper
@@ -83,10 +84,15 @@ if __name__ == '__main__':
     parser.add_argument('--epoch-length', type=int, required=True)
     parser.add_argument('--num-nodes', type=int, required=True)
     parser.add_argument('--max-tps', type=float, required=True)
+    parser.add_argument('--increasing-stakes', type=float, default=0.0)
+    parser.add_argument('--progressive-upgrade',
+                        default=False,
+                        action='store_true')
     parser.add_argument('--skip-load', default=False, action='store_true')
     parser.add_argument('--skip-setup', default=False, action='store_true')
     parser.add_argument('--skip-restart', default=False, action='store_true')
     parser.add_argument('--script', required=True)
+    parser.add_argument('--num-seats', type=int, required=True)
 
     args = parser.parse_args()
 
@@ -109,6 +115,13 @@ if __name__ == '__main__':
         f'Starting Load of {chain_id} test using {len(validator_nodes)} validator nodes and {len(rpc_nodes)} RPC nodes.'
     )
 
+    upgrade_schedule = mocknet.create_upgrade_schedule(rpc_nodes,
+                                                       validator_nodes,
+                                                       args.progressive_upgrade,
+                                                       args.increasing_stakes,
+                                                       args.num_seats)
+    logger.info(f'upgrade_schedule: %s' % str(upgrade_schedule))
+
     if not args.skip_setup:
         logger.info('Setting remote python environments')
         mocknet.setup_python_environments(all_nodes,
@@ -121,14 +134,17 @@ if __name__ == '__main__':
         time.sleep(10)
         node_pks = pmap(lambda node: mocknet.get_node_keys(node)[0],
                         validator_nodes)
-        mocknet.create_and_upload_genesis(validator_nodes,
-                                          genesis_template_filename=None,
-                                          rpc_nodes=rpc_nodes,
-                                          chain_id=chain_id,
-                                          update_genesis_on_machine=True,
-                                          epoch_length=epoch_length,
-                                          node_pks=node_pks)
-        mocknet.start_nodes(all_nodes)
+        mocknet.create_and_upload_genesis(
+            validator_nodes,
+            genesis_template_filename=None,
+            rpc_nodes=rpc_nodes,
+            chain_id=chain_id,
+            update_genesis_on_machine=True,
+            epoch_length=epoch_length,
+            node_pks=node_pks,
+            increasing_stakes=args.increasing_stakes,
+            num_seats=args.num_seats)
+        mocknet.start_nodes(all_nodes, upgrade_schedule)
         time.sleep(60)
 
     mocknet.wait_all_nodes_up(all_nodes)
@@ -160,13 +176,35 @@ if __name__ == '__main__':
                                         max_tps,
                                         get_node_key=True)
 
+        initial_epoch_height = mocknet.get_epoch_height(rpc_nodes, -1)
+        logger.info(f'initial_epoch_height: {initial_epoch_height}')
+        assert initial_epoch_height >= 0
         initial_metrics = mocknet.get_metrics(archival_node)
+        start_time = time.time()
         logger.info(
             f'Waiting for contracts to be deployed for {deploy_time} seconds.')
-        time.sleep(deploy_time)
+        prev_epoch_height = initial_epoch_height
+        EPOCH_HEIGHT_CHECK_DELAY = 30
+        while time.time() - start_time < deploy_time:
+            epoch_height = mocknet.get_epoch_height(rpc_nodes,
+                                                    prev_epoch_height)
+            if epoch_height > prev_epoch_height:
+                mocknet.upgrade_nodes(epoch_height - initial_epoch_height,
+                                      upgrade_schedule, all_nodes)
+                prev_epoch_height = epoch_height
+            time.sleep(EPOCH_HEIGHT_CHECK_DELAY)
+
         logger.info(
             f'Waiting for the loadtest to complete: {test_timeout} seconds')
-        time.sleep(test_timeout)
+        while time.time() - start_time < test_timeout:
+            epoch_height = mocknet.get_epoch_height(rpc_nodes,
+                                                    prev_epoch_height)
+            if epoch_height > prev_epoch_height:
+                mocknet.upgrade_nodes(epoch_height - initial_epoch_height,
+                                      upgrade_schedule, all_nodes)
+                prev_epoch_height = epoch_height
+            time.sleep(EPOCH_HEIGHT_CHECK_DELAY)
+
         final_metrics = mocknet.get_metrics(archival_node)
         logger.info('All transaction types results:')
         all_tx_measurement = measure_tps_bps(validator_nodes,

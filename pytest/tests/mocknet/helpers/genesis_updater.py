@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Creates a genesis file from a template.
 This file is uploaded to each mocknet node and run on the node, producing identical genesis files across all nodes.
@@ -9,14 +10,14 @@ need at 4 hours.
 import pathlib
 import sys
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 import mocknet
 from configured_logger import logger
 
 
 def main(argv):
     logger.info(argv)
-    assert len(argv) == 9
+    assert len(argv) == 11
 
     genesis_filename_in = argv[1]
     genesis_filename_out = argv[2]
@@ -32,6 +33,8 @@ def main(argv):
     node_pks = None
     if argv[8]:
         node_pks = argv[8].split(',')
+    increasing_stakes = float(argv[9])
+    num_seats = float(argv[10])
 
     assert genesis_filename_in
     assert genesis_filename_out
@@ -41,6 +44,7 @@ def main(argv):
     assert epoch_length
     assert node_pks
     assert rpc_node_names
+    assert num_seats
 
     mocknet.create_genesis_file(validator_node_names,
                                 genesis_filename_in,
@@ -49,7 +53,9 @@ def main(argv):
                                 chain_id=chain_id,
                                 append=True,
                                 epoch_length=epoch_length,
-                                node_pks=node_pks)
+                                node_pks=node_pks,
+                                increasing_stakes=increasing_stakes,
+                                num_seats=num_seats)
 
     pathlib.Path(done_filename).write_text('DONE')
 

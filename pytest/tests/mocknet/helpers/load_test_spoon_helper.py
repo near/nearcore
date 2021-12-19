@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Generates transactions on a mocknet node.
 This file is uploaded to each mocknet node and run there.
@@ -8,12 +9,13 @@ import itertools
 import random
 import sys
 import time
+import pathlib
 
 import base58
 import requests
 from rc import pmap
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 import account
 import key
 import mocknet
@@ -291,7 +293,13 @@ def main(argv):
         f'Start the test, expected TPS {max_tps_per_node} over the next {TEST_TIMEOUT} seconds'
     )
     start_time = time.time()
+    last_staking = 0
+    start_time = time.time()
     while time.time() - start_time < TEST_TIMEOUT:
+        # Repeat the staking transactions in case the validator selection algorithm changes.
+        staked_time = mocknet.stake_available_amount(node_account, last_staking)
+        if staked_time is not None:
+            last_staking = staked_time
         (total_tx_sent,
          elapsed_time) = throttle_txns(send_random_transactions, total_tx_sent,
                                        elapsed_time, max_tps_per_node,

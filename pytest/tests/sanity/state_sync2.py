@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up two block producing nodes. Uses a large number of block producer seats to ensure
 # both block producers are validating both shards.
 # Gets to 105 blocks and nukes + wipes one of the block producers. Makes sure it can recover
@@ -5,12 +6,13 @@
 
 import sys, time
 import fcntl
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
-from utils import LogTracker
+import utils
 
 fcntl.fcntl(1, fcntl.F_SETFL, 0)  # no cache when execute from nightly runner
 
@@ -33,31 +35,17 @@ logger.info('cluster started')
 
 started = time.time()
 
-logger.info("Waiting for %s blocks..." % BLOCKS)
-
-while True:
-    assert time.time() - started < TIMEOUT
-    status = nodes[1].get_status()
-    height = status['sync_info']['latest_block_height']
-    if height >= BLOCKS:
-        break
-    time.sleep(1)
-
-logger.info("Got to %s blocks, rebooting the first node" % BLOCKS)
+logger.info(f'Waiting for {BLOCKS} blocks...')
+height = utils.wait_for_blocks(nodes[1], target=BLOCKS, timeout=TIMEOUT)
+logger.info(f'Got to {height} blocks, rebooting the first node')
 
 nodes[0].kill()
 nodes[0].reset_data()
-tracker = LogTracker(nodes[0])
+tracker = utils.LogTracker(nodes[0])
 nodes[0].start(boot_node=nodes[1])
 time.sleep(3)
 
-while True:
-    assert time.time() - started < TIMEOUT
-    status = nodes[0].get_status()
-    height = status['sync_info']['latest_block_height']
-    if height >= BLOCKS:
-        break
-    time.sleep(1)
+utils.wait_for_blocks(nodes[0], target=BLOCKS, timeout=TIMEOUT)
 
 # make sure `nodes[0]` actually state synced
 assert tracker.check("transition to State Sync")

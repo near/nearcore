@@ -30,11 +30,6 @@ fn get_differences_with_hashes_from_repo(
 }
 
 fn main() -> Result<()> {
-    // Script to verify that receipts being restored after apply_chunks fix were actually created.
-    // Because receipt hashes are unique, we only check for their presence.
-    // See https://github.com/near/nearcore/pull/4248/ for more details.
-    // Requirement: mainnet archival node dump.
-
     eprintln!("restored-receipts-verifier started");
 
     let default_home = get_default_home();
@@ -49,11 +44,11 @@ fn main() -> Result<()> {
 
     let shard_id = 0u64;
     let home_dir = matches.value_of("home").map(Path::new).unwrap();
-    let near_config = load_config(&home_dir);
-    let store = create_store(&get_store_path(&home_dir));
+    let near_config = load_config(home_dir);
+    let store = create_store(&get_store_path(home_dir));
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime = NightshadeRuntime::new(
-        &home_dir,
+        home_dir,
         store,
         &near_config.genesis,
         TrackedConfig::from_config(&near_config.client_config),
@@ -93,13 +88,13 @@ fn main() -> Result<()> {
                 block.header().height(),
                 block.header().raw_timestamp(),
                 block.header().prev_hash(),
-                &block.hash(),
+                block.hash(),
                 &[],
                 &[],
                 chunk_extra.validator_proposals(),
                 block.header().gas_price(),
                 chunk_extra.gas_limit(),
-                &block.header().challenges_result(),
+                block.header().challenges_result(),
                 *block.header().random_value(),
                 false,
                 false, // because fix was not applied in for the blocks analyzed here
@@ -154,7 +149,7 @@ mod tests {
         assert_eq!(receipt_hashes_not_verified, vec![extra_hash]);
         assert!(receipt_hashes_still_missing.is_empty());
 
-        let mut receipt_hashes_missing = receipt_hashes_in_repo.clone();
+        let mut receipt_hashes_missing = receipt_hashes_in_repo;
         receipt_hashes_missing.push(CryptoHash::default());
         let (receipt_hashes_not_verified, receipt_hashes_still_missing) =
             get_differences_with_hashes_from_repo(receipt_hashes_missing);

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up three validating nodes with stake distribution 11, 5, 5.
 # Stop the two nodes with stake 2
 # Wait for sufficient number of blocks.
@@ -5,11 +6,13 @@
 # Restart the other one. Make sure it can sync as well.
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
+import utils
 
 TARGET_HEIGHT = 60
 TIMEOUT = 30
@@ -50,41 +53,19 @@ logger.info('kill node1 and node2')
 nodes[1].kill()
 nodes[2].kill()
 
-node0_height = 0
-while node0_height < TARGET_HEIGHT:
-    status = nodes[0].get_status()
-    node0_height = status['sync_info']['latest_block_height']
-    time.sleep(1)
+node0_height, _ = utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT)
 
 logger.info('Restart node 1')
 nodes[1].start(boot_node=nodes[1])
 time.sleep(2)
 
-start_time = time.time()
-
-node1_height = 0
-while True:
-    assert time.time() - start_time < TIMEOUT, "Block sync timed out, phase 1"
-    status = nodes[1].get_status()
-    node1_height = status['sync_info']['latest_block_height']
-    validators = nodes[0].validators()
-    # wait until epoch ends
-    if node1_height >= node0_height and len(validators) < 3:
+for height, _ in utils.poll_blocks(nodes[1], timeout=TIMEOUT):
+    if height >= node0_height and len(nodes[0].validators()) < 3:
         break
-    time.sleep(1)
 
 logger.info('Restart node 2')
 nodes[2].start(boot_node=nodes[2])
 time.sleep(2)
 
-status = nodes[0].get_status()
-node0_height = status['sync_info']['latest_block_height']
-
-node2_height = 0
-while True:
-    assert time.time() - start_time < TIMEOUT, "Block sync timed out, phase 2"
-    status = nodes[2].get_status()
-    node2_height = status['sync_info']['latest_block_height']
-    if node2_height >= node0_height:
-        break
-    time.sleep(1)
+target = nodes[0].get_latest_block().height
+utils.wait_for_blocks(nodes[2], target=target, timeout=TIMEOUT)
