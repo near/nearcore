@@ -9,6 +9,7 @@
 /chain/jsonrpc-primitives/ @khorolets @miraclx @chefsale
 /chain/indexer/ @khorolets
 /chain/rosetta-rpc/ @frol @mina86
+/utils @pmnoxx @mm-near
 
 /runtime/ @bowenwang1996 @EgorKulikov @mzhangmzz @mm-near
 /runtime/runtime-params-estimator/ @olonho @matklad
