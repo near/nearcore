@@ -523,8 +523,7 @@ impl RoutingTableActor {
     ) -> (Vec<crate::routing::SimpleEdge>, Vec<u64>, u64) {
         let ibf = ibf_set.get_ibf(ibf_level);
 
-        let mut new_ibf =
-            crate::routing::ibf::Ibf::from_vec(ibf_vec.clone(), seed ^ (ibf_level.0 as u64));
+        let mut new_ibf = crate::routing::ibf::Ibf::from_vec(ibf_vec, seed ^ (ibf_level.0 as u64));
 
         if !new_ibf.merge(&ibf.data, seed ^ (ibf_level.0 as u64)) {
             tracing::error!(target: "network", "exchange routing tables failed with peer {}", peer_id);
