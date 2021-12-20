@@ -56,8 +56,8 @@ expensive --timeout=500 near-client near_client tests::consensus::test_consensus
 expensive --timeout=500 near-client near_client tests::consensus::test_consensus_with_epoch_switches --features nightly_protocol,nightly_protocol_features
 
 # testnet rpc
-expensive nearcore test_tps_regression test::test_highload
-expensive nearcore test_tps_regression test::test_highload --features nightly_protocol,nightly_protocol_features
+expensive integration-tests integration_testss tests::test_tps_regression::test::test_highload
+expensive integration-tests integration_testss tests::test_tps_regression::test::test_highload --features nightly_protocol,nightly_protocol_features
 
 expensive integration-tests integration_tests tests::standard_cases::rpc::test::test_access_key_smart_contract_testnet
 expensive integration-tests integration_tests tests::standard_cases::rpc::test::test_access_key_smart_contract_testnet --features nightly_protocol,nightly_protocol_features
