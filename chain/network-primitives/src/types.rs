@@ -670,10 +670,7 @@ pub enum KnownPeerStatus {
 
 impl KnownPeerStatus {
     pub fn is_banned(&self) -> bool {
-        match self {
-            KnownPeerStatus::Banned(_, _) => true,
-            _ => false,
-        }
+        matches!(self, KnownPeerStatus::Banned(_, _))
     }
 }
 
