@@ -279,7 +279,6 @@ pub(crate) mod wasmer2 {
 
     #[derive(wasmer::WasmerEnv, Clone)]
     struct NearWasmerEnv {
-        memory: wasmer::Memory,
         /// Hack to allow usage of non-'static VMLogic as an environment in host
         /// functions. Strictly speaking, this is unsound, but this is only
         /// accessible to `near_vm_runner` crate, where we ensure that `VMLogic`
@@ -296,7 +295,7 @@ pub(crate) mod wasmer2 {
         logic: &mut VMLogic<'_>,
         protocol_version: ProtocolVersion,
     ) -> wasmer::ImportObject {
-        let env = NearWasmerEnv { logic: logic as *mut _ as *mut (), memory: memory.clone() };
+        let env = NearWasmerEnv { logic: logic as *mut _ as *mut () };
         let mut import_object = wasmer::ImportObject::new();
         let mut namespace = wasmer::Exports::new();
         namespace.insert("memory", memory);

@@ -119,7 +119,7 @@ impl EpochSync {
             peer_to_last_request_time: HashMap::new(),
             peers_reporting_up_to_date: HashSet::new(),
             current_epoch_id: genesis_epoch_id.clone(),
-            next_epoch_id: genesis_next_epoch_id.clone(),
+            next_epoch_id: genesis_next_epoch_id,
             next_block_producers: first_epoch_block_producers,
             requested_epoch_id: genesis_epoch_id,
             last_request_time: Clock::utc(),
@@ -1290,7 +1290,7 @@ mod test {
 
     use super::*;
     use crate::test_utils::TestEnv;
-    use near_network::routing::PartialEdgeInfo;
+    use near_network::types::PartialEdgeInfo;
     use near_network::PeerInfo;
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
@@ -1620,7 +1620,7 @@ mod test {
             env.process_block(1, blocks[i - 1].clone(), Provenance::NONE);
         }
         block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
-        let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter.clone());
+        let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter);
         assert!(requested_block_hashes.is_empty());
     }
 
@@ -1653,7 +1653,7 @@ mod test {
         }
         let is_state_sync = block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);
-        let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter.clone());
+        let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter);
         assert_eq!(
             requested_block_hashes,
             blocks.iter().take(1).map(|b| *b.hash()).collect::<HashSet<_>>()

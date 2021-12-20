@@ -4,8 +4,6 @@ use crate::time::{Clock, Utc};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use chrono::DateTime;
-#[cfg(feature = "deepsize_feature")]
-use deepsize::DeepSizeOf;
 use near_crypto::Signature;
 use num_rational::Rational;
 use primitive_types::U256;
@@ -28,7 +26,7 @@ use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use std::ops::Index;
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct GenesisId {
     /// Chain Id
@@ -37,7 +35,7 @@ pub struct GenesisId {
     pub hash: CryptoHash,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
 pub enum BlockValidityError {
     InvalidStateRoot,
@@ -48,7 +46,7 @@ pub enum BlockValidityError {
     InvalidChallengeRoot,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockV1 {
     pub header: BlockHeader,
@@ -60,7 +58,7 @@ pub struct BlockV1 {
     pub vrf_proof: near_crypto::vrf::Proof,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockV2 {
     pub header: BlockHeader,
@@ -74,7 +72,7 @@ pub struct BlockV2 {
 
 /// Versioned Block data structure.
 /// For each next version, document what are the changes between versions.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub enum Block {
     BlockV1(Box<BlockV1>),
@@ -95,7 +93,7 @@ pub fn genesis_chunks(
         .map(|i| {
             let (encoded_chunk, _) = EncodedShardChunk::new(
                 CryptoHash::default(),
-                state_roots[i as usize % state_roots.len()].clone(),
+                state_roots[i as usize % state_roots.len()],
                 CryptoHash::default(),
                 genesis_height,
                 i,
@@ -106,7 +104,7 @@ pub fn genesis_chunks(
                 CryptoHash::default(),
                 vec![],
                 vec![],
-                &vec![],
+                &[],
                 CryptoHash::default(),
                 &EmptyValidatorSigner::default(),
                 genesis_protocol_version,

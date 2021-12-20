@@ -403,11 +403,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
     let mut access_key = AccessKey::full_access();
     // Set default nonce for newly created access key to avoid transaction hash collision.
     // See <https://github.com/near/nearcore/issues/3779>.
-    if checked_feature!(
-        "protocol_feature_access_key_nonce_for_implicit_accounts",
-        AccessKeyNonceForImplicitAccounts,
-        current_protocol_version
-    ) {
+    if checked_feature!("stable", AccessKeyNonceForImplicitAccounts, current_protocol_version) {
         access_key.nonce = (block_height - 1)
             * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
     }

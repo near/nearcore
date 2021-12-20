@@ -1,11 +1,7 @@
-use crate::routing::edge::{Edge, SimpleEdge};
+use crate::network_protocol::Edge;
 use crate::routing::route_back_cache::RouteBackCache;
-use crate::routing::utils::cache_to_hashmap;
-use crate::PeerInfo;
-use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, Message};
 use lru::LruCache;
-use near_network_primitives::types::{PeerIdOrHash, Ping, Pong};
+use near_network_primitives::types::{PeerIdOrHash, Ping, Pong, MAX_NUM_PEERS};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::time::Clock;
@@ -26,32 +22,6 @@ const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
 /// seconds will be removed from cache and persisted in disk.
 pub const SAVE_PEERS_MAX_TIME: Duration = Duration::from_secs(7_200);
 pub const DELETE_PEERS_AFTER_TIME: Duration = Duration::from_secs(3_600);
-/// Graph implementation supports up to 128 peers.
-pub const MAX_NUM_PEERS: usize = 128;
-
-#[derive(Debug)]
-#[cfg_attr(feature = "test_features", derive(serde::Serialize))]
-pub struct PeerRequestResult {
-    pub peers: Vec<PeerInfo>,
-}
-
-impl<A, M> MessageResponse<A, M> for PeerRequestResult
-where
-    A: Actor,
-    M: Message<Result = PeerRequestResult>,
-{
-    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-        if let Some(tx) = tx {
-            tx.send(self)
-        }
-    }
-}
-
-#[derive(MessageResponse, Debug)]
-#[cfg_attr(feature = "test_features", derive(serde::Serialize))]
-pub struct GetRoutingTableResult {
-    pub edges_info: Vec<SimpleEdge>,
-}
 
 pub struct RoutingTableView {
     /// PeerId associated with this instance.
@@ -259,11 +229,14 @@ impl RoutingTableView {
         }
     }
 
-    // for unit tests
+    /// Fetch `ping_info` and `pong_info` for units tests.
     pub fn fetch_ping_pong(
         &self,
-    ) -> (HashMap<usize, (Ping, usize)>, HashMap<usize, (Pong, usize)>) {
-        (cache_to_hashmap(&self.ping_info), cache_to_hashmap(&self.pong_info))
+    ) -> (
+        impl Iterator<Item = (&usize, &(Ping, usize))>,
+        impl Iterator<Item = (&usize, &(Pong, usize))>,
+    ) {
+        (self.ping_info.iter(), self.pong_info.iter())
     }
 
     pub fn info(&mut self) -> RoutingTableInfo {
@@ -497,9 +470,16 @@ impl Graph {
             }
         }
 
+        // This takes 75% of the total time computation time of this function.
         self.compute_result(&mut routes, &distance)
     }
 
+    /// Converts representation of the result, from an array representation, to
+    /// a hashmap of PeerId -> Vec<PeerIds>
+    /// Arguments:
+    ///   - routes - for node given node at index `i`, give list of connected peers, which
+    ///     are on the optimal path
+    ///   - distances - not really needed: TODO remove this argument
     fn compute_result(&self, routes: &[u128], distance: &[i32]) -> HashMap<PeerId, Vec<PeerId>> {
         let mut res = HashMap::with_capacity(routes.len());
 
@@ -517,13 +497,16 @@ impl Graph {
             {
                 continue;
             }
-            let mut peer_set: Vec<PeerId> = Vec::with_capacity(cur_route.count_ones() as usize);
-
-            for (id, &neighbor) in neighbors.iter().enumerate().take(MAX_NUM_PEERS) {
-                if (cur_route & (1u128 << id)) != 0 {
-                    peer_set.push(self.id2p[neighbor as usize].clone());
-                };
-            }
+            // We convert list of peers, which are represented as bits
+            // to a list of Vec<PeerId>
+            // This is a bit wasteful representation, but that's ok.
+            let peer_set = neighbors
+                .iter()
+                .enumerate()
+                .take(MAX_NUM_PEERS)
+                .filter(|(id, _)| (cur_route & (1u128 << id)) != 0)
+                .map(|(_, &neighbor)| self.id2p[neighbor as usize].clone())
+                .collect();
             res.insert(self.id2p[key].clone(), peer_set);
         }
         if unreachable_nodes > 1000 {
