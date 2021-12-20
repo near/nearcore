@@ -1,24 +1,35 @@
 # Fuzzing 
+Coverage-guided fuzz testing focuses on the source code while the app is running, probing it with random challenges in
+an effort to uncover bugs. New tests are constantly being generated and the goal is to get the app to crash. A crash
+means a potential problem, and data from the coverage-guided fuzz testing process will allow a tester to reproduce the
+crash which is helpful when trying to identify at-risk code.
 
 ### Requirements 
-`rustup toolchain install nightly`
- `cargo +nightly install grcov`
- `rustup component add llvm-tools-preview`
+```
+rustup toolchain install nightly
+cargo +nightly install grcov
+rustup component add llvm-tools-preview
+```
 
 ### Listing available targets for fuzzing
 navigate to fuzz directory
 
-`cd chain/chain/fuzz`
-`cargo +nightly fuzz list`
+```
+cd chain/chain/fuzz
+cargo +nightly fuzz list
+```
 
 In current version it shows one fuzz target. 
 
-`fuzz_build_chain`
+```
+fuzz_build_chain
+```
 
-Next step is to inkove the fuzzing, I use
+Next step is to invoke the fuzzing, I use
 
-`cargo +nightly fuzz run  fuzz_build_chain --release --jobs 4 -- -max_total_time=60 -len_control=0 -prefer_small=0 -max_len=400000000 -rss_limit_mb=30000`
-
+```
+cargo +nightly fuzz run  fuzz_build_chain --release --jobs 4 -- -max_total_time=60 -len_control=0 -prefer_small=0 -max_len=400000000 -rss_limit_mb=30000
+```
 
 This command will run fuzzing for 1 minute ( 60 seconds) using 4 jobs in release mode. The `+nightly` is important for instrumenting the code with ability to measure coverage.
 
