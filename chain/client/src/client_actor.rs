@@ -982,12 +982,6 @@ impl ClientActor {
             for chunk in block.chunks().iter() {
                 if chunk.height_included() == block.header().height() {
                     chunks_in_block += 1;
-                } else {
-                    error!(
-                        "Chunk in block {} is not included at height {}",
-                        accepted_block.hash,
-                        block.header().height()
-                    );
                 }
             }
             // let chunks_in_block = block.chunks().len();
