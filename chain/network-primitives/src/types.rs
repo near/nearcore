@@ -448,16 +448,16 @@ impl RoutedMessage {
     }
 
     pub fn expect_response(&self) -> bool {
-        match self.body {
+        matches!(
+            self.body,
             RoutedMessageBody::Ping(_)
-            | RoutedMessageBody::TxStatusRequest(_, _)
-            | RoutedMessageBody::StateRequestHeader(_, _)
-            | RoutedMessageBody::StateRequestPart(_, _, _)
-            | RoutedMessageBody::PartialEncodedChunkRequest(_)
-            | RoutedMessageBody::QueryRequest { .. }
-            | RoutedMessageBody::ReceiptOutcomeRequest(_) => true,
-            _ => false,
-        }
+                | RoutedMessageBody::TxStatusRequest(_, _)
+                | RoutedMessageBody::StateRequestHeader(_, _)
+                | RoutedMessageBody::StateRequestPart(_, _, _)
+                | RoutedMessageBody::PartialEncodedChunkRequest(_)
+                | RoutedMessageBody::QueryRequest { .. }
+                | RoutedMessageBody::ReceiptOutcomeRequest(_)
+        )
     }
 
     /// Return true if ttl is positive after decreasing ttl by one, false otherwise.
@@ -670,10 +670,7 @@ pub enum KnownPeerStatus {
 
 impl KnownPeerStatus {
     pub fn is_banned(&self) -> bool {
-        match self {
-            KnownPeerStatus::Banned(_, _) => true,
-            _ => false,
-        }
+        matches!(self, KnownPeerStatus::Banned(_, _))
     }
 }
 
