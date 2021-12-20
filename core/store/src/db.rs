@@ -477,7 +477,7 @@ impl RocksDBOptions {
     /// Opens the database in read/write mode.
     pub fn read_write<P: AsRef<std::path::Path>>(self, path: P) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
-        let options = self.rocksdb_options.unwrap_or_else(|| rocksdb_options());
+        let options = self.rocksdb_options.unwrap_or_else(rocksdb_options);
         let cf_names = self
             .cf_names
             .unwrap_or_else(|| DBCol::iter().map(|col| format!("col{}", col as usize)).collect());
@@ -679,7 +679,7 @@ impl Database for TestDB {
                 DBOp::UpdateRefcount { col, key, value } => {
                     let mut val = db[col as usize].get(&key).cloned().unwrap_or_default();
                     merge_refcounted_records(&mut val, &value);
-                    if val.len() != 0 {
+                    if !val.is_empty() {
                         db[col as usize].insert(key, val);
                     } else {
                         db[col as usize].remove(&key);
@@ -723,7 +723,7 @@ fn rocksdb_options() -> Options {
         opts.set_level_zero_stop_writes_trigger(100000000);
     }
 
-    return opts;
+    opts
 }
 
 fn rocksdb_read_options() -> ReadOptions {

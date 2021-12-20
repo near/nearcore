@@ -19,6 +19,7 @@
 
 /genesis-tools/ @nikurt
 /tools/indexer/ @khorolets
+/tools/themis/ @miraclx
 
 /core/  @bowenwang1996 @matklad @mm-near
 /core/store/src/trie @mzhangmzz @longarithm
