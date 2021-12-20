@@ -4,16 +4,16 @@ conclusions we made after evaluating a number of VM backends and frontends.
 # Criteria
 
 There are a number criteria which have been used to evaluate a Wasm runtime for use in a NEAR
-validator. Some of them are already listed in the
-[FAQ](FAQ.md#practical-aspects-of-the-execution-engines) document. Listed roughly in the order of
-importance:
+validator. Some of the criteria are already listed in the [FAQ] document and here we take a more
+thorough look. Listed roughly in the order of importance:
 
 * security – how well does the runtime deal with untrusted input;
 * correctness – does the runtime do what it claims to do;
 * reliability – how much confidence is there in the implementation of runtime;
 * platform support – does the runtime support targets that we want to target;
-* runtime performance – how quickly can the runtime execute the prepared Wasm code;
-* preparation performance – how quickly can the runtime start running Wasm code;
+* performance – how quickly can the runtime execute the requested operations;
+
+[FAQ]: FAQ.md#practical-aspects-of-the-execution-engines
 
 # Requirements
 
@@ -23,13 +23,13 @@ Within each criteria we have specific requirements relevant to the NEAR validato
 
 NEAR protocol validators execute arbitrary Wasm code submitted by the participants of the network,
 much like e.g. web browsers execute untrusted JavaScript code. It is critical that the runtime
-executes the Wasm code in its own isolated environment. The contract code must not be presented
-with an opportunity to access resources from the system running a validator node outside of what is
-enabled via host functions exposed by the validator implementation itself.
+executes Wasm code in its own isolated, sandboxed environment, satisfying at least the following
+requirements:
 
-Additionally, contracts should be isolated from each other as well. Never should there be a
-situation where it is possible for a contract to recover and extradite state of a different
-contract.
+* a contract must not be presented with an opportunity to access any resources outside of those
+  intentionally exposed by the validator implementation;
+* contracts must be isolated from each other. Never should there be a situation where it is
+  possible for a contract to recover and extradite state of a different instance of any contract.
 
 A bug in the runtime is most likely to take a form of some sort of memory management issue, where
 the memory is reused by the contract without zeroing it, or where the memory accesses aren't
@@ -37,18 +37,22 @@ validated correctly and allow access outside of the memory regions allocated for
 
 ## Correctness
 
-A VM implementation must, first and foremost, implement the Wasm specification precisely in order
-for it to be considered correct. Any deviations from the specification would render an
-implementation incorrect.
+A VM implementation must implement the Wasm specification precisely in order for it to be
+considered correct. Typically the Wasm code will be generated as an output by compiling a program
+implemented in a higher level programming language. Often the compiler will optimize the produced
+Wasm code with the understanding that Wasm instructions behave as specified in the specification.
+Were a VM implementation deviate from specification in some way, there's a non-negligible risk that
+the contract would invoke behaviours not intended by the contract authors (for example allow
+unauthorized users to transfer tokens.)
 
 In addition to this, the NEAR protocol adds a requirement that all executions of a Wasm program
 must be deterministic. In other words, it must not be possible to observe different execution
 results based on the environment within which the VM runs.
 
-The Wasm specification specifies fast, safe and portable semantics to be one of its design goals.
-Even though Wasm specification does go to great lengths to make it possible to enable deterministic
-and reproducible execution, it is not one of the foundational goals. As thus, there are some parts
-of the specification that allow for non-deterministic, non-reproducible execution.
+The Wasm specification claims fast, safe and portable semantics to be one of its design goals. Even
+though Wasm specification does go to great lengths to make it possible to enable deterministic and
+reproducible execution, it is not one of the foundational goals. Indeed, there are some parts of
+the specification that allow for non-deterministic, non-reproducible execution.
 
 A particularly troublesome area of the specification in this regard relates to the floating point
 support. The specification permits floating point operations to return a `NaN` result which the
@@ -77,16 +81,68 @@ reasonably correlated signals as to the reliability which one can expect from a 
 
 ## Platform support
 
-The NEAR validator implementation currently targets `x86_64-linux`, so stellar support for this
+The NEAR validator implementation currently targets `x86_64-linux`, both as an execution
+environment as well as to establish the cost model. For those reasons stellar support for this
 target is a hard requirement.
 
-However, developers may not necessarily have a `x86_64` machine to develop with, or they might be
-using a device running a different operating system. With the recent surge in popularity of devices
-based on the Arm CPU architecture chips and generally high popularity of the macOS and Windows
-operating systems it would be a huge boon to the development experience if the runtime used also
-supported these other targets.
+However, the contract developers may not necessarily have a `x86_64` machine to develop with, or
+they might be using a device running a different operating system. With the recent surge in
+popularity of devices based on the Arm CPU architecture chips and generally high popularity of the
+macOS and Windows operating systems it would be a huge boon to their development experience if the
+runtime used also supported these other targets.
 
-## Runtime performance
+## Performance
+
+There are a couple different ways we can evaluate the performance of the runtime. How quickly can
+the runtime execute the instructions (throughput), execute the first instruction (latency), prepare
+the initial code for execution (compilation) and how efficient are miscellaneous operations such as
+serialization and deserialization of the module.
+
+In order to realistically evaluate the performance of a runtime it is important to understand how
+the NEAR validator utilizes the runtime to implement its functionality. Somewhat simplified view
+is:
+
+1. A module containing Wasm code in binary format is parsed and instrumented;
+2. Wasm code produced after instrumentation is supplied to the runtime for preparation
+   (compilation);
+3. The prepared module is serialized and written to a long term storage (database);
+4. When the contract function call occurs, the serialized module is deserialized, loaded into
+   memory and the execution of the desired function begins (latency);
+5. The contract code is executed (throughput) and the results are returned to the validator.
+
+It is important to remember that the NEAR protocol charges fees for an operation before the
+operation is executed. For that reason, predictability of worst case execution time often matters
+more than the execution time in the typical case. It is important that we are able to deduce ahead
+of time what cost to assign to a given operation. Inability to do so can lead to significant
+undercharging and break the properties underlying the protocol.
+
+On a scale of trade-offs, performance is probably one of the less important metrics. Slower
+execution of a contract code doesn't make NEAR protocol unsound as an idea and only serves to
+impose stricter limits on what can be achieved on the network.
+
+### Compilation
+
+The NEAR protocol charges gas fees to deploy a contract. One part of a deployment involves
+preparing the contract Wasm code for execution. This may involve instrumentation, compilation,
+serialization of the machine code and other similar operations.
+
+An estimate of the deployment cost will typically involve a function which uses the size of the
+input Wasm code as its primary input. Such a function can only exist if we have a good knowledge of
+the runtime’s time complexity properties are known. For our purposes a linear or `O(n log n)`
+relationship between the input size and execution time is the highest we can accept.
+
+### Latency
+
+Whenever a function within a contract is invoked, the serialized form of the contract will be
+instantiated: loaded into memory and prepared for execution (though processes such as e.g.
+linking). Only then it is possible to start executing the contract code.
+
+When executing a tiny function part of a larger contract these operations will dominate and
+contribute greatly to the observed latency of the contract execution. These overheads contribute to
+the fees paid by anybody using the protocol, making any unnecessary overhead a potential roadblock
+in NEAR protocol's adoption.
+
+### Throughput
 
 The faster we can execute the contract code, the more elaborate are the ideas that developers can
 express via contracts running on the NEAR protocol. The cheaper it is to execute contracts, the
@@ -97,24 +153,6 @@ One of more costly operations that occurs in a typical contract quite often is a
 costs, so it is quite important that the runtime gives sufficient flexibility to the NEAR
 validator to implement such operations efficiently. And, of course, general code quality also
 matters.
-
-On a scale of trade-offs, runtime performance is probably one of the less important metrics. Slower
-execution of a contract doesn't make NEAR protocol unsound as an idea, whereas something like a
-non-deterministic execution outcome would.
-
-## Preparation performance
-
-The NEAR protocol charges gas fees to deploy a contract. One part of a deployment involves
-preparing the contract Wasm code for execution. This may involve instrumentation, compilation,
-serialization of the machine code and other similar operations.
-
-The gas costs are charged before any work is done towards the deployment, so the cost of the
-preparation, compilation and similar tasks must be predictable with a comparatively high precision.
-
-An estimate of the deployment cost will typically involve a function which uses the size of the
-input Wasm code as its primary input. Such a function can only exist if we have a good knowledge of
-the runtime’s time complexity properties are known. For our purposes a linear or `O(n log n)`
-relationship between the input size and execution time is the highest we can accept.
 
 # Evaluation
 
