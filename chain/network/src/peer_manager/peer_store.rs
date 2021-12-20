@@ -12,6 +12,7 @@ use std::collections::hash_map::{Entry, Iter};
 use std::collections::HashMap;
 use std::error::Error;
 use std::net::SocketAddr;
+use std::ops::Not;
 use std::sync::Arc;
 use tracing::{debug, error};
 
@@ -212,13 +213,7 @@ impl PeerStore {
 
     /// Return healthy known peers up to given amount.
     pub(crate) fn healthy_peers(&self, max_count: usize) -> Vec<PeerInfo> {
-        self.find_peers(
-            |p| match p.status {
-                KnownPeerStatus::Banned(_, _) => false,
-                _ => true,
-            },
-            max_count,
-        )
+        self.find_peers(|p| matches!(p.status, KnownPeerStatus::Banned(_, _)).not(), max_count)
     }
 
     /// Return iterator over all known peers.
