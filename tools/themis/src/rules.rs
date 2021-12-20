@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use anyhow::bail;
+use anyhow::{bail, Context};
 
-use super::types::{ComplianceError, Expected, PackageOutcome, Workspace};
+use super::types::{ComplianceError, Expected, Outlier, Workspace};
 use super::{style, utils};
 
 /// Ensure all crates have the `publish = <true/false>` specification
@@ -11,7 +11,7 @@ pub fn has_publish_spec(workspace: &Workspace) -> anyhow::Result<()> {
         .members
         .iter()
         .filter(|pkg| pkg.raw["package"].get("publish").is_none())
-        .map(|pkg| PackageOutcome { pkg: pkg.clone(), value: None })
+        .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None })
         .collect();
 
     if !outliers.is_empty() {
@@ -31,7 +31,7 @@ pub fn has_rust_version(workspace: &Workspace) -> anyhow::Result<()> {
         .members
         .iter()
         .filter(|pkg| pkg.raw["package"].get("rust-version").is_none())
-        .map(|pkg| PackageOutcome { pkg: pkg.clone(), value: None })
+        .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None })
         .collect();
 
     if !outliers.is_empty() {
@@ -52,7 +52,10 @@ pub fn is_unversioned(workspace: &Workspace) -> anyhow::Result<()> {
         .members
         .iter()
         .filter(|pkg| pkg.parsed.version != semver::Version::new(0, 0, 0))
-        .map(|pkg| PackageOutcome { pkg: pkg.clone(), value: Some(pkg.parsed.version.to_string()) })
+        .map(|pkg| Outlier {
+            path: pkg.parsed.manifest_path.clone(),
+            found: Some(pkg.parsed.version.to_string()),
+        })
         .collect::<Vec<_>>();
 
     if !outliers.is_empty() {
@@ -70,7 +73,8 @@ pub fn is_unversioned(workspace: &Workspace) -> anyhow::Result<()> {
 /// or equal to the version defined in rust-toolchain.toml
 pub fn has_debuggable_rust_version(workspace: &Workspace) -> anyhow::Result<()> {
     let rust_toolchain =
-        utils::parse_toml::<toml::Value>(&workspace.root.join("rust-toolchain.toml"))?;
+        utils::parse_toml::<toml::Value>(&workspace.root.join("rust-toolchain.toml"))
+            .context("Failed to read rust-toolchain file")?;
     let rust_toolchain = rust_toolchain["toolchain"]["channel"].as_str().unwrap().to_owned();
 
     let rust_toolchain = match semver::Version::parse(&rust_toolchain) {
@@ -98,7 +102,10 @@ pub fn has_debuggable_rust_version(workspace: &Workspace) -> anyhow::Result<()> 
         };
 
         if !rust_version.matches(&rust_toolchain) {
-            outliers.push(PackageOutcome { pkg: pkg.clone(), value: Some(raw.to_owned()) });
+            outliers.push(Outlier {
+                path: pkg.parsed.manifest_path.clone(),
+                found: Some(raw.to_owned()),
+            });
         }
     }
 
@@ -131,7 +138,10 @@ pub fn has_unified_rust_edition(workspace: &Workspace) -> anyhow::Result<()> {
         .members
         .iter()
         .filter(|pkg| pkg.parsed.edition != *most_common_edition)
-        .map(|pkg| PackageOutcome { pkg: pkg.clone(), value: Some(pkg.parsed.edition.clone()) })
+        .map(|pkg| Outlier {
+            path: pkg.parsed.manifest_path.clone(),
+            found: Some(pkg.parsed.edition.clone()),
+        })
         .collect::<Vec<_>>();
 
     if !outliers.is_empty() {
@@ -156,9 +166,9 @@ pub fn author_is_near(workspace: &Workspace) -> anyhow::Result<()> {
         .members
         .iter()
         .filter(|pkg| !pkg.parsed.authors.iter().any(|author| author == EXPECTED_AUTHOR))
-        .map(|pkg| PackageOutcome {
-            pkg: pkg.clone(),
-            value: Some(format!("{:?}", pkg.parsed.authors)),
+        .map(|pkg| Outlier {
+            path: pkg.parsed.manifest_path.clone(),
+            found: Some(format!("{:?}", pkg.parsed.authors)),
         })
         .collect::<Vec<_>>();
 
@@ -182,7 +192,7 @@ pub fn publishable_has_license(workspace: &Workspace) -> anyhow::Result<()> {
             utils::is_publishable(pkg)
                 && !(pkg.parsed.license.is_some() || pkg.parsed.license_file.is_some())
         })
-        .map(|pkg| PackageOutcome { pkg: pkg.clone(), value: None })
+        .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None })
         .collect::<Vec<_>>();
 
     if !outliers.is_empty() {
@@ -212,9 +222,9 @@ pub fn publishable_has_license_file(workspace: &Workspace) -> anyhow::Result<()>
                         .parsed
                         .license_file, Some(ref l) if utils::exists(pkg, l.as_str())))
         })
-        .map(|pkg| PackageOutcome {
-            pkg: pkg.clone(),
-            value: pkg.parsed.license_file.as_ref().map(ToString::to_string),
+        .map(|pkg| Outlier {
+            path: pkg.parsed.manifest_path.clone(),
+            found: pkg.parsed.license_file.as_ref().map(ToString::to_string),
         })
         .collect::<Vec<_>>();
 
@@ -240,9 +250,9 @@ pub fn publishable_has_unified_license(workspace: &Workspace) -> anyhow::Result<
             utils::is_publishable(pkg)
                 && matches!(pkg.parsed.license, Some(ref l) if l != EXPECTED_LICENSE)
         })
-        .map(|pkg| PackageOutcome {
-            pkg: pkg.clone(),
-            value: pkg.parsed.license.as_ref().map(ToString::to_string),
+        .map(|pkg| Outlier {
+            path: pkg.parsed.manifest_path.clone(),
+            found: pkg.parsed.license.as_ref().map(ToString::to_string),
         })
         .collect::<Vec<_>>();
 
@@ -263,7 +273,7 @@ pub fn publishable_has_description(workspace: &Workspace) -> anyhow::Result<()> 
         .members
         .iter()
         .filter(|pkg| utils::is_publishable(pkg) && pkg.parsed.description.is_none())
-        .map(|pkg| PackageOutcome { pkg: pkg.clone(), value: None })
+        .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None })
         .collect::<Vec<_>>();
 
     if !outliers.is_empty() {
@@ -287,9 +297,9 @@ pub fn publishable_has_readme(workspace: &Workspace) -> anyhow::Result<()> {
                 && !(utils::exists(pkg, "README.md")
                     || matches!(pkg.parsed.readme, Some(ref r) if utils::exists(pkg, r.as_str())))
         })
-        .map(|pkg| PackageOutcome {
-            pkg: pkg.clone(),
-            value: pkg.parsed.readme.as_ref().map(ToString::to_string),
+        .map(|pkg| Outlier {
+            path: pkg.parsed.manifest_path.clone(),
+            found: pkg.parsed.readme.as_ref().map(ToString::to_string),
         })
         .collect::<Vec<_>>();
 
@@ -315,9 +325,9 @@ pub fn publishable_has_near_link(workspace: &Workspace) -> anyhow::Result<()> {
             utils::is_publishable(pkg)
                 && !matches!(pkg.parsed.repository, Some(ref r) if r == EXPECTED_LINK)
         })
-        .map(|pkg| PackageOutcome {
-            pkg: pkg.clone(),
-            value: pkg.parsed.repository.as_ref().map(ToString::to_string),
+        .map(|pkg| Outlier {
+            path: pkg.parsed.manifest_path.clone(),
+            found: pkg.parsed.repository.as_ref().map(ToString::to_string),
         })
         .collect::<Vec<_>>();
 

@@ -1,5 +1,4 @@
 use std::fs;
-use std::sync::Arc;
 
 use cargo_metadata::{camino::Utf8PathBuf, CargoOpt, MetadataCommand};
 use serde::de::DeserializeOwned;
@@ -34,7 +33,7 @@ pub fn parse_workspace() -> anyhow::Result<Workspace> {
         .filter(|package| metadata.workspace_members.contains(&package.id))
         .map(|package| {
             let raw = parse_toml(&package.manifest_path)?;
-            Ok(Arc::new(Package { parsed: package, raw }))
+            Ok(Package { parsed: package, raw })
         })
         .collect::<anyhow::Result<_>>()?;
 

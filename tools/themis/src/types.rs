@@ -1,5 +1,4 @@
 use std::fmt;
-use std::sync::Arc;
 
 use cargo_metadata::camino::Utf8PathBuf;
 
@@ -14,13 +13,13 @@ pub struct Package {
 #[derive(Debug)]
 pub struct Workspace {
     pub root: Utf8PathBuf,
-    pub members: Vec<Arc<Package>>,
+    pub members: Vec<Package>,
 }
 
 #[derive(Debug)]
-pub struct PackageOutcome {
-    pub pkg: Arc<Package>,
-    pub value: Option<String>,
+pub struct Outlier {
+    pub path: Utf8PathBuf,
+    pub found: Option<String>,
 }
 
 #[derive(Debug)]
@@ -33,7 +32,7 @@ pub struct Expected {
 pub struct ComplianceError {
     pub msg: String,
     pub expected: Option<Expected>,
-    pub outliers: Vec<PackageOutcome>,
+    pub outliers: Vec<Outlier>,
 }
 
 impl fmt::Display for ComplianceError {
@@ -65,25 +64,21 @@ impl ComplianceError {
             c_none = style::reset()
         );
 
-        for PackageOutcome { pkg, value } in &self.outliers {
-            let Package { parsed: pkg, .. } = &**pkg;
+        for Outlier { path, found } in &self.outliers {
             report.push_str(&format!(
-                "\n \u{2022} {c_name}{}{c_none} v{} {c_path}({}){c_none}{}",
-                pkg.name,
-                pkg.version,
-                pkg.manifest_path.strip_prefix(&workspace.root).unwrap(),
-                match value {
+                "\n {c_path}\u{21b3} {}{c_none}{}",
+                path.strip_prefix(&workspace.root).unwrap(),
+                match found {
                     None => "".to_string(),
-                    Some(value) => format!(
-                        " [found: {c_found}{}{c_none}]",
-                        value,
+                    Some(found) => format!(
+                        " (found: {c_found}{}{c_none})",
+                        found,
                         c_found = style::fg(style::Color::White)
                             + &style::bg(style::Color::Red)
                             + style::bold(),
                         c_none = style::reset()
                     ),
                 },
-                c_name = style::fg(style::Color::Color256(39)) + style::bold(),
                 c_path = style::fg(style::Color::Gray { shade: 12 }),
                 c_none = style::reset(),
             ));
