@@ -511,8 +511,9 @@ mod tests {
 
     #[test]
     fn test_block_producer_sampling() {
+        let num_shards = 4;
         let epoch_config = create_epoch_config(
-            1,
+            num_shards,
             2,
             0,
             ValidatorSelectionConfig {
@@ -543,6 +544,16 @@ mod tests {
         let mut counts: [i32; 2] = [0, 0];
         for h in 0..100_000 {
             let bp = epoch_info.sample_block_producer(h);
+            for shard_id in 0..num_shards {
+                let cp = epoch_info.sample_chunk_producer(h, shard_id);
+                if !checked_feature!(
+                    "protocol_feature_chunk_only_producers",
+                    ChunkOnlyProducers,
+                    PROTOCOL_VERSION
+                ) {
+                    assert_eq!(bp, cp);
+                }
+            }
             counts[bp as usize] += 1;
         }
         let diff = (2 * counts[1] - counts[0]).abs();
@@ -761,7 +772,7 @@ mod tests {
         EpochConfig {
             epoch_length: 10,
             num_block_producer_seats,
-            num_block_producer_seats_per_shard: vec![0; num_shards as usize],
+            num_block_producer_seats_per_shard: vec![num_block_producer_seats; num_shards as usize],
             avg_hidden_validator_seats_per_shard: vec![0; num_shards as usize],
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
