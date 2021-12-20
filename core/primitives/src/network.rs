@@ -13,14 +13,32 @@ use crate::types::{AccountId, EpochId};
 /// Peer id is the public key.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
 )]
 pub struct PeerId(Arc<PeerIdInner>);
 
 /// Peer id is the public key.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash,
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+    Hash,
 )]
 pub struct PeerIdInner(PublicKey);
 
@@ -47,18 +65,6 @@ impl PeerIdInner {
 impl PeerId {
     pub fn random() -> Self {
         PeerId::new(SecretKey::from_random(KeyType::ED25519).public_key())
-    }
-}
-
-impl PartialEq for PeerId {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 .0 == other.0 .0
-    }
-}
-
-impl PartialEq for PeerIdInner {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
     }
 }
 

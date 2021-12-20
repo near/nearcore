@@ -93,7 +93,7 @@ pub fn genesis_chunks(
         .map(|i| {
             let (encoded_chunk, _) = EncodedShardChunk::new(
                 CryptoHash::default(),
-                state_roots[i as usize % state_roots.len()].clone(),
+                state_roots[i as usize % state_roots.len()],
                 CryptoHash::default(),
                 genesis_height,
                 i,
@@ -104,7 +104,7 @@ pub fn genesis_chunks(
                 CryptoHash::default(),
                 vec![],
                 vec![],
-                &vec![],
+                &[],
                 CryptoHash::default(),
                 &EmptyValidatorSigner::default(),
                 genesis_protocol_version,
