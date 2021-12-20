@@ -16,9 +16,7 @@ use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::syncing::{
-    EpochSyncFinalizationResponse, EpochSyncResponse, ShardStateSyncResponse,
-};
+use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::time::{Clock, Utc};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
@@ -87,12 +85,12 @@ pub struct AnnounceAccountRoute {
 // Don't need Borsh ?
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Hash)]
-// Defines the destination for a network request.
-// The request should be sent either to the `account_id` as a routed message, or directly to
-// any peer that tracks the shard.
-// If `prefer_peer` is `true`, should be sent to the peer, unless no peer tracks the shard, in which
-// case fall back to sending to the account.
-// Otherwise, send to the account, unless we do not know the route, in which case send to the peer.
+/// Defines the destination for a network request.
+/// The request should be sent either to the `account_id` as a routed message, or directly to
+/// any peer that tracks the shard.
+/// If `prefer_peer` is `true`, should be sent to the peer, unless no peer tracks the shard, in which
+/// case fall back to sending to the account.
+/// Otherwise, send to the account, unless we do not know the route, in which case send to the peer.
 pub struct AccountIdOrPeerTrackingShard {
     /// Target account to send the the request to
     pub account_id: Option<AccountId>,
@@ -621,29 +619,6 @@ where
 
 impl Message for QueryPeerStats {
     type Result = PeerStatsResult;
-}
-
-impl StateResponseInfo {
-    pub fn shard_id(&self) -> ShardId {
-        match self {
-            Self::V1(info) => info.shard_id,
-            Self::V2(info) => info.shard_id,
-        }
-    }
-
-    pub fn sync_hash(&self) -> CryptoHash {
-        match self {
-            Self::V1(info) => info.sync_hash,
-            Self::V2(info) => info.sync_hash,
-        }
-    }
-
-    pub fn take_state_response(self) -> ShardStateSyncResponse {
-        match self {
-            Self::V1(info) => ShardStateSyncResponse::V1(info.state_response),
-            Self::V2(info) => info.state_response,
-        }
-    }
 }
 
 #[cfg(test)]

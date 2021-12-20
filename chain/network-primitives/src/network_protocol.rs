@@ -433,3 +433,26 @@ pub enum StateResponseInfo {
     V1(StateResponseInfoV1),
     V2(StateResponseInfoV2),
 }
+
+impl StateResponseInfo {
+    pub fn shard_id(&self) -> ShardId {
+        match self {
+            Self::V1(info) => info.shard_id,
+            Self::V2(info) => info.shard_id,
+        }
+    }
+
+    pub fn sync_hash(&self) -> CryptoHash {
+        match self {
+            Self::V1(info) => info.sync_hash,
+            Self::V2(info) => info.sync_hash,
+        }
+    }
+
+    pub fn take_state_response(self) -> ShardStateSyncResponse {
+        match self {
+            Self::V1(info) => ShardStateSyncResponse::V1(info.state_response),
+            Self::V2(info) => info.state_response,
+        }
+    }
+}
