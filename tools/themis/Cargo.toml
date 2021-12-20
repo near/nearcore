@@ -5,7 +5,7 @@ authors = ["Near Inc <hello@nearprotocol.com>", "Miraculous Owonubi <omiraculous
 edition = "2021"
 rust-version = "1.56.0"
 publish = false
-license = "Apache-2.0 OR MIT"
+license = "MIT OR Apache-2.0"
 description = "https://en.wikipedia.org/wiki/Themis"
 
 [dependencies]

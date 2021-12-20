@@ -1,18 +1,21 @@
 use std::collections::HashMap;
 
-use super::{style, utils, Error, Expected, PackageOutcome, Workspace};
+use anyhow::{bail, Context};
+
+use super::types::{ComplianceError, Expected, Outlier, Workspace};
+use super::{style, utils};
 
 /// Ensure all crates have the `publish = <true/false>` specification
-pub fn has_publish_spec(workspace: &Workspace) -> Result<(), Error> {
+pub fn has_publish_spec(workspace: &Workspace) -> anyhow::Result<()> {
     let outliers: Vec<_> = workspace
         .members
         .iter()
         .filter(|pkg| pkg.raw["package"].get("publish").is_none())
-        .map(|pkg| PackageOutcome { pkg, value: None })
+        .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None })
         .collect();
 
     if !outliers.is_empty() {
-        return Err(Error::OutcomeError {
+        bail!(ComplianceError {
             msg: "These packages should have the `publish` specification".to_string(),
             expected: Some(Expected { value: "publish = <true/false>".to_string(), reason: None }),
             outliers,
@@ -23,16 +26,16 @@ pub fn has_publish_spec(workspace: &Workspace) -> Result<(), Error> {
 }
 
 /// Ensure all crates specify a MSRV
-pub fn has_rust_version(workspace: &Workspace) -> Result<(), Error> {
+pub fn has_rust_version(workspace: &Workspace) -> anyhow::Result<()> {
     let outliers: Vec<_> = workspace
         .members
         .iter()
         .filter(|pkg| pkg.raw["package"].get("rust-version").is_none())
-        .map(|pkg| PackageOutcome { pkg, value: None })
+        .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None })
         .collect();
 
     if !outliers.is_empty() {
-        return Err(Error::OutcomeError {
+        bail!(ComplianceError {
             msg: "These packages should specify a Minimum Supported Rust Version (MSRV)"
                 .to_string(),
             expected: None,
@@ -44,16 +47,19 @@ pub fn has_rust_version(workspace: &Workspace) -> Result<(), Error> {
 }
 
 /// Ensure all crates are versioned to v0.0.0
-pub fn is_unversioned(workspace: &Workspace) -> Result<(), Error> {
+pub fn is_unversioned(workspace: &Workspace) -> anyhow::Result<()> {
     let outliers = workspace
         .members
         .iter()
         .filter(|pkg| pkg.parsed.version != semver::Version::new(0, 0, 0))
-        .map(|pkg| PackageOutcome { pkg, value: Some(pkg.parsed.version.to_string()) })
+        .map(|pkg| Outlier {
+            path: pkg.parsed.manifest_path.clone(),
+            found: Some(pkg.parsed.version.to_string()),
+        })
         .collect::<Vec<_>>();
 
     if !outliers.is_empty() {
-        return Err(Error::OutcomeError {
+        bail!(ComplianceError {
             msg: "These packages shouldn't be versioned".to_string(),
             expected: Some(Expected { value: "0.0.0".to_string(), reason: None }),
             outliers,
@@ -65,9 +71,10 @@ pub fn is_unversioned(workspace: &Workspace) -> Result<(), Error> {
 
 /// Ensures all crates have a rust-version spec less than
 /// or equal to the version defined in rust-toolchain.toml
-pub fn has_debuggable_rust_version(workspace: &Workspace) -> Result<(), Error> {
+pub fn has_debuggable_rust_version(workspace: &Workspace) -> anyhow::Result<()> {
     let rust_toolchain =
-        utils::parse_toml::<toml::Value>(&workspace.root.join("rust-toolchain.toml"))?;
+        utils::parse_toml::<toml::Value>(&workspace.root.join("rust-toolchain.toml"))
+            .context("Failed to read rust-toolchain file")?;
     let rust_toolchain = rust_toolchain["toolchain"]["channel"].as_str().unwrap().to_owned();
 
     let rust_toolchain = match semver::Version::parse(&rust_toolchain) {
@@ -95,12 +102,15 @@ pub fn has_debuggable_rust_version(workspace: &Workspace) -> Result<(), Error> {
         };
 
         if !rust_version.matches(&rust_toolchain) {
-            outliers.push(PackageOutcome { pkg, value: Some(raw.to_owned()) });
+            outliers.push(Outlier {
+                path: pkg.parsed.manifest_path.clone(),
+                found: Some(raw.to_owned()),
+            });
         }
     }
 
     if !outliers.is_empty() {
-        return Err(Error::OutcomeError {
+        bail!(ComplianceError {
             msg: "These packages have an incompatible `rust-version`".to_string(),
             expected: Some(Expected {
                 value: format!("<={}", rust_toolchain),
@@ -114,7 +124,7 @@ pub fn has_debuggable_rust_version(workspace: &Workspace) -> Result<(), Error> {
 }
 
 /// Ensure all crates share the same rust edition
-pub fn has_unified_rust_edition(workspace: &Workspace) -> Result<(), Error> {
+pub fn has_unified_rust_edition(workspace: &Workspace) -> anyhow::Result<()> {
     let mut edition_groups = HashMap::new();
 
     for pkg in &workspace.members {
@@ -128,11 +138,14 @@ pub fn has_unified_rust_edition(workspace: &Workspace) -> Result<(), Error> {
         .members
         .iter()
         .filter(|pkg| pkg.parsed.edition != *most_common_edition)
-        .map(|pkg| PackageOutcome { pkg, value: Some(pkg.parsed.edition.clone()) })
+        .map(|pkg| Outlier {
+            path: pkg.parsed.manifest_path.clone(),
+            found: Some(pkg.parsed.edition.clone()),
+        })
         .collect::<Vec<_>>();
 
     if !outliers.is_empty() {
-        return Err(Error::OutcomeError {
+        bail!(ComplianceError {
             msg: "These packages have an unexpected rust edition".to_string(),
             expected: Some(Expected {
                 value: most_common_edition.clone(),
@@ -148,16 +161,19 @@ pub fn has_unified_rust_edition(workspace: &Workspace) -> Result<(), Error> {
 const EXPECTED_AUTHOR: &str = "Near Inc <hello@nearprotocol.com>";
 
 /// Ensure all crates have the appropriate author, non-exclusively of course.
-pub fn author_is_near(workspace: &Workspace) -> Result<(), Error> {
+pub fn author_is_near(workspace: &Workspace) -> anyhow::Result<()> {
     let outliers = workspace
         .members
         .iter()
         .filter(|pkg| !pkg.parsed.authors.iter().any(|author| author == EXPECTED_AUTHOR))
-        .map(|pkg| PackageOutcome { pkg, value: Some(format!("{:?}", pkg.parsed.authors)) })
+        .map(|pkg| Outlier {
+            path: pkg.parsed.manifest_path.clone(),
+            found: Some(format!("{:?}", pkg.parsed.authors)),
+        })
         .collect::<Vec<_>>();
 
     if !outliers.is_empty() {
-        return Err(Error::OutcomeError {
+        bail!(ComplianceError {
             msg: "These packages need to be correctly authored".to_string(),
             expected: Some(Expected { value: EXPECTED_AUTHOR.to_string(), reason: None }),
             outliers,
@@ -168,7 +184,7 @@ pub fn author_is_near(workspace: &Workspace) -> Result<(), Error> {
 }
 
 /// Ensure all non-private crates have a license
-pub fn publishable_has_license(workspace: &Workspace) -> Result<(), Error> {
+pub fn publishable_has_license(workspace: &Workspace) -> anyhow::Result<()> {
     let outliers = workspace
         .members
         .iter()
@@ -176,11 +192,11 @@ pub fn publishable_has_license(workspace: &Workspace) -> Result<(), Error> {
             utils::is_publishable(pkg)
                 && !(pkg.parsed.license.is_some() || pkg.parsed.license_file.is_some())
         })
-        .map(|pkg| PackageOutcome { pkg, value: None })
+        .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None })
         .collect::<Vec<_>>();
 
     if !outliers.is_empty() {
-        return Err(Error::OutcomeError {
+        bail!(ComplianceError {
             msg: "These non-private packages should have a `license` specification".to_string(),
             expected: None,
             outliers,
@@ -194,7 +210,7 @@ pub fn publishable_has_license(workspace: &Workspace) -> Result<(), Error> {
 ///
 /// Checks for either one LICENSE file, or two LICENSE files, one of which
 /// is the Apache License 2.0 and the other is the MIT license.
-pub fn publishable_has_license_file(workspace: &Workspace) -> Result<(), Error> {
+pub fn publishable_has_license_file(workspace: &Workspace) -> anyhow::Result<()> {
     let outliers = workspace
         .members
         .iter()
@@ -206,14 +222,14 @@ pub fn publishable_has_license_file(workspace: &Workspace) -> Result<(), Error> 
                         .parsed
                         .license_file, Some(ref l) if utils::exists(pkg, l.as_str())))
         })
-        .map(|pkg| PackageOutcome {
-            pkg,
-            value: pkg.parsed.license_file.as_ref().map(|l| l.to_string()),
+        .map(|pkg| Outlier {
+            path: pkg.parsed.manifest_path.clone(),
+            found: pkg.parsed.license_file.as_ref().map(ToString::to_string),
         })
         .collect::<Vec<_>>();
 
     if !outliers.is_empty() {
-        return Err(Error::OutcomeError {
+        bail!(ComplianceError {
             msg: "These non-private packages should have a license file".to_string(),
             expected: None,
             outliers,
@@ -226,7 +242,7 @@ pub fn publishable_has_license_file(workspace: &Workspace) -> Result<(), Error> 
 const EXPECTED_LICENSE: &str = "MIT OR Apache-2.0";
 
 /// Ensure all non-private crates use the the same expected license
-pub fn publishable_has_unified_license(workspace: &Workspace) -> Result<(), Error> {
+pub fn publishable_has_unified_license(workspace: &Workspace) -> anyhow::Result<()> {
     let outliers = workspace
         .members
         .iter()
@@ -234,14 +250,14 @@ pub fn publishable_has_unified_license(workspace: &Workspace) -> Result<(), Erro
             utils::is_publishable(pkg)
                 && matches!(pkg.parsed.license, Some(ref l) if l != EXPECTED_LICENSE)
         })
-        .map(|pkg| PackageOutcome {
-            pkg,
-            value: pkg.parsed.license.as_ref().map(|l| l.to_string()),
+        .map(|pkg| Outlier {
+            path: pkg.parsed.manifest_path.clone(),
+            found: pkg.parsed.license.as_ref().map(ToString::to_string),
         })
         .collect::<Vec<_>>();
 
     if !outliers.is_empty() {
-        return Err(Error::OutcomeError {
+        bail!(ComplianceError {
             msg: "These non-private packages have an unexpected license".to_string(),
             expected: Some(Expected { value: EXPECTED_LICENSE.to_string(), reason: None }),
             outliers,
@@ -252,16 +268,16 @@ pub fn publishable_has_unified_license(workspace: &Workspace) -> Result<(), Erro
 }
 
 /// Ensure all non-private crates have a description
-pub fn publishable_has_description(workspace: &Workspace) -> Result<(), Error> {
+pub fn publishable_has_description(workspace: &Workspace) -> anyhow::Result<()> {
     let outliers = workspace
         .members
         .iter()
         .filter(|pkg| utils::is_publishable(pkg) && pkg.parsed.description.is_none())
-        .map(|pkg| PackageOutcome { pkg, value: None })
+        .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None })
         .collect::<Vec<_>>();
 
     if !outliers.is_empty() {
-        return Err(Error::OutcomeError {
+        bail!(ComplianceError {
             msg: "These non-private packages should have a `description`".to_string(),
             expected: None,
             outliers,
@@ -272,7 +288,7 @@ pub fn publishable_has_description(workspace: &Workspace) -> Result<(), Error> {
 }
 
 /// Ensure all non-private crates have a README file
-pub fn publishable_has_readme(workspace: &Workspace) -> Result<(), Error> {
+pub fn publishable_has_readme(workspace: &Workspace) -> anyhow::Result<()> {
     let outliers = workspace
         .members
         .iter()
@@ -281,11 +297,14 @@ pub fn publishable_has_readme(workspace: &Workspace) -> Result<(), Error> {
                 && !(utils::exists(pkg, "README.md")
                     || matches!(pkg.parsed.readme, Some(ref r) if utils::exists(pkg, r.as_str())))
         })
-        .map(|pkg| PackageOutcome { pkg, value: pkg.parsed.readme.as_ref().map(|r| r.to_string()) })
+        .map(|pkg| Outlier {
+            path: pkg.parsed.manifest_path.clone(),
+            found: pkg.parsed.readme.as_ref().map(ToString::to_string),
+        })
         .collect::<Vec<_>>();
 
     if !outliers.is_empty() {
-        return Err(Error::OutcomeError {
+        bail!(ComplianceError {
             msg: "These non-private packages should have a readme file".to_string(),
             expected: None,
             outliers,
@@ -298,7 +317,7 @@ pub fn publishable_has_readme(workspace: &Workspace) -> Result<(), Error> {
 const EXPECTED_LINK: &str = "https://github.com/near/nearcore";
 
 /// Ensure all non-private crates have appropriate repository links
-pub fn publishable_has_near_link(workspace: &Workspace) -> Result<(), Error> {
+pub fn publishable_has_near_link(workspace: &Workspace) -> anyhow::Result<()> {
     let outliers = workspace
         .members
         .iter()
@@ -306,14 +325,14 @@ pub fn publishable_has_near_link(workspace: &Workspace) -> Result<(), Error> {
             utils::is_publishable(pkg)
                 && !matches!(pkg.parsed.repository, Some(ref r) if r == EXPECTED_LINK)
         })
-        .map(|pkg| PackageOutcome {
-            pkg,
-            value: pkg.parsed.repository.as_ref().map(|r| r.to_string()),
+        .map(|pkg| Outlier {
+            path: pkg.parsed.manifest_path.clone(),
+            found: pkg.parsed.repository.as_ref().map(ToString::to_string),
         })
         .collect::<Vec<_>>();
 
     if !outliers.is_empty() {
-        return Err(Error::OutcomeError {
+        bail!(ComplianceError {
             msg: "These non-private packages need to have the appropriate `repository` link"
                 .to_string(),
             expected: Some(Expected { value: EXPECTED_LINK.to_string(), reason: None }),

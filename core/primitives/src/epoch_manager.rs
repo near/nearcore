@@ -93,7 +93,7 @@ impl AllEpochConfig {
             config.avg_hidden_validator_seats_per_shard = avg_hidden_validator_seats_per_shard;
             config.shard_layout = shard_layout;
         }
-        Self { genesis_epoch_config: genesis_epoch_config, simple_nightshade_epoch_config: config }
+        Self { genesis_epoch_config, simple_nightshade_epoch_config: config }
     }
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> &EpochConfig {
@@ -538,7 +538,7 @@ pub mod epoch_info {
                 let block_producers_sampler = stake_weights(&block_producers_settlement);
                 let chunk_producers_sampler =
                     chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
-                return Self::V3(EpochInfoV3 {
+                Self::V3(EpochInfoV3 {
                     epoch_height,
                     validators,
                     fishermen,
@@ -556,9 +556,9 @@ pub mod epoch_info {
                     rng_seed,
                     block_producers_sampler,
                     chunk_producers_sampler,
-                });
+                })
             } else {
-                return Self::V2(EpochInfoV2 {
+                Self::V2(EpochInfoV2 {
                     epoch_height,
                     validators,
                     fishermen,
@@ -573,7 +573,7 @@ pub mod epoch_info {
                     minted_amount,
                     seat_price,
                     protocol_version,
-                });
+                })
             }
         }
 
