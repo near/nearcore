@@ -116,13 +116,12 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = (usize, T)>
             .expect("cp_iter should contain enough elements to minimally fill each shard");
         let (least_validator_count, shard_stake, shard_id) =
             shard_index.pop().expect("shard_index should never be empty");
-        let shard_pos = usize::try_from(shard_id).unwrap();
 
         if assignment_index < num_chunk_producers {
             // no need to worry about duplicates yet; still on first pass through validators
             shard_index.push((least_validator_count + 1, shard_stake + cp.get_stake(), shard_id));
-            result[shard_pos].push(cp);
-        } else if result[shard_pos].contains(&cp) {
+            result[usize::try_from(shard_id).unwrap()].push(cp);
+        } else if result[usize::try_from(shard_id).unwrap()].contains(&cp) {
             // `cp` is already assigned to this shard, need to assign elsewhere
 
             // `buffer` tracks shards `cp` is already in, these will need to be pushed back into
@@ -136,7 +135,7 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = (usize, T)>
                 // assign a chunk producer right now.
                 let (least_validator_count, shard_stake, shard_id) =
                     shard_index.pop().expect("shard_index should never be empty");
-                if result[shard_pos].contains(&cp) {
+                if result[usize::try_from(shard_id).unwrap()].contains(&cp) {
                     buffer.push((least_validator_count, shard_stake, shard_id))
                 } else {
                     shard_index.push((
@@ -144,7 +143,7 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = (usize, T)>
                         shard_stake + cp.get_stake(),
                         shard_id,
                     ));
-                    result[shard_pos].push(cp);
+                    result[usize::try_from(shard_id).unwrap()].push(cp);
                     break;
                 }
             }
@@ -153,7 +152,7 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = (usize, T)>
             }
         } else {
             shard_index.push((least_validator_count + 1, shard_stake + cp.get_stake(), shard_id));
-            result[shard_pos].push(cp);
+            result[usize::try_from(shard_id).unwrap()].push(cp);
         }
     }
 }
