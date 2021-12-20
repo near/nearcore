@@ -827,15 +827,15 @@ pub mod epoch_info {
                     shard_cps[(height as u64 % (shard_cps.len() as u64)) as usize]
                 }
                 Self::V3(v3) => {
-                    let protocol_verstion = self.protocol_version();
+                    let protocol_version = self.protocol_version();
                     let seed = if checked_feature!(
                         "stable",
                         SynchronizeBlockChunkProduction,
-                        protocol_verstion
+                        protocol_version
                     ) && !checked_feature!(
                         "protocol_feature_chunk_only_producers",
                         ChunkOnlyProducers,
-                        protocol_verstion
+                        protocol_version
                     ) {
                         // This is same seed that used for determining block producer
                         Self::block_produce_seed(height, &v3.rng_seed)
