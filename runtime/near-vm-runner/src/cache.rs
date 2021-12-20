@@ -230,7 +230,7 @@ pub mod wasmer0_cache {
         config: &VMConfig,
         cache: Option<&dyn CompiledContractCache>,
     ) -> Result<Result<wasmer_runtime::Module, CompilationError>, CacheError> {
-        WASMER_CACHE.get_or_insert(key, |key| {
+        WASMER_CACHE.get_or_put(key, |key| {
             compile_module_cached_wasmer_impl(*key, code.code(), config, cache)
         })
     }
@@ -329,18 +329,18 @@ pub mod wasmer2_cache {
 
     fn compile_module_cached_wasmer2_impl(
         key: CryptoHash,
-        wasm_code: &[u8],
+        code: &ContractCode,
         config: &VMConfig,
         cache: Option<&dyn CompiledContractCache>,
         store: &wasmer::Store,
     ) -> Result<Result<wasmer::Module, CompilationError>, CacheError> {
         match cache {
-            None => Ok(compile_module_wasmer2(wasm_code, config, store)),
+            None => Ok(compile_module_wasmer2(code.code(), config, store)),
             Some(cache) => {
                 let serialized = cache.get(&key.0).map_err(|_io_err| CacheError::WriteError)?;
                 match serialized {
                     Some(serialized) => deserialize_wasmer2(serialized.as_slice(), store),
-                    None => compile_and_serialize_wasmer2(wasm_code, &key, config, cache, store),
+                    None => compile_and_serialize_wasmer2(code.code(), &key, config, cache, store),
                 }
             }
         }
@@ -354,8 +354,8 @@ pub mod wasmer2_cache {
         cache: Option<&dyn CompiledContractCache>,
         store: &wasmer::Store,
     ) -> Result<Result<wasmer::Module, CompilationError>, CacheError> {
-        WASMER2_CACHE.get_or_insert(key, |key| {
-            compile_module_cached_wasmer2_impl(*key, code.code(), config, cache, store)
+        WASMER2_CACHE.get_or_put(key, |key| {
+            compile_module_cached_wasmer2_impl(*key, code, config, cache, store)
         })
     }
 
@@ -369,7 +369,7 @@ pub mod wasmer2_cache {
         #[cfg(not(feature = "no_cache"))]
         return memcache_compile_module_cached_wasmer2(key, code, config, cache, store);
         #[cfg(feature = "no_cache")]
-        return compile_module_cached_wasmer2_impl(key, &code.code(), config, cache, store);
+        return compile_module_cached_wasmer2_impl(key, code, config, cache, store);
     }
 }
 

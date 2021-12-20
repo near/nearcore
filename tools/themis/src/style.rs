@@ -1,5 +1,8 @@
-// https://en.wikipedia.org/wiki/ANSI_escape_code#8-bit
+/// ANSI Color Codes
+///
+/// https://en.wikipedia.org/wiki/ANSI_escape_code#8-bit
 #[allow(dead_code)]
+#[derive(Eq, Copy, Debug, Clone, PartialEq)]
 pub enum Color {
     Black,
     Red,
@@ -14,7 +17,7 @@ pub enum Color {
 }
 
 impl Color {
-    pub fn as_ansi(&self, foreground: bool) -> String {
+    pub fn as_ansi(self, foreground: bool) -> String {
         let color = match self {
             Color::Gray { shade } => return Color::Color256(0xE8 + shade).as_ansi(foreground),
             Color::Color256(n) => {
