@@ -67,7 +67,7 @@ pub struct RoutingTableActor {
     /// ColComponentEdges     -> Mapping from `component_nonce` to list of edges
     /// ColPeerComponent      -> Mapping from `peer_id` to last component nonce if there
     ///                          exists one it belongs to.
-    store: Arc<Store>,
+    store: Store,
     /// First component nonce id that hasn't been used. Used for creating new components.
     pub next_available_component_nonce: u64,
     /// True if edges were changed and we need routing table recalculation.
@@ -82,7 +82,7 @@ pub struct RoutingTableActor {
 }
 
 impl RoutingTableActor {
-    pub fn new(my_peer_id: PeerId, store: Arc<Store>) -> Self {
+    pub fn new(my_peer_id: PeerId, store: Store) -> Self {
         let component_nonce = store
             .get_ser::<u64>(ColLastComponentNonce, &[])
             .unwrap_or(None)
@@ -772,6 +772,6 @@ impl Handler<ActixMessageWrapper<RoutingTableMessages>> for RoutingTableActor {
     }
 }
 
-pub fn start_routing_table_actor(peer_id: PeerId, store: Arc<Store>) -> Addr<RoutingTableActor> {
+pub fn start_routing_table_actor(peer_id: PeerId, store: Store) -> Addr<RoutingTableActor> {
     RoutingTableActor::new(peer_id, store).start()
 }
