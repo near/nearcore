@@ -808,12 +808,7 @@ pub mod epoch_info {
                     bp_settlement[(height % (bp_settlement.len() as u64)) as usize]
                 }
                 Self::V3(v3) => {
-                    let seed = {
-                        let mut buffer = [0u8; 40]; // 32 bytes from epoch_seed, 8 bytes from height
-                        buffer[0..32].copy_from_slice(&v3.rng_seed);
-                        buffer[32..40].copy_from_slice(&height.to_le_bytes());
-                        hash(&buffer).0
-                    };
+                    let seed = Self::block_produce_seed(height, &v3.rng_seed);
                     v3.block_producers_settlement[v3.block_producers_sampler.sample(seed)]
                 }
             }
@@ -842,12 +837,8 @@ pub mod epoch_info {
                         ChunkOnlyProducers,
                         protocol_verstion
                     ) {
-                        // 32 bytes from epoch_seed, 8 bytes from height
                         // This is same seed that used for determining block producer
-                        let mut buffer = [0u8; 40];
-                        buffer[0..32].copy_from_slice(&v3.rng_seed);
-                        buffer[32..40].copy_from_slice(&height.to_le_bytes());
-                        hash(&buffer).0
+                        Self::block_produce_seed(height, &v3.rng_seed)
                     } else {
                         // 32 bytes from epoch_seed, 8 bytes from height, 8 bytes from shard_id
                         let mut buffer = [0u8; 48];
@@ -861,6 +852,14 @@ pub mod epoch_info {
                         [v3.chunk_producers_sampler[shard_id].sample(seed)]
                 }
             }
+        }
+
+        /// 32 bytes from epoch_seed, 8 bytes from height
+        fn block_produce_seed(height: BlockHeight, seed: &RngSeed) -> [u8; 32] {
+            let mut buffer = [0u8; 40];
+            buffer[0..32].copy_from_slice(seed);
+            buffer[32..40].copy_from_slice(&height.to_le_bytes());
+            hash(&buffer).0
         }
     }
 
