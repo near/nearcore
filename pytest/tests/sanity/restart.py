@@ -4,8 +4,9 @@
 # Sets epoch length to 10
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
@@ -41,9 +42,7 @@ first_round = True
 while max_height < BLOCKS1:
     assert time.time() - started < TIMEOUT
     for i, node in enumerate(nodes):
-        status = node.get_status()
-        height = status['sync_info']['latest_block_height']
-        hash_ = status['sync_info']['latest_block_hash']
+        height, hash_ = node.get_latest_block()
 
         if height > max_height:
             max_height = height
@@ -83,9 +82,7 @@ first_round = True
 while max_height < BLOCKS2:
     assert time.time() - started < TIMEOUT
     for i, node in enumerate(nodes):
-        status = node.get_status()
-        height = status['sync_info']['latest_block_height']
-        hash_ = status['sync_info']['latest_block_hash']
+        height, hash_ = node.get_latest_block()
 
         if height > max_height:
             max_height = height

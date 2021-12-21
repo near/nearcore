@@ -37,7 +37,7 @@ pub struct MockClient {
 
 impl MockClient {
     pub fn get_state_update(&self) -> TrieUpdate {
-        self.tries.new_trie_update(ShardUId::default(), self.state_root)
+        self.tries.new_trie_update(ShardUId::single_shard(), self.state_root)
     }
 }
 
@@ -91,7 +91,7 @@ impl RuntimeUser {
             let apply_result = client
                 .runtime
                 .apply(
-                    client.tries.get_trie_for_shard(ShardUId::default()),
+                    client.tries.get_trie_for_shard(ShardUId::single_shard()),
                     client.state_root,
                     &None,
                     &apply_state,
@@ -119,7 +119,7 @@ impl RuntimeUser {
             }
             client
                 .tries
-                .apply_all(&apply_result.trie_changes, ShardUId::default())
+                .apply_all(&apply_result.trie_changes, ShardUId::single_shard())
                 .unwrap()
                 .0
                 .commit()
@@ -169,15 +169,14 @@ impl RuntimeUser {
             block_hash: Default::default(),
         }];
         for hash in &receipt_ids {
-            transactions
-                .extend(self.get_recursive_transaction_results(&hash.clone().into()).into_iter());
+            transactions.extend(self.get_recursive_transaction_results(hash).into_iter());
         }
         transactions
     }
 
     fn get_final_transaction_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
         let mut outcomes = self.get_recursive_transaction_results(hash);
-        let mut looking_for_id = (*hash).into();
+        let mut looking_for_id = *hash;
         let num_outcomes = outcomes.len();
         let status = outcomes
             .iter()
@@ -195,7 +194,7 @@ impl RuntimeUser {
                             Some(FinalExecutionStatus::SuccessValue(v.clone()))
                         }
                         ExecutionStatusView::SuccessReceiptId(id) => {
-                            looking_for_id = id.clone();
+                            looking_for_id = *id;
                             None
                         }
                     }
@@ -322,7 +321,7 @@ impl User for RuntimeUser {
     }
 
     fn get_state_root(&self) -> CryptoHash {
-        self.client.read().expect(POISONED_LOCK_ERR).state_root.into()
+        self.client.read().expect(POISONED_LOCK_ERR).state_root
     }
 
     fn get_access_key(
