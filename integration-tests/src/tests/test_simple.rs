@@ -1,4 +1,4 @@
-//! Simply starts and runs TestNet for a while.
+//! Simply starts and runs testnet for a while.
 #[cfg(test)]
 #[cfg(feature = "expensive_tests")]
 mod test {
