@@ -17,7 +17,7 @@ use rand::Rng;
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use near_chain::test_utils::format_hash;
-use near_chain::types::AcceptedBlock;
+use near_chain::types::{AcceptedBlock, ValidatorInfoIdentifier};
 #[cfg(feature = "test_features")]
 use near_chain::StoreValidator;
 use near_chain::{
@@ -65,8 +65,8 @@ use near_chain::chain::{
     BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
 };
 use near_client_primitives::types::{
-    Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
-    StatusError, StatusSyncInfo, SyncStatus,
+    Error, GetNetworkInfo, GetValidatorInfoError, NetworkInfoResponse, ShardSyncDownload,
+    ShardSyncStatus, Status, StatusError, StatusSyncInfo, SyncStatus,
 };
 use near_network_primitives::types::ReasonForBan;
 use near_primitives::block_header::ApprovalType;
@@ -1494,6 +1494,12 @@ impl ClientActor {
                     None
                 };
 
+                let epoch_identifier = ValidatorInfoIdentifier::BlockHash(head.last_block_hash);
+                let validator_epoch_info = act
+                    .client
+                    .runtime_adapter
+                    .get_validator_info(epoch_identifier)
+                    .map_err(GetValidatorInfoError::from);
                 act.info_helper.info(
                     act.client.chain.store().get_genesis_height(),
                     &head,
@@ -1501,6 +1507,7 @@ impl ClientActor {
                     &act.node_id,
                     &act.network_info,
                     validator_info,
+                    validator_epoch_info,
                 );
 
                 act.log_summary(ctx);

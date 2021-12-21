@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use actix::Addr;
 use ansi_term::Color::{Blue, Cyan, Green, White, Yellow};
-use log::info;
+use log::{error, info};
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
 
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
@@ -21,8 +21,9 @@ use near_primitives::version::Version;
 use near_telemetry::{telemetry, TelemetryActor};
 
 use crate::{metrics, SyncStatus};
-use near_client_primitives::types::ShardSyncStatus;
+use near_client_primitives::types::{GetValidatorInfoError, ShardSyncStatus};
 use near_primitives::time::Clock;
+use near_primitives::views::EpochValidatorInfo;
 
 pub struct ValidatorInfoHelper {
     pub is_validator: bool,
@@ -88,6 +89,7 @@ impl InfoHelper {
         node_id: &PeerId,
         network_info: &NetworkInfo,
         validator_info: Option<ValidatorInfoHelper>,
+        validator_epoch_info: Result<EpochValidatorInfo, GetValidatorInfoError>,
     ) {
         let (cpu_usage, memory_usage) = if let Some(pid) = self.pid {
             if self.sys.refresh_process(pid) {
@@ -172,6 +174,25 @@ impl InfoHelper {
         (metrics::MEMORY_USAGE.set((memory_usage * 1024) as i64));
         let teragas = 1_000_000_000_000u64;
         (metrics::AVG_TGAS_USAGE.set((avg_gas_used as f64 / teragas as f64).round() as i64));
+
+        if let Ok(validator_epoch_info) = validator_epoch_info {
+            for validator in validator_epoch_info.current_validators {
+                (metrics::VALIDATORS_BLOCKS_PRODUCED
+                    .with_label_values(&[&validator.account_id.as_ref()])
+                    .set(validator.num_produced_blocks as i64));
+                (metrics::VALIDATORS_BLOCKS_EXPECTED
+                    .with_label_values(&[&validator.account_id.as_ref()])
+                    .set(validator.num_expected_blocks as i64));
+                (metrics::VALIDATORS_CHUNKS_PRODUCED
+                    .with_label_values(&[&validator.account_id.as_ref()])
+                    .set(validator.num_produced_chunks as i64));
+                (metrics::VALIDATORS_CHUNKS_EXPECTED
+                    .with_label_values(&[&validator.account_id.as_ref()])
+                    .set(validator.num_expected_chunks as i64));
+            }
+        } else {
+            error!("No validator epoch info: {:#?}", validator_epoch_info);
+        }
 
         self.started = Clock::instant();
         self.num_blocks_processed = 0;
