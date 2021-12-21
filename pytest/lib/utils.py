@@ -82,17 +82,17 @@ class LogTracker:
             NotImplementedError: If trying to create a tracker for non-local
                 node.
         """
-        if type(node) is cluster.LocalNode:
-            self.fname = node.stderr_name
-            with open(self.fname) as f:
-                f.seek(0, 2)
-                self.offset = f.tell()
-        raise NotImplementedError()
+        if not isinstance(node, cluster.LocalNode):
+            raise NotImplementedError()
+        self.fname = node.stderr_name
+        with open(self.fname) as f:
+            f.seek(0, 2)
+            self.offset = f.tell()
 
     def check(self, pattern: str) -> bool:
         """Check whether the pattern can be found in the logs."""
         with open(self.fname) as rd:
-            f.seek(self.offset)
+            rd.seek(self.offset)
             found = pattern in rd.read()
             self.offset = rd.tell()
         return found
@@ -105,7 +105,7 @@ class LogTracker:
         """Count number of occurrences of pattern in new logs."""
         with open(self.fname) as rd:
             rd.seek(self.offset)
-            count = f.read().count(pattern)
+            count = rd.read().count(pattern)
             self.offset = rd.tell()
         return count
 
