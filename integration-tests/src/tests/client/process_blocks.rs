@@ -676,14 +676,14 @@ fn invalid_blocks_common(is_requested: bool) {
             ));
 
             // Send proper block.
-            let block2 = valid_block.clone();
+            let block2 = valid_block;
             client.do_send(NetworkClientMessages::Block(
                 block2.clone(),
                 PeerInfo::random().id,
                 is_requested,
             ));
             if is_requested {
-                let mut block3 = block2.clone();
+                let mut block3 = block2;
                 block3.mut_header().get_mut().inner_rest.chunk_headers_root = hash(&[1]);
                 block3.mut_header().get_mut().init();
                 client.do_send(NetworkClientMessages::Block(
@@ -962,7 +962,7 @@ fn client_sync_headers() {
             num_connected_peers: 1,
             peer_max_count: 1,
             highest_height_peers: vec![FullPeerInfo {
-                peer_info: peer_info2.clone(),
+                peer_info: peer_info2,
                 chain_info: PeerChainInfoV2 {
                     genesis_id: Default::default(),
                     height: 5,
@@ -1480,7 +1480,7 @@ fn test_gc_chunk_tail() {
     let mut chain_genesis = ChainGenesis::test();
     let epoch_length = 100;
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(chain_genesis.clone()).build();
+    let mut env = TestEnv::builder(chain_genesis).build();
     let mut chunk_tail = 0;
     for i in (1..10).chain(101..epoch_length * 6) {
         env.produce_block(0, i);
@@ -1641,8 +1641,7 @@ fn test_gc_fork_tail() {
 fn test_tx_forwarding() {
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = 100;
-    let mut env =
-        TestEnv::builder(chain_genesis.clone()).clients_count(50).validator_seats(50).build();
+    let mut env = TestEnv::builder(chain_genesis).clients_count(50).validator_seats(50).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
     // forward to 2 chunk producers
@@ -1654,8 +1653,7 @@ fn test_tx_forwarding() {
 fn test_tx_forwarding_no_double_forwarding() {
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = 100;
-    let mut env =
-        TestEnv::builder(chain_genesis.clone()).clients_count(50).validator_seats(50).build();
+    let mut env = TestEnv::builder(chain_genesis).clients_count(50).validator_seats(50).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
     env.clients[0].process_tx(SignedTransaction::empty(genesis_hash), true, false);
@@ -2098,7 +2096,7 @@ fn test_not_process_height_twice() {
 fn test_block_height_processed_orphan() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     let block = env.clients[0].produce_block(1).unwrap().unwrap();
-    let mut orphan_block = block.clone();
+    let mut orphan_block = block;
     let validator_signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     orphan_block.mut_header().get_mut().prev_hash = hash(&[1]);
@@ -2641,7 +2639,7 @@ fn test_wasmer2_upgrade() {
         let block_producer =
             env.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
         let mut block = env.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
-        set_block_protocol_version(&mut block, block_producer.clone(), new_protocol_version);
+        set_block_protocol_version(&mut block, block_producer, new_protocol_version);
         let (_, res) = env.clients[0].process_block(block.clone().into(), Provenance::NONE);
         assert!(res.is_ok());
     }
@@ -2908,7 +2906,7 @@ fn test_query_final_state() {
         .unwrap();
     let fork2_block = env.clients[0].produce_block(6).unwrap().unwrap();
     assert_eq!(fork1_block.header().prev_hash(), fork2_block.header().prev_hash());
-    env.process_block(0, fork1_block.clone(), Provenance::NONE);
+    env.process_block(0, fork1_block, Provenance::NONE);
     assert_eq!(env.clients[0].chain.head().unwrap().height, 5);
 
     let runtime_adapter = env.clients[0].runtime_adapter.clone();
@@ -2918,7 +2916,7 @@ fn test_query_final_state() {
         "test0".parse().unwrap(),
     );
 
-    env.process_block(0, fork2_block.clone(), Provenance::NONE);
+    env.process_block(0, fork2_block, Provenance::NONE);
     assert_eq!(env.clients[0].chain.head().unwrap().height, 6);
 
     let runtime_adapter = env.clients[0].runtime_adapter.clone();
@@ -3379,7 +3377,7 @@ fn test_limit_contract_functions_number_upgrade() {
         let block_producer =
             env.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
         let mut block = env.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
-        set_block_protocol_version(&mut block, block_producer.clone(), new_protocol_version);
+        set_block_protocol_version(&mut block, block_producer, new_protocol_version);
         let (_, res) = env.clients[0].process_block(block.clone().into(), Provenance::NONE);
         assert!(res.is_ok());
     }
@@ -3388,7 +3386,7 @@ fn test_limit_contract_functions_number_upgrade() {
     let new_outcome = {
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction =
-            Transaction { nonce: 11, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
+            Transaction { nonce: 11, block_hash: tip.last_block_hash, ..tx }.sign(&signer);
         let tx_hash = signed_transaction.get_hash();
         env.clients[0].process_tx(signed_transaction, false, false);
         for i in 0..3 {
@@ -3550,7 +3548,7 @@ mod access_key_nonce_range_tests {
         // Check that sending money from implicit account with correct nonce is still valid.
         let send_money_from_implicit_account_tx = SignedTransaction::send_money(
             (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER,
-            implicit_account_id.clone(),
+            implicit_account_id,
             "test0".parse().unwrap(),
             &implicit_account_signer,
             100,
@@ -3676,7 +3674,7 @@ mod access_key_nonce_range_tests {
         let epoch_length = 10;
 
         let accounts: Vec<AccountId> =
-            (0..num_clients).map(|i| format!("test{}", i).to_string().parse().unwrap()).collect();
+            (0..num_clients).map(|i| format!("test{}", i).parse().unwrap()).collect();
         let mut genesis = Genesis::test(accounts, num_validators);
         genesis.config.epoch_length = epoch_length;
         let chain_genesis = ChainGenesis::from(&genesis);

@@ -46,7 +46,7 @@ fn test_keyvalue_runtime_balances() {
 
         let (_, conn, _) = setup_mock_all_validators(
             validators.clone(),
-            key_pairs.clone(),
+            key_pairs,
             validator_groups,
             true,
             100,

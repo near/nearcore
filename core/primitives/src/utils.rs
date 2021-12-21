@@ -191,8 +191,7 @@ pub fn get_block_shard_id_rev(
             std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid key length").into()
         );
     }
-    let block_hash_vec: Vec<u8> = key[0..32].iter().cloned().collect();
-    let block_hash = CryptoHash::try_from(block_hash_vec)?;
+    let block_hash = CryptoHash::try_from(&key[..32])?;
     let mut shard_id_arr: [u8; 8] = Default::default();
     shard_id_arr.copy_from_slice(&key[key.len() - 8..]);
     let shard_id = ShardId::from_le_bytes(shard_id_arr);
@@ -470,7 +469,7 @@ impl fmt::Debug for dyn CompiledContractCache {
 /// objects using tracing.
 ///
 /// tracing::debug!(target: "diagnostic", value=%ser(&object));
-pub fn ser<'a, T>(object: &'a T) -> Serializable<'a, T>
+pub fn ser<T>(object: &T) -> Serializable<'_, T>
 where
     T: serde::Serialize,
 {

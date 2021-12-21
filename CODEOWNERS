@@ -9,15 +9,17 @@
 /chain/jsonrpc-primitives/ @khorolets @miraclx @chefsale
 /chain/indexer/ @khorolets
 /chain/rosetta-rpc/ @frol @mina86
+/utils @pmnoxx @mm-near
 
 /runtime/ @bowenwang1996 @EgorKulikov @mzhangmzz @mm-near
-/runtime/runtime-params-estimator/ @olonho @matklad
+/runtime/runtime-params-estimator/ @olonho @matklad @jakmeier
 /runtime/near-test-contracts/ @olonho @matklad
-/runtime/near-vm-runner-standalone/ @olonho @matklad
-/runtime/near-vm-runner/ @olonho @matklad
+/runtime/near-vm-runner-standalone/ @olonho @matklad @nagisa
+/runtime/near-vm-runner/ @olonho @matklad @nagisa
 
 /genesis-tools/ @nikurt
 /tools/indexer/ @khorolets
+/tools/themis/ @miraclx
 
 /core/  @bowenwang1996 @matklad @mm-near
 /core/store/src/trie @mzhangmzz @longarithm
