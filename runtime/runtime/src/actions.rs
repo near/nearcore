@@ -202,9 +202,9 @@ pub(crate) fn action_function_call(
             }
             FunctionCallError::_EVMError => unreachable!(),
         },
-        Some(VMError::ExternalError(serialized_error)) => {
-            let err: ExternalError = borsh::BorshDeserialize::try_from_slice(&serialized_error)
-                .expect("External error deserialization shouldn't fail");
+        Some(VMError::ExternalError(any_err)) => {
+            let err: ExternalError =
+                any_err.downcast().expect("Downcasting AnyError should not fail");
             return match err {
                 ExternalError::StorageError(err) => Err(err.into()),
                 ExternalError::ValidatorError(err) => Err(RuntimeError::ValidatorError(err)),

@@ -9,6 +9,7 @@ import pathlib
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
+from configured_logger import logger
 from transaction import sign_deploy_contract_tx, sign_function_call_tx
 from utils import load_test_contract
 
@@ -19,13 +20,16 @@ CONFIG = {
 
 
 def figure_out_binary():
+    repo_dir = pathlib.Path(__file__).resolve().parents[3]
     # When run on NayDuck we end up with a binary called neard in target/debug
     # but when run locally the binary might be near-sandbox instead.  Try to
     # figure out whichever binary is available and use that.
     for release in ('release', 'debug'):
-        root = pathlib.Path('../target') / release
+        root = repo_dir / 'target' / release
         for exe in ('near-sandbox', 'neard'):
             if (root / exe).exists():
+                logger.info(
+                    f'Using {(root / exe).relative_to(repo_dir)} binary')
                 CONFIG['near_root'] = str(root)
                 CONFIG['binary_name'] = exe
                 return
