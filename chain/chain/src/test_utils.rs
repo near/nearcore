@@ -1469,10 +1469,17 @@ mod test {
         let prod_duration = start.elapsed();
         assert_eq!(naive_result, prod_result);
         // production implementation is at least 50% faster
-        assert!(2 * naive_duration > 3 * prod_duration);
+        assert!(
+            2 * naive_duration > 3 * prod_duration,
+            "naive duration vs production {:?} {:?}",
+            naive_duration,
+            prod_duration
+        );
     }
 
     #[test]
+    #[ignore]
+    /// Disabled, see more details in #5836
     fn test_build_receipt_hashes() {
         for num_shards in 1..10 {
             test_build_receipt_hashes_with_num_shard(num_shards);

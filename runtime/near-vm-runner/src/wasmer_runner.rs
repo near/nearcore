@@ -86,7 +86,7 @@ impl IntoVMError for wasmer_runtime::error::ResolveError {
 impl IntoVMError for wasmer_runtime::error::RuntimeError {
     fn into_vm_error(self) -> VMError {
         use wasmer_runtime::error::{InvokeError, RuntimeError};
-        match &self {
+        match self {
             RuntimeError::InvokeError(invoke_error) => match invoke_error {
                 // Indicates an exceptional circumstance such as a bug in Wasmer
                 // or a hardware failure.
@@ -189,17 +189,14 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
             RuntimeError::InstanceImage(_) => {
                 panic!("Support instance image errors properly");
             }
-            RuntimeError::User(data) => {
-                if let Some(err) = data.downcast_ref::<VMLogicError>() {
-                    err.into()
-                } else {
-                    panic!(
-                        "Bad error case! Output is non-deterministic {:?} {:?}",
-                        data.type_id(),
-                        self.to_string()
-                    );
-                }
-            }
+            RuntimeError::User(data) => match data.downcast::<VMLogicError>() {
+                Ok(err) => (*err).into(),
+                Err(data) => panic!(
+                    "Bad error case! Output is non-deterministic {:?} {:?}",
+                    data.type_id(),
+                    RuntimeError::User(data).to_string()
+                ),
+            },
         }
     }
 }
