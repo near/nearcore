@@ -12,7 +12,7 @@ use nearcore::migrations::load_migration_data;
 use nearcore::{get_default_home, get_store_path, load_config, NightshadeRuntime, TrackedConfig};
 
 fn get_receipt_hashes_in_repo() -> Vec<CryptoHash> {
-    let receipt_result = load_migration_data(&"mainnet".to_string()).restored_receipts;
+    let receipt_result = load_migration_data("mainnet").restored_receipts;
     let receipts = receipt_result.get(&0u64).unwrap();
     receipts.iter().map(|receipt| receipt.get_hash()).collect()
 }
