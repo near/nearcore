@@ -438,7 +438,7 @@ impl Client {
         let next_bp_hash = if prev_epoch_id != epoch_id {
             Chain::compute_bp_hash(
                 &*self.runtime_adapter,
-                next_epoch_id.clone(),
+                next_epoch_id,
                 epoch_id.clone(),
                 &prev_hash,
             )?
@@ -959,7 +959,7 @@ impl Client {
         if Some(&next_block_producer) == self.validator_signer.as_ref().map(|x| x.validator_id()) {
             self.collect_block_approval(&approval, ApprovalType::SelfApproval);
         } else {
-            debug!(target: "client", "Sending an approval {:?} from {} to {} for {}", approval.inner, approval.account_id, next_block_producer.clone(), approval.target_height);
+            debug!(target: "client", "Sending an approval {:?} from {} to {} for {}", approval.inner, approval.account_id, next_block_producer, approval.target_height);
             let approval_message = ApprovalMessage::new(approval, next_block_producer);
             self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Approval { approval_message },
