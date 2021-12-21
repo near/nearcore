@@ -41,8 +41,8 @@ A VM implementation must implement the Wasm specification precisely in order for
 considered correct. Typically the Wasm code will be generated as an output by compiling a program
 implemented in a higher level programming language. Often the compiler will optimize the produced
 Wasm code with the understanding that Wasm instructions behave as specified in the specification.
-Were a VM implementation deviate from specification in some way, there's a non-negligible risk that
-the contract would invoke behaviours not intended by the contract authors (for example allow
+Were a VM implementation to deviate from specification in some way, there's a non-negligible risk
+that a contract would invoke behaviours not intended by the contract authors (for example allow
 unauthorized users to transfer tokens.)
 
 In addition to this, the NEAR protocol adds a requirement that all executions of a Wasm program
@@ -71,13 +71,14 @@ correctly, so a special attention to how a runtime implements the floating point
 The required and desirable properties of a runtime implementation must remain true while the
 changes are made to it. Compilers and, by extension, runtimes are complex systems and a poor
 architecture may result in even simple changes introducing correctness or security bugs, which
-aren't necessarily easily discovered.
+aren't necessarily easily discoverable.
 
 A reliable code base in this sense should be architected in such a way that the algorithms they
-implement and the way they execute Wasm code remains correct by construction and is easy to verify.
+implement and the ways they execute Wasm code remain correct by construction and are easy to
+verify.
 
-Size of a test suite, architecture of the code base and the number of developers/users are all
-reasonably correlated signals as to the reliability which one can expect from a runtime.
+Size of the test suite, architecture of the code base, and the number of developers/users are all
+reasonably correlated to the reliability one can expect from an implementation of a runtime.
 
 ## Platform support
 
@@ -149,10 +150,9 @@ express via contracts running on the NEAR protocol. The cheaper it is to execute
 more approachable and usable the protocol is, so runtime performance is a direct consequence of the
 usability of the whole system as a whole.
 
-One of more costly operations that occurs in a typical contract quite often is accounting for gas
-costs, so it is quite important that the runtime gives sufficient flexibility to the NEAR
-validator to implement such operations efficiently. And, of course, general code quality also
-matters.
+One of the more costly operations that occurs in a typical contract quite often is accounting for
+gas fees. It is quite important that the runtime gives sufficient flexibility to the NEAR validator
+to implement such operations efficiently.
 
 # Evaluation
 
@@ -176,16 +176,20 @@ state between the individual Wasm instructions. This state allows `wasmer-single
 stack operations, pick more efficient instructions and sometimes avoid some operations such as NaN
 canonicalization altogether.
 
-Presence of this state comes at a cost of testability of implementation. The behaviour of the
-codegen can depend on prior Wasm instructions. Because of this there's a combinatorial explosion of
-the test cases that need to be considered and verified before confidence in the results can be
-established. Relatedly, at times it may also be difficult to validate changes made to the
-implementation of the `wasmer-singlepass` codegen. The global state is definitely a source of
-potential spooky action at a distance problems where changing code generation of a specific
-instruction affects correctness and behaviour of another one.
+Presence of this state comes at a cost of testability of implementation. The codegen for a given
+instruction can depend on prior Wasm instructions. Because of this there is a combinatorial
+explosion of instruction sequences that need to be considered and verified before confidence in the
+results can be established.
+
+Relatedly, at times it may also be difficult to validate changes made to the `wasmer-singlepass`
+compiler. The global state its implementation relies on is, at times, a source of
+[spooky action at a distance][spooky] problems – changing code generation of a specific instruction
+can affect the implementation of another unrelated instruction as well.
 
 The `wasmer-singlepass` backend currently only supports `x86_64` with `AVX` on Linux and, since
 very recently, Windows.
+
+[spooky]: https://en.wikipedia.org/wiki/Action_at_a_distance
 
 ## Cranelift codegen
 
