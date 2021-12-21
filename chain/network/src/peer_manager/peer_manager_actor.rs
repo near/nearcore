@@ -412,22 +412,14 @@ impl PeerManagerActor {
                     // We belong to this edge.
                     if self.connected_peers.contains_key(other_peer) {
                         // This is an active connection.
-                        match edge.edge_type() {
-                            EdgeState::Removed => {
-                                self.maybe_remove_connected_peer(ctx, edge.clone(), other_peer);
-                            }
-                            _ => {}
+                        if edge.edge_type() == EdgeState::Removed {
+                            self.maybe_remove_connected_peer(ctx, edge.clone(), other_peer);
                         }
-                    } else {
-                        match edge.edge_type() {
-                            EdgeState::Active => {
-                                // We are not connected to this peer, but routing table contains
-                                // information that we do. We should wait and remove that peer
-                                // from routing table
-                                self.wait_peer_or_remove(ctx, edge.clone());
-                            }
-                            _ => {}
-                        }
+                    } else if edge.edge_type() == EdgeState::Active {
+                        // We are not connected to this peer, but routing table contains
+                        // information that we do. We should wait and remove that peer
+                        // from routing table
+                        self.wait_peer_or_remove(ctx, edge.clone());
                     }
                 }
             }
@@ -519,6 +511,7 @@ impl PeerManagerActor {
     /// To build new edge between this pair of nodes both signatures are required.
     /// Signature from this node is passed in `edge_info`
     /// Signature from the other node is passed in `full_peer_info.edge_info`.
+    #[allow(clippy::too_many_arguments)]
     fn register_peer(
         &mut self,
         full_peer_info: FullPeerInfo,
