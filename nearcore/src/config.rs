@@ -479,7 +479,7 @@ impl Config {
         }
     }
 
-    pub fn rpc_addr(&self) -> Option<&String> {
+    pub fn rpc_addr(&self) -> Option<&str> {
         #[cfg(feature = "json_rpc")]
         if let Some(rpc) = &self.rpc {
             return Some(&rpc.addr);
@@ -621,7 +621,7 @@ impl NearConfig {
             client_config: ClientConfig {
                 version: Default::default(),
                 chain_id: genesis.config.chain_id.clone(),
-                rpc_addr: config.rpc_addr().map(|addr| addr.clone()),
+                rpc_addr: config.rpc_addr().map(|addr| addr.to_owned()),
                 block_production_tracking_delay: config.consensus.block_production_tracking_delay,
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
@@ -717,7 +717,7 @@ impl NearConfig {
         }
     }
 
-    pub fn rpc_addr(&self) -> Option<&String> {
+    pub fn rpc_addr(&self) -> Option<&str> {
         #[cfg(feature = "json_rpc")]
         if let Some(rpc) = &self.rpc_config {
             return Some(&rpc.addr);
@@ -1078,14 +1078,14 @@ pub fn init_testnet_configs(
     }
 }
 
-pub fn get_genesis_url(chain_id: &String) -> String {
+pub fn get_genesis_url(chain_id: &str) -> String {
     format!(
         "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/genesis.json",
         chain_id,
     )
 }
 
-pub fn get_config_url(chain_id: &String) -> String {
+pub fn get_config_url(chain_id: &str) -> String {
     format!(
         "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/config.json",
         chain_id,
@@ -1155,13 +1155,13 @@ pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     })
 }
 
-pub fn download_genesis(url: &String, path: &Path) {
+pub fn download_genesis(url: &str, path: &Path) {
     info!(target: "near", "Downloading genesis file from: {} ...", url);
     download_file(url, path).expect("Failed to download the genesis file");
     info!(target: "near", "Saved the genesis file to: {} ...", path.display());
 }
 
-pub fn download_config(url: &String, path: &Path) {
+pub fn download_config(url: &str, path: &Path) {
     info!(target: "near", "Downloading config file from: {} ...", url);
     download_file(url, path).expect("Failed to download the configuration file");
     info!(target: "near", "Saved the config file to: {} ...", path.display());
