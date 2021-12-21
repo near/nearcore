@@ -7,6 +7,7 @@ pub(crate) mod ibf_peer_set;
 pub(crate) mod ibf_set;
 pub(crate) mod network_protocol;
 mod route_back_cache;
+#[allow(clippy::module_inception)]
 pub(crate) mod routing;
 pub(crate) mod routing_table_actor;
 

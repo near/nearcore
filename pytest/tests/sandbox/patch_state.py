@@ -43,19 +43,19 @@ figure_out_binary()
 nodes = start_cluster(1, 0, 1, CONFIG, [["epoch_length", 10]], {})
 
 # deploy contract
-hash_ = nodes[0].get_latest_block().hash
+hash_ = nodes[0].get_latest_block().hash_bytes
 tx = sign_deploy_contract_tx(nodes[0].signer_key, load_test_contract(), 10,
                              hash_)
 nodes[0].send_tx(tx)
 time.sleep(3)
 
 # store a key value
-hash_2 = nodes[0].get_latest_block().hash
+hash_ = nodes[0].get_latest_block().hash_bytes
 k = (10).to_bytes(8, byteorder="little")
 v = (20).to_bytes(8, byteorder="little")
 tx2 = sign_function_call_tx(nodes[0].signer_key, nodes[0].signer_key.account_id,
                             'write_key_value', k + v, 1000000000000, 0, 20,
-                            hash_2)
+                            hash_)
 res = nodes[0].send_tx_and_wait(tx2, 20)
 assert ('SuccessValue' in res['result']['status'])
 res = nodes[0].call_function("test0", "read_value",
