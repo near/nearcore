@@ -543,8 +543,6 @@ impl BlockSync {
         let head = chain.head()?;
         let header_head = chain.header_head()?;
 
-        debug!(target: "sync", "Block sync: {}/{} requesting block {} from {} peers", head.height, header_head.height, next_hash, highest_height_peers.len());
-
         let gc_stop_height = chain.runtime_adapter.get_gc_stop_height(&header_head.last_block_hash);
 
         let request_from_archival = self.archive && request.height < gc_stop_height;
@@ -557,12 +555,17 @@ impl BlockSync {
         };
 
         if let Some(peer) = peer {
+            debug!(target: "sync", "Block sync: {}/{} requesting block {} from {} (out of {} peers)",
+		   head.height, header_head.height, next_hash, peer.peer_info.id, highest_height_peers.len());
             self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::BlockRequest {
                     hash: request.hash,
                     peer_id: peer.peer_info.id.clone(),
                 },
             ));
+        } else {
+            warn!(target: "sync", "Block sync: {}/{} No available {}peers to request block {} from",
+		  head.height, header_head.height, if request_from_archival { "archival " } else { "" }, next_hash);
         }
 
         self.last_request = Some(request);
