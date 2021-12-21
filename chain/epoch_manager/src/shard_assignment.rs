@@ -184,19 +184,43 @@ mod tests {
     #[test]
     fn test_exponential_distribution_few_shards() {
         // algorithm works well when there are few shards relative to the number of chunk producers
-        test_exponential_distribution_common(3, 3);
+        test_distribution_common(&EXPONENTIAL_STAKES, 3, 3);
     }
 
     #[test]
     fn test_exponential_distribution_several_shards() {
         // algorithm performs less well when there are more shards
-        test_exponential_distribution_common(6, 13);
+        test_distribution_common(&EXPONENTIAL_STAKES, 6, 13);
     }
 
     #[test]
     fn test_exponential_distribution_many_shards() {
         // algorithm performs even worse when there are many shards
-        test_exponential_distribution_common(24, 41);
+        test_distribution_common(&EXPONENTIAL_STAKES, 24, 41);
+    }
+
+    /// Tests situation where assigning with possible repeats encounters a state
+    /// in which the same validator would end up assigned to the same shard
+    /// twice.
+    ///
+    /// The way this scenario works is as follows.  There are three validators
+    /// [100, 90, 81] and they are distributed among two shards.  First the code
+    /// will assign 100 to shard 0 and then 90 to shard 1.  At that point, both
+    /// shards will have one validator but shard 1 will have less total stake so
+    /// the code will assign validator 81 to it.  In the last step, shard 0 will
+    /// have only one validator so the code will try to assign validator 100 to
+    /// it.  However, that validator is already assigned to that shard.
+    ///
+    /// Note that this case is currently broken and hence marking it as
+    /// `should_panic`.
+    ///
+    /// TODO(#5932): This needs to be fixed.
+    #[test]
+    #[should_panic(
+        expected = "cp_iter should contain enough elements to minimally fill each shard"
+    )]
+    fn test_duplicate_validator() {
+        test_distribution_common(&EXPONENTIAL_STAKES[..3], 2, 3);
     }
 
     #[test]
@@ -235,8 +259,7 @@ mod tests {
         assert_eq!(stake_1, 90);
     }
 
-    fn test_exponential_distribution_common(num_shards: NumShards, diff_tolerance: i128) {
-        let stakes = &EXPONENTIAL_STAKES;
+    fn test_distribution_common(stakes: &[Balance], num_shards: NumShards, diff_tolerance: i128) {
         let chunk_producers = make_validators(stakes);
         let min_validators_per_shard = 2;
 
