@@ -439,7 +439,7 @@ dependencies = [
  "cfg-if 1.0.0",
  "libc",
  "miniz_oxide",
- "object 0.23.0",
+ "object",
  "rustc-demangle",
 ]
 
@@ -2243,15 +2243,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "js-sys"
-version = "0.3.55"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cc9ffccd38c451a86bf13657df244e9c3f37493cce8e5e21e940963777acc84"
-dependencies = [
- "wasm-bindgen",
-]
-
-[[package]]
 name = "keccak"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3279,6 +3270,7 @@ dependencies = [
  "assert_matches",
  "base64 0.13.0",
  "borsh 0.9.1",
+ "loupe",
  "memoffset",
  "near-cache",
  "near-primitives",
@@ -3292,9 +3284,10 @@ dependencies = [
  "serde",
  "threadpool",
  "tracing",
+ "wasmer-compiler-near",
  "wasmer-compiler-singlepass-near",
+ "wasmer-engine-near",
  "wasmer-engine-universal-near",
- "wasmer-near",
  "wasmer-runtime-core-near",
  "wasmer-runtime-near",
  "wasmer-types-near",
@@ -3546,17 +3539,6 @@ checksum = "a9a7ab5d64814df0fe4a4b5ead45ed6c5f181ee3ff04ba344313a6c80446c5d4"
 dependencies = [
  "crc32fast",
  "indexmap",
-]
-
-[[package]]
-name = "object"
-version = "0.27.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67ac1d3f9a1d3616fd9a60c8d74296f22406a238b6a72f5cc1e6f314df4ffbf9"
-dependencies = [
- "crc32fast",
- "indexmap",
- "memchr",
 ]
 
 [[package]]
@@ -5316,7 +5298,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "375a639232caf30edfc78e8d89b2d4c375515393e7af7e16f01cd96917fb2105"
 dependencies = [
  "cfg-if 1.0.0",
- "log",
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
@@ -5667,25 +5648,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasmer-compiler"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0f7a9201a79b68fe6427afa7835828b23647ef75f8a7aa212ec112f1625eeb1"
-dependencies = [
- "enumset",
- "loupe",
- "rkyv",
- "serde",
- "serde_bytes",
- "smallvec",
- "target-lexicon 0.12.2",
- "thiserror",
- "wasmer-types",
- "wasmer-vm",
- "wasmparser 0.78.2",
-]
-
-[[package]]
 name = "wasmer-compiler-near"
 version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5722,63 +5684,6 @@ dependencies = [
  "wasmer-compiler-near",
  "wasmer-types-near",
  "wasmer-vm-near",
-]
-
-[[package]]
-name = "wasmer-derive-near"
-version = "2.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c3fcfc8f5838baf311380dcf3ef9843120967ddb073273aa514a4009f50f052"
-dependencies = [
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "wasmer-engine"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae9202a77333cfad9a32d33862dda7c1a981c3f17139f3da44a447df6b56ae4d"
-dependencies = [
- "backtrace",
- "enumset",
- "lazy_static",
- "loupe",
- "memmap2 0.5.0",
- "more-asserts",
- "rustc-demangle",
- "serde",
- "serde_bytes",
- "target-lexicon 0.12.2",
- "thiserror",
- "wasmer-compiler",
- "wasmer-types",
- "wasmer-vm",
-]
-
-[[package]]
-name = "wasmer-engine-dylib"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d633a81aa4278720ef476f9800efafccc4616d55f6e4fb079f6f268bd2df0a5c"
-dependencies = [
- "cfg-if 1.0.0",
- "enumset",
- "leb128",
- "libloading",
- "loupe",
- "rkyv",
- "serde",
- "tempfile",
- "tracing",
- "wasmer-compiler",
- "wasmer-engine",
- "wasmer-object",
- "wasmer-types",
- "wasmer-vm",
- "which",
 ]
 
 [[package]]
@@ -5820,43 +5725,6 @@ dependencies = [
  "wasmer-types-near",
  "wasmer-vm-near",
  "winapi",
-]
-
-[[package]]
-name = "wasmer-near"
-version = "2.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89b1428287e6fff52908b7c74e88f49b557d3e71b6b94b67ce532bcd5f872194"
-dependencies = [
- "cfg-if 1.0.0",
- "indexmap",
- "js-sys",
- "loupe",
- "more-asserts",
- "target-lexicon 0.12.2",
- "thiserror",
- "wasm-bindgen",
- "wasmer-compiler-near",
- "wasmer-compiler-singlepass-near",
- "wasmer-derive-near",
- "wasmer-engine-dylib",
- "wasmer-engine-near",
- "wasmer-engine-universal-near",
- "wasmer-types-near",
- "wasmer-vm-near",
- "winapi",
-]
-
-[[package]]
-name = "wasmer-object"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a94c41ae3e6df06eec59bf781043119b85d50da3e9886c2c4bf5d2e64d3532d8"
-dependencies = [
- "object 0.27.1",
- "thiserror",
- "wasmer-compiler",
- "wasmer-types",
 ]
 
 [[package]]
@@ -5924,19 +5792,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasmer-types"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "191ca11a0b1635690bbdfa1d8b677c0717a307b57064de4c8d7b579ce960fd57"
-dependencies = [
- "indexmap",
- "loupe",
- "rkyv",
- "serde",
- "thiserror",
-]
-
-[[package]]
 name = "wasmer-types-near"
 version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5947,28 +5802,6 @@ dependencies = [
  "rkyv",
  "serde",
  "thiserror",
-]
-
-[[package]]
-name = "wasmer-vm"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "721f7570037d25e5215f74e44af6d644a8cee10cc3df7825d03ff4179a8f6004"
-dependencies = [
- "backtrace",
- "cc",
- "cfg-if 1.0.0",
- "indexmap",
- "libc",
- "loupe",
- "memoffset",
- "more-asserts",
- "region 3.0.0",
- "rkyv",
- "serde",
- "thiserror",
- "wasmer-types",
- "winapi",
 ]
 
 [[package]]
@@ -6078,7 +5911,7 @@ dependencies = [
  "anyhow",
  "gimli",
  "more-asserts",
- "object 0.23.0",
+ "object",
  "target-lexicon 0.11.2",
  "thiserror",
  "wasmparser 0.76.0",
@@ -6123,7 +5956,7 @@ dependencies = [
  "gimli",
  "log",
  "more-asserts",
- "object 0.23.0",
+ "object",
  "region 2.2.0",
  "serde",
  "target-lexicon 0.11.2",
@@ -6159,7 +5992,7 @@ checksum = "a79fa098a3be8fabc50f5be60f8e47694d569afdc255de37850fc80295485012"
 dependencies = [
  "anyhow",
  "more-asserts",
- "object 0.23.0",
+ "object",
  "target-lexicon 0.11.2",
  "wasmtime-debug",
  "wasmtime-environ",
@@ -6221,17 +6054,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "adcfaeb27e2578d2c6271a45609f4a055e6d7ba3a12eff35b1fd5ba147bdf046"
 dependencies = [
  "wast",
-]
-
-[[package]]
-name = "which"
-version = "4.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea187a8ef279bc014ec368c27a920da2024d2a711109bfbe3440585d5cf27ad9"
-dependencies = [
- "either",
- "lazy_static",
- "libc",
 ]
 
 [[package]]

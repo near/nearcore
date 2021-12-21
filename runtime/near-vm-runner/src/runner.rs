@@ -35,7 +35,7 @@ pub fn run(
     cache: Option<&dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let vm_kind = VMKind::for_protocol_version(current_protocol_version);
-    if let Some(runtime) = vm_kind.runtime() {
+    if let Some(runtime) = vm_kind.runtime(wasm_config.clone()) {
         runtime.run(
             code,
             method_name,
@@ -98,22 +98,22 @@ impl VMKind {
     /// Make a [`Runtime`] for this [`VMKind`].
     ///
     /// This is not intended to be used by code other than standalone-vm-runner.
-    pub fn runtime(&self) -> Option<&'static dyn VM> {
+    pub fn runtime(&self, config: VMConfig) -> Option<Box<dyn VM>> {
         match self {
             #[cfg(feature = "wasmer0_vm")]
             Self::Wasmer0 => {
                 use crate::wasmer_runner::Wasmer0VM;
-                Some(&Wasmer0VM as &'static dyn VM)
+                Some(Box::new(Wasmer0VM))
             }
             #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime => {
                 use crate::wasmtime_runner::WasmtimeVM;
-                Some(&WasmtimeVM as &'static dyn VM)
+                Some(Box::new(WasmtimeVM))
             }
             #[cfg(feature = "wasmer2_vm")]
             Self::Wasmer2 => {
                 use crate::wasmer2_runner::Wasmer2VM;
-                Some(&Wasmer2VM as &'static dyn VM)
+                Some(Box::new(Wasmer2VM::new(config)))
             }
             #[allow(unreachable_patterns)] // reachable when some of the VMs are disabled.
             _ => None,
