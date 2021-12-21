@@ -11,7 +11,7 @@ use near_primitives::num_rational::Rational;
 
 use near_actix_test_utils::run_actix;
 use near_chain::chain::{ApplyStatePartsRequest, NUM_EPOCHS_TO_KEEP_STORE_DATA};
-use near_chain::types::LatestKnown;
+use near_chain::types::{LatestKnown, PartId};
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{
     Block, ChainGenesis, ChainStore, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter,
@@ -68,17 +68,6 @@ use near_store::test_utils::create_test_store;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::{TrackedConfig, NEAR_BASE};
 use rand::Rng;
-
-pub struct PartId {
-    pub idx: u64,
-    pub total: u64,
-}
-impl PartId {
-    pub fn new(part_id: u64, num_parts: u64) -> Result<PartId, Err> {
-        assert!(part_id.idx < part_id.total);
-        PartId { idx: part_id, total: num_parts }
-    }
-}
 
 pub fn set_block_protocol_version(
     block: &mut Block,
@@ -1597,12 +1586,7 @@ fn test_process_block_after_state_sync() {
         .clone();
     let state_part = env.clients[0]
         .runtime_adapter
-        .obtain_state_part(
-            0,
-            &sync_hash,
-            chunk_extra.state_root(),
-            near_chain::types::PartId::new(0, 1),
-        )
+        .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), PartId::new(0, 1))
         .unwrap();
     // reset cache
     for i in epoch_length * 3 - 1..sync_height - 1 {
@@ -4097,12 +4081,7 @@ mod contract_precompilation_tests {
             env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
         let state_part = env.clients[0]
             .runtime_adapter
-            .obtain_state_part(
-                0,
-                &sync_hash,
-                chunk_extra.state_root(),
-                near_chain::types::PartId::new(0, 1),
-            )
+            .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), PartId::new(0, 1))
             .unwrap();
         env.clients[1]
             .runtime_adapter

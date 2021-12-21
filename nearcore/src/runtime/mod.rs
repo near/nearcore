@@ -10,7 +10,7 @@ use tracing::{debug, error, info, warn};
 
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::{
-    ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier,
+    ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, PartId, ValidatorInfoIdentifier,
 };
 use near_chain::{BlockHeader, Doomslug, DoomslugThresholdMode, Error, ErrorKind, RuntimeAdapter};
 use near_chain_configs::{Genesis, GenesisConfig, ProtocolConfig};
@@ -1585,7 +1585,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         block_hash: &CryptoHash,
         state_root: &StateRoot,
-        part_id: near_chain::types::PartId,
+        part_id: PartId,
     ) -> Result<Vec<u8>, Error> {
         let epoch_id = self.get_epoch_id(block_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
@@ -1605,12 +1605,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(result)
     }
 
-    fn validate_state_part(
-        &self,
-        state_root: &StateRoot,
-        part_id: near_chain::types::PartId,
-        data: &Vec<u8>,
-    ) -> bool {
+    fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &Vec<u8>) -> bool {
         match BorshDeserialize::try_from_slice(data) {
             Ok(trie_nodes) => {
                 match Trie::validate_trie_nodes_for_part(
@@ -2635,12 +2630,7 @@ mod test {
         let block_hash = hash(&vec![env.head.height as u8]);
         let state_part = env
             .runtime
-            .obtain_state_part(
-                0,
-                &block_hash,
-                &env.state_roots[0],
-                near_chain::types::PartId::new(0, 1),
-            )
+            .obtain_state_part(0, &block_hash, &env.state_roots[0], PartId::new(0, 1))
             .unwrap();
         let root_node =
             env.runtime.get_state_root_node(0, &block_hash, &env.state_roots[0]).unwrap();
@@ -2692,12 +2682,12 @@ mod test {
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
         assert!(!new_env.runtime.validate_state_part(
             &StateRoot::default(),
-            near_chain::types::PartId { idx: 0, total: 1 },
+            PartId { idx: 0, total: 1 },
             &state_part
         ));
         new_env.runtime.validate_state_part(
             &env.state_roots[0],
-            near_chain::types::PartId { idx: 0, total: 1 },
+            PartId { idx: 0, total: 1 },
             &state_part,
         );
         let epoch_id = &new_env.head.epoch_id;

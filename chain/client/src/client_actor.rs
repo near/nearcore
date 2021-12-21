@@ -71,6 +71,8 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::syncing::StatePartKey;
 use near_store::db::DBCol::ColStateParts;
 
+use near_chain;
+
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
 /// Drop blocks whose height are beyond head + horizon if it is not in the current epoch.
@@ -105,18 +107,6 @@ pub struct ClientActor {
     block_catch_up_scheduler: Box<dyn Fn(BlockCatchUpRequest)>,
     state_split_scheduler: Box<dyn Fn(StateSplitRequest)>,
     state_parts_client_arbiter: Arbiter,
-}
-
-// to specify a part we always specify both part_id and num_parts together
-pub struct PartId {
-    pub idx: u64,
-    pub total: u64,
-}
-impl PartId {
-    pub fn new(part_id: u64, num_parts: u64) -> PartId {
-        assert!(part_id < num_parts);
-        PartId { idx: part_id, total: num_parts }
-    }
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -535,7 +525,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                     match self.client.chain.set_state_part(
                                         shard_id,
                                         hash,
-                                        &PartId::new(part_id, num_parts),
+                                        &near_chain::PartId::new(part_id, num_parts),
                                         &data,
                                     ) {
                                         Ok(()) => {

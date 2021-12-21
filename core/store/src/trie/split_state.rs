@@ -42,8 +42,10 @@ impl Trie {
     ) -> Result<Vec<TrieItem>, StorageError> {
         assert!(self.storage.as_caching_storage().is_some());
 
-        let path_begin = self.find_path_for_part_boundary(state_root, part_id.idx, part_id.total)?;
-        let path_end = self.find_path_for_part_boundary(state_root, part_id.idx + 1, part_id.total)?;
+        let path_begin =
+            self.find_path_for_part_boundary(state_root, part_id.idx, part_id.total)?;
+        let path_end =
+            self.find_path_for_part_boundary(state_root, part_id.idx + 1, part_id.total)?;
         self.iter(state_root)?.get_trie_items(&path_begin, &path_end)
     }
 }
@@ -336,7 +338,9 @@ pub fn get_delayed_receipts(
 
 #[cfg(test)]
 mod tests {
-    use crate::split_state::{apply_delayed_receipts_to_split_states_impl, get_delayed_receipts,PartId};
+    use crate::split_state::{
+        apply_delayed_receipts_to_split_states_impl, get_delayed_receipts, PartId,
+    };
     use crate::test_utils::{
         create_tries, gen_changes, gen_larger_changes, gen_receipts, gen_unique_accounts,
         simplify_changes, test_populate_trie,
@@ -449,12 +453,14 @@ mod tests {
         expected_trie_items.sort();
 
         let trie = tries.get_trie_for_shard(ShardUId::single_shard());
-        let total_trie_items = trie.get_trie_items_for_part(PartId::new(0, 1), &state_root).unwrap();
+        let total_trie_items =
+            trie.get_trie_items_for_part(PartId::new(0, 1), &state_root).unwrap();
         assert_eq!(expected_trie_items, total_trie_items);
 
         let mut combined_trie_items = vec![];
         for part_id in 0..num_parts {
-            let trie_items = trie.get_trie_items_for_part(PartId::new(part_id, num_parts), &state_root).unwrap();
+            let trie_items =
+                trie.get_trie_items_for_part(PartId::new(part_id, num_parts), &state_root).unwrap();
             combined_trie_items.extend_from_slice(&trie_items);
             // check that items are split relatively evenly across all parts
             assert!(
