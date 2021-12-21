@@ -3,9 +3,9 @@ conclusions we made after evaluating a number of VM backends and frontends.
 
 # Criteria
 
-There are a number criteria which have been used to evaluate a Wasm runtime for use in a NEAR
-validator. Some of the criteria are already listed in the [FAQ] document and here we take a more
-thorough look. Listed roughly in the order of importance:
+A number criteria have been used to evaluate a Wasm runtime for use in the implementation of the
+NEAR protocol. Some of the criteria are already listed in the [FAQ] document and this document
+gives a more thorough look. Listed roughly in the order of importance:
 
 * security – how well does the runtime deal with untrusted input;
 * correctness – does the runtime do what it claims to do;
@@ -17,7 +17,7 @@ thorough look. Listed roughly in the order of importance:
 
 # Requirements
 
-Within each criteria we have specific requirements relevant to the NEAR validator.
+Within each criteria we have specific requirements relevant to the NEAR protocol.
 
 ## Security
 
@@ -58,7 +58,7 @@ A particularly troublesome area of the specification in this regard relates to t
 support. The specification permits floating point operations to return a `NaN` result which the
 specification also permits to have multiple different bit representations and goes out of its way
 to specify the sign of the `NaN` result to be non-deterministic. The determinism and
-reproducibility requirements of a NEAR validator make it necessary for the runtime to ensure NaN
+reproducibility requirements of the NEAR protocol make it necessary for the runtime to ensure NaN
 signs and payloads are always deterministic.
 
 Another detail to keep an eye out is whether the floating point results are being rounded
@@ -206,7 +206,7 @@ an in-depth explanation of the Cranelift's architecture.
 [clift-cg-primer]: https://blog.benj.me/2021/02/17/cranelift-codegen-primer/
 
 A Wasm codegen implementation in a browser shares many of the requirements with those of the NEAR
-validator. Cranelift gets high scores for its Correctness, Reliability and Security properties.
+protocol. Cranelift gets high scores for its Correctness, Reliability and Security properties.
 It supports targeting the Arm, s390x and x86_64 architectures as well as a variety of
 operating systems, netting it a high score on the platform support metric as well.
 
