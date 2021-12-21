@@ -22,7 +22,7 @@ fn bench_lru_cache(bench: &mut Bencher) {
         for _x in 0..1000000 {
             let a = rand::random::<u64>();
             let b = rand::random::<u64>();
-            cache.insert(a, b);
+            cache.put(a, b);
         }
     });
 }

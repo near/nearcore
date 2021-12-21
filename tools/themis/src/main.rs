@@ -1,45 +1,7 @@
-use cargo_metadata::camino::Utf8PathBuf;
-
 mod rules;
 mod style;
-#[macro_use]
+mod types;
 mod utils;
-
-#[derive(Debug)]
-pub struct Package {
-    parsed: cargo_metadata::Package,
-    raw: toml::Value,
-}
-
-#[derive(Debug)]
-pub struct Workspace {
-    root: Utf8PathBuf,
-    members: Vec<Package>,
-}
-
-#[derive(Debug)]
-pub struct PackageOutcome<'a> {
-    pkg: &'a Package,
-    value: Option<String>,
-}
-
-#[derive(Debug)]
-pub struct Expected {
-    value: String,
-    reason: Option<String>,
-}
-
-#[derive(Debug)]
-pub enum Error<'a> {
-    OutcomeError { msg: String, expected: Option<Expected>, outliers: Vec<PackageOutcome<'a>> },
-    RuntimeError(anyhow::Error),
-}
-
-impl<'a, E: Into<anyhow::Error>> From<E> for Error<'a> {
-    fn from(err: E) -> Self {
-        Error::RuntimeError(err.into())
-    }
-}
 
 fn main() -> anyhow::Result<()> {
     let workspace = utils::parse_workspace()?;
@@ -69,7 +31,10 @@ fn main() -> anyhow::Result<()> {
     let mut failed = false;
 
     for rule in rules {
-        failed |= utils::check_and_report(rule(&workspace), &workspace)?;
+        if let Err(err) = rule(&workspace) {
+            failed |= true;
+            err.downcast::<types::ComplianceError>()?.report(&workspace);
+        }
     }
 
     if failed {
