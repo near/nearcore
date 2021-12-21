@@ -119,7 +119,7 @@ impl EpochSync {
             peer_to_last_request_time: HashMap::new(),
             peers_reporting_up_to_date: HashSet::new(),
             current_epoch_id: genesis_epoch_id.clone(),
-            next_epoch_id: genesis_next_epoch_id.clone(),
+            next_epoch_id: genesis_next_epoch_id,
             next_block_producers: first_epoch_block_producers,
             requested_epoch_id: genesis_epoch_id,
             last_request_time: Clock::utc(),
@@ -201,7 +201,7 @@ impl HeaderSync {
             *sync_status =
                 SyncStatus::HeaderSync { current_height: header_head.height, highest_height };
             self.syncing_peer = None;
-            if let Some(peer) = highest_height_peer(&highest_height_peers) {
+            if let Some(peer) = highest_height_peer(highest_height_peers) {
                 if peer.chain_info.height > header_head.height {
                     self.syncing_peer = self.request_headers(chain, peer);
                 }
@@ -1023,7 +1023,7 @@ impl StateSync {
         self.last_part_id_requested.retain(|_, request| !request.expired());
 
         let prev_block_hash = chain.get_block_header(&sync_hash)?.prev_hash();
-        let epoch_hash = runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash)?;
+        let epoch_hash = runtime_adapter.get_epoch_id_from_prev_block(prev_block_hash)?;
 
         Ok(runtime_adapter
             .get_epoch_block_producers_ordered(&epoch_hash, &sync_hash)?
@@ -1032,7 +1032,7 @@ impl StateSync {
                 let account_id = validator_stake.account_id();
                 if runtime_adapter.cares_about_shard(
                     Some(account_id),
-                    &prev_block_hash,
+                    prev_block_hash,
                     shard_id,
                     false,
                 ) {
@@ -1290,7 +1290,7 @@ mod test {
 
     use super::*;
     use crate::test_utils::TestEnv;
-    use near_network::routing::EdgeInfo;
+    use near_network::types::PartialEdgeInfo;
     use near_network::PeerInfo;
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
@@ -1334,15 +1334,31 @@ mod test {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(prev, &*signer);
             chain
-                .process_block(&None, block.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+                .process_block(
+                    &None,
+                    block.into(),
+                    Provenance::PRODUCED,
+                    |_| {},
+                    |_| {},
+                    |_| {},
+                    |_| {},
+                )
                 .unwrap();
         }
         let (mut chain2, _, signer2) = setup();
         for _ in 0..5 {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
-            let block = Block::empty(&prev, &*signer2);
+            let block = Block::empty(prev, &*signer2);
             chain2
-                .process_block(&None, block.into(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+                .process_block(
+                    &None,
+                    block.into(),
+                    Provenance::PRODUCED,
+                    |_| {},
+                    |_| {},
+                    |_| {},
+                    |_| {},
+                )
                 .unwrap();
         }
         let mut sync_status = SyncStatus::NoSync;
@@ -1357,7 +1373,7 @@ mod test {
                 tracked_shards: vec![],
                 archival: false,
             },
-            edge_info: EdgeInfo::default(),
+            partial_edge_info: PartialEdgeInfo::default(),
         };
         let head = chain.head().unwrap();
         assert!(header_sync
@@ -1407,7 +1423,7 @@ mod test {
                     account_id: None,
                 },
                 chain_info: Default::default(),
-                edge_info: Default::default(),
+                partial_edge_info: Default::default(),
             });
             header_sync.syncing_peer.as_mut().unwrap().chain_info.height = highest_height;
         };
@@ -1462,7 +1478,7 @@ mod test {
             let block = Block::produce(
                 PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
-                &last_block.header(),
+                last_block.header(),
                 current_height,
                 last_block.header().block_ordinal() + 1,
                 last_block.chunks().iter().cloned().collect(),
@@ -1496,7 +1512,7 @@ mod test {
             set_syncing_peer(&mut header_sync);
             header_sync.header_sync_due(
                 &SyncStatus::HeaderSync { current_height, highest_height },
-                &Tip::from_header(&block.header()),
+                &Tip::from_header(block.header()),
                 highest_height,
             );
 
@@ -1514,7 +1530,7 @@ mod test {
             set_syncing_peer(&mut header_sync);
             header_sync.header_sync_due(
                 &SyncStatus::HeaderSync { current_height, highest_height },
-                &Tip::from_header(&block.header()),
+                &Tip::from_header(block.header()),
                 highest_height,
             );
 
@@ -1561,7 +1577,7 @@ mod test {
                     account_id: None,
                 },
                 chain_info: Default::default(),
-                edge_info: Default::default(),
+                partial_edge_info: Default::default(),
             })
             .collect()
     }
@@ -1604,7 +1620,7 @@ mod test {
             env.process_block(1, blocks[i - 1].clone(), Provenance::NONE);
         }
         block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
-        let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter.clone());
+        let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter);
         assert!(requested_block_hashes.is_empty());
     }
 
@@ -1637,7 +1653,7 @@ mod test {
         }
         let is_state_sync = block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);
-        let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter.clone());
+        let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter);
         assert_eq!(
             requested_block_hashes,
             blocks.iter().take(1).map(|b| *b.hash()).collect::<HashSet<_>>()

@@ -427,7 +427,7 @@ mod tests {
                 let signer = Arc::new(InMemorySigner::from_seed(
                     signer_id.clone(),
                     KeyType::ED25519,
-                    &signer_seed,
+                    signer_seed,
                 ));
                 SignedTransaction::send_money(
                     i,

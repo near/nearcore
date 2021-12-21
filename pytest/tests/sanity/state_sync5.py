@@ -1,15 +1,17 @@
+#!/usr/bin/env python3
 # Spin up one validator node and let it run for a while
 # Spin up another node that does state sync. Keep sending
 # transactions to that node and make sure it doesn't crash.
 
 import sys, time, base58
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster, Key
 from configured_logger import logger
 from transaction import sign_payment_tx
-from utils import LogTracker
+import utils
 
 MAX_SYNC_WAIT = 30
 EPOCH_LENGTH = 20
@@ -31,21 +33,14 @@ time.sleep(2)
 nodes[1].kill()
 logger.info('node1 is killed')
 
-status = nodes[0].get_status()
-block_hash = status['sync_info']['latest_block_hash']
-cur_height = status['sync_info']['latest_block_height']
-
-target_height = 60
-while cur_height < target_height:
-    status = nodes[0].get_status()
-    cur_height = status['sync_info']['latest_block_height']
-    time.sleep(1)
+cur_height, _ = utils.wait_for_blocks(nodes[0], target=60)
 
 genesis_block = nodes[0].json_rpc('block', [0])
 genesis_hash = genesis_block['result']['header']['hash']
+genesis_hash = base58.b58decode(genesis_hash.encode('ascii'))
 
 nodes[1].start(boot_node=nodes[1])
-tracker = LogTracker(nodes[1])
+tracker = utils.LogTracker(nodes[1])
 time.sleep(1)
 
 start_time = time.time()
@@ -55,11 +50,8 @@ while node1_height <= cur_height:
     if time.time() - start_time > MAX_SYNC_WAIT:
         assert False, "state sync timed out"
     if nonce % 5 == 0:
-        status1 = nodes[1].get_status()
-        logger.info(status1)
-        node1_height = status1['sync_info']['latest_block_height']
-    tx = sign_payment_tx(nodes[0].signer_key, 'test1', 1, nonce,
-                         base58.b58decode(genesis_hash.encode('utf8')))
+        node1_height = nodes[1].get_latest_block(verbose=True).height
+    tx = sign_payment_tx(nodes[0].signer_key, 'test1', 1, nonce, genesis_hash)
     nodes[1].send_tx(tx)
     nonce += 1
     time.sleep(0.05)

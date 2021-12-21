@@ -1,9 +1,12 @@
+#!/usr/bin/env python3
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
+import utils
 
 overtake = False  # create a new chain which is shorter than current one
 if "overtake" in sys.argv:
@@ -39,18 +42,9 @@ if not doomslug:
 started = time.time()
 
 time.sleep(2)
-logger.info("Waiting for %s blocks..." % BLOCKS)
-
-while True:
-    assert time.time() - started < TIMEOUT
-    status = nodes[0].get_status()
-    height = status['sync_info']['latest_block_height']
-    logger.info(status)
-    if height >= BLOCKS:
-        break
-    time.sleep(1)
-
-logger.info("Got to %s blocks, getting to fun stuff" % BLOCKS)
+logger.info(f'Waiting for {BLOCKS} blocks...')
+height, _ = utils.wait_for_blocks(nodes[0], target=BLOCKS, timeout=TIMEOUT)
+logger.info(f'Got to {height} blocks, getting to fun stuff')
 
 status = nodes[0].get_status()
 logger.info(f"STATUS OF HONEST {status}")

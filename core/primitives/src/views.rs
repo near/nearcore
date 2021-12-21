@@ -535,10 +535,7 @@ impl From<BlockHeaderView> for BlockHeader {
                         .collect(),
                     chunk_mask: view.chunk_mask,
                     gas_price: view.gas_price,
-                    block_ordinal: match view.block_ordinal {
-                        Some(value) => value,
-                        None => 0,
-                    },
+                    block_ordinal: view.block_ordinal.unwrap_or(0),
                     total_supply: view.total_supply,
                     challenges_result: view.challenges_result,
                     last_final_block: view.last_final_block,
@@ -1017,6 +1014,7 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                         cost_category: match cost {
                             Cost::ActionCost { .. } => "ACTION_COST",
                             Cost::ExtCost { .. } => "WASM_HOST_COST",
+                            Cost::WasmInstruction => "WASM_HOST_COST",
                         }
                         .to_string(),
                         cost: match cost {
@@ -1026,6 +1024,7 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                             Cost::ExtCost { ext_cost_kind: ext_cost } => {
                                 format!("{:?}", ext_cost).to_ascii_uppercase()
                             }
+                            Cost::WasmInstruction => "WASM_INSTRUCTION".to_string(),
                         },
                         gas_used: profile_data[cost],
                     })

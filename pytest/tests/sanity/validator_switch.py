@@ -1,15 +1,18 @@
+#!/usr/bin/env python3
 # Starts three validating nodes and one non-validating node
 # Make the validating nodes unstake and the non-validating node stake
 # so that the next epoch block producers set is completely different
 # Make sure all nodes can still sync.
 
 import sys, time, base58
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
 from transaction import sign_staking_tx
+import utils
 
 EPOCH_LENGTH = 20
 tracked_shards = {"tracked_shards": [0, 1, 2, 3]}
@@ -24,50 +27,39 @@ nodes = start_cluster(
 
 time.sleep(3)
 
-status = nodes[0].get_status()
-hash_ = status['sync_info']['latest_block_hash']
+hash_ = nodes[0].get_latest_block().hash_bytes
 
 for i in range(4):
     stake = 50000000000000000000000000000000 if i == 3 else 0
     tx = sign_staking_tx(nodes[i].signer_key, nodes[i].validator_key, stake, 1,
-                         base58.b58decode(hash_.encode('utf8')))
+                         hash_)
     nodes[0].send_tx(tx)
     logger.info("test%s stakes %d" % (i, stake))
 
-cur_height = 0
-while cur_height < EPOCH_LENGTH * 2:
-    status = nodes[0].get_status()
-    cur_height = status['sync_info']['latest_block_height']
+for cur_height, _ in utils.poll_blocks(nodes[0], poll_interval=1):
+    if cur_height >= EPOCH_LENGTH * 2:
+        break
     if cur_height > EPOCH_LENGTH + 1:
-        validator_info = nodes[0].json_rpc('validators', 'latest')
-        assert len(
-            validator_info['result']
-            ['next_validators']) == 1, "Number of validators do not match"
-        assert validator_info['result']['next_validators'][0][
-            'account_id'] == "test3"
-    time.sleep(1)
+        info = nodes[0].json_rpc('validators', 'latest')
+        count = len(info['result']['next_validators'])
+        assert count == 1, 'Number of validators do not match'
+        validator = info['result']['next_validators'][0]['account_id']
+        assert validator == 'test3'
 
-synced = False
 while cur_height <= EPOCH_LENGTH * 3:
-    statuses = []
-    for i, node in enumerate(nodes):
-        cur_status = node.get_status()
-        statuses.append((i, cur_status['sync_info']['latest_block_height'],
-                         cur_status['sync_info']['latest_block_hash']))
-    statuses.sort(key=lambda x: x[1])
-    last = statuses[-1]
-    cur_height = last[1]
+    statuses = sorted((enumerate(node.get_latest_block() for node in nodes)),
+                      key=lambda element: element[1].height)
+    last = statuses.pop()
+    cur_height = last[1].height
     node = nodes[last[0]]
     succeed = True
-    for i in range(len(statuses) - 1):
-        status = statuses[i]
+    for _, block in statuses:
         try:
-            node.get_block(status[-1])
+            node.get_block(block.hash)
         except Exception:
             succeed = False
             break
-    if statuses[0][1] > EPOCH_LENGTH * 2 + 5 and succeed:
-        exit(0)
+    if statuses[0][1].height > EPOCH_LENGTH * 2 + 5 and succeed:
+        sys.exit(0)
 
-if not synced:
-    assert False, "Nodes are not synced"
+assert False, 'Nodes are not synced'

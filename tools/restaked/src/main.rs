@@ -58,7 +58,7 @@ fn main() {
         )
         .get_matches();
 
-    let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
+    let home_dir = matches.value_of("home").map(Path::new).unwrap();
     let wait_period = matches
         .value_of("wait-period")
         .map(|s| s.parse().expect("Wait period must be a number"))

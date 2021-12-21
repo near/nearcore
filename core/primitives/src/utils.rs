@@ -191,7 +191,7 @@ pub fn get_block_shard_id_rev(
             std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid key length").into()
         );
     }
-    let block_hash_vec: Vec<u8> = key[0..32].iter().cloned().collect();
+    let block_hash_vec: Vec<u8> = key[0..32].to_vec();
     let block_hash = CryptoHash::try_from(block_hash_vec)?;
     let mut shard_id_arr: [u8; 8] = Default::default();
     shard_id_arr.copy_from_slice(&key[key.len() - 8..]);
@@ -210,8 +210,8 @@ pub fn create_receipt_id_from_transaction(
     create_hash_upgradable(
         protocol_version,
         &signed_transaction.get_hash(),
-        &prev_block_hash,
-        &block_hash,
+        prev_block_hash,
+        block_hash,
         0,
     )
 }
@@ -228,8 +228,8 @@ pub fn create_receipt_id_from_receipt(
     create_hash_upgradable(
         protocol_version,
         &receipt.receipt_id,
-        &prev_block_hash,
-        &block_hash,
+        prev_block_hash,
+        block_hash,
         receipt_index as u64,
     )
 }
@@ -246,13 +246,7 @@ pub fn create_action_hash(
     // Action hash uses the same input as a new receipt ID, so to avoid hash conflicts we use the
     // salt starting from the `u64` going backward.
     let salt = u64::max_value() - action_index as u64;
-    create_hash_upgradable(
-        protocol_version,
-        &receipt.receipt_id,
-        &prev_block_hash,
-        &block_hash,
-        salt,
-    )
+    create_hash_upgradable(protocol_version, &receipt.receipt_id, prev_block_hash, block_hash, salt)
 }
 
 /// Creates a new `data_id` from a given action hash, a block hash and a data index.
@@ -266,9 +260,9 @@ pub fn create_data_id(
 ) -> CryptoHash {
     create_hash_upgradable(
         protocol_version,
-        &action_hash,
-        &prev_block_hash,
-        &block_hash,
+        action_hash,
+        prev_block_hash,
+        block_hash,
         data_index as u64,
     )
 }
@@ -476,7 +470,7 @@ impl fmt::Debug for dyn CompiledContractCache {
 /// objects using tracing.
 ///
 /// tracing::debug!(target: "diagnostic", value=%ser(&object));
-pub fn ser<'a, T>(object: &'a T) -> Serializable<'a, T>
+pub fn ser<T>(object: &T) -> Serializable<'_, T>
 where
     T: serde::Serialize,
 {

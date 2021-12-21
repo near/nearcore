@@ -2,12 +2,14 @@
 name = "near-vm-errors"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
+publish = true
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 categories = ["wasm"]
-repository = "https://github.com/nearprotocol/nearcore"
-homepage = "https://github.com/nearprotocol/nearcore"
+repository = "https://github.com/near/nearcore"
 description = """
 Error that can occur inside Near Runtime encapsulated in a separate crate. Might merge it later.
 """

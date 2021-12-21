@@ -118,11 +118,12 @@ pub fn proposals_to_epoch_info(
             let minimum_validators_per_shard =
                 epoch_config.validator_selection_config.minimum_validators_per_shard as usize;
             let shard_assignment =
-                assign_shards(chunk_producers, num_shards as usize, minimum_validators_per_shard)
-                    .map_err(|_| EpochError::NotEnoughValidators {
-                    num_validators: num_chunk_producers as u64,
-                    num_shards,
-                })?;
+                assign_shards(chunk_producers, num_shards, minimum_validators_per_shard).map_err(
+                    |_| EpochError::NotEnoughValidators {
+                        num_validators: num_chunk_producers as u64,
+                        num_shards,
+                    },
+                )?;
 
             let mut chunk_producers_settlement: Vec<Vec<ValidatorId>> =
                 shard_assignment.iter().map(|vs| Vec::with_capacity(vs.len())).collect();
@@ -782,7 +783,7 @@ mod tests {
             minimum_stake_divisor: 0,
             protocol_upgrade_stake_threshold: 0.into(),
             protocol_upgrade_num_epochs: 0,
-            shard_layout: ShardLayout::default(),
+            shard_layout: ShardLayout::v0_single_shard(),
             validator_selection_config,
         }
     }

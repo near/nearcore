@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up two nodes, deploy a smart contract to one node,
 # Send a transaction to call a contract method. Check that
 # the transaction and receipts execution outcome proof for
@@ -8,13 +9,14 @@ import hashlib
 import json
 import struct
 import sys
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from cluster import start_cluster, Key
-from utils import load_test_contract, compute_merkle_root_from_path
 from serializer import BinarySerializer
 import transaction
 import time
+import utils
 from lightclient import compute_block_hash
 
 
@@ -120,32 +122,26 @@ def serialize_execution_outcome_with_id(outcome, id):
 
 
 def check_transaction_outcome_proof(nodes, should_succeed, nonce):
-    status = nodes[1].get_status()
-    latest_block_hash = status['sync_info']['latest_block_hash']
+    latest_block_hash = nodes[1].get_latest_block().hash_bytes
     function_caller_key = nodes[0].signer_key
     gas = 300000000000000 if should_succeed else 1000
 
     function_call_1_tx = transaction.sign_function_call_tx(
         function_caller_key, nodes[0].signer_key.account_id, 'write_key_value',
-        struct.pack('<QQ', 42, 10), gas, 100000000000, nonce,
-        base58.b58decode(latest_block_hash.encode('utf8')))
+        struct.pack('<QQ', 42, 10), gas, 100000000000, nonce, latest_block_hash)
     function_call_result = nodes[1].send_tx_and_wait(function_call_1_tx, 15)
     assert 'error' not in function_call_result
 
-    status = nodes[0].get_status()
-    latest_block_height = status['sync_info']['latest_block_height']
+    latest_block_height = nodes[0].get_latest_block().height
 
     # wait for finalization
     light_client_request_block_hash = None
-    while True:
-        status = nodes[0].get_status()
-        cur_height = status['sync_info']['latest_block_height']
-        if cur_height > latest_block_height + 2 and light_client_request_block_hash is None:
-            light_client_request_block_hash = status['sync_info'][
-                'latest_block_hash']
+    for cur_height, hash_ in utils.poll_blocks(nodes[0]):
+        if (cur_height > latest_block_height + 2 and
+                light_client_request_block_hash is None):
+            light_client_request_block_hash = hash_
         if cur_height > latest_block_height + 7:
             break
-        time.sleep(1)
 
     light_client_block = nodes[0].json_rpc(
         'next_light_client_block', [light_client_request_block_hash])['result']
@@ -183,10 +179,10 @@ def check_transaction_outcome_proof(nodes, should_succeed, nonce):
         # check that execution outcome root proof is valid
         execution_outcome_hash = hashlib.sha256(
             serialize_execution_outcome_with_id(outcome, id)).digest()
-        outcome_root = compute_merkle_root_from_path(
+        outcome_root = utils.compute_merkle_root_from_path(
             light_client_proof['outcome_proof']['proof'],
             execution_outcome_hash)
-        block_outcome_root = compute_merkle_root_from_path(
+        block_outcome_root = utils.compute_merkle_root_from_path(
             light_client_proof['outcome_root_proof'],
             hashlib.sha256(outcome_root).digest())
         block = nodes[0].json_rpc(
@@ -207,7 +203,7 @@ def check_transaction_outcome_proof(nodes, should_succeed, nonce):
                 'utf-8'
             ), f'expected block hash {light_client_proof["outcome_proof"]["block_hash"]} actual {computed_block_hash}'
         # check that block proof is valid
-        block_merkle_root = compute_merkle_root_from_path(
+        block_merkle_root = utils.compute_merkle_root_from_path(
             light_client_proof['block_proof'],
             light_client_proof['outcome_proof']['block_hash'])
         assert base58.b58decode(
@@ -220,11 +216,9 @@ def test_outcome_proof():
         2, 0, 1, None,
         [["epoch_length", 1000], ["block_producer_kickout_threshold", 80]], {})
 
-    status = nodes[0].get_status()
-    latest_block_hash = status['sync_info']['latest_block_hash']
+    latest_block_hash = nodes[0].get_latest_block().hash_bytes
     deploy_contract_tx = transaction.sign_deploy_contract_tx(
-        nodes[0].signer_key, load_test_contract(), 10,
-        base58.b58decode(latest_block_hash.encode('utf8')))
+        nodes[0].signer_key, utils.load_test_contract(), 10, latest_block_hash)
     deploy_contract_response = nodes[0].send_tx_and_wait(deploy_contract_tx, 15)
     assert 'error' not in deploy_contract_response, deploy_contract_response
 

@@ -1,9 +1,11 @@
+#!/usr/bin/env python3
 # Spins up four nodes, and alternates [test1, test2] and [test3, test4] as block producers every epoch
 # Makes sure that before the epoch switch each block is signed by all four
 
 import sys, time, base58, random, datetime
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
@@ -83,8 +85,7 @@ def get_stakes():
     ]
 
 
-status = nodes[0].get_status()
-prev_hash = status['sync_info']['latest_block_hash']
+prev_hash = nodes[0].get_latest_block().hash
 
 seen_epochs = set()
 cur_vals = [0, 1]
@@ -101,8 +102,7 @@ epoch_switch_height = -2
 while True:
     assert time.time() - started < TIMEOUT
 
-    status = nodes[0].get_status(check_storage=False)
-    hash_ = status['sync_info']['latest_block_hash']
+    hash_ = nodes[0].get_latest_block(check_storage=False).hash
     block = nodes[0].get_block(hash_)
     epoch_id = block['result']['header']['epoch_id']
     height = block['result']['header']['height']

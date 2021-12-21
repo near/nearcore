@@ -1,14 +1,17 @@
+#!/usr/bin/env python3
 # Generates three epochs worth of blocks
 # Requests next light client block until it reaches the last final block.
 # Verifies that the returned blocks are what we expect, and runs the validation on them
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster, load_config
 from configured_logger import logger
 from lightclient import compute_block_hash, validate_light_client_block
+import utils
 
 TIMEOUT = 150
 config = load_config()
@@ -69,15 +72,11 @@ def get_light_client_block(hash_, last_known_block):
 
 
 def get_up_to(from_, to):
-    global hash_to_height, hash_to_epoch, hash_to_next_epoch, height_to_hash, epochs, first_epoch_switch_height, last_epoch
+    global first_epoch_switch_height, last_epoch
 
-    while True:
-        assert time.time() - started < TIMEOUT
-
-        status = nodes[0].get_status()
-        height = status['sync_info']['latest_block_height']
-        hash_ = status['sync_info']['latest_block_hash']
-
+    for height, hash_ in utils.poll_blocks(nodes[0],
+                                           timeout=TIMEOUT,
+                                           poll_interval=0.01):
         block = nodes[0].get_block(hash_)
 
         hash_to_height[hash_] = height
@@ -88,7 +87,8 @@ def get_up_to(from_, to):
         hash_to_epoch[hash_] = cur_epoch
         hash_to_next_epoch[hash_] = block['result']['header']['next_epoch_id']
 
-        if first_epoch_switch_height is None and last_epoch is not None and last_epoch != cur_epoch:
+        if (first_epoch_switch_height is None and last_epoch is not None and
+                last_epoch != cur_epoch):
             first_epoch_switch_height = height
         last_epoch = cur_epoch
 

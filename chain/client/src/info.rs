@@ -130,10 +130,10 @@ impl InfoHelper {
             String::new()
         };
 
-        let sync_status_log = display_sync_status(&sync_status, &head, genesis_height);
+        let sync_status_log = display_sync_status(sync_status, head, genesis_height);
         let network_info_log = format!(
             "{:2}/{:?}/{:2} peers ⬇ {} ⬆ {}",
-            network_info.num_active_peers,
+            network_info.num_connected_peers,
             network_info.highest_height_peers.len(),
             network_info.peer_max_count,
             pretty_bytes_per_sec(network_info.received_bytes_per_sec),
@@ -218,7 +218,7 @@ impl InfoHelper {
                 status: sync_status.as_variant_name().to_string(),
                 latest_block_hash: to_base(&head.last_block_hash),
                 latest_block_height: head.height,
-                num_peers: network_info.num_active_peers,
+                num_peers: network_info.num_connected_peers,
             },
         };
         // Sign telemetry if there is a signer present.
@@ -271,7 +271,7 @@ fn display_sync_status(
             )
         }
         SyncStatus::StateSync(sync_hash, shard_statuses) => {
-            let mut res = format!("State {:?}", sync_hash).to_string();
+            let mut res = format!("State {:?}", sync_hash);
             let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
             shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
             for (shard_id, shard_status) in shard_statuses {

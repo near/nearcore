@@ -4,7 +4,8 @@ use near_primitives::types::Balance;
 use near_primitives::version::ProtocolFeature;
 use near_vm_errors::{FunctionCallError, VMError, WasmTrap};
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::{types::ReturnData, VMConfig, VMOutcome};
+use near_vm_logic::types::ReturnData;
+use near_vm_logic::{VMConfig, VMOutcome};
 use std::mem::size_of;
 
 use crate::tests::{
@@ -178,7 +179,7 @@ fn run_test_ext(
 
     let (outcome, err) = runtime.run(
         &code,
-        &method,
+        method,
         &mut fake_external,
         context,
         &config,

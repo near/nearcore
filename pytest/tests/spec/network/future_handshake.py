@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Handshake from the Future
 
@@ -9,11 +10,12 @@ import socket
 import sys
 import time
 import random
-
-sys.path.append('lib')
+import pathlib
 
 import base58
 import nacl.signing
+
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[3] / 'lib'))
 from cluster import start_cluster
 from peer import ED_PREFIX, connect, create_handshake, sign_handshake, BinarySerializer, schema
 

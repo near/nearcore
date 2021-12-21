@@ -1,6 +1,4 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "deepsize_feature")]
-use deepsize::DeepSizeOf;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 
@@ -95,10 +93,7 @@ impl AllEpochConfig {
             config.avg_hidden_validator_seats_per_shard = avg_hidden_validator_seats_per_shard;
             config.shard_layout = shard_layout;
         }
-        Self {
-            genesis_epoch_config: genesis_epoch_config.clone(),
-            simple_nightshade_epoch_config: config,
-        }
+        Self { genesis_epoch_config, simple_nightshade_epoch_config: config }
     }
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> &EpochConfig {
@@ -137,8 +132,6 @@ pub mod block_info {
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::EpochId;
     use borsh::{BorshDeserialize, BorshSerialize};
-    #[cfg(feature = "deepsize_feature")]
-    use deepsize::DeepSizeOf;
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::{AccountId, Balance, BlockHeight, ProtocolVersion};
     use std::collections::HashMap;
@@ -146,7 +139,7 @@ pub mod block_info {
     pub use super::BlockInfoV1;
 
     /// Information per each block.
-    #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+    #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
     #[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug)]
     pub enum BlockInfo {
         V1(BlockInfoV1),
@@ -330,7 +323,7 @@ pub mod block_info {
     }
 
     // V1 -> V2: Use versioned ValidatorStake structure in proposals
-    #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+    #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
     #[derive(Default, BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug)]
     pub struct BlockInfoV2 {
         pub hash: CryptoHash,
@@ -353,7 +346,7 @@ pub mod block_info {
 }
 
 /// Information per each block.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Default, BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug)]
 pub struct BlockInfoV1 {
     pub hash: CryptoHash,
@@ -413,7 +406,7 @@ impl BlockInfoV1 {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ValidatorWeight(ValidatorId, u64);
 
@@ -423,8 +416,6 @@ pub mod epoch_info {
     use crate::types::{BlockChunkValidatorStats, ValidatorKickoutReason};
     use crate::version::PROTOCOL_VERSION;
     use borsh::{BorshDeserialize, BorshSerialize};
-    #[cfg(feature = "deepsize_feature")]
-    use deepsize::DeepSizeOf;
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::{
         AccountId, Balance, EpochHeight, ProtocolVersion, ValidatorId,
@@ -441,7 +432,7 @@ pub mod epoch_info {
     pub use super::EpochInfoV1;
 
     /// Information per epoch.
-    #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+    #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
     #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
     pub enum EpochInfo {
         V1(EpochInfoV1),
@@ -456,7 +447,7 @@ pub mod epoch_info {
     }
 
     // V1 -> V2: Use versioned ValidatorStake structure in validators and fishermen
-    #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+    #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
     #[derive(SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
     pub struct EpochInfoV2 {
         /// Ordinal of given epoch from genesis.
@@ -493,7 +484,7 @@ pub mod epoch_info {
 
     // V2 -> V3: Structures for randomly selecting validators at each height based on new
     // block producer and chunk producer selection algorithm.
-    #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+    #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
     #[derive(SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
     pub struct EpochInfoV3 {
         pub epoch_height: EpochHeight,
@@ -547,7 +538,7 @@ pub mod epoch_info {
                 let block_producers_sampler = stake_weights(&block_producers_settlement);
                 let chunk_producers_sampler =
                     chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
-                return Self::V3(EpochInfoV3 {
+                Self::V3(EpochInfoV3 {
                     epoch_height,
                     validators,
                     fishermen,
@@ -565,9 +556,9 @@ pub mod epoch_info {
                     rng_seed,
                     block_producers_sampler,
                     chunk_producers_sampler,
-                });
+                })
             } else {
-                return Self::V2(EpochInfoV2 {
+                Self::V2(EpochInfoV2 {
                     epoch_height,
                     validators,
                     fishermen,
@@ -582,7 +573,7 @@ pub mod epoch_info {
                     minted_amount,
                     seat_price,
                     protocol_version,
-                });
+                })
             }
         }
 
@@ -878,7 +869,7 @@ pub mod epoch_info {
 }
 
 /// Information per epoch.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct EpochInfoV1 {
     /// Ordinal of given epoch from genesis.
@@ -914,7 +905,7 @@ pub struct EpochInfoV1 {
 }
 
 /// State that a slashed validator can be in.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum SlashState {
     /// Double Sign, will be partially slashed.

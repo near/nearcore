@@ -1,7 +1,9 @@
+#!/usr/bin/env python3
 import sys, time
 import socket, struct, multiprocessing
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
@@ -26,8 +28,7 @@ def one_process(ord_, seconds):
             logger.info("PROCESS %s SENT %s BYTES" % (ord_, sent))
 
 
-status = nodes[0].get_status()
-last_height = int(status['sync_info']['latest_block_height'])
+last_height = nodes[0].get_latest_block().height
 
 for seconds in [20, 120]:
     ps = [
@@ -41,8 +42,7 @@ for seconds in [20, 120]:
     for p in ps:
         p.join()
 
-    status = nodes[0].get_status()
-    new_height = int(status['sync_info']['latest_block_height'])
+    new_height = nodes[0].get_latest_block().height
     assert new_height - last_height > 5, "new height: %s, last_height: %s" % (
         new_height, last_height)
     last_height = new_height

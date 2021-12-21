@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Starts two validating nodes and one non-validating node
 # Set a new validator key that has the same account id as one of
 # the validating nodes. Stake that account with the new key
@@ -5,8 +6,9 @@
 # the non-validating node becomes a validator.
 
 import sys, time, base58
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from key import Key
@@ -41,24 +43,21 @@ nodes[2].reset_data()
 nodes[2].start(boot_node=nodes[0])
 time.sleep(3)
 
-status = nodes[0].get_status()
-block_hash = status['sync_info']['latest_block_hash']
-block_height = status['sync_info']['latest_block_height']
+block = nodes[0].get_latest_block()
+block_height = block.height
+block_hash = block.hash_bytes
 
 tx = sign_staking_tx(nodes[1].signer_key, validator_key,
-                     50000000000000000000000000000000, 1,
-                     base58.b58decode(block_hash.encode('utf8')))
+                     50000000000000000000000000000000, 1, block_hash)
 res = nodes[0].send_tx_and_wait(tx, timeout=15)
 assert 'error' not in res
 
 start_time = time.time()
 while True:
-    if time.time() - start_time > TIMEOUT:
-        assert False, "Validators get stuck"
-    status1 = nodes[1].get_status()
-    node1_height = status1['sync_info']['latest_block_height']
-    status2 = nodes[2].get_status()
-    node2_height = status2['sync_info']['latest_block_height']
-    if node1_height > block_height + 4 * EPOCH_LENGTH and node2_height > block_height + 4 * EPOCH_LENGTH:
+    assert time.time() - start_time < TIMEOUT, 'Validators got stuck'
+    node1_height = nodes[1].get_latest_block().height
+    node2_height = nodes[2].get_latest_block().height
+    if (node1_height > block_height + 4 * EPOCH_LENGTH and
+            node2_height > block_height + 4 * EPOCH_LENGTH):
         break
     time.sleep(2)

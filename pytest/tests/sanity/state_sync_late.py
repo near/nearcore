@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up a node, then waits for five+ epochs
 # and spins up another node
 # Makes sure that eventually the second node catches up
@@ -10,8 +11,9 @@
 #     makes sure the balances are correct at the end
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 if len(sys.argv) < 2:
     logger.info("python state_sync.py [notx, onetx, manytx]")
@@ -22,7 +24,7 @@ assert mode in ['notx', 'onetx', 'manytx']
 
 from cluster import init_cluster, spin_up_node, load_config
 from configured_logger import logger
-from utils import TxContext, LogTracker
+import utils
 
 START_AT_BLOCK = 75
 TIMEOUT = 150 + START_AT_BLOCK * 10
@@ -40,54 +42,41 @@ started = time.time()
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0)
 node1 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node=boot_node)
 
-ctx = TxContext([0, 0], [boot_node, node1])
+ctx = utils.TxContext([0, 0], [boot_node, node1])
 
 sent_txs = False
 
 observed_height = 0
-while observed_height < START_AT_BLOCK:
-    assert time.time() - started < TIMEOUT
-    status = boot_node.get_status()
-    new_height = status['sync_info']['latest_block_height']
-    hash_ = status['sync_info']['latest_block_hash']
-    if new_height > observed_height:
-        observed_height = new_height
-        logger.info("Boot node got to height %s" % new_height)
-
+for observed_height, hash_ in utils.poll_blocks(boot_node,
+                                                timeout=TIMEOUT,
+                                                poll_interval=0.1):
     if mode == 'onetx' and not sent_txs:
         ctx.send_moar_txs(hash_, 3, False)
         sent_txs = True
-
     elif mode == 'manytx':
         if ctx.get_balances() == ctx.expected_balances:
+            logger.info(f'Sending moar txs at height {observed_height}')
             ctx.send_moar_txs(hash_, 3, False)
-            logger.info("Sending moar txs at height %s" % new_height)
-    time.sleep(0.1)
 
 if mode == 'onetx':
     assert ctx.get_balances() == ctx.expected_balances
 
 node2 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node=boot_node)
-tracker = LogTracker(node2)
+tracker = utils.LogTracker(node2)
 time.sleep(3)
 
 catch_up_height = 0
-while catch_up_height < observed_height:
-    assert time.time() - started < TIMEOUT
-    status = node2.get_status()
-    new_height = status['sync_info']['latest_block_height']
-    if new_height > catch_up_height:
-        catch_up_height = new_height
-        logger.info("Second node got to height %s" % new_height)
+for catch_up_height, hash_ in utils.poll_blocks(node2,
+                                                timeout=TIMEOUT,
+                                                poll_interval=0.1):
+    if catch_up_height >= observed_height:
+        break
 
-    status = boot_node.get_status()
-    boot_height = status['sync_info']['latest_block_height']
-
+    boot_height = boot_node.get_latest_block().height
     if mode == 'manytx':
         if ctx.get_balances() == ctx.expected_balances:
             ctx.send_moar_txs(hash_, 3, False)
-            logger.info("Sending moar txs at height %s" % boot_height)
-    time.sleep(0.1)
+            logger.info(f'Sending moar txs at height {boot_height}')
 
 boot_heights = boot_node.get_all_heights()
 
