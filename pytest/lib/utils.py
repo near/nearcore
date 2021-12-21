@@ -214,27 +214,6 @@ def user_name():
     return username
 
 
-# from https://stackoverflow.com/questions/107705/disable-output-buffering
-# this class allows making print always flush by executing
-#
-#     sys.stdout = Unbuffered(sys.stdout)
-class Unbuffered(object):
-
-    def __init__(self, stream):
-        self.stream = stream
-
-    def write(self, data):
-        self.stream.write(data)
-        self.stream.flush()
-
-    def writelines(self, datas):
-        self.stream.writelines(datas)
-        self.stream.flush()
-
-    def __getattr__(self, attr):
-        return getattr(self.stream, attr)
-
-
 def collect_gcloud_config(num_nodes):
     tempdir = get_near_tempdir()
     keys = []
@@ -308,30 +287,88 @@ def poll_blocks(node: cluster.LocalNode,
                 *,
                 timeout: float = 120,
                 poll_interval: float = 0.25,
+                __target: typing.Optional[int] = None,
                 **kw) -> typing.Iterable[cluster.BlockId]:
-    started = time.time()
+    """Polls a node about the latest block and yields it when it changes.
+
+    The function continues yielding blocks indefinitely (so long as the node
+    continues reporting its status) until timeout is reached or the caller stops
+    reading yielded values.  Reaching the timeout is considered to be a failure
+    condition and thus it results in an `AssertionError`.  The expected usage is
+    that caller reads blocks until some condition is met at which point it stops
+    iterating over the generator.
+
+    Args:
+        node: Node to query about its latest block.
+        timeout: Total timeout from the first status request sent to the node.
+        poll_interval: How long to wait in seconds between each status request
+            sent to the node.
+        kw: Keyword arguments passed to `BaseDone.get_latest_block` method.
+    Yields:
+        A `cluster.BlockId` object for each each time node’s latest block
+        changes including the first block when function starts.  Note that there
+        is no guarantee that there will be no skipped blocks.
+    Raises:
+        AssertionError: If more than `timeout` seconds passes from the start of
+            the iteration.
+    """
+    end = time.time() + timeout
+    start_height = None
+    blocks_count = 0
     previous = -1
-    while True:
-        assert time.time() - started < timeout
+
+    while time.time() < end:
         latest = node.get_latest_block(**kw)
         if latest.height != previous:
             yield latest
             previous = latest.height
+            if start_height == -1:
+                start_height = latest.height
         time.sleep(poll_interval)
+
+    msg = 'Timed out polling blocks from a node\n'
+    if blocks_count:
+        msg += (f'First block: {start_height}; last block: {previous}\n'
+                f'Total blocks returned: {count}')
+    else:
+        msg += 'No blocks were returned'
+    if __target:
+        msg += f'\nWaiting for block: {__target}'
+    raise AssertionError(msg)
 
 
 def wait_for_blocks(node: cluster.LocalNode,
                     *,
-                    count: typing.Optional[int] = None,
                     target: typing.Optional[int] = None,
+                    count: typing.Optional[int] = None,
                     **kw) -> cluster.BlockId:
+    """Waits until given node reaches expected target block height.
+
+    Exactly one of `target` or `count` arguments must be specified.  Specifying
+    `count` is equivalent to setting `target` to node’s current height plus the
+    given count.
+
+    Args:
+        node: Node to query about its latest block.
+        target: Target height of the latest block known by the node.
+        count: How many new blocks to wait for.  If this argument is given,
+            target is calculated as node’s current block height plus the given
+            count.
+        kw: Keyword arguments passed to `poll_blocks`.  `timeout` and
+            `poll_interval` are likely of most interest.
+    Returns:
+        A `cluster.BlockId` of the block at target height.
+    Raises:
+        AssertionError: If the node does not reach given block height before
+            timeout passes.
+    """
     if target is None:
         if count is None:
             raise TypeError('Expected `count` or `target` keyword argument')
         target = node.get_latest_block().height + count
     elif count is not None:
         raise TypeError('Expected at most one of `count` or `target` arguments')
-    for latest in poll_blocks(node, **kw):
+    for latest in poll_blocks(node, __target=target, **kw):
         logger.info(f'{latest}  (waiting for #{target})')
         if latest.height >= target:
             return latest
