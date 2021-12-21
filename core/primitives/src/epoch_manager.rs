@@ -799,7 +799,12 @@ pub mod epoch_info {
                     bp_settlement[(height % (bp_settlement.len() as u64)) as usize]
                 }
                 Self::V3(v3) => {
-                    let seed = Self::block_produce_seed(height, &v3.rng_seed);
+                    let seed = {
+                        let mut buffer = [0u8; 40]; // 32 bytes from epoch_seed, 8 bytes from height
+                        buffer[0..32].copy_from_slice(&v3.rng_seed);
+                        buffer[32..40].copy_from_slice(&height.to_le_bytes());
+                        hash(&buffer).0
+                    };
                     v3.block_producers_settlement[v3.block_producers_sampler.sample(seed)]
                 }
             }
@@ -818,19 +823,7 @@ pub mod epoch_info {
                     shard_cps[(height as u64 % (shard_cps.len() as u64)) as usize]
                 }
                 Self::V3(v3) => {
-                    let protocol_version = self.protocol_version();
-                    let seed = if checked_feature!(
-                        "stable",
-                        SynchronizeBlockChunkProduction,
-                        protocol_version
-                    ) && !checked_feature!(
-                        "protocol_feature_chunk_only_producers",
-                        ChunkOnlyProducers,
-                        protocol_version
-                    ) {
-                        // This is same seed that used for determining block producer
-                        Self::block_produce_seed(height, &v3.rng_seed)
-                    } else {
+                    let seed = {
                         // 32 bytes from epoch_seed, 8 bytes from height, 8 bytes from shard_id
                         let mut buffer = [0u8; 48];
                         buffer[0..32].copy_from_slice(&v3.rng_seed);
@@ -843,14 +836,6 @@ pub mod epoch_info {
                         [v3.chunk_producers_sampler[shard_id].sample(seed)]
                 }
             }
-        }
-
-        /// 32 bytes from epoch_seed, 8 bytes from height
-        fn block_produce_seed(height: BlockHeight, seed: &RngSeed) -> [u8; 32] {
-            let mut buffer = [0u8; 40];
-            buffer[0..32].copy_from_slice(seed);
-            buffer[32..40].copy_from_slice(&height.to_le_bytes());
-            hash(&buffer).0
         }
     }
 

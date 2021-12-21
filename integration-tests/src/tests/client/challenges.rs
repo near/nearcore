@@ -613,10 +613,6 @@ fn test_fishermen_challenge() {
 /// If there are two blocks produced at the same height but by different block producers, no
 /// challenge should be generated
 #[test]
-// Something weird happens here. For len_in_blocks = 13 this test passes for versions up to 49,
-// but fails for version 50 (because of chunk validator sampling changes). But if we set it to 20,
-// it fails for version 49 as well
-#[ignore]
 fn test_challenge_in_different_epoch() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
@@ -644,8 +640,7 @@ fn test_challenge_in_different_epoch() {
         .build();
 
     let mut fork_blocks = vec![];
-    let len_in_blocks = 13;
-    for h in 1..len_in_blocks {
+    for h in 1..13 {
         if let Some(block) = env.clients[0].produce_block(h).unwrap() {
             env.process_block(0, block, Provenance::PRODUCED);
         }
@@ -655,9 +650,9 @@ fn test_challenge_in_different_epoch() {
         }
     }
 
-    let fork1_block = env.clients[0].produce_block(len_in_blocks).unwrap().unwrap();
+    let fork1_block = env.clients[0].produce_block(13).unwrap().unwrap();
     env.process_block(0, fork1_block, Provenance::PRODUCED);
-    let fork2_block = env.clients[1].produce_block(len_in_blocks).unwrap().unwrap();
+    let fork2_block = env.clients[1].produce_block(13).unwrap().unwrap();
     fork_blocks.push(fork2_block);
     for block in fork_blocks {
         let height = block.header().height();
@@ -690,7 +685,7 @@ fn test_challenge_in_different_epoch() {
                 None => break,
             }
         }
-        if height < len_in_blocks {
+        if height < 9 {
             assert!(result.is_ok());
         } else {
             if let Err(e) = result {
