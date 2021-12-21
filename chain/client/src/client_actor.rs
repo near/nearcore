@@ -17,7 +17,7 @@ use rand::Rng;
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use near_chain::test_utils::format_hash;
-use near_chain::types::AcceptedBlock;
+use near_chain::types::{AcceptedBlock, PartId};
 #[cfg(feature = "test_features")]
 use near_chain::StoreValidator;
 use near_chain::{
@@ -70,8 +70,6 @@ use near_network_primitives::types::ReasonForBan;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::syncing::StatePartKey;
 use near_store::db::DBCol::ColStateParts;
-
-use near_chain;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -525,7 +523,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                     match self.client.chain.set_state_part(
                                         shard_id,
                                         hash,
-                                        &near_chain::PartId::new(part_id, num_parts),
+                                        &PartId::new(part_id, num_parts),
                                         &data,
                                     ) {
                                         Ok(()) => {
