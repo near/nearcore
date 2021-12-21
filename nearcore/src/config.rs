@@ -468,7 +468,7 @@ impl Config {
             .unwrap_or_else(|_| panic!("Could not open config file: `{}`", path.display()));
         let mut content = String::new();
         file.read_to_string(&mut content).expect("Could not read from config file.");
-        Config::from(content.as_str())
+        serde_json::from_str::<Config>(&content).expect("Deserializing config failed")
     }
 
     pub fn write_to_file(&self, path: &Path) {
@@ -479,7 +479,7 @@ impl Config {
         }
     }
 
-    pub fn rpc_addr(&self) -> Option<&String> {
+    pub fn rpc_addr(&self) -> Option<&str> {
         #[cfg(feature = "json_rpc")]
         if let Some(rpc) = &self.rpc {
             return Some(&rpc.addr);
@@ -493,12 +493,6 @@ impl Config {
         {
             self.rpc.get_or_insert(Default::default()).addr = addr;
         }
-    }
-}
-
-impl From<&str> for Config {
-    fn from(content: &str) -> Self {
-        serde_json::from_str(content).expect("Failed to deserialize config")
     }
 }
 
@@ -627,7 +621,7 @@ impl NearConfig {
             client_config: ClientConfig {
                 version: Default::default(),
                 chain_id: genesis.config.chain_id.clone(),
-                rpc_addr: config.rpc_addr().map(|addr| addr.clone()),
+                rpc_addr: config.rpc_addr().map(|addr| addr.to_owned()),
                 block_production_tracking_delay: config.consensus.block_production_tracking_delay,
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
@@ -723,7 +717,7 @@ impl NearConfig {
         }
     }
 
-    pub fn rpc_addr(&self) -> Option<&String> {
+    pub fn rpc_addr(&self) -> Option<&str> {
         #[cfg(feature = "json_rpc")]
         if let Some(rpc) = &self.rpc_config {
             return Some(&rpc.addr);
@@ -804,7 +798,7 @@ pub fn mainnet_genesis() -> Genesis {
     lazy_static_include::lazy_static_include_bytes! {
         MAINNET_GENESIS_JSON => "res/mainnet_genesis.json",
     };
-    serde_json::from_slice(*MAINNET_GENESIS_JSON).expect("Failed to deserialize MainNet genesis")
+    serde_json::from_slice(*MAINNET_GENESIS_JSON).expect("Failed to deserialize mainnet genesis")
 }
 
 /// Initializes genesis and client configs and stores in the given folder
@@ -871,11 +865,11 @@ pub fn init_configs(
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
             genesis.to_file(&dir.join(config.genesis_file));
-            info!(target: "near", "Generated MainNet genesis file in {}", dir.display());
+            info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
         }
         "testnet" | "betanet" => {
             if test_seed.is_some() {
-                panic!("Test seed is not supported for official TestNet");
+                panic!("Test seed is not supported for official testnet");
             }
             config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.replace("{}", &chain_id));
             config.write_to_file(&dir.join(CONFIG_FILENAME));
@@ -1084,14 +1078,14 @@ pub fn init_testnet_configs(
     }
 }
 
-pub fn get_genesis_url(chain_id: &String) -> String {
+pub fn get_genesis_url(chain_id: &str) -> String {
     format!(
         "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/genesis.json",
         chain_id,
     )
 }
 
-pub fn get_config_url(chain_id: &String) -> String {
+pub fn get_config_url(chain_id: &str) -> String {
     format!(
         "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/config.json",
         chain_id,
@@ -1136,7 +1130,7 @@ async fn download_file_impl(
 pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     let uri = url.parse()?;
     let (tmp_file, tmp_path) = {
-        let tmp_dir = path.parent().unwrap_or(&Path::new("."));
+        let tmp_dir = path.parent().unwrap_or(Path::new("."));
         tempfile::NamedTempFile::new_in(tmp_dir).map_err(FileDownloadError::OpenError)?.into_parts()
     };
 
@@ -1161,15 +1155,15 @@ pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     })
 }
 
-pub fn download_genesis(url: &String, path: &Path) {
+pub fn download_genesis(url: &str, path: &Path) {
     info!(target: "near", "Downloading genesis file from: {} ...", url);
-    download_file(&url, &path).expect("Failed to download the genesis file");
+    download_file(url, path).expect("Failed to download the genesis file");
     info!(target: "near", "Saved the genesis file to: {} ...", path.display());
 }
 
-pub fn download_config(url: &String, path: &Path) {
+pub fn download_config(url: &str, path: &Path) {
     info!(target: "near", "Downloading config file from: {} ...", url);
-    download_file(&url, &path).expect("Failed to download the configuration file");
+    download_file(url, path).expect("Failed to download the configuration file");
     info!(target: "near", "Saved the config file to: {} ...", path.display());
 }
 

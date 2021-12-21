@@ -156,7 +156,7 @@ impl ShardLayout {
     /// are split from this parent shard. If this shard layout has no parent shard layout, return None
     pub fn get_split_shard_uids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
         self.get_split_shard_ids(parent_shard_id).map(|shards| {
-            shards.into_iter().map(|id| ShardUId::from_shard_id_and_layout(id, &self)).collect()
+            shards.into_iter().map(|id| ShardUId::from_shard_id_and_layout(id, self)).collect()
         })
     }
 
@@ -257,7 +257,7 @@ pub fn account_id_to_shard_uid(account_id: &AccountId, shard_layout: &ShardLayou
 fn is_top_level_account(top_account: &AccountId, account: &AccountId) -> bool {
     match account.as_ref().strip_suffix(top_account.as_ref()) {
         None => false,
-        Some(rest) => rest.is_empty() || rest.ends_with("."),
+        Some(rest) => rest.is_empty() || rest.ends_with('.'),
     }
 }
 
@@ -325,8 +325,7 @@ pub fn get_block_shard_uid_rev(
             std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid key length").into()
         );
     }
-    let block_hash_vec: Vec<u8> = key[0..32].iter().cloned().collect();
-    let block_hash = CryptoHash::try_from(block_hash_vec)?;
+    let block_hash = CryptoHash::try_from(&key[..32])?;
     let shard_id = ShardUId::try_from(&key[32..])?;
     Ok((block_hash, shard_id))
 }

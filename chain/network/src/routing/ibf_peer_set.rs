@@ -1,5 +1,5 @@
-use crate::routing::edge::{Edge, SimpleEdge};
 use crate::routing::ibf_set::IbfSet;
+use crate::routing::network_protocol::{Edge, SimpleEdge};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::network::PeerId;
 use rand::Rng;
@@ -169,10 +169,9 @@ impl IbfPeerSet {
 
 #[cfg(test)]
 mod test {
-    use crate::routing::edge::{Edge, SimpleEdge};
-    use crate::routing::ibf_peer_set::ValidIBFLevel;
-    use crate::routing::ibf_peer_set::{IbfPeerSet, SlotMap};
+    use crate::routing::ibf_peer_set::{IbfPeerSet, SlotMap, ValidIBFLevel};
     use crate::routing::ibf_set::IbfSet;
+    use crate::routing::network_protocol::{Edge, SimpleEdge};
     use crate::test_utils::random_peer_id;
     use near_primitives::network::PeerId;
     use std::collections::HashMap;

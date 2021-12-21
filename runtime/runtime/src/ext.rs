@@ -101,9 +101,9 @@ impl<'a> RuntimeExt<'a> {
     fn new_data_id(&mut self) -> CryptoHash {
         let data_id = create_data_id(
             self.current_protocol_version,
-            &self.action_hash,
-            &self.prev_block_hash,
-            &self.last_block_hash,
+            self.action_hash,
+            self.prev_block_hash,
+            self.last_block_hash,
             self.data_count as usize,
         );
         self.data_count += 1;
@@ -140,10 +140,7 @@ impl<'a> RuntimeExt<'a> {
 }
 
 fn wrap_storage_error(error: StorageError) -> VMLogicError {
-    VMLogicError::ExternalError(
-        borsh::BorshSerialize::try_to_vec(&ExternalError::StorageError(error))
-            .expect("Borsh serialize cannot fail"),
-    )
+    VMLogicError::from(ExternalError::StorageError(error))
 }
 
 type ExtResult<T> = ::std::result::Result<T, VMLogicError>;
@@ -177,7 +174,7 @@ impl<'a> External for RuntimeExt<'a> {
     fn storage_remove_subtree(&mut self, prefix: &[u8]) -> ExtResult<()> {
         let data_keys = self
             .trie_update
-            .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(&self.account_id, prefix))
+            .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(self.account_id, prefix))
             .map_err(|err| {
                 VMLogicError::InconsistentStateError(InconsistentStateError::StorageError(
                     err.to_string(),
@@ -371,10 +368,6 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn get_touched_nodes_count(&self) -> u64 {
         self.trie_update.trie.counter.get()
-    }
-
-    fn reset_touched_nodes_counter(&mut self) {
-        self.trie_update.trie.counter.reset()
     }
 
     fn validator_stake(&self, account_id: &AccountId) -> ExtResult<Option<Balance>> {

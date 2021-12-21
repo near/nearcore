@@ -241,11 +241,7 @@ impl TransactionConfig {
                 }
             };
 
-            let signer = scope.function_call_signer(
-                u,
-                &signer_account,
-                &receiver_account.id.clone().into(),
-            )?;
+            let signer = scope.function_call_signer(u, &signer_account, &receiver_account.id)?;
 
             let mut receiver_functions = vec![];
             if let Some(contract_id) = receiver_account.deployed_contract {
@@ -532,7 +528,7 @@ impl Scope {
     }
 
     pub fn deploy_contract(&mut self, receiver_account: &Account, contract_id: usize) {
-        let acc_id = self.usize_id(&receiver_account);
+        let acc_id = self.usize_id(receiver_account);
         self.accounts[acc_id].deployed_contract = Some(contract_id);
     }
 
@@ -576,7 +572,7 @@ impl Scope {
         u: &mut Unstructured,
         account: &Account,
     ) -> Result<InMemorySigner> {
-        let account_idx = self.usize_id(&account);
+        let account_idx = self.usize_id(account);
         let possible_signers = self.accounts[account_idx].full_access_keys();
         if possible_signers.is_empty() {
             // this transaction will be invalid
@@ -594,9 +590,9 @@ impl Scope {
         &self,
         u: &mut Unstructured,
         account: &Account,
-        receiver_id: &String,
+        receiver_id: &str,
     ) -> Result<InMemorySigner> {
-        let account_idx = self.usize_id(&account);
+        let account_idx = self.usize_id(account);
         let possible_signers = self.accounts[account_idx].function_call_keys(receiver_id);
         if possible_signers.is_empty() {
             // this transaction will be invalid
@@ -615,7 +611,7 @@ impl Scope {
         u: &mut Unstructured,
         account: &Account,
     ) -> Result<PublicKey> {
-        let account_idx = self.usize_id(&account);
+        let account_idx = self.usize_id(account);
         let (nonce, key) = self.accounts[account_idx].random_key(u)?;
         let public_key = key.signer.public_key.clone();
         self.accounts[account_idx].keys.remove(&nonce);
@@ -655,13 +651,13 @@ impl Account {
         full_access_keys
     }
 
-    pub fn function_call_keys(&self, receiver_id: &String) -> Vec<InMemorySigner> {
+    pub fn function_call_keys(&self, receiver_id: &str) -> Vec<InMemorySigner> {
         let mut function_call_keys = vec![];
         for (_, key) in &self.keys {
             match &key.access_key.permission {
                 AccessKeyPermission::FullAccess => function_call_keys.push(key.signer.clone()),
                 AccessKeyPermission::FunctionCall(function_call_permission) => {
-                    if function_call_permission.receiver_id == *receiver_id {
+                    if function_call_permission.receiver_id == receiver_id {
                         function_call_keys.push(key.signer.clone())
                     }
                 }
