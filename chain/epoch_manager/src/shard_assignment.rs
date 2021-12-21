@@ -216,7 +216,7 @@ mod tests {
     ///
     /// TODO(#5932): This needs to be fixed.
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "cp_iter should contain enough elements to minimally fill each shard")]
     fn test_duplicate_validator() {
         test_distribution_common(&EXPONENTIAL_STAKES[..3], 2, 3);
     }
