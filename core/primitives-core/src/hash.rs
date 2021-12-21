@@ -68,7 +68,7 @@ impl<'de> Deserialize<'de> for CryptoHash {
             return Err(serde::de::Error::custom("incorrect length for hash"));
         }
         from_base(&s)
-            .and_then(CryptoHash::try_from)
+            .and_then(|f| CryptoHash::try_from(f.as_slice()))
             .map_err(|err| serde::de::Error::custom(err.to_string()))
     }
 }
@@ -78,7 +78,7 @@ impl std::str::FromStr for CryptoHash {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let bytes = from_base(s).map_err::<Self::Err, _>(|e| e.to_string().into())?;
-        Self::try_from(bytes)
+        Self::try_from(bytes.as_slice())
     }
 }
 
@@ -87,14 +87,6 @@ impl TryFrom<&[u8]> for CryptoHash {
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         Ok(CryptoHash(bytes.try_into()?))
-    }
-}
-
-impl TryFrom<Vec<u8>> for CryptoHash {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(v: Vec<u8>) -> Result<Self, Self::Error> {
-        <Self as TryFrom<&[u8]>>::try_from(v.as_ref())
     }
 }
 
