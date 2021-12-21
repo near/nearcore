@@ -148,19 +148,33 @@ pub(super) struct InitCmd {
     max_gas_burnt_view: Option<Gas>,
 }
 
+/// Warns if unsupported build of the executable is used on mainnet or testnet.
+///
+/// Verifies that when running on mainnet or testnet chain a neard binary built
+/// with `make release` command is used.  That Makefile targets enable
+/// optimisation options which aren’t enabled when building with different
+/// methods and is the only officially supported method of building the binary
+/// to run in production.
+///
+/// The detection is done by checking that `NEAR_RELEASE_BUILD` environment
+/// variable was set to `vIruZfIXh9LX` during compilation (which is what
+/// Makefile sets) and that neither `nightly_protocol` nor
+/// `nightly_protocol_features` features are enabled.
 fn check_release_build(chain: &str) {
+    // Arbitrary magic value.  Must match value used in Makefile.  This is
+    // chosen to be gibberish to avoid someone accidentally setting the
+    // environment variable to it.
+    const MAGIC_VALUE: &'static str = "uYX3Vap7qaQJnAx/";
     let is_release_build =
-        option_env!("NEAR_RELEASE_BUILD").map(|value| value == "yes").unwrap_or(false);
-    let is_nightly_build = cfg!(feature = "nightly_protocol");
-    let is_mainnet_build = is_release_build && !is_nightly_build;
-    let is_testnet_build = is_release_build && is_nightly_build;
-    if (chain == "mainnet" && !is_mainnet_build) || (chain == "testnet" && !is_testnet_build) {
-        let make_cmd = if chain == "mainnet" { "make release" } else { "make nightly-release" };
+        option_env!("NEAR_RELEASE_BUILD").map(|value| value == MAGIC_VALUE).unwrap_or(false)
+            && !cfg!(feature = "nightly_protocol")
+            && !cfg!(feature = "nightly_protocol_features");
+    if !is_release_build && ["mainnet", "testnet"].contains(&chain) {
         warn!(
             target: "neard",
-            "Running a neard executable which wasn’t built with `{}` command \
-             isn’t supported on {}.",
-            make_cmd, chain
+            "Running a neard executable which wasn’t built with `make release` \
+             command isn’t supported on {}.",
+            chain
         );
         warn!(
             target: "neard",
@@ -169,8 +183,8 @@ fn check_release_build(chain: &str) {
             chain
         );
         warn!(
-                        target: "neard",
-"Consider recompiling the binary using `{}` command.", make_cmd);
+            target: "neard",
+            "Consider recompiling the binary using `make release` command.");
     }
 }
 
