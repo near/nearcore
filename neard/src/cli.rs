@@ -180,7 +180,7 @@ impl InitCmd {
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
         )
-        .with_context(|| "nearcore::init_configs")
+        .context("failed to initialize configuration")
     }
 }
 
