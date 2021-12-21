@@ -32,9 +32,9 @@ impl TrackedConfig {
 // bit mask for which shard to track
 type BitMask = Vec<bool>;
 
-/// Tracker that tracks shard ids and accounts. It maintains two items: `tracked_accounts` and
-/// `tracked_shards`. The shards that are actually tracked are the union of shards that `tracked_accounts`
-/// are in and `tracked_shards`.
+/// Tracker that tracks shard ids and accounts. Right now, it only supports two modes
+/// TrackedConfig::Accounts(accounts): track the shards where `accounts` belong to
+/// TrackedConfig::AllShards: track all shards
 pub struct ShardTracker {
     tracked_config: TrackedConfig,
     /// Stores shard tracking information by epoch, only useful if TrackedState == Accounts
@@ -315,7 +315,7 @@ mod tests {
         let shard_config = ShardConfig {
             num_block_producer_seats_per_shard: get_num_seats_per_shard(4, 2),
             avg_hidden_validator_seats_per_shard: get_num_seats_per_shard(4, 0),
-            shard_layout: shard_layout.clone(),
+            shard_layout: shard_layout,
         };
         let epoch_manager = Arc::new(RwLock::new(get_epoch_manager(
             simple_nightshade_version - 1,
