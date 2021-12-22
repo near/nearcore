@@ -100,11 +100,7 @@ mod aliases {
 
     impl Aliases {
         pub fn new(n: usize) -> Self {
-            let mut aliases = Vec::with_capacity(n);
-            for _ in 0..n {
-                aliases.push(0);
-            }
-            Self { aliases, smalls: Vec::with_capacity(n), bigs: Vec::with_capacity(n) }
+            Self { aliases: vec![0; n], smalls: Vec::with_capacity(n), bigs: Vec::with_capacity(n) }
         }
 
         pub fn push_big(&mut self, b: usize) {

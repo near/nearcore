@@ -29,8 +29,8 @@ impl<T> IbfSet<T>
 where
     T: Hash + Clone,
 {
-    pub fn get_ibf_vec(&self, k: ValidIBFLevel) -> Vec<IbfBox> {
-        self.ibf[(k.0 - MIN_IBF_LEVEL.0) as usize].data.clone()
+    pub fn get_ibf_vec(&self, k: ValidIBFLevel) -> &Vec<IbfBox> {
+        &self.ibf[(k.0 - MIN_IBF_LEVEL.0) as usize].data
     }
 
     /// Get seed used to generate this IbfSet
@@ -39,18 +39,21 @@ where
     }
 
     /// Get `Ibf` based on selected `k`.
-    pub fn get_ibf(&self, k: ValidIBFLevel) -> Ibf {
-        self.ibf[(k.0 - MIN_IBF_LEVEL.0) as usize].clone()
+    pub fn get_ibf(&self, k: ValidIBFLevel) -> &Ibf {
+        &self.ibf[(k.0 - MIN_IBF_LEVEL.0) as usize]
     }
 
     pub fn new(seed: u64) -> Self {
-        let mut ibf: Vec<Ibf> = Default::default();
-        for i in MIN_IBF_LEVEL.0..=MAX_IBF_LEVEL.0 {
-            ibf.push(Ibf::new(1 << i, seed ^ i));
-        }
+        let ibf = (MIN_IBF_LEVEL.0..=MAX_IBF_LEVEL.0).map(|i| Ibf::new(1 << i, seed ^ i));
         let mut hasher = StableHasher::default();
         hasher.write_u64(seed);
-        Self { seed, ibf, h2e: Default::default(), hasher, pd: PhantomData::<T>::default() }
+        Self {
+            seed,
+            ibf: ibf.collect(),
+            h2e: Default::default(),
+            hasher,
+            pd: PhantomData::<T>::default(),
+        }
     }
 
     /// Get list of edges based on given list of hashes.
@@ -119,7 +122,7 @@ mod test {
             b.add_edge(&(i + 100_u64), (i + 2000000) as SlotMapId);
         }
         for i in 10..=17 {
-            let mut ibf1 = a.get_ibf(ValidIBFLevel(i));
+            let mut ibf1 = a.get_ibf(ValidIBFLevel(i)).clone();
             let ibf2 = b.get_ibf(ValidIBFLevel(i));
             ibf1.merge(&ibf2.data, ibf2.seed);
             let (mut res, diff) = ibf1.try_recover();

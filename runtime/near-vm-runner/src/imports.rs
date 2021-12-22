@@ -256,7 +256,7 @@ pub(crate) mod wasmer {
                     let _span = if IS_GAS {
                         None
                     } else {
-                        Some(tracing::debug_span!(target: "host-function", stringify!($func)).entered())
+                        Some(tracing::trace_span!(target: "host-function", stringify!($func)).entered())
                     };
                     let logic: &mut VMLogic<'_> = unsafe { &mut *(ctx.data as *mut VMLogic<'_>) };
                     logic.$func( $( $arg_name, )* )
@@ -279,8 +279,6 @@ pub(crate) mod wasmer2 {
 
     #[derive(wasmer::WasmerEnv, Clone)]
     struct NearWasmerEnv {
-        #[allow(unused)]
-        memory: wasmer::Memory,
         /// Hack to allow usage of non-'static VMLogic as an environment in host
         /// functions. Strictly speaking, this is unsound, but this is only
         /// accessible to `near_vm_runner` crate, where we ensure that `VMLogic`
@@ -297,7 +295,7 @@ pub(crate) mod wasmer2 {
         logic: &mut VMLogic<'_>,
         protocol_version: ProtocolVersion,
     ) -> wasmer::ImportObject {
-        let env = NearWasmerEnv { logic: logic as *mut _ as *mut (), memory: memory.clone() };
+        let env = NearWasmerEnv { logic: logic as *mut _ as *mut () };
         let mut import_object = wasmer::ImportObject::new();
         let mut namespace = wasmer::Exports::new();
         namespace.insert("memory", memory);
@@ -312,7 +310,7 @@ pub(crate) mod wasmer2 {
                     let _span = if IS_GAS {
                         None
                     } else {
-                        Some(tracing::debug_span!(target: "host-function", stringify!($func)).entered())
+                        Some(tracing::trace_span!(target: "host-function", stringify!($func)).entered())
                     };
                     let logic: &mut VMLogic = unsafe { &mut *(env.logic as *mut VMLogic<'_>) };
                     logic.$func( $( $arg_name, )* )
@@ -376,7 +374,7 @@ pub(crate) mod wasmtime {
                     let _span = if IS_GAS {
                         None
                     } else {
-                        Some(tracing::debug_span!(target: "host-function", stringify!($func)).entered())
+                        Some(tracing::trace_span!(target: "host-function", stringify!($func)).entered())
                     };
                     let data = CALLER_CONTEXT.with(|caller_context| {
                         unsafe {

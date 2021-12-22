@@ -58,8 +58,8 @@ impl SlotMap {
         self.e2id.get(edge).cloned()
     }
 
-    fn get_by_id(&self, id: &SlotMapId) -> Option<SimpleEdge> {
-        self.id2e.get(id).cloned()
+    fn get_by_id(&self, id: &SlotMapId) -> Option<&SimpleEdge> {
+        self.id2e.get(id)
     }
 
     fn pop(&mut self, edge: &SimpleEdge) -> Option<SlotMapId> {
@@ -146,8 +146,11 @@ impl IbfPeerSet {
     }
 
     /// Recover edges based on list of SlotMapId
-    fn recover_edges(&self, edges: &[SlotMapId]) -> Vec<SimpleEdge> {
-        edges.iter().filter_map(|v| self.slot_map.get_by_id(v)).collect()
+    fn recover_edges<'a>(
+        &'a self,
+        edges: &'a [SlotMapId],
+    ) -> impl Iterator<Item = &SimpleEdge> + 'a {
+        edges.iter().filter_map(|v| self.slot_map.get_by_id(v))
     }
 
     /// After we recover list of hashes, split edges between those that we know, and ones we don't know about.
@@ -158,7 +161,7 @@ impl IbfPeerSet {
     ) -> (Vec<SimpleEdge>, Vec<u64>) {
         if let Some(ibf) = self.get(peer_id) {
             let (known_edges, unknown_edges) = ibf.get_edges_by_hashes_ext(unknown_edges);
-            return (self.recover_edges(known_edges.as_slice()), unknown_edges);
+            return (self.recover_edges(known_edges.as_slice()).cloned().collect(), unknown_edges);
         }
         Default::default()
     }
@@ -198,7 +201,7 @@ mod test {
 
         assert_eq!(Some(1_u64), sm.get(&e1));
 
-        assert_eq!(Some(e1.clone()), sm.get_by_id(&1_u64));
+        assert_eq!(Some(&e1), sm.get_by_id(&1_u64));
         assert_eq!(None, sm.get_by_id(&1000_u64));
 
         assert_eq!(Some(1_u64), sm.pop(&e1));
@@ -247,7 +250,7 @@ mod test {
 
         assert!(ips.add_edge(&e).is_some());
 
-        let mut hashes = ibf_set.get_ibf(ValidIBFLevel(10)).try_recover().0;
+        let mut hashes = ibf_set.get_ibf(ValidIBFLevel(10)).clone().try_recover().0;
         assert_eq!(1, hashes.len());
 
         for x in 0..4 {

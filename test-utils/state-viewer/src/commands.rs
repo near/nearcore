@@ -2,7 +2,6 @@ use crate::apply_chain_range::apply_chain_range;
 use crate::epoch_info;
 use crate::state_dump::state_dump;
 use ansi_term::Color::Red;
-use borsh::BorshSerialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
@@ -125,13 +124,10 @@ pub(crate) fn dump_code(
     let epoch_id = &runtime.get_epoch_id(header.hash()).unwrap();
 
     for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let state_root_vec: Vec<u8> = state_root.try_to_vec().unwrap();
         let shard_uid = runtime.shard_id_to_uid(shard_id as u64, epoch_id).unwrap();
-        if let Ok(contract_code) = runtime.view_contract_code(
-            &shard_uid,
-            CryptoHash::try_from(state_root_vec).unwrap(),
-            &account_id.parse().unwrap(),
-        ) {
+        if let Ok(contract_code) =
+            runtime.view_contract_code(&shard_uid, *state_root, &account_id.parse().unwrap())
+        {
             let mut file = File::create(output).unwrap();
             file.write_all(contract_code.code()).unwrap();
             println!("Dump contract of account {} into file {}", account_id, output.display());

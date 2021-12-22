@@ -143,12 +143,11 @@ impl ClientActor {
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
-        let runtime_adapter_clone = Arc::clone(&runtime_adapter);
         let sync_jobs_actor_addr = SyncJobsActor::start_in_arbiter(
             &state_parts_arbiter.handle(),
             move |ctx: &mut Context<SyncJobsActor>| -> SyncJobsActor {
                 ctx.set_mailbox_capacity(SyncJobsActor::MAILBOX_CAPACITY);
-                SyncJobsActor { runtime: runtime_adapter_clone, client_addr: self_addr }
+                SyncJobsActor { client_addr: self_addr }
             },
         );
         wait_until_genesis(&chain_genesis.time);
@@ -620,7 +619,7 @@ impl Handler<Status> for ClientActor {
         let head = self.client.chain.head()?;
         let head_header = self.client.chain.get_block_header(&head.last_block_hash)?;
         let latest_block_time = head_header.raw_timestamp();
-        let latest_state_root = head_header.prev_state_root().clone().into();
+        let latest_state_root = (*head_header.prev_state_root()).into();
         if msg.is_health_check {
             let now = Utc::now();
             let block_timestamp = from_timestamp(latest_block_time);
@@ -1359,7 +1358,7 @@ impl ClientActor {
                 let (sync_hash, mut new_shard_sync, just_enter_state_sync) =
                     match &self.client.sync_status {
                         SyncStatus::StateSync(sync_hash, shard_sync) => {
-                            (sync_hash.clone(), shard_sync.clone(), false)
+                            (*sync_hash, shard_sync.clone(), false)
                         }
                         _ => {
                             let sync_hash = unwrap_or_run_later!(self.find_sync_hash());
@@ -1370,7 +1369,7 @@ impl ClientActor {
                 let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
                 let block_header =
                     unwrap_or_run_later!(self.client.chain.get_block_header(&sync_hash));
-                let prev_hash = block_header.prev_hash().clone();
+                let prev_hash = *block_header.prev_hash();
                 let epoch_id = self.client.chain.get_block_header(&sync_hash).unwrap().epoch_id();
                 let shards_to_sync = (0..self.client.runtime_adapter.num_shards(epoch_id).unwrap())
                     .filter(|x| {
@@ -1521,7 +1520,6 @@ impl Drop for ClientActor {
 }
 
 struct SyncJobsActor {
-    runtime: Arc<dyn RuntimeAdapter>,
     client_addr: Addr<ClientActor>,
 }
 
@@ -1532,13 +1530,13 @@ impl SyncJobsActor {
         &mut self,
         msg: &ApplyStatePartsRequest,
     ) -> Result<(), near_chain_primitives::error::Error> {
-        let store = self.runtime.get_store();
+        let store = msg.runtime.get_store();
 
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
             let part = store.get(ColStateParts, &key)?.unwrap();
 
-            self.runtime.apply_state_part(
+            msg.runtime.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
                 part_id,
@@ -1621,7 +1619,7 @@ impl Handler<StateSplitRequest> for SyncJobsActor {
     type Result = ();
 
     fn handle(&mut self, msg: StateSplitRequest, _: &mut Self::Context) -> Self::Result {
-        let results = self.runtime.build_state_for_split_shards(
+        let results = msg.runtime.build_state_for_split_shards(
             msg.shard_uid,
             &msg.state_root,
             &msg.next_epoch_shard_layout,
