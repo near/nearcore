@@ -173,7 +173,8 @@ impl InitCmd {
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
-        );
+        )
+        .expect("failed to init config");
     }
 }
 

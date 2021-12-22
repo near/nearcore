@@ -3,8 +3,6 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "deepsize_feature")]
-use deepsize::DeepSizeOf;
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
@@ -13,16 +11,34 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, EpochId};
 
 /// Peer id is the public key.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
 )]
 pub struct PeerId(Arc<PeerIdInner>);
 
 /// Peer id is the public key.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash,
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+    Hash,
 )]
 pub struct PeerIdInner(PublicKey);
 
@@ -52,26 +68,6 @@ impl PeerId {
     }
 }
 
-impl TryFrom<Vec<u8>> for PeerId {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(bytes: Vec<u8>) -> Result<PeerId, Self::Error> {
-        Ok(PeerId::new(PublicKey::try_from_slice(&bytes)?))
-    }
-}
-
-impl PartialEq for PeerId {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 .0 == other.0 .0
-    }
-}
-
-impl PartialEq for PeerIdInner {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
 impl fmt::Display for PeerId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0 .0)
@@ -85,7 +81,7 @@ impl fmt::Debug for PeerId {
 }
 
 /// Account announcement information
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccount {
     /// AccountId to be announced.

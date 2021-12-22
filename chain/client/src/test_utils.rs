@@ -20,11 +20,10 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
-use near_network::routing::PartialEdgeInfo;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRecipient, NetworkRequests,
-    NetworkResponses, PeerManagerAdapter,
+    NetworkResponses, PartialEdgeInfo, PeerManagerAdapter,
 };
 use near_network::PeerManagerActor;
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
@@ -40,7 +39,9 @@ use near_primitives::types::{
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{AccountView, QueryRequest, QueryResponseKind, StateItem};
+use near_primitives::views::{
+    AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponseKind, StateItem,
+};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
@@ -225,10 +226,10 @@ pub fn setup_only_view(
 
     start_view_client(
         Some(signer.validator_id().clone()),
-        chain_genesis.clone(),
-        runtime.clone(),
+        chain_genesis,
+        runtime,
         network_adapter.clone(),
-        config.clone(),
+        config,
         #[cfg(feature = "test_features")]
         adv.clone(),
     )
@@ -272,7 +273,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     >,
     transaction_validity_period: NumBlocks,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
-    let network_adapter = Arc::new(NetworkRecipient::new());
+    let network_adapter = Arc::new(NetworkRecipient::default());
     let mut vca: Option<Addr<ViewClientActor>> = None;
     let client_addr = ClientActor::create(|ctx: &mut Context<ClientActor>| {
         let (_, client, view_client_addr) = setup(
@@ -371,10 +372,10 @@ impl BlockStats {
 
         if let Some(last_hash2) = self.last_hash {
             self.max_divergence =
-                max(self.max_divergence, self.calculate_distance(last_hash2, block.hash().clone()));
+                max(self.max_divergence, self.calculate_distance(last_hash2, *block.hash()));
         }
 
-        self.last_hash = Some(block.hash().clone());
+        self.last_hash = Some(*block.hash());
     }
 
     pub fn check_stats(&mut self, force: bool) {
@@ -550,7 +551,7 @@ pub fn setup_mock_all_validators(
                     for (i, name) in validators_clone2.iter().flatten().enumerate() {
                         if name == &account_id {
                             my_key_pair = Some(key_pairs[i].clone());
-                            my_address = Some(addresses[i].clone());
+                            my_address = Some(addresses[i]);
                             my_ord = Some(i);
                         }
                     }
@@ -580,8 +581,8 @@ pub fn setup_mock_all_validators(
                             .collect();
                         let peers2 = peers.clone();
                         let info = NetworkInfo {
-                            active_peers: peers,
-                            num_active_peers: key_pairs1.len(),
+                            connected_peers: peers,
+                            num_connected_peers: key_pairs1.len(),
                             peer_max_count: key_pairs1.len() as u32,
                             highest_height_peers: peers2,
                             sent_bytes_per_sec: 0,
@@ -949,7 +950,7 @@ pub fn setup_mock_all_validators(
                                         approval.target_height;
 
                                     if let Some(prev_height) =
-                                        hash_to_height1.read().unwrap().get(&parent_hash).clone()
+                                        hash_to_height1.read().unwrap().get(&parent_hash)
                                     {
                                         assert_eq!(prev_height + 1, approval.target_height);
                                     }
@@ -990,7 +991,7 @@ pub fn setup_mock_all_validators(
                 Box::new(Some(resp))
             }))
             .start();
-            let network_adapter = NetworkRecipient::new();
+            let network_adapter = NetworkRecipient::default();
             network_adapter.set_recipient(pm.recipient());
             let (block, client, view_client_addr) = setup(
                 validators_clone1.clone(),
@@ -1007,7 +1008,7 @@ pub fn setup_mock_all_validators(
                 Arc::new(network_adapter),
                 10000,
                 genesis_time,
-                &ctx,
+                ctx,
             );
             *view_client_addr1.write().unwrap() = Some(view_client_addr);
             *genesis_block1.write().unwrap() = Some(block);
@@ -1247,7 +1248,7 @@ impl TestEnvBuilder {
                 .zip(network_adapters.iter())
                 .map(|(account_id, network_adapter)| {
                     let rng_seed = match seeds.get(&account_id) {
-                        Some(seed) => seed.clone(),
+                        Some(seed) => *seed,
                         None => TEST_SEED,
                     };
                     setup_client(
@@ -1271,12 +1272,12 @@ impl TestEnvBuilder {
                     .zip(runtime_adapters.into_iter())
                     .map(|((account_id, network_adapter), runtime_adapter)| {
                         let rng_seed = match seeds.get(&account_id) {
-                            Some(seed) => seed.clone(),
+                            Some(seed) => *seed,
                             None => TEST_SEED,
                         };
                         setup_client_with_runtime(
                             u64::try_from(num_validators).unwrap(),
-                            Some(account_id.clone()),
+                            Some(account_id),
                             false,
                             network_adapter.clone(),
                             chain_genesis.clone(),
@@ -1493,6 +1494,16 @@ impl TestEnv {
         }
     }
 
+    #[track_caller]
+    pub fn query_transaction_status(
+        &mut self,
+        transaction_hash: &CryptoHash,
+    ) -> FinalExecutionOutcomeView {
+        self.clients[0].chain.get_final_transaction_result(transaction_hash).unwrap_or_else(|err| {
+            panic!("failed to get transaction status for {}: {}", transaction_hash, err)
+        })
+    }
+
     pub fn query_balance(&mut self, account_id: AccountId) -> Balance {
         self.query_account(account_id).amount
     }
@@ -1505,7 +1516,7 @@ impl TestEnv {
         let store = self.clients[idx].chain.store().owned_store();
         let account_id = self.get_client_id(idx).clone();
         let rng_seed = match self.seeds.get(&account_id) {
-            Some(seed) => seed.clone(),
+            Some(seed) => *seed,
             None => TEST_SEED,
         };
         self.clients[idx] = setup_client(
@@ -1633,12 +1644,12 @@ pub fn create_chunk(
         }
     }
     let mut block_merkle_tree =
-        client.chain.mut_store().get_block_merkle_tree(&last_block.hash()).unwrap().clone();
+        client.chain.mut_store().get_block_merkle_tree(last_block.hash()).unwrap().clone();
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
-        &last_block.header(),
+        last_block.header(),
         next_height,
         last_block.header().block_ordinal() + 1,
         vec![chunk.cloned_header()],
