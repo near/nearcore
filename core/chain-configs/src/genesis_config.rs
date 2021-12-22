@@ -480,26 +480,8 @@ impl Genesis {
         Self::new_validated(config, records, GenesisValidationMode::Full)
     }
 
-    fn new_validated(
-        config: GenesisConfig,
-        records: GenesisRecords,
-        genesis_validation: GenesisValidationMode,
-    ) -> Self {
-        let genesis = Self { config, records, records_file: PathBuf::new() };
-        genesis.validate(genesis_validation)
-    }
-
-    pub fn new_with_path<P: AsRef<Path>>(
-        config: GenesisConfig,
-        records_file: P,
-        genesis_validation: GenesisValidationMode,
-    ) -> Self {
-        let genesis = Self {
-            config,
-            records: GenesisRecords(vec![]),
-            records_file: records_file.as_ref().to_path_buf(),
-        };
-        genesis.validate(genesis_validation)
+    pub fn new_with_path<P: AsRef<Path>>(config: GenesisConfig, records_file: P) -> Self {
+        Self::new_with_path_validated(config, records_file, GenesisValidationMode::Full)
     }
 
     /// Reads Genesis from a single file.
@@ -523,9 +505,42 @@ impl Genesis {
         P2: AsRef<Path>,
     {
         let config = GenesisConfig::from_file(config_path).unwrap();
-        Self::new_with_path(config, records_path, genesis_validation)
+        Self::new_with_path_validated(config, records_path, genesis_validation)
     }
 
+    fn new_validated(
+        config: GenesisConfig,
+        records: GenesisRecords,
+        genesis_validation: GenesisValidationMode,
+    ) -> Self {
+        let genesis = Self { config, records, records_file: PathBuf::new() };
+        genesis.validate(genesis_validation)
+    }
+
+    fn new_with_path_validated<P: AsRef<Path>>(
+        config: GenesisConfig,
+        records_file: P,
+        genesis_validation: GenesisValidationMode,
+    ) -> Self {
+        let genesis = Self {
+            config,
+            records: GenesisRecords(vec![]),
+            records_file: records_file.as_ref().to_path_buf(),
+        };
+        genesis.validate(genesis_validation)
+    }
+
+    fn validate(self, genesis_validation: GenesisValidationMode) -> Self {
+        match genesis_validation {
+            GenesisValidationMode::Full => {
+                validate_genesis(&self);
+            }
+            GenesisValidationMode::UnsafeFast => {
+                warn!("Skipped genesis validation");
+            }
+        }
+        self
+    }
     /// Writes Genesis to the file.
     pub fn to_file<P: AsRef<Path>>(&self, path: P) {
         std::fs::write(
@@ -562,18 +577,6 @@ impl Genesis {
                 callback(record);
             }
         }
-    }
-
-    fn validate(self, genesis_validation: GenesisValidationMode) -> Self {
-        match genesis_validation {
-            GenesisValidationMode::Full => {
-                validate_genesis(&self);
-            }
-            GenesisValidationMode::UnsafeFast => {
-                warn!("Skipped genesis validation");
-            }
-        }
-        self
     }
 }
 

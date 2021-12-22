@@ -1,5 +1,5 @@
 use near_chain::RuntimeAdapter;
-use near_chain_configs::{Genesis, GenesisValidationMode};
+use near_chain_configs::Genesis;
 use near_crypto::PublicKey;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::BlockHeader;
@@ -91,11 +91,8 @@ pub fn state_dump(
             // `total_supply` is expected to change due to the natural processes of burning tokens and
             // minting tokens every epoch.
             genesis_config.total_supply = total_supply;
-            near_config.genesis = Genesis::new_with_path(
-                genesis_config,
-                records_path.to_path_buf(),
-                GenesisValidationMode::Full,
-            );
+            near_config.genesis =
+                Genesis::new_with_path(genesis_config, records_path.to_path_buf());
             near_config.config.genesis_records_file =
                 Some(records_path.file_name().unwrap().to_str().unwrap().to_string());
         }
