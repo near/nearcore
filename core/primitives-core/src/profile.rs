@@ -82,6 +82,22 @@ impl ProfileData {
             self[Cost::ExtCost { ext_cost_kind: ext }].saturating_add(value);
     }
 
+    /// WasmInstruction is the only cost we don't explicitly account for.
+    /// Instead, we compute it at the end of contract call as the difference
+    /// between total gas burnt and what we've explicitly accounted for in the
+    /// profile.
+    ///
+    /// This is because WasmInstruction is the hottest cost and is implemented
+    /// with the help on the VM side, so we don't want to have profiling logic
+    /// there both for simplicity and efficiency reasons.
+    pub fn compute_wasm_instruction_cost(&mut self, total_gas_burnt: u64) {
+        let mut value = total_gas_burnt;
+        for cost in Cost::ALL {
+            value = value.saturating_sub(self[*cost]);
+        }
+        self[Cost::WasmInstruction] = value
+    }
+
     pub fn get_action_cost(&self, action: ActionCosts) -> u64 {
         self[Cost::ActionCost { action_cost_kind: action }]
     }
@@ -160,6 +176,7 @@ impl fmt::Debug for ProfileData {
 pub enum Cost {
     ActionCost { action_cost_kind: ActionCosts },
     ExtCost { ext_cost_kind: ExtCosts },
+    WasmInstruction,
 }
 
 impl Cost {
@@ -227,6 +244,7 @@ impl Cost {
         Cost::ExtCost { ext_cost_kind: ExtCosts::promise_return },
         Cost::ExtCost { ext_cost_kind: ExtCosts::validator_stake_base },
         Cost::ExtCost { ext_cost_kind: ExtCosts::validator_total_stake_base },
+        Cost::WasmInstruction,
         #[cfg(feature = "protocol_feature_alt_bn128")]
         Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_base },
         #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -308,20 +326,21 @@ impl Cost {
             Cost::ExtCost { ext_cost_kind: ExtCosts::promise_return } => 59,
             Cost::ExtCost { ext_cost_kind: ExtCosts::validator_stake_base } => 60,
             Cost::ExtCost { ext_cost_kind: ExtCosts::validator_total_stake_base } => 61,
+            Cost::WasmInstruction => 62,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_base } => 62,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_base } => 63,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_byte } => 63,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_byte } => 64,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_sublinear } => 64,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_sublinear } => 65,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_base } => 65,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_base } => 66,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_byte } => 66,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_byte } => 67,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_base } => 67,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_base } => 68,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_byte } => 68,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_byte } => 69,
             Cost::ExtCost { ext_cost_kind: ExtCosts::__count } => unreachable!(),
         }
     }

@@ -1,4 +1,6 @@
-use crate::routing::{Edge, EdgeState, Prune, DELETE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME};
+use crate::network_protocol::{Edge, EdgeState};
+use crate::routing::routing_table_actor::Prune;
+use crate::routing::routing_table_view::{DELETE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME};
 use crate::test_utils::random_peer_id;
 use crate::RoutingTableActor;
 use actix::System;

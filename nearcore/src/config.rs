@@ -5,6 +5,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::{anyhow, bail, Context};
 use hyper::body::HttpBody;
 use near_primitives::time::Clock;
 use num_rational::Rational;
@@ -463,12 +464,12 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn from_file(path: &Path) -> Self {
-        let mut file = File::open(path)
-            .unwrap_or_else(|_| panic!("Could not open config file: `{}`", path.display()));
-        let mut content = String::new();
-        file.read_to_string(&mut content).expect("Could not read from config file.");
-        Config::from(content.as_str())
+    pub fn from_file(path: &Path) -> anyhow::Result<Self> {
+        let s = std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read config from {}", path.display()))?;
+        let config = serde_json::from_str(&s)
+            .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
+        Ok(config)
     }
 
     pub fn write_to_file(&self, path: &Path) {
@@ -479,7 +480,7 @@ impl Config {
         }
     }
 
-    pub fn rpc_addr(&self) -> Option<&String> {
+    pub fn rpc_addr(&self) -> Option<&str> {
         #[cfg(feature = "json_rpc")]
         if let Some(rpc) = &self.rpc {
             return Some(&rpc.addr);
@@ -493,12 +494,6 @@ impl Config {
         {
             self.rpc.get_or_insert(Default::default()).addr = addr;
         }
-    }
-}
-
-impl From<&str> for Config {
-    fn from(content: &str) -> Self {
-        serde_json::from_str(content).expect("Failed to deserialize config")
     }
 }
 
@@ -627,7 +622,7 @@ impl NearConfig {
             client_config: ClientConfig {
                 version: Default::default(),
                 chain_id: genesis.config.chain_id.clone(),
-                rpc_addr: config.rpc_addr().map(|addr| addr.clone()),
+                rpc_addr: config.rpc_addr().map(|addr| addr.to_owned()),
                 block_production_tracking_delay: config.consensus.block_production_tracking_delay,
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
@@ -723,7 +718,7 @@ impl NearConfig {
         }
     }
 
-    pub fn rpc_addr(&self) -> Option<&String> {
+    pub fn rpc_addr(&self) -> Option<&str> {
         #[cfg(feature = "json_rpc")]
         if let Some(rpc) = &self.rpc_config {
             return Some(&rpc.addr);
@@ -804,7 +799,7 @@ pub fn mainnet_genesis() -> Genesis {
     lazy_static_include::lazy_static_include_bytes! {
         MAINNET_GENESIS_JSON => "res/mainnet_genesis.json",
     };
-    serde_json::from_slice(*MAINNET_GENESIS_JSON).expect("Failed to deserialize MainNet genesis")
+    serde_json::from_slice(*MAINNET_GENESIS_JSON).expect("Failed to deserialize mainnet genesis")
 }
 
 /// Initializes genesis and client configs and stores in the given folder
@@ -822,13 +817,19 @@ pub fn init_configs(
     download_config_url: Option<&str>,
     boot_nodes: Option<&str>,
     max_gas_burnt_view: Option<Gas>,
-) {
-    fs::create_dir_all(dir).expect("Failed to create directory");
+) -> anyhow::Result<()> {
+    fs::create_dir_all(dir).with_context(|| anyhow!("Failed to create directory {:?}", dir))?;
+
     // Check if config already exists in home dir.
     if dir.join(CONFIG_FILENAME).exists() {
-        let config = Config::from_file(&dir.join(CONFIG_FILENAME));
-        let genesis_config = GenesisConfig::from_file(&dir.join(config.genesis_file));
-        panic!("Found existing config in {} with chain-id = {}. Use unsafe_reset_all to clear the folder.", dir.display(), genesis_config.chain_id);
+        let config = Config::from_file(&dir.join(CONFIG_FILENAME))
+            .with_context(|| anyhow!("Failed to read config {}", dir.display()))?;
+        let file_path = dir.join(&config.genesis_file);
+        let genesis = GenesisConfig::from_file(&file_path).with_context(move || {
+            anyhow!("Failed to read genesis config {}/{}", dir.display(), config.genesis_file)
+        })?;
+        bail!("Config is already downloaded: {} with chain-id = {}. Use 'cargo run -p neard -- unsafe_reset_all' to clear the folder.",
+                file_path.display(), genesis.chain_id);
     }
 
     let mut config = Config::default();
@@ -838,11 +839,11 @@ pub fn init_configs(
 
     if let Some(url) = download_config_url {
         download_config(&url.to_string(), &dir.join(CONFIG_FILENAME));
-        config = Config::from_file(&dir.join(CONFIG_FILENAME));
+        config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     } else if should_download_config {
         let url = get_config_url(&chain_id);
         download_config(&url, &dir.join(CONFIG_FILENAME));
-        config = Config::from_file(&dir.join(CONFIG_FILENAME));
+        config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     }
 
     if let Some(nodes) = boot_nodes {
@@ -856,7 +857,7 @@ pub fn init_configs(
     match chain_id.as_ref() {
         "mainnet" => {
             if test_seed.is_some() {
-                panic!("Test seed is not supported for MainNet");
+                bail!("Test seed is not supported for MainNet");
             }
             config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
             config.write_to_file(&dir.join(CONFIG_FILENAME));
@@ -866,16 +867,15 @@ pub fn init_configs(
                 generate_validator_key(account_id, &dir.join(config.validator_key_file));
             }
 
-            let network_signer =
-                InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519);
+            let network_signer = InMemorySigner::from_random("node".parse()?, KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
             genesis.to_file(&dir.join(config.genesis_file));
-            info!(target: "near", "Generated MainNet genesis file in {}", dir.display());
+            info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
         }
         "testnet" | "betanet" => {
             if test_seed.is_some() {
-                panic!("Test seed is not supported for official TestNet");
+                bail!("Test seed is not supported for official testnet");
             }
             config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.replace("{}", &chain_id));
             config.write_to_file(&dir.join(CONFIG_FILENAME));
@@ -884,14 +884,13 @@ pub fn init_configs(
                 generate_validator_key(account_id, &dir.join(config.validator_key_file));
             }
 
-            let network_signer =
-                InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519);
+            let network_signer = InMemorySigner::from_random("node".parse()?, KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
             // download genesis from s3
             let genesis_path = dir.join("genesis.json");
             let mut genesis_path_str =
-                genesis_path.to_str().expect("Genesis path must be initialized");
+                genesis_path.to_str().with_context(|| "Genesis path must be initialized")?;
 
             if let Some(url) = download_genesis_url {
                 download_genesis(&url.to_string(), &genesis_path);
@@ -899,8 +898,13 @@ pub fn init_configs(
                 let url = get_genesis_url(&chain_id);
                 download_genesis(&url, &genesis_path);
             } else {
-                genesis_path_str =
-                    genesis.unwrap_or_else(|| panic!("Genesis file is required for {}.", &chain_id))
+                genesis_path_str = genesis.unwrap_or_else(|| {
+                    panic!(
+                        "Genesis file is required for {}.\
+                         Use <--genesis|--download-genesis>",
+                        &chain_id
+                    );
+                });
             }
 
             let mut genesis = Genesis::from_file(&genesis_path_str);
@@ -929,8 +933,7 @@ pub fn init_configs(
             };
             signer.write_to_file(&dir.join(config.validator_key_file));
 
-            let network_signer =
-                InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519);
+            let network_signer = InMemorySigner::from_random("node".parse()?, KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
             let mut records = vec![];
             add_account_with_key(
@@ -984,6 +987,7 @@ pub fn init_configs(
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
         }
     }
+    Ok(())
 }
 
 pub fn create_testnet_configs_from_seeds(
@@ -1084,14 +1088,14 @@ pub fn init_testnet_configs(
     }
 }
 
-pub fn get_genesis_url(chain_id: &String) -> String {
+pub fn get_genesis_url(chain_id: &str) -> String {
     format!(
         "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/genesis.json",
         chain_id,
     )
 }
 
-pub fn get_config_url(chain_id: &String) -> String {
+pub fn get_config_url(chain_id: &str) -> String {
     format!(
         "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/config.json",
         chain_id,
@@ -1119,7 +1123,7 @@ pub enum FileDownloadError {
 async fn download_file_impl(
     uri: hyper::Uri,
     mut file: tokio::fs::File,
-) -> Result<(), FileDownloadError> {
+) -> anyhow::Result<(), FileDownloadError> {
     let https_connector = hyper_tls::HttpsConnector::new();
     let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
     let mut resp = client.get(uri).await?;
@@ -1133,10 +1137,10 @@ async fn download_file_impl(
 /// Downloads a resource at given `url` and saves it to `path`.  On success, if
 /// file at `path` exists it will be overwritten.  On failure, file at `path` is
 /// left unchanged (if it exists).
-pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
+pub fn download_file(url: &str, path: &Path) -> anyhow::Result<(), FileDownloadError> {
     let uri = url.parse()?;
     let (tmp_file, tmp_path) = {
-        let tmp_dir = path.parent().unwrap_or(&Path::new("."));
+        let tmp_dir = path.parent().unwrap_or(Path::new("."));
         tempfile::NamedTempFile::new_in(tmp_dir).map_err(FileDownloadError::OpenError)?.into_parts()
     };
 
@@ -1161,15 +1165,15 @@ pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     })
 }
 
-pub fn download_genesis(url: &String, path: &Path) {
+pub fn download_genesis(url: &str, path: &Path) {
     info!(target: "near", "Downloading genesis file from: {} ...", url);
-    download_file(&url, &path).expect("Failed to download the genesis file");
+    download_file(url, path).expect("Failed to download the genesis file");
     info!(target: "near", "Saved the genesis file to: {} ...", path.display());
 }
 
-pub fn download_config(url: &String, path: &Path) {
+pub fn download_config(url: &str, path: &Path) {
     info!(target: "near", "Downloading config file from: {} ...", url);
-    download_file(&url, &path).expect("Failed to download the configuration file");
+    download_file(url, path).expect("Failed to download the configuration file");
     info!(target: "near", "Saved the config file to: {} ...", path.display());
 }
 
@@ -1206,8 +1210,8 @@ impl From<NodeKeyFile> for KeyFile {
 }
 
 pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
-    let config = Config::from_file(&dir.join(CONFIG_FILENAME));
-    let genesis_config = GenesisConfig::from_file(&dir.join(&config.genesis_file));
+    let config = Config::from_file(&dir.join(CONFIG_FILENAME)).unwrap();
+    let genesis_config = GenesisConfig::from_file(&dir.join(&config.genesis_file)).unwrap();
     let genesis_records_file = if let Some(genesis_records_file) = &config.genesis_records_file {
         dir.join(genesis_records_file)
     } else {

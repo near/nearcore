@@ -181,7 +181,7 @@ impl ContractCaller {
                             ) => {
                                 let mut new_memory;
                                 run_wasmer2_module(
-                                    &module,
+                                    module,
                                     store,
                                     if memory.is_some() {
                                         memory.as_mut().unwrap()

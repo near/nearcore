@@ -26,14 +26,14 @@ struct GenesisValidator<'a> {
 
 impl<'a> GenesisValidator<'a> {
     pub fn new(genesis_config: &'a GenesisConfig) -> Self {
-        return Self {
+        Self {
             genesis_config,
             total_supply: 0,
             staked_accounts: HashMap::new(),
             account_ids: HashSet::new(),
             access_key_account_ids: HashSet::new(),
             contract_account_ids: HashSet::new(),
-        };
+        }
     }
 
     pub fn process_record(&mut self, record: &StateRecord) {
