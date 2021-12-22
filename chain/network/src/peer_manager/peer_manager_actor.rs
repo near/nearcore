@@ -574,33 +574,38 @@ impl PeerManagerActor {
                     throttle_controller,
                 );
                 self.send_sync(peer_type, addr, ctx, target_peer_id, new_edge, Vec::new());
-                return;
+            },
+            {
+                near_performance_metrics::actix::run_later(
+                    ctx,
+                    WAIT_FOR_SYNC_DELAY,
+                    move |act, ctx| {
+                        act.routing_table_addr
+                            .send(ActixMessageWrapper::new_without_size(
+                                RoutingTableMessages::RequestRoutingTable,
+                                Some(throttle_controller),
+                            ))
+                            .into_actor(act)
+                            .map(move |response, act, ctx| match response.map(|r| r.into_inner()) {
+                                Ok(RoutingTableMessagesResponse::RequestRoutingTableResponse {
+                                    edges_info: routing_table,
+                                }) => {
+                                    act.send_sync(
+                                        peer_type,
+                                        addr,
+                                        ctx,
+                                        target_peer_id.clone(),
+                                        new_edge,
+                                        routing_table,
+                                    );
+                                }
+                                _ => error!(target: "network", "expected AddIbfSetResponse"),
+                            })
+                            .spawn(ctx);
+                    },
+                );
             }
         );
-        near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act, ctx| {
-            act.routing_table_addr
-                .send(ActixMessageWrapper::new_without_size(
-                    RoutingTableMessages::RequestRoutingTable,
-                    Some(throttle_controller),
-                ))
-                .into_actor(act)
-                .map(move |response, act, ctx| match response.map(|r| r.into_inner()) {
-                    Ok(RoutingTableMessagesResponse::RequestRoutingTableResponse {
-                        edges_info: routing_table,
-                    }) => {
-                        act.send_sync(
-                            peer_type,
-                            addr,
-                            ctx,
-                            target_peer_id.clone(),
-                            new_edge,
-                            routing_table,
-                        );
-                    }
-                    _ => error!(target: "network", "expected AddIbfSetResponse"),
-                })
-                .spawn(ctx);
-        });
     }
 
     fn send_sync(
