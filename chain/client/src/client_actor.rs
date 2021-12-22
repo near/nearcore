@@ -717,18 +717,6 @@ impl Handler<GetNetworkInfo> for ClientActor {
 }
 
 impl ClientActor {
-    fn sign_announce_account(&self, epoch_id: &EpochId) -> Result<Signature, ()> {
-        if let Some(validator_signer) = self.client.validator_signer.as_ref() {
-            Ok(validator_signer.sign_account_announce(
-                validator_signer.validator_id(),
-                &self.node_id,
-                epoch_id,
-            ))
-        } else {
-            Err(())
-        }
-    }
-
     /// Check if client Account Id should be sent and send it.
     /// Account Id is sent when is not current a validator but are becoming a validator soon.
     fn check_send_announce_account(&mut self, prev_block_hash: CryptoHash) {
@@ -766,14 +754,17 @@ impl ClientActor {
         if self.client.is_validator(&next_epoch_id, &prev_block_hash) {
             debug!(target: "client", "Sending announce account for {}", validator_signer.validator_id());
             self.last_validator_announce_time = Some(now);
-            let signature = self.sign_announce_account(&next_epoch_id).unwrap();
 
             self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::AnnounceAccount(AnnounceAccount {
+                    signature: validator_signer.sign_account_announce(
+                        validator_signer.validator_id(),
+                        &self.node_id,
+                        &next_epoch_id,
+                    ),
                     account_id: validator_signer.validator_id().clone(),
                     peer_id: self.node_id.clone(),
                     epoch_id: next_epoch_id,
-                    signature,
                 }),
             ));
         }
