@@ -19,10 +19,7 @@ docker-nearcore-sandbox:
 docker-nearcore-nightly:
 	docker build -t nearcore-nightly -f Dockerfile.nightly --progress=plain .
 
-# The NEAR_RELEASE_BUILD is just an arbitrary random gibberish.  It must match
-# value used in `check_release_build` function but otherwise it’s value doesn’t
-# matter.
-release: NEAR_RELEASE_BUILD=uYX3Vap7qaQJnAx/
+release: NEAR_RELEASE_BUILD=release
 release:
 	cargo build -p neard --release
 	cargo build -p state-viewer --release

@@ -157,18 +157,13 @@ pub(super) struct InitCmd {
 /// to run in production.
 ///
 /// The detection is done by checking that `NEAR_RELEASE_BUILD` environment
-/// variable was set to `vIruZfIXh9LX` during compilation (which is what
-/// Makefile sets) and that neither `nightly_protocol` nor
-/// `nightly_protocol_features` features are enabled.
+/// variable was set to `release` during compilation (which is what Makefile
+/// sets) and that neither `nightly_protocol` nor `nightly_protocol_features`
+/// features are enabled.
 fn check_release_build(chain: &str) {
-    // Arbitrary magic value.  Must match value used in Makefile.  This is
-    // chosen to be gibberish to avoid someone accidentally setting the
-    // environment variable to it.
-    const MAGIC_VALUE: &'static str = "uYX3Vap7qaQJnAx/";
-    let is_release_build =
-        option_env!("NEAR_RELEASE_BUILD").map(|value| value == MAGIC_VALUE).unwrap_or(false)
-            && !cfg!(feature = "nightly_protocol")
-            && !cfg!(feature = "nightly_protocol_features");
+    let is_release_build = option_env!("NEAR_RELEASE_BUILD") == Some("release")
+        && !cfg!(feature = "nightly_protocol")
+        && !cfg!(feature = "nightly_protocol_features");
     if !is_release_build && ["mainnet", "testnet"].contains(&chain) {
         warn!(
             target: "neard",
