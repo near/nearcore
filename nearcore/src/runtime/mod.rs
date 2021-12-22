@@ -591,7 +591,7 @@ impl NightshadeRuntime {
                 shard_uid,
                 apply_result.trie_changes,
                 apply_result.state_changes,
-                block_hash.clone(),
+                *block_hash,
             ),
             new_root: apply_result.state_root,
             outcomes: apply_result.outcomes,
@@ -643,7 +643,7 @@ fn apply_delayed_receipts<'a>(
     state_roots: HashMap<ShardUId, StateRoot>,
     account_id_to_shard_id: &(dyn Fn(&AccountId) -> ShardUId + 'a),
 ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-    let orig_trie_update = tries.new_trie_update_view(orig_shard_uid.clone(), orig_state_root);
+    let orig_trie_update = tries.new_trie_update_view(orig_shard_uid, orig_state_root);
 
     let mut start_index = None;
     let mut new_state_roots = state_roots;
@@ -934,7 +934,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let message_to_sign = Approval::get_data_for_sig(
             &if prev_block_height + 1 == block_height {
-                ApprovalInner::Endorsement(prev_block_hash.clone())
+                ApprovalInner::Endorsement(*prev_block_hash)
             } else {
                 ApprovalInner::Skip(prev_block_height)
             },
@@ -976,7 +976,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let message_to_sign = Approval::get_data_for_sig(
             &if prev_block_height + 1 == block_height {
-                ApprovalInner::Endorsement(prev_block_hash.clone())
+                ApprovalInner::Endorsement(*prev_block_hash)
             } else {
                 ApprovalInner::Skip(prev_block_height)
             },
@@ -1651,7 +1651,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     shard_uid,
                     trie_changes,
                     vec![],
-                    block_hash.clone(),
+                    *block_hash,
                 ),
             })
             .collect())
@@ -1701,7 +1701,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_roots = apply_delayed_receipts(
             &self.tries,
             shard_uid,
-            state_root.clone(),
+            *state_root,
             state_roots,
             &checked_account_id_to_shard_id,
         )?;
@@ -2689,7 +2689,7 @@ mod test {
             .runtime
             .apply_state_part(0, &env.state_roots[0], 0, 1, &state_part, epoch_id)
             .unwrap();
-        new_env.state_roots[0] = env.state_roots[0].clone();
+        new_env.state_roots[0] = env.state_roots[0];
         for _ in 3..=5 {
             new_env.step_default(vec![]);
         }
