@@ -670,8 +670,7 @@ impl Runner {
             .collect();
         let ports: Vec<_> = (0..self.num_nodes).map(|_| open_port()).collect();
 
-        let validators: Vec<_> =
-            accounts_id.iter().map(|x| x.clone()).take(self.num_validators).collect();
+        let validators: Vec<_> = accounts_id.iter().cloned().take(self.num_validators).collect();
 
         let mut peers_info =
             convert_boot_nodes(accounts_id.iter().map(|x| x.as_ref()).zip(ports.clone()).collect());
