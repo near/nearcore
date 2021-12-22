@@ -737,7 +737,7 @@ pub mod chunk_extra {
             balance_burnt: Balance,
         ) -> Self {
             Self::V2(ChunkExtraV2 {
-                state_root: state_root.clone(),
+                state_root: *state_root,
                 outcome_root,
                 validator_proposals,
                 gas_used,
