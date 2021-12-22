@@ -111,7 +111,8 @@ fn main() -> anyhow::Result<()> {
                 None,
                 None,
                 None,
-            );
+            )
+            .expect("failed to init config");
 
             let near_config = load_config(&state_dump_path);
             let store = create_store(&get_store_path(&state_dump_path));
