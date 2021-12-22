@@ -77,7 +77,7 @@ fn serialize_tx(bench: &mut Bencher) {
     let t = create_transaction();
     bench.iter(|| {
         let bytes = t.try_to_vec().unwrap();
-        assert!(bytes.len() > 0);
+        assert!(!bytes.is_empty());
     });
 }
 
@@ -94,7 +94,7 @@ fn serialize_block(bench: &mut Bencher) {
     let b = create_block();
     bench.iter(|| {
         let bytes = b.try_to_vec().unwrap();
-        assert!(bytes.len() > 0);
+        assert!(!bytes.is_empty());
     });
 }
 
@@ -111,7 +111,7 @@ fn serialize_account(bench: &mut Bencher) {
     let acc = create_account();
     bench.iter(|| {
         let bytes = acc.try_to_vec().unwrap();
-        assert!(bytes.len() > 0);
+        assert!(!bytes.is_empty());
     });
 }
 

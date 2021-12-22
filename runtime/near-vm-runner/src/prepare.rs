@@ -44,7 +44,7 @@ impl<'a> ContractModule<'a> {
 
         let mut tmp = MemorySection::default();
 
-        module.memory_section_mut().unwrap_or_else(|| &mut tmp).entries_mut().pop();
+        module.memory_section_mut().unwrap_or(&mut tmp).entries_mut().pop();
 
         let entry = elements::MemoryType::new(
             config.limit_config.initial_memory_pages,
@@ -127,7 +127,7 @@ impl<'a> ContractModule<'a> {
             };
 
             let Type::Function(ref _func_ty) =
-                types.get(*type_idx as usize).ok_or_else(|| PrepareError::Instantiate)?;
+                types.get(*type_idx as usize).ok_or(PrepareError::Instantiate)?;
 
             // TODO: Function type check with Env
             /*
