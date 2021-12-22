@@ -98,13 +98,13 @@ impl Decoder for Codec {
 #[cfg(test)]
 mod test {
     use crate::peer::codec::{Codec, NETWORK_MESSAGE_MAX_SIZE_BYTES};
-    use crate::routing::network_protocol::PartialEdgeInfo;
     use crate::types::{Handshake, PeerMessage, RoutingTableUpdate};
     use borsh::{BorshDeserialize, BorshSerialize};
     use bytes::{BufMut, BytesMut};
     use near_crypto::{KeyType, SecretKey};
     use near_network_primitives::types::{
-        PeerChainInfoV2, PeerIdOrHash, PeerInfo, ReasonForBan, RoutedMessage, RoutedMessageBody,
+        PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, ReasonForBan, RoutedMessage,
+        RoutedMessageBody,
     };
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::CryptoHash;

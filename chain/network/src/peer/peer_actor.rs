@@ -1,4 +1,3 @@
-use crate::network_protocol::{Edge, PartialEdgeInfo};
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
 use crate::peer::utils;
@@ -25,6 +24,7 @@ use near_network_primitives::types::{
     RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
     UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
+use near_network_primitives::types::{Edge, PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
