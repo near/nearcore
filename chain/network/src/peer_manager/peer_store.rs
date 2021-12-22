@@ -12,6 +12,7 @@ use std::collections::hash_map::{Entry, Iter};
 use std::collections::HashMap;
 use std::error::Error;
 use std::net::SocketAddr;
+use std::ops::Not;
 use std::sync::Arc;
 use tracing::{debug, error};
 
@@ -212,13 +213,7 @@ impl PeerStore {
 
     /// Return healthy known peers up to given amount.
     pub(crate) fn healthy_peers(&self, max_count: usize) -> Vec<PeerInfo> {
-        self.find_peers(
-            |p| match p.status {
-                KnownPeerStatus::Banned(_, _) => false,
-                _ => true,
-            },
-            max_count,
-        )
+        self.find_peers(|p| matches!(p.status, KnownPeerStatus::Banned(_, _)).not(), max_count)
     }
 
     /// Return iterator over all known peers.
@@ -318,13 +313,15 @@ impl PeerStore {
                     // If this peer already exists with a signed connection ignore this update.
                     // Warning: This is a problem for nodes that changes its address without changing peer_id.
                     //          It is recommended to change peer_id if address is changed.
-                    if self.peer_states.get(&peer_info.id).map_or(false, |peer_state| {
-                        peer_state.peer_info.addr.map_or(false, |current_addr| {
-                            self.addr_peers.get(&current_addr).map_or(false, |verified_peer| {
-                                verified_peer.trust_level == TrustLevel::Signed
+                    let is_peer_trusted =
+                        self.peer_states.get(&peer_info.id).map_or(false, |peer_state| {
+                            peer_state.peer_info.addr.map_or(false, |current_addr| {
+                                self.addr_peers.get(&current_addr).map_or(false, |verified_peer| {
+                                    verified_peer.trust_level == TrustLevel::Signed
+                                })
                             })
-                        })
-                    }) {
+                        });
+                    if is_peer_trusted {
                         return Ok(());
                     }
 

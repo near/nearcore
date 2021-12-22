@@ -13,7 +13,7 @@ use rand_core::OsRng;
 use secp256k1::Message;
 use serde::{Deserialize, Serialize};
 
-pub static SECP256K1: Lazy<secp256k1::Secp256k1> = Lazy::new(|| secp256k1::Secp256k1::new());
+pub static SECP256K1: Lazy<secp256k1::Secp256k1> = Lazy::new(secp256k1::Secp256k1::new);
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum KeyType {

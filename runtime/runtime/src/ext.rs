@@ -140,10 +140,7 @@ impl<'a> RuntimeExt<'a> {
 }
 
 fn wrap_storage_error(error: StorageError) -> VMLogicError {
-    VMLogicError::ExternalError(
-        borsh::BorshSerialize::try_to_vec(&ExternalError::StorageError(error))
-            .expect("Borsh serialize cannot fail"),
-    )
+    VMLogicError::from(ExternalError::StorageError(error))
 }
 
 type ExtResult<T> = ::std::result::Result<T, VMLogicError>;

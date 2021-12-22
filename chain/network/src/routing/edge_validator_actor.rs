@@ -53,7 +53,7 @@ impl Handler<ValidateEdgeList> for EdgeValidatorActor {
                 let mut guard = msg.edges_info_shared.lock().unwrap();
                 let entry = guard.entry(key.clone());
 
-                let cur_nonce = entry.or_insert(edge.nonce());
+                let cur_nonce = entry.or_insert_with(|| edge.nonce());
                 *cur_nonce = max(*cur_nonce, edge.nonce());
             }
             msg.sender.push(edge);

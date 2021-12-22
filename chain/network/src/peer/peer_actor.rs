@@ -21,14 +21,15 @@ use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::types::{
     Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2,
-    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerStatsResult, PeerStatus, PeerType,
-    QueryPeerStats, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom,
-    StateResponseInfo, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerStatsResult, PeerType, QueryPeerStats,
+    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::borsh::maybestd::io::Error;
+use near_primitives::logging;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::time::Clock;
@@ -36,7 +37,6 @@ use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
-use near_primitives::{logging, unwrap_option_or_return};
 use near_rate_limiter::{ActixMessageWrapper, ThrottleController};
 use near_rust_allocator_proxy::allocator::get_tid;
 use std::cmp::max;
@@ -117,6 +117,7 @@ impl Debug for PeerActor {
 }
 
 impl PeerActor {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         my_node_info: PeerInfo,
         peer_addr: SocketAddr,
@@ -399,7 +400,8 @@ impl PeerActor {
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
         metrics::PEER_CLIENT_MESSAGE_RECEIVED_TOTAL.inc();
-        let peer_id = unwrap_option_or_return!(self.other_peer_id()).clone();
+        let peer_id =
+            if let Some(peer_id) = self.other_peer_id() { peer_id.clone() } else { return };
 
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
@@ -557,7 +559,7 @@ impl PeerActor {
 
     /// Check whenever we exceeded number of transactions we got since last block.
     /// If so, drop the transaction.
-    fn should_we_drop_msg_without_decoding(&self, msg: &Vec<u8>) -> bool {
+    fn should_we_drop_msg_without_decoding(&self, msg: &[u8]) -> bool {
         if utils::is_forward_transaction(msg).unwrap_or(false) {
             let r = self.txns_since_last_block.load(Ordering::Acquire);
             if r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE {
@@ -569,7 +571,7 @@ impl PeerActor {
 
     // Checks errors from decoding a message.
     // We may send `HandshakeFailure` to the other peer.
-    fn handle_peer_message_decode_error(&mut self, msg: &Vec<u8>, err: Error) {
+    fn handle_peer_message_decode_error(&mut self, msg: &[u8], err: Error) {
         if let Some(version) = err
             .get_ref()
             .and_then(|err| err.downcast_ref::<HandshakeFailureReason>())
@@ -887,12 +889,11 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     ))
                     .into_actor(self)
                     .then(|res, act, ctx| {
-                        match res.map(|f| f.into_inner().as_peer_response()) {
-                            Ok(PeerResponse::UpdatedEdge(edge_info)) => {
-                                act.partial_edge_info = Some(edge_info);
-                                act.send_handshake(ctx);
-                            }
-                            _ => {}
+                        if let Ok(PeerResponse::UpdatedEdge(edge_info)) =
+                            res.map(|f| f.into_inner().as_peer_response())
+                        {
+                            act.partial_edge_info = Some(edge_info);
+                            act.send_handshake(ctx);
                         }
                         actix::fut::ready(())
                     })
@@ -956,11 +957,10 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 ))
                 .into_actor(self)
                 .then(|res, act, ctx| {
-                    match res.map(|f| f.as_network_response()) {
-                        Ok(NetworkResponses::BanPeer(reason_for_ban)) => {
-                            act.ban_peer(ctx, reason_for_ban);
-                        }
-                        _ => {}
+                    if let Ok(NetworkResponses::BanPeer(reason_for_ban)) =
+                        res.map(|f| f.as_network_response())
+                    {
+                        act.ban_peer(ctx, reason_for_ban);
                     }
                     actix::fut::ready(())
                 })
@@ -1084,4 +1084,15 @@ impl Handler<PeerManagerRequest> for PeerActor {
             }
         }
     }
+}
+
+/// Peer status.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum PeerStatus {
+    /// Waiting for handshake.
+    Connecting,
+    /// Ready to go.
+    Ready,
+    /// Banned, should shutdown this peer.
+    Banned(ReasonForBan),
 }

@@ -940,9 +940,10 @@ impl EncodedShardChunk {
     fn encode_transaction_receipts(
         rs: &mut ReedSolomonWrapper,
         transactions: Vec<SignedTransaction>,
-        outgoing_receipts: &Vec<Receipt>,
+        outgoing_receipts: &[Receipt],
     ) -> Result<(Vec<Option<Box<[u8]>>>, u64), std::io::Error> {
-        let mut bytes = TransactionReceipt(transactions, outgoing_receipts.clone()).try_to_vec()?;
+        let mut bytes =
+            TransactionReceipt(transactions, outgoing_receipts.to_vec()).try_to_vec()?;
 
         let mut parts = vec![];
         let data_parts = rs.data_shard_count();
@@ -980,7 +981,7 @@ impl EncodedShardChunk {
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
         transactions: Vec<SignedTransaction>,
-        outgoing_receipts: &Vec<Receipt>,
+        outgoing_receipts: &[Receipt],
         outgoing_receipts_root: CryptoHash,
         signer: &dyn ValidatorSigner,
         protocol_version: ProtocolVersion,
