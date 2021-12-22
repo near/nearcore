@@ -239,7 +239,7 @@ pub enum VMLogicError {
 
 impl std::error::Error for VMLogicError {}
 
-/// An error that is caused by an operation on an inconsistent state. such as
+/// An error that is caused by an operation on an inconsistent state, such as
 /// integer overflow.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InconsistentStateError {
