@@ -45,7 +45,7 @@ fn track_shards() {
                     spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
                         match &res {
                             Ok(Ok(b)) if b.header.height > 10 => {
-                                *last_block_hash1.write().unwrap() = Some(b.header.hash.into());
+                                *last_block_hash1.write().unwrap() = Some(b.header.hash);
                             }
                             Err(_) => return future::ready(()),
                             _ => {}
