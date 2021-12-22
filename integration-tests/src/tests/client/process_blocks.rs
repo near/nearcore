@@ -297,7 +297,7 @@ fn produce_blocks_with_tx() {
                         &mut rs,
                     ) {
                         let chunk = encoded_chunks[height - 2].decode_chunk(data_parts).unwrap();
-                        if chunk.transactions().len() > 0 {
+                        if !chunk.transactions().is_empty() {
                             System::current().stop();
                         }
                     }
@@ -2519,8 +2519,8 @@ fn test_refund_receipts_processing() {
         };
         let chunk =
             env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap().clone();
-        if chunk.receipts().len() == 0
-            && chunk.transactions().len() == 0
+        if chunk.receipts().is_empty()
+            && chunk.transactions().is_empty()
             && finished_all_delayed_receipts
         {
             break;
