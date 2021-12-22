@@ -1,7 +1,7 @@
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    Edge, Handshake, HandshakeFailureReason, HandshakeV2, PartialEdgeInfo, PeerMessage,
-    RoutingTableUpdate, SimpleEdge,
+    Edge, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, RoutingTableUpdate,
+    SimpleEdge,
 };
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 pub use crate::network_protocol::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
