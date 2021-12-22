@@ -27,7 +27,6 @@ use near_chain::{
 use near_chain_configs::ClientConfig;
 #[cfg(feature = "test_features")]
 use near_chain_configs::GenesisConfig;
-use near_crypto::Signature;
 use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
@@ -41,7 +40,7 @@ use near_performance_metrics_macros::{perf, perf_with_debug};
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::{BlockHeight, EpochId};
+use near_primitives::types::BlockHeight;
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -755,16 +754,17 @@ impl ClientActor {
             debug!(target: "client", "Sending announce account for {}", validator_signer.validator_id());
             self.last_validator_announce_time = Some(now);
 
+            let signature = validator_signer.sign_account_announce(
+                validator_signer.validator_id(),
+                &self.node_id,
+                &next_epoch_id,
+            );
             self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::AnnounceAccount(AnnounceAccount {
-                    signature: validator_signer.sign_account_announce(
-                        validator_signer.validator_id(),
-                        &self.node_id,
-                        &next_epoch_id,
-                    ),
                     account_id: validator_signer.validator_id().clone(),
                     peer_id: self.node_id.clone(),
                     epoch_id: next_epoch_id,
+                    signature,
                 }),
             ));
         }
