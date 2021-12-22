@@ -320,10 +320,10 @@ mod tests {
             let diff = (cps.1 as i128) - (average_stake_per_shard as i128);
             assert!(
                 diff.abs() < diff_tolerance,
-                "Shard {} is {} away from average stake of {}; expected no more than {}",
+                "Shard {}'s stake {} is {} away from average; expected less than {} away",
                 shard_id,
-                diff,
-                average_stake_per_shard,
+                cps.1,
+                diff.abs(),
                 diff_tolerance
             );
         }
