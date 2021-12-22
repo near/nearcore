@@ -29,6 +29,7 @@ use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::borsh::maybestd::io::Error;
+use near_primitives::logging;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::time::Clock;
@@ -36,7 +37,6 @@ use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
-use near_primitives::{logging, unwrap_option_or_return};
 use near_rate_limiter::{ActixMessageWrapper, ThrottleController};
 use near_rust_allocator_proxy::allocator::get_tid;
 use std::cmp::max;
@@ -400,7 +400,8 @@ impl PeerActor {
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
         metrics::PEER_CLIENT_MESSAGE_RECEIVED_TOTAL.inc();
-        let peer_id = unwrap_option_or_return!(self.other_peer_id()).clone();
+        let peer_id =
+            if let Some(peer_id) = self.other_peer_id() { peer_id.clone() } else { return };
 
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
