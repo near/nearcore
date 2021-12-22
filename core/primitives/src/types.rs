@@ -291,15 +291,14 @@ impl StateChanges {
                     state_changes.extend(changes.into_iter().map(
                         |RawStateChange { cause, data }| StateChangeWithCause {
                             cause,
-                            value: if let Some(change_data) = data {
-                                StateChangeValue::ContractCodeUpdate {
+                            value: match data {
+                                Some(change_data) => StateChangeValue::ContractCodeUpdate {
                                     account_id: account_id.clone(),
-                                    code: change_data.into(),
-                                }
-                            } else {
-                                StateChangeValue::ContractCodeDeletion {
+                                    code: change_data,
+                                },
+                                None => StateChangeValue::ContractCodeDeletion {
                                     account_id: account_id.clone(),
-                                }
+                                },
                             },
                         },
                     ));
@@ -738,7 +737,7 @@ pub mod chunk_extra {
             balance_burnt: Balance,
         ) -> Self {
             Self::V2(ChunkExtraV2 {
-                state_root: state_root.clone(),
+                state_root: *state_root,
                 outcome_root,
                 validator_proposals,
                 gas_used,

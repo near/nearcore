@@ -17,7 +17,7 @@ use nearcore::NEAR_BASE;
 const ACCOUNTS_FILE: &str = "accounts.csv";
 const NUM_SHARDS: NumShards = 8;
 
-fn verify_total_supply(total_supply: Balance, chain_id: &String) {
+fn verify_total_supply(total_supply: Balance, chain_id: &str) {
     if chain_id == "mainnet" {
         assert_eq!(
             total_supply,

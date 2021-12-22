@@ -2,6 +2,7 @@
 
 use tokio::sync::mpsc;
 
+use anyhow::Result;
 pub use near_primitives;
 use near_primitives::types::Gas;
 pub use nearcore::{get_default_home, init_configs, NearConfig};
@@ -137,7 +138,7 @@ impl Indexer {
 
 /// Function that initializes configs for the node which
 /// accepts `InitConfigWrapper` and calls original `init_configs` from `neard`
-pub fn indexer_init_configs(dir: &std::path::PathBuf, params: InitConfigArgs) {
+pub fn indexer_init_configs(dir: &std::path::PathBuf, params: InitConfigArgs) -> Result<()> {
     init_configs(
         dir,
         params.chain_id.as_deref(),

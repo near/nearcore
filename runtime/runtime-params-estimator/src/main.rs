@@ -52,6 +52,9 @@ struct CliArgs {
     /// Render existing `costs.txt` as `RuntimeConfig`.
     #[clap(long)]
     costs_file: Option<PathBuf>,
+    /// Compare baseline `costs-file` with a different costs file.
+    #[clap(long, requires("costs-file"))]
+    compare_to: Option<PathBuf>,
     /// Only measure the specified metrics, computing a subset of costs.
     #[clap(long)]
     metrics_to_measure: Option<String>,
@@ -112,7 +115,8 @@ fn main() -> anyhow::Result<()> {
                 None,
                 None,
                 None,
-            );
+            )
+            .expect("failed to init config");
 
             let near_config = load_config(&state_dump_path, GenesisValidationMode::Full);
             let store = create_store(&get_store_path(&state_dump_path));
@@ -137,11 +141,17 @@ fn main() -> anyhow::Result<()> {
         return main_docker(&state_dump_path, cli_args.full, cli_args.docker_shell);
     }
 
+    if let Some(compare_to) = cli_args.compare_to {
+        let baseline = cli_args.costs_file.unwrap();
+
+        let compare_to = read_costs_table(&compare_to)?;
+        let baseline = read_costs_table(&baseline)?;
+        println!("{}", baseline.diff(&compare_to));
+        return Ok(());
+    }
+
     if let Some(path) = cli_args.costs_file {
-        let cost_table = fs::read_to_string(&path)
-            .ok()
-            .and_then(|it| it.parse::<CostTable>().ok())
-            .with_context(|| format!("Failed to parse {}", path.display()))?;
+        let cost_table = read_costs_table(&path)?;
 
         let runtime_config = costs_to_runtime_config(&cost_table)?;
 
@@ -292,6 +302,13 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
 
     cmd.status()?;
     Ok(())
+}
+
+fn read_costs_table(path: &Path) -> anyhow::Result<CostTable> {
+    fs::read_to_string(&path)
+        .with_context(|| format!("failed to read costs file: {}", path.display()))?
+        .parse::<CostTable>()
+        .map_err(|()| anyhow::format_err!("failed to parse costs file: {}", path.display()))
 }
 
 fn exec(command: &str) -> anyhow::Result<String> {
