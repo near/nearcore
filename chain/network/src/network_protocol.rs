@@ -388,34 +388,34 @@ impl PeerMessage {
             | PeerMessage::Challenge(_)
             | PeerMessage::EpochSyncResponse(_)
             | PeerMessage::EpochSyncFinalizationResponse(_) => true,
-            PeerMessage::Routed(r) => match r.body {
+            PeerMessage::Routed(r) => matches!(
+                r.body,
                 RoutedMessageBody::BlockApproval(_)
-                | RoutedMessageBody::ForwardTx(_)
-                | RoutedMessageBody::PartialEncodedChunk(_)
-                | RoutedMessageBody::PartialEncodedChunkRequest(_)
-                | RoutedMessageBody::PartialEncodedChunkResponse(_)
-                | RoutedMessageBody::StateResponse(_)
-                | RoutedMessageBody::VersionedPartialEncodedChunk(_)
-                | RoutedMessageBody::VersionedStateResponse(_) => true,
-                RoutedMessageBody::PartialEncodedChunkForward(_) => true,
-                _ => false,
-            },
+                    | RoutedMessageBody::ForwardTx(_)
+                    | RoutedMessageBody::PartialEncodedChunk(_)
+                    | RoutedMessageBody::PartialEncodedChunkRequest(_)
+                    | RoutedMessageBody::PartialEncodedChunkResponse(_)
+                    | RoutedMessageBody::StateResponse(_)
+                    | RoutedMessageBody::VersionedPartialEncodedChunk(_)
+                    | RoutedMessageBody::VersionedStateResponse(_)
+                    | RoutedMessageBody::PartialEncodedChunkForward(_),
+            ),
             _ => false,
         }
     }
 
     pub(crate) fn is_view_client_message(&self) -> bool {
         match self {
-            PeerMessage::Routed(r) => match r.body {
+            PeerMessage::Routed(r) => matches!(
+                r.body,
                 RoutedMessageBody::QueryRequest { .. }
-                | RoutedMessageBody::QueryResponse { .. }
-                | RoutedMessageBody::TxStatusRequest(_, _)
-                | RoutedMessageBody::TxStatusResponse(_)
-                | RoutedMessageBody::ReceiptOutcomeRequest(_)
-                | RoutedMessageBody::StateRequestHeader(_, _)
-                | RoutedMessageBody::StateRequestPart(_, _, _) => true,
-                _ => false,
-            },
+                    | RoutedMessageBody::QueryResponse { .. }
+                    | RoutedMessageBody::TxStatusRequest(_, _)
+                    | RoutedMessageBody::TxStatusResponse(_)
+                    | RoutedMessageBody::ReceiptOutcomeRequest(_)
+                    | RoutedMessageBody::StateRequestHeader(_, _)
+                    | RoutedMessageBody::StateRequestPart(_, _, _)
+            ),
             PeerMessage::BlockHeadersRequest(_) => true,
             PeerMessage::BlockRequest(_) => true,
             PeerMessage::EpochSyncRequest(_) => true,

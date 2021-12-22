@@ -61,8 +61,7 @@ old_balances = [
 ]
 logger.info(f"BALANCES BEFORE {old_balances}")
 
-status = nodes[1].get_status()
-hash_ = status['sync_info']['latest_block_hash']
+hash_ = nodes[1].get_latest_block().hash
 
 time.sleep(5)
 

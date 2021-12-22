@@ -8,7 +8,7 @@ pub use crate::network_protocol::{PartialSync, RoutingState, RoutingSyncV2, Rout
 use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, Unregister,
 };
-use crate::routing::routing::RoutingTableInfo;
+use crate::routing::routing_table_view::RoutingTableInfo;
 use crate::PeerInfo;
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, MailboxError, Message, Recipient};
