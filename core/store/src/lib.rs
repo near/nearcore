@@ -170,7 +170,7 @@ impl StoreUpdate {
     pub fn new_with_tries(tries: ShardTries) -> Self {
         let storage = tries.get_store().storage.clone();
         let transaction = storage.transaction();
-        StoreUpdate { storage, transaction, tries: Some(tries.clone()) }
+        StoreUpdate { storage, transaction, tries: Some(tries) }
     }
 
     pub fn update_refcount(&mut self, column: DBCol, key: &[u8], value: &[u8], rc_delta: i64) {

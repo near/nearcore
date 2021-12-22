@@ -12,9 +12,9 @@ use nearcore::migrations::load_migration_data;
 use nearcore::{get_default_home, get_store_path, load_config, NightshadeRuntime, TrackedConfig};
 
 fn get_receipt_hashes_in_repo() -> Vec<CryptoHash> {
-    let receipt_result = load_migration_data(&"mainnet".to_string()).restored_receipts;
+    let receipt_result = load_migration_data("mainnet").restored_receipts;
     let receipts = receipt_result.get(&0u64).unwrap();
-    receipts.into_iter().map(|receipt| receipt.get_hash()).collect()
+    receipts.iter().map(|receipt| receipt.get_hash()).collect()
 }
 
 fn get_differences_with_hashes_from_repo(
@@ -149,7 +149,7 @@ mod tests {
         assert_eq!(receipt_hashes_not_verified, vec![extra_hash]);
         assert!(receipt_hashes_still_missing.is_empty());
 
-        let mut receipt_hashes_missing = receipt_hashes_in_repo.clone();
+        let mut receipt_hashes_missing = receipt_hashes_in_repo;
         receipt_hashes_missing.push(CryptoHash::default());
         let (receipt_hashes_not_verified, receipt_hashes_still_missing) =
             get_differences_with_hashes_from_repo(receipt_hashes_missing);

@@ -303,31 +303,18 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
         config.client_config.max_gas_burnt_view,
     ));
 
-    // Make view_client use a different runtime so prevent it from blocking transaction processing
-    // If they share the same runtime, they will use the same set of cache objects (epoch_manager/shard_tries).
-    // Even though view_client only read from these caches, that will still block all other
-    // accesses.
-    // A more long term solution would to make the caches not read-blocking.
-    let view_client_runtime = Arc::new(NightshadeRuntime::with_config(
-        home_dir,
-        Arc::clone(&store),
-        &config,
-        config.client_config.trie_viewer_state_size_limit,
-        config.client_config.max_gas_burnt_view,
-    ));
-
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::from(&config.genesis);
 
     let node_id = PeerId::new(config.network_config.public_key.clone().into());
-    let network_adapter = Arc::new(NetworkRecipient::new());
+    let network_adapter = Arc::new(NetworkRecipient::default());
     #[cfg(feature = "test_features")]
     let adv = Arc::new(std::sync::RwLock::new(AdversarialControls::default()));
 
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
-        view_client_runtime,
+        runtime.clone(),
         network_adapter.clone(),
         config.client_config.clone(),
         #[cfg(feature = "test_features")]

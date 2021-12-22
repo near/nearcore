@@ -125,8 +125,7 @@ For example, a simple test for checking implementation of
             '../runtime/near-test-contracts/res/test_contract_rs.wasm')
 
         # Deploy the fib smart contract
-        status = nodes[0].get_status()
-        latest_block_hash = status['sync_info']['latest_block_hash']
+        latest_block_hash = nodes[0].get_latest_block().hash
         deploy_contract_tx = transaction.sign_deploy_contract_tx(
             contract_key, contract, 10,
             base58.b58decode(latest_block_hash.encode('utf8')))
