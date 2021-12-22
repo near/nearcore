@@ -14,17 +14,7 @@ use near_primitives::types::{
     ConsolidatedStateChange, StateChangeCause, StateChangesForSplitStates, StateRoot,
 };
 use std::collections::HashMap;
-
-pub struct PartId {
-    pub idx: u64,
-    pub total: u64,
-}
-impl PartId {
-    pub fn new(part_id: u64, num_parts: u64) -> PartId {
-        assert!(part_id < num_parts);
-        PartId { idx: part_id, total: num_parts }
-    }
-}
+use near_chain::types::PartId;
 
 impl Trie {
     /// Computes the set of trie items (nodes with keys and values) for a state part.
@@ -339,7 +329,7 @@ pub fn get_delayed_receipts(
 #[cfg(test)]
 mod tests {
     use crate::split_state::{
-        apply_delayed_receipts_to_split_states_impl, get_delayed_receipts, PartId,
+        apply_delayed_receipts_to_split_states_impl, get_delayed_receipts,
     };
     use crate::test_utils::{
         create_tries, gen_changes, gen_larger_changes, gen_receipts, gen_unique_accounts,
@@ -357,6 +347,7 @@ mod tests {
     use near_primitives::types::{
         NumShards, StateChangeCause, StateChangesForSplitStates, StateRoot,
     };
+    use near_chain::types::PartId;
     use rand::seq::SliceRandom;
     use rand::Rng;
     use std::collections::HashMap;

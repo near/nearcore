@@ -13,18 +13,7 @@ use crate::trie::{
 use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
 use near_primitives::contract::ContractCode;
 use near_primitives::state_record::is_contract_code_key;
-
-// to specify a part we always specify both part_id and num_parts together
-pub struct PartId {
-    pub idx: u64,
-    pub total: u64,
-}
-impl PartId {
-    pub fn new(part_id: u64, num_parts: u64) -> PartId {
-        assert!(part_id < num_parts);
-        PartId { idx: part_id, total: num_parts }
-    }
-}
+use near_chain::types::PartId;
 
 impl Trie {
     /// Computes the set of trie nodes for a state part.

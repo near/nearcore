@@ -29,6 +29,7 @@ smart-default = "0.6"
 
 near-crypto = { path = "../crypto" }
 near-primitives = { path = "../primitives" }
+near-chain = { path = "../../chain/chain" }
 
 [dev-dependencies]
 tempfile = "3"
