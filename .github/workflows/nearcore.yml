@@ -1,4 +1,4 @@
-name: Rust
+name: Nearcore
 
 on:
   push:
