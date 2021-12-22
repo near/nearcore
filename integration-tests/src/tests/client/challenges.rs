@@ -65,7 +65,7 @@ fn test_verify_block_double_sign_challenge() {
         vec![],
         vec![],
         &signer,
-        b1.header().next_bp_hash().clone(),
+        *b1.header().next_bp_hash(),
         block_merkle_tree.root(),
     );
     let epoch_id = b1.header().epoch_id().clone();

@@ -116,7 +116,7 @@ impl IntoVMError for wasmer::RuntimeError {
         let error_msg = self.message();
         let trap_code = self.clone().to_trap();
         if let Ok(e) = self.downcast::<VMLogicError>() {
-            return (&e).into();
+            return e.into();
         }
         // If we panic here - it means we encountered an issue in Wasmer.
         let trap_code = trap_code.unwrap_or_else(|| panic!("Unknown error: {}", error_msg));

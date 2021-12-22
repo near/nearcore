@@ -24,9 +24,9 @@ impl QemuMeasurement {
     }
 
     pub(crate) fn end_count_instructions() -> QemuMeasurement {
-        let instructions = hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED).into();
-        let io_r_bytes = hypercall(HYPERCALL_GET_BYTES_READ).into();
-        let io_w_bytes = hypercall(HYPERCALL_GET_BYTES_WRITTEN).into();
+        let instructions = hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED);
+        let io_r_bytes = hypercall(HYPERCALL_GET_BYTES_READ);
+        let io_w_bytes = hypercall(HYPERCALL_GET_BYTES_WRITTEN);
 
         QemuMeasurement { instructions, io_r_bytes, io_w_bytes }
     }

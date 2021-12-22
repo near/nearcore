@@ -74,12 +74,10 @@ fn trap_to_error(trap: &wasmtime::Trap) -> VMError {
     if trap.i32_exit_status() == Some(239) {
         match imports::wasmtime::last_error() {
             Some(VMLogicError::HostError(h)) => {
-                VMError::FunctionCallError(FunctionCallError::HostError(h.clone()))
+                VMError::FunctionCallError(FunctionCallError::HostError(h))
             }
-            Some(VMLogicError::ExternalError(s)) => VMError::ExternalError(s.clone()),
-            Some(VMLogicError::InconsistentStateError(e)) => {
-                VMError::InconsistentStateError(e.clone())
-            }
+            Some(VMLogicError::ExternalError(s)) => VMError::ExternalError(s),
+            Some(VMLogicError::InconsistentStateError(e)) => VMError::InconsistentStateError(e),
             None => panic!("Error is not properly set"),
         }
     } else {

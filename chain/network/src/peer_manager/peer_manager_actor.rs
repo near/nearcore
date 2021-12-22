@@ -8,10 +8,10 @@ use crate::private_actix::{
 };
 use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::network_protocol::Edge;
-use crate::routing::routing::{RoutingTableView, DELETE_PEERS_AFTER_TIME};
 use crate::routing::routing_table_actor::{
     Prune, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
 };
+use crate::routing::routing_table_view::{RoutingTableView, DELETE_PEERS_AFTER_TIME};
 use crate::stats::metrics;
 use crate::stats::metrics::NetworkMetrics;
 use crate::types::{
@@ -19,7 +19,6 @@ use crate::types::{
     PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerRequest, PeerResponse,
     PeersResponse, RoutingTableUpdate,
 };
-use crate::PeerInfo;
 use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, WrapFuture,
@@ -29,9 +28,9 @@ use futures::{future, Stream, StreamExt};
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Ban, BlockedPorts, InboundTcpConnect, KnownPeerState, KnownPeerStatus,
     KnownProducer, NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
-    OutboundTcpConnect, PeerIdOrHash, PeerManagerRequest, PeerType, Ping, Pong, QueryPeerStats,
-    RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom,
-    StateResponseInfo,
+    OutboundTcpConnect, PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerType, Ping, Pong,
+    QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
+    RoutedMessageFrom, StateResponseInfo,
 };
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
@@ -409,11 +408,11 @@ impl PeerManagerActor {
                     if !self.routing_table_view.is_local_edge_newer(other_peer, edge.nonce()) {
                         continue;
                     }
-                    // We belong to this edge.
+                    // Check whether we belong to this edge.
                     if self.connected_peers.contains_key(other_peer) {
                         // This is an active connection.
                         if edge.edge_type() == EdgeState::Removed {
-                            self.maybe_remove_connected_peer(ctx, edge.clone(), other_peer);
+                            self.maybe_remove_connected_peer(ctx, edge, other_peer);
                         }
                     } else if edge.edge_type() == EdgeState::Active {
                         // We are not connected to this peer, but routing table contains
@@ -574,33 +573,38 @@ impl PeerManagerActor {
                     throttle_controller,
                 );
                 self.send_sync(peer_type, addr, ctx, target_peer_id, new_edge, Vec::new());
-                return;
+            },
+            {
+                near_performance_metrics::actix::run_later(
+                    ctx,
+                    WAIT_FOR_SYNC_DELAY,
+                    move |act, ctx| {
+                        act.routing_table_addr
+                            .send(ActixMessageWrapper::new_without_size(
+                                RoutingTableMessages::RequestRoutingTable,
+                                Some(throttle_controller),
+                            ))
+                            .into_actor(act)
+                            .map(move |response, act, ctx| match response.map(|r| r.into_inner()) {
+                                Ok(RoutingTableMessagesResponse::RequestRoutingTableResponse {
+                                    edges_info: routing_table,
+                                }) => {
+                                    act.send_sync(
+                                        peer_type,
+                                        addr,
+                                        ctx,
+                                        target_peer_id.clone(),
+                                        new_edge,
+                                        routing_table,
+                                    );
+                                }
+                                _ => error!(target: "network", "expected AddIbfSetResponse"),
+                            })
+                            .spawn(ctx);
+                    },
+                );
             }
         );
-        near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act, ctx| {
-            act.routing_table_addr
-                .send(ActixMessageWrapper::new_without_size(
-                    RoutingTableMessages::RequestRoutingTable,
-                    Some(throttle_controller),
-                ))
-                .into_actor(act)
-                .map(move |response, act, ctx| match response.map(|r| r.into_inner()) {
-                    Ok(RoutingTableMessagesResponse::RequestRoutingTableResponse {
-                        edges_info: routing_table,
-                    }) => {
-                        act.send_sync(
-                            peer_type,
-                            addr,
-                            ctx,
-                            target_peer_id.clone(),
-                            new_edge,
-                            routing_table,
-                        );
-                    }
-                    _ => error!(target: "network", "expected AddIbfSetResponse"),
-                })
-                .spawn(ctx);
-        });
     }
 
     fn send_sync(
@@ -911,13 +915,13 @@ impl PeerManagerActor {
                 requests.push(active_peer.addr.send(msg.clone()));
             }
         }
-        ctx.spawn(async move {
+        async move {
             while let Some(response) = requests.next().await {
                 if let Err(e) = response {
                     debug!(target: "network", ?e, "Failed sending broadcast message(query_active_peers)");
                 }
             }
-        }.into_actor(self));
+        }.into_actor(self).spawn(ctx);
     }
 
     #[cfg(all(feature = "test_features", feature = "protocol_feature_routing_exchange_algorithm"))]
@@ -976,7 +980,12 @@ impl PeerManagerActor {
     // We will broadcast that edge to that peer, and if that peer doesn't reply within specific time,
     // that peer will be removed. However, the connected peer may gives us a new edge indicating
     // that we should in fact be connected to it.
-    fn maybe_remove_connected_peer(&mut self, ctx: &mut Context<Self>, edge: Edge, other: &PeerId) {
+    fn maybe_remove_connected_peer(
+        &mut self,
+        ctx: &mut Context<Self>,
+        edge: &Edge,
+        other: &PeerId,
+    ) {
         let nonce = edge.next();
 
         if let Some(last_nonce) = self.local_peer_pending_update_nonce_request.get(other) {
@@ -1260,13 +1269,13 @@ impl PeerManagerActor {
         let mut requests: futures::stream::FuturesUnordered<_> =
             self.connected_peers.values().map(|peer| peer.addr.send(Arc::clone(&msg))).collect();
 
-        ctx.spawn(async move {
+        async move {
             while let Some(response) = requests.next().await {
                 if let Err(e) = response {
                     debug!(target: "network", ?e, "Failed sending broadcast message(broadcast_message):");
                 }
             }
-        }.into_actor(self));
+        }.into_actor(self).spawn(ctx);
     }
 
     fn announce_account(&mut self, ctx: &mut Context<Self>, announce_account: AnnounceAccount) {
@@ -1532,7 +1541,7 @@ impl Actor for PeerManagerActor {
         if let Some(server_addr) = self.config.addr {
             // TODO: for now crashes if server didn't start.
 
-            ctx.spawn(TcpListener::bind(server_addr).into_actor(self).then(
+            TcpListener::bind(server_addr).into_actor(self).then(
                 move |listener, act, ctx| {
                     let listener = listener.unwrap_or_else(|_| panic!("Failed to PeerManagerActor at {}", server_addr));
                     let incoming = IncomingCrutch {
@@ -1563,7 +1572,7 @@ impl Actor for PeerManagerActor {
                     }));
                     actix::fut::ready(())
                 },
-            ));
+            ).spawn(ctx);
         }
 
         // Periodically push network information to client.
