@@ -65,7 +65,7 @@ fn test_verify_block_double_sign_challenge() {
         vec![],
         vec![],
         &signer,
-        b1.header().next_bp_hash().clone(),
+        *b1.header().next_bp_hash(),
         block_merkle_tree.root(),
     );
     let epoch_id = b1.header().epoch_id().clone();
@@ -479,7 +479,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
         env.clients[0].runtime_adapter.build_receipts_hashes(&receipts, &shard_layout);
     let (_receipts_root, receipts_proofs) = merklize(&receipts_hashes);
     let receipts_by_shard =
-        env.clients[0].shards_mgr.group_receipts_by_shard(receipts.clone(), &shard_layout);
+        env.clients[0].shards_mgr.group_receipts_by_shard(receipts, &shard_layout);
     let one_part_receipt_proofs = env.clients[0].shards_mgr.receipts_recipient_filter(
         0,
         Vec::default(),
@@ -495,7 +495,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     assert!(env.clients[1]
         .process_partial_encoded_chunk(MaybeValidated::from(partial_encoded_chunk))
         .is_ok());
-    env.process_block(1, block.clone(), Provenance::NONE);
+    env.process_block(1, block, Provenance::NONE);
 
     // At this point we should create a challenge and send it out.
     let last_message = env.network_adapters[0].pop().unwrap().as_network_requests();
@@ -622,12 +622,12 @@ fn test_challenge_in_different_epoch() {
     let runtime1 = Arc::new(nearcore::NightshadeRuntime::test(
         Path::new("../../../.."),
         create_test_store(),
-        &genesis.clone(),
+        &genesis,
     ));
     let runtime2 = Arc::new(nearcore::NightshadeRuntime::test(
         Path::new("../../../.."),
         create_test_store(),
-        &genesis.clone(),
+        &genesis,
     ));
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = 3;

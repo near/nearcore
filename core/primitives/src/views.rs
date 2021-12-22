@@ -405,18 +405,18 @@ impl From<BlockHeader> for BlockHeaderView {
             prev_height: header.prev_height(),
             epoch_id: header.epoch_id().0,
             next_epoch_id: header.next_epoch_id().0,
-            hash: header.hash().clone(),
-            prev_hash: header.prev_hash().clone(),
-            prev_state_root: header.prev_state_root().clone(),
-            chunk_receipts_root: header.chunk_receipts_root().clone(),
-            chunk_headers_root: header.chunk_headers_root().clone(),
-            chunk_tx_root: header.chunk_tx_root().clone(),
+            hash: *header.hash(),
+            prev_hash: *header.prev_hash(),
+            prev_state_root: *header.prev_state_root(),
+            chunk_receipts_root: *header.chunk_receipts_root(),
+            chunk_headers_root: *header.chunk_headers_root(),
+            chunk_tx_root: *header.chunk_tx_root(),
             chunks_included: header.chunks_included(),
-            challenges_root: header.challenges_root().clone(),
-            outcome_root: header.outcome_root().clone(),
+            challenges_root: *header.challenges_root(),
+            outcome_root: *header.outcome_root(),
             timestamp: header.raw_timestamp(),
             timestamp_nanosec: header.raw_timestamp(),
-            random_value: header.random_value().clone(),
+            random_value: *header.random_value(),
             validator_proposals: header.validator_proposals().map(Into::into).collect(),
             chunk_mask: header.chunk_mask().to_vec(),
             block_ordinal: if header.block_ordinal() != 0 {
@@ -429,10 +429,10 @@ impl From<BlockHeader> for BlockHeaderView {
             validator_reward: 0,
             total_supply: header.total_supply(),
             challenges_result: header.challenges_result().clone(),
-            last_final_block: header.last_final_block().clone(),
-            last_ds_final_block: header.last_ds_final_block().clone(),
-            next_bp_hash: header.next_bp_hash().clone(),
-            block_merkle_root: header.block_merkle_root().clone(),
+            last_final_block: *header.last_final_block(),
+            last_ds_final_block: *header.last_ds_final_block(),
+            next_bp_hash: *header.next_bp_hash(),
+            block_merkle_root: *header.block_merkle_root(),
             epoch_sync_data_hash: header.epoch_sync_data_hash(),
             approvals: header.approvals().to_vec(),
             signature: header.signature().clone(),
@@ -535,10 +535,7 @@ impl From<BlockHeaderView> for BlockHeader {
                         .collect(),
                     chunk_mask: view.chunk_mask,
                     gas_price: view.gas_price,
-                    block_ordinal: match view.block_ordinal {
-                        Some(value) => value,
-                        None => 0,
-                    },
+                    block_ordinal: view.block_ordinal.unwrap_or(0),
                     total_supply: view.total_supply,
                     challenges_result: view.challenges_result,
                     last_final_block: view.last_final_block,
@@ -1378,7 +1375,7 @@ impl TryFrom<ReceiptView> for Receipt {
 
 /// Information about this epoch validators and next epoch validators
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct EpochValidatorInfo {
     /// Validators for the current epoch
     pub current_validators: Vec<CurrentEpochValidatorInfo>,
@@ -1406,7 +1403,7 @@ pub struct ValidatorKickoutView {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct CurrentEpochValidatorInfo {
     pub account_id: AccountId,
     pub public_key: PublicKey,
@@ -1416,6 +1413,10 @@ pub struct CurrentEpochValidatorInfo {
     pub shards: Vec<ShardId>,
     pub num_produced_blocks: NumBlocks,
     pub num_expected_blocks: NumBlocks,
+    #[serde(default)]
+    pub num_produced_chunks: NumBlocks,
+    #[serde(default)]
+    pub num_expected_chunks: NumBlocks,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -1449,7 +1450,7 @@ pub struct LightClientBlockLiteView {
 impl From<BlockHeader> for LightClientBlockLiteView {
     fn from(header: BlockHeader) -> Self {
         Self {
-            prev_block_hash: header.prev_hash().clone(),
+            prev_block_hash: *header.prev_hash(),
             inner_rest_hash: hash(&header.inner_rest_bytes()),
             inner_lite: header.into(),
         }
