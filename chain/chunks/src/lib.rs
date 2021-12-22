@@ -912,7 +912,7 @@ impl ShardsManager {
     /// For better security we want the seed to different in each shard.
     /// For testing purposes we want it to be the reproducible and derived from the `self.rng_seed` and `shard_id`
     fn random_seed(base_seed: &RngSeed, shard_id: ShardId) -> RngSeed {
-        let mut res = base_seed.clone();
+        let mut res = *base_seed;
         res[0] = shard_id as u8;
         res[1] = (shard_id / 256) as u8;
         res
