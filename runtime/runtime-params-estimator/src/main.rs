@@ -150,7 +150,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     if let Some(path) = cli_args.costs_file {
-        let cost_table = read_costs_table(&path);
+        let cost_table = read_costs_table(&path)?;
 
         let runtime_config = costs_to_runtime_config(&cost_table)?;
 
