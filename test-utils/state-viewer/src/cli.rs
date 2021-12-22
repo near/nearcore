@@ -108,13 +108,25 @@ impl StateViewerSubCommand {
 
 #[derive(Clap)]
 pub struct DumpStateCmd {
+    /// Optionally, can specify at which height to dump state.
     #[clap(long)]
     height: Option<BlockHeight>,
+    /// Dumps state records and genesis config into separate files.
+    /// Has reasonable RAM requirements.
+    /// Use for chains with large state, such as mainnet and testnet.
+    /// If false - writes all information into a single file, which is useful for smaller networks,
+    /// such as betanet.
+    #[clap(long)]
+    stream: bool,
+    /// Location of the dumped state.
+    /// This is a directory if --stream is set, and a file otherwise.
+    #[clap(long, parse(from_os_str))]
+    file: Option<PathBuf>,
 }
 
 impl DumpStateCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
-        dump_state(self.height, home_dir, near_config, store);
+        dump_state(self.height, self.stream, self.file, home_dir, near_config, store);
     }
 }
 

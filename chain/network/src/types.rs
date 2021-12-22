@@ -1,19 +1,24 @@
-use crate::peer::peer_actor::PeerActor;
-use crate::routing::network_protocol::SimpleEdge;
-use crate::routing::routing::{GetRoutingTableResult, PeerRequestResult, RoutingTableInfo};
+/// Type that belong to the network protocol.
+pub use crate::network_protocol::{
+    Edge, Handshake, HandshakeFailureReason, HandshakeV2, PartialEdgeInfo, PeerMessage,
+    RoutingTableUpdate, SimpleEdge,
+};
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+pub use crate::network_protocol::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
+use crate::private_actix::{
+    PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, Unregister,
+};
+use crate::routing::routing_table_view::RoutingTableInfo;
 use crate::PeerInfo;
 use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, Addr, MailboxError, Message, Recipient};
-use conqueue::QueueSender;
-#[cfg(feature = "deepsize_feature")]
-use deepsize::DeepSizeOf;
+use actix::{Actor, MailboxError, Message, Recipient};
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use near_network_primitives::types::{
     AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, InboundTcpConnect, KnownProducer,
     OutboundTcpConnect, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerType, Ping, Pong, ReasonForBan,
-    RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+    PartialEncodedChunkResponseMsg, PeerChainInfoV2, Ping, Pong, ReasonForBan, RoutedMessageBody,
+    RoutedMessageFrom, StateResponseInfo,
 };
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
@@ -25,106 +30,13 @@ use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse}
 use near_primitives::time::Instant;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference, EpochId, ShardId};
-use near_primitives::version::ProtocolVersion;
 use near_primitives::views::QueryRequest;
-use near_rate_limiter::ThrottleController;
 use std::collections::HashMap;
-use std::fmt;
-use std::fmt::{Debug, Formatter};
-use std::sync::{Arc, Mutex, RwLock};
+use std::fmt::Debug;
+use std::sync::RwLock;
 use strum::AsStaticStr;
 
-/// Type that belong to the network protocol.
-pub use crate::network_protocol::{
-    Edge, Handshake, HandshakeFailureReason, HandshakeV2, PartialEdgeInfo, PeerMessage,
-    RoutingTableUpdate,
-};
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-pub use crate::network_protocol::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
-
-#[derive(Message, Clone, Debug)]
-#[rtype(result = "()")]
-pub struct SendMessage {
-    pub(crate) message: PeerMessage,
-}
-
-/// Actor message which asks `PeerManagerActor` to register peer.
-/// Returns `RegisterPeerResult` with `Accepted` if connection should be kept
-/// or a reject response otherwise.
-#[derive(Clone, Debug)]
-pub struct RegisterPeer {
-    pub(crate) actor: Addr<PeerActor>,
-    pub(crate) peer_info: PeerInfo,
-    pub(crate) peer_type: PeerType,
-    pub(crate) chain_info: PeerChainInfoV2,
-    /// Edge information from this node.
-    /// If this is None it implies we are outbound connection, so we need to create our
-    /// EdgeInfo part and send it to the other peer.
-    pub(crate) this_edge_info: Option<PartialEdgeInfo>,
-    /// Edge information from other node.
-    pub(crate) other_edge_info: PartialEdgeInfo,
-    /// Protocol version of new peer. May be higher than ours.
-    pub(crate) peer_protocol_version: ProtocolVersion,
-    /// A helper data structure for limiting reading, reporting bandwidth stats.
-    pub(crate) throttle_controller: ThrottleController,
-}
-
-/// Addr<PeerActor> doesn't implement `DeepSizeOf` waiting for `deepsize` > 0.2.0.
-#[cfg(feature = "deepsize_feature")]
-impl deepsize::DeepSizeOf for RegisterPeer {
-    fn deep_size_of_children(&self, context: &mut deepsize::Context) -> usize {
-        self.peer_info.deep_size_of_children(context)
-            + self.peer_type.deep_size_of_children(context)
-            + self.chain_info.deep_size_of_children(context)
-            + self.this_edge_info.deep_size_of_children(context)
-            + self.other_edge_info.deep_size_of_children(context)
-            + self.peer_protocol_version.deep_size_of_children(context)
-    }
-}
-
-impl Message for RegisterPeer {
-    type Result = RegisterPeerResponse;
-}
-
-#[derive(MessageResponse, Debug)]
-pub enum RegisterPeerResponse {
-    Accept(Option<PartialEdgeInfo>),
-    InvalidNonce(Box<Edge>),
-    Reject,
-}
-
-#[cfg(feature = "test_features")]
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(Clone, Debug)]
-pub struct GetPeerId {}
-
-#[cfg(feature = "test_features")]
-impl Message for GetPeerId {
-    type Result = GetPeerIdResult;
-}
-
-#[cfg(feature = "test_features")]
-#[derive(MessageResponse, Debug, serde::Serialize)]
-pub struct GetPeerIdResult {
-    pub(crate) peer_id: PeerId,
-}
-
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(Debug)]
-pub struct GetRoutingTable {}
-
-impl Message for GetRoutingTable {
-    type Result = GetRoutingTableResult;
-}
-
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(Clone, Debug)]
-#[cfg(feature = "test_features")]
-pub struct StartRoutingTableSync {
-    pub peer_id: PeerId,
-}
-
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Clone, Debug)]
 #[cfg(feature = "test_features")]
 pub struct SetAdvOptions {
@@ -138,25 +50,6 @@ pub struct SetAdvOptions {
 impl Message for SetAdvOptions {
     type Result = ();
 }
-
-#[cfg(feature = "test_features")]
-impl Message for StartRoutingTableSync {
-    type Result = ();
-}
-
-/// Unregister message from Peer to PeerManager.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(Message, Debug)]
-#[rtype(result = "()")]
-pub struct Unregister {
-    pub(crate) peer_id: PeerId,
-    pub(crate) peer_type: PeerType,
-    pub(crate) remove_from_peer_store: bool,
-}
-
-#[derive(Message)]
-#[rtype(result = "()")]
-pub(crate) struct StopMsg {}
 
 /// Message from peer to peer manager
 #[derive(strum::AsRefStr, Clone, Debug)]
@@ -191,17 +84,8 @@ pub enum PeerResponse {
     UpdatedEdge(PartialEdgeInfo),
 }
 
-/// Requesting peers from peer manager to communicate to a peer.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
-#[derive(Clone, Debug)]
-pub struct PeersRequest {}
-
-impl Message for PeersRequest {
-    type Result = PeerRequestResult;
-}
-
 /// Received new peers from another peer.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Message, Debug, Clone)]
 #[rtype(result = "()")]
 pub struct PeersResponse {
@@ -211,7 +95,7 @@ pub struct PeersResponse {
 /// List of all messages, which PeerManagerActor accepts through Actix. There is also another list
 /// which contains reply for each message to PeerManager.
 /// There is 1 to 1 mapping between an entry in `PeerManagerMessageRequest` and `PeerManagerMessageResponse`.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug)]
 pub enum PeerManagerMessageRequest {
     RoutedMessageFrom(RoutedMessageFrom),
@@ -221,14 +105,14 @@ pub enum PeerManagerMessageRequest {
     PeersResponse(PeersResponse),
     PeerRequest(PeerRequest),
     #[cfg(feature = "test_features")]
-    GetPeerId(GetPeerId),
+    GetPeerId(crate::private_actix::GetPeerId),
     OutboundTcpConnect(OutboundTcpConnect),
     InboundTcpConnect(InboundTcpConnect),
     Unregister(Unregister),
     Ban(Ban),
     #[cfg(feature = "test_features")]
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    StartRoutingTableSync(StartRoutingTableSync),
+    StartRoutingTableSync(crate::private_actix::StartRoutingTableSync),
     #[cfg(feature = "test_features")]
     SetAdvOptions(SetAdvOptions),
     #[cfg(feature = "test_features")]
@@ -268,7 +152,7 @@ pub enum PeerManagerMessageResponse {
     PeersResponseResult(()),
     PeerResponse(PeerResponse),
     #[cfg(feature = "test_features")]
-    GetPeerIdResult(GetPeerIdResult),
+    GetPeerIdResult(crate::private_actix::GetPeerIdResult),
     OutboundTcpConnect(()),
     InboundTcpConnect(()),
     Unregister(()),
@@ -325,7 +209,7 @@ impl PeerManagerMessageResponse {
     }
 
     #[cfg(feature = "test_features")]
-    pub fn as_peer_id_result(self) -> GetPeerIdResult {
+    pub fn as_peer_id_result(self) -> crate::private_actix::GetPeerIdResult {
         if let PeerManagerMessageResponse::GetPeerIdResult(item) = self {
             item
         } else {
@@ -334,8 +218,14 @@ impl PeerManagerMessageResponse {
     }
 }
 
+impl From<NetworkResponses> for PeerManagerMessageResponse {
+    fn from(msg: NetworkResponses) -> Self {
+        PeerManagerMessageResponse::NetworkResponses(msg)
+    }
+}
+
 // TODO(#1313): Use Box
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkRequests {
@@ -454,38 +344,6 @@ pub enum NetworkRequests {
     },
 }
 
-/// List of `Edges`, which we received from `source_peer_id` gor purpose of validation.
-/// Those are list of edges received through `NetworkRequests::Sync` or `NetworkRequests::IbfMessage`.
-pub struct ValidateEdgeList {
-    /// The list of edges is provided by `source_peer_id`, that peer will be banned
-    ///if any of these edges are invalid.
-    pub(crate) source_peer_id: PeerId,
-    /// List of Edges, which will be sent to `EdgeValidatorActor`.
-    pub(crate) edges: Vec<Edge>,
-    /// A set of edges, which have been verified. This is a cache with all verified edges.
-    /// `EdgeValidatorActor`, and is a source of memory leak.
-    /// TODO(#5254): Simplify this process.
-    pub(crate) edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
-    /// A concurrent queue. After edge become validated it will be sent from `EdgeValidatorActor` back to
-    /// `PeerManagetActor`, and then send to `RoutingTableActor`. And then `RoutingTableActor`
-    /// will add them.
-    /// TODO(#5254): Simplify this process.
-    pub(crate) sender: QueueSender<Edge>,
-    #[cfg(feature = "test_features")]
-    /// Feature to disable edge validation for purpose of testing.
-    pub(crate) adv_disable_edge_signature_verification: bool,
-}
-
-impl Debug for ValidateEdgeList {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("source_peer_id").finish()
-    }
-}
-
-impl Message for ValidateEdgeList {
-    type Result = bool;
-}
-
 /// Combines peer address info, chain and edge information.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FullPeerInfo {
@@ -527,12 +385,6 @@ pub enum NetworkResponses {
     BanPeer(ReasonForBan),
     EdgeUpdate(Box<Edge>),
     RouteNotFound,
-}
-
-impl From<NetworkResponses> for PeerManagerMessageResponse {
-    fn from(msg: NetworkResponses) -> Self {
-        PeerManagerMessageResponse::NetworkResponses(msg)
-    }
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses
@@ -597,6 +449,10 @@ pub enum NetworkClientMessages {
     NetworkInfo(NetworkInfo),
 }
 
+impl Message for NetworkClientMessages {
+    type Result = NetworkClientResponses;
+}
+
 // TODO(#1313): Use Box
 #[derive(Eq, PartialEq, Debug)]
 #[allow(clippy::large_enum_variant)]
@@ -634,10 +490,6 @@ where
             tx.send(self)
         }
     }
-}
-
-impl Message for NetworkClientMessages {
-    type Result = NetworkClientResponses;
 }
 
 /// Adapter to break dependency of sub-components on the network requests.
@@ -689,7 +541,7 @@ impl PeerManagerAdapter for NetworkRecipient {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub struct SetRoutingTable {
@@ -734,7 +586,6 @@ mod tests {
         assert_size!(Ping);
         assert_size!(Pong);
         assert_size!(RoutingTableUpdate);
-        assert_size!(SendMessage);
         assert_size!(RegisterPeer);
         assert_size!(FullPeerInfo);
         assert_size!(NetworkInfo);

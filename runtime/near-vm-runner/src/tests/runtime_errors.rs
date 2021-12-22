@@ -576,7 +576,7 @@ fn test_bad_import_3() {
         gas_and_error_match(
             make_simple_contract_call_vm(&bad_import_global("env"), "hello", vm_kind),
             Some(46500213),
-            Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg: msg })),
+            Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg })),
         );
     });
 }
@@ -593,7 +593,7 @@ fn test_bad_import_4() {
         gas_and_error_match(
             make_simple_contract_call_vm(&bad_import_func("env"), "hello", vm_kind),
             Some(45849963),
-            Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg: msg })),
+            Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg })),
         );
     });
 }

@@ -2,7 +2,7 @@
 extern crate bencher;
 
 use bencher::Bencher;
-use near_network::routing::Graph;
+use near_network::routing::graph::Graph;
 
 use near_network::test_utils::random_peer_id;
 
@@ -67,6 +67,6 @@ benchmark_group!(
 benchmark_main!(benches);
 
 // running 3 tests
-// test calculate_distance_10_10  ... bench:      12,442 ns/iter (+/- 307)
-// test calculate_distance_10_100 ... bench:   1,337,039 ns/iter (+/- 74,565)
-// test calculate_distance_3_3    ... bench:         636 ns/iter (+/- 12)
+// test calculate_distance_10_10  ... bench:      14,508 ns/iter (+/- 133)
+// test calculate_distance_10_100 ... bench:     877,288 ns/iter (+/- 28,752)
+// test calculate_distance_3_3    ... bench:         629 ns/iter (+/- 6)
