@@ -1,6 +1,4 @@
-use near_chain_configs::{
-    get_initial_supply, Genesis, GenesisConfig, GenesisRecords, GenesisValidationMode,
-};
+use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, GenesisRecords};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::{hash, CryptoHash};
@@ -68,7 +66,6 @@ impl StandaloneRuntime {
                 ..Default::default()
             },
             GenesisRecords(state_records.to_vec()),
-            GenesisValidationMode::Full,
         );
 
         let mut account_ids: HashSet<AccountId> = HashSet::new();

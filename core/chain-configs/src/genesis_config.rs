@@ -476,38 +476,30 @@ pub enum GenesisValidationMode {
 }
 
 impl Genesis {
-    pub fn new(
+    pub fn new(config: GenesisConfig, records: GenesisRecords) -> Self {
+        Self::new_validated(config, records, GenesisValidationMode::Full)
+    }
+
+    fn new_validated(
         config: GenesisConfig,
         records: GenesisRecords,
         genesis_validation: GenesisValidationMode,
     ) -> Self {
         let genesis = Self { config, records, records_file: PathBuf::new() };
-        match genesis_validation {
-            GenesisValidationMode::Full => {
-                validate_genesis(&genesis);
-            }
-            GenesisValidationMode::UnsafeFast => {
-                warn!("Skipped genesis validation");
-            }
-        }
-        genesis
+        genesis.validate(genesis_validation)
     }
 
-    pub fn new_with_path(
+    pub fn new_with_path<P: AsRef<Path>>(
         config: GenesisConfig,
-        records_file: PathBuf,
+        records_file: P,
         genesis_validation: GenesisValidationMode,
     ) -> Self {
-        let genesis = Self { config, records: GenesisRecords(vec![]), records_file };
-        match genesis_validation {
-            GenesisValidationMode::Full => {
-                validate_genesis(&genesis);
-            }
-            GenesisValidationMode::UnsafeFast => {
-                warn!("Skipped genesis validation");
-            }
-        }
-        genesis
+        let genesis = Self {
+            config,
+            records: GenesisRecords(vec![]),
+            records_file: records_file.as_ref().to_path_buf(),
+        };
+        genesis.validate(genesis_validation)
     }
 
     /// Reads Genesis from a single file.
@@ -515,15 +507,9 @@ impl Genesis {
         let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
         let genesis: Genesis =
             serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.");
-        match genesis_validation {
-            GenesisValidationMode::Full => {
-                validate_genesis(&genesis);
-            }
-            GenesisValidationMode::UnsafeFast => {
-                warn!("Skipped genesis validation");
-            }
-        }
-        genesis
+        // As serde skips the `records_file` field, we can assume that `Genesis` has `records` and
+        // doesn't have `records_file`.
+        Self::new_validated(genesis.config, genesis.records, genesis_validation)
     }
 
     /// Reads Genesis from config and records files.
@@ -537,8 +523,7 @@ impl Genesis {
         P2: AsRef<Path>,
     {
         let config = GenesisConfig::from_file(config_path).unwrap();
-        let records = GenesisRecords::from_file(records_path);
-        Self::new(config, records, genesis_validation)
+        Self::new_with_path(config, records_path, genesis_validation)
     }
 
     /// Writes Genesis to the file.
@@ -577,6 +562,18 @@ impl Genesis {
                 callback(record);
             }
         }
+    }
+
+    fn validate(self, genesis_validation: GenesisValidationMode) -> Self {
+        match genesis_validation {
+            GenesisValidationMode::Full => {
+                validate_genesis(&self);
+            }
+            GenesisValidationMode::UnsafeFast => {
+                warn!("Skipped genesis validation");
+            }
+        }
+        self
     }
 }
 

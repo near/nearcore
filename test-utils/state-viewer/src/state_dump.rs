@@ -111,8 +111,7 @@ pub fn state_dump(
             // `total_supply` is expected to change due to the natural processes of burning tokens and
             // minting tokens every epoch.
             genesis_config.total_supply = total_supply;
-            near_config.genesis =
-                Genesis::new(genesis_config, records.into(), GenesisValidationMode::Full);
+            near_config.genesis = Genesis::new(genesis_config, records.into());
         }
     }
     near_config
