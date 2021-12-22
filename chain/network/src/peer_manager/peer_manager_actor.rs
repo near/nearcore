@@ -8,10 +8,10 @@ use crate::private_actix::{
 };
 use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::network_protocol::Edge;
-use crate::routing::routing::{RoutingTableView, DELETE_PEERS_AFTER_TIME};
 use crate::routing::routing_table_actor::{
     Prune, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
 };
+use crate::routing::routing_table_view::{RoutingTableView, DELETE_PEERS_AFTER_TIME};
 use crate::stats::metrics;
 use crate::stats::metrics::NetworkMetrics;
 use crate::types::{

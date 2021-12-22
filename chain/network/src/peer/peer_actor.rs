@@ -21,9 +21,9 @@ use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::types::{
     Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2,
-    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerStatsResult, PeerStatus, PeerType,
-    QueryPeerStats, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom,
-    StateResponseInfo, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerStatsResult, PeerType, QueryPeerStats,
+    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
@@ -1083,4 +1083,15 @@ impl Handler<PeerManagerRequest> for PeerActor {
             }
         }
     }
+}
+
+/// Peer status.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum PeerStatus {
+    /// Waiting for handshake.
+    Connecting,
+    /// Ready to go.
+    Ready,
+    /// Banned, should shutdown this peer.
+    Banned(ReasonForBan),
 }
