@@ -107,9 +107,6 @@ impl InfoHelper {
         let avg_bls = (self.num_blocks_processed as f64)
             / (self.started.elapsed().as_millis() as f64)
             * 1000.0;
-        let avg_chunks = (self.num_chunks_in_blocks_processed as f64)
-            / (self.started.elapsed().as_millis() as f64)
-            * 1000.0;
         let chunks_per_block = if self.num_blocks_processed > 0 {
             (self.num_chunks_in_blocks_processed as f64) / (self.num_blocks_processed as f64)
         } else {
@@ -166,7 +163,6 @@ impl InfoHelper {
         (metrics::RECEIVED_BYTES_PER_SECOND.set(network_info.received_bytes_per_sec as i64));
         (metrics::SENT_BYTES_PER_SECOND.set(network_info.sent_bytes_per_sec as i64));
         (metrics::BLOCKS_PER_MINUTE.set((avg_bls * (60 as f64)) as i64));
-        (metrics::CHUNKS_PER_MINUTE.set((avg_chunks * (60 as f64)) as i64));
         (metrics::CHUNKS_PER_BLOCK_MILLIS.set((1000. * chunks_per_block) as i64));
         (metrics::CPU_USAGE.set(cpu_usage as i64));
         (metrics::MEMORY_USAGE.set((memory_usage * 1024) as i64));
