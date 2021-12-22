@@ -3,6 +3,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use near_primitives::types::Gas;
+use num_rational::Ratio;
 
 use crate::cost::Cost;
 
@@ -14,6 +15,11 @@ pub struct CostTable {
     map: BTreeMap<Cost, Gas>,
 }
 
+#[derive(Default)]
+pub struct CostTableDiff {
+    map: BTreeMap<Cost, (Gas, Gas)>,
+}
+
 impl CostTable {
     pub(crate) fn add(&mut self, cost: Cost, value: Gas) {
         let prev = self.map.insert(cost, value);
@@ -21,6 +27,15 @@ impl CostTable {
     }
     pub(crate) fn get(&self, cost: Cost) -> Option<Gas> {
         self.map.get(&cost).copied()
+    }
+    pub fn diff(&self, other: &CostTable) -> CostTableDiff {
+        let mut res = CostTableDiff::default();
+        for (&cost, &x) in &self.map {
+            if let Some(&y) = other.map.get(&cost) {
+                res.map.insert(cost, (x, y));
+            }
+        }
+        res
     }
 }
 
@@ -53,6 +68,28 @@ impl fmt::Display for CostTable {
                 let gas = format_gas(gas);
                 writeln!(f, "{:<35} {:>25}", cost.to_string(), gas)?
             }
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for CostTableDiff {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "{:<35} {:>25} {:>25} {:>13}", "Cost", "First", "Second", "Second/First")?;
+
+        let mut biggest_diff_first = self.map.iter().collect::<Vec<_>>();
+        biggest_diff_first.sort_by_key(|(_, &(f, s))| Ratio::new(f, s).max(Ratio::new(s, f)));
+        biggest_diff_first.reverse();
+
+        for (&cost, &(first, second)) in biggest_diff_first {
+            writeln!(
+                f,
+                "{:<35} {:>25} {:>25} {:>13.2}",
+                cost.to_string(),
+                format_gas(first),
+                format_gas(second),
+                second as f64 / first as f64,
+            )?
         }
         Ok(())
     }
