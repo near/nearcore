@@ -7,7 +7,7 @@ use crate::private_actix::{
 };
 use crate::stats::metrics::{self, NetworkMetrics};
 use crate::types::{
-    Handshake, HandshakeFailureReason, HandshakeV2, NetworkClientMessages, NetworkClientResponses,
+    Handshake, HandshakeFailureReason, NetworkClientMessages, NetworkClientResponses,
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerMessage, PeerRequest,
     PeerResponse, PeersResponse,
 };
@@ -20,9 +20,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::types::{
-    Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2,
-    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerStatsResult, PeerType, QueryPeerStats,
-    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+    Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfoV2, PeerIdOrHash,
+    PeerInfo, PeerManagerRequest, PeerStatsResult, PeerType, QueryPeerStats, ReasonForBan,
+    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
     UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
@@ -236,14 +236,6 @@ impl PeerActor {
                             act.other_peer_id().unwrap().clone(),
                             act.my_node_info.addr_port(),
                             PeerChainInfoV2 { genesis_id, height, tracked_shards, archival },
-                            act.partial_edge_info.as_ref().unwrap().clone(),
-                        )),
-                        34..=38 => PeerMessage::HandshakeV2(HandshakeV2::new(
-                            act.protocol_version,
-                            act.my_node_id().clone(),
-                            act.other_peer_id().unwrap().clone(),
-                            act.my_node_info.addr_port(),
-                            PeerChainInfo { genesis_id, height, tracked_shards },
                             act.partial_edge_info.as_ref().unwrap().clone(),
                         )),
                         _ => {
@@ -485,7 +477,7 @@ impl PeerActor {
                 NetworkClientMessages::EpochSyncFinalizationResponse(peer_id, response)
             }
             PeerMessage::Handshake(_)
-            | PeerMessage::HandshakeV2(_)
+            | PeerMessage::_HandshakeV2
             | PeerMessage::HandshakeFailure(_, _)
             | PeerMessage::PeersRequest
             | PeerMessage::PeersResponse(_)
@@ -673,7 +665,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
         if self.should_we_drop_msg_without_decoding(&msg) {
             return;
         }
-        let mut peer_msg = match PeerMessage::try_from_slice(&msg) {
+        let peer_msg = match PeerMessage::try_from_slice(&msg) {
             Ok(peer_msg) => peer_msg,
             Err(err) => {
                 // This may send `HandshakeFailure` to the other peer.
@@ -714,10 +706,6 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             NetworkMetrics::peer_message_bytes_rx(peer_msg.msg_variant()).as_ref(),
             msg.len() as u64,
         );
-
-        if let PeerMessage::HandshakeV2(handshake) = peer_msg {
-            peer_msg = PeerMessage::Handshake(handshake.into());
-        }
 
         match (self.peer_type, self.peer_status, peer_msg) {
             (_, _, PeerMessage::HandshakeFailure(peer_info, reason)) => {
