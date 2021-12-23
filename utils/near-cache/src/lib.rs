@@ -1,4 +1,5 @@
 use lru::LruCache;
+use std::convert::Infallible;
 use std::hash::Hash;
 use std::sync::Mutex;
 
@@ -26,10 +27,7 @@ where
         V: Clone,
         F: FnOnce(&K) -> V,
     {
-        match self.get_or_try_put(key, |k| Ok::<V, std::convert::Infallible>(f(k))) {
-            Ok(it) => it,
-            Err(never) => match never {},
-        }
+        Result::<_, Infallible>::unwrap(self.get_or_try_put(key, |k| Ok(f(k))))
     }
 
     /// Returns the value of they key in the cache if present, otherwise
