@@ -32,6 +32,8 @@ struct RoutingTableTest {
     times: Vec<Instant>,
 }
 
+type SimpleEdgeDescription = (usize, usize, bool);
+
 impl RoutingTableTest {
     fn new() -> Self {
         let me = random_peer_id();
@@ -78,7 +80,7 @@ impl RoutingTableTest {
     fn check(
         &mut self,
         on_memory: Vec<(usize, usize, bool)>,
-        on_disk_edges: Vec<(u64, Vec<(usize, usize, bool)>)>,
+        on_disk_edges: Vec<(u64, Vec<SimpleEdgeDescription>)>,
         on_disk_peers: Vec<(usize, u64)>,
     ) {
         let on_memory = on_memory.into_iter().map(EdgeDescription::from).collect::<HashSet<_>>();
