@@ -217,9 +217,9 @@ impl TestShardUpgradeEnv {
                     if chunks.len() == num_shards {
                         assert_eq!(target_shard_id, shard_id as ShardId);
                     }
-                    new_block.header().prev_hash().clone()
+                    *new_block.header().prev_hash()
                 }
-                None => self.env.clients[0].chain.head().unwrap().last_block_hash.clone(),
+                None => self.env.clients[0].chain.head().unwrap().last_block_hash,
             };
             // check that the target chunks in all prev blocks are not new
             while &last_block_hash_with_empty_chunk != block_hash {
@@ -239,7 +239,7 @@ impl TestShardUpgradeEnv {
                         assert_ne!(chunk.height_included(), last_block.header().height());
                     }
                 }
-                last_block_hash_with_empty_chunk = last_block.header().prev_hash().clone();
+                last_block_hash_with_empty_chunk = *last_block.header().prev_hash();
             }
         }
     }
@@ -322,12 +322,11 @@ fn check_account(env: &mut TestEnv, account_id: &AccountId, block: &Block) {
     let shard_id = shard_uid.shard_id();
     for (i, me) in env.validators.iter().enumerate() {
         if env.clients[i].runtime_adapter.cares_about_shard(Some(me), prev_hash, shard_id, true) {
-            let state_root = env.clients[i]
+            let state_root = *env.clients[i]
                 .chain
                 .get_chunk_extra(block.hash(), &shard_uid)
                 .unwrap()
-                .state_root()
-                .clone();
+                .state_root();
             env.clients[i]
                 .runtime_adapter
                 .query(
@@ -395,7 +394,7 @@ fn test_shard_layout_upgrade_simple() {
     test_env.set_init_tx(vec![]);
 
     let mut nonce = 100;
-    let genesis_hash = test_env.env.clients[0].chain.genesis_block().hash().clone();
+    let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
     let mut all_accounts: HashSet<_> = test_env.initial_accounts.clone().into_iter().collect();
     let mut accounts_to_check: Vec<_> = vec![];
     let initial_accounts = test_env.initial_accounts.clone();
@@ -423,7 +422,7 @@ fn test_shard_layout_upgrade_simple() {
                         NEAR_BASE,
                         signer.public_key(),
                         &signer0,
-                        genesis_hash.clone(),
+                        genesis_hash,
                     );
                     if check_accounts {
                         accounts_to_check.push(account_id);
@@ -518,7 +517,7 @@ fn gen_cross_contract_transaction(
             gas: GAS_1,
             deposit: 0,
         })],
-        block_hash.clone(),
+        *block_hash,
     )
 }
 
@@ -529,7 +528,7 @@ fn setup_test_env_with_cross_contract_txs(
     let mut test_env = TestShardUpgradeEnv::new(epoch_length, 4, 4, 100, Some(100_000_000_000_000));
     let mut rng = thread_rng();
 
-    let genesis_hash = test_env.env.clients[0].chain.genesis_block().hash().clone();
+    let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
     // use test0, test1 and two random accounts to deploy contracts because we want accounts on different shards
     let contract_accounts = vec![
         test_env.initial_accounts[0].clone(),
@@ -554,7 +553,7 @@ fn setup_test_env_with_cross_contract_txs(
                     vec![Action::DeployContract(DeployContractAction {
                         code: near_test_contracts::rs_contract().to_vec(),
                     })],
-                    genesis_hash.clone(),
+                    genesis_hash,
                 )
             })
             .collect(),
