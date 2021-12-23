@@ -33,6 +33,7 @@ num-rational = { version = "0.3", features = ["serde"] }
 near-rust-allocator-proxy = "0.3.0"
 lazy-static-include = "3"
 tempfile = "3"
+anyhow = "1.0.51"
 
 near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }

@@ -36,20 +36,19 @@ fn chunks_produced_and_distributed_common(
     let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
         Arc::new(RwLock::new(vec![]));
     let heights = Arc::new(RwLock::new(HashMap::new()));
-    let heights1 = heights.clone();
+    let heights1 = heights;
 
     let height_to_hash = Arc::new(RwLock::new(HashMap::new()));
     let height_to_epoch = Arc::new(RwLock::new(HashMap::new()));
 
-    let check_height =
-        move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash.clone()) {
-            Entry::Occupied(entry) => {
-                assert_eq!(*entry.get(), height);
-            }
-            Entry::Vacant(entry) => {
-                entry.insert(height);
-            }
-        };
+    let check_height = move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash) {
+        Entry::Occupied(entry) => {
+            assert_eq!(*entry.get(), height);
+        }
+        Entry::Vacant(entry) => {
+            entry.insert(height);
+        }
+    };
 
     let validators = vec![
         vec![
@@ -72,7 +71,7 @@ fn chunks_produced_and_distributed_common(
 
     let (_, conn, _) = setup_mock_all_validators(
         validators.clone(),
-        key_pairs.clone(),
+        key_pairs,
         validator_groups,
         true,
         block_timeout,

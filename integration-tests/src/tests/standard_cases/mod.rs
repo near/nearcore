@@ -32,10 +32,7 @@ use testlib::runtime_utils::{
 const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
 
 fn fee_helper(node: &impl Node) -> FeeHelper {
-    FeeHelper::new(
-        RuntimeConfig::test().transaction_costs.clone(),
-        node.genesis().config.min_gas_price,
-    )
+    FeeHelper::new(RuntimeConfig::test().transaction_costs, node.genesis().config.min_gas_price)
 }
 
 /// Adds given access key to the given account_id using signer2.
@@ -282,7 +279,7 @@ pub fn test_upload_contract(node: impl Node) {
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     let account = node_user.view_account(&eve_dot_alice_account()).unwrap();
-    assert_eq!(account.code_hash, hash(wasm_binary).into());
+    assert_eq!(account.code_hash, hash(wasm_binary));
 
     let code = node_user.view_contract_code(&eve_dot_alice_account()).unwrap();
     assert_eq!(code.code, wasm_binary.to_vec());
@@ -300,7 +297,7 @@ pub fn test_redeploy_contract(node: impl Node) {
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     let account = node_user.view_account(account_id).unwrap();
-    assert_eq!(account.code_hash, hash(test_binary).into());
+    assert_eq!(account.code_hash, hash(test_binary));
 }
 
 pub fn test_send_money(node: impl Node) {
