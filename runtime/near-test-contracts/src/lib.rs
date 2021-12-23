@@ -4,7 +4,7 @@ use once_cell::sync::OnceCell;
 use std::fmt::Write;
 use std::path::Path;
 
-/// Trivial contact with do-nothing main function.
+/// Trivial contact with a do-nothing main function.
 pub fn trivial_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
     CONTRACT
@@ -12,10 +12,10 @@ pub fn trivial_contract() -> &'static [u8] {
         .as_slice()
 }
 
-/// Standard test contract which can call various host functinos
+/// Standard test contract which can call various host functions.
 ///
 /// Note: the contract relies on the latest protocol version, and
-/// might not work for tests using older version
+/// might not work for tests using an older version.
 pub fn rs_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
     CONTRACT.get_or_init(|| read_contract("test_contract_rs.wasm")).as_slice()
@@ -34,11 +34,6 @@ pub fn nightly_rs_contract() -> &'static [u8] {
 pub fn ts_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
     CONTRACT.get_or_init(|| read_contract("test_contract_ts.wasm")).as_slice()
-}
-
-pub fn tiny_contract() -> &'static [u8] {
-    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
-    CONTRACT.get_or_init(|| read_contract("tiny_contract_rs.wasm")).as_slice()
 }
 
 pub fn fuzzing_contract() -> &'static [u8] {
@@ -61,7 +56,7 @@ fn smoke_test() {
     assert!(!rs_contract().is_empty());
     assert!(!nightly_rs_contract().is_empty());
     assert!(!ts_contract().is_empty());
-    assert!(!tiny_contract().is_empty());
+    assert!(!trivial_contract().is_empty());
     assert!(!fuzzing_contract().is_empty());
     assert!(!rs_contract_base_protocol().is_empty());
 }

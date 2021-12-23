@@ -4212,7 +4212,7 @@ mod contract_precompilation_tests {
         let mut height = 1;
 
         // Process tiny contract deployment on the first client.
-        let tiny_wasm_code = near_test_contracts::tiny_contract().to_vec();
+        let tiny_wasm_code = near_test_contracts::trivial_contract().to_vec();
         height = deploy_test_contract(
             &mut env,
             "test0".parse().unwrap(),
