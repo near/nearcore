@@ -8,7 +8,6 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 use tracing::debug;
-#[cfg(feature = "test_features")]
 use tracing::error;
 use tracing::info;
 use tracing::metadata::LevelFilter;
@@ -154,12 +153,11 @@ impl InitCmd {
         // TODO: Check if `home` exists. If exists check what networks we already have there.
         if (self.download_genesis || self.download_genesis_url.is_some()) && self.genesis.is_some()
         {
-            panic!(
-                    "Please specify a local genesis file or download the NEAR genesis or specify your own."
-                );
+            error!("Please give either --genesis or --download-genesis, not both.");
+            return;
         }
 
-        nearcore::init_configs(
+        if let Err(e) = nearcore::init_configs(
             home_dir,
             self.chain_id.as_deref(),
             self.account_id.and_then(|account_id| account_id.parse().ok()),
@@ -173,8 +171,9 @@ impl InitCmd {
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
-        )
-        .expect("failed to init config");
+        ) {
+            error!("Failed to initialize configs: {:#}", e);
+        }
     }
 }
 
