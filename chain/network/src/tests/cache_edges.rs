@@ -14,6 +14,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
+type SimpleEdgeDescription = (usize, usize, bool);
+
 #[derive(Eq, PartialEq, Hash)]
 struct EdgeDescription(usize, usize, EdgeState);
 
@@ -31,8 +33,6 @@ struct RoutingTableTest {
     rev_peers: HashMap<PeerId, usize>,
     times: Vec<Instant>,
 }
-
-type SimpleEdgeDescription = (usize, usize, bool);
 
 impl RoutingTableTest {
     fn new() -> Self {
