@@ -1,4 +1,4 @@
-//! Runs standard test cases against TestNet with several nodes running in separate threads.
+//! Runs standard test cases against testnet with several nodes running in separate threads.
 //! The communication is performed through `RPCUser` that uses the standard RPC API to communicate.
 #[cfg(feature = "expensive_tests")]
 mod test {

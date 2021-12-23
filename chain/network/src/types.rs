@@ -1,15 +1,14 @@
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    Edge, Handshake, HandshakeFailureReason, HandshakeV2, PartialEdgeInfo, PeerMessage,
-    RoutingTableUpdate, SimpleEdge,
+    Edge, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, RoutingTableUpdate,
+    SimpleEdge,
 };
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 pub use crate::network_protocol::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
 use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, Unregister,
 };
-use crate::routing::routing::RoutingTableInfo;
-use crate::PeerInfo;
+use crate::routing::routing_table_view::RoutingTableInfo;
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, MailboxError, Message, Recipient};
 use futures::future::BoxFuture;
@@ -17,8 +16,8 @@ use futures::FutureExt;
 use near_network_primitives::types::{
     AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, InboundTcpConnect, KnownProducer,
     OutboundTcpConnect, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfoV2, Ping, Pong, ReasonForBan, RoutedMessageBody,
-    RoutedMessageFrom, StateResponseInfo,
+    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, Ping, Pong, ReasonForBan,
+    RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
 };
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::Challenge;

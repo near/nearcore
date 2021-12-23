@@ -190,10 +190,10 @@ impl OrphanBlockPool {
         height_hashes.push(*orphan.block.hash());
         let prev_hash_entries =
             self.prev_hash_idx.entry(*orphan.block.header().prev_hash()).or_default();
-        prev_hash_entries.push(block_hash.clone());
-        self.orphans.insert(block_hash.clone(), orphan);
+        prev_hash_entries.push(block_hash);
+        self.orphans.insert(block_hash, orphan);
         if requested_missing_chunks {
-            self.orphans_requested_missing_chunks.insert(block_hash.clone());
+            self.orphans_requested_missing_chunks.insert(block_hash);
         }
 
         if self.orphans.len() > MAX_ORPHAN_SIZE {
@@ -246,7 +246,7 @@ impl OrphanBlockPool {
         let ret = self.prev_hash_idx.remove(&prev_hash).map(|hs| {
             hs.iter()
                 .filter_map(|h| {
-                    removed_hashes.insert(h.clone());
+                    removed_hashes.insert(*h);
                     self.orphans_requested_missing_chunks.remove(h);
                     self.orphans.remove(h)
                 })
@@ -543,10 +543,10 @@ impl Chain {
             if two_ahead.epoch_id() != ret.epoch_id() {
                 let one_ahead = chain_store.get_header_by_height(ret.height() + 1)?;
                 if one_ahead.epoch_id() != ret.epoch_id() {
-                    let new_final_hash = ret.last_final_block().clone();
+                    let new_final_hash = *ret.last_final_block();
                     chain_store.get_block_header(&new_final_hash)?.clone()
                 } else {
-                    let new_final_hash = one_ahead.last_final_block().clone();
+                    let new_final_hash = *one_ahead.last_final_block();
                     chain_store.get_block_header(&new_final_hash)?.clone()
                 }
             } else {
@@ -1559,9 +1559,8 @@ impl Chain {
             let prev_hash = queue[queue_idx];
             // check within the descendents of `prev_hash` to see if there are orphans there that
             // are ready to request missing chunks for
-            let orphans_to_check = self
-                .orphans
-                .get_orphans_within_depth(prev_hash.clone(), NUM_ORPHAN_ANCESTORS_CHECK);
+            let orphans_to_check =
+                self.orphans.get_orphans_within_depth(prev_hash, NUM_ORPHAN_ANCESTORS_CHECK);
             for orphan_hash in orphans_to_check {
                 let orphan = self.orphans.get(&orphan_hash).unwrap().block.clone();
                 if let Some(orphan_missing_chunks) =
@@ -1668,7 +1667,7 @@ impl Chain {
             return Err(ErrorKind::InvalidStateRequest("ShardId out of bounds".into()).into());
         }
         // Chunk header here is the same chunk header as at the `current` height.
-        let sync_prev_hash = sync_prev_block.hash().clone();
+        let sync_prev_hash = *sync_prev_block.hash();
         let chunk_header = sync_prev_block.chunks()[shard_id as usize].clone();
         let (chunk_headers_root, chunk_proofs) = merklize(
             &sync_prev_block
@@ -1844,7 +1843,7 @@ impl Chain {
             return Err(ErrorKind::InvalidStateRequest("shard_id out of bounds".into()).into());
         }
         let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
-        let sync_prev_hash = sync_prev_block.hash().clone();
+        let sync_prev_hash = *sync_prev_block.hash();
         let state_root_node = self
             .runtime_adapter
             .get_state_root_node(shard_id, &sync_prev_hash, &state_root)
@@ -2152,10 +2151,10 @@ impl Chain {
 
         state_split_scheduler(StateSplitRequest {
             runtime: Arc::clone(&self.runtime_adapter),
-            sync_hash: sync_hash.clone(),
+            sync_hash: *sync_hash,
             shard_id,
             shard_uid,
-            state_root: state_root.clone(),
+            state_root: state_root,
             next_epoch_shard_layout,
         });
 
@@ -2205,7 +2204,7 @@ impl Chain {
                     for next_block_hash in self.store.get_blocks_to_catchup(&queued_block)?.clone()
                     {
                         saw_one = true;
-                        blocks_catch_up_state.pending_blocks.push(next_block_hash.clone());
+                        blocks_catch_up_state.pending_blocks.push(next_block_hash);
                     }
                     if saw_one {
                         assert_eq!(
@@ -2237,7 +2236,7 @@ impl Chain {
                 .scheduled_blocks
                 .insert(pending_block, chain_update.into_saved_store_update());
             block_catch_up_scheduler(BlockCatchUpRequest {
-                sync_hash: sync_hash.clone(),
+                sync_hash: *sync_hash,
                 block_hash: pending_block,
                 work,
             });
@@ -2295,7 +2294,7 @@ impl Chain {
 
         for block_hash in affected_blocks {
             debug!(target: "chain", "Catching up: removing prev={:?} from the queue. I'm {:?}", block_hash, me);
-            chain_store_update.remove_prev_block_to_catchup(block_hash.clone());
+            chain_store_update.remove_prev_block_to_catchup(*block_hash);
         }
         chain_store_update.remove_state_dl_info(*epoch_first_block);
 
@@ -2304,7 +2303,7 @@ impl Chain {
         for hash in affected_blocks.iter() {
             self.check_orphans(
                 me,
-                hash.clone(),
+                *hash,
                 block_accepted,
                 block_misses_chunks,
                 orphan_misses_chunks,
@@ -2358,7 +2357,7 @@ impl Chain {
                             Some(FinalExecutionStatus::SuccessValue(v.clone()))
                         }
                         ExecutionStatusView::SuccessReceiptId(id) => {
-                            looking_for_id = id.clone();
+                            looking_for_id = *id;
                             None
                         }
                     }
@@ -2432,7 +2431,7 @@ impl Chain {
         &mut self,
         block_hash: &CryptoHash,
     ) -> Result<(), Error> {
-        let last_final_block_hash = self.head_header()?.last_final_block().clone();
+        let last_final_block_hash = *self.head_header()?.last_final_block();
         let last_final_height = self.get_block_header(&last_final_block_hash)?.height();
         let block_header = self.get_block_header(block_hash)?.clone();
         if block_header.height() <= last_final_height {
@@ -2531,7 +2530,7 @@ impl Chain {
         tree_nodes: &mut HashMap<(u64, u64), Option<MerkleHash>>,
     ) -> Result<Option<MerkleHash>, Error> {
         if let Some(hash) = tree_nodes.get(&(index, level)) {
-            Ok(hash.clone())
+            Ok(*hash)
         } else {
             if level == 0 {
                 let maybe_hash = if index >= tree_size {
@@ -2539,7 +2538,7 @@ impl Chain {
                 } else {
                     Some(*self.mut_store().get_block_hash_from_ordinal(index)?)
                 };
-                tree_nodes.insert((index, level), maybe_hash.clone());
+                tree_nodes.insert((index, level), maybe_hash);
                 Ok(maybe_hash)
             } else {
                 let cur_tree_size = (index + 1) * counter;
@@ -2575,7 +2574,7 @@ impl Chain {
                             })?,
                     )
                 };
-                tree_nodes.insert((index, level), maybe_hash.clone());
+                tree_nodes.insert((index, level), maybe_hash);
                 Ok(maybe_hash)
             }
         }
@@ -2591,7 +2590,7 @@ impl Chain {
         tree_nodes: &mut HashMap<(u64, u64), Option<MerkleHash>>,
     ) -> Result<Option<MerkleHash>, Error> {
         if let Some(hash) = tree_nodes.get(&(index, level)) {
-            Ok(hash.clone())
+            Ok(*hash)
         } else {
             if level == 0 {
                 let maybe_hash = if index >= tree_size {
@@ -2599,7 +2598,7 @@ impl Chain {
                 } else {
                     Some(*self.mut_store().get_block_hash_from_ordinal(index)?)
                 };
-                tree_nodes.insert((index, level), maybe_hash.clone());
+                tree_nodes.insert((index, level), maybe_hash);
                 Ok(maybe_hash)
             } else {
                 let left_hash = self.get_merkle_tree_node(
@@ -2617,7 +2616,7 @@ impl Chain {
                     tree_nodes,
                 )?;
                 let maybe_hash = Self::combine_maybe_hashes(left_hash, right_hash);
-                tree_nodes.insert((index, level), maybe_hash.clone());
+                tree_nodes.insert((index, level), maybe_hash);
 
                 Ok(maybe_hash)
             }
@@ -2813,14 +2812,14 @@ impl Chain {
         block_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<Option<(CryptoHash, ShardId)>, Error> {
-        let mut block_hash = block_hash.clone();
+        let mut block_hash = *block_hash;
         let mut epoch_id = self.get_block_header(&block_hash)?.epoch_id().clone();
         let mut shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id)?;
         // this corrects all the shard where the original shard will split to if sharding changes
         let mut shard_ids = vec![shard_id];
 
         while let Ok(next_block_hash) = self.store.get_next_block_hash(&block_hash) {
-            let next_block_hash = next_block_hash.clone();
+            let next_block_hash = *next_block_hash;
             let next_epoch_id = self.get_block_header(&next_block_hash)?.epoch_id().clone();
             if next_epoch_id != epoch_id {
                 let next_shard_layout = self.runtime_adapter.get_shard_layout(&next_epoch_id)?;
@@ -2922,7 +2921,7 @@ impl Chain {
         if head.epoch_id == *sync_block.header().epoch_id()
             || head.epoch_id == *sync_block.header().next_epoch_id()
         {
-            let prev_hash = sync_block.header().prev_hash().clone();
+            let prev_hash = *sync_block.header().prev_hash();
             // If sync_hash is not on the Epoch boundary, it's malicious behavior
             self.runtime_adapter.is_next_block_epoch_start(&prev_hash)
         } else {
@@ -3371,11 +3370,7 @@ impl<'a> ChainUpdate<'a> {
         apply_results: Vec<Result<ApplyChunkResult, Error>>,
     ) -> Result<(), Error> {
         apply_results.into_iter().try_for_each(|result| -> Result<(), Error> {
-            self.process_apply_chunk_result(
-                result?,
-                block.hash().clone(),
-                prev_block.hash().clone(),
-            )
+            self.process_apply_chunk_result(result?, *block.hash(), *prev_block.hash())
         })
     }
 
@@ -3570,13 +3565,13 @@ impl<'a> ChainUpdate<'a> {
                         )?;
 
                     let runtime_adapter = self.runtime_adapter.clone();
-                    let block_hash = block.hash().clone();
+                    let block_hash = *block.hash();
                     let challenges_result = block.header().challenges_result().clone();
                     let block_timestamp = block.header().raw_timestamp();
                     let gas_price = prev_block.header().gas_price();
                     let random_seed = *block.header().random_value();
                     let height = chunk_header.height_included();
-                    let prev_block_hash = chunk_header.prev_block_hash().clone();
+                    let prev_block_hash = chunk_header.prev_block_hash();
                     #[cfg(feature = "sandbox")]
                     let states_to_patch = self.states_to_patch.take();
 
@@ -3632,13 +3627,13 @@ impl<'a> ChainUpdate<'a> {
                         .clone();
 
                     let runtime_adapter = self.runtime_adapter.clone();
-                    let block_hash = block.hash().clone();
+                    let block_hash = *block.hash();
                     let challenges_result = block.header().challenges_result().clone();
                     let block_timestamp = block.header().raw_timestamp();
                     let gas_price = block.header().gas_price();
                     let random_seed = *block.header().random_value();
                     let height = block.header().height();
-                    let prev_block_hash = prev_block.hash().clone();
+                    let prev_block_hash = *prev_block.hash();
                     #[cfg(feature = "sandbox")]
                     let states_to_patch = self.states_to_patch.take();
                     #[cfg(not(feature = "sandbox"))]
@@ -3700,9 +3695,9 @@ impl<'a> ChainUpdate<'a> {
                     .chain_store_update
                     .get_state_changes_for_split_states(block.hash(), shard_id)?;
                 self.chain_store_update
-                    .remove_state_changes_for_split_states(block.hash().clone(), shard_id);
+                    .remove_state_changes_for_split_states(*block.hash(), shard_id);
                 let runtime_adapter = self.runtime_adapter.clone();
-                let block_hash = block.hash().clone();
+                let block_hash = *block.hash();
                 result.push(Box::new(move || -> Result<ApplyChunkResult, Error> {
                     Ok(ApplyChunkResult::SplitState(SplitStateResult {
                         shard_uid,
@@ -3806,7 +3801,7 @@ impl<'a> ChainUpdate<'a> {
                 let balance_res = (total_balance_burnt % num_split_shards as u128) as NumShards;
                 let balance_split = total_balance_burnt / (num_split_shards as u128);
                 let gas_limit = chunk_extra.gas_limit();
-                let outcome_root = chunk_extra.outcome_root().clone();
+                let outcome_root = *chunk_extra.outcome_root();
 
                 let mut sum_gas_used = 0;
                 let mut sum_balance_burnt = 0;
@@ -3816,7 +3811,7 @@ impl<'a> ChainUpdate<'a> {
                     let balance_burnt = balance_split + if shard_id < balance_res { 1 } else { 0 };
                     let new_chunk_extra = ChunkExtra::new(
                         &result.new_root,
-                        outcome_root.clone(),
+                        outcome_root,
                         validator_proposals_by_shard.remove(&result.shard_uid).unwrap_or_default(),
                         gas_burnt,
                         gas_limit,
@@ -3837,7 +3832,7 @@ impl<'a> ChainUpdate<'a> {
             }
             ApplySplitStateResultOrStateChanges::StateChangesForSplitStates(state_changes) => {
                 self.chain_store_update.add_state_changes_for_split_states(
-                    block_hash.clone(),
+                    *block_hash,
                     shard_uid.shard_id(),
                     state_changes,
                 );
@@ -4880,7 +4875,7 @@ impl BlocksCatchUpState {
         Self {
             first_block_hash,
             epoch_id,
-            pending_blocks: vec![first_block_hash.clone()],
+            pending_blocks: vec![first_block_hash],
             scheduled_blocks: HashMap::new(),
             processed_blocks: HashMap::new(),
             done_blocks: vec![],
