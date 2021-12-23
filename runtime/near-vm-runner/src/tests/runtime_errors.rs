@@ -729,27 +729,6 @@ fn test_external_call_indirect() {
     });
 }
 
-#[test]
-fn test_contract_error_caching() {
-    with_vm_variants(|vm_kind: VMKind| {
-        match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
-            VMKind::Wasmtime => return,
-        }
-        let mut cache = MockCompiledContractCache::default();
-        let code = [42; 1000];
-        let terragas = 1000000000000u64;
-        assert_eq!(cache.len(), 0);
-        let err1 =
-            make_cached_contract_call_vm(&mut cache, &code, "method_name1", terragas, vm_kind);
-        println!("{:?}", cache);
-        assert_eq!(cache.len(), 1);
-        let err2 =
-            make_cached_contract_call_vm(&mut cache, &code, "method_name2", terragas, vm_kind);
-        assert_eq!(err1, err2);
-    })
-}
-
 /// Load from address so far out of bounds that it causes integer overflow.
 fn address_overflow() -> Vec<u8> {
     wat::parse_str(

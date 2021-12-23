@@ -4,6 +4,7 @@ mod rs_contract;
 mod runtime_errors;
 mod ts_contract;
 mod wasm_validation;
+mod cache;
 
 use crate::vm_kind::VMKind;
 
@@ -119,33 +120,4 @@ fn make_simple_contract_call_vm(
     vm_kind: VMKind,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     make_simple_contract_call_with_gas_vm(code, method_name, 10u64.pow(14), vm_kind)
-}
-
-fn make_cached_contract_call_vm(
-    cache: &mut dyn CompiledContractCache,
-    code: &[u8],
-    method_name: &str,
-    prepaid_gas: u64,
-    vm_kind: VMKind,
-) -> (Option<VMOutcome>, Option<VMError>) {
-    let mut fake_external = MockedExternal::new();
-    let mut context = create_context(vec![]);
-    let config = VMConfig::test();
-    let fees = RuntimeFeesConfig::test();
-    let promise_results = vec![];
-    context.prepaid_gas = prepaid_gas;
-    let code = ContractCode::new(code.to_vec(), None);
-    let runtime = vm_kind.runtime().expect("runtime has not been compiled");
-
-    runtime.run(
-        &code,
-        method_name,
-        &mut fake_external,
-        context.clone(),
-        &config,
-        &fees,
-        &promise_results,
-        LATEST_PROTOCOL_VERSION,
-        Some(cache),
-    )
 }
