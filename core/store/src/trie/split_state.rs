@@ -8,13 +8,13 @@ use near_primitives::account::id::AccountId;
 use near_primitives::errors::StorageError;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::state_parts::PartId;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     ConsolidatedStateChange, StateChangeCause, StateChangesForSplitStates, StateRoot,
 };
 use std::collections::HashMap;
-use near_primitives::state_parts::PartId;
 
 impl Trie {
     /// Computes the set of trie items (nodes with keys and values) for a state part.
@@ -328,15 +328,14 @@ pub fn get_delayed_receipts(
 
 #[cfg(test)]
 mod tests {
-    use crate::split_state::{
-        apply_delayed_receipts_to_split_states_impl, get_delayed_receipts,
-    };
+    use crate::split_state::{apply_delayed_receipts_to_split_states_impl, get_delayed_receipts};
     use crate::test_utils::{
         create_tries, gen_changes, gen_larger_changes, gen_receipts, gen_unique_accounts,
         simplify_changes, test_populate_trie,
     };
 
     use crate::{get, get_delayed_receipt_indices, set, set_account, ShardTries, ShardUId, Trie};
+    use near_chain::types::PartId;
     use near_primitives::account::id::AccountId;
     use near_primitives::account::Account;
     use near_primitives::borsh::BorshSerialize;
@@ -347,7 +346,6 @@ mod tests {
     use near_primitives::types::{
         NumShards, StateChangeCause, StateChangesForSplitStates, StateRoot,
     };
-    use near_chain::types::PartId;
     use rand::seq::SliceRandom;
     use rand::Rng;
     use std::collections::HashMap;
