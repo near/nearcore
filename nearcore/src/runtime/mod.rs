@@ -1589,7 +1589,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         let epoch_id = self.get_epoch_id(block_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
         let trie = self.tries.get_view_trie_for_shard(shard_uid);
-        let result = match trie.get_trie_nodes_for_part(part_id, state_root) {
+        let result = match trie.get_trie_nodes_for_part(
+            near_primitives::state_part::PartId::new(part_id.idx, part_id.total),
+            state_root,
+        ) {
             Ok(partial_state) => partial_state,
             Err(e) => {
                 error!(target: "runtime",
@@ -1689,8 +1692,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
         debug!(target: "runtime", "splitting state for shard {} to {} parts to build new states", shard_id, num_parts);
         for part_id in 0..num_parts {
-            let trie_items =
-                trie.get_trie_items_for_part(PartId::new(part_id, num_parts), state_root)?;
+            let trie_items = trie.get_trie_items_for_part(
+                ear_primitives::state_part::PartId::new(part_id, num_parts),
+                state_root,
+            )?;
             let (store_update, new_state_roots) = self.tries.add_values_to_split_states(
                 &state_roots,
                 trie_items.into_iter().map(|(key, value)| (key, Some(value))).collect(),
