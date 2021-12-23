@@ -346,7 +346,7 @@ pub mod test_features {
             match msg {
                 NetworkViewClientMessages::AnnounceAccount(accounts) => {
                     if !accounts.is_empty() {
-                        counter1.fetch_add(1, Ordering::SeqCst);
+                        counter1.fetch_add(1, Ordering::Relaxed);
                     }
                     Box::new(Some(NetworkViewClientResponses::AnnounceAccount(
                         accounts.clone().into_iter().map(|obj| obj.0).collect(),

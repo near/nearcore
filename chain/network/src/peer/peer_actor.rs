@@ -553,7 +553,7 @@ impl PeerActor {
     /// If so, drop the transaction.
     fn should_we_drop_msg_without_decoding(&self, msg: &[u8]) -> bool {
         if utils::is_forward_transaction(msg).unwrap_or(false) {
-            let r = self.txns_since_last_block.load(Ordering::Acquire);
+            let r = self.txns_since_last_block.load(Ordering::Relaxed);
             if r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE {
                 return true;
             }
@@ -614,7 +614,7 @@ impl Actor for PeerActor {
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
-        self.peer_counter.fetch_sub(1, Ordering::SeqCst);
+        self.peer_counter.fetch_sub(1, Ordering::Relaxed);
         metrics::PEER_CONNECTIONS_TOTAL.dec();
         debug!(target: "network", "{:?}: Peer {} disconnected. {:?}", self.my_node_info.id, self.peer_info, self.peer_status);
         if let Some(peer_info) = self.peer_info.as_ref() {
@@ -690,7 +690,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             body: RoutedMessageBody::ForwardTx(_), ..
         }) = &peer_msg
         {
-            self.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
+            self.txns_since_last_block.fetch_add(1, Ordering::Relaxed);
         } else if let PeerMessage::Block(_) = &peer_msg {
             self.txns_since_last_block.store(0, Ordering::Release);
         }
