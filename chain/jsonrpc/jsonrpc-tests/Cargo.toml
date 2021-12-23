@@ -32,4 +32,4 @@ near-actix-test-utils = { path = "../../../test-utils/actix-test-utils" }
 test_features = ["near-jsonrpc/test_features"]
 nightly_protocol = ["near-jsonrpc/nightly_protocol"]
 sandbox = ["near-jsonrpc/sandbox"]
-protocol_feature_routing_exchange_algorithm = ["near-jsonrpc/protocol_feature_routing_exchange_algorithm"]
+protocol_feature_routing_exchange_algorithm = ["near-jsonrpc/protocol_feature_routing_exchange_algorithm", "near-primitives/protocol_feature_routing_exchange_algorithm", "near-network/protocol_feature_routing_exchange_algorithm", "near-client/protocol_feature_routing_exchange_algorithm"]
