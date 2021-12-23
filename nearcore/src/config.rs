@@ -734,14 +734,18 @@ impl NearConfig {
         self.config.write_to_file(&dir.join(CONFIG_FILENAME)).expect("Error writing config");
 
         if let Some(validator_signer) = &self.validator_signer {
-            validator_signer.write_to_file(&dir.join(&self.config.validator_key_file));
+            validator_signer
+                .write_to_file(&dir.join(&self.config.validator_key_file))
+                .expect("Error writing validator key file");
         }
 
         let network_signer = InMemorySigner::from_secret_key(
             "node".parse().unwrap(),
             self.network_config.secret_key.clone(),
         );
-        network_signer.write_to_file(&dir.join(&self.config.node_key_file));
+        network_signer
+            .write_to_file(&dir.join(&self.config.node_key_file))
+            .expect("Error writing key file");
 
         self.genesis.to_file(&dir.join(&self.config.genesis_file));
     }
@@ -787,10 +791,12 @@ fn add_account_with_key(
 }
 
 /// Generate a validator key and save it to the file path.
-fn generate_validator_key(account_id: AccountId, path: &Path) {
+fn generate_validator_key(account_id: AccountId, path: &Path) -> anyhow::Result<()> {
     let signer = InMemoryValidatorSigner::from_random(account_id.clone(), KeyType::ED25519);
     info!(target: "near", "Use key {} for {} to stake.", signer.public_key(), account_id);
-    signer.write_to_file(path);
+    signer
+        .write_to_file(path)
+        .with_context(|| format!("Error writing key file to {}", path.display()))
 }
 
 pub fn mainnet_genesis() -> Genesis {
@@ -866,11 +872,14 @@ pub fn init_configs(
 
             let genesis = mainnet_genesis();
             if let Some(account_id) = account_id {
-                generate_validator_key(account_id, &dir.join(config.validator_key_file));
+                generate_validator_key(account_id, &dir.join(config.validator_key_file))?;
             }
 
+            let path = dir.join(config.node_key_file);
             let network_signer = InMemorySigner::from_random("node".parse()?, KeyType::ED25519);
-            network_signer.write_to_file(&dir.join(config.node_key_file));
+            network_signer
+                .write_to_file(&path)
+                .with_context(|| format!("Error writing key file to {}", path.display()))?;
 
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
@@ -885,11 +894,14 @@ pub fn init_configs(
             })?;
 
             if let Some(account_id) = account_id {
-                generate_validator_key(account_id, &dir.join(config.validator_key_file));
+                generate_validator_key(account_id, &dir.join(config.validator_key_file))?;
             }
 
+            let path = dir.join(config.node_key_file);
             let network_signer = InMemorySigner::from_random("node".parse()?, KeyType::ED25519);
-            network_signer.write_to_file(&dir.join(config.node_key_file));
+            network_signer
+                .write_to_file(&path)
+                .with_context(|| format!("Error writing key file to {}", path.display()))?;
 
             // download genesis from s3
             let genesis_path = dir.join("genesis.json");
@@ -942,10 +954,16 @@ pub fn init_configs(
             } else {
                 InMemoryValidatorSigner::from_random(account_id.clone(), KeyType::ED25519)
             };
-            signer.write_to_file(&dir.join(config.validator_key_file));
+            let validator_path = dir.join(config.validator_key_file);
+            signer.write_to_file(&validator_path).with_context(|| {
+                format!("Error writing validator key file to {}", validator_path.display())
+            })?;
 
+            let node_path = dir.join(config.node_key_file);
             let network_signer = InMemorySigner::from_random("node".parse()?, KeyType::ED25519);
-            network_signer.write_to_file(&dir.join(config.node_key_file));
+            network_signer
+                .write_to_file(&node_path)
+                .with_context(|| format!("Error writing key file to {}", node_path.display()))?;
             let mut records = vec![];
             add_account_with_key(
                 &mut records,
@@ -1090,8 +1108,12 @@ pub fn init_testnet_configs(
         let node_dir = dir.join(format!("{}{}", prefix, i));
         fs::create_dir_all(node_dir.clone()).expect("Failed to create directory");
 
-        validator_signers[i].write_to_file(&node_dir.join(&configs[i].validator_key_file));
-        network_signers[i].write_to_file(&node_dir.join(&configs[i].node_key_file));
+        validator_signers[i]
+            .write_to_file(&node_dir.join(&configs[i].validator_key_file))
+            .expect("Error writing validator key file");
+        network_signers[i]
+            .write_to_file(&node_dir.join(&configs[i].node_key_file))
+            .expect("Error writing key file");
 
         genesis.to_file(&node_dir.join(&configs[i].genesis_file));
         configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME)).expect("Error writing config");
