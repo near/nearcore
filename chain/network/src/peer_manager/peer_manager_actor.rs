@@ -432,7 +432,7 @@ impl PeerManagerActor {
 
         self.update_routing_table_and_prune_edges(
             ctx,
-            if can_prune_edges { Prune::PruneOncePerHour } else { Prune::Disable },
+            if can_prune_edges { Prune::OncePerHour } else { Prune::Disable },
             DELETE_PEERS_AFTER_TIME,
         );
 
@@ -2043,7 +2043,7 @@ impl PeerManagerActor {
         }
         if let Some(true) = msg.prune_edges {
             debug!(target: "network", "test_features prune_edges");
-            self.update_routing_table_and_prune_edges(ctx, Prune::PruneNow, Duration::from_secs(2));
+            self.update_routing_table_and_prune_edges(ctx, Prune::Now, Duration::from_secs(2));
         }
     }
 
