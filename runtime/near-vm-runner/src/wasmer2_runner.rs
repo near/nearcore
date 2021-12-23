@@ -21,7 +21,7 @@ use wasmer_compiler_singlepass::Singlepass;
 use wasmer_engine::{Artifact, DeserializeError, Engine, InstantiationError, RuntimeError};
 use wasmer_engine_universal::{Universal, UniversalEngine};
 use wasmer_types::{
-    Bytes, ExportIndex, Features, FunctionIndex, InstanceConfig, MemoryType, MemoryView, Pages,
+    ExportIndex, Features, FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE,
 };
 use wasmer_vm::{LinearMemory, LinearTable, Memory, MemoryStyle, TrapCode, VMExtern, VMMemory};
 
@@ -55,16 +55,27 @@ impl Wasmer2Memory {
         )))
     }
 
-    fn view(&self) -> MemoryView<u8> {
-        let size = u32::try_from(self.0.size().bytes().0).expect("memory size must fit into u32");
-        let base = self.0.vmmemory();
-        unsafe {
-            // SAFETY: We have successfully created this as host memory during construction, so the
-            // base pointer must be a valid owned value of `VMMemoryDefinition`.
-            let base = base.as_ref().base;
-            // SAFETY: the `base` pointer is valid, since it has been read from an initialized
-            // `VMMemoryDefinition`.
-            MemoryView::new(base, size)
+    // Returns the pointer to memory at the specified offset and the size of the buffer starting at
+    // the returned pointer.
+    fn data_offset(&self, offset: u64) -> Option<(*mut u8, usize)> {
+        let size = self.0.size().bytes().0;
+        let offset = usize::try_from(offset).ok()?;
+        // `checked_sub` here verifies that offsetting the buffer by offset still lands us
+        // in-bounds of the allocated object.
+        let remaining = size.checked_sub(offset)?;
+        Some(unsafe {
+            // SAFETY: we verified that offsetting the base pointer by `offset` still lands us
+            // in-bounds of the original object.
+            (self.0.vmmemory().as_ref().base.add(offset), remaining)
+        })
+    }
+
+    fn get_memory_buffer(&self, offset: u64, len: usize) -> *mut u8 {
+        let memory = self.data_offset(offset).map(|(data, remaining)| (data, len <= remaining));
+        if let Some((ptr, true)) = memory {
+            ptr
+        } else {
+            panic!("memory access out of bounds")
         }
     }
 
@@ -75,29 +86,36 @@ impl Wasmer2Memory {
 
 impl MemoryLike for Wasmer2Memory {
     fn fits_memory(&self, offset: u64, len: u64) -> bool {
-        match offset.checked_add(len) {
-            None => false,
-            Some(end) => self.0.size().bytes() >= Bytes(end as usize),
-        }
+        self.data_offset(offset)
+            .and_then(|(_, remaining)| {
+                let len = usize::try_from(len).ok()?;
+                Some(len <= remaining)
+            })
+            .unwrap_or(false)
     }
 
     fn read_memory(&self, offset: u64, buffer: &mut [u8]) {
-        let offset = offset as usize;
-        for (i, cell) in self.view()[offset..(offset + buffer.len())].iter().enumerate() {
-            buffer[i] = cell.get();
+        unsafe {
+            let memory = self.get_memory_buffer(offset, buffer.len());
+            // SAFETY: we verified indices into are valid and the pointer will always be valid as
+            // well. Our runtime is currently only executing Wasm code on a single thread, so data
+            // races aren't a concern here.
+            std::ptr::copy_nonoverlapping(memory, buffer.as_mut_ptr(), buffer.len());
         }
     }
 
     fn read_memory_u8(&self, offset: u64) -> u8 {
-        self.view()[offset as usize].get()
+        unsafe { *self.get_memory_buffer(offset, 1) }
     }
 
     fn write_memory(&mut self, offset: u64, buffer: &[u8]) {
-        let offset = offset as usize;
-        self.view()[offset..(offset + buffer.len())]
-            .iter()
-            .zip(buffer.iter())
-            .for_each(|(cell, v)| cell.set(*v));
+        unsafe {
+            let memory = self.get_memory_buffer(offset, buffer.len());
+            // SAFETY: we verified indices into are valid and the pointer will always be valid as
+            // well. Our runtime is currently only executing Wasm code on a single thread, so data
+            // races aren't a concern here.
+            std::ptr::copy_nonoverlapping(buffer.as_ptr(), memory, buffer.len());
+        }
     }
 }
 
@@ -463,7 +481,7 @@ impl wasmer_engine::Tunables for &Wasmer2VM {
     fn memory_style(&self, memory: &MemoryType) -> MemoryStyle {
         MemoryStyle::Static {
             bound: memory.maximum.unwrap_or(Pages(self.config.limit_config.max_memory_pages)),
-            offset_guard_size: 0x1000,
+            offset_guard_size: WASM_PAGE_SIZE as u64,
         }
     }
 
@@ -600,5 +618,94 @@ impl crate::runner::VM for Wasmer2VM {
 
     fn check_compile(&self, code: &Vec<u8>) -> bool {
         self.compile_uncached(code).is_ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use assert_matches::assert_matches;
+    use wasmer_types::WASM_PAGE_SIZE;
+
+    #[test]
+    fn get_memory_buffer() {
+        let memory = super::Wasmer2Memory::new(1, 1).unwrap();
+        // these should not panic with memory out of bounds
+        memory.get_memory_buffer(0, WASM_PAGE_SIZE);
+        memory.get_memory_buffer(WASM_PAGE_SIZE as u64 - 1, 1);
+        memory.get_memory_buffer(WASM_PAGE_SIZE as u64, 0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn get_memory_buffer_oob1() {
+        let memory = super::Wasmer2Memory::new(1, 1).unwrap();
+        memory.get_memory_buffer(1 + WASM_PAGE_SIZE as u64, 0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn get_memory_buffer_oob2() {
+        let memory = super::Wasmer2Memory::new(1, 1).unwrap();
+        memory.get_memory_buffer(WASM_PAGE_SIZE as u64, 1);
+    }
+
+    #[test]
+    fn memory_data_offset() {
+        let memory = super::Wasmer2Memory::new(1, 1).unwrap();
+        assert_matches!(memory.data_offset(0), Some((_, size)) => assert_eq!(size, WASM_PAGE_SIZE));
+        assert_matches!(memory.data_offset(WASM_PAGE_SIZE as u64), Some((_, size)) => {
+            assert_eq!(size, 0)
+        });
+        assert_matches!(memory.data_offset(WASM_PAGE_SIZE as u64 + 1), None);
+        assert_matches!(memory.data_offset(0xFFFF_FFFF_FFFF_FFFF), None);
+    }
+
+    #[test]
+    fn memory_read() {
+        let memory = super::Wasmer2Memory::new(1, 1).unwrap();
+        let mut buffer = vec![42; WASM_PAGE_SIZE];
+        near_vm_logic::MemoryLike::read_memory(&memory, 0, &mut buffer);
+        // memory should be zeroed at creation.
+        assert!(buffer.iter().all(|&v| v == 0));
+    }
+
+    #[test]
+    #[should_panic]
+    fn memory_read_oob() {
+        let memory = super::Wasmer2Memory::new(1, 1).unwrap();
+        let mut buffer = vec![42; WASM_PAGE_SIZE + 1];
+        near_vm_logic::MemoryLike::read_memory(&memory, 0, &mut buffer);
+    }
+
+    #[test]
+    fn memory_write() {
+        let mut memory = super::Wasmer2Memory::new(1, 1).unwrap();
+        let mut buffer = vec![42; WASM_PAGE_SIZE];
+        near_vm_logic::MemoryLike::write_memory(
+            &mut memory,
+            WASM_PAGE_SIZE as u64 / 2,
+            &buffer[..WASM_PAGE_SIZE / 2],
+        );
+        near_vm_logic::MemoryLike::read_memory(&memory, 0, &mut buffer);
+        assert!(buffer[..WASM_PAGE_SIZE / 2].iter().all(|&v| v == 0));
+        assert!(buffer[WASM_PAGE_SIZE / 2..].iter().all(|&v| v == 42));
+        // Now the buffer is half 0s and half 42s
+
+        near_vm_logic::MemoryLike::write_memory(
+            &mut memory,
+            0,
+            &buffer[WASM_PAGE_SIZE / 4..3 * (WASM_PAGE_SIZE / 4)],
+        );
+        near_vm_logic::MemoryLike::read_memory(&memory, 0, &mut buffer);
+        assert!(buffer[..WASM_PAGE_SIZE / 4].iter().all(|&v| v == 0));
+        assert!(buffer[WASM_PAGE_SIZE / 4..].iter().all(|&v| v == 42));
+    }
+
+    #[test]
+    #[should_panic]
+    fn memory_write_oob() {
+        let mut memory = super::Wasmer2Memory::new(1, 1).unwrap();
+        let mut buffer = vec![42; WASM_PAGE_SIZE + 1];
+        near_vm_logic::MemoryLike::write_memory(&mut memory, 0, &mut buffer);
     }
 }
