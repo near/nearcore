@@ -73,7 +73,7 @@ impl Default for SealsManagerTestFixture {
             Default::default(),
             Default::default(),
         );
-        let mock_distant_block_hash = mock_distant_block_header.hash().clone();
+        let mock_distant_block_hash = *mock_distant_block_header.hash();
         Self::store_block_header(store, mock_distant_block_header);
 
         Self {

@@ -312,9 +312,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.44"
+version = "1.0.51"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61604a8f862e1d5c3229fdd78f8b02c68dcf73a4c4b05fd636d12240aaa242c1"
+checksum = "8b26702f315f53b6071259e15dd9d64528213b44d61de1ec926eca7715d62203"
 
 [[package]]
 name = "arbitrary"
@@ -2099,6 +2099,7 @@ name = "indexer-example"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "anyhow",
  "clap 3.0.0-beta.2",
  "near-indexer",
  "openssl-probe",
@@ -2657,6 +2658,7 @@ dependencies = [
 name = "near-chain-configs"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "chrono",
  "derive_more",
  "near-crypto",
@@ -2821,6 +2823,7 @@ name = "near-indexer"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "anyhow",
  "async-recursion",
  "futures",
  "near-chain-configs",
@@ -3342,6 +3345,7 @@ dependencies = [
  "actix-rt",
  "actix-web",
  "actix_derive",
+ "anyhow",
  "awc",
  "borsh 0.9.1",
  "byteorder",
