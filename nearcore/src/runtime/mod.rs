@@ -1693,7 +1693,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         debug!(target: "runtime", "splitting state for shard {} to {} parts to build new states", shard_id, num_parts);
         for part_id in 0..num_parts {
             let trie_items = trie.get_trie_items_for_part(
-                ear_primitives::state_part::PartId::new(part_id, num_parts),
+                near_primitives::state_part::PartId::new(part_id, num_parts),
                 state_root,
             )?;
             let (store_update, new_state_roots) = self.tries.add_values_to_split_states(
