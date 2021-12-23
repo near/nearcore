@@ -408,11 +408,11 @@ impl PeerManagerActor {
                     if !self.routing_table_view.is_local_edge_newer(other_peer, edge.nonce()) {
                         continue;
                     }
-                    // We belong to this edge.
+                    // Check whether we belong to this edge.
                     if self.connected_peers.contains_key(other_peer) {
                         // This is an active connection.
                         if edge.edge_type() == EdgeState::Removed {
-                            self.maybe_remove_connected_peer(ctx, edge.clone(), other_peer);
+                            self.maybe_remove_connected_peer(ctx, edge, other_peer);
                         }
                     } else if edge.edge_type() == EdgeState::Active {
                         // We are not connected to this peer, but routing table contains
@@ -915,13 +915,13 @@ impl PeerManagerActor {
                 requests.push(active_peer.addr.send(msg.clone()));
             }
         }
-        ctx.spawn(async move {
+        async move {
             while let Some(response) = requests.next().await {
                 if let Err(e) = response {
                     debug!(target: "network", ?e, "Failed sending broadcast message(query_active_peers)");
                 }
             }
-        }.into_actor(self));
+        }.into_actor(self).spawn(ctx);
     }
 
     #[cfg(all(feature = "test_features", feature = "protocol_feature_routing_exchange_algorithm"))]
@@ -980,7 +980,12 @@ impl PeerManagerActor {
     // We will broadcast that edge to that peer, and if that peer doesn't reply within specific time,
     // that peer will be removed. However, the connected peer may gives us a new edge indicating
     // that we should in fact be connected to it.
-    fn maybe_remove_connected_peer(&mut self, ctx: &mut Context<Self>, edge: Edge, other: &PeerId) {
+    fn maybe_remove_connected_peer(
+        &mut self,
+        ctx: &mut Context<Self>,
+        edge: &Edge,
+        other: &PeerId,
+    ) {
         let nonce = edge.next();
 
         if let Some(last_nonce) = self.local_peer_pending_update_nonce_request.get(other) {
@@ -1264,13 +1269,13 @@ impl PeerManagerActor {
         let mut requests: futures::stream::FuturesUnordered<_> =
             self.connected_peers.values().map(|peer| peer.addr.send(Arc::clone(&msg))).collect();
 
-        ctx.spawn(async move {
+        async move {
             while let Some(response) = requests.next().await {
                 if let Err(e) = response {
                     debug!(target: "network", ?e, "Failed sending broadcast message(broadcast_message):");
                 }
             }
-        }.into_actor(self));
+        }.into_actor(self).spawn(ctx);
     }
 
     fn announce_account(&mut self, ctx: &mut Context<Self>, announce_account: AnnounceAccount) {
@@ -1536,7 +1541,7 @@ impl Actor for PeerManagerActor {
         if let Some(server_addr) = self.config.addr {
             // TODO: for now crashes if server didn't start.
 
-            ctx.spawn(TcpListener::bind(server_addr).into_actor(self).then(
+            TcpListener::bind(server_addr).into_actor(self).then(
                 move |listener, act, ctx| {
                     let listener = listener.unwrap_or_else(|_| panic!("Failed to PeerManagerActor at {}", server_addr));
                     let incoming = IncomingCrutch {
@@ -1567,7 +1572,7 @@ impl Actor for PeerManagerActor {
                     }));
                     actix::fut::ready(())
                 },
-            ));
+            ).spawn(ctx);
         }
 
         // Periodically push network information to client.
