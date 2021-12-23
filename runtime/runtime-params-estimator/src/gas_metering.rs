@@ -24,16 +24,12 @@ pub(crate) fn gas_metering_cost(metric: GasMetric, vm_kind: VMKind) -> (Gas, Gas
             // Here we test gas metering costs for forward branch cases.
             let nested_contract = make_deeply_nested_blocks_contact(depth);
             let cost = compute_gas_metering_cost(metric, vm_kind, REPEATS, &nested_contract);
-            #[cfg(test)]
-            println!("nested {} {}", depth, cost / (REPEATS as u64));
             xs1.push(depth as u64);
             ys1.push(cost);
         }
         if true {
             let loop_contract = make_simple_loop_contact(depth);
             let cost = compute_gas_metering_cost(metric, vm_kind, REPEATS, &loop_contract);
-            #[cfg(test)]
-            println!("loop {} {}", depth, cost / (REPEATS as u64));
             xs2.push(depth as u64);
             ys2.push(cost);
         }
@@ -55,25 +51,6 @@ pub(crate) fn gas_metering_cost(metric: GasMetric, vm_kind: VMKind) -> (Gas, Gas
     let cost_base = std::cmp::max(cost1_base, cost2_base).round().to_integer() as u64;
     let cost_op = std::cmp::max(cost1_op, cost2_op).round().to_integer() as u64;
     (cost_base, cost_op)
-}
-
-#[test]
-fn test_gas_metering_cost_time() {
-    // Run with
-    // cargo test --release --lib gas_metering::test_gas_metering_cost_time -- --exact --nocapture
-    gas_metering_cost(GasMetric::Time, VMKind::Wasmer0);
-}
-
-#[test]
-fn test_gas_metering_cost_icount() {
-    // Use smth like
-    // CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=./runner.sh \
-    // cargo test --release --features no_cpu_compatibility_checks \
-    // --lib gas_metering::test_gas_metering_cost_icount -- --exact --nocapture
-    // Where runner.sh is
-    // /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
-    // -cpu Westmere-v1 -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so $@
-    gas_metering_cost(GasMetric::ICount, VMKind::Wasmer0);
 }
 
 fn make_deeply_nested_blocks_contact(depth: i32) -> ContractCode {

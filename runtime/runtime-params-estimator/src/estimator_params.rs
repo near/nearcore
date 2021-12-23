@@ -2,6 +2,7 @@
 //! These parameters have been estimated manually and are now hard-coded for a more deterministic estimation of runtime parameters.
 //! This module contains the hard-coded constants as well as the code to manually re-estimate them.
 
+use near_primitives::types::Gas;
 use num_rational::Ratio;
 
 use crate::{config::GasMetric, gas_cost::GasCost};
@@ -9,14 +10,14 @@ use crate::{config::GasMetric, gas_cost::GasCost};
 // All constant below are measured in Gas, respectively, in fractions thereof.
 
 /// How much gas there is in a nanosecond worth of computation.
-pub(crate) const ONE_NANOSECOND: Ratio<u64> = Ratio::new_raw(1_000_000, 1);
+pub(crate) const GAS_IN_NS: Ratio<Gas> = Ratio::new_raw(1_000_000, 1);
 // We use factor of 8 to approximately match the price of SHA256 operation between
 // time-based and icount-based metric as measured on 3.2Ghz Core i5.
-pub(crate) const ONE_CPU_INSTRUCTION: Ratio<u64> = Ratio::new_raw(1_000_000, 8);
+pub(crate) const GAS_IN_INSTR: Ratio<Gas> = Ratio::new_raw(1_000_000, 8);
 
 // See runtime/runtime-params-estimator/emu-cost/README.md for the motivation of constant values.
-pub(crate) const IO_READ_BYTE_COST: Ratio<u64> = Ratio::new_raw(27_000_000, 8);
-pub(crate) const IO_WRITE_BYTE_COST: Ratio<u64> = Ratio::new_raw(47_000_000, 8);
+pub(crate) const IO_READ_BYTE_COST: Ratio<Gas> = Ratio::new_raw(27_000_000, 8);
+pub(crate) const IO_WRITE_BYTE_COST: Ratio<Gas> = Ratio::new_raw(47_000_000, 8);
 
 /// Measure the cost for running a sha256 Rust implementation (on an arbitrary input).
 ///

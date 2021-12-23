@@ -489,8 +489,8 @@ fn compilation_cost_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCo
     let (base, byte) = compute_compile_cost_vm(ctx.config.metric, ctx.config.vm_kind, verbose);
 
     let base_byte_cost = (
-        GasCost::from_raw(base.into(), ctx.config.metric),
-        GasCost::from_raw(byte.into(), ctx.config.metric),
+        GasCost::from_gas(base.into(), ctx.config.metric),
+        GasCost::from_gas(byte.into(), ctx.config.metric),
     );
 
     ctx.cached.compile_cost_base_per_byte = Some(base_byte_cost.clone());
@@ -540,8 +540,8 @@ fn action_function_call_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost
         Ratio::new((*r.numer()).try_into().unwrap(), (*r.denom()).try_into().unwrap())
     };
     let base_byte_cost = (
-        GasCost::from_raw(convert_ratio(base), ctx.config.metric),
-        GasCost::from_raw(convert_ratio(byte), ctx.config.metric),
+        GasCost::from_gas(convert_ratio(base), ctx.config.metric),
+        GasCost::from_gas(convert_ratio(byte), ctx.config.metric),
     );
 
     ctx.cached.action_function_call_base_per_byte_v2 = Some(base_byte_cost.clone());
@@ -941,8 +941,8 @@ fn gas_metering(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {
         return cached;
     }
     let (base, byte) = gas_metering_cost(ctx.config.metric, ctx.config.vm_kind);
-    let base = GasCost::from_raw(base.into(), ctx.config.metric);
-    let byte = GasCost::from_raw(byte.into(), ctx.config.metric);
+    let base = GasCost::from_gas(base.into(), ctx.config.metric);
+    let byte = GasCost::from_gas(byte.into(), ctx.config.metric);
     ctx.cached.gas_metering_cost_base_per_op = Some((base.clone(), byte.clone()));
     (base, byte)
 }
@@ -955,7 +955,7 @@ fn cpu_benchmark_sha256(ctx: &mut EstimatorContext) -> GasCost {
 /// Estimate how much gas is charged for 1 CPU instruction. (Using given runtime parameters, on the specific system this is being run on.)
 fn one_cpu_instruction(ctx: &mut EstimatorContext) -> GasCost {
     eprintln!("Cannot estimate ONE_CPU_INSTRUCTION like any other cost. The result will only show the constant value currently used in the estimator.");
-    GasCost::from_raw(estimator_params::ONE_CPU_INSTRUCTION, ctx.config.metric)
+    GasCost::from_gas(estimator_params::GAS_IN_INSTR, ctx.config.metric)
 }
 
 /// Estimate how much gas is charged for 1 nanosecond of computation. (Using given runtime parameters, on the specific system this is being run on.)
@@ -963,7 +963,7 @@ fn one_nanosecond(ctx: &mut EstimatorContext) -> GasCost {
     // Currently we don't have a test for this, yet. 1 gas has just always been 1ns.
     // But it would be useful to go backwards and see how expensive computation time is on specific hardware.
     eprintln!("Cannot estimate ONE_NANOSECOND like any other cost. The result will only show the constant value currently used in the estimator.");
-    GasCost::from_raw(estimator_params::ONE_NANOSECOND, ctx.config.metric)
+    GasCost::from_gas(estimator_params::GAS_IN_NS, ctx.config.metric)
 }
 
 // Helpers

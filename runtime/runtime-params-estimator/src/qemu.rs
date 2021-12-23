@@ -52,24 +52,24 @@ pub struct QemuCommandBuilder {
 
 impl QemuCommandBuilder {
     /// Start measurement immediately, without having to call `start_count_instructions` first.
-    pub fn started(mut self, started: bool) -> Self {
-        self.started = started;
+    pub fn started(mut self, yes: bool) -> Self {
+        self.started = yes;
         self
     }
     /// Print the counters on every close() syscall
-    pub fn print_on_every_close(mut self, on_every_close: bool) -> Self {
-        self.on_every_close = on_every_close;
+    pub fn print_on_every_close(mut self, yes: bool) -> Self {
+        self.on_every_close = yes;
         self
     }
     /// Instantiate different counters for each thread
-    pub fn count_per_thread(mut self, count_per_thread: bool) -> Self {
-        self.count_per_thread = count_per_thread;
+    pub fn count_per_thread(mut self, yes: bool) -> Self {
+        self.count_per_thread = yes;
         self
     }
 
     /// Enable plugin log output to stderr
-    pub fn plugin_log(mut self, enable: bool) -> Self {
-        self.plugin_log = enable;
+    pub fn plugin_log(mut self, yes: bool) -> Self {
+        self.plugin_log = yes;
         self
     }
 

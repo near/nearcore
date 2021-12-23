@@ -7,9 +7,7 @@ use num_rational::Ratio;
 use num_traits::ToPrimitive;
 
 use crate::config::GasMetric;
-use crate::estimator_params::{
-    IO_READ_BYTE_COST, IO_WRITE_BYTE_COST, ONE_CPU_INSTRUCTION, ONE_NANOSECOND,
-};
+use crate::estimator_params::{GAS_IN_INSTR, GAS_IN_NS, IO_READ_BYTE_COST, IO_WRITE_BYTE_COST};
 use crate::qemu::QemuMeasurement;
 
 /// Result of cost estimation.
@@ -62,13 +60,13 @@ impl GasCost {
         GasClock { start, metric }
     }
 
-    /// Creates `GasCost` out of raw numeric value. This is required mostly for
+    /// Creates `GasCost` out of raw numeric value of gas. This is required mostly for
     /// compatibility with existing code, prefer using `measure` instead.
-    pub(crate) fn from_raw(raw: Ratio<u64>, metric: GasMetric) -> GasCost {
+    pub(crate) fn from_gas(raw: Ratio<u64>, metric: GasMetric) -> GasCost {
         let mut result = GasCost::zero(metric);
         match metric {
-            GasMetric::ICount => result.instructions = raw / ONE_CPU_INSTRUCTION,
-            GasMetric::Time => result.time_ns = raw / ONE_NANOSECOND,
+            GasMetric::ICount => result.instructions = raw / GAS_IN_INSTR,
+            GasMetric::Time => result.time_ns = raw / GAS_IN_NS,
         }
         result
     }
@@ -199,11 +197,11 @@ impl GasCost {
     pub(crate) fn to_gas(&self) -> Gas {
         match self.metric {
             GasMetric::ICount => {
-                self.instructions * ONE_CPU_INSTRUCTION
+                self.instructions * GAS_IN_INSTR
                     + self.io_r_bytes * IO_READ_BYTE_COST
                     + self.io_w_bytes * IO_WRITE_BYTE_COST
             }
-            GasMetric::Time => self.time_ns * ONE_NANOSECOND,
+            GasMetric::Time => self.time_ns * GAS_IN_NS,
         }
         .to_integer()
     }

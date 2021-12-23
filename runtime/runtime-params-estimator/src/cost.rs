@@ -87,6 +87,8 @@ pub enum Cost {
     AltBn128G1SumByte,
 
     // Costs used only in estimator
+    ContractCompileBase, // TODO: Needs estimation function
+    ContractCompileBytes, // TODO: Needs estimation function
     GasMeteringBase,
     GasMeteringOp,
     IoReadByte,
