@@ -12,7 +12,7 @@ use crate::trie::{
 };
 use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
 use near_primitives::contract::ContractCode;
-use near_primitives::state_parts::PartId;
+use near_primitives::state_part::PartId;
 use near_primitives::state_record::is_contract_code_key;
 
 impl Trie {
@@ -266,7 +266,7 @@ mod tests {
     use rand::Rng;
 
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::state_parts::PartId;
+    use near_primitives::state_part::PartId;
 
     use crate::test_utils::{create_tries, gen_changes, test_populate_trie};
     use crate::trie::iterator::CrumbStatus;
