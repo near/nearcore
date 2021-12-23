@@ -1,17 +1,16 @@
+mod cache;
 mod compile_errors;
 mod contract_preload;
 mod rs_contract;
 mod runtime_errors;
 mod ts_contract;
 mod wasm_validation;
-mod cache;
 
 use crate::vm_kind::VMKind;
 
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
 use near_vm_errors::VMError;
 use near_vm_logic::mocks::mock_external::MockedExternal;

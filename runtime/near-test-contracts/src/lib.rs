@@ -4,6 +4,14 @@ use once_cell::sync::OnceCell;
 use std::fmt::Write;
 use std::path::Path;
 
+/// Trivial contact with do-nothing main function.
+pub fn trivial_contract() -> &'static [u8] {
+    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    CONTRACT
+        .get_or_init(|| wat::parse_str(r#"(module (func (export "main")))"#).unwrap())
+        .as_slice()
+}
+
 /// Standard test contract which can call various host functinos
 ///
 /// Note: the contract relies on the latest protocol version, and

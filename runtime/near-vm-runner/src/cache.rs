@@ -323,7 +323,7 @@ pub mod wasmer2_cache {
         match cache {
             None => Ok(compile_module_wasmer2(code.code(), config, store)),
             Some(cache) => {
-                let serialized = cache.get(&key.0).map_err(|_io_err| CacheError::WriteError)?;
+                let serialized = cache.get(&key.0).map_err(|_io_err| CacheError::ReadError)?;
                 match serialized {
                     Some(serialized) => deserialize_wasmer2(serialized.as_slice(), store),
                     None => compile_and_serialize_wasmer2(code.code(), &key, config, cache, store),

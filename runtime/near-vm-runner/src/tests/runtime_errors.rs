@@ -1,15 +1,12 @@
+use crate::tests::{
+    make_simple_contract_call_vm, make_simple_contract_call_with_gas_vm, with_vm_variants,
+};
+use crate::vm_kind::VMKind;
 use near_vm_errors::{
     CompilationError, FunctionCallError, HostError, MethodResolveError, PrepareError, VMError,
     WasmTrap,
 };
 use near_vm_logic::VMOutcome;
-
-use crate::cache::MockCompiledContractCache;
-use crate::tests::{
-    make_cached_contract_call_vm, make_simple_contract_call_vm,
-    make_simple_contract_call_with_gas_vm, with_vm_variants,
-};
-use crate::vm_kind::VMKind;
 
 #[track_caller]
 fn gas_and_error_match(
