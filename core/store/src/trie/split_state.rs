@@ -14,7 +14,7 @@ use near_primitives::types::{
     ConsolidatedStateChange, StateChangeCause, StateChangesForSplitStates, StateRoot,
 };
 use std::collections::HashMap;
-use near_chain::types::PartId;
+use near_primitives::state_parts::PartId;
 
 impl Trie {
     /// Computes the set of trie items (nodes with keys and values) for a state part.

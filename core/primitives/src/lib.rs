@@ -20,6 +20,7 @@ pub mod runtime;
 pub mod serialize;
 pub mod shard_layout;
 pub mod sharding;
+pub mod state_part;
 pub mod state_record;
 pub mod syncing;
 pub mod telemetry;
