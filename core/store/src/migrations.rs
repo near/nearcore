@@ -85,11 +85,11 @@ pub fn fill_col_outcomes_by_hash(store: &Store) {
     for outcome in outcomes {
         match block_hash_to_outcomes.entry(outcome.block_hash) {
             Entry::Occupied(mut entry) => {
-                entry.get_mut().insert(outcome.id().clone());
+                entry.get_mut().insert(*outcome.id());
             }
             Entry::Vacant(entry) => {
                 let mut hash_set = get_outcomes_by_block_hash(store, &outcome.block_hash);
-                hash_set.insert(outcome.id().clone());
+                hash_set.insert(*outcome.id());
                 entry.insert(hash_set);
             }
         };
@@ -398,7 +398,7 @@ pub fn migrate_13_to_14(path: &Path) {
         EncodedShardChunk::V1(chunk)
     })
     .unwrap();
-    map_col(&store, DBCol::ColChunks, |chunk: ShardChunkV1| ShardChunk::V1(chunk)).unwrap();
+    map_col(&store, DBCol::ColChunks, ShardChunk::V1).unwrap();
     map_col(&store, DBCol::ColStateHeaders, |header: ShardStateSyncResponseHeaderV1| {
         ShardStateSyncResponseHeader::V1(header)
     })
@@ -462,8 +462,8 @@ pub fn migrate_14_to_15(path: &Path) {
                     let local_receipt_id = create_receipt_id_from_transaction(
                         protocol_version,
                         transaction,
-                        &block.header().prev_hash(),
-                        &block.header().hash(),
+                        block.header().prev_hash(),
+                        block.header().hash(),
                     );
                     if execution_outcome_ids.contains(&local_receipt_id) {
                         local_receipt_ids.push(local_receipt_id);
@@ -747,10 +747,10 @@ pub fn migrate_28_to_29(path: &Path) {
 }
 
 pub fn migrate_29_to_30(path: &Path) {
-    use near_primitives::epoch_manager::block_info::{BlockInfo, BlockInfoV1};
+    use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::epoch_manager::epoch_info::EpochSummary;
     use near_primitives::epoch_manager::AGGREGATOR_KEY;
-    use near_primitives::types::chunk_extra::{ChunkExtra, ChunkExtraV1};
+    use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::validator_stake::ValidatorStakeV1;
     use near_primitives::types::{
         BlockChunkValidatorStats, EpochId, ProtocolVersion, ShardId, ValidatorId,
@@ -788,9 +788,9 @@ pub fn migrate_29_to_30(path: &Path) {
         pub last_block_hash: CryptoHash,
     }
 
-    map_col(&store, DBCol::ColChunkExtra, |extra: ChunkExtraV1| ChunkExtra::V1(extra)).unwrap();
+    map_col(&store, DBCol::ColChunkExtra, ChunkExtra::V1).unwrap();
 
-    map_col(&store, DBCol::ColBlockInfo, |info: BlockInfoV1| BlockInfo::V1(info)).unwrap();
+    map_col(&store, DBCol::ColBlockInfo, BlockInfo::V1).unwrap();
 
     map_col(&store, DBCol::ColEpochValidatorInfo, |info: OldEpochSummary| EpochSummary {
         prev_epoch_last_block_hash: info.prev_epoch_last_block_hash,

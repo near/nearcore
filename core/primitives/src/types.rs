@@ -1,6 +1,4 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "deepsize_feature")]
-use deepsize::DeepSizeOf;
 use derive_more::{AsRef as DeriveAsRef, From as DeriveFrom};
 use serde::{Deserialize, Serialize};
 
@@ -21,7 +19,7 @@ pub use near_primitives_core::types::*;
 pub type StateRoot = CryptoHash;
 
 /// Different types of finality.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub enum Finality {
     #[serde(rename = "optimistic")]
@@ -57,7 +55,7 @@ pub struct AccountInfo {
 ///
 /// NOTE: Currently, this type is only used in the view_client and RPC to be able to transparently
 /// pretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize,
 )]
@@ -79,7 +77,7 @@ pub struct StoreValue(Vec<u8>);
 /// NOTE: The main reason for this to exist (except the type-safety) is that the value is
 /// transparently serialized and deserialized as a base64-encoded string when serde is used
 /// (serde_json).
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize,
 )]
@@ -293,15 +291,14 @@ impl StateChanges {
                     state_changes.extend(changes.into_iter().map(
                         |RawStateChange { cause, data }| StateChangeWithCause {
                             cause,
-                            value: if let Some(change_data) = data {
-                                StateChangeValue::ContractCodeUpdate {
+                            value: match data {
+                                Some(change_data) => StateChangeValue::ContractCodeUpdate {
                                     account_id: account_id.clone(),
-                                    code: change_data.into(),
-                                }
-                            } else {
-                                StateChangeValue::ContractCodeDeletion {
+                                    code: change_data,
+                                },
+                                None => StateChangeValue::ContractCodeDeletion {
                                     account_id: account_id.clone(),
-                                }
+                                },
                             },
                         },
                     ));
@@ -405,7 +402,7 @@ impl StateChanges {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateRootNode {
     /// in Nightshade, data is the serialized TrieNodeWithSize
@@ -423,7 +420,7 @@ impl StateRootNode {
 /// Epoch identifier -- wrapped hash, to make it easier to distinguish.
 /// EpochId of epoch T is the hash of last block in T-2
 /// EpochId of first two epochs is 0
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     Debug,
     Clone,
@@ -444,7 +441,7 @@ pub struct EpochId(pub CryptoHash);
 /// Stores validator and its stake for two consecutive epochs.
 /// It is necessary because the blocks on the epoch boundary need to contain approvals from both
 /// epochs.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct ApprovalStake {
     /// Account that stakes money.
@@ -459,8 +456,6 @@ pub struct ApprovalStake {
 pub mod validator_stake {
     use crate::types::ApprovalStake;
     use borsh::{BorshDeserialize, BorshSerialize};
-    #[cfg(feature = "deepsize_feature")]
-    use deepsize::DeepSizeOf;
     use near_crypto::PublicKey;
     use near_primitives_core::types::{AccountId, Balance};
     use serde::Serialize;
@@ -468,7 +463,7 @@ pub mod validator_stake {
     pub use super::ValidatorStakeV1;
 
     /// Stores validator and its stake.
-    #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+    #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
     #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
     #[serde(tag = "validator_stake_struct_version")]
     pub enum ValidatorStake {
@@ -477,7 +472,7 @@ pub mod validator_stake {
         V2(ValidatorStakeV2),
     }
 
-    #[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+    #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
     pub struct ValidatorStakeV2 {
@@ -678,7 +673,7 @@ pub mod validator_stake {
 }
 
 /// Stores validator and its stake.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct ValidatorStakeV1 {
     /// Account that stakes money.
@@ -690,7 +685,7 @@ pub struct ValidatorStakeV1 {
 }
 
 /// Information after block was processed.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
 pub struct BlockExtra {
     pub challenges_result: ChallengesResult,
@@ -742,7 +737,7 @@ pub mod chunk_extra {
             balance_burnt: Balance,
         ) -> Self {
             Self::V2(ChunkExtraV2 {
-                state_root: state_root.clone(),
+                state_root: *state_root,
                 outcome_root,
                 validator_proposals,
                 gas_used,
@@ -826,7 +821,7 @@ pub struct ChunkExtraV1 {
     pub balance_burnt: Balance,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum BlockId {
@@ -836,7 +831,7 @@ pub enum BlockId {
 
 pub type MaybeBlockId = Option<BlockId>;
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SyncCheckpoint {
@@ -844,7 +839,7 @@ pub enum SyncCheckpoint {
     EarliestAvailable,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BlockReference {
@@ -911,7 +906,7 @@ impl Serialize for EpochReference {
 }
 
 /// Reasons for removing a validator from the validator set.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ValidatorKickoutReason {
     /// Slashed validators are kicked out.

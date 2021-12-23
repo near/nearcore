@@ -2,13 +2,12 @@ use crate::types::{
     NetworkInfo, NetworkResponses, PeerManagerAdapter, PeerManagerMessageRequest,
     PeerManagerMessageResponse,
 };
-use crate::PeerInfo;
 use crate::PeerManagerActor;
 use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::future::BoxFuture;
 use futures::{future, FutureExt};
 use near_crypto::{KeyType, SecretKey};
-use near_network_primitives::types::ReasonForBan;
+use near_network_primitives::types::{PeerInfo, ReasonForBan};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
@@ -196,17 +195,13 @@ impl Handler<GetInfo> for PeerManagerActor {
 }
 
 // `StopSignal is used to stop PeerManagerActor for unit tests
-#[derive(Message)]
+#[derive(Message, Default)]
 #[rtype(result = "()")]
 pub struct StopSignal {
     pub should_panic: bool,
 }
 
 impl StopSignal {
-    pub fn new() -> Self {
-        Self { should_panic: false }
-    }
-
     pub fn should_panic() -> Self {
         Self { should_panic: true }
     }
@@ -279,10 +274,10 @@ impl MockPeerManagerAdapter {
 
 #[cfg(feature = "test_features")]
 pub mod test_features {
-    use crate::routing::routing_table_actor::start_routing_table_actor;
+    use crate::routing::routing_table_actor::{start_routing_table_actor, RoutingTableActor};
     use crate::test_utils::{convert_boot_nodes, open_port};
     use crate::types::{NetworkClientMessages, NetworkClientResponses};
-    use crate::{PeerManagerActor, RoutingTableActor};
+    use crate::PeerManagerActor;
     use actix::actors::mocker::Mocker;
     use actix::{Actor, Addr};
     use near_network_primitives::types::{

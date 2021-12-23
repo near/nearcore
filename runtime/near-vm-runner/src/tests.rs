@@ -105,7 +105,7 @@ fn make_simple_contract_call_with_protocol_version_vm(
         method_name,
         &mut fake_external,
         context,
-        &config,
+        config,
         fees,
         &promise_results,
         protocol_version,

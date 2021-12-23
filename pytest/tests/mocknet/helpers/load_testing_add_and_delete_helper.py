@@ -361,8 +361,13 @@ def main(argv):
     logger.info(
         f'Start the test, expected TPS {max_tps_per_node} over the next {TEST_TIMEOUT} seconds'
     )
+    last_staking = 0
     start_time = time.time()
     while time.time() - start_time < TEST_TIMEOUT:
+        # Repeat the staking transactions in case the validator selection algorithm changes.
+        staked_time = mocknet.stake_available_amount(node_account, last_staking)
+        if staked_time is not None:
+            last_staking = staked_time
         (total_tx_sent,
          elapsed_time) = throttle_txns(send_skyward_transactions, total_tx_sent,
                                        elapsed_time, 2 * max_tps_per_node,

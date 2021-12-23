@@ -108,7 +108,6 @@ impl<'a> VMLogic<'a> {
         memory: &'a mut dyn MemoryLike,
         current_protocol_version: ProtocolVersion,
     ) -> Self {
-        ext.reset_touched_nodes_counter();
         // Overflow should be checked before calling VMLogic.
         let current_account_balance = context.account_balance + context.attached_deposit;
         let current_storage_usage = context.storage_usage;
@@ -2483,14 +2482,20 @@ impl<'a> VMLogic<'a> {
 
     /// Computes the outcome of execution.
     pub fn outcome(self) -> VMOutcome {
+        let burnt_gas = self.gas_counter.burnt_gas();
+        let used_gas = self.gas_counter.used_gas();
+
+        let mut profile = self.gas_counter.profile_data();
+        profile.compute_wasm_instruction_cost(burnt_gas);
+
         VMOutcome {
             balance: self.current_account_balance,
             storage_usage: self.current_storage_usage,
             return_data: self.return_data,
-            burnt_gas: self.gas_counter.burnt_gas(),
-            used_gas: self.gas_counter.used_gas(),
+            burnt_gas,
+            used_gas,
             logs: self.logs,
-            profile: self.gas_counter.profile_data(),
+            profile,
         }
     }
 

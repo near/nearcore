@@ -50,7 +50,7 @@ impl Wasmer2Memory {
     ) -> Result<Self, VMError> {
         Ok(Wasmer2Memory(
             Memory::new(
-                &store,
+                store,
                 MemoryType::new(Pages(initial_memory_pages), Some(Pages(max_memory_pages)), false),
             )
             .expect("TODO creating memory cannot fail"),
@@ -96,6 +96,9 @@ impl IntoVMError for wasmer::InstantiationError {
             wasmer::InstantiationError::Link(e) => {
                 VMError::FunctionCallError(FunctionCallError::LinkError { msg: e.to_string() })
             }
+            wasmer::InstantiationError::CpuFeature(e) => {
+                panic!("host does not support the CPU features required to run contracts: {}", e)
+            }
             wasmer::InstantiationError::Start(e) => e.into_vm_error(),
             wasmer::InstantiationError::HostEnvInitialization(_) => {
                 VMError::FunctionCallError(FunctionCallError::CompilationError(
@@ -113,7 +116,7 @@ impl IntoVMError for wasmer::RuntimeError {
         let error_msg = self.message();
         let trap_code = self.clone().to_trap();
         if let Ok(e) = self.downcast::<VMLogicError>() {
-            return (&e).into();
+            return e.into();
         }
         // If we panic here - it means we encountered an issue in Wasmer.
         let trap_code = trap_code.unwrap_or_else(|| panic!("Unknown error: {}", error_msg));
@@ -227,7 +230,7 @@ fn run_method(
     let instance = {
         let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
         Instance::new_with_config(
-            &module,
+            module,
             unsafe {
                 InstanceConfig::new_with_counter(
                     logic.gas_counter_pointer() as *mut wasmer_types::FastGasCounter
@@ -289,7 +292,7 @@ impl Wasmer2Config {
 //  major version << 6
 //  minor version
 const WASMER2_CONFIG: Wasmer2Config = Wasmer2Config {
-    seed: (1 << 10) | (3 << 6) | 0,
+    seed: (1 << 10) | (4 << 6) | 0,
     engine: WasmerEngine::Universal,
     compiler: WasmerCompiler::Singlepass,
 };
@@ -345,7 +348,7 @@ pub(crate) fn run_wasmer2_module<'a>(
 
     let import = imports::wasmer2::build(store, memory_copy, &mut logic, current_protocol_version);
 
-    if let Err(e) = check_method(&module, method_name) {
+    if let Err(e) = check_method(module, method_name) {
         return (None, Some(e));
     }
 
@@ -375,15 +378,6 @@ impl crate::runner::VM for Wasmer2VM {
             %method_name
         )
         .entered();
-        // NaN behavior is deterministic as of now: https://github.com/wasmerio/wasmer/issues/1269
-        // So doesn't require x86. However, when it is on x86, AVX is required:
-        // https://github.com/wasmerio/wasmer/issues/1567
-        #[cfg(not(feature = "no_cpu_compatibility_checks"))]
-        if (cfg!(target_arch = "x86") || !cfg!(target_arch = "x86_64"))
-            && !is_x86_feature_detected!("avx")
-        {
-            panic!("AVX support is required in order to run Wasmer VM Singlepass backend.");
-        }
 
         if method_name.is_empty() {
             return (
@@ -396,7 +390,7 @@ impl crate::runner::VM for Wasmer2VM {
 
         let store = default_wasmer2_store();
         let module =
-            cache::wasmer2_cache::compile_module_cached_wasmer2(&code, wasm_config, cache, &store);
+            cache::wasmer2_cache::compile_module_cached_wasmer2(code, wasm_config, cache, &store);
         let module = match into_vm_result(module) {
             Ok(it) => it,
             Err(err) => return (None, Some(err)),

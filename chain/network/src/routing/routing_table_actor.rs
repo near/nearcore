@@ -1,9 +1,9 @@
-use crate::common::message_wrapper::{ActixMessageResponse, ActixMessageWrapper};
-use crate::metrics;
-use crate::routing::edge::{Edge, EdgeState};
+use crate::network_protocol::{Edge, EdgeState};
+use crate::private_actix::{StopMsg, ValidateEdgeList};
 use crate::routing::edge_validator_actor::EdgeValidatorActor;
-use crate::routing::routing::{Graph, SAVE_PEERS_MAX_TIME};
-use crate::types::{StopMsg, ValidateEdgeList};
+use crate::routing::graph::Graph;
+use crate::routing::routing_table_view::SAVE_PEERS_MAX_TIME;
+use crate::stats::metrics;
 use actix::dev::MessageResponse;
 use actix::{
     Actor, ActorFuture, Addr, Context, ContextFutureSpawner, Handler, Message, Running,
@@ -13,7 +13,7 @@ use near_performance_metrics_macros::perf;
 use near_primitives::borsh::BorshSerialize;
 use near_primitives::network::PeerId;
 use near_primitives::utils::index_to_bytes;
-use near_rate_limiter::ThrottleToken;
+use near_rate_limiter::{ActixMessageResponse, ActixMessageWrapper, ThrottleToken};
 use near_store::db::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
 use near_store::{Store, StoreUpdate};
 use std::collections::{HashMap, HashSet};
@@ -390,17 +390,6 @@ impl Actor for RoutingTableActor {
     }
 }
 
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-impl RoutingTableActor {
-    pub fn split_edges_for_peer(
-        &self,
-        peer_id: &PeerId,
-        unknown_edges: &[u64],
-    ) -> (Vec<crate::routing::SimpleEdge>, Vec<u64>) {
-        self.peer_ibf_set.split_edges_for_peer(peer_id, unknown_edges)
-    }
-}
-
 impl Handler<StopMsg> for RoutingTableActor {
     type Result = ();
     fn handle(&mut self, _: StopMsg, _ctx: &mut Self::Context) -> Self::Result {
@@ -500,7 +489,7 @@ pub enum RoutingTableMessagesResponse {
     },
     AddVerifiedEdgesResponse(Vec<Edge>),
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    StartRoutingTableSyncResponse(crate::types::PeerMessage),
+    StartRoutingTableSyncResponse(crate::types::RoutingSyncV2),
     RoutingTableUpdateResponse {
         /// PeerManager maintains list of local edges. We will notify `PeerManager`
         /// to remove those edges.
@@ -524,8 +513,7 @@ impl RoutingTableActor {
     ) -> (Vec<crate::routing::SimpleEdge>, Vec<u64>, u64) {
         let ibf = ibf_set.get_ibf(ibf_level);
 
-        let mut new_ibf =
-            crate::routing::ibf::Ibf::from_vec(ibf_vec.clone(), seed ^ (ibf_level.0 as u64));
+        let mut new_ibf = crate::routing::ibf::Ibf::from_vec(ibf_vec, seed ^ (ibf_level.0 as u64));
 
         if !new_ibf.merge(&ibf.data, seed ^ (ibf_level.0 as u64)) {
             tracing::error!(target: "network", "exchange routing tables failed with peer {}", peer_id);
@@ -533,7 +521,7 @@ impl RoutingTableActor {
         }
 
         let (edge_hashes, unknown_edges_count) = new_ibf.try_recover();
-        let (known, unknown_edges) = self.split_edges_for_peer(peer_id, &edge_hashes);
+        let (known, unknown_edges) = self.peer_ibf_set.split_edges_for_peer(peer_id, &edge_hashes);
 
         (known, unknown_edges, unknown_edges_count)
     }
@@ -583,14 +571,12 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             RoutingTableMessages::StartRoutingTableSync { seed } => {
                 RoutingTableMessagesResponse::StartRoutingTableSyncResponse(
-                    crate::types::PeerMessage::RoutingTableSyncV2(
-                        crate::types::RoutingSyncV2::Version2(crate::types::RoutingVersion2 {
-                            known_edges: self.edges_info.len() as u64,
-                            seed,
-                            edges: Default::default(),
-                            routing_state: crate::types::RoutingState::InitializeIbf,
-                        }),
-                    ),
+                    crate::types::RoutingSyncV2::Version2(crate::types::RoutingVersion2 {
+                        known_edges: self.edges_info.len() as u64,
+                        seed,
+                        edges: Default::default(),
+                        routing_state: crate::types::RoutingState::InitializeIbf,
+                    }),
                 )
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -662,7 +648,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                                     routing_state: crate::types::RoutingState::PartialSync(
                                         crate::types::PartialSync {
                                             ibf_level: new_ibf_level,
-                                            ibf: ibf_vec,
+                                            ibf: ibf_vec.clone(),
                                         },
                                     ),
                                 }
@@ -700,7 +686,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                                     routing_state: crate::types::RoutingState::PartialSync(
                                         crate::types::PartialSync {
                                             ibf_level: crate::routing::ibf_peer_set::MIN_IBF_LEVEL,
-                                            ibf: ibf_vec,
+                                            ibf: ibf_vec.clone(),
                                         },
                                     ),
                                 }),
@@ -713,7 +699,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                     crate::types::RoutingState::RequestMissingEdges(requested_edges) => {
                         let seed = ibf_msg.seed;
                         let (edges_for_peer, _) =
-                            self.split_edges_for_peer(&peer_id, &requested_edges);
+                            self.peer_ibf_set.split_edges_for_peer(&peer_id, &requested_edges);
 
                         let edges_for_peer = edges_for_peer
                             .iter()
