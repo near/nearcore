@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::convert::TryFrom;
 use std::time::{Duration, Instant};
 use std::{fmt, ops};
 
@@ -7,8 +6,11 @@ use near_primitives::types::Gas;
 use num_rational::Ratio;
 use num_traits::ToPrimitive;
 
+use crate::config::GasMetric;
+use crate::estimator_params::{
+    IO_READ_BYTE_COST, IO_WRITE_BYTE_COST, ONE_CPU_INSTRUCTION, ONE_NANOSECOND,
+};
 use crate::qemu::QemuMeasurement;
-use crate::testbed_runners::GasMetric;
 
 /// Result of cost estimation.
 ///
@@ -65,8 +67,8 @@ impl GasCost {
     pub(crate) fn from_raw(raw: Ratio<u64>, metric: GasMetric) -> GasCost {
         let mut result = GasCost::zero(metric);
         match metric {
-            GasMetric::ICount => result.instructions = raw,
-            GasMetric::Time => result.time_ns = raw,
+            GasMetric::ICount => result.instructions = raw / ONE_CPU_INSTRUCTION,
+            GasMetric::Time => result.time_ns = raw / ONE_NANOSECOND,
         }
         result
     }
@@ -189,70 +191,20 @@ impl PartialOrd for GasCost {
 
 impl Ord for GasCost {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.scalar_cost().cmp(&other.scalar_cost())
+        self.to_gas().cmp(&other.to_gas())
     }
 }
-
-// See runtime/runtime-params-estimator/emu-cost/README.md for the motivation of constant values.
-const READ_BYTE_COST: u64 = 27;
-const WRITE_BYTE_COST: u64 = 47;
 
 impl GasCost {
     pub(crate) fn to_gas(&self) -> Gas {
-        ratio_to_gas(self.metric, self.scalar_cost())
-    }
-
-    /// Reduces the detailed measurement to a single number.
-    pub(crate) fn scalar_cost(&self) -> Ratio<u64> {
         match self.metric {
             GasMetric::ICount => {
-                self.instructions
-                    + self.io_r_bytes * READ_BYTE_COST
-                    + self.io_w_bytes * WRITE_BYTE_COST
+                self.instructions * ONE_CPU_INSTRUCTION
+                    + self.io_r_bytes * IO_READ_BYTE_COST
+                    + self.io_w_bytes * IO_WRITE_BYTE_COST
             }
-            GasMetric::Time => self.time_ns,
+            GasMetric::Time => self.time_ns * ONE_NANOSECOND,
         }
+        .to_integer()
     }
-
-    /// Get raw x86 instruction count
-    pub(crate) fn instructions(&self) -> Ratio<u64> {
-        self.instructions
-    }
-}
-
-/// How much gas there is in a nanosecond worth of computation.
-const GAS_IN_MEASURE_UNIT: u128 = 1_000_000u128;
-
-pub(crate) fn ratio_to_gas(gas_metric: GasMetric, value: Ratio<u64>) -> Gas {
-    let divisor = match gas_metric {
-        // We use factor of 8 to approximately match the price of SHA256 operation between
-        // time-based and icount-based metric as measured on 3.2Ghz Core i5.
-        GasMetric::ICount => 8u128,
-        GasMetric::Time => 1u128,
-    };
-    u64::try_from(
-        Ratio::<u128>::new(
-            (*value.numer() as u128) * GAS_IN_MEASURE_UNIT,
-            (*value.denom() as u128) * divisor,
-        )
-        .to_integer(),
-    )
-    .unwrap()
-}
-
-pub(crate) fn ratio_to_gas_signed(gas_metric: GasMetric, value: Ratio<i128>) -> i64 {
-    let divisor = match gas_metric {
-        // We use factor of 8 to approximately match the price of SHA256 operation between
-        // time-based and icount-based metric as measured on 3.2Ghz Core i5.
-        GasMetric::ICount => 8i128,
-        GasMetric::Time => 1i128,
-    };
-    i64::try_from(
-        Ratio::<i128>::new(
-            (*value.numer() as i128) * (GAS_IN_MEASURE_UNIT as i128),
-            (*value.denom() as i128) * divisor,
-        )
-        .to_integer(),
-    )
-    .unwrap()
 }

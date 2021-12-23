@@ -1,21 +1,19 @@
-use crate::gas_cost::{ratio_to_gas_signed, GasCost};
-use crate::testbed_runners::GasMetric;
+use crate::config::GasMetric;
+use crate::gas_cost::GasCost;
 use crate::vm_estimator::{create_context, least_squares_method};
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::types::CompiledContractCache;
+use near_primitives::types::{CompiledContractCache, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{create_store, StoreCompiledContractCache};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::internal::VMKind;
 use nearcore::get_store_path;
-use num_traits::ToPrimitive;
 use std::fmt::Write;
 use std::sync::Arc;
 
-#[allow(dead_code)]
-fn test_gas_metering_cost(metric: GasMetric) {
+pub(crate) fn gas_metering_cost(metric: GasMetric) -> (Gas, Gas) {
     const REPEATS: i32 = 1000;
     let mut xs1 = vec![];
     let mut ys1 = vec![];
@@ -27,6 +25,7 @@ fn test_gas_metering_cost(metric: GasMetric) {
             let nested_contract = make_deeply_nested_blocks_contact(depth);
             let cost =
                 compute_gas_metering_cost(metric, VMKind::Wasmer0, REPEATS, &nested_contract);
+            #[cfg(test)]
             println!("nested {} {}", depth, cost / (REPEATS as u64));
             xs1.push(depth as u64);
             ys1.push(cost);
@@ -34,6 +33,7 @@ fn test_gas_metering_cost(metric: GasMetric) {
         if true {
             let loop_contract = make_simple_loop_contact(depth);
             let cost = compute_gas_metering_cost(metric, VMKind::Wasmer0, REPEATS, &loop_contract);
+            #[cfg(test)]
             println!("loop {} {}", depth, cost / (REPEATS as u64));
             xs2.push(depth as u64);
             ys2.push(cost);
@@ -42,29 +42,27 @@ fn test_gas_metering_cost(metric: GasMetric) {
 
     // Regression analysis only makes sense for additive metrics.
     if metric == GasMetric::Time {
-        return;
+        return (0, 0);
     }
 
     let (cost1_base, cost1_op, _) = least_squares_method(&xs1, &ys1);
     let (cost2_base, cost2_op, _) = least_squares_method(&xs2, &ys2);
 
-    println!(
-        "forward branches: {} gas base {} gas per op",
-        ratio_to_gas_signed(metric, cost1_base),
-        ratio_to_gas_signed(metric, cost1_op),
-    );
-    println!(
-        "backward branches: {} gas base {} gas per op",
-        ratio_to_gas_signed(metric, cost2_base),
-        ratio_to_gas_signed(metric, cost2_op),
-    );
+    #[cfg(test)]
+    println!("forward branches: {} gas base {} gas per op", cost1_base, cost1_op,);
+    #[cfg(test)]
+    println!("backward branches: {} gas base {} gas per op", cost2_base, cost2_op,);
+
+    let cost_base = std::cmp::max(cost1_base, cost2_base).round().to_integer() as u64;
+    let cost_op = std::cmp::max(cost1_op, cost2_op).round().to_integer() as u64;
+    (cost_base, cost_op)
 }
 
 #[test]
 fn test_gas_metering_cost_time() {
     // Run with
     // cargo test --release --lib gas_metering::test_gas_metering_cost_time -- --exact --nocapture
-    test_gas_metering_cost(GasMetric::Time)
+    gas_metering_cost(GasMetric::Time)
 }
 
 #[test]
@@ -207,7 +205,7 @@ pub fn compute_gas_metering_cost(
         );
         assert!(result.1.is_none());
     }
-    let total_raw_with_gas = start.elapsed().scalar_cost().to_i128().unwrap();
+    let total_raw_with_gas = start.elapsed().to_gas();
 
     let vm_config_no_gas = VMConfig::free();
     let result = runtime.run(
@@ -237,9 +235,16 @@ pub fn compute_gas_metering_cost(
         );
         assert!(result.1.is_none());
     }
-    let total_raw_no_gas = start.elapsed().scalar_cost().to_i128().unwrap();
+    let total_raw_no_gas = start.elapsed().to_gas();
 
-    // println!("with gas: {}; no gas {}", total_raw_with_gas, total_raw_no_gas);
+    // TODO: This seems to fail almost always but has some non-determinism to it.
+    assert!(
+        total_raw_with_gas > total_raw_no_gas,
+        "Cost with gas metering should be higher than without. Metric: {:?}. Estimated with gas metering: {}, without: {}",
+        gas_metric,
+        total_raw_with_gas,
+        total_raw_no_gas
+    );
 
-    (total_raw_with_gas - total_raw_no_gas) as u64
+    total_raw_with_gas - total_raw_no_gas
 }

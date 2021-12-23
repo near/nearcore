@@ -26,10 +26,6 @@ pub enum Cost {
     ActionDeleteKey,
     ActionDeleteAccount,
 
-    // TODO: Remove these two, compilation is a part of `ActionDeploy`.
-    ContractCompileBase,
-    ContractCompileBytes,
-
     HostFunctionCall,
     WasmInstruction,
     ReadMemoryBase,
@@ -89,6 +85,15 @@ pub enum Cost {
     AltBn128PairingCheckByte,
     AltBn128G1SumBase,
     AltBn128G1SumByte,
+
+    // Costs used only in estimator
+    GasMeteringBase,
+    GasMeteringOp,
+    IoReadByte,
+    IoWriteByte,
+    CpuBenchmarkSha256,
+    OneCPUInstruction,
+    OneNanosecond,
 
     __Count,
 }
