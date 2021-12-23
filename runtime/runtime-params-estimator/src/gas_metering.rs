@@ -13,7 +13,7 @@ use nearcore::get_store_path;
 use std::fmt::Write;
 use std::sync::Arc;
 
-pub(crate) fn gas_metering_cost(metric: GasMetric) -> (Gas, Gas) {
+pub(crate) fn gas_metering_cost(metric: GasMetric, vm_kind: VMKind) -> (Gas, Gas) {
     const REPEATS: i32 = 1000;
     let mut xs1 = vec![];
     let mut ys1 = vec![];
@@ -23,8 +23,7 @@ pub(crate) fn gas_metering_cost(metric: GasMetric) -> (Gas, Gas) {
         if true {
             // Here we test gas metering costs for forward branch cases.
             let nested_contract = make_deeply_nested_blocks_contact(depth);
-            let cost =
-                compute_gas_metering_cost(metric, VMKind::Wasmer0, REPEATS, &nested_contract);
+            let cost = compute_gas_metering_cost(metric, vm_kind, REPEATS, &nested_contract);
             #[cfg(test)]
             println!("nested {} {}", depth, cost / (REPEATS as u64));
             xs1.push(depth as u64);
@@ -32,7 +31,7 @@ pub(crate) fn gas_metering_cost(metric: GasMetric) -> (Gas, Gas) {
         }
         if true {
             let loop_contract = make_simple_loop_contact(depth);
-            let cost = compute_gas_metering_cost(metric, VMKind::Wasmer0, REPEATS, &loop_contract);
+            let cost = compute_gas_metering_cost(metric, vm_kind, REPEATS, &loop_contract);
             #[cfg(test)]
             println!("loop {} {}", depth, cost / (REPEATS as u64));
             xs2.push(depth as u64);
@@ -62,7 +61,7 @@ pub(crate) fn gas_metering_cost(metric: GasMetric) -> (Gas, Gas) {
 fn test_gas_metering_cost_time() {
     // Run with
     // cargo test --release --lib gas_metering::test_gas_metering_cost_time -- --exact --nocapture
-    gas_metering_cost(GasMetric::Time)
+    gas_metering_cost(GasMetric::Time, VMKind::Wasmer0);
 }
 
 #[test]
@@ -74,7 +73,7 @@ fn test_gas_metering_cost_icount() {
     // Where runner.sh is
     // /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
     // -cpu Westmere-v1 -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so $@
-    test_gas_metering_cost(GasMetric::ICount)
+    gas_metering_cost(GasMetric::ICount, VMKind::Wasmer0);
 }
 
 fn make_deeply_nested_blocks_contact(depth: i32) -> ContractCode {
@@ -187,6 +186,10 @@ pub fn compute_gas_metering_cost(
         PROTOCOL_VERSION,
         cache,
     );
+    if result.1.is_some() {
+        let err = result.1.as_ref().unwrap();
+        eprintln!("error: {}", err);
+    }
     assert!(result.1.is_none());
 
     // Run with gas metering.

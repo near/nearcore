@@ -940,7 +940,7 @@ fn gas_metering(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {
     if let Some(cached) = ctx.cached.gas_metering_cost_base_per_op.clone() {
         return cached;
     }
-    let (base, byte) = gas_metering_cost(ctx.config.metric);
+    let (base, byte) = gas_metering_cost(ctx.config.metric, ctx.config.vm_kind);
     let base = GasCost::from_raw(base.into(), ctx.config.metric);
     let byte = GasCost::from_raw(byte.into(), ctx.config.metric);
     ctx.cached.gas_metering_cost_base_per_op = Some((base.clone(), byte.clone()));
