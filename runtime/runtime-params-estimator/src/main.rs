@@ -10,7 +10,7 @@ use nearcore::{get_store_path, load_config};
 use runtime_params_estimator::config::{Config, GasMetric};
 use runtime_params_estimator::read_resource;
 use runtime_params_estimator::CostTable;
-use runtime_params_estimator::{costs_to_runtime_config};
+use runtime_params_estimator::{costs_to_runtime_config, QemuCommandBuilder};
 use std::env;
 use std::fmt::Write;
 use std::fs;
@@ -67,6 +67,9 @@ struct CliArgs {
     /// Works only with enabled docker, because precise computations without it doesn't make sense.
     #[clap(long)]
     full: bool,
+    /// Print extra debug information
+    #[clap(long, multiple(true), possible_values=&["io"])]
+    debug: Vec<String>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -135,8 +138,15 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
+    let debug_options: Vec<_> = cli_args.debug.iter().map(String::as_str).collect();
+
     if cli_args.docker {
-        return main_docker(&state_dump_path, cli_args.full, cli_args.docker_shell);
+        return main_docker(
+            &state_dump_path,
+            cli_args.full,
+            cli_args.docker_shell,
+            debug_options.contains(&"io"),
+        );
     }
 
     if let Some(compare_to) = cli_args.compare_to {
@@ -214,7 +224,13 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn main_docker(state_dump_path: &Path, full: bool, debug_shell: bool) -> anyhow::Result<()> {
+/// Spawns another instance of this binary but inside docker. Most command line args are passed through but `--docker` is removed.
+fn main_docker(
+    state_dump_path: &Path,
+    full: bool,
+    debug_shell: bool,
+    debug_io_log: bool,
+) -> anyhow::Result<()> {
     exec("docker --version").context("please install `docker`")?;
 
     let project_root = project_root();
@@ -243,12 +259,17 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
   --features required --release;
 ",
         );
-        buf.push_str(
-            "\
-/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
-  -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so \
-  -cpu Westmere-v1 /host/nearcore/target/release/runtime-params-estimator --home /.near",
-        );
+
+        let mut qemu_cmd_builder = QemuCommandBuilder::default();
+
+        if debug_io_log {
+            qemu_cmd_builder = qemu_cmd_builder.plugin_log(true).print_on_every_close(true);
+        }
+        let mut qemu_cmd =
+            qemu_cmd_builder.build("/host/nearcore/target/release/runtime-params-estimator")?;
+
+        qemu_cmd.args(&["--home", "/.near"]);
+        buf.push_str(&format!("{:?}", qemu_cmd));
 
         // Sanitize & forward our arguments to the estimator to be run inside
         // docker.
