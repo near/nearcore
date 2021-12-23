@@ -8,6 +8,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTFLAGS: '-D warnings'
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: short
 
 jobs:
 
