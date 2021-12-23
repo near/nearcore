@@ -1324,7 +1324,7 @@ impl Client {
         let Approval { inner, account_id, target_height, signature } = approval;
 
         let parent_hash = match inner {
-            ApprovalInner::Endorsement(parent_hash) => parent_hash.clone(),
+            ApprovalInner::Endorsement(parent_hash) => *parent_hash,
             ApprovalInner::Skip(parent_height) => {
                 match self.chain.get_header_by_height(*parent_height) {
                     Ok(header) => *header.hash(),
@@ -1655,7 +1655,7 @@ impl Client {
             let network_adapter1 = self.network_adapter.clone();
 
             let new_shard_sync = {
-                let prev_hash = self.chain.get_block(&sync_hash)?.header().prev_hash().clone();
+                let prev_hash = *self.chain.get_block(&sync_hash)?.header().prev_hash();
                 let need_to_split_states =
                     self.runtime_adapter.will_shard_layout_change_next_epoch(&prev_hash)?;
                 if need_to_split_states {
@@ -1697,7 +1697,7 @@ impl Client {
                     (
                         StateSync::new(network_adapter1, state_sync_timeout),
                         new_shard_sync,
-                        BlocksCatchUpState::new(sync_hash.clone(), epoch_id),
+                        BlocksCatchUpState::new(sync_hash, epoch_id),
                     )
                 });
 

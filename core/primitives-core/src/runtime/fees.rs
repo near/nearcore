@@ -222,7 +222,7 @@ impl RuntimeFeesConfig {
             },
             storage_usage_config: StorageUsageConfig {
                 // See Account in core/primitives/src/account.rs for the data structure.
-                // TODO(2291): figure out value for the MainNet.
+                // TODO(2291): figure out value for the mainnet.
                 num_bytes_account: 100,
                 num_extra_bytes_record: 40,
             },

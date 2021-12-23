@@ -20,7 +20,7 @@ fn scenario_smoke_test() {
     let accounts: Vec<AccountId> = seeds.iter().map(|id| id.parse().unwrap()).collect();
 
     let mut scenario = Scenario {
-        network_config: NetworkConfig { seeds: seeds },
+        network_config: NetworkConfig { seeds },
         runtime_config: RuntimeConfig {
             max_total_prepaid_gas: 300 * 10u64.pow(12),
             gas_limit: 1_000_000_000_000_000,
