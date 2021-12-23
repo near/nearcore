@@ -2693,12 +2693,12 @@ mod test {
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
         assert!(!new_env.runtime.validate_state_part(
             &StateRoot::default(),
-            PartId { idx: 0, total: 1 },
+            &PartId { idx: 0, total: 1 },
             &state_part
         ));
         new_env.runtime.validate_state_part(
             &env.state_roots[0],
-            PartId { idx: 0, total: 1 },
+            &PartId { idx: 0, total: 1 },
             &state_part,
         );
         let epoch_id = &new_env.head.epoch_id;
