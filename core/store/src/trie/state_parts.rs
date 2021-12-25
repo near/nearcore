@@ -465,8 +465,12 @@ mod tests {
     fn test_combine_empty_trie_parts() {
         let state_root = StateRoot::default();
         let _ = Trie::combine_state_parts_naive(&state_root, &vec![]).unwrap();
-        let _ =
-            Trie::validate_trie_nodes_for_part(&state_root, PartId::new(0, 1), PartialState(vec![])).unwrap();
+        let _ = Trie::validate_trie_nodes_for_part(
+            &state_root,
+            PartId::new(0, 1),
+            PartialState(vec![]),
+        )
+        .unwrap();
         let _ = Trie::apply_state_part(&state_root, 0, 1, vec![]);
     }
 
@@ -653,8 +657,12 @@ mod tests {
                 assert_eq!(all_nodes.len(), trie_changes.insertions.len());
                 let size_of_all = all_nodes.iter().map(|node| node.len()).sum::<usize>();
                 let num_nodes = all_nodes.len();
-                Trie::validate_trie_nodes_for_part(&state_root, PartId::new(0, 1), PartialState(all_nodes))
-                    .expect("validate ok");
+                Trie::validate_trie_nodes_for_part(
+                    &state_root,
+                    PartId::new(0, 1),
+                    PartialState(all_nodes),
+                )
+                .expect("validate ok");
 
                 let sum_of_sizes = sizes_vec.iter().sum::<usize>();
                 // Manually check that sizes are reasonable
@@ -721,8 +729,12 @@ mod tests {
                     .get_trie_nodes_for_part_old(PartId::new(part_id, num_parts), &state_root)
                     .unwrap();
                 assert_eq!(trie_nodes, trie_nodes2);
-                Trie::validate_trie_nodes_for_part(&state_root, PartId::new(part_id, num_parts), trie_nodes)
-                    .expect("validate ok");
+                Trie::validate_trie_nodes_for_part(
+                    &state_root,
+                    PartId::new(part_id, num_parts),
+                    trie_nodes,
+                )
+                .expect("validate ok");
             }
         }
     }
