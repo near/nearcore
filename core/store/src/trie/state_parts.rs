@@ -177,15 +177,13 @@ impl Trie {
     /// StorageError::TrieNodeWithMissing if some nodes are missing
     pub fn validate_trie_nodes_for_part(
         state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
+        part_id: &PartId,
         trie_nodes: PartialState,
     ) -> Result<(), StorageError> {
-        assert!(part_id < num_parts);
         let num_nodes = trie_nodes.0.len();
         let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes });
 
-        trie.visit_nodes_for_state_part(state_root, part_id, num_parts)?;
+        trie.visit_nodes_for_state_part(state_root, part_id.idx, part_id.total)?;
         let storage = trie.storage.as_partial_storage().unwrap();
 
         if storage.visited_nodes.borrow().len() != num_nodes {

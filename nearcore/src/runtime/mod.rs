@@ -10,7 +10,7 @@ use tracing::{debug, error, info, warn};
 
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::{
-    ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, PartId, ValidatorInfoIdentifier,
+    ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier,
 };
 use near_chain::{BlockHeader, Doomslug, DoomslugThresholdMode, Error, ErrorKind, RuntimeAdapter};
 use near_chain_configs::{Genesis, GenesisConfig, ProtocolConfig};
@@ -28,6 +28,7 @@ use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ChunkHash;
+use near_primitives::state_part::PartId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -1590,7 +1591,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
         let trie = self.tries.get_view_trie_for_shard(shard_uid);
         let result = match trie.get_trie_nodes_for_part(
-            near_primitives::state_part::PartId::new(part_id.idx, part_id.total),
+            PartId::new(part_id.idx, part_id.total),
             state_root,
         ) {
             Ok(partial_state) => partial_state,
@@ -1617,8 +1618,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(trie_nodes) => {
                 match Trie::validate_trie_nodes_for_part(
                     state_root,
-                    part_id.idx,
-                    part_id.total,
+                    part_id,
                     trie_nodes,
                 ) {
                     Ok(_) => true,
@@ -1693,7 +1693,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         debug!(target: "runtime", "splitting state for shard {} to {} parts to build new states", shard_id, num_parts);
         for part_id in 0..num_parts {
             let trie_items = trie.get_trie_items_for_part(
-                near_primitives::state_part::PartId::new(part_id, num_parts),
+                PartId::new(part_id, num_parts),
                 state_root,
             )?;
             let (store_update, new_state_roots) = self.tries.add_values_to_split_states(
@@ -1943,7 +1943,7 @@ mod test {
 
     use num_rational::Rational;
 
-    use near_chain::types::PartId;
+    use near_primitives::state_part::PartId;
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_logger_utils::init_test_logger;
     use near_primitives::block::Tip;
