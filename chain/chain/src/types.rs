@@ -21,6 +21,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptList, ShardChunkHeader};
+pub use near_primitives::state_part::PartId;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
@@ -229,18 +230,6 @@ pub struct ChainGenesis {
     pub transaction_validity_period: NumBlocks,
     pub epoch_length: BlockHeightDelta,
     pub protocol_version: ProtocolVersion,
-}
-
-// to specify a part we always specify both part_id and num_parts together
-pub struct PartId {
-    pub idx: u64,
-    pub total: u64,
-}
-impl PartId {
-    pub fn new(part_id: u64, num_parts: u64) -> PartId {
-        assert!(part_id < num_parts);
-        PartId { idx: part_id, total: num_parts }
-    }
 }
 
 impl<T> From<T> for ChainGenesis

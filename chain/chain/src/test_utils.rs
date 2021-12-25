@@ -933,7 +933,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         state_root: &StateRoot,
         part_id: types::PartId,
     ) -> Result<Vec<u8>, Error> {
-        assert!(part_id.idx < part_id.total);
         if part_id.idx != 0 {
             return Ok(vec![]);
         }
