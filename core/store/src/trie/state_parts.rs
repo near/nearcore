@@ -467,7 +467,7 @@ mod tests {
         let _ = Trie::combine_state_parts_naive(&state_root, &vec![]).unwrap();
         let _ = Trie::validate_trie_nodes_for_part(
             &state_root,
-            PartId::new(0, 1),
+            &PartId::new(0, 1),
             PartialState(vec![]),
         )
         .unwrap();
@@ -659,7 +659,7 @@ mod tests {
                 let num_nodes = all_nodes.len();
                 Trie::validate_trie_nodes_for_part(
                     &state_root,
-                    PartId::new(0, 1),
+                    &PartId::new(0, 1),
                     PartialState(all_nodes),
                 )
                 .expect("validate ok");
@@ -731,7 +731,7 @@ mod tests {
                 assert_eq!(trie_nodes, trie_nodes2);
                 Trie::validate_trie_nodes_for_part(
                     &state_root,
-                    PartId::new(part_id, num_parts),
+                    &PartId::new(part_id, num_parts),
                     trie_nodes,
                 )
                 .expect("validate ok");
