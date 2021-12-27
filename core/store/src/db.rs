@@ -110,20 +110,44 @@ pub enum DBCol {
     ColChunks = 13,
     /// Storage for  PartialEncodedChunk.
     /// - *Rows*: ChunkHash (CryptoHash)
-    /// - *Content type*: [near_primitives::sharding::PartialEncodedChunkV1]
+    /// - *Content type*: [near_primitives::sharding::PartialEncodedChunk]
     ColPartialChunks = 14,
     /// Blocks for which chunks need to be applied after the state is downloaded for a particular epoch
-    /// TODO: describe what is exactly inside the rows/cells.
+    /// - *Rows*: BlockHash (CryptoHash)
+    /// - *Content type*: Vec of BlockHash (CryptoHash)
     ColBlocksToCatchup = 15,
     /// Blocks for which the state is being downloaded
+    /// - *Rows*: First block of the epoch (CryptoHash)
+    /// - *Content type*: StateSyncInfo
     ColStateDlInfos = 16,
+    /// Blocks that were ever challenged.
+    /// - *Rows*: BlockHash (CryptoHash)
+    /// - *Content type*: 'true' (bool)
     ColChallengedBlocks = 17,
+    /// Contains all the Shard State Headers.
+    /// - *Rows*: StateHeaderKey (ShardId || BlockHash)
+    /// - *Content type*: ShardStateSyncResponseHeader
     ColStateHeaders = 18,
+    /// Contains all the invalid chunks (that we had trouble decoding or verifying).
+    /// - *Rows*: ShardChunkHeader object
+    /// - *Content type*: EncodedShardChunk
     ColInvalidChunks = 19,
+    /// Contains 'BlockExtra' information that is computed after block was processed.
+    /// Currently it stores only challenges results.
+    /// - *Rows*: BlockHash (CryptoHash)
+    /// - *Content type*: BlockExtra
     ColBlockExtra = 20,
-    /// Store hash of a block per each height, to detect double signs.
+    /// Store hash of all block per each height, to detect double signs.
+    /// - *Rows*: int (height of the block)
+    /// - *Content type*: Map: EpochId -> Set of BlockHash(CryptoHash)
     ColBlockPerHeight = 21,
+    /// Contains State parts that we've received.
+    /// - *Rows*: StatePartKey (BlockHash || ShardId || PartId (u64))
+    /// - *Content type*: state part (bytes)
     ColStateParts = 22,
+    /// Contains mapping from epoch_id to epoch start (first block height of the epoch)
+    /// - *Rows*: EpochId (CryptoHash)  -- TODO: where does the epoch_id come from? it looks like blockHash..
+    /// - *Content type*: BlockHeight (int)
     ColEpochStart = 23,
     /// Map account_id to announce_account
     ColAccountAnnouncements = 24,
