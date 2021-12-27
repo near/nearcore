@@ -46,7 +46,7 @@ impl ScenarioBuilder {
     /// Creates builder with an empty scenario with 4 accounts.
     /// Default `use_in_memory_store` -- true.
     pub fn new() -> Self {
-        let network_config = NetworkConfig { seeds: (0..4).map(|x| id_to_seed(x)).collect() };
+        let network_config = NetworkConfig { seeds: (0..4).map(id_to_seed).collect() };
         let runtime_config = RuntimeConfig {
             max_total_prepaid_gas: 300 * 10u64.pow(12),
             gas_limit: 1_000_000_000_000_000,
@@ -68,7 +68,7 @@ impl ScenarioBuilder {
     /// Changes number of accounts to `num_accounts`.
     pub fn number_of_accounts(mut self, num_accounts: usize) -> Self {
         self.scenario.network_config =
-            NetworkConfig { seeds: (0..num_accounts).map(|x| id_to_seed(x)).collect() };
+            NetworkConfig { seeds: (0..num_accounts).map(id_to_seed).collect() };
         self
     }
 
