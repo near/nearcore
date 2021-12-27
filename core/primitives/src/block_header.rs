@@ -198,7 +198,7 @@ impl ApprovalInner {
         target_height: BlockHeight,
     ) -> Self {
         if target_height == parent_height + 1 {
-            ApprovalInner::Endorsement(parent_hash.clone())
+            ApprovalInner::Endorsement(*parent_hash)
         } else {
             ApprovalInner::Skip(parent_height)
         }
