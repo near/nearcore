@@ -2,6 +2,7 @@ export CARGO_PROFILE_RELEASE_CODEGEN_UNITS = 1
 export CARGO_PROFILE_RELEASE_LTO = fat
 export DOCKER_BUILDKIT = 1
 export RUSTFLAGS = -D warnings
+export NEAR_RELEASE_BUILD = no
 
 
 # By default, build a regular release
@@ -16,6 +17,7 @@ docker-nearcore-sandbox:
 docker-nearcore-nightly:
 	docker build -t nearcore-nightly -f Dockerfile --build-arg=features=nightly_protocol,nightly_protocol_features --progress=plain .
 
+release: NEAR_RELEASE_BUILD=release
 release:
 	cargo build -p neard --release
 	cargo build -p state-viewer --release
