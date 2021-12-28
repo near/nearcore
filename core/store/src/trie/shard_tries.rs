@@ -112,7 +112,7 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) -> Result<(), StorageError> {
-        store_update.tries = Some(tries.clone());
+        store_update.tries = Some(tries);
         for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
             deletions.iter()
         {
@@ -328,10 +328,10 @@ impl WrappedTrieChanges {
 
     pub fn wrapped_into(
         &mut self,
-        mut store_update: &mut StoreUpdate,
+        store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.insertions_into(&mut store_update)?;
-        self.state_changes_into(&mut store_update);
+        self.insertions_into(store_update)?;
+        self.state_changes_into(store_update);
         store_update.set_ser(
             DBCol::ColTrieChanges,
             &shard_layout::get_block_shard_uid(&self.block_hash, &self.shard_uid),

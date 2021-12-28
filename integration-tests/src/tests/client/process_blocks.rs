@@ -122,7 +122,7 @@ fn check_tx_processing(
     height: BlockHeight,
     blocks_number: u64,
 ) -> BlockHeight {
-    let tx_hash = tx.get_hash().clone();
+    let tx_hash = tx.get_hash();
     env.clients[0].process_tx(tx, false, false);
     let next_height = produce_blocks_from_height(env, blocks_number, height);
     let final_outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
@@ -298,7 +298,7 @@ fn produce_blocks_with_tx() {
                         &mut rs,
                     ) {
                         let chunk = encoded_chunks[height - 2].decode_chunk(data_parts).unwrap();
-                        if chunk.transactions().len() > 0 {
+                        if !chunk.transactions().is_empty() {
                             System::current().stop();
                         }
                     }
@@ -365,7 +365,7 @@ fn receive_network_block() {
                 if last_block.header.prev_hash == CryptoHash::default() {
                     EpochId(last_block.header.hash)
                 } else {
-                    EpochId(last_block.header.next_epoch_id.clone())
+                    EpochId(last_block.header.next_epoch_id)
                 },
                 None,
                 vec![],
@@ -441,7 +441,7 @@ fn produce_block_with_approvals() {
                 if last_block.header.prev_hash == CryptoHash::default() {
                     EpochId(last_block.header.hash)
                 } else {
-                    EpochId(last_block.header.next_epoch_id.clone())
+                    EpochId(last_block.header.next_epoch_id)
                 },
                 None,
                 vec![],
@@ -630,7 +630,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 if last_block.header.prev_hash == CryptoHash::default() {
                     EpochId(last_block.header.hash)
                 } else {
-                    EpochId(last_block.header.next_epoch_id.clone())
+                    EpochId(last_block.header.next_epoch_id)
                 },
                 None,
                 vec![],
@@ -2066,7 +2066,7 @@ fn test_sync_hash_validity() {
         env.produce_block(0, i);
     }
     for i in 0..19 {
-        let block_hash = env.clients[0].chain.get_header_by_height(i).unwrap().hash().clone();
+        let block_hash = *env.clients[0].chain.get_header_by_height(i).unwrap().hash();
         let res = env.clients[0].chain.check_sync_hash_validity(&block_hash);
         println!("height {:?} -> {:?}", i, res);
         if i == 11 || i == 16 {
@@ -2436,11 +2436,9 @@ fn test_block_execution_outcomes() {
         assert_eq!(execution_outcome.outcome_with_id.outcome.receipt_ids.len(), 1);
         expected_outcome_ids.insert(id);
         if i < 2 {
-            expected_outcome_ids
-                .insert(execution_outcome.outcome_with_id.outcome.receipt_ids[0].clone());
+            expected_outcome_ids.insert(execution_outcome.outcome_with_id.outcome.receipt_ids[0]);
         } else {
-            delayed_receipt_id
-                .push(execution_outcome.outcome_with_id.outcome.receipt_ids[0].clone())
+            delayed_receipt_id.push(execution_outcome.outcome_with_id.outcome.receipt_ids[0])
         }
     }
     let block = env.clients[0].chain.get_block_by_height(2).unwrap().clone();
@@ -2531,7 +2529,7 @@ fn test_refund_receipts_processing() {
         let state_update = env.clients[0]
             .runtime_adapter
             .get_tries()
-            .new_trie_update(test_shard_uid.clone(), *chunk_extra.state_root());
+            .new_trie_update(test_shard_uid, *chunk_extra.state_root());
         let delayed_indices =
             get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
         let finished_all_delayed_receipts = match delayed_indices {
@@ -2543,8 +2541,8 @@ fn test_refund_receipts_processing() {
         };
         let chunk =
             env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap().clone();
-        if chunk.receipts().len() == 0
-            && chunk.transactions().len() == 0
+        if chunk.receipts().is_empty()
+            && chunk.transactions().is_empty()
             && finished_all_delayed_receipts
         {
             break;
@@ -2564,7 +2562,7 @@ fn test_refund_receipts_processing() {
                     ExecutionStatus::Failure(TxExecutionError::ActionError(_))
                 ));
                 receipt_outcome.outcome_with_id.outcome.receipt_ids.iter().for_each(|id| {
-                    refund_receipt_ids.insert(id.clone());
+                    refund_receipt_ids.insert(*id);
                 });
             }
             _ => assert!(false),
@@ -3228,7 +3226,7 @@ fn test_block_ordinal() {
 
     // make sure that the old ordinal maps to what is on the canonical chain
     let fork_ordinal_block_hash =
-        env.clients[0].chain.mut_store().get_block_hash_from_ordinal(fork_ordinal).unwrap().clone();
+        *env.clients[0].chain.mut_store().get_block_hash_from_ordinal(fork_ordinal).unwrap();
     assert_eq!(fork_ordinal_block_hash, *fork1_block.hash());
 }
 
@@ -3525,10 +3523,10 @@ mod access_key_nonce_range_tests {
             "test1".parse().unwrap(),
             implicit_account_id.clone(),
             &signer1,
-            deposit_for_account_creation.clone(),
+            deposit_for_account_creation,
             *genesis_block.hash(),
         );
-        height = check_tx_processing(&mut env, send_money_tx, height, blocks_number.clone());
+        height = check_tx_processing(&mut env, send_money_tx, height, blocks_number);
         let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap().clone();
 
         // Delete implicit account.
@@ -3541,7 +3539,7 @@ mod access_key_nonce_range_tests {
             &implicit_account_signer,
             *block.hash(),
         );
-        height = check_tx_processing(&mut env, delete_account_tx, height, blocks_number.clone());
+        height = check_tx_processing(&mut env, delete_account_tx, height, blocks_number);
         let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap().clone();
 
         // Send money to implicit account again, invoking its second creation.
@@ -3975,12 +3973,11 @@ mod storage_usage_fix_tests {
             assert!(res.is_ok());
             run_catchup(&mut env.clients[0], &vec![]).unwrap();
 
-            let root = env.clients[0]
+            let root = *env.clients[0]
                 .chain
                 .get_chunk_extra(block.hash(), &ShardUId::single_shard())
                 .unwrap()
-                .state_root()
-                .clone();
+                .state_root();
             let trie = Rc::new(
                 env.clients[0]
                     .runtime_adapter
@@ -4177,7 +4174,7 @@ mod contract_precompilation_tests {
         let block = env.clients[0].chain.get_block_by_height(EPOCH_LENGTH).unwrap().clone();
         let chunk_extra =
             env.clients[0].chain.get_chunk_extra(block.hash(), &ShardUId::single_shard()).unwrap();
-        let state_root = chunk_extra.state_root().clone();
+        let state_root = *chunk_extra.state_root();
 
         let viewer = TrieViewer::default();
         let trie = Rc::new(
@@ -4191,8 +4188,8 @@ mod contract_precompilation_tests {
         let mut logs = vec![];
         let view_state = ViewApplyState {
             block_height: EPOCH_LENGTH,
-            prev_block_hash: block.header().prev_hash().clone(),
-            block_hash: block.hash().clone(),
+            prev_block_hash: *block.header().prev_hash(),
+            block_hash: *block.hash(),
             epoch_id: block.header().epoch_id().clone(),
             epoch_height: 1,
             block_timestamp: block.header().raw_timestamp(),

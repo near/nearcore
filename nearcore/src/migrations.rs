@@ -526,7 +526,7 @@ lazy_static_include::lazy_static_include_bytes! {
 /// between 4 and 4.5s. We do not want to process any receipts in this block
 const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 1_000_000_000_000_000;
 
-pub fn load_migration_data(chain_id: &String) -> MigrationData {
+pub fn load_migration_data(chain_id: &str) -> MigrationData {
     let is_mainnet = chain_id == "mainnet";
     MigrationData {
         storage_usage_delta: if is_mainnet {
@@ -560,9 +560,9 @@ mod tests {
             to_base(&hash(&MAINNET_STORAGE_USAGE_DELTA)),
             "6CFkdSZZVj4v83cMPD3z6Y8XSQhDh3EQjFh3PRAqFEAx"
         );
-        let mainnet_migration_data = load_migration_data(&"mainnet".to_string());
+        let mainnet_migration_data = load_migration_data("mainnet");
         assert_eq!(mainnet_migration_data.storage_usage_delta.len(), 3112);
-        let testnet_migration_data = load_migration_data(&"testnet".to_string());
+        let testnet_migration_data = load_migration_data("testnet");
         assert_eq!(testnet_migration_data.storage_usage_delta.len(), 0);
     }
 
@@ -572,9 +572,9 @@ mod tests {
             to_base(&hash(&MAINNET_RESTORED_RECEIPTS)),
             "3ZHK51a2zVnLnG8Pq1y7fLaEhP9SGU1CGCmspcBUi5vT"
         );
-        let mainnet_migration_data = load_migration_data(&"mainnet".to_string());
+        let mainnet_migration_data = load_migration_data("mainnet");
         assert_eq!(mainnet_migration_data.restored_receipts.get(&0u64).unwrap().len(), 383);
-        let testnet_migration_data = load_migration_data(&"testnet".to_string());
+        let testnet_migration_data = load_migration_data("testnet");
         assert!(testnet_migration_data.restored_receipts.is_empty());
     }
 }
