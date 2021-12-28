@@ -8,16 +8,14 @@ export NEAR_RELEASE_BUILD = no
 # By default, build a regular release
 all: release
 
-
-# TODO All three of these commands - docker-nearcore, docker-nearcore-sandbox, and docker-nearcore-nightly - should use the same Dockerfile, with a build ARG
 docker-nearcore:
 	docker build -t nearcore -f Dockerfile --progress=plain .
 
 docker-nearcore-sandbox:
-	docker build -t nearcore-sandbox -f Dockerfile.sandbox --progress=plain .
+	docker build -t nearcore-sandbox -f Dockerfile --build-arg=features=sandbox --progress=plain .
 
 docker-nearcore-nightly:
-	docker build -t nearcore-nightly -f Dockerfile.nightly --progress=plain .
+	docker build -t nearcore-nightly -f Dockerfile --build-arg=features=nightly_protocol,nightly_protocol_features --progress=plain .
 
 release: NEAR_RELEASE_BUILD=release
 release:
