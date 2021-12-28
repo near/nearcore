@@ -67,7 +67,8 @@ use near_store::get;
 use near_store::test_utils::create_test_store;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::{TrackedConfig, NEAR_BASE};
-use rand::Rng;
+use rand::prelude::StdRng;
+use rand::{Rng, SeedableRng};
 
 pub fn set_block_protocol_version(
     block: &mut Block,
@@ -1923,11 +1924,10 @@ fn test_incorrect_validator_key_produce_block() {
     assert!(matches!(res, Ok(None)));
 }
 
-fn test_block_merkle_proof_with_len(n: NumBlocks) {
+fn test_block_merkle_proof_with_len(n: NumBlocks, rng: &mut StdRng) {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let mut blocks = vec![genesis_block.clone()];
-    let mut rng = rand::thread_rng();
     let mut cur_height = genesis_block.header().height() + 1;
     while cur_height < n {
         let should_fork = rng.gen_bool(0.5);
@@ -1937,8 +1937,14 @@ fn test_block_merkle_proof_with_len(n: NumBlocks) {
             env.process_block(0, block.clone(), Provenance::PRODUCED);
             let next_block = env.clients[0].produce_block(cur_height + 2).unwrap().unwrap();
             assert_eq!(next_block.header().prev_hash(), block.hash());
-            env.process_block(0, fork_block, Provenance::PRODUCED);
-            env.process_block(0, next_block.clone(), Provenance::PRODUCED);
+            // simulate blocks arriving in random order
+            if rng.gen_bool(0.5) {
+                env.process_block(0, fork_block, Provenance::PRODUCED);
+                env.process_block(0, next_block.clone(), Provenance::PRODUCED);
+            } else {
+                env.process_block(0, next_block.clone(), Provenance::PRODUCED);
+                env.process_block(0, fork_block, Provenance::PRODUCED);
+            }
             blocks.push(block);
             blocks.push(next_block);
             cur_height += 3;
@@ -1949,8 +1955,23 @@ fn test_block_merkle_proof_with_len(n: NumBlocks) {
             cur_height += 1;
         }
     }
+
     let head = blocks.pop().unwrap();
     let root = head.header().block_merkle_root();
+    // verify that the mapping from block ordinal to block hash is correct
+    for h in 0..head.header().height() {
+        if let Ok(block) = env.clients[0].chain.get_block_by_height(h).map(Clone::clone) {
+            let block_hash = *block.hash();
+            let block_ordinal =
+                env.clients[0].chain.mut_store().get_block_merkle_tree(&block_hash).unwrap().size();
+            let block_hash1 = *env.clients[0]
+                .chain
+                .mut_store()
+                .get_block_hash_from_ordinal(block_ordinal)
+                .unwrap();
+            assert_eq!(block_hash, block_hash1);
+        }
+    }
     for block in blocks {
         let proof = env.clients[0].chain.get_block_proof(block.hash(), head.hash()).unwrap();
         assert!(verify_hash(*root, &proof, *block.hash()));
@@ -1959,8 +1980,9 @@ fn test_block_merkle_proof_with_len(n: NumBlocks) {
 
 #[test]
 fn test_block_merkle_proof() {
+    let mut rng = StdRng::seed_from_u64(0);
     for i in 0..50 {
-        test_block_merkle_proof_with_len(i);
+        test_block_merkle_proof_with_len(i, &mut rng);
     }
 }
 
