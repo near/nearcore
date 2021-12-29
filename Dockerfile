@@ -46,6 +46,6 @@ RUN apt-get update -qq && apt-get install -y \
     libssl-dev ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /tmp/build/* /usr/local/bin
+COPY --from=build /tmp/build/* /usr/local/bin/
 
 CMD ["/usr/local/bin/run.sh"]
