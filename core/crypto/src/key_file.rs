@@ -18,7 +18,7 @@ pub struct KeyFile {
 impl KeyFile {
     pub fn write_to_file(&self, path: &Path) -> std::io::Result<()> {
         let mut file = File::create(path)?;
-        #[cfg(platform = "unix")]
+        #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let perm = std::fs::Permissions::from_mode(u32::from(libc::S_IWUSR | libc::S_IRUSR));
