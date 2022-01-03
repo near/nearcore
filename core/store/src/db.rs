@@ -750,17 +750,6 @@ impl RocksDB {
             }
         }
     }
-
-    pub fn dump_stats(&self) {
-        for cf in self.cfs.clone() {
-            unsafe {
-                let column_family = cf.read();
-                let stats =
-                    self.db.property_value_cf(&column_family, "rocksdb.stats").unwrap().unwrap();
-                println!("{}", stats);
-            }
-        }
-    }
 }
 
 fn available_space<P: AsRef<Path> + std::fmt::Debug>(
