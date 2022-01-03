@@ -4262,6 +4262,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rocksdb-stats"
+version = "0.1.0"
+dependencies = [
+ "near-store",
+ "nearcore",
+]
+
+[[package]]
 name = "runtime-params-estimator"
 version = "0.0.0"
 dependencies = [
