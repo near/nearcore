@@ -758,9 +758,6 @@ impl RocksDB {
                 let stats =
                     self.db.property_value_cf(&column_family, "rocksdb.stats").unwrap().unwrap();
                 println!("{}", stats);
-                let stats =
-                    self.db.property_value_cf(&column_family, "rocksdb.sstables").unwrap().unwrap();
-                println!("{}", stats);
             }
         }
     }
