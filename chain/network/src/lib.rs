@@ -6,8 +6,6 @@ pub use crate::routing::routing_table_actor::RoutingTableActor;
 pub use crate::routing::routing_table_actor::{RoutingTableMessages, RoutingTableMessagesResponse};
 #[cfg(feature = "test_features")]
 pub use crate::stats::metrics::RECEIVED_INFO_ABOUT_ITSELF;
-// TODO(#5307)
-pub use near_network_primitives::types::PeerInfo;
 
 mod network_protocol;
 mod peer;

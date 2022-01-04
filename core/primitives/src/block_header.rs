@@ -198,7 +198,7 @@ impl ApprovalInner {
         target_height: BlockHeight,
     ) -> Self {
         if target_height == parent_height + 1 {
-            ApprovalInner::Endorsement(parent_hash.clone())
+            ApprovalInner::Endorsement(*parent_hash)
         } else {
             ApprovalInner::Skip(parent_height)
         }
@@ -338,7 +338,7 @@ impl BlockHeader {
     pub fn compute_hash(prev_hash: CryptoHash, inner_lite: &[u8], inner_rest: &[u8]) -> CryptoHash {
         let hash_inner = BlockHeader::compute_inner_hash(inner_lite, inner_rest);
 
-        return combine_hash(hash_inner, prev_hash);
+        combine_hash(hash_inner, prev_hash)
     }
 
     pub fn new(
