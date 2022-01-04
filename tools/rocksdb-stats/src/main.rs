@@ -2,7 +2,7 @@ use nearcore::{get_default_home, get_store_path};
 use std::collections::HashMap;
 use std::process::Command;
 
-#[derive(Default, Debug)]
+#[derive(Serialize, Default, Debug)]
 struct Data {
     col: String,
     entries: u64,
