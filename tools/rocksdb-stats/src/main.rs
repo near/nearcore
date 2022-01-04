@@ -51,7 +51,9 @@ fn main() {
     let home_dir = get_default_home();
     let store_dir = get_store_path(&home_dir);
     let mut cmd = Command::new("sst_dump");
-    cmd.arg(format!("--file={}", store_dir.to_str().unwrap())).arg("--show_properties");
+    cmd.arg(format!("--file={}", store_dir.to_str().unwrap()))
+        .arg("--show_properties")
+        .arg("--command=none");
     eprintln!("Running {:?} ...", cmd);
     let output = cmd.output().expect("sst_dump command failed to start");
 
