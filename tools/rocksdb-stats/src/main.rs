@@ -52,7 +52,7 @@ fn main() {
     let cmd = Command::new("sst_dump")
         .arg(format!("--file={}", home_dir.to_str().unwrap()))
         .arg("--show_properties");
-    println!("Running {:?} ...", cmd);
+    println!("Running {:?} ...", &cmd);
     let output = cmd.output().expect("sst_dump command failed to start");
 
     println!("Parsing output ...");
