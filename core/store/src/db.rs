@@ -731,25 +731,6 @@ impl RocksDB {
             Ok(())
         }
     }
-
-    pub fn print_column_properties(&self, property_names: &[&str]) {
-        for cf in self.cfs.clone() {
-            unsafe {
-                let ncf = cf.read();
-
-                for property_name in property_names.iter() {
-                    let stats = self.db.property_value_cf(&ncf, property_name).unwrap().unwrap();
-                    println!("{}: {}", property_name, stats);
-                    let stats = self
-                        .db
-                        .property_value_cf(&ncf, "rocksdb.estimate-num-keys")
-                        .unwrap()
-                        .unwrap();
-                    println!("rocksdb.estimate-num-keys: {}", stats);
-                }
-            }
-        }
-    }
 }
 
 fn available_space<P: AsRef<Path> + std::fmt::Debug>(
