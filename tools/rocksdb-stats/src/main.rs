@@ -1,4 +1,4 @@
-use nearcore::get_default_home;
+use nearcore::{get_default_home, get_store_path};
 use std::collections::HashMap;
 use std::process::Command;
 
@@ -49,8 +49,9 @@ fn parse_sst_file_dump(lines: &[&str]) -> Data {
 
 fn main() {
     let home_dir = get_default_home();
+    let store_dir = get_store_path(&home_dir);
     let mut cmd = Command::new("sst_dump");
-    cmd.arg(format!("--file={}", home_dir.to_str().unwrap())).arg("--show_properties");
+    cmd.arg(format!("--file={}", store_dir.to_str().unwrap())).arg("--show_properties");
     println!("Running {:?} ...", cmd);
     let output = cmd.output().expect("sst_dump command failed to start");
 
