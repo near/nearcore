@@ -1,4 +1,5 @@
 use nearcore::{get_default_home, get_store_path};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::process::Command;
 
