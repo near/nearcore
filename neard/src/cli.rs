@@ -80,6 +80,8 @@ struct NeardOpts {
     /// Directory for config and data.
     #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
     home: PathBuf,
+    /// Skips consistency checks of the 'genesis.json' file upon startup.
+    /// Let's you start `neard` slightly faster.
     #[clap(long)]
     pub unsafe_fast_startup: bool,
 }

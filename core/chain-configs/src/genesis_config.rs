@@ -536,7 +536,7 @@ impl Genesis {
                 validate_genesis(&self);
             }
             GenesisValidationMode::UnsafeFast => {
-                warn!("Skipped genesis validation");
+                warn!(target: "genesis", "Skipped genesis validation");
             }
         }
         self
