@@ -48,7 +48,7 @@ impl Data {
         }
 
         Data {
-            col: String::from(values.get(SST_FILE_DUMP_LINES[0]).unwrap()),
+            col: String::from(values.get(SST_FILE_DUMP_LINES[0]).unwrap().clone()),
             entries: values.get(SST_FILE_DUMP_LINES[1]).unwrap().parse::<u64>().unwrap(),
             estimated_table_size: values
                 .get(SST_FILE_DUMP_LINES[2])
