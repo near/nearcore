@@ -39,9 +39,6 @@ pub static SENT_BYTES_PER_SECOND: Lazy<IntGauge> = Lazy::new(|| {
 pub static BLOCKS_PER_MINUTE: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_blocks_per_minute", "Blocks produced per minute").unwrap()
 });
-pub static CHUNKS_PER_MINUTE: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge("near_chunks_per_minute", "Chunks produced per minute").unwrap()
-});
 pub static CHUNKS_PER_BLOCK_MILLIS: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_chunks_per_block_millis",
