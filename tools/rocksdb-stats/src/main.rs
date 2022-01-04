@@ -8,12 +8,18 @@ struct Data {
     col: String,
     entries: u64,
     estimated_table_size: u64,
+    // Total size of all keys in bytes.
+    raw_key_size: u64,
+    // Total size of all values in bytes.
+    raw_value_size: u64,
 }
 
 impl Data {
     pub fn merge(&mut self, other: &Data) {
         self.entries += other.entries;
         self.estimated_table_size += other.estimated_table_size;
+        self.raw_key_size += other.raw_key_size;
+        self.raw_value_size += other.raw_value_size;
     }
 }
 
@@ -29,10 +35,14 @@ fn parse_sst_file_dump(lines: &[&str]) -> Data {
 
         if line.starts_with("column family name") {
             data.col = value.to_string();
-        } else if line.starts_with("(estimated) table size") {
-            data.estimated_table_size = value.parse::<u64>().unwrap();
         } else if line.starts_with("# entries") {
             data.entries = value.parse::<u64>().unwrap();
+        } else if line.starts_with("(estimated) table size") {
+            data.estimated_table_size = value.parse::<u64>().unwrap();
+        } else if line.starts_with("raw key size") {
+            data.raw_key_size = value.parse::<u64>().unwrap();
+        } else if line.starts_with("raw value size") {
+            data.raw_value_size = value.parse::<u64>().unwrap();
         }
     }
     data
