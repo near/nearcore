@@ -15,6 +15,8 @@ make sst_dump
 sudo cp sst_dump /usr/local/bin/
 ```
 
+Then simply `cargo run -p rocksdb-stats`. Should take ~2m for RPC node and 45m for archival node as of 4 Jan 2022.
+
 ### Output
 
 List of statistics for each column sorted by column size. 
