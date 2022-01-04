@@ -2,13 +2,12 @@ use crate::types::{
     NetworkInfo, NetworkResponses, PeerManagerAdapter, PeerManagerMessageRequest,
     PeerManagerMessageResponse,
 };
-use crate::PeerInfo;
 use crate::PeerManagerActor;
 use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::future::BoxFuture;
 use futures::{future, FutureExt};
 use near_crypto::{KeyType, SecretKey};
-use near_network_primitives::types::ReasonForBan;
+use near_network_primitives::types::{PeerInfo, ReasonForBan};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;

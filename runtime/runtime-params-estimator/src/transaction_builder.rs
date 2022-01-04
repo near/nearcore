@@ -7,7 +7,7 @@ use near_primitives::types::AccountId;
 use rand::prelude::ThreadRng;
 use rand::Rng;
 
-use crate::testbed_runners::get_account_id;
+use crate::get_account_id;
 
 /// A helper to create transaction for processing by a `TestBed`.
 #[derive(Clone)]

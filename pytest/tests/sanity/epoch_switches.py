@@ -85,8 +85,7 @@ def get_stakes():
     ]
 
 
-status = nodes[0].get_status()
-prev_hash = status['sync_info']['latest_block_hash']
+prev_hash = nodes[0].get_latest_block().hash
 
 seen_epochs = set()
 cur_vals = [0, 1]
@@ -103,8 +102,7 @@ epoch_switch_height = -2
 while True:
     assert time.time() - started < TIMEOUT
 
-    status = nodes[0].get_status(check_storage=False)
-    hash_ = status['sync_info']['latest_block_hash']
+    hash_ = nodes[0].get_latest_block(check_storage=False).hash
     block = nodes[0].get_block(hash_)
     epoch_id = block['result']['header']['epoch_id']
     height = block['result']['header']['height']

@@ -169,15 +169,14 @@ impl RuntimeUser {
             block_hash: Default::default(),
         }];
         for hash in &receipt_ids {
-            transactions
-                .extend(self.get_recursive_transaction_results(&hash.clone().into()).into_iter());
+            transactions.extend(self.get_recursive_transaction_results(hash).into_iter());
         }
         transactions
     }
 
     fn get_final_transaction_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
         let mut outcomes = self.get_recursive_transaction_results(hash);
-        let mut looking_for_id = (*hash).into();
+        let mut looking_for_id = *hash;
         let num_outcomes = outcomes.len();
         let status = outcomes
             .iter()
@@ -195,7 +194,7 @@ impl RuntimeUser {
                             Some(FinalExecutionStatus::SuccessValue(v.clone()))
                         }
                         ExecutionStatusView::SuccessReceiptId(id) => {
-                            looking_for_id = id.clone();
+                            looking_for_id = *id;
                             None
                         }
                     }
@@ -322,7 +321,7 @@ impl User for RuntimeUser {
     }
 
     fn get_state_root(&self) -> CryptoHash {
-        self.client.read().expect(POISONED_LOCK_ERR).state_root.into()
+        self.client.read().expect(POISONED_LOCK_ERR).state_root
     }
 
     fn get_access_key(
