@@ -313,14 +313,14 @@ pub(crate) mod wasmer2 {
     }
 
     macro_rules! return_ty {
-        () => {
-            type Ret = ();
+        ($return_type: ident = [ ]) => {
+            type $return_type = ();
             fn make_ret() -> () {}
         };
-        ($($return: ident),*) => {
+        ($return_type: ident = [ $($returns: ident),* ]) => {
             #[repr(C)]
-            struct Ret($(<$return as Wasmer2Type>::Wasmer),*);
-            fn make_ret($($return: $return),*) -> Ret { Ret($($return.to_wasmer()),*) }
+            struct $return_type($(<$returns as Wasmer2Type>::Wasmer),*);
+            fn make_ret($($returns: $returns),*) -> Ret { Ret($($returns.to_wasmer()),*) }
         }
     }
 
@@ -340,25 +340,26 @@ pub(crate) mod wasmer2 {
                     -> [ $( $returns:ident ),* ]
                   >
                 ) => {
-                    return_ty!($($returns),*);
+                    return_ty!(Ret = [ $($returns),* ]);
 
                     extern "C" fn $func(env: *mut VMLogic<'_>, $( $arg_name: $arg_type ),* )
                     -> Ret {
-                        // SAFETY: This function should only be executable within `'vmlogic`
-                        // lifetime and so it is safe to dereference the `env` pointer which is
-                        // known to be derived from a valid reference in the first place.
-                        let env = unsafe { &mut *env };
-                        const IS_GAS: bool = str_eq(stringify!($func), "gas");
-                        let _span = if IS_GAS {
-                            None
-                        } else {
-                            Some(tracing::trace_span!(
-                                target: "host-function",
-                                stringify!($func)
-                            ).entered())
-                        };
                         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            env.$func( $( $arg_name, )* )
+                            const IS_GAS: bool = str_eq(stringify!($func), "gas");
+                            let _span = if IS_GAS {
+                                None
+                            } else {
+                                Some(tracing::trace_span!(
+                                    target: "host-function",
+                                    stringify!($func)
+                                ).entered())
+                            };
+
+                            // SAFETY: This code should only be executable within `'vmlogic`
+                            // lifetime and so it is safe to dereference the `env` pointer which is
+                            // known to be derived from a valid `&'vmlogic mut VMLogic<'_>` in the
+                            // first place.
+                            unsafe { (*env).$func( $( $arg_name, )* ) }
                         }));
                         #[allow(unused_parens)]
                         match result {

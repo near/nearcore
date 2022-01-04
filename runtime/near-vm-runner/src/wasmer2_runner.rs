@@ -1,5 +1,4 @@
 use crate::cache::into_vm_result;
-use crate::errors::IntoVMError;
 use crate::imports::wasmer2::Wasmer2Imports;
 use crate::prepare::WASM_FEATURES;
 use crate::{cache, imports};
@@ -9,16 +8,16 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_stable_hasher::StableHasher;
 use near_vm_errors::{
-    CompilationError, FunctionCallError, HostError, MethodResolveError, VMError, WasmTrap,
+    CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap,
 };
 use near_vm_logic::gas_counter::FastGasCounter;
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
-use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
+use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
 use std::hash::{Hash, Hasher};
 use std::mem::size_of;
 use std::sync::Arc;
 use wasmer_compiler_singlepass::Singlepass;
-use wasmer_engine::{Artifact, DeserializeError, Engine, InstantiationError, RuntimeError};
+use wasmer_engine::{DeserializeError, Engine};
 use wasmer_engine_universal::{Universal, UniversalEngine};
 use wasmer_types::{
     ExportIndex, Features, FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE,
@@ -122,68 +121,8 @@ impl MemoryLike for Wasmer2Memory {
     }
 }
 
-impl IntoVMError for InstantiationError {
-    fn into_vm_error(self) -> VMError {
-        match self {
-            InstantiationError::Link(e) => {
-                VMError::FunctionCallError(FunctionCallError::LinkError { msg: e.to_string() })
-            }
-            InstantiationError::CpuFeature(e) => {
-                panic!("host does not support the CPU features required to run contracts: {}", e)
-            }
-            InstantiationError::Start(e) => e.into_vm_error(),
-        }
-    }
-}
-
-impl IntoVMError for RuntimeError {
-    fn into_vm_error(self) -> VMError {
-        // These vars are not used in every cases, however, downcast below use Arc::try_unwrap
-        // so we cannot clone self
-        let error_msg = self.message();
-        let trap_code = self.clone().to_trap();
-        if let Ok(e) = self.downcast::<VMLogicError>() {
-            return e.into();
-        }
-        // If we panic here - it means we encountered an issue in Wasmer.
-        let trap_code = trap_code.unwrap_or_else(|| panic!("Unknown error: {}", error_msg));
-        let error = match trap_code {
-            TrapCode::StackOverflow => FunctionCallError::WasmTrap(WasmTrap::StackOverflow),
-            TrapCode::HeapAccessOutOfBounds => {
-                FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds)
-            }
-            TrapCode::HeapMisaligned => {
-                FunctionCallError::WasmTrap(WasmTrap::MisalignedAtomicAccess)
-            }
-            TrapCode::TableAccessOutOfBounds => {
-                FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds)
-            }
-            TrapCode::OutOfBounds => FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds),
-            TrapCode::IndirectCallToNull => {
-                FunctionCallError::WasmTrap(WasmTrap::IndirectCallToNull)
-            }
-            TrapCode::BadSignature => {
-                FunctionCallError::WasmTrap(WasmTrap::IncorrectCallIndirectSignature)
-            }
-            TrapCode::IntegerOverflow => FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic),
-            TrapCode::IntegerDivisionByZero => {
-                FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic)
-            }
-            TrapCode::BadConversionToInteger => {
-                FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic)
-            }
-            TrapCode::UnreachableCodeReached => FunctionCallError::WasmTrap(WasmTrap::Unreachable),
-            TrapCode::UnalignedAtomic => {
-                FunctionCallError::WasmTrap(WasmTrap::MisalignedAtomicAccess)
-            }
-            TrapCode::GasExceeded => FunctionCallError::HostError(HostError::GasExceeded),
-        };
-        VMError::FunctionCallError(error)
-    }
-}
-
 fn get_entrypoint_index(
-    artifact: &dyn Artifact,
+    artifact: &dyn wasmer_engine::Artifact,
     method_name: &str,
 ) -> Result<FunctionIndex, VMError> {
     if method_name.is_empty() {
@@ -210,20 +149,46 @@ fn get_entrypoint_index(
     }
 }
 
-fn translate_instantiation_error(err: InstantiationError, logic: &mut VMLogic) -> VMError {
+fn translate_instantiation_error(
+    err: wasmer_engine::InstantiationError,
+    logic: &mut VMLogic,
+) -> VMError {
+    use wasmer_engine::InstantiationError::*;
     match err {
-        InstantiationError::Start(err) => translate_runtime_error(err, logic),
-        _ => err.into_vm_error(),
+        Start(err) => translate_runtime_error(err, logic),
+        Link(e) => VMError::FunctionCallError(FunctionCallError::LinkError { msg: e.to_string() }),
+        CpuFeature(e) => {
+            panic!("host does not support the CPU features required to run contracts: {}", e)
+        }
     }
 }
 
-fn translate_runtime_error(err: RuntimeError, logic: &mut VMLogic) -> VMError {
-    match err.clone().to_trap() {
-        Some(TrapCode::GasExceeded) => {
-            VMError::FunctionCallError(FunctionCallError::HostError(logic.process_gas_limit()))
+fn translate_runtime_error(error: wasmer_engine::RuntimeError, logic: &mut VMLogic) -> VMError {
+    let msg = error.message();
+    let trap_code = error.to_trap().unwrap_or_else(|| {
+        panic!("runtime error is not a trap: {}", msg);
+    });
+    VMError::FunctionCallError(match trap_code {
+        TrapCode::GasExceeded => FunctionCallError::HostError(logic.process_gas_limit()),
+        TrapCode::StackOverflow => FunctionCallError::WasmTrap(WasmTrap::StackOverflow),
+        TrapCode::HeapAccessOutOfBounds => FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds),
+        TrapCode::HeapMisaligned => FunctionCallError::WasmTrap(WasmTrap::MisalignedAtomicAccess),
+        TrapCode::TableAccessOutOfBounds => {
+            FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds)
         }
-        _ => err.into_vm_error(),
-    }
+        TrapCode::OutOfBounds => FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds),
+        TrapCode::IndirectCallToNull => FunctionCallError::WasmTrap(WasmTrap::IndirectCallToNull),
+        TrapCode::BadSignature => {
+            FunctionCallError::WasmTrap(WasmTrap::IncorrectCallIndirectSignature)
+        }
+        TrapCode::IntegerOverflow => FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic),
+        TrapCode::IntegerDivisionByZero => FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic),
+        TrapCode::BadConversionToInteger => {
+            FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic)
+        }
+        TrapCode::UnreachableCodeReached => FunctionCallError::WasmTrap(WasmTrap::Unreachable),
+        TrapCode::UnalignedAtomic => FunctionCallError::WasmTrap(WasmTrap::MisalignedAtomicAccess),
+    })
 }
 
 #[derive(Hash, PartialEq, Debug)]
@@ -273,12 +238,20 @@ pub(crate) fn wasmer2_vm_hash() -> u64 {
 
 #[derive(Clone)]
 pub(crate) struct VMArtifact {
-    artifact: Arc<dyn Artifact>,
+    artifact: Arc<dyn wasmer_engine::Artifact>,
+    // FIXME(nagisa): Creating an artifact currently allocates data in the arena owned by the
+    // `UniversalEngine`. We cache artifacts in memory that outlive the VM they are part of, so for
+    // the time being lets keep a reference to the engine with each artifact.
+    //
+    // There are two outstanding tasks that we may want to resolve which will allow removing this
+    // specific field: first is removing the in-memory cache (and/or making sure that the VM
+    // lifetime outlives the VM cache). The second is removing the allocations in question – those
+    // allocate data such as trampolines and should only occur when an instantiation happens.
     _engine: UniversalEngine,
 }
 
 impl VMArtifact {
-    pub(crate) fn artifact(&self) -> &dyn Artifact {
+    pub(crate) fn artifact(&self) -> &dyn wasmer_engine::Artifact {
         &*self.artifact
     }
 }
@@ -344,10 +317,10 @@ impl Wasmer2VM {
         })
     }
 
-    fn run_method(
+    fn run_method<'vmlogic, 'vmlogic_refs>(
         &self,
         artifact: &VMArtifact,
-        mut import: Wasmer2Imports<'_, '_>,
+        mut import: Wasmer2Imports<'vmlogic, 'vmlogic_refs>,
         method_name: &str,
     ) -> Result<(), VMError> {
         let _span = tracing::debug_span!(target: "vm", "run_method").entered();
@@ -379,8 +352,10 @@ impl Wasmer2VM {
                 // of `VMLogic` reference to which is retained by the `InstanceHandle` we create.
                 // However this `InstanceHandle` only lives during the execution of this body, so
                 // we can be sure that `VMLogic` remains live and valid at any time.
-                let import =
-                    std::mem::transmute::<_, &mut Wasmer2Imports<'static, 'static>>(&mut import);
+                let import = std::mem::transmute::<
+                    &mut Wasmer2Imports<'vmlogic, 'vmlogic_refs>,
+                    &mut Wasmer2Imports<'static, 'static>,
+                >(&mut import);
                 // SAFETY: we ensure that the tables are valid during the lifetime of this instance
                 // by retaining an instance to `UniversalEngine` which holds the allocations.
                 let handle = artifact
@@ -421,7 +396,10 @@ impl Wasmer2VM {
                         [].as_mut_ptr() as *mut _,
                     )
                     .map_err(|e| {
-                        translate_runtime_error(RuntimeError::from_trap(e), import.vmlogic)
+                        translate_runtime_error(
+                            wasmer_engine::RuntimeError::from_trap(e),
+                            import.vmlogic,
+                        )
                     })?;
                 } else {
                     panic!("signature should've already been checked by `get_entrypoint_index`")
