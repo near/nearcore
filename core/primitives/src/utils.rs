@@ -389,27 +389,6 @@ macro_rules! unwrap_or_return {
     };
 }
 
-/// Macro to either return value if the result is Some, or exit function.
-#[macro_export]
-macro_rules! unwrap_option_or_return {
-    ($obj: expr, $ret: expr) => {
-        match $obj {
-            Some(value) => value,
-            None => {
-                return $ret;
-            }
-        }
-    };
-    ($obj: expr) => {
-        match $obj {
-            Some(value) => value,
-            None => {
-                return;
-            }
-        }
-    };
-}
-
 /// Converts timestamp in ns into DateTime UTC time.
 pub fn from_timestamp(timestamp: u64) -> DateTime<chrono::Utc> {
     DateTime::from_utc(
