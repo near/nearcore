@@ -48,6 +48,7 @@ fn parse_sst_file_dump(lines: &[&str]) -> Data {
 }
 
 fn main() {
+    println!("Running sst_dump ...");
     let home_dir = get_default_home();
     let output = Command::new("sst_dump")
         .arg(format!("--file={}", home_dir.to_str().unwrap()))
@@ -55,6 +56,7 @@ fn main() {
         .output()
         .expect("sst_dump command failed to start");
 
+    println!("Parsing output ...");
     let out = String::from_utf8(output.stdout).unwrap();
     let mut sst_file_breaks: Vec<usize> = vec![];
     let lines: Vec<&str> = out.lines().collect();
