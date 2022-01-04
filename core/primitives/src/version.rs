@@ -14,7 +14,7 @@ pub struct Version {
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 30;
+pub const DB_VERSION: DbVersion = 31;
 
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
@@ -139,7 +139,7 @@ pub enum ProtocolFeature {
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
 /// protocol version is lower than this.
-pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = MAIN_NET_PROTOCOL_VERSION - 1;
+pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = MAIN_NET_PROTOCOL_VERSION - 2;
 
 /// Current protocol version used on the main net.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
