@@ -32,6 +32,7 @@ fn parse_sst_file_dump(lines: &[&str]) -> Data {
         }
         let line = split_line[0].trim();
         let value = split_line[1].trim();
+        eprintln!("{} {}", line, value);
 
         if line.starts_with("column family name") {
             data.col = value.to_string();
@@ -54,7 +55,7 @@ fn main() {
     let mut cmd = Command::new("sst_dump");
     cmd.arg(format!("--file={}", store_dir.to_str().unwrap()))
         .arg("--show_properties")
-        .arg("--command=none");
+        .arg("--command=none"); // For some reason, adding this argument makes execution 20x faster
     eprintln!("Running {:?} ...", cmd);
     let output = cmd.output().expect("sst_dump command failed to start");
 
