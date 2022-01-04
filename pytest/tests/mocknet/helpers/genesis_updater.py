@@ -10,7 +10,7 @@ need at 4 hours.
 import pathlib
 import sys
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
+sys.path.append('lib')
 import mocknet
 from configured_logger import logger
 
