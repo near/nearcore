@@ -58,17 +58,17 @@ fn main() {
     let out = String::from_utf8(output.stdout).unwrap();
     let mut sst_file_breaks: Vec<usize> = vec![];
     let lines: Vec<&str> = out.lines().collect();
-    for (i, line) in lines.enumerate() {
+    for (i, line) in lines.iter().enumerate() {
         if line.contains("Process") {
             sst_file_breaks.push(i);
         }
     }
-    sst_file_breaks.push(lines.count());
+    sst_file_breaks.push(lines.len());
 
     let mut column_data: HashMap<String, Data> = HashMap::new();
 
-    for i in sst_file_breaks[..-1].iter() {
-        let data = parse_sst_file_dump(&lines[sst_file_breaks[i]..sst_file_breaks[i + 1]]);
+    for i in 1..sst_file_breaks.len() {
+        let data = parse_sst_file_dump(&lines[sst_file_breaks[i - 1]..sst_file_breaks[i]]);
         if let Some(x) = column_data.get_mut(&data.col) {
             x.merge(&data);
         } else {
