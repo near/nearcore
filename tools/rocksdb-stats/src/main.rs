@@ -1,5 +1,4 @@
-use near_store::create_store;
-use nearcore::{get_default_home, get_store_path};
+use nearcore::get_default_home;
 use std::collections::HashMap;
 use std::process::Command;
 
@@ -56,7 +55,7 @@ fn main() {
         .output()
         .expect("sst_dump command failed to start");
 
-    let out = String::from_utf8(output.stdout)?;
+    let out = String::from_utf8(output.stdout).unwrap();
     let mut sst_file_breaks: Vec<usize> = vec![];
     let lines: Vec<&str> = out.lines().collect();
     for (i, line) in lines.enumerate() {
