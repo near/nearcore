@@ -2549,8 +2549,8 @@ impl std::fmt::Debug for VMOutcome {
         };
         write!(
             f,
-            "VMOutcome: balance {} storage_usage {} return data {} burnt gas {} used gas {}",
-            self.balance, self.storage_usage, return_data_str, self.burnt_gas, self.used_gas
+            "VMOutcome: balance {} storage_usage {} return data {} burnt gas {} used gas {} logs {:?}",
+            self.balance, self.storage_usage, return_data_str, self.burnt_gas, self.used_gas, self.logs
         )
     }
 }
