@@ -3,11 +3,12 @@ name = "near-jsonrpc-client"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 
 [dependencies]
 awc = "3.0.0-beta.5"
-actix-web = "=4.0.0-beta.6"
 actix-http = "=3.0.0-beta.6"
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }

@@ -1,7 +1,6 @@
 #![no_main]
 use actix::System;
 use libfuzzer_sys::{arbitrary, fuzz_target};
-use rust_base58::ToBase58;
 use serde::ser::{Serialize, Serializer};
 use serde_json::json;
 use tokio;
@@ -123,7 +122,7 @@ impl Serialize for Base58String {
     where
         S: Serializer,
     {
-        serializer.serialize_newtype_struct("Base58String", &self.0.to_base58())
+        serializer.serialize_newtype_struct("Base58String", &bs58::encode(self.0).into_string())
     }
 }
 
@@ -136,16 +135,12 @@ impl Serialize for Base64String {
     }
 }
 
-
-    static ref RUNTIME: std::sync::Mutex<tokio::runtime::Runtime> = {
+static RUNTIME: once_cell::sync::Lazy<std::sync::Mutex<tokio::runtime::Runtime>> =
+    once_cell::sync::Lazy::new(|| {
         std::sync::Mutex::new(
-            tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .unwrap(),
+            tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap(),
         )
-    };
-
+    });
 
 fuzz_target!(|requests: Vec<JsonRpcRequest>| {
     NODE_INIT.call_once(|| {

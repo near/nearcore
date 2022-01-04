@@ -19,6 +19,8 @@ import uuid
 from rc import gcloud
 from retrying import retry
 
+import base58
+
 import network
 from configured_logger import logger
 from key import Key
@@ -102,6 +104,33 @@ def make_boot_nodes_arg(boot_node: BootNode) -> typing.Tuple[str]:
     return ('--boot-nodes', nodes)
 
 
+class BlockId(typing.NamedTuple):
+    """Stores block’s height and hash.
+
+    The values can be accessed either through properties or by structural
+    deconstruction, e.g.:
+
+        block_height, block_hash = block_id
+        assert block_height == block_id.height
+        assert block_hash == block_id.hash
+
+    Attributes:
+        height: Block’s height.
+        hash: Block’s hash encoding using base58.
+        hash_bytes: Block’s hash decoded as raw bytes.  Note that this attribute
+            cannot be accessed through aforementioned deconstruction.
+    """
+    height: int
+    hash: str
+
+    @property
+    def hash_bytes(self) -> bytes:
+        return base58.b58decode(self.hash.encode('ascii'))
+
+    def __str__(self) -> str:
+        return f'#{self.height} {self.height}'
+
+
 class BaseNode(object):
 
     def __init__(self):
@@ -110,6 +139,46 @@ class BaseNode(object):
         self.proxy = None
         self.store_tests = 0
         self.is_check_store = True
+
+    def change_config(self, overrides: typing.Dict[str, typing.Any]) -> None:
+        """Change client config.json of a node by applying given overrides.
+
+        Changes to the configuration need to be made while the node is stopped.
+        More precisely, while the changes may be made at any point, the node
+        reads the time at startup only.
+
+        The overrides are a dictionary specifying new values for configuration
+        keys.  Non-dictionary values are applied directly, while dictionaries
+        are non-recursively merged.  For example if the original config is:
+
+            {
+                'foo': 42,
+                'bar': {'a': 1, 'b': 2, 'c': {'A': 3}},
+            }
+
+        and overrides are:
+
+            {
+                'foo': 24,
+                'bar': {'a': -1, 'c': {'D': 3}, 'd': 1},
+            }
+
+        then resulting configuration file will be:
+
+            {
+                'foo': 24,
+                'bar': {'a': -1, 'b': 2, 'c': {'D': 3}, 'd': 1},
+            }
+
+        Args:
+            overrides: A dictionary of config overrides.  Non-dictionary values
+                are set as is, dictionaries are non-recursively merged.
+        Raises:
+            NotImplementedError: Currently changing the configuration is
+                supported on local node only.
+        """
+        name = type(self).__name__
+        raise NotImplementedError('change_config not supported by ' + name)
 
     def _get_command_line(self,
                           near_root,
@@ -149,19 +218,30 @@ class BaseNode(object):
                              [base64.b64encode(signed_tx).decode('utf8')],
                              timeout=timeout)
 
-    def get_status(self, check_storage=True, timeout=4):
+    def get_status(self,
+                   check_storage: bool = True,
+                   timeout: float = 4,
+                   verbose: bool = False):
         r = requests.get("http://%s:%s/status" % self.rpc_addr(),
                          timeout=timeout)
         r.raise_for_status()
         status = json.loads(r.content)
+        if verbose:
+            logger.info(f'Status: {status}')
         if check_storage and status['sync_info']['syncing'] == False:
             # Storage is not guaranteed to be in consistent state while syncing
             self.check_store()
+        if verbose:
+            logger.info(status)
         return status
 
+    def get_latest_block(self, **kw) -> BlockId:
+        sync_info = self.get_status(**kw)['sync_info']
+        return BlockId(height=sync_info['latest_block_height'],
+                       hash=sync_info['latest_block_hash'])
+
     def get_all_heights(self):
-        status = self.get_status()
-        hash_ = status['sync_info']['latest_block_hash']
+        hash_ = self.get_latest_block().hash
         heights = []
 
         while True:
@@ -179,17 +259,21 @@ class BaseNode(object):
             heights.append(height)
             hash_ = block['result']['header']['prev_hash']
 
-        return list(reversed(heights))
+        return reversed(heights)
 
     def get_validators(self):
         return self.json_rpc('validators', [None])
 
-    def get_account(self, acc, finality='optimistic'):
-        return self.json_rpc('query', {
+    def get_account(self, acc, finality='optimistic', do_assert=True):
+        res = self.json_rpc('query', {
             "request_type": "view_account",
             "account_id": acc,
             "finality": finality
         })
+        if do_assert:
+            assert 'error' not in res, res
+
+        return res
 
     def call_function(self,
                       acc,
@@ -291,34 +375,32 @@ class LocalNode(BaseNode):
         self.node_dir = node_dir
         self.binary_name = binary_name or 'neard'
         self.cleaned = False
-        with open(os.path.join(node_dir, "config.json")) as f:
-            config_json = json.loads(f.read())
-        # assert config_json['network']['addr'] == '0.0.0.0:24567', config_json['network']['addr']
-        # assert config_json['rpc']['addr'] == '0.0.0.0:3030', config_json['rpc']['addr']
-        # just a sanity assert that the setting name didn't change
-        assert 0 <= config_json['consensus']['min_num_peers'] <= 3, config_json[
-            'consensus']['min_num_peers']
-        config_json['network']['addr'] = '0.0.0.0:%s' % port
-        config_json['network']['blacklist'] = blacklist
-        config_json['rpc']['addr'] = '0.0.0.0:%s' % rpc_port
-        config_json['rpc']['metrics_addr'] = '0.0.0.0:%s' % (rpc_port + 1000)
-        if single_node:
-            config_json['consensus']['min_num_peers'] = 0
-        else:
-            config_json['consensus']['min_num_peers'] = 1
-        with open(os.path.join(node_dir, "config.json"), 'w') as f:
-            f.write(json.dumps(config_json, indent=2))
-
         self.validator_key = Key.from_json_file(
             os.path.join(node_dir, "validator_key.json"))
         self.node_key = Key.from_json_file(
             os.path.join(node_dir, "node_key.json"))
         self.signer_key = Key.from_json_file(
             os.path.join(node_dir, "validator_key.json"))
+        self._process = None
 
-        self.pid = multiprocessing.Value('i', 0)
+        self.change_config({
+            'network': {
+                'addr': f'0.0.0.0:{port}',
+                'blacklist': blacklist
+            },
+            'rpc': {
+                'addr': f'0.0.0.0:{rpc_port}',
+                'metrics_addr': f'0.0.0.0:{rpc_port + 1000}',
+            },
+            'consensus': {
+                'min_num_peers': int(not single_node)
+            },
+        })
 
         atexit.register(atexit_cleanup, self)
+
+    def change_config(self, overrides: typing.Dict[str, typing.Any]) -> None:
+        apply_config_changes(self.node_dir, overrides)
 
     def addr(self):
         return ("127.0.0.1", self.port)
@@ -341,16 +423,19 @@ class LocalNode(BaseNode):
         env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get(
             "RUST_LOG", "debug")
 
-        self.stdout_name = os.path.join(self.node_dir, 'stdout')
-        self.stderr_name = os.path.join(self.node_dir, 'stderr')
-        self.stdout = open(self.stdout_name, 'a')
-        self.stderr = open(self.stderr_name, 'a')
         cmd = self._get_command_line(self.near_root, self.node_dir, boot_node,
                                      self.binary_name)
-        self.pid.value = subprocess.Popen(cmd,
-                                          stdout=self.stdout,
-                                          stderr=self.stderr,
-                                          env=env).pid
+        node_dir = pathlib.Path(self.node_dir)
+        self.stdout_name = node_dir / 'stdout'
+        self.stderr_name = node_dir / 'stderr'
+        with open(self.stdout_name, 'ab') as stdout, \
+             open(self.stderr_name, 'ab') as stderr:
+            self._process = subprocess.Popen(cmd,
+                                             stdin=subprocess.DEVNULL,
+                                             stdout=stdout,
+                                             stderr=stderr,
+                                             env=env)
+        self._pid = self._process.pid
 
         if not skip_starting_proxy:
             self.start_proxy_if_needed()
@@ -360,24 +445,19 @@ class LocalNode(BaseNode):
         except:
             logger.error(
                 '=== failed to start node, rpc does not ready in 10 seconds')
-            self.stdout.close()
-            self.stderr.close()
             if os.environ.get('BUILDKITE'):
                 logger.info('=== stdout: ')
-                logger.info(open(self.stdout_name).read())
+                logger.info(stdout.read_text('utf-8', 'replace'))
                 logger.info('=== stderr: ')
-                logger.info(open(self.stderr_name).read())
+                logger.info(stderr.read_text('utf-8', 'replace'))
 
     def kill(self):
-        if self.pid.value != 0:
-            try:
-                os.kill(self.pid.value, signal.SIGKILL)
-            except ProcessLookupError:
-                pass  # the process has already terminated
-            self.pid.value = 0
-
-            if self._proxy_local_stopped is not None:
-                self._proxy_local_stopped.value = 1
+        if self._proxy_local_stopped is not None:
+            self._proxy_local_stopped.value = 1
+        if self._process:
+            self._process.kill()
+            self._process.wait(5)
+            self._process = None
 
     def reset_data(self):
         shutil.rmtree(os.path.join(self.node_dir, "data"))
@@ -409,12 +489,12 @@ class LocalNode(BaseNode):
         self.cleaned = True
 
     def stop_network(self):
-        logger.info("Stopping network for process %s" % self.pid.value)
-        network.stop(self.pid.value)
+        logger.info(f'Stopping network for process {self._pid}')
+        network.stop(self._pid)
 
     def resume_network(self):
-        logger.info("Resuming network for process %s" % self.pid.value)
-        network.resume_network(self.pid.value)
+        logger.info(f'Resuming network for process {self._pid}')
+        network.resume_network(self._pid)
 
 
 class GCloudNode(BaseNode):
@@ -635,9 +715,9 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
     # apply config changes
     for i, node_dir in enumerate(node_dirs):
         apply_genesis_changes(node_dir, genesis_config_changes)
-        if i in client_config_changes:
-            client_config_change = client_config_changes[i]
-            apply_config_changes(node_dir, client_config_change)
+        overrides = client_config_changes.get(i)
+        if overrides:
+            apply_config_changes(node_dir, overrides)
 
     return near_root, node_dirs
 
@@ -645,40 +725,39 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
 def apply_genesis_changes(node_dir, genesis_config_changes):
     # apply genesis.json changes
     fname = os.path.join(node_dir, 'genesis.json')
-    with open(fname) as f:
-        genesis_config = json.loads(f.read())
+    with open(fname) as fd:
+        genesis_config = json.load(fd)
     for change in genesis_config_changes:
         cur = genesis_config
         for s in change[:-2]:
             cur = cur[s]
         assert change[-2] in cur
         cur[change[-2]] = change[-1]
-    with open(fname, 'w') as f:
-        f.write(json.dumps(genesis_config, indent=2))
+    with open(fname, 'w') as fd:
+        json.dump(genesis_config, fd, indent=2)
 
 
 def apply_config_changes(node_dir, client_config_change):
     # apply config.json changes
     fname = os.path.join(node_dir, 'config.json')
-    with open(fname) as f:
-        config_json = json.loads(f.read())
+    with open(fname) as fd:
+        config_json = json.load(fd)
 
     # ClientConfig keys which are valid but may be missing from the config.json
-    # file.  At the moment it’s only max_gas_burnt_view which is an Option and
-    # None by default.  If None, the key is not present in the file.
-    allowed_missing_configs = ('max_gas_burnt_view',)
+    # file.  Those are usually Option<T> types which are not stored in JSON file
+    # when None.
+    allowed_missing_configs = ('max_gas_burnt_view', 'rosetta_rpc')
 
     for k, v in client_config_change.items():
-        assert k in allowed_missing_configs or k in config_json
-        if isinstance(v, dict):
-            for key, value in v.items():
-                assert key in config_json[k], key
-                config_json[k][key] = value
+        if not (k in allowed_missing_configs or k in config_json):
+            raise ValueError(f'Unknown configuration option: {k}')
+        if k in config_json and isinstance(v, dict):
+            config_json[k].update(v)
         else:
             config_json[k] = v
 
-    with open(fname, 'w') as f:
-        f.write(json.dumps(config_json, indent=2))
+    with open(fname, 'w') as fd:
+        json.dump(config_json, fd, indent=2)
 
 
 def start_cluster(num_nodes,
@@ -740,13 +819,13 @@ def start_cluster(num_nodes,
     return nodes
 
 
+ROOT_DIR = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = {
     'local': True,
-    'near_root': os.environ.get("NEAR_ROOT", '../target/debug/'),
+    'near_root': os.environ.get('NEAR_ROOT', str(ROOT_DIR / 'target/debug')),
     'binary_name': 'neard',
     'release': False,
 }
-
 CONFIG_ENV_VAR = 'NEAR_PYTEST_CONFIG'
 
 

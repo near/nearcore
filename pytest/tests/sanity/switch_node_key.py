@@ -1,12 +1,15 @@
+#!/usr/bin/env python3
 # Spin up two validating nodes. Stop one of them after one epoch, switch node key (peer id), and restart.
 # Make sure that both node can still produce blocks.
 
 import sys, time, base58, nacl.bindings
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from key import Key
+import utils
 
 EPOCH_LENGTH = 40
 STOP_HEIGHT1 = 35
@@ -25,25 +28,13 @@ nodes = start_cluster(
      ], ["total_supply", "3100000000000000000000000000000000"]], {1: config1})
 time.sleep(2)
 
-status1 = nodes[1].get_status()
-height1 = status1['sync_info']['latest_block_height']
-block = nodes[1].get_block(height1)
+block = nodes[1].get_block(nodes[1].get_latest_block().height)
 epoch_id = block['result']['header']['epoch_id']
 
-start = time.time()
-while True:
-    assert time.time() - start < TIMEOUT
-    time.sleep(1)
-    status1 = nodes[1].get_status()
-    height1 = status1['sync_info']['latest_block_height']
-    if height1 > STOP_HEIGHT1:
-        break
+utils.wait_for_blocks(nodes[1], target=STOP_HEIGHT1)
 
 nodes[1].kill()
-while True:
-    assert time.time() - start < TIMEOUT
-    status = nodes[0].get_status()
-    height = status['sync_info']['latest_block_height']
+for height, _ in utils.poll_blocks(nodes[0], timeout=TIMEOUT):
     cur_block = nodes[0].get_block(height)
     if cur_block['result']['header']['epoch_id'] != epoch_id:
         break
@@ -57,12 +48,9 @@ nodes[1].reset_node_key(node_key)
 nodes[1].start(boot_node=nodes[0])
 time.sleep(2)
 
-start = time.time()
-while height1 < EPOCH_LENGTH * 2 + 5:
-    assert time.time() - start < TIMEOUT * 2
-    time.sleep(1)
-    status1 = nodes[1].get_status()
-    height1 = status1['sync_info']['latest_block_height']
+utils.wait_for_blocks(nodes[1],
+                      target=EPOCH_LENGTH * 2 + 5,
+                      timeout=TIMEOUT * 2)
 
 validators = nodes[1].get_validators()
 assert len(

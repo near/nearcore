@@ -44,7 +44,7 @@ impl<'a> ContractModule<'a> {
 
         let mut tmp = MemorySection::default();
 
-        module.memory_section_mut().unwrap_or_else(|| &mut tmp).entries_mut().pop();
+        module.memory_section_mut().unwrap_or(&mut tmp).entries_mut().pop();
 
         let entry = elements::MemoryType::new(
             config.limit_config.initial_memory_pages,
@@ -127,7 +127,7 @@ impl<'a> ContractModule<'a> {
             };
 
             let Type::Function(ref _func_ty) =
-                types.get(*type_idx as usize).ok_or_else(|| PrepareError::Instantiate)?;
+                types.get(*type_idx as usize).ok_or(PrepareError::Instantiate)?;
 
             // TODO: Function type check with Env
             /*
@@ -185,12 +185,12 @@ impl<'a> ContractModule<'a> {
 /// The preprocessing includes injecting code for gas metering and metering the height of stack.
 pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u8>, PrepareError> {
     ContractModule::init(original_code, config)?
+        .validate_functions_number()?
         .standardize_mem()
         .ensure_no_internal_memory()?
         .inject_gas_metering()?
         .inject_stack_height_metering()?
         .scan_imports()?
-        .validate_functions_number()?
         .into_wasm_code()
 }
 
@@ -235,6 +235,26 @@ mod tests {
         // requested maximum exceed configured maximum
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 33)))"#);
         assert_matches!(r, Ok(_));
+    }
+
+    #[test]
+    fn multiple_valid_memory_are_disabled() {
+        // Our preparation and sanitization pass assumes a single memory, so we should fail when
+        // there are multiple specified.
+        let r = parse_and_prepare_wat(
+            r#"(module
+          (import "env" "memory" (memory 1 2048))
+          (import "env" "memory" (memory 1 2048))
+        )"#,
+        );
+        assert_matches!(r, Err(_));
+        let r = parse_and_prepare_wat(
+            r#"(module
+          (import "env" "memory" (memory 1 2048))
+          (memory 1)
+        )"#,
+        );
+        assert_matches!(r, Err(_));
     }
 
     #[test]

@@ -1,10 +1,12 @@
+#!/usr/bin/env python3
 # Spins up three validating nodes. Stop one of them and make another one produce
 # sufficient number of blocks. Restart the stopped node and check that it can
 # still sync. Repeat. Then check all old data is removed.
 
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 swap_nodes = False
 if "swap_nodes" in sys.argv:
@@ -12,10 +14,11 @@ if "swap_nodes" in sys.argv:
 
 from cluster import start_cluster
 from configured_logger import logger
+import utils
 
-TARGET_HEIGHT_1 = 60
-TARGET_HEIGHT_2 = 170
-TARGET_HEIGHT_3 = 250
+TARGET_HEIGHT1 = 60
+TARGET_HEIGHT2 = 170
+TARGET_HEIGHT3 = 250
 TIMEOUT = 300
 
 consensus_config = {
@@ -44,28 +47,19 @@ nodes = start_cluster(
 logger.info('Kill node 1')
 nodes[1].kill()
 
-node0_height = 0
-while node0_height < TARGET_HEIGHT_1:
-    status = nodes[0].get_status()
-    logger.info(status)
-    node0_height = status['sync_info']['latest_block_height']
-    time.sleep(2)
+node0_height, _ = utils.wait_for_blocks(nodes[0],
+                                        target=TARGET_HEIGHT1,
+                                        timeout=TIMEOUT,
+                                        verbose=True)
 
 logger.info('Restart node 1')
 nodes[1].start(boot_node=nodes[1])
 time.sleep(3)
 
-start_time = time.time()
-
-node1_height = 0
-while True:
-    assert time.time() - start_time < TIMEOUT, "Block sync timed out, phase 1"
-    status = nodes[1].get_status()
-    logger.info(status)
-    node1_height = status['sync_info']['latest_block_height']
-    if node1_height >= node0_height:
-        break
-    time.sleep(2)
+node1_height, _ = utils.wait_for_blocks(nodes[1],
+                                        target=node0_height,
+                                        timeout=TIMEOUT,
+                                        verbose=True)
 
 if swap_nodes:
     logger.info('Swap nodes 0 and 1')
@@ -74,28 +68,19 @@ if swap_nodes:
 logger.info('Kill node 1')
 nodes[1].kill()
 
-node0_height = 0
-while node0_height < TARGET_HEIGHT_2:
-    status = nodes[0].get_status()
-    logger.info(status)
-    node0_height = status['sync_info']['latest_block_height']
-    time.sleep(2)
+node0_height, _ = utils.wait_for_blocks(nodes[0],
+                                        target=TARGET_HEIGHT2,
+                                        timeout=TIMEOUT,
+                                        verbose=True)
 
 logger.info('Restart node 1')
 nodes[1].start(boot_node=nodes[1])
 time.sleep(3)
 
-start_time = time.time()
-
-node1_height = 0
-while True:
-    assert time.time() - start_time < TIMEOUT, "Block sync timed out, phase 2"
-    status = nodes[1].get_status()
-    logger.info(status)
-    node1_height = status['sync_info']['latest_block_height']
-    if node1_height >= node0_height:
-        break
-    time.sleep(2)
+node1_height, _ = utils.wait_for_blocks(nodes[1],
+                                        target=node0_height,
+                                        timeout=TIMEOUT,
+                                        verbose=True)
 
 # all fresh data should be synced
 blocks_count = 0
@@ -135,10 +120,9 @@ for height in range(130, 150):
 assert blocks_count == 0
 
 # check that node can GC normally after syncing
-while node1_height < TARGET_HEIGHT_3:
-    status = nodes[1].get_status()
-    logger.info(status)
-    node1_height = status['sync_info']['latest_block_height']
-    time.sleep(2)
+utils.wait_for_blocks(nodes[1],
+                      target=TARGET_HEIGHT3,
+                      timeout=TIMEOUT,
+                      verbose=True)
 
 logger.info('EPIC')

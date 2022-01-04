@@ -12,6 +12,7 @@ use borsh::BorshSerialize;
 use chrono::DateTime;
 use log::{debug, error, info, trace, warn};
 use near_primitives::time::{Clock, Utc};
+use rand::Rng;
 
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
@@ -26,22 +27,20 @@ use near_chain::{
 use near_chain_configs::ClientConfig;
 #[cfg(feature = "test_features")]
 use near_chain_configs::GenesisConfig;
-use near_crypto::Signature;
-#[cfg(feature = "sandbox")]
-use near_network::types::SandboxResponse;
 use near_network::types::{
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, PeerManagerAdapter,
+    NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
+    PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_network::types::{NetworkInfo, PeerManagerMessageRequest};
 #[cfg(feature = "test_features")]
 use near_network_primitives::types::NetworkAdversarialMessage;
 #[cfg(feature = "sandbox")]
 use near_network_primitives::types::NetworkSandboxMessage;
 use near_performance_metrics;
 use near_performance_metrics_macros::{perf, perf_with_debug};
+use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::{BlockHeight, EpochId};
+use near_primitives::types::BlockHeight;
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -137,17 +136,17 @@ impl ClientActor {
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         telemetry_actor: Addr<TelemetryActor>,
         enable_doomslug: bool,
+        rng_seed: RngSeed,
         ctx: &Context<ClientActor>,
         #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
-        let runtime_adapter_clone = Arc::clone(&runtime_adapter);
         let sync_jobs_actor_addr = SyncJobsActor::start_in_arbiter(
             &state_parts_arbiter.handle(),
             move |ctx: &mut Context<SyncJobsActor>| -> SyncJobsActor {
                 ctx.set_mailbox_capacity(SyncJobsActor::MAILBOX_CAPACITY);
-                SyncJobsActor { runtime: runtime_adapter_clone, client_addr: self_addr }
+                SyncJobsActor { client_addr: self_addr }
             },
         );
         wait_until_genesis(&chain_genesis.time);
@@ -162,6 +161,7 @@ impl ClientActor {
             network_adapter.clone(),
             validator_signer,
             enable_doomslug,
+            rng_seed,
         )?;
 
         let now = Utc::now();
@@ -172,8 +172,8 @@ impl ClientActor {
             network_adapter,
             node_id,
             network_info: NetworkInfo {
-                active_peers: vec![],
-                num_active_peers: 0,
+                connected_peers: vec![],
+                num_connected_peers: 0,
                 peer_max_count: 0,
                 highest_height_peers: vec![],
                 received_bytes_per_sec: 0,
@@ -361,7 +361,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     }
                     NetworkSandboxMessage::SandboxPatchStateStatus => {
                         NetworkClientResponses::SandboxResult(
-                            SandboxResponse::SandboxPatchStateFinished(
+                            near_network_primitives::types::SandboxResponse::SandboxPatchStateFinished(
                                 !self.client.chain.patch_state_in_progress(),
                             ),
                         )
@@ -618,7 +618,7 @@ impl Handler<Status> for ClientActor {
         let head = self.client.chain.head()?;
         let head_header = self.client.chain.get_block_header(&head.last_block_hash)?;
         let latest_block_time = head_header.raw_timestamp();
-        let latest_state_root = head_header.prev_state_root().clone().into();
+        let latest_state_root = (*head_header.prev_state_root()).into();
         if msg.is_health_check {
             let now = Utc::now();
             let block_timestamp = from_timestamp(latest_block_time);
@@ -699,14 +699,14 @@ impl Handler<GetNetworkInfo> for ClientActor {
         self.check_triggers(ctx);
 
         Ok(NetworkInfoResponse {
-            active_peers: self
+            connected_peers: self
                 .network_info
-                .active_peers
+                .connected_peers
                 .clone()
                 .into_iter()
                 .map(|a| a.peer_info)
                 .collect::<Vec<_>>(),
-            num_active_peers: self.network_info.num_active_peers,
+            num_connected_peers: self.network_info.num_connected_peers,
             peer_max_count: self.network_info.peer_max_count,
             sent_bytes_per_sec: self.network_info.sent_bytes_per_sec,
             received_bytes_per_sec: self.network_info.received_bytes_per_sec,
@@ -716,23 +716,11 @@ impl Handler<GetNetworkInfo> for ClientActor {
 }
 
 impl ClientActor {
-    fn sign_announce_account(&self, epoch_id: &EpochId) -> Result<Signature, ()> {
-        if let Some(validator_signer) = self.client.validator_signer.as_ref() {
-            Ok(validator_signer.sign_account_announce(
-                &validator_signer.validator_id(),
-                &self.node_id,
-                epoch_id,
-            ))
-        } else {
-            Err(())
-        }
-    }
-
     /// Check if client Account Id should be sent and send it.
     /// Account Id is sent when is not current a validator but are becoming a validator soon.
     fn check_send_announce_account(&mut self, prev_block_hash: CryptoHash) {
         // If no peers, there is no one to announce to.
-        if self.network_info.num_active_peers == 0 {
+        if self.network_info.num_connected_peers == 0 {
             debug!(target: "client", "No peers: skip account announce");
             return;
         }
@@ -765,8 +753,12 @@ impl ClientActor {
         if self.client.is_validator(&next_epoch_id, &prev_block_hash) {
             debug!(target: "client", "Sending announce account for {}", validator_signer.validator_id());
             self.last_validator_announce_time = Some(now);
-            let signature = self.sign_announce_account(&next_epoch_id).unwrap();
 
+            let signature = validator_signer.sign_account_announce(
+                validator_signer.validator_id(),
+                &self.node_id,
+                &next_epoch_id,
+            );
             self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::AnnounceAccount(AnnounceAccount {
                     account_id: validator_signer.validator_id().clone(),
@@ -979,11 +971,12 @@ impl ClientActor {
                 accepted_block.provenance,
             );
             let block = self.client.chain.get_block(&accepted_block.hash).unwrap();
+            let chunks_in_block = block.header().chunk_mask().iter().filter(|&&m| m).count();
             let gas_used = Block::compute_gas_used(block.chunks().iter(), block.header().height());
 
             let last_final_hash = *block.header().last_final_block();
 
-            self.info_helper.block_processed(gas_used);
+            self.info_helper.block_processed(gas_used, chunks_in_block as u64);
             self.check_send_announce_account(last_final_hash);
         }
     }
@@ -1007,7 +1000,7 @@ impl ClientActor {
             block.mark_as_valid();
         } else {
             let chain = &mut self.client.chain;
-            let res = chain.process_block_header(&block.header(), |_| {});
+            let res = chain.process_block_header(block.header(), |_| {});
             let res = res.and_then(|_| chain.validate_block(&block));
             match res {
                 Ok(_) => {
@@ -1021,16 +1014,21 @@ impl ClientActor {
                         self.client.rebroadcast_block(block.as_ref().into_inner());
                     }
                 }
-                Err(e) => {
-                    if e.is_bad_data() {
-                        self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::BanPeer {
-                                peer_id: peer_id.clone(),
-                                ban_reason: ReasonForBan::BadBlockHeader,
-                            },
-                        ));
-                        return Err(e);
-                    }
+                Err(e) if e.is_bad_data() => {
+                    self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::BanPeer {
+                            peer_id: peer_id.clone(),
+                            ban_reason: ReasonForBan::BadBlockHeader,
+                        },
+                    ));
+                    return Err(e);
+                }
+                Err(_) => {
+                    // We are ignoring all other errors and proceeding with the
+                    // block.  If it is an orphan (i.e. we haven’t processed its
+                    // previous block) than we will get MissingBlock errors.  In
+                    // those cases we shouldn’t reject the block instead passing
+                    // it along.  Eventually, it’ll get saved as an orphan.
                 }
             }
         }
@@ -1084,7 +1082,7 @@ impl ClientActor {
                 // we don't need to do anything here
                 near_chain::ErrorKind::ChunksMissing(_) => {}
                 _ => {
-                    debug!(target: "client", "Process block: block {} refused by chain: {}", hash, e.kind());
+                    debug!(target: "client", "Process block: block {} refused by chain: {:?}", hash, e.kind());
                 }
             },
         }
@@ -1181,7 +1179,7 @@ impl ClientActor {
     /// Starts syncing and then switches to either syncing or regular mode.
     fn start_sync(&mut self, ctx: &mut Context<ClientActor>) {
         // Wait for connections reach at least minimum peers unless skipping sync.
-        if self.network_info.num_active_peers < self.client.config.min_num_peers
+        if self.network_info.num_connected_peers < self.client.config.min_num_peers
             && !self.client.config.skip_sync_wait
         {
             near_performance_metrics::actix::run_later(
@@ -1352,7 +1350,7 @@ impl ClientActor {
                 let (sync_hash, mut new_shard_sync, just_enter_state_sync) =
                     match &self.client.sync_status {
                         SyncStatus::StateSync(sync_hash, shard_sync) => {
-                            (sync_hash.clone(), shard_sync.clone(), false)
+                            (*sync_hash, shard_sync.clone(), false)
                         }
                         _ => {
                             let sync_hash = unwrap_or_run_later!(self.find_sync_hash());
@@ -1363,19 +1361,18 @@ impl ClientActor {
                 let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
                 let block_header =
                     unwrap_or_run_later!(self.client.chain.get_block_header(&sync_hash));
-                let prev_hash = block_header.prev_hash().clone();
+                let prev_hash = *block_header.prev_hash();
                 let epoch_id = self.client.chain.get_block_header(&sync_hash).unwrap().epoch_id();
-                let shards_to_sync =
-                    (0..self.client.runtime_adapter.num_shards(&epoch_id).unwrap())
-                        .filter(|x| {
-                            self.client.shards_mgr.cares_about_shard_this_or_next_epoch(
-                                me.as_ref(),
-                                &prev_hash,
-                                *x,
-                                true,
-                            )
-                        })
-                        .collect();
+                let shards_to_sync = (0..self.client.runtime_adapter.num_shards(epoch_id).unwrap())
+                    .filter(|x| {
+                        self.client.shards_mgr.cares_about_shard_this_or_next_epoch(
+                            me.as_ref(),
+                            &prev_hash,
+                            *x,
+                            true,
+                        )
+                    })
+                    .collect();
 
                 if !self.client.config.archive && just_enter_state_sync {
                     unwrap_or_run_later!(self.client.chain.reset_data_pre_state_sync(sync_hash));
@@ -1476,7 +1473,7 @@ impl ClientActor {
                     );
                     let num_validators = validators.len();
                     let account_id = act.client.validator_signer.as_ref().map(|x| x.validator_id());
-                    let is_validator = if let Some(ref account_id) = account_id {
+                    let is_validator = if let Some(account_id) = account_id {
                         match act.client.runtime_adapter.get_validator_by_account_id(
                             &head.epoch_id,
                             &head.last_block_hash,
@@ -1515,7 +1512,6 @@ impl Drop for ClientActor {
 }
 
 struct SyncJobsActor {
-    runtime: Arc<dyn RuntimeAdapter>,
     client_addr: Addr<ClientActor>,
 }
 
@@ -1526,13 +1522,13 @@ impl SyncJobsActor {
         &mut self,
         msg: &ApplyStatePartsRequest,
     ) -> Result<(), near_chain_primitives::error::Error> {
-        let store = self.runtime.get_store();
+        let store = msg.runtime.get_store();
 
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
             let part = store.get(ColStateParts, &key)?.unwrap();
 
-            self.runtime.apply_state_part(
+            msg.runtime.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
                 part_id,
@@ -1615,7 +1611,7 @@ impl Handler<StateSplitRequest> for SyncJobsActor {
     type Result = ();
 
     fn handle(&mut self, msg: StateSplitRequest, _: &mut Self::Context) -> Self::Result {
-        let results = self.runtime.build_state_for_split_shards(
+        let results = msg.runtime.build_state_for_split_shards(
             msg.shard_uid,
             &msg.state_root,
             &msg.next_epoch_shard_layout,
@@ -1642,6 +1638,13 @@ impl Handler<StateSplitResponse> for ClientActor {
     }
 }
 
+/// Returns random seed sampled from the current thread
+pub fn random_seed_from_thread() -> RngSeed {
+    let mut rng_seed: RngSeed = [0; 32];
+    rand::thread_rng().fill(&mut rng_seed);
+    rng_seed
+}
+
 /// Starts client in a separate Arbiter (thread).
 pub fn start_client(
     client_config: ClientConfig,
@@ -1664,6 +1667,7 @@ pub fn start_client(
             validator_signer,
             telemetry_actor,
             true,
+            random_seed_from_thread(),
             ctx,
             #[cfg(feature = "test_features")]
             adv,

@@ -4,11 +4,13 @@ version = "0.0.0"
 license = "MIT OR Apache-2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 
 [dependencies]
 byteorder = "1.2"
-bytesize = "1"
+bytesize = "1.1"
 derive_more = "0.99.3"
 elastic-array = "0.11"
 lazy_static = "1.4"
@@ -35,6 +37,10 @@ rand = "0.7"
 
 [[bench]]
 name = "trie_bench"
+harness = false
+
+[[bench]]
+name = "store_bench"
 harness = false
 
 [features]

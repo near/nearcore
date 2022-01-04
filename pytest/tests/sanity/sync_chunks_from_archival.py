@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up two nodes; Let's them build the chain for several epochs;
 # Spins up two more nodes, and makes the two new nodes to stake, and the old two to unstake;
 # Makes the two new nodes to build for couple more epochs;
@@ -9,16 +10,18 @@
 import sys, time, logging, base58
 import multiprocessing
 from functools import partial
+import pathlib
 
 from requests.api import request
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import init_cluster, spin_up_node, load_config
 from configured_logger import logger
 from messages.block import ShardChunkHeaderV1, ShardChunkHeaderV2, ShardChunkHeaderV3
 from transaction import sign_staking_tx
 from proxy import ProxyHandler, NodesProxy
+import utils
 
 TIMEOUT = 200
 EPOCH_LENGTH = 10
@@ -168,14 +171,10 @@ if __name__ == '__main__':
     def get_validators(node):
         return set([x['account_id'] for x in node.get_status()['validators']])
 
-    logging.info("Getting to height %s" % HEIGHTS_BEFORE_ROTATE)
-    while True:
-        assert time.time() - started < TIMEOUT
-        status = boot_node.get_status()
-        new_height = status['sync_info']['latest_block_height']
-        if new_height > HEIGHTS_BEFORE_ROTATE:
-            break
-        time.sleep(1)
+    logging.info(f'Getting to height {HEIGHTS_BEFORE_ROTATE}')
+    utils.wait_for_blocks(boot_node,
+                          target=HEIGHTS_BEFORE_ROTATE,
+                          timeout=TIMEOUT)
 
     node2 = spin_up_node(config,
                          near_root,
@@ -190,8 +189,7 @@ if __name__ == '__main__':
                          boot_node=boot_node,
                          proxy=proxy)
 
-    status = boot_node.get_status()
-    hash_ = status['sync_info']['latest_block_hash']
+    hash_ = boot_node.get_latest_block().hash_bytes
 
     logging.info("Waiting for the new nodes to sync")
     while True:
@@ -208,7 +206,7 @@ if __name__ == '__main__':
         logging.info("Rotating validators")
         for ord_, node in enumerate(reversed(nodes)):
             tx = sign_staking_tx(node.signer_key, node.validator_key, stake, 10,
-                                 base58.b58decode(hash_.encode('utf8')))
+                                 hash_)
             boot_node.send_tx(tx)
 
         logging.info("Waiting for rotation to occur")
@@ -219,22 +217,17 @@ if __name__ == '__main__':
             else:
                 time.sleep(1)
 
-    status = boot_node.get_status()
-    start_height = status['sync_info']['latest_block_height']
+    start_height = boot_node.get_latest_block().height
 
     logging.info("Killing old nodes")
     boot_node.kill()
     node1.kill()
 
-    logging.info("Getting to height %s" % (start_height + HEIGHTS_BEFORE_CHECK))
-    while True:
-        assert time.time() - started < TIMEOUT
-        status = node2.get_status()
-        new_height = status['sync_info']['latest_block_height']
-        if new_height > start_height + HEIGHTS_BEFORE_CHECK:
-            height_to_sync_to = new_height
-            break
-        time.sleep(1)
+    target = start_height + HEIGHTS_BEFORE_CHECK
+    logging.info(f'Getting to height {target}')
+    height_to_sync_to, _ = utils.wait_for_blocks(node2,
+                                                 target=target,
+                                                 timeout=TIMEOUT)
 
     logging.info("Spinning up one more node")
     node4 = spin_up_node(config, near_root, node_dirs[4], 4, boot_node=node2)
@@ -243,9 +236,9 @@ if __name__ == '__main__':
                  (time.time() - started))
     while True:
         assert time.time() - started < TIMEOUT
-        status = node4.get_status()
-        new_height = status['sync_info']['latest_block_height']
-        if not status['sync_info']['syncing']:
+        sync_info = node4.get_status()['sync_info']
+        if not sync_info['syncing']:
+            new_height = sync_info['latest_block_height']
             assert new_height > height_to_sync_to, "new height %s height to sync to %s" % (
                 new_height, height_to_sync_to)
             break

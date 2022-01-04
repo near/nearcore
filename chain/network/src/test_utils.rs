@@ -2,13 +2,12 @@ use crate::types::{
     NetworkInfo, NetworkResponses, PeerManagerAdapter, PeerManagerMessageRequest,
     PeerManagerMessageResponse,
 };
-use crate::PeerInfo;
 use crate::PeerManagerActor;
 use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::future::BoxFuture;
 use futures::{future, FutureExt};
 use near_crypto::{KeyType, SecretKey};
-use near_network_primitives::types::ReasonForBan;
+use near_network_primitives::types::{PeerInfo, ReasonForBan};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
@@ -56,7 +55,7 @@ pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
     let mut result = vec![];
     for (peer_seed, port) in boot_nodes {
         let id = peer_id_from_seed(peer_seed);
-        result.push(PeerInfo::new(id.into(), format!("127.0.0.1:{}", port).parse().unwrap()))
+        result.push(PeerInfo::new(id, format!("127.0.0.1:{}", port).parse().unwrap()))
     }
     result
 }
@@ -76,7 +75,7 @@ pub fn wait_or_panic(max_wait_ms: u64) {
 ///
 /// # Example
 ///
-/// ```
+/// ```rust,ignore
 /// use actix::{System, Actor};
 /// use near_network::test_utils::WaitOrTimeoutActor;
 /// use std::time::{Instant, Duration};
@@ -163,7 +162,7 @@ pub fn expected_routing_tables(
 
     for (peer, paths) in expected.into_iter() {
         let cur_paths = current.get(&peer);
-        if !cur_paths.is_some() {
+        if cur_paths.is_none() {
             return false;
         }
         let cur_paths = cur_paths.unwrap();
@@ -196,17 +195,13 @@ impl Handler<GetInfo> for PeerManagerActor {
 }
 
 // `StopSignal is used to stop PeerManagerActor for unit tests
-#[derive(Message)]
+#[derive(Message, Default)]
 #[rtype(result = "()")]
 pub struct StopSignal {
     pub should_panic: bool,
 }
 
 impl StopSignal {
-    pub fn new() -> Self {
-        Self { should_panic: false }
-    }
-
     pub fn should_panic() -> Self {
         Self { should_panic: true }
     }
@@ -279,10 +274,10 @@ impl MockPeerManagerAdapter {
 
 #[cfg(feature = "test_features")]
 pub mod test_features {
-    use crate::routing::routing_table_actor::start_routing_table_actor;
+    use crate::routing::routing_table_actor::{start_routing_table_actor, RoutingTableActor};
     use crate::test_utils::{convert_boot_nodes, open_port};
     use crate::types::{NetworkClientMessages, NetworkClientResponses};
-    use crate::{PeerManagerActor, RoutingTableActor};
+    use crate::PeerManagerActor;
     use actix::actors::mocker::Mocker;
     use actix::{Actor, Addr};
     use near_network_primitives::types::{

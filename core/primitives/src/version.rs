@@ -1,11 +1,9 @@
-#[cfg(feature = "deepsize_feature")]
-use deepsize::DeepSizeOf;
 use serde::{Deserialize, Serialize};
 
 use crate::types::Balance;
 
 /// Data structure for semver version and github tag or commit.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Version {
     pub version: String,
@@ -16,13 +14,10 @@ pub struct Version {
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 30;
+pub const DB_VERSION: DbVersion = 31;
 
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
-
-/// Oldest supported version by this client.
-pub const OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION: ProtocolVersion = 34;
 
 /// Minimum gas price proposed in NEP 92 and the associated protocol version
 pub const MIN_GAS_PRICE_NEP_92: Balance = 1_000_000_000;
@@ -86,6 +81,8 @@ pub enum ProtocolFeature {
     // stable features
     ForwardChunkParts,
     RectifyInflation,
+    /// Add `AccessKey` nonce range by setting nonce to `(block_height - 1) * 1e6`, see
+    /// <https://github.com/near/nearcore/issues/3779>.
     AccessKeyNonceRange,
     FixApplyChunks,
     LowerStorageCost,
@@ -102,7 +99,7 @@ pub enum ProtocolFeature {
     MathExtension,
     /// Restore receipts that were previously stuck because of
     /// <https://github.com/near/nearcore/pull/4228>.
-    RestoreReceiptsAfterFix,
+    RestoreReceiptsAfterFixApplyChunks,
     /// This feature switch our WASM engine implementation from wasmer 0.* to
     /// wasmer 2.*, bringing better performance and reliability.
     ///
@@ -128,6 +125,8 @@ pub enum ProtocolFeature {
     /// https://github.com/near/NEPs/pull/167 for general description, note that we would not
     /// introduce chunk-only validators with this feature
     AliasValidatorSelectionAlgorithm,
+    /// Add `AccessKey` nonce range for implicit accounts, as in `AccessKeyNonceRange` feature.
+    AccessKeyNonceForImplicitAccounts,
 
     // nightly features
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -138,15 +137,21 @@ pub enum ProtocolFeature {
     RoutingExchangeAlgorithm,
 }
 
-/// Current latest stable version of the protocol.
+/// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
+/// protocol version is lower than this.
+pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = MAIN_NET_PROTOCOL_VERSION - 2;
+
+/// Current protocol version used on the main net.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-#[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 49;
+const MAIN_NET_PROTOCOL_VERSION: ProtocolVersion = 50;
 
+/// Version used by this binary.
+#[cfg(not(feature = "nightly_protocol"))]
+pub const PROTOCOL_VERSION: ProtocolVersion = MAIN_NET_PROTOCOL_VERSION;
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 124;
+pub const PROTOCOL_VERSION: ProtocolVersion = 125;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -164,7 +169,7 @@ impl ProtocolFeature {
             | ProtocolFeature::CapMaxGasPrice
             | ProtocolFeature::CountRefundReceiptsInGasLimit
             | ProtocolFeature::MathExtension => 46,
-            ProtocolFeature::RestoreReceiptsAfterFix => 47,
+            ProtocolFeature::RestoreReceiptsAfterFixApplyChunks => 47,
             ProtocolFeature::Wasmer2
             | ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost
             | ProtocolFeature::LowerRegularOpCost
@@ -173,6 +178,7 @@ impl ProtocolFeature {
             | ProtocolFeature::LimitContractFunctionsNumber
             | ProtocolFeature::BlockHeaderV3
             | ProtocolFeature::AliasValidatorSelectionAlgorithm => 49,
+            ProtocolFeature::AccessKeyNonceForImplicitAccounts => 50,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]

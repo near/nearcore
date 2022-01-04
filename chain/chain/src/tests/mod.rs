@@ -1,5 +1,9 @@
 mod challenges;
+#[cfg(feature = "expensive_tests")]
+mod doomslug;
+mod gc;
 mod simple_chain;
+mod sync_chain;
 
 use crate::types::Tip;
 use crate::{Block, Chain, Error, Provenance};

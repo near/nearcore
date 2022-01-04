@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import argparse
 import json
 import os
 import subprocess
@@ -41,7 +40,7 @@ def docker_init(image, home_dir, init_flags):
 
 
 def nodocker_init(home_dir, is_release, init_flags):
-    target = './target/%s/near' % ('release' if is_release else 'debug')
+    target = './target/%s/neard' % ('release' if is_release else 'debug')
     cmd = [target]
     if home_dir:
         cmd.extend(['--home', home_dir])
@@ -87,18 +86,18 @@ def check_and_setup(nodocker,
 
     chain_id = get_chain_id_from_flags(init_flags)
     if os.path.exists(os.path.join(home_dir, 'config.json')):
-        genesis_config = json.loads(
-            open(os.path.join(os.path.join(home_dir, 'genesis.json'))).read())
+        with open(os.path.join(os.path.join(home_dir, 'genesis.json'))) as fd:
+            genesis_config = json.load(fd)
         if chain_id != '' and genesis_config['chain_id'] != chain_id:
             if chain_id == 'testnet':
                 print(
-                    "Folder %s already has network configuration for %s, which is not the official TestNet.\n"
+                    "Folder %s already has network configuration for %s, which is not the official testnet.\n"
                     "Use ./scripts/start_localnet.py instead to keep running with existing configuration.\n"
                     "If you want to run a different network, either specify different --home or remove %s to start from scratch."
                     % (home_dir, genesis_config['chain_id'], home_dir))
             elif genesis_config['chain_id'] == 'testnet':
                 print(
-                    "Folder %s already has network configuration for the official TestNet.\n"
+                    "Folder %s already has network configuration for the official testnet.\n"
                     "Use ./scripts/start_testnet.py instead to keep running it.\n"
                     "If you want to run a different network, either specify different --home or remove %s to start from scratch"
                     % (home_dir, home_dir))
@@ -141,7 +140,8 @@ def check_and_setup(nodocker,
         docker_init(image, home_dir, init_flags)
     if no_gas_price:
         filename = os.path.join(home_dir, 'genesis.json')
-        genesis_config = json.load(open(filename))
+        with open(filename) as fd:
+            genesis_config = json.load(fd)
         genesis_config['gas_price'] = 0
         genesis_config['min_gas_price'] = 0
         json.dump(genesis_config, open(filename, 'w'))
@@ -152,7 +152,8 @@ def print_staking_key(home_dir):
     if not os.path.exists(key_path):
         return
 
-    key_file = json.loads(open(key_path).read())
+    with open(key_path) as fd:
+        key_file = json.load(fd)
     if not key_file['account_id']:
         print("Node is not staking. Re-run init to specify staking account.")
         return
@@ -228,7 +229,7 @@ def run_nodocker(home_dir, is_release, boot_nodes, telemetry_url, verbose):
     print("Starting NEAR client...")
     print(
         "Autoupdate is not supported at the moment for runs outside of docker")
-    cmd = ['./target/%s/near' % ('release' if is_release else 'debug')]
+    cmd = ['./target/%s/neard' % ('release' if is_release else 'debug')]
     cmd.extend(['--home', home_dir])
     if verbose:
         cmd += ['--verbose', '']

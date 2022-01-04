@@ -8,7 +8,6 @@ use log::info;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
 
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
-use near_metrics::set_gauge;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
@@ -21,8 +20,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::Version;
 use near_telemetry::{telemetry, TelemetryActor};
 
-use crate::metrics;
-use crate::SyncStatus;
+use crate::{metrics, SyncStatus};
 use near_client_primitives::types::ShardSyncStatus;
 use near_primitives::time::Clock;
 
@@ -43,6 +41,8 @@ pub struct InfoHelper {
     started: Instant,
     /// Total number of blocks processed.
     num_blocks_processed: u64,
+    /// Total number of blocks processed.
+    num_chunks_in_blocks_processed: u64,
     /// Total gas used during period.
     gas_used: u64,
     /// Sign telemetry with block producer key if available.
@@ -66,6 +66,7 @@ impl InfoHelper {
             pid: get_current_pid().ok(),
             started: Clock::instant(),
             num_blocks_processed: 0,
+            num_chunks_in_blocks_processed: 0,
             gas_used: 0,
             telemetry_actor,
             validator_signer,
@@ -73,8 +74,9 @@ impl InfoHelper {
         }
     }
 
-    pub fn block_processed(&mut self, gas_used: Gas) {
+    pub fn block_processed(&mut self, gas_used: Gas, num_chunks: u64) {
         self.num_blocks_processed += 1;
+        self.num_chunks_in_blocks_processed += num_chunks;
         self.gas_used += gas_used;
     }
 
@@ -105,6 +107,11 @@ impl InfoHelper {
         let avg_bls = (self.num_blocks_processed as f64)
             / (self.started.elapsed().as_millis() as f64)
             * 1000.0;
+        let chunks_per_block = if self.num_blocks_processed > 0 {
+            (self.num_chunks_in_blocks_processed as f64) / (self.num_blocks_processed as f64)
+        } else {
+            0.
+        };
         let avg_gas_used =
             ((self.gas_used as f64) / (self.started.elapsed().as_millis() as f64) * 1000.0) as u64;
 
@@ -118,10 +125,10 @@ impl InfoHelper {
             String::new()
         };
 
-        let sync_status_log = display_sync_status(&sync_status, &head, genesis_height);
+        let sync_status_log = display_sync_status(sync_status, head, genesis_height);
         let network_info_log = format!(
             "{:2}/{:?}/{:2} peers ⬇ {} ⬆ {}",
-            network_info.num_active_peers,
+            network_info.num_connected_peers,
             network_info.highest_height_peers.len(),
             network_info.peer_max_count,
             pretty_bytes_per_sec(network_info.received_bytes_per_sec),
@@ -152,17 +159,19 @@ impl InfoHelper {
         };
 
         let is_validator = validator_info.map(|v| v.is_validator).unwrap_or_default();
-        set_gauge(&metrics::IS_VALIDATOR, is_validator as i64);
-        set_gauge(&metrics::RECEIVED_BYTES_PER_SECOND, network_info.received_bytes_per_sec as i64);
-        set_gauge(&metrics::SENT_BYTES_PER_SECOND, network_info.sent_bytes_per_sec as i64);
-        set_gauge(&metrics::BLOCKS_PER_MINUTE, (avg_bls * (60 as f64)) as i64);
-        set_gauge(&metrics::CPU_USAGE, cpu_usage as i64);
-        set_gauge(&metrics::MEMORY_USAGE, (memory_usage * 1024) as i64);
+        (metrics::IS_VALIDATOR.set(is_validator as i64));
+        (metrics::RECEIVED_BYTES_PER_SECOND.set(network_info.received_bytes_per_sec as i64));
+        (metrics::SENT_BYTES_PER_SECOND.set(network_info.sent_bytes_per_sec as i64));
+        (metrics::BLOCKS_PER_MINUTE.set((avg_bls * (60 as f64)) as i64));
+        (metrics::CHUNKS_PER_BLOCK_MILLIS.set((1000. * chunks_per_block) as i64));
+        (metrics::CPU_USAGE.set(cpu_usage as i64));
+        (metrics::MEMORY_USAGE.set((memory_usage * 1024) as i64));
         let teragas = 1_000_000_000_000u64;
-        set_gauge(&metrics::AVG_TGAS_USAGE, (avg_gas_used as f64 / teragas as f64).round() as i64);
+        (metrics::AVG_TGAS_USAGE.set((avg_gas_used as f64 / teragas as f64).round() as i64));
 
         self.started = Clock::instant();
         self.num_blocks_processed = 0;
+        self.num_chunks_in_blocks_processed = 0;
         self.gas_used = 0;
 
         let info = TelemetryInfo {
@@ -184,7 +193,7 @@ impl InfoHelper {
                 status: sync_status.as_variant_name().to_string(),
                 latest_block_hash: to_base(&head.last_block_hash),
                 latest_block_height: head.height,
-                num_peers: network_info.num_active_peers,
+                num_peers: network_info.num_connected_peers,
             },
         };
         // Sign telemetry if there is a signer present.
@@ -237,7 +246,7 @@ fn display_sync_status(
             )
         }
         SyncStatus::StateSync(sync_hash, shard_statuses) => {
-            let mut res = format!("State {:?}", sync_hash).to_string();
+            let mut res = format!("State {:?}", sync_hash);
             let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
             shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
             for (shard_id, shard_status) in shard_statuses {

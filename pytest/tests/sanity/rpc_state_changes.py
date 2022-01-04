@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up four nodes, deploy a smart contract to one node,
 # and call various scenarios to trigger store changes.
 # Check that the key changes are observable via `changes` RPC call.
@@ -7,10 +8,11 @@ import json
 import struct
 import sys
 import threading
+import pathlib
 
 import deepdiff
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from cluster import start_cluster
 from key import Key
 from utils import load_test_contract
@@ -60,15 +62,14 @@ def test_changes_with_new_account_with_access_key():
     )
 
     # Step 1
-    status = nodes[0].get_status()
-    latest_block_hash = status['sync_info']['latest_block_hash']
+    latest_block_hash = nodes[0].get_latest_block().hash_bytes
     create_account_tx = transaction.sign_create_account_with_full_access_key_and_balance_tx(
         creator_key=nodes[0].signer_key,
         new_account_id=new_key.account_id,
         new_key=new_key,
         balance=10**24,
         nonce=7,
-        block_hash=base58.b58decode(latest_block_hash.encode('utf8')))
+        block_hash=latest_block_hash)
     new_account_response = nodes[0].send_tx_and_wait(create_account_tx, 10)
 
     # Step 2
@@ -158,15 +159,14 @@ def test_changes_with_new_account_with_access_key():
                                 expected_response=expected_response)
 
     # Step 3
-    status = nodes[0].get_status()
-    latest_block_hash = status['sync_info']['latest_block_hash']
+    latest_block_hash = nodes[0].get_latest_block().hash_bytes
     nonce += 8
     delete_access_key_tx = transaction.sign_delete_access_key_tx(
         signer_key=new_key,
         target_account_id=new_key.account_id,
         key_for_deletion=new_key,
         nonce=nonce,
-        block_hash=base58.b58decode(latest_block_hash.encode('utf8')))
+        block_hash=latest_block_hash)
     delete_access_key_response = nodes[1].send_tx_and_wait(
         delete_access_key_tx, 10)
 
@@ -335,11 +335,9 @@ def test_key_value_changes():
     contract_blob = load_test_contract()
 
     # Step 1
-    status = nodes[0].get_status()
-    latest_block_hash = status['sync_info']['latest_block_hash']
+    latest_block_hash = nodes[0].get_latest_block().hash_bytes
     deploy_contract_tx = transaction.sign_deploy_contract_tx(
-        contract_key, contract_blob, 10,
-        base58.b58decode(latest_block_hash.encode('utf8')))
+        contract_key, contract_blob, 10, latest_block_hash)
     deploy_contract_response = nodes[0].send_tx_and_wait(deploy_contract_tx, 10)
 
     # Step 2
@@ -425,8 +423,7 @@ def test_key_value_changes():
                                 expected_response=expected_response)
 
     # Step 3
-    status = nodes[1].get_status()
-    latest_block_hash = status['sync_info']['latest_block_hash']
+    latest_block_hash = nodes[1].get_latest_block().hash_bytes
     function_caller_key = nodes[0].signer_key
 
     key = struct.pack('<Q', 42)
@@ -434,10 +431,11 @@ def test_key_value_changes():
 
     def set_value(value, *, nounce):
         args = key + struct.pack('<Q', value)
-        tx = transaction.sign_function_call_tx(
-            function_caller_key, contract_key.account_id, 'write_key_value',
-            args, 300000000000000, 100000000000, nounce,
-            base58.b58decode(latest_block_hash.encode('utf8')))
+        tx = transaction.sign_function_call_tx(function_caller_key,
+                                               contract_key.account_id,
+                                               'write_key_value', args,
+                                               300000000000000, 100000000000,
+                                               nounce, latest_block_hash)
         response = nodes[1].send_tx_and_wait(tx, 10)
         try:
             status = response['result']['receipts_outcome'][0]['outcome'][

@@ -21,10 +21,9 @@ mod wasmtime_runner;
 pub use near_vm_errors::VMError;
 pub use near_vm_logic::with_ext_cost_counter;
 
-pub use cache::get_contract_cache_key;
-pub use cache::precompile_contract;
-pub use cache::precompile_contract_vm;
-pub use cache::MockCompiledContractCache;
+pub use cache::{
+    get_contract_cache_key, precompile_contract, precompile_contract_vm, MockCompiledContractCache,
+};
 pub use preload::{ContractCallPrepareRequest, ContractCallPrepareResult, ContractCaller};
 pub use runner::{run, VM};
 
@@ -33,4 +32,5 @@ pub use runner::{run, VM};
 #[doc(hidden)]
 pub mod internal {
     pub use crate::vm_kind::VMKind;
+    pub use wasmparser;
 }

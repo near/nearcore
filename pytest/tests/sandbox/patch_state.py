@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Patch contract states in a sandbox node
 
 import sys, time
@@ -5,9 +6,10 @@ import base58
 import base64
 import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
+from configured_logger import logger
 from transaction import sign_deploy_contract_tx, sign_function_call_tx
 from utils import load_test_contract
 
@@ -18,13 +20,16 @@ CONFIG = {
 
 
 def figure_out_binary():
+    repo_dir = pathlib.Path(__file__).resolve().parents[3]
     # When run on NayDuck we end up with a binary called neard in target/debug
     # but when run locally the binary might be near-sandbox instead.  Try to
     # figure out whichever binary is available and use that.
     for release in ('release', 'debug'):
-        root = pathlib.Path('../target') / release
+        root = repo_dir / 'target' / release
         for exe in ('near-sandbox', 'neard'):
             if (root / exe).exists():
+                logger.info(
+                    f'Using {(root / exe).relative_to(repo_dir)} binary')
                 CONFIG['near_root'] = str(root)
                 CONFIG['binary_name'] = exe
                 return
@@ -38,23 +43,19 @@ figure_out_binary()
 nodes = start_cluster(1, 0, 1, CONFIG, [["epoch_length", 10]], {})
 
 # deploy contract
-status = nodes[0].get_status()
-hash_ = status['sync_info']['latest_block_hash']
-hash_ = base58.b58decode(hash_.encode('utf8'))
+hash_ = nodes[0].get_latest_block().hash_bytes
 tx = sign_deploy_contract_tx(nodes[0].signer_key, load_test_contract(), 10,
                              hash_)
 nodes[0].send_tx(tx)
 time.sleep(3)
 
 # store a key value
-status2 = nodes[0].get_status()
-hash_2 = status2['sync_info']['latest_block_hash']
-hash_2 = base58.b58decode(hash_2.encode('utf8'))
+hash_ = nodes[0].get_latest_block().hash_bytes
 k = (10).to_bytes(8, byteorder="little")
 v = (20).to_bytes(8, byteorder="little")
 tx2 = sign_function_call_tx(nodes[0].signer_key, nodes[0].signer_key.account_id,
                             'write_key_value', k + v, 1000000000000, 0, 20,
-                            hash_2)
+                            hash_)
 res = nodes[0].send_tx_and_wait(tx2, 20)
 assert ('SuccessValue' in res['result']['status'])
 res = nodes[0].call_function("test0", "read_value",

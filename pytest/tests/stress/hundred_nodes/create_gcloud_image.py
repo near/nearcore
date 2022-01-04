@@ -1,10 +1,12 @@
+#!/usr/bin/env python3
 from utils import user_name
 import sys
 import os
 import datetime
 from rc import gcloud, run
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
 
 additional_flags = ''

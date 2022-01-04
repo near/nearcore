@@ -97,34 +97,25 @@ pub struct NetworkMetrics {
 
 impl NetworkMetrics {
     pub fn new() -> Self {
-        let mut peer_messages = HashMap::new();
-
-        let variants = PeerMessage::VARIANTS
-            .into_iter()
-            .filter(|&name| *name != "Routed")
-            .chain(RoutedMessageBody::VARIANTS.into_iter());
-
-        for name in variants {
-            let counter_name = NetworkMetrics::peer_message_total_rx(name.as_ref());
-            peer_messages.insert(
-                counter_name.clone(),
-                try_create_int_counter(counter_name.as_ref(), counter_name.as_ref()).ok(),
-            );
-
-            let counter_name = NetworkMetrics::peer_message_bytes_rx(name.as_ref());
-            peer_messages.insert(
-                counter_name.clone(),
-                try_create_int_counter(counter_name.as_ref(), counter_name.as_ref()).ok(),
-            );
-
-            let counter_name = NetworkMetrics::peer_message_dropped(name.as_ref());
-            peer_messages.insert(
-                counter_name.clone(),
-                try_create_int_counter(counter_name.as_ref(), counter_name.as_ref()).ok(),
-            );
+        Self {
+            peer_messages: PeerMessage::VARIANTS
+                .iter()
+                .filter(|&name| *name != "Routed")
+                .chain(RoutedMessageBody::VARIANTS.iter())
+                .flat_map(|name: &&str| {
+                    [
+                        NetworkMetrics::peer_message_total_rx,
+                        NetworkMetrics::peer_message_bytes_rx,
+                        NetworkMetrics::peer_message_dropped,
+                    ]
+                    .map(|method| {
+                        let counter_name = method(name);
+                        let counter = try_create_int_counter(&counter_name, &counter_name).ok();
+                        (counter_name, counter)
+                    })
+                })
+                .collect(),
         }
-
-        Self { peer_messages }
     }
 
     pub fn peer_message_total_rx(message_name: &str) -> String {

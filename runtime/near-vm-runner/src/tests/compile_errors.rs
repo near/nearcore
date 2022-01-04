@@ -159,7 +159,7 @@ fn test_limit_contract_functions_number() {
         let functions_number_limit: u32 = 10_000;
         let method_name = "main";
 
-        let code = near_test_contracts::many_functions_contract(functions_number_limit + 10);
+        let code = near_test_contracts::many_functions_contract(functions_number_limit + 1);
         let (_, err) = make_simple_contract_call_with_protocol_version_vm(
             &code,
             method_name,
@@ -168,7 +168,7 @@ fn test_limit_contract_functions_number() {
         );
         assert_eq!(err, None);
 
-        let code = near_test_contracts::many_functions_contract(functions_number_limit - 10);
+        let code = near_test_contracts::many_functions_contract(functions_number_limit);
         let (_, err) = make_simple_contract_call_with_protocol_version_vm(
             &code,
             method_name,
@@ -177,7 +177,7 @@ fn test_limit_contract_functions_number() {
         );
         assert_eq!(err, None);
 
-        let code = near_test_contracts::many_functions_contract(functions_number_limit + 10);
+        let code = near_test_contracts::many_functions_contract(functions_number_limit + 1);
         let (_, err) = make_simple_contract_call_with_protocol_version_vm(
             &code,
             method_name,

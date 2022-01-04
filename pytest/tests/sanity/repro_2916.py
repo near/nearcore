@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Spins up two nodes with two shards, waits for couple blocks, snapshots the
 # latest chunks, and requests both chunks from the first node, asking for
 # receipts for both shards in both requests. We expect the first node to
@@ -13,13 +14,14 @@
 import asyncio, sys, time
 import socket, base58
 import nacl.signing, hashlib
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
 from peer import *
-from utils import obj_to_string
+import utils
 
 from messages.tx import *
 from messages.block import *
@@ -31,27 +33,11 @@ async def main():
     # start a cluster with two shards
     nodes = start_cluster(2, 0, 2, None, [], {})
 
-    started = time.time()
-
-    while True:
-        if time.time() - started > 10:
-            assert False, "Giving up waiting for two blocks"
-
-        status = nodes[0].get_status()
-        hash_ = status['sync_info']['latest_block_hash']
-        height = status['sync_info']['latest_block_height']
-
-        if height > 2:
-            block = nodes[0].get_block(hash_)
-            chunk_hashes = [
-                base58.b58decode(x['chunk_hash'])
-                for x in block['result']['chunks']
-            ]
-
-            assert len(chunk_hashes) == 2
-            assert all([len(x) == 32 for x in chunk_hashes])
-
-            break
+    height, hash_ = utils.wait_for_blocks(nodes[0], target=3, timeout=10)
+    block = nodes[0].get_block(hash_)['result']
+    chunk_hashes = [base58.b58decode(x['chunk_hash']) for x in block['chunks']]
+    assert len(chunk_hashes) == 2
+    assert all([len(x) == 32 for x in chunk_hashes])
 
     my_key_pair_nacl = nacl.signing.SigningKey.generate()
     received_responses = [None, None]

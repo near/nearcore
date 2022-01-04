@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Survive massive state sync for validator
 
@@ -42,8 +43,9 @@ python3 tests/sanity/state_sync_massive_validator.py ~/.near/backup_genesis
 import sys, time, requests, logging
 from subprocess import check_output
 from queue import Queue
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import init_cluster, spin_up_node, load_config
 from populate import genesis_populate_all, copy_genesis
@@ -121,8 +123,7 @@ def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
 
         # Check current height
         try:
-            status = rpc_node.get_status(False)
-            new_height = status['sync_info']['latest_block_height']
+            new_height = rpc_node.get_latest_block(check_storage=False).height
             logging.info(f"Height: {latest_height} => {new_height}")
             latest_height = new_height
         except requests.ReadTimeout:

@@ -3,8 +3,7 @@
 
 use near_primitives::time::Clock;
 use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
@@ -27,16 +26,14 @@ use near_client_primitives::types::{
     GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, QueryError, TxStatus,
     TxStatusError,
 };
-use near_network::types::PeerManagerMessageRequest;
-use near_network::types::{NetworkRequests, PeerManagerAdapter};
+use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 #[cfg(feature = "test_features")]
 use near_network_primitives::types::NetworkAdversarialMessage;
 use near_network_primitives::types::{
     NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
     StateResponseInfoV1, StateResponseInfoV2,
 };
-use near_performance_metrics_macros::perf;
-use near_performance_metrics_macros::perf_with_debug;
+use near_performance_metrics_macros::{perf, perf_with_debug};
 use near_primitives::block::{Block, BlockHeader, GenesisId, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
@@ -207,11 +204,11 @@ impl ViewClientActor {
                 self.chain.get_block_header(&block_hash)
             }
             BlockReference::Finality(ref finality) => self
-                .get_block_hash_by_finality(&finality)
+                .get_block_hash_by_finality(finality)
                 .and_then(|block_hash| self.chain.get_block_header(&block_hash)),
             BlockReference::SyncCheckpoint(ref synchronization_checkpoint) => {
                 if let Some(block_hash) = self
-                    .get_block_hash_by_sync_checkpoint(&synchronization_checkpoint)
+                    .get_block_hash_by_sync_checkpoint(synchronization_checkpoint)
                     .map_err(|err| match err.kind() {
                         near_chain::near_chain_primitives::ErrorKind::DBNotFoundErr(_) => {
                             QueryError::UnknownBlock {
@@ -250,13 +247,13 @@ impl ViewClientActor {
             QueryRequest::CallFunction { account_id, .. } => account_id,
             QueryRequest::ViewCode { account_id, .. } => account_id,
         };
-        let shard_id = self
-            .runtime_adapter
-            .account_id_to_shard_id(account_id, &header.epoch_id())
-            .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
+        let shard_id =
+            self.runtime_adapter
+                .account_id_to_shard_id(account_id, header.epoch_id())
+                .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
         let shard_uid = self
             .runtime_adapter
-            .shard_id_to_uid(shard_id, &header.epoch_id())
+            .shard_id_to_uid(shard_id, header.epoch_id())
             .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
 
         let chunk_extra = self.chain.get_chunk_extra(header.hash(), &shard_uid).map_err(|err| {
@@ -570,7 +567,7 @@ impl Handler<GetBlock> for ViewClientActor {
 
         let block_author = self
             .runtime_adapter
-            .get_block_producer(&block.header().epoch_id(), block.header().height())?;
+            .get_block_producer(block.header().epoch_id(), block.header().height())?;
 
         Ok(BlockView::from_author_block(block_author, block))
     }

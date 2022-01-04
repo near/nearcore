@@ -2,12 +2,14 @@
 name = "near-vm-logic"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
+publish = true
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 categories = ["wasm"]
-repository = "https://github.com/nearprotocol/nearcore"
-homepage = "https://github.com/nearprotocol/nearcore"
+repository = "https://github.com/near/nearcore"
 description = """
 This crate implements the specification of the interface that Near blockchain exposes to the smart contracts.
 """
@@ -40,32 +42,3 @@ protocol_feature_alt_bn128 = ["bn", "near-primitives-core/protocol_feature_alt_b
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []
-
-[[test]]
-name = "test_storage_read_write"
-path = "tests/test_storage_read_write.rs"
-
-[[test]]
-name = "test_context"
-path = "tests/test_context.rs"
-
-[[test]]
-name = "test_miscs"
-path = "tests/test_miscs.rs"
-required-features = ["costs_counting"]
-
-[[test]]
-name = "test_registers"
-path = "tests/test_registers.rs"
-
-[[test]]
-name = "test_storage_usage"
-path = "tests/test_storage_usage.rs"
-
-[[test]]
-name = "test_promises"
-path = "tests/test_promises.rs"
-
-[[test]]
-name = "test_iterators"
-path = "tests/test_iterators.rs"

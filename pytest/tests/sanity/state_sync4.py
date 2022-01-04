@@ -1,16 +1,19 @@
+#!/usr/bin/env python3
 # Spin up one node and create some accounts and make them stake
 # Spin up another node that syncs from the first node.
 # Check that the second node doesn't crash (with trie node missing)
 # during state sync.
 
 import sys, time, base58
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
 from key import Key
 from transaction import sign_staking_tx, sign_create_account_with_full_access_key_and_balance_tx
+import utils
 
 MAX_SYNC_WAIT = 30
 EPOCH_LENGTH = 10
@@ -32,9 +35,7 @@ time.sleep(2)
 nodes[1].kill()
 logger.info('node1 is killed')
 
-status = nodes[0].get_status()
-block_hash = status['sync_info']['latest_block_hash']
-cur_height = status['sync_info']['latest_block_height']
+block_hash = nodes[0].get_latest_block().hash_bytes
 
 num_new_accounts = 10
 balance = 50000000000000000000000000000000
@@ -45,45 +46,27 @@ for i in range(num_new_accounts):
                      nodes[0].signer_key.sk)
     create_account_tx = sign_create_account_with_full_access_key_and_balance_tx(
         nodes[0].signer_key, account_name, signer_key,
-        balance // num_new_accounts, i + 1,
-        base58.b58decode(block_hash.encode('utf8')))
+        balance // num_new_accounts, i + 1, block_hash)
     account_keys.append(signer_key)
     res = nodes[0].send_tx_and_wait(create_account_tx, timeout=15)
     assert 'error' not in res, res
 
-target_height = 50
-while cur_height < target_height:
-    status = nodes[0].get_status()
-    cur_height = status['sync_info']['latest_block_height']
-    time.sleep(1)
-
-status = nodes[0].get_status()
-block_hash = status['sync_info']['latest_block_hash']
+latest_block = utils.wait_for_blocks(nodes[0], target=50)
+cur_height = latest_block.height
+block_hash = latest_block.hash_bytes
 
 for signer_key in account_keys:
     staking_tx = sign_staking_tx(signer_key, nodes[0].validator_key,
                                  balance // (num_new_accounts * 2),
-                                 cur_height * 1_000_000 - 1,
-                                 base58.b58decode(block_hash.encode('utf8')))
+                                 cur_height * 1_000_000 - 1, block_hash)
     res = nodes[0].send_tx_and_wait(staking_tx, timeout=15)
     assert 'error' not in res
 
-target_height = 80
-while cur_height < target_height:
-    status = nodes[0].get_status()
-    cur_height = status['sync_info']['latest_block_height']
-    time.sleep(1)
+cur_height, _ = utils.wait_for_blocks(nodes[0], target=80)
 
 logger.info('restart node1')
 nodes[1].start(boot_node=nodes[1])
 logger.info('node1 restarted')
 time.sleep(3)
 
-start_time = time.time()
-node1_height = 0
-while node1_height <= cur_height:
-    if time.time() - start_time > MAX_SYNC_WAIT:
-        assert False, "state sync timed out"
-    status1 = nodes[1].get_status()
-    node1_height = status1['sync_info']['latest_block_height']
-    time.sleep(2)
+utils.wait_for_blocks(nodes[1], target=cur_height)

@@ -10,13 +10,13 @@ use near_store::{ShardTries, ShardUId, StoreCompiledContractCache};
 use near_vm_logic::VMLimitConfig;
 use nearcore::get_store_path;
 use node_runtime::{ApplyState, Runtime};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 pub struct RuntimeTestbed {
     /// Directory where we temporarily keep the storage.
     #[allow(dead_code)]
-    workdir: tempfile::TempDir,
+    pub(crate) workdir: tempfile::TempDir,
     tries: ShardTries,
     root: MerkleHash,
     runtime: Runtime,
@@ -29,7 +29,6 @@ impl RuntimeTestbed {
     /// Copies dump from another directory and loads the state from it.
     pub fn from_state_dump(dump_dir: &Path) -> Self {
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-        println!("workdir {}", workdir.path().display());
         let store_path = get_store_path(workdir.path());
         let StateDump { store, roots } = StateDump::from_dir(dump_dir, &store_path);
         let tries = ShardTries::new(store.clone(), 0, 1);
@@ -102,7 +101,7 @@ impl RuntimeTestbed {
         let apply_result = self
             .runtime
             .apply(
-                self.tries.get_trie_for_shard(ShardUId::default()),
+                self.tries.get_trie_for_shard(ShardUId::single_shard()),
                 self.root,
                 &None,
                 &self.apply_state,
@@ -114,7 +113,7 @@ impl RuntimeTestbed {
             .unwrap();
 
         let (store_update, root) =
-            self.tries.apply_all(&apply_result.trie_changes, ShardUId::default()).unwrap();
+            self.tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
         self.root = root;
         store_update.commit().unwrap();
         self.apply_state.block_index += 1;
@@ -137,11 +136,5 @@ impl RuntimeTestbed {
         while !self.prev_receipts.is_empty() {
             self.process_block(&[], allow_failures);
         }
-    }
-
-    pub fn dump_state(&mut self) -> Result<PathBuf, Box<dyn std::error::Error>> {
-        let state_dump = StateDump { store: self.tries.get_store(), roots: vec![self.root] };
-        state_dump.save_to_dir(self.workdir.path().to_path_buf())?;
-        Ok(self.workdir.path().to_path_buf())
     }
 }

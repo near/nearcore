@@ -18,6 +18,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::utils::index_to_bytes;
 use near_store::db::DBCol::ColReceipts;
 use near_store::migrations::{set_store_version, BatchedStoreUpdate};
 use near_store::{create_store, DBCol, StoreUpdate};
@@ -46,7 +47,7 @@ fn apply_block_at_height(
         return Ok(());
     }
 
-    let prev_block = chain_store.get_block(&block.header().prev_hash())?.clone();
+    let prev_block = chain_store.get_block(block.header().prev_hash())?.clone();
     let mut chain_store_update = ChainStoreUpdate::new(chain_store);
     let receipt_proof_response = chain_store_update.get_incoming_receipts_for_shard(
         shard_id,
@@ -61,7 +62,7 @@ fn apply_block_at_height(
     )?;
     let receipts = collect_receipts_from_response(&receipt_proof_response);
     let chunk_hash = block.chunks()[shard_id as usize].chunk_hash();
-    let chunk = get_chunk(&chain_store, chunk_hash);
+    let chunk = get_chunk(chain_store, chunk_hash);
     let chunk_header = ShardChunkHeader::V1(chunk.header);
     let apply_result = runtime_adapter
         .apply_transactions(
@@ -76,7 +77,7 @@ fn apply_block_at_height(
             chunk_header.validator_proposals(),
             prev_block.header().gas_price(),
             chunk_header.gas_limit(),
-            &block.header().challenges_result(),
+            block.header().challenges_result(),
             *block.header().random_value(),
             true,
             is_first_block_with_chunk_of_version,
@@ -215,7 +216,7 @@ pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
         let head = chain_store.head().unwrap();
         let runtime = NightshadeRuntime::with_config(path, store.clone(), near_config, None, None);
         let shard_id = 0;
-        let shard_uid = ShardUId::default();
+        let shard_uid = ShardUId::single_shard();
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
         let start_height = 34691244;
         for block_height in start_height..=head.height {
@@ -235,13 +236,13 @@ pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
                             block.header().height(),
                             block.header().raw_timestamp(),
                             block.header().prev_hash(),
-                            &block.hash(),
+                            block.hash(),
                             &[],
                             &[],
                             new_extra.validator_proposals(),
                             block.header().gas_price(),
                             new_extra.gas_limit(),
-                            &block.header().challenges_result(),
+                            block.header().challenges_result(),
                             *block.header().random_value(),
                             // doesn't really matter here since the old blocks are on the old version
                             false,
@@ -253,7 +254,7 @@ pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
                         let (_, outcome_paths) =
                             ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
                         chain_store_update.save_outcomes_with_proofs(
-                            &block.hash(),
+                            block.hash(),
                             shard_id,
                             apply_result.outcomes,
                             outcome_paths,
@@ -274,7 +275,7 @@ pub fn migrate_22_to_23(path: &Path, near_config: &NearConfig) {
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
-        let runtime = NightshadeRuntime::with_config(path, store.clone(), &near_config, None, None);
+        let runtime = NightshadeRuntime::with_config(path, store.clone(), near_config, None, None);
         let shard_id = 0;
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
         let block_heights = vec![22633807];
@@ -304,13 +305,13 @@ pub fn migrate_22_to_23(path: &Path, near_config: &NearConfig) {
                         block.header().height(),
                         block.header().raw_timestamp(),
                         block.header().prev_hash(),
-                        &block.hash(),
+                        block.hash(),
                         &receipts,
                         chunk.transactions(),
                         chunk_header.validator_proposals(),
                         block.header().gas_price(),
                         chunk_header.gas_limit(),
-                        &block.header().challenges_result(),
+                        block.header().challenges_result(),
                         *block.header().random_value(),
                         true,
                         false,
@@ -321,7 +322,7 @@ pub fn migrate_22_to_23(path: &Path, near_config: &NearConfig) {
                     let (_, outcome_paths) =
                         ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
                     chain_store_update.save_outcomes_with_proofs(
-                        &block.hash(),
+                        block.hash(),
                         shard_id,
                         apply_result.outcomes,
                         outcome_paths,
@@ -369,7 +370,7 @@ pub fn migrate_24_to_25(path: &Path) {
         pub receipt_ids: Vec<CryptoHash>,
         pub gas_burnt: Gas,
         pub tokens_burnt: Balance,
-        #[default(AccountId::test_account())]
+        #[default("test".parse().unwrap())]
         pub executor_id: AccountId,
         pub status: ExecutionStatus,
     }
@@ -478,6 +479,41 @@ pub fn migrate_24_to_25(path: &Path) {
     set_store_version(&store, 25);
 }
 
+/// Fix an issue with block ordinal (#5761)
+// This migration takes at least 3 hours to complete on mainnet
+pub fn migrate_30_to_31(path: &Path, near_config: &NearConfig) {
+    let store = create_store(path);
+    if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
+        let genesis_height = near_config.genesis.config.genesis_height;
+        let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+        let head = chain_store.head().unwrap();
+        let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
+        let mut count = 0;
+        // we manually checked mainnet archival data and the first block where the discrepancy happened is `47443088`.
+        for height in 47443088..=head.height {
+            if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
+                let block_ordinal = chain_store.get_block_merkle_tree(&block_hash).unwrap().size();
+                let block_hash_from_block_ordinal =
+                    chain_store.get_block_hash_from_ordinal(block_ordinal).unwrap();
+                if *block_hash_from_block_ordinal != block_hash {
+                    println!("Inconsistency in block ordinal to block hash mapping found at block height {}", height);
+                    count += 1;
+                    store_update
+                        .set_ser(
+                            DBCol::ColBlockOrdinal,
+                            &index_to_bytes(block_ordinal),
+                            &block_hash,
+                        )
+                        .expect("BorshSerialize should not fail");
+                }
+            }
+        }
+        println!("total inconsistency count: {}", count);
+        store_update.finish().expect("Failed to migrate");
+    }
+    set_store_version(&store, 31);
+}
+
 lazy_static_include::lazy_static_include_bytes! {
     /// File with account ids and deltas that need to be applied in order to fix storage usage
     /// difference between actual and stored usage, introduced due to bug in access key deletion,
@@ -490,7 +526,7 @@ lazy_static_include::lazy_static_include_bytes! {
 /// between 4 and 4.5s. We do not want to process any receipts in this block
 const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 1_000_000_000_000_000;
 
-pub fn load_migration_data(chain_id: &String) -> MigrationData {
+pub fn load_migration_data(chain_id: &str) -> MigrationData {
     let is_mainnet = chain_id == "mainnet";
     MigrationData {
         storage_usage_delta: if is_mainnet {
@@ -524,9 +560,9 @@ mod tests {
             to_base(&hash(&MAINNET_STORAGE_USAGE_DELTA)),
             "6CFkdSZZVj4v83cMPD3z6Y8XSQhDh3EQjFh3PRAqFEAx"
         );
-        let mainnet_migration_data = load_migration_data(&"mainnet".to_string());
+        let mainnet_migration_data = load_migration_data("mainnet");
         assert_eq!(mainnet_migration_data.storage_usage_delta.len(), 3112);
-        let testnet_migration_data = load_migration_data(&"testnet".to_string());
+        let testnet_migration_data = load_migration_data("testnet");
         assert_eq!(testnet_migration_data.storage_usage_delta.len(), 0);
     }
 
@@ -536,9 +572,9 @@ mod tests {
             to_base(&hash(&MAINNET_RESTORED_RECEIPTS)),
             "3ZHK51a2zVnLnG8Pq1y7fLaEhP9SGU1CGCmspcBUi5vT"
         );
-        let mainnet_migration_data = load_migration_data(&"mainnet".to_string());
+        let mainnet_migration_data = load_migration_data("mainnet");
         assert_eq!(mainnet_migration_data.restored_receipts.get(&0u64).unwrap().len(), 383);
-        let testnet_migration_data = load_migration_data(&"testnet".to_string());
+        let testnet_migration_data = load_migration_data("testnet");
         assert!(testnet_migration_data.restored_receipts.is_empty());
     }
 }

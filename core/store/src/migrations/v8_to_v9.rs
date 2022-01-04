@@ -27,14 +27,18 @@ where
         store_update.update_refcount(column, key.as_ref(), &value, 1);
         batch_size += key.as_ref().len() + value.len() + 8;
         if batch_size > batch_size_limit {
-            store_update.commit().expect(&format!("Failed during recomputing column {:?}", column));
+            store_update
+                .commit()
+                .unwrap_or_else(|_| panic!("Failed during recomputing column {:?}", column));
             store_update = store.store_update();
             batch_size = 0;
         }
     }
 
     if batch_size > 0 {
-        store_update.commit().expect(&format!("Failed during recomputing column {:?}", column));
+        store_update
+            .commit()
+            .unwrap_or_else(|_| panic!("Failed during recomputing column {:?}", column));
     }
 }
 
@@ -55,7 +59,7 @@ pub(crate) fn repair_col_transactions(store: &Store) {
 
 // Make ColReceiptIdToShardId match receipts in ColOutgoingReceipts
 pub(crate) fn repair_col_receipt_id_to_shard_id(store: &Store) {
-    let num_shards = get_num_shards(&store);
+    let num_shards = get_num_shards(store);
     recompute_col_rc(
         store,
         DBCol::ColReceiptIdToShardId,
