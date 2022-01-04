@@ -60,7 +60,7 @@ impl Data {
         }
     }
 
-    pub fn merge(&mut self, other: &Data) {
+    pub fn merge(&mut self, other: &Self) {
         self.entries += other.entries;
         self.estimated_table_size += other.estimated_table_size;
         self.raw_key_size += other.raw_key_size;
@@ -101,7 +101,7 @@ fn main() {
     }
 
     let mut column_data_list: Vec<&Data> = column_data.values().collect();
-    column_data_list.sort_by_key(|data| -(data.estimated_table_size as i64));
+    column_data_list.sort_by_key(|data| u64::MAX - data.estimated_table_size);
     eprintln!("Printing stats ...");
     println!("{}", serde_json::to_string(&column_data_list).unwrap());
 }
