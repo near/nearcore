@@ -26,7 +26,7 @@ fn get_chain_with_epoch_length_and_num_shards(
     let chain_genesis = ChainGenesis::test();
     let validators = vec![vec!["test1"]];
     let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
-        store.clone(),
+        store,
         validators
             .into_iter()
             .map(|inner| inner.into_iter().map(|account_id| account_id.parse().unwrap()).collect())
@@ -132,7 +132,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     let genesis1 = chain1.get_block_by_height(0).unwrap().clone();
     let mut states1 = vec![];
     states1.push((
-        genesis1.clone(),
+        genesis1,
         vec![Trie::empty_root(); num_shards as usize],
         vec![Vec::new(); num_shards as usize],
     ));
@@ -152,7 +152,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     }
 
     // GC execution
-    let clear_data = chain1.clear_data(tries1.clone(), 100);
+    let clear_data = chain1.clear_data(tries1, 100);
     if clear_data.is_err() {
         println!("clear data failed = {:?}", clear_data);
         assert!(false);

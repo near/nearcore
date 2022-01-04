@@ -1,6 +1,4 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "deepsize_feature")]
-use deepsize::DeepSizeOf;
 use serde::{Deserialize, Serialize};
 use std::io;
 
@@ -150,15 +148,14 @@ impl BorshSerialize for Account {
 /// access keys. Access keys allow to act on behalf of the account by restricting transactions
 /// that can be issued.
 /// `account_id,public_key` is a key in the state
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug,
 )]
 pub struct AccessKey {
-    /// The nonce for this access key.
-    /// NOTE: In some cases the access key needs to be recreated. If the new access key reuses the
-    /// same public key, the nonce of the new access key should be equal to the nonce of the old
-    /// access key. It's required to avoid replaying old transactions again.
+    /// Nonce for this access key, used for tx nonce generation. When access key is created, nonce
+    /// is set to `(block_height - 1) * 1e6` to avoid tx hash collision on access key re-creation.
+    /// See <https://github.com/near/nearcore/issues/3779> for more details.
     pub nonce: Nonce,
 
     /// Defines permissions for this access key.
@@ -174,7 +171,7 @@ impl AccessKey {
 }
 
 /// Defines permissions for AccessKey
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug,
 )]
@@ -190,7 +187,7 @@ pub enum AccessKeyPermission {
 /// The permission can limit the allowed balance to be spent on the prepaid gas.
 /// It also restrict the account ID of the receiver for this function call.
 /// It also can restrict the method name for the allowed function calls.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug,
 )]

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Test max_gas_burnt_view client configuration.
 
 Spins up two nodes with different max_gas_burnt_view client configuration,
@@ -9,15 +10,16 @@ import sys
 import base58
 import base64
 import json
+import pathlib
 
-sys.path.append('lib')
-from cluster import start_cluster
-from utils import load_binary_file
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
+import cluster
+import utils
 import transaction
 
 
 def test_max_gas_burnt_view():
-    nodes = start_cluster(
+    nodes = cluster.start_cluster(
         2,
         0,
         1,
@@ -28,15 +30,12 @@ def test_max_gas_burnt_view():
         }})
 
     contract_key = nodes[0].signer_key
-    contract = load_binary_file(
-        '../runtime/near-test-contracts/res/test_contract_rs.wasm')
+    contract = utils.load_test_contract()
 
     # Deploy the fib smart contract
-    status = nodes[0].get_status()
-    latest_block_hash = status['sync_info']['latest_block_hash']
+    latest_block_hash = nodes[0].get_latest_block().hash_bytes
     deploy_contract_tx = transaction.sign_deploy_contract_tx(
-        contract_key, contract, 10,
-        base58.b58decode(latest_block_hash.encode('utf8')))
+        contract_key, contract, 10, latest_block_hash)
     deploy_contract_response = nodes[0].send_tx_and_wait(deploy_contract_tx, 10)
 
     def call_fib(node, n):

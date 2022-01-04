@@ -3,16 +3,14 @@ name = "neard"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 default-run = "neard"
 
 [[bin]]
 path = "src/main.rs"
 name = "neard"
-
-[[bin]]
-path = "src/../src/main.rs"
-name = "near"
 
 [dependencies]
 clap = "=3.0.0-beta.2"
@@ -46,7 +44,7 @@ delay_detector = ["nearcore/delay_detector"]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_alt_bn128 = ["nearcore/protocol_feature_alt_bn128"]
-protocol_feature_chunk_only_producers = ["nearcore/protocol_feature_chunk_only_producers"]
+protocol_feature_chunk_only_producers = ["nearcore/protocol_feature_chunk_only_producers", "near-primitives/protocol_feature_chunk_only_producers"]
 protocol_feature_routing_exchange_algorithm = ["nearcore/protocol_feature_routing_exchange_algorithm"]
 nightly_protocol_features = ["nearcore/nightly_protocol_features"]
 nightly_protocol = ["nearcore/nightly_protocol"]

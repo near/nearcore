@@ -1,3 +1,4 @@
+use bytesize::ByteSize;
 use futures;
 use futures::task::Context;
 use log::{info, warn};
@@ -13,8 +14,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::{Duration, Instant};
-
-use bytesize::ByteSize;
 use strum::AsStaticRef;
 
 static MEMORY_LIMIT: u64 = 512 * bytesize::MIB;
@@ -322,7 +321,8 @@ where
     stat.lock().unwrap().pre_log(start);
     let result = f(msg);
 
-    let took = start.elapsed();
+    let ended = Instant::now();
+    let took = ended.saturating_duration_since(start);
 
     let peak_memory =
         ByteSize::b(current_thread_peak_memory_usage().saturating_sub(initial_memory_usage) as u64);
@@ -361,8 +361,6 @@ where
             );
         }
     }
-    let ended = Instant::now();
-    let took = ended.saturating_duration_since(start);
     stat.lock().unwrap().log(
         class_name,
         std::any::type_name::<Message>(),

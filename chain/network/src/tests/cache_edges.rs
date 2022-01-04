@@ -1,26 +1,26 @@
+use crate::network_protocol::{Edge, EdgeState};
+use crate::routing::routing_table_actor::Prune;
+use crate::routing::routing_table_view::{DELETE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME};
+use crate::test_utils::random_peer_id;
+use crate::RoutingTableActor;
 use actix::System;
+use borsh::de::BorshDeserialize;
+use near_crypto::Signature;
+use near_primitives::network::PeerId;
+use near_primitives::time::Clock;
+use near_store::test_utils::create_test_store;
+use near_store::{ColComponentEdges, ColPeerComponent, Store};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use borsh::de::BorshDeserialize;
-use near_primitives::time::Clock;
-
-use crate::routing::{Edge, EdgeType, Prune, DELETE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME};
-use crate::test_utils::random_peer_id;
-use crate::RoutingTableActor;
-use near_crypto::Signature;
-use near_primitives::network::PeerId;
-use near_store::test_utils::create_test_store;
-use near_store::{ColComponentEdges, ColPeerComponent, Store};
-
 #[derive(Eq, PartialEq, Hash)]
-struct EdgeDescription(usize, usize, EdgeType);
+struct EdgeDescription(usize, usize, EdgeState);
 
 impl EdgeDescription {
     fn from(data: (usize, usize, bool)) -> Self {
         let (u, v, t) = data;
-        Self(u, v, if t { EdgeType::Added } else { EdgeType::Removed })
+        Self(u, v, if t { EdgeState::Active } else { EdgeState::Removed })
     }
 }
 
@@ -114,7 +114,7 @@ impl RoutingTableTest {
         }
         let active_edges = on_memory
             .iter()
-            .filter_map(|x| if x.2 == EdgeType::Added { Some(1) } else { None })
+            .filter_map(|x| if x.2 == EdgeState::Active { Some(1) } else { None })
             .count();
 
         assert_eq!(active_edges, self.routing_table.raw_graph.total_active_edges() as usize);

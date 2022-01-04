@@ -16,6 +16,8 @@ pub enum Cost {
     ActionDeployContractPerByte,
     ActionFunctionCallBase,
     ActionFunctionCallPerByte,
+    ActionFunctionCallBaseV2,
+    ActionFunctionCallPerByteV2,
     ActionTransfer,
     ActionStake,
     ActionAddFullAccessKey,
@@ -23,10 +25,6 @@ pub enum Cost {
     ActionAddFunctionAccessKeyPerByte,
     ActionDeleteKey,
     ActionDeleteAccount,
-
-    // TODO: Remove these two, compilation is a part of `ActionDeploy`.
-    ContractCompileBase,
-    ContractCompileBytes,
 
     HostFunctionCall,
     WasmInstruction,
@@ -87,6 +85,17 @@ pub enum Cost {
     AltBn128PairingCheckByte,
     AltBn128G1SumBase,
     AltBn128G1SumByte,
+
+    // Costs used only in estimator
+    ContractCompileBase,  // TODO: Needs estimation function
+    ContractCompileBytes, // TODO: Needs estimation function
+    GasMeteringBase,
+    GasMeteringOp,
+    IoReadByte,
+    IoWriteByte,
+    CpuBenchmarkSha256,
+    OneCPUInstruction,
+    OneNanosecond,
 
     __Count,
 }

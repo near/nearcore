@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Runs randomized staking transactions and makes some basic checks on the final `staked` values
 # In each epoch sends two sets of staking transactions, one when (last_height % 12 == 4), called "fake", and
 # one when (last_height % 12 == 7), called "real" (because the former will be overwritten by the later).
@@ -5,8 +6,9 @@
 # each node. Before "real" txs it is the largest of the same value, and the last "fake" stake.
 
 import sys, time, base58, random
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
@@ -134,12 +136,9 @@ def doit(seq=[]):
     started = time.time()
     last_iter = started
 
-    status = nodes[2].get_status()
+    height, hash_ = nodes[2].get_latest_block()
     for i in range(3):
         nodes[i].stop_checking_store()
-
-    height = status['sync_info']['latest_block_height']
-    hash_ = status['sync_info']['latest_block_hash']
 
     logger.info("Initial stakes: %s" % get_stakes())
     all_stakes.append(get_stakes())
@@ -154,10 +153,7 @@ def doit(seq=[]):
 
         assert time.time() - last_iter < TIMEOUT_PER_ITER
 
-        status = nodes[0].get_status()
-        height = status['sync_info']['latest_block_height']
-        hash_ = status['sync_info']['latest_block_hash']
-
+        height, hash_ = nodes[0].get_latest_block()
         send_fakes = send_reals = False
 
         if (height + EPOCH_LENGTH - FAKE_OFFSET) // EPOCH_LENGTH > (

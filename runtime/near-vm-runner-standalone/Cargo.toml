@@ -3,12 +3,13 @@ name = "near-vm-runner-standalone"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 license = "Apache-2.0"
 readme = "README.md"
 categories = ["wasm"]
 repository = "https://github.com/nearprotocol/nearcore"
-homepage = "https://github.com/nearprotocol/nearcore"
 description = """
 A command line wrapper around `near-vm-runner.`
 All error messages that can be raised during the contract execution are raised by `near-vm-runner`

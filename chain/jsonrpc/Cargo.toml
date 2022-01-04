@@ -3,6 +3,8 @@ name = "near-jsonrpc"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 
 [dependencies]
@@ -10,7 +12,7 @@ actix = "=0.11.0-beta.2"
 actix-web = "=4.0.0-beta.6"
 actix-cors = { git = "https://github.com/near/actix-extras.git", branch="actix-web-4-beta.6" }
 easy-ext = "0.2"
-tokio = { version = "1.1", features = ["full"] }
+tokio = { version = "1.1", features = ["net", "rt-multi-thread"] }
 futures = "0.3"
 once_cell = "1.5.2"
 prometheus = "0.11"
@@ -34,4 +36,4 @@ dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 test_features = ["near-client/test_features", "near-network/test_features", "near-jsonrpc-primitives/test_features", "near-jsonrpc-adversarial-primitives/ser_de"]
 nightly_protocol = ["near-primitives/nightly_protocol"]
 sandbox = ["near-network/sandbox", "near-client/sandbox"]
-protocol_feature_routing_exchange_algorithm = ["near-network/protocol_feature_routing_exchange_algorithm", "near-client/protocol_feature_routing_exchange_algorithm"]
+protocol_feature_routing_exchange_algorithm = ["near-network/protocol_feature_routing_exchange_algorithm", "near-client/protocol_feature_routing_exchange_algorithm", "near-primitives/protocol_feature_routing_exchange_algorithm"]

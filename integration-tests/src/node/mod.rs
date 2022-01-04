@@ -156,9 +156,9 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
         for record in genesis.records.as_mut() {
             if let StateRecord::Account { account_id: record_account_id, ref mut account } = record
             {
-                if record_account_id.as_ref() == &seed {
+                if record_account_id.as_ref() == seed {
                     is_account_record_found = true;
-                    account.set_code_hash(ContractCode::new(code.to_vec(), None).hash().clone());
+                    account.set_code_hash(*ContractCode::new(code.to_vec(), None).hash());
                 }
             }
         }

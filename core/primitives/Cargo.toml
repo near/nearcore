@@ -2,17 +2,17 @@
 name = "near-primitives"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
+publish = true
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/near/nearcore"
-homepage = "https://github.com/near/nearcore"
 description = """
 This crate provides the base set of primitives used by other nearcore crates
 """
 
 [dependencies]
-bs58 = "0.4"
-base64 = "0.13"
 byteorder = "1.3"
 bytesize = "1.1"
 chrono = { version = "0.4.4", features = ["serde"] }
@@ -41,7 +41,8 @@ dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_alt_bn128 = ["near-primitives-core/protocol_feature_alt_bn128", "near-vm-errors/protocol_feature_alt_bn128"]
 protocol_feature_chunk_only_producers = []
 protocol_feature_routing_exchange_algorithm = ["near-primitives-core/protocol_feature_routing_exchange_algorithm"]
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_alt_bn128", "protocol_feature_chunk_only_producers", "protocol_feature_routing_exchange_algorithm"]
+protocol_feature_access_key_nonce_for_implicit_accounts = []
+nightly_protocol_features = ["nightly_protocol", "protocol_feature_alt_bn128", "protocol_feature_chunk_only_producers", "protocol_feature_routing_exchange_algorithm", "protocol_feature_access_key_nonce_for_implicit_accounts"]
 nightly_protocol = []
 deepsize_feature = ["deepsize", "near-vm-errors/deepsize_feature", "near-primitives-core/deepsize_feature", "near-crypto/deepsize_feature"]
 

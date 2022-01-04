@@ -1,8 +1,10 @@
+#!/usr/bin/env python3
 # test various ways of submitting transactions (broadcast_tx_async, broadcast_tx_sync, broadcast_tx_commit)
 
 import sys, time, base58, base64
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
@@ -22,12 +24,10 @@ old_balances = [
 ]
 logger.info(f"BALANCES BEFORE {old_balances}")
 
-status = nodes[0].get_status()
-hash1 = status['sync_info']['latest_block_hash']
+hash1 = nodes[0].get_latest_block().hash_bytes
 
 for i in range(3):
-    tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100 + i, i + 1,
-                         base58.b58decode(hash1.encode('utf8')))
+    tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100 + i, i + 1, hash1)
     if i == 0:
         res = nodes[0].send_tx_and_wait(tx, timeout=20)
         if 'error' in res:
@@ -52,8 +52,7 @@ assert new_balances[1] == old_balances[1] + 303
 
 status = nodes[0].get_status()
 hash_ = status['sync_info']['latest_block_hash']
-tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1,
-                     base58.b58decode(hash1.encode('utf8')))
+tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1, hash1)
 
 # tx status check should be idempotent
 res = nodes[0].json_rpc('tx', [base64.b64encode(tx).decode('utf8')], timeout=10)

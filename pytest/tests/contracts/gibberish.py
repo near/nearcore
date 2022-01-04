@@ -1,11 +1,13 @@
+#!/usr/bin/env python3
 # Experiments with deploying gibberish contracts. Specifically,
 # 1. Deploys completely gibberish contracts
 # 2. Gets an existing wasm contract, and tries to arbitrarily pertrurb bytes in it
 
 import sys, time, random
 import base58
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from cluster import start_cluster
 from configured_logger import logger
 from transaction import sign_deploy_contract_tx, sign_function_call_tx
@@ -17,9 +19,7 @@ nodes = start_cluster(
 
 wasm_blob_1 = load_test_contract()
 
-status = nodes[0].get_status()
-hash_ = status['sync_info']['latest_block_hash']
-hash_ = base58.b58decode(hash_.encode('utf8'))
+hash_ = nodes[0].get_latest_block().hash_bytes
 
 for iter_ in range(10):
     logger.info("Deploying garbage contract #%s" % iter_)
@@ -30,9 +30,7 @@ for iter_ in range(10):
     nodes[0].send_tx_and_wait(tx, 20)
 
 for iter_ in range(10):
-    status = nodes[0].get_status()
-    hash_ = status['sync_info']['latest_block_hash']
-    hash_ = base58.b58decode(hash_.encode('utf8'))
+    hash_ = nodes[0].get_latest_block().hash_bytes
     logger.info("Deploying perturbed contract #%s" % iter_)
 
     new_name = '%s_mething' % iter_
@@ -63,9 +61,7 @@ for iter_ in range(10):
     res = nodes[1].send_tx_and_wait(tx2, 20)
     assert 'result' in res
 
-status = nodes[0].get_status()
-hash_ = status['sync_info']['latest_block_hash']
-hash_ = base58.b58decode(hash_.encode('utf8'))
+hash_ = nodes[0].get_latest_block().hash_bytes
 
 logger.info("Real thing!")
 tx = sign_deploy_contract_tx(nodes[0].signer_key, wasm_blob_1, 60, hash_)
@@ -73,9 +69,7 @@ nodes[0].send_tx(tx)
 
 time.sleep(3)
 
-status2 = nodes[1].get_status()
-hash_2 = status2['sync_info']['latest_block_hash']
-hash_2 = base58.b58decode(hash_2.encode('utf8'))
+hash_2 = nodes[1].get_latest_block().hash_bytes
 tx2 = sign_function_call_tx(nodes[0].signer_key, nodes[0].signer_key.account_id,
                             'log_something', [], 3000000000000, 100000000000,
                             62, hash_2)

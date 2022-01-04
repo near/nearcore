@@ -3,6 +3,8 @@ name = "near-performance-metrics"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>", "Piotr Mikulski <piotr@near.org"]
 publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -17,7 +19,7 @@ near-rust-allocator-proxy = "0.3.0"
 nix = "0.15.0"
 libc = "0.2"
 bytesize = "1.1"
-tokio = { version = "1.1", features = ["full"] }
+tokio = { version = "1.1", features = ["net", "rt-multi-thread"] }
 tokio-util = { version = "0.6", features = ["codec"] }
 bytes = "1"
 bitflags = "1.2"

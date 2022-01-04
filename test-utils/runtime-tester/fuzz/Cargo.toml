@@ -1,8 +1,10 @@
 [package]
 name = "runtime-tester-fuzz"
 version = "0.0.0"
-authors = ["Automatically generated"]
+authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 
 [package.metadata]
@@ -16,7 +18,7 @@ serde_json = "1"
 path = ".."
 
 [[bin]]
-name = "runtime-fuzzer"
+name = "runtime_fuzzer"
 path = "fuzz_targets/runtime_fuzzer.rs"
 test = false
 doc = false

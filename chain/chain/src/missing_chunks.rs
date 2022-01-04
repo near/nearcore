@@ -66,6 +66,10 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
         self.blocks_waiting_for_chunks.contains_key(block_hash)
     }
 
+    pub fn get(&self, block_hash: &BlockHash) -> Option<&Block> {
+        self.blocks_waiting_for_chunks.get(block_hash)
+    }
+
     pub fn len(&self) -> usize {
         self.blocks_waiting_for_chunks.len()
     }
@@ -223,7 +227,7 @@ mod test {
         let block = MockBlock::new(block_height);
         let chunk_hashes: Vec<ChunkHash> = (101..105).map(get_chunk_hash).collect();
 
-        pool.add_block_with_missing_chunks(block.clone(), chunk_hashes.clone());
+        pool.add_block_with_missing_chunks(block, chunk_hashes.clone());
         assert!(pool.contains(&block.hash));
 
         for chunk_hash in chunk_hashes.iter().skip(1) {
@@ -273,7 +277,7 @@ mod test {
         let block_height = 1;
         let block = MockBlock::new(block_height);
         let missing_chunk_hash = get_chunk_hash(200);
-        pool.add_block_with_missing_chunks(block.clone(), vec![missing_chunk_hash.clone()]);
+        pool.add_block_with_missing_chunks(block, vec![missing_chunk_hash.clone()]);
 
         let later_block = MockBlock::new(block_height + 1);
         let later_block_hash = later_block.hash;

@@ -1,10 +1,12 @@
+#!/usr/bin/env python3
 import sys, time
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
-from utils import LogTracker
+import utils
 
 valid_blocks_only = False  # creating invalid blocks, should be banned instantly
 if "valid_blocks_only" in sys.argv:
@@ -20,32 +22,21 @@ nodes = start_cluster(
 
 started = time.time()
 
-logger.info("Waiting for %s blocks..." % BLOCKS)
+logger.info(f'Waiting for {BLOCKS} blocks...')
+height, _ = utils.wait_for_blocks(nodes[1], target=BLOCKS, timeout=TIMEOUT)
+logger.info(f'Got to {height} blocks, getting to fun stuff')
 
-while True:
-    assert time.time() - started < TIMEOUT
-    status = nodes[1].get_status()
-    height = status['sync_info']['latest_block_height']
-    logger.info(status)
-    if height >= BLOCKS:
-        break
-    time.sleep(1)
+nodes[1].get_status(verbose=True)
 
-logger.info("Got to %s blocks, getting to fun stuff" % BLOCKS)
-
-status = nodes[1].get_status()
-logger.info(status)
-
-tracker0 = LogTracker(nodes[0])
+tracker0 = utils.LogTracker(nodes[0])
 res = nodes[1].json_rpc('adv_produce_blocks',
                         [MALICIOUS_BLOCKS, valid_blocks_only])
 assert 'result' in res, res
 logger.info("Generated %s malicious blocks" % MALICIOUS_BLOCKS)
 
 time.sleep(10)
-status = nodes[0].get_status()
-logger.info(status)
-height = status['sync_info']['latest_block_height']
+
+height = nodes[0].get_latest_block(verbose=True).height
 
 assert height < 40
 

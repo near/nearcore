@@ -7,11 +7,10 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::create_store;
 use near_vm_runner::internal::VMKind;
 use nearcore::{get_store_path, load_config};
-use runtime_params_estimator::cases::run;
-use runtime_params_estimator::costs_to_runtime_config;
-use runtime_params_estimator::testbed_runners::Config;
-use runtime_params_estimator::testbed_runners::GasMetric;
+use runtime_params_estimator::config::{Config, GasMetric};
+use runtime_params_estimator::read_resource;
 use runtime_params_estimator::CostTable;
+use runtime_params_estimator::{costs_to_runtime_config, QemuCommandBuilder};
 use std::env;
 use std::fmt::Write;
 use std::fs;
@@ -48,15 +47,15 @@ struct CliArgs {
     /// Which VM to test.
     #[clap(long, possible_values = &["wasmer", "wasmer2", "wasmtime"])]
     vm_kind: Option<String>,
-    /// Only test contract compilation costs.
-    #[clap(long)]
-    compile_only: bool,
     /// Render existing `costs.txt` as `RuntimeConfig`.
     #[clap(long)]
     costs_file: Option<PathBuf>,
+    /// Compare baseline `costs-file` with a different costs file.
+    #[clap(long, requires("costs-file"))]
+    compare_to: Option<PathBuf>,
     /// Only measure the specified metrics, computing a subset of costs.
     #[clap(long)]
-    metrics_to_measure: Option<String>,
+    costs: Option<String>,
     /// Build and run the estimator inside a docker container via QEMU.
     #[clap(long)]
     docker: bool,
@@ -68,6 +67,9 @@ struct CliArgs {
     /// Works only with enabled docker, because precise computations without it doesn't make sense.
     #[clap(long)]
     full: bool,
+    /// Print extra debug information
+    #[clap(long, multiple(true), possible_values=&["io"])]
+    debug: Vec<String>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -75,11 +77,29 @@ fn main() -> anyhow::Result<()> {
 
     let cli_args = CliArgs::parse();
 
+    // TODO: consider implementing the same in Rust to reduce complexity.
+    // Good example: runtime/near-test-contracts/build.rs
+    if !cli_args.skip_build_test_contract {
+        let build_test_contract = "./build.sh";
+        let project_root = project_root();
+        let estimator_dir = project_root.join("runtime/runtime-params-estimator/test-contract");
+        std::process::Command::new(build_test_contract)
+            .current_dir(estimator_dir)
+            .output()
+            .context("could not build test contract")?;
+    }
+
     let temp_dir;
     let state_dump_path = match cli_args.home {
         Some(it) => it,
         None => {
             temp_dir = tempfile::tempdir()?;
+
+            let contract_code = read_resource(if cfg!(feature = "nightly_protocol_features") {
+                "test-contract/res/nightly_small_contract.wasm"
+            } else {
+                "test-contract/res/stable_small_contract.wasm"
+            });
 
             let state_dump_path = temp_dir.path().to_path_buf();
             nearcore::init_configs(
@@ -96,7 +116,8 @@ fn main() -> anyhow::Result<()> {
                 None,
                 None,
                 None,
-            );
+            )
+            .expect("failed to init config");
 
             let near_config = load_config(&state_dump_path);
             let store = create_store(&get_store_path(&state_dump_path));
@@ -106,7 +127,7 @@ fn main() -> anyhow::Result<()> {
                 store,
             )
             .add_additional_accounts(cli_args.additional_accounts_num)
-            .add_additional_accounts_contract(near_test_contracts::tiny_contract().to_vec())
+            .add_additional_accounts_contract(contract_code)
             .print_progress()
             .build()
             .unwrap()
@@ -117,27 +138,28 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    // TODO: consider implementing the same in Rust to reduce complexity.
-    // Good example: runtime/near-test-contracts/build.rs
-    if !cli_args.skip_build_test_contract {
-        let build_test_contract = "./build.sh";
-        let project_root = project_root();
-        let estimator_dir = project_root.join("runtime/runtime-params-estimator/test-contract");
-        std::process::Command::new(build_test_contract)
-            .current_dir(estimator_dir)
-            .output()
-            .context("could not build test contract")?;
-    }
+    let debug_options: Vec<_> = cli_args.debug.iter().map(String::as_str).collect();
 
     if cli_args.docker {
-        return main_docker(&state_dump_path, cli_args.full, cli_args.docker_shell);
+        return main_docker(
+            &state_dump_path,
+            cli_args.full,
+            cli_args.docker_shell,
+            debug_options.contains(&"io"),
+        );
+    }
+
+    if let Some(compare_to) = cli_args.compare_to {
+        let baseline = cli_args.costs_file.unwrap();
+
+        let compare_to = read_costs_table(&compare_to)?;
+        let baseline = read_costs_table(&baseline)?;
+        println!("{}", baseline.diff(&compare_to));
+        return Ok(());
     }
 
     if let Some(path) = cli_args.costs_file {
-        let cost_table = fs::read_to_string(&path)
-            .ok()
-            .and_then(|it| it.parse::<CostTable>().ok())
-            .with_context(|| format!("Failed to parse {}", path.display()))?;
+        let cost_table = read_costs_table(&path)?;
 
         let runtime_config = costs_to_runtime_config(&cost_table)?;
 
@@ -170,22 +192,19 @@ fn main() -> anyhow::Result<()> {
         None => VMKind::for_protocol_version(PROTOCOL_VERSION),
         Some(other) => unreachable!("Unknown vm_kind {}", other),
     };
-    let metrics_to_measure =
-        cli_args.metrics_to_measure.map(|it| it.split(',').map(str::to_string).collect());
+    let costs_to_measure = cli_args.costs.map(|it| it.split(',').map(str::to_string).collect());
 
-    let cost_table = run(
-        Config {
-            warmup_iters_per_block,
-            iter_per_block,
-            active_accounts,
-            block_sizes: vec![],
-            state_dump_path: state_dump_path.clone(),
-            metric,
-            vm_kind,
-            metrics_to_measure,
-        },
-        cli_args.compile_only,
-    );
+    let config = Config {
+        warmup_iters_per_block,
+        iter_per_block,
+        active_accounts,
+        block_sizes: vec![],
+        state_dump_path: state_dump_path.clone(),
+        metric,
+        vm_kind,
+        costs_to_measure,
+    };
+    let cost_table = runtime_params_estimator::run(config);
 
     let output_path = {
         let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
@@ -205,7 +224,13 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn main_docker(state_dump_path: &Path, full: bool, debug_shell: bool) -> anyhow::Result<()> {
+/// Spawns another instance of this binary but inside docker. Most command line args are passed through but `--docker` is removed.
+fn main_docker(
+    state_dump_path: &Path,
+    full: bool,
+    debug_shell: bool,
+    debug_io_log: bool,
+) -> anyhow::Result<()> {
     exec("docker --version").context("please install `docker`")?;
 
     let project_root = project_root();
@@ -234,12 +259,17 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
   --features required --release;
 ",
         );
-        buf.push_str(
-            "\
-/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
-  -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so \
-  -cpu Westmere-v1 /host/nearcore/target/release/runtime-params-estimator --home /.near",
-        );
+
+        let mut qemu_cmd_builder = QemuCommandBuilder::default();
+
+        if debug_io_log {
+            qemu_cmd_builder = qemu_cmd_builder.plugin_log(true).print_on_every_close(true);
+        }
+        let mut qemu_cmd =
+            qemu_cmd_builder.build("/host/nearcore/target/release/runtime-params-estimator")?;
+
+        qemu_cmd.args(&["--home", "/.near"]);
+        buf.push_str(&format!("{:?}", qemu_cmd));
 
         // Sanitize & forward our arguments to the estimator to be run inside
         // docker.
@@ -290,6 +320,13 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
 
     cmd.status()?;
     Ok(())
+}
+
+fn read_costs_table(path: &Path) -> anyhow::Result<CostTable> {
+    fs::read_to_string(&path)
+        .with_context(|| format!("failed to read costs file: {}", path.display()))?
+        .parse::<CostTable>()
+        .map_err(|()| anyhow::format_err!("failed to parse costs file: {}", path.display()))
 }
 
 fn exec(command: &str) -> anyhow::Result<String> {

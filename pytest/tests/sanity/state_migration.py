@@ -13,18 +13,19 @@ import json
 import subprocess
 import shutil
 import re
+import pathlib
 from deepdiff import DeepDiff
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 import branches
 import cluster
-from utils import wait_for_blocks_or_timeout, get_near_tempdir
+import utils
 
 
 def main():
-    node_root = get_near_tempdir('state_migration', clean=True)
-    executables = branches.prepare_ab_test('beta')
+    node_root = utils.get_near_tempdir('state_migration', clean=True)
+    executables = branches.prepare_ab_test('betanet')
 
     # Run stable node for few blocks.
     subprocess.call([
@@ -41,7 +42,7 @@ def main():
     stable_node = cluster.spin_up_node(config, near_root,
                                        os.path.join(node_root, "test0"), 0)
 
-    wait_for_blocks_or_timeout(stable_node, 20, 100)
+    utils.wait_for_blocks(stable_node, count=20)
     # TODO: we should make state more interesting to migrate by sending some tx / contracts.
     stable_node.cleanup()
     os.mkdir('%s/test0' % node_root)
@@ -82,7 +83,7 @@ def main():
     current_node = cluster.spin_up_node(config, near_root,
                                         os.path.join(node_root, "test0"), 0)
 
-    wait_for_blocks_or_timeout(current_node, 20, 100)
+    utils.wait_for_blocks(current_node, count=20)
 
     # New genesis can be deserialized by new near is verified above (new near can produce blocks)
     # Also test new genesis protocol_version matches nearcore/res/genesis_config's

@@ -1,4 +1,4 @@
-use crate::routing::RoutingTableView;
+use crate::routing::routing_table_view::RoutingTableView;
 use crate::test_utils::{random_epoch_id, random_peer_id};
 use near_crypto::Signature;
 use near_primitives::network::AnnounceAccount;
@@ -53,7 +53,7 @@ fn dont_load_on_build() {
     let announce0 = AnnounceAccount {
         account_id: "near0".parse().unwrap(),
         peer_id: peer_id0.clone(),
-        epoch_id: epoch_id0.clone(),
+        epoch_id: epoch_id0,
         signature: Signature::default(),
     };
 
@@ -68,9 +68,7 @@ fn dont_load_on_build() {
     routing_table.add_account(announce0.clone());
     routing_table.add_account(announce1.clone());
     let accounts = routing_table.get_announce_accounts();
-    assert!(vec![announce0.clone(), announce1.clone()]
-        .iter()
-        .all(|announce| { accounts.contains(announce) }));
+    assert!(vec![announce0, announce1].iter().all(|announce| { accounts.contains(announce) }));
     assert_eq!(routing_table.get_announce_accounts().len(), 2);
 
     let mut routing_table1 = RoutingTableView::new(peer_id0, store);
@@ -85,12 +83,12 @@ fn load_from_disk() {
     let epoch_id0 = random_epoch_id();
 
     let mut routing_table = RoutingTableView::new(peer_id0.clone(), store.clone());
-    let mut routing_table1 = RoutingTableView::new(peer_id0.clone(), store.clone());
+    let mut routing_table1 = RoutingTableView::new(peer_id0.clone(), store);
 
     let announce0 = AnnounceAccount {
         account_id: "near0".parse().unwrap(),
         peer_id: peer_id0.clone(),
-        epoch_id: epoch_id0.clone(),
+        epoch_id: epoch_id0,
         signature: Signature::default(),
     };
 

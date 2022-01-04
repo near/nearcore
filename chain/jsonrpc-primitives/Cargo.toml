@@ -2,10 +2,12 @@
 name = "near-jsonrpc-primitives"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
+publish = true
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/near/nearcore"
-homepage = "https://github.com/near/nearcore"
 description = "This crate hosts structures for the NEAR JSON RPC Requests, Responses and Error types"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -24,6 +26,7 @@ near-client-primitives = { path = "../client-primitives" }
 near-crypto = { path = "../../core/crypto" }
 near-metrics = { path = "../../core/metrics" }
 near-primitives = { path = "../../core/primitives" }
+near-network-primitives = { path = "../../chain/network-primitives" }
 near-primitives-core = { path = "../../core/primitives-core" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
