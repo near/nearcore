@@ -3,7 +3,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::process::Command;
 
-#[derive(Serialize, Default, Debug)]
+#[derive(Serialize, Debug)]
 struct Data {
     col: String,
     entries: u64,
@@ -14,36 +14,58 @@ struct Data {
     raw_value_size: u64,
 }
 
+// SST file dump keys we use to collect statistics.
+const SST_FILE_DUMP_LINES: [&str; 5] =
+    ["column family name", "# entries", "(estimated) table size", "raw key size", "raw value size"];
+
 impl Data {
+    pub fn from_sst_file_dump(lines: &[&str]) -> Self {
+        // Mapping from SST file dump key to value.
+        let mut values: HashMap<&str, &str> = Default::default();
+
+        for line in lines {
+            let split_line: Vec<&str> = line.split(':').collect();
+            if split_line.len() < 2 {
+                continue;
+            }
+            let line = split_line[0].trim();
+            let value = split_line[1].trim();
+
+            for sst_file_line in SST_FILE_DUMP_LINES {
+                if line == sst_file_line {
+                    if values.contains_key(line) {
+                        panic!(
+                            "Line {} was presented twice and contains values {} and {}",
+                            line,
+                            values.get(line).unwrap(),
+                            value
+                        );
+                    } else {
+                        values.insert(line, value);
+                    }
+                }
+            }
+        }
+
+        Data {
+            col: String::from(values.get(SST_FILE_DUMP_LINES[0]).unwrap()),
+            entries: values.get(SST_FILE_DUMP_LINES[1]).unwrap().parse::<u64>().unwrap(),
+            estimated_table_size: values
+                .get(SST_FILE_DUMP_LINES[2])
+                .unwrap()
+                .parse::<u64>()
+                .unwrap(),
+            raw_key_size: values.get(SST_FILE_DUMP_LINES[3]).unwrap().parse::<u64>().unwrap(),
+            raw_value_size: values.get(SST_FILE_DUMP_LINES[4]).unwrap().parse::<u64>().unwrap(),
+        }
+    }
+
     pub fn merge(&mut self, other: &Data) {
         self.entries += other.entries;
         self.estimated_table_size += other.estimated_table_size;
         self.raw_key_size += other.raw_key_size;
         self.raw_value_size += other.raw_value_size;
     }
-}
-
-fn parse_sst_file_dump(lines: &[&str]) -> Data {
-    let mut data = Data::default();
-    for line in lines {
-        let split_line: Vec<&str> = line.split(':').collect();
-        if split_line.len() < 2 {
-            continue;
-        }
-        let line = split_line[0].trim();
-        let value = split_line[1].trim();
-        eprintln!("{} {}", line, value);
-
-        match line {
-            "column family name" => data.col = value.to_string(),
-            "# entries" => data.entries = value.parse::<u64>().unwrap(),
-            "(estimated) table size" => data.estimated_table_size = value.parse::<u64>().unwrap(),
-            "raw key size" => data.raw_key_size = value.parse::<u64>().unwrap(),
-            "raw value size" => data.raw_value_size = value.parse::<u64>().unwrap(),
-            _ => {}
-        };
-    }
-    data
 }
 
 fn main() {
@@ -57,7 +79,7 @@ fn main() {
     let output = cmd.output().expect("sst_dump command failed to start");
 
     eprintln!("Parsing output ...");
-    let out = String::from_utf8(output.stdout).unwrap();
+    let out = std::str::from_utf8(&output.stdout).unwrap();
     let mut sst_file_breaks: Vec<usize> = vec![];
     let lines: Vec<&str> = out.lines().collect();
     for (i, line) in lines.iter().enumerate() {
@@ -70,7 +92,7 @@ fn main() {
     let mut column_data: HashMap<String, Data> = HashMap::new();
 
     for i in 1..sst_file_breaks.len() {
-        let data = parse_sst_file_dump(&lines[sst_file_breaks[i - 1]..sst_file_breaks[i]]);
+        let data = Data::from_sst_file_dump(&lines[sst_file_breaks[i - 1]..sst_file_breaks[i]]);
         if let Some(x) = column_data.get_mut(&data.col) {
             x.merge(&data);
         } else {
