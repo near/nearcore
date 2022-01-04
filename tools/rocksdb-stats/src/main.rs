@@ -52,12 +52,11 @@ fn main() {
     let store_dir = get_store_path(&home_dir);
     let mut cmd = Command::new("sst_dump");
     cmd.arg(format!("--file={}", store_dir.to_str().unwrap())).arg("--show_properties");
-    println!("Running {:?} ...", cmd);
+    eprintln!("Running {:?} ...", cmd);
     let output = cmd.output().expect("sst_dump command failed to start");
 
-    println!("Parsing output ...");
+    eprintln!("Parsing output ...");
     let out = String::from_utf8(output.stdout).unwrap();
-    println!("{}", out);
     let mut sst_file_breaks: Vec<usize> = vec![];
     let lines: Vec<&str> = out.lines().collect();
     for (i, line) in lines.iter().enumerate() {
@@ -80,7 +79,6 @@ fn main() {
 
     let mut column_data_list: Vec<&Data> = column_data.values().collect();
     column_data_list.sort_by_key(|data| -(data.estimated_table_size as i64));
-    for column_data in column_data_list {
-        println!("{:#?}", column_data);
-    }
+    eprintln!("Printing stats ...");
+    println!("{}", serde_json::to_string(&column_data_list).unwrap());
 }
