@@ -49,10 +49,9 @@ fn parse_sst_file_dump(lines: &[&str]) -> Data {
 
 fn main() {
     let home_dir = get_default_home();
-    let cmd = Command::new("sst_dump")
-        .arg(format!("--file={}", home_dir.to_str().unwrap()))
-        .arg("--show_properties");
-    println!("Running {:?} ...", cmd.clone());
+    let mut cmd = Command::new("sst_dump");
+    cmd.arg(format!("--file={}", home_dir.to_str().unwrap())).arg("--show_properties");
+    println!("Running {:?} ...", cmd);
     let output = cmd.output().expect("sst_dump command failed to start");
 
     println!("Parsing output ...");
