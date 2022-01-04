@@ -29,7 +29,6 @@ COPY . .
 ENV PORTABLE=ON
 ARG make_target=
 RUN make CARGO_TARGET_DIR=/tmp/target \
-         RUSTC_FLAGS='-C target-cpu=x86-64' \
          "${make_target:?make_target not set}"
 
 # Actual image
