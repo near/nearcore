@@ -1,21 +1,24 @@
 //! Client actor orchestrates Client and facilitates network connection.
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
-use std::thread;
-use std::time::{Duration, Instant};
-
+use crate::client::Client;
+use crate::info::{InfoHelper, ValidatorInfoHelper};
+use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
+#[cfg(feature = "test_features")]
+use crate::AdversarialControls;
+use crate::StatusResponse;
+use actix::dev::SendError;
 use actix::dev::ToEnvelope;
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
 use chrono::DateTime;
-use log::{debug, error, info, trace, warn};
-use near_primitives::time::{Clock, Utc};
-use rand::Rng;
-
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
+use log::{debug, error, info, trace, warn};
+use near_chain::chain::{
+    do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
+    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
+};
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, ValidatorInfoIdentifier};
 #[cfg(feature = "test_features")]
@@ -27,6 +30,10 @@ use near_chain::{
 use near_chain_configs::ClientConfig;
 #[cfg(feature = "test_features")]
 use near_chain_configs::GenesisConfig;
+use near_client_primitives::types::{
+    Error, GetNetworkInfo, GetValidatorInfoError, NetworkInfoResponse, ShardSyncDownload,
+    ShardSyncStatus, Status, StatusError, StatusSyncInfo, SyncStatus,
+};
 use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
@@ -35,40 +42,32 @@ use near_network::types::{
 use near_network_primitives::types::NetworkAdversarialMessage;
 #[cfg(feature = "sandbox")]
 use near_network_primitives::types::NetworkSandboxMessage;
+use near_network_primitives::types::ReasonForBan;
 use near_performance_metrics;
 use near_performance_metrics_macros::{perf, perf_with_debug};
+use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::BlockHeight;
+use near_primitives::syncing::StatePartKey;
+use near_primitives::time::{Clock, Utc};
+use near_primitives::types::{AccountId, BlockHeight, NumBlocks};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::ValidatorInfo;
+use near_primitives::views::{
+    CurrentEpochValidatorInfo, EpochValidatorInfo, ValidatorInfo, ValidatorKickoutView,
+};
+use near_store::db::DBCol::ColStateParts;
 #[cfg(feature = "test_features")]
 use near_store::ColBlock;
 use near_telemetry::TelemetryActor;
-
-use crate::client::Client;
-use crate::info::{InfoHelper, ValidatorInfoHelper};
-use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
-#[cfg(feature = "test_features")]
-use crate::AdversarialControls;
-use crate::StatusResponse;
-use actix::dev::SendError;
-use near_chain::chain::{
-    do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
-};
-use near_client_primitives::types::{
-    Error, GetNetworkInfo, GetValidatorInfoError, NetworkInfoResponse, ShardSyncDownload,
-    ShardSyncStatus, Status, StatusError, StatusSyncInfo, SyncStatus,
-};
-use near_network_primitives::types::ReasonForBan;
-use near_primitives::block_header::ApprovalType;
-use near_primitives::syncing::StatePartKey;
-use near_store::db::DBCol::ColStateParts;
+use rand::Rng;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+use std::thread;
+use std::time::{Duration, Instant};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -1496,6 +1495,7 @@ impl ClientActor {
                     .runtime_adapter
                     .get_validator_info(epoch_identifier)
                     .map_err(GetValidatorInfoError::from);
+                let validator_epoch_stats = get_validator_epoch_stats(validator_epoch_info);
                 act.info_helper.info(
                     act.client.chain.store().get_genesis_height(),
                     &head,
@@ -1503,7 +1503,7 @@ impl ClientActor {
                     &act.node_id,
                     &act.network_info,
                     validator_info,
-                    validator_epoch_info,
+                    validator_epoch_stats,
                 );
 
                 act.log_summary(ctx);
@@ -1682,4 +1682,51 @@ pub fn start_client(
         .unwrap()
     });
     (client_addr, client_arbiter_handle)
+}
+
+/// Number of blocks and chunks produced and expected by a certain validator.
+pub struct ValidatorProductionStats {
+    pub account_id: AccountId,
+    pub num_produced_blocks: NumBlocks,
+    pub num_expected_blocks: NumBlocks,
+    pub num_produced_chunks: NumBlocks,
+    pub num_expected_chunks: NumBlocks,
+}
+
+impl ValidatorProductionStats {
+    pub fn kickout(kickout: ValidatorKickoutView) -> Self {
+        Self {
+            account_id: kickout.account_id,
+            num_produced_blocks: 0,
+            num_expected_blocks: 0,
+            num_produced_chunks: 0,
+            num_expected_chunks: 0,
+        }
+    }
+    pub fn validator(info: CurrentEpochValidatorInfo) -> Self {
+        Self {
+            account_id: info.account_id,
+            num_produced_blocks: info.num_produced_blocks,
+            num_expected_blocks: info.num_expected_blocks,
+            num_produced_chunks: info.num_produced_chunks,
+            num_expected_chunks: info.num_expected_chunks,
+        }
+    }
+}
+
+// Converts EpochValidatorInfo into a vector of ValidatorProductionStats.
+fn get_validator_epoch_stats(
+    current_validator_epoch_info: Result<EpochValidatorInfo, GetValidatorInfoError>,
+) -> Vec<ValidatorProductionStats> {
+    let mut stats = vec![];
+    if let Ok(current_validator_epoch_info) = current_validator_epoch_info {
+        // Record kickouts to replace latest stats of kicked out validators with zeros.
+        for kickout in current_validator_epoch_info.prev_epoch_kickout {
+            stats.push(ValidatorProductionStats::kickout(kickout));
+        }
+        for validator in current_validator_epoch_info.current_validators {
+            stats.push(ValidatorProductionStats::validator(validator));
+        }
+    }
+    stats
 }
