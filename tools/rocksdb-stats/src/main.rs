@@ -78,7 +78,7 @@ fn main() {
     }
 
     let mut column_data_list: Vec<Data> = column_data.values().collect();
-    column_data_list.sort_by_key(|data| -data.estimated_table_size);
+    column_data_list.sort_by_key(|data| -(data.estimated_table_size as i64));
     for column_data in column_data_list {
         println!("{:#?}", column_data);
     }
