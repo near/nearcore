@@ -976,11 +976,11 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
         for node in rpc_nodes:
             schedule[node.instance_name] = random.randint(0, 4)
     else:
-        # Start all nodes upgraded.
+        # Start half of nodes upgraded.
         for node in rpc_nodes:
-            schedule[node.instance_name] = 0
+            schedule[node.instance_name] = 3*random.randint(0,1)
         for node in validator_nodes:
-            schedule[node.instance_name] = 0
+            schedule[node.instance_name] = 3*random.randint(0,1)
 
     return schedule
 
@@ -1065,13 +1065,12 @@ def upgrade_node(node):
             success = True
             break
         logger.warn(
-            f'Failed to upgrade neard, returncode: {start_process.returncode}\n{node.instance_name}\n{start_process.stderr}'
+            f'Failed to upgrade neard, return code: {start_process.returncode}\n{node.instance_name}\n{start_process.stderr}'
         )
         attempt += 1
         time.sleep(1)
     if not success:
         raise Exception(f'Could not upgrade node {node.instance_name}')
-
 
 STAKING_TIMEOUT = 60
 
