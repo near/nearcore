@@ -34,17 +34,14 @@ fn parse_sst_file_dump(lines: &[&str]) -> Data {
         let value = split_line[1].trim();
         eprintln!("{} {}", line, value);
 
-        if line.starts_with("column family name") {
-            data.col = value.to_string();
-        } else if line.starts_with("# entries") {
-            data.entries = value.parse::<u64>().unwrap();
-        } else if line.starts_with("(estimated) table size") {
-            data.estimated_table_size = value.parse::<u64>().unwrap();
-        } else if line.starts_with("raw key size") {
-            data.raw_key_size = value.parse::<u64>().unwrap();
-        } else if line.starts_with("raw value size") {
-            data.raw_value_size = value.parse::<u64>().unwrap();
-        }
+        match line {
+            "column family name" => data.col = value.to_string(),
+            "# entries" => data.entries = value.parse::<u64>().unwrap(),
+            "(estimated) table size" => data.estimated_table_size = value.parse::<u64>().unwrap(),
+            "raw key size" => data.raw_key_size = value.parse::<u64>().unwrap(),
+            "raw value size" => data.raw_value_size = value.parse::<u64>().unwrap(),
+            _ => {}
+        };
     }
     data
 }
