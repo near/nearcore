@@ -49,7 +49,10 @@ impl Wasmer2Memory {
         Ok(Wasmer2Memory(Arc::new(
             LinearMemory::new(
                 &MemoryType::new(Pages(initial_memory_pages), Some(max_pages), false),
-                &MemoryStyle::Static { bound: max_pages, offset_guard_size: 0x1000 },
+                &MemoryStyle::Static {
+                    bound: max_pages,
+                    offset_guard_size: wasmer_types::WASM_PAGE_SIZE as u64,
+                },
             )
             .expect("creating memory must not fail"),
         )))
