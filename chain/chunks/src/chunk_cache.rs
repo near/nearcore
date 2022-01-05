@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use cached::{Cached, SizedCache};
 
+use log::warn;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ShardChunkHeader,
