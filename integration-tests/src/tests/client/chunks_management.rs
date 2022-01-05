@@ -41,15 +41,14 @@ fn chunks_produced_and_distributed_common(
     let height_to_hash = Arc::new(RwLock::new(HashMap::new()));
     let height_to_epoch = Arc::new(RwLock::new(HashMap::new()));
 
-    let check_height =
-        move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash.clone()) {
-            Entry::Occupied(entry) => {
-                assert_eq!(*entry.get(), height);
-            }
-            Entry::Vacant(entry) => {
-                entry.insert(height);
-            }
-        };
+    let check_height = move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash) {
+        Entry::Occupied(entry) => {
+            assert_eq!(*entry.get(), height);
+        }
+        Entry::Vacant(entry) => {
+            entry.insert(height);
+        }
+    };
 
     let validators = vec![
         vec![

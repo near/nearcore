@@ -4,9 +4,7 @@ use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
-use near_primitives::errors::{
-    ActionError, ActionErrorKind, ContractCallError, ExternalError, RuntimeError,
-};
+use near_primitives::errors::{ActionError, ActionErrorKind, ContractCallError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt};
 use near_primitives::runtime::config::AccountCreationConfig;
@@ -27,13 +25,13 @@ use near_store::{
     StorageError, TrieUpdate,
 };
 use near_vm_errors::{
-    CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMError,
+    AnyError, CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMError,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{VMContext, VMOutcome};
 
 use crate::config::{safe_add_gas, RuntimeConfig};
-use crate::ext::RuntimeExt;
+use crate::ext::{ExternalError, RuntimeExt};
 use crate::{ActionResult, ApplyState};
 use near_primitives::config::ViewConfig;
 use near_vm_runner::precompile_contract;
@@ -64,9 +62,7 @@ pub(crate) fn execute_function_call(
         Err(e) => {
             return (
                 None,
-                Some(VMError::InconsistentStateError(InconsistentStateError::StorageError(
-                    e.to_string(),
-                ))),
+                Some(VMError::ExternalError(AnyError::new(ExternalError::StorageError(e)))),
             );
         }
     };
@@ -210,7 +206,7 @@ pub(crate) fn action_function_call(
                 ExternalError::ValidatorError(err) => Err(RuntimeError::ValidatorError(err)),
             };
         }
-        Some(VMError::InconsistentStateError(err)) => {
+        Some(VMError::InconsistentStateError(err @ InconsistentStateError::IntegerOverflow)) => {
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
         }
         Some(VMError::CacheError(err)) => {
@@ -443,7 +439,7 @@ pub(crate) fn action_deploy_contract(
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
     let prev_code_length = prev_code.map(|code| code.code().len() as u64).unwrap_or_default();
-    account.set_storage_usage(account.storage_usage().checked_sub(prev_code_length).unwrap_or(0));
+    account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_length));
     account.set_storage_usage(
         account.storage_usage().checked_add(code.code().len() as u64).ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
@@ -532,7 +528,7 @@ pub(crate) fn action_delete_key(
         };
         // Remove access key
         remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
-        account.set_storage_usage(account.storage_usage().checked_sub(storage_usage).unwrap_or(0));
+        account.set_storage_usage(account.storage_usage().saturating_sub(storage_usage));
     } else {
         result.result = Err(ActionErrorKind::DeleteKeyDoesNotExist {
             public_key: delete_key.public_key.clone(),

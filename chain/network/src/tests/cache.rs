@@ -1,4 +1,4 @@
-use crate::routing::RoutingTableView;
+use crate::routing::routing_table_view::RoutingTableView;
 use crate::test_utils::{random_epoch_id, random_peer_id};
 use near_crypto::Signature;
 use near_primitives::network::AnnounceAccount;
