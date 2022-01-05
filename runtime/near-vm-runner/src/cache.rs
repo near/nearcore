@@ -118,7 +118,10 @@ static WASMER_CACHE: once_cell::sync::Lazy<
 
 #[cfg(not(feature = "no_cache"))]
 static WASMER2_CACHE: once_cell::sync::Lazy<
-    near_cache::SyncLruCache<CryptoHash, Result<crate::wasmer2_runner::VMArtifact, CompilationError>>,
+    near_cache::SyncLruCache<
+        CryptoHash,
+        Result<crate::wasmer2_runner::VMArtifact, CompilationError>,
+    >,
 > = once_cell::sync::Lazy::new(|| near_cache::SyncLruCache::new(CACHE_SIZE));
 
 #[cfg(feature = "wasmer0_vm")]
