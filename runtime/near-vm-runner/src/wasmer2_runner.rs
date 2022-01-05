@@ -7,9 +7,7 @@ use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_stable_hasher::StableHasher;
-use near_vm_errors::{
-    CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap,
-};
+use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
 use near_vm_logic::gas_counter::FastGasCounter;
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
@@ -164,6 +162,12 @@ fn translate_instantiation_error(
 }
 
 fn translate_runtime_error(error: wasmer_engine::RuntimeError, logic: &mut VMLogic) -> VMError {
+    // Errors produced by host function calls also become `RuntimeError`s that wrap a dynamic
+    // instance of `VMLogicError` internally. See the implementation of `Wasmer2Imports`.
+    let error = match error.downcast::<near_vm_errors::VMLogicError>() {
+        Ok(vm_logic) => return vm_logic.into(),
+        Err(original) => original,
+    };
     let msg = error.message();
     let trap_code = error.to_trap().unwrap_or_else(|| {
         panic!("runtime error is not a trap: {}", msg);

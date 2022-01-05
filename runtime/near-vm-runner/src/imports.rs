@@ -361,6 +361,10 @@ pub(crate) mod wasmer2 {
                             // first place.
                             unsafe { (*env).$func( $( $arg_name, )* ) }
                         }));
+                        // We want to ensure that the only kind of error that host function calls
+                        // return are VMLogicError. This is important because we later attempt to
+                        // downcast the `RuntimeError`s into `VMLogicError`.
+                        let result: Result<Result<_, near_vm_errors::VMLogicError>, _>  = result;
                         #[allow(unused_parens)]
                         match result {
                             Ok(Ok(($($returns),*))) => make_ret($($returns),*),
