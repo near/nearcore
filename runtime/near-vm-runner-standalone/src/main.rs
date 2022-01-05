@@ -176,6 +176,13 @@ fn main() {
         }
     );
 
+    if let Some(outcome) = outcome.clone() {
+        println!("\nLogs:");
+        for log in outcome.logs {
+            println!("{}\n", log);
+        }
+    }
+
     match &outcome {
         Some(outcome) => {
             println!("{:#?}", outcome.profile);
