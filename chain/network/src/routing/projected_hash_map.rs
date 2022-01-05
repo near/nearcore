@@ -6,8 +6,7 @@ use std::marker::PhantomData;
 /// Wraps around `Edge` struct. The main feature of this struct, is that it's hashed by
 /// `(Edge::key.0, Edge::key.1)` pair instead of `(Edge::key.0, Edge::key.1, Edge::nonce)`
 /// triple.
-#[derive(std::cmp::Eq)]
-pub struct HashMapHelper<T, V>
+struct HashMapHelper<T, V>
 where
     V: Borrow<T>,
     T: Hash + PartialEq + Eq,
@@ -34,6 +33,13 @@ where
     fn eq(&self, other: &Self) -> bool {
         self.inner.borrow() == other.inner.borrow()
     }
+}
+
+impl<T, V> Eq for HashMapHelper<T, V>
+where
+    V: Borrow<T>,
+    T: Hash + PartialEq + Eq,
+{
 }
 
 impl<T, V> Hash for HashMapHelper<T, V>
@@ -69,7 +75,6 @@ impl<T, V> ProjectedHashMap<T, V>
 where
     V: Borrow<T>,
     T: Hash + PartialEq + Eq,
-    HashMapHelper<T, V>: Eq,
 {
     /// Note: We need to remove the value first.
     /// The insert inside HashSet, will not remove existing element if it has the same key.
