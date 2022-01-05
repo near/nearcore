@@ -4,7 +4,7 @@ use anyhow::Context;
 use clap::Clap;
 use genesis_populate::GenesisBuilder;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::create_store_with_extra_cache;
+use near_store::create_store;
 use near_vm_runner::internal::VMKind;
 use nearcore::{get_store_path, load_config};
 use runtime_params_estimator::config::{Config, GasMetric};
@@ -120,10 +120,7 @@ fn main() -> anyhow::Result<()> {
             .expect("failed to init config");
 
             let near_config = load_config(&state_dump_path);
-            let store = create_store_with_extra_cache(
-                &get_store_path(&state_dump_path),
-                near_config.config.extra_db_memory_bytes,
-            );
+            let store = create_store(&get_store_path(&state_dump_path));
             GenesisBuilder::from_config_and_store(
                 &state_dump_path,
                 Arc::new(near_config.genesis),

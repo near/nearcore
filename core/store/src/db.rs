@@ -400,9 +400,10 @@ pub struct RocksDBOptions {
     cf_names: Option<Vec<String>>,
     cf_descriptors: Option<Vec<ColumnFamilyDescriptor>>,
 
-    rocksdb_options: Option<Options>,
     check_free_space_interval: u16,
+    extra_db_memory: usize,
     free_space_threshold: bytesize::ByteSize,
+    rocksdb_options: Option<Options>,
     warn_treshold: bytesize::ByteSize,
 }
 
@@ -414,9 +415,11 @@ impl Default for RocksDBOptions {
         RocksDBOptions {
             cf_names: None,
             cf_descriptors: None,
-            rocksdb_options: None,
+
             check_free_space_interval: 256,
+            extra_db_memory: 0,
             free_space_threshold: bytesize::ByteSize::mb(16),
+            rocksdb_options: None,
             warn_treshold: bytesize::ByteSize::mb(256),
         }
     }
@@ -473,12 +476,13 @@ impl RocksDBOptions {
         })
     }
 
+    fn extra_db_memory(mut self, extra_db_memory: usize) -> Self {
+        self.extra_db_memory = extra_db_memory;
+        self
+    }
+
     /// Opens the database in read/write mode.
-    pub fn read_write<P: AsRef<std::path::Path>>(
-        self,
-        path: P,
-        extra_db_memory: usize,
-    ) -> Result<RocksDB, DBError> {
+    pub fn read_write<P: AsRef<std::path::Path>>(self, path: P) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
         let options = self.rocksdb_options.unwrap_or_else(rocksdb_options);
         let cf_names = self
@@ -489,7 +493,7 @@ impl RocksDBOptions {
                 .map(|col| {
                     ColumnFamilyDescriptor::new(
                         format!("col{}", col as usize),
-                        rocksdb_column_options(col, extra_db_memory),
+                        rocksdb_column_options(col, self.extra_db_memory),
                     )
                 })
                 .collect()
@@ -794,7 +798,7 @@ impl RocksDB {
         path: P,
         extra_db_memory: usize,
     ) -> Result<Self, DBError> {
-        RocksDBOptions::default().read_write(path, extra_db_memory)
+        RocksDBOptions::default().extra_db_memory(extra_db_memory).read_write(path)
     }
 
     /// Checks if there is enough memory left to perform a write. Not having enough memory left can
