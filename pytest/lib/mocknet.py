@@ -712,7 +712,7 @@ def create_genesis_file(validator_node_names,
         total_supply += int(account.get('amount', 0))
     genesis_config['total_supply'] = str(total_supply)
     # Testing simple nightshade.
-    genesis_config['protocol_version'] = 49
+    genesis_config['protocol_version'] = 50
     genesis_config['epoch_length'] = int(epoch_length)
     genesis_config['num_block_producer_seats'] = int(num_seats)
     # Loadtest helper signs all transactions using the same block.
