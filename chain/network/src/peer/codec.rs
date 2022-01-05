@@ -99,16 +99,12 @@ impl Decoder for Codec {
 mod test {
     use crate::peer::codec::{Codec, NETWORK_MESSAGE_MAX_SIZE_BYTES};
     use crate::routing::network_protocol::PartialEdgeInfo;
-    use crate::types::{
-        Handshake, HandshakeFailureReason, HandshakeV2, PeerMessage, RoutingTableUpdate,
-    };
-    use crate::PeerInfo;
+    use crate::types::{Handshake, PeerMessage, RoutingTableUpdate};
     use borsh::{BorshDeserialize, BorshSerialize};
     use bytes::{BufMut, BytesMut};
-    use near_crypto::{KeyType, PublicKey, SecretKey};
+    use near_crypto::{KeyType, SecretKey};
     use near_network_primitives::types::{
-        PeerChainInfo, PeerChainInfoV2, PeerIdOrHash, ReasonForBan, RoutedMessage,
-        RoutedMessageBody,
+        PeerChainInfoV2, PeerIdOrHash, PeerInfo, ReasonForBan, RoutedMessage, RoutedMessageBody,
     };
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::CryptoHash;
@@ -144,62 +140,6 @@ mod test {
         };
         let msg = PeerMessage::Handshake(fake_handshake);
         test_codec(msg);
-    }
-
-    #[test]
-    fn test_peer_message_handshake_v2() {
-        let peer_info = PeerInfo::random();
-        let fake_handshake = HandshakeV2 {
-            protocol_version: PROTOCOL_VERSION,
-            oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
-            sender_peer_id: peer_info.id.clone(),
-            target_peer_id: peer_info.id,
-            sender_listen_port: None,
-            chain_info: PeerChainInfo {
-                genesis_id: Default::default(),
-                height: 0,
-                tracked_shards: vec![],
-            },
-            partial_edge_info: PartialEdgeInfo::default(),
-        };
-        let msg = PeerMessage::HandshakeV2(fake_handshake);
-        test_codec(msg);
-    }
-
-    #[test]
-    fn test_peer_message_handshake_v2_00() {
-        let fake_handshake = HandshakeV2 {
-            protocol_version: 0,
-            oldest_supported_version: 0,
-            sender_peer_id: PeerId::new(PublicKey::empty(KeyType::ED25519)),
-            target_peer_id: PeerId::new(PublicKey::empty(KeyType::ED25519)),
-            sender_listen_port: None,
-            chain_info: PeerChainInfo {
-                genesis_id: Default::default(),
-                height: 0,
-                tracked_shards: vec![],
-            },
-            partial_edge_info: PartialEdgeInfo::default(),
-        };
-        let msg = PeerMessage::HandshakeV2(fake_handshake);
-
-        let mut codec = Codec::default();
-        let mut buffer = BytesMut::new();
-        codec.encode(msg.try_to_vec().unwrap(), &mut buffer).unwrap();
-        let decoded = codec.decode(&mut buffer).unwrap().unwrap().unwrap();
-
-        let err = PeerMessage::try_from_slice(&decoded).unwrap_err();
-
-        assert_eq!(
-            *err.get_ref()
-                .map(|inner| inner.downcast_ref::<HandshakeFailureReason>())
-                .unwrap()
-                .unwrap(),
-            HandshakeFailureReason::ProtocolVersionMismatch {
-                version: 0,
-                oldest_supported_version: 0,
-            }
-        );
     }
 
     #[test]

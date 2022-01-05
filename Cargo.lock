@@ -4410,6 +4410,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rocksdb-stats"
+version = "0.0.0"
+dependencies = [
+ "nearcore",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "runtime-params-estimator"
 version = "0.0.0"
 dependencies = [
@@ -4440,6 +4449,7 @@ dependencies = [
  "rand_xorshift 0.2.0",
  "rocksdb",
  "serde_json",
+ "sha256",
  "state-viewer",
  "tempfile",
  "testlib",
@@ -4692,6 +4702,16 @@ dependencies = [
  "cpufeatures",
  "digest 0.9.0",
  "opaque-debug",
+]
+
+[[package]]
+name = "sha256"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e84a7f596c081d359de5e06a83877138bc3c4483591e1af1916e1472e6e146e"
+dependencies = [
+ "hex",
+ "sha2",
 ]
 
 [[package]]
