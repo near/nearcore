@@ -971,11 +971,12 @@ impl ClientActor {
                 accepted_block.provenance,
             );
             let block = self.client.chain.get_block(&accepted_block.hash).unwrap();
+            let chunks_in_block = block.header().chunk_mask().iter().filter(|&&m| m).count();
             let gas_used = Block::compute_gas_used(block.chunks().iter(), block.header().height());
 
             let last_final_hash = *block.header().last_final_block();
 
-            self.info_helper.block_processed(gas_used);
+            self.info_helper.block_processed(gas_used, chunks_in_block as u64);
             self.check_send_announce_account(last_final_hash);
         }
     }

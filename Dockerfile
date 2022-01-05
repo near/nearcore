@@ -29,7 +29,8 @@ COPY . .
 ENV CARGO_TARGET_DIR=/tmp/target
 ENV RUSTC_FLAGS='-C target-cpu=x86-64'
 ENV PORTABLE=ON
-RUN cargo build -p neard --release && \
+ARG features=default
+RUN cargo build -p neard --release --features $features && \
     mkdir /tmp/build && \
     cd /tmp/target/release && \
     mv ./neard /tmp/build
