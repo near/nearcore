@@ -22,8 +22,7 @@ KEY_TARGET_ENV_VAR = 'NEAR_PYTEST_KEY_TARGET'
 # NODE_SSH_KEY_PATH = '~/.ssh/near_ops'
 NODE_SSH_KEY_PATH = None
 NODE_USERNAME = 'ubuntu'
-NUM_SHARDS = 1
-NUM_ACCOUNTS = 26 * 2
+NUM_ACCOUNTS = 26 * 10
 PROJECT = 'near-mocknet'
 PUBLIC_KEY = 'ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN'
 TX_OUT_FILE = '/home/ubuntu/tx_events'
@@ -185,8 +184,7 @@ def start_load_test_helpers(nodes,
                             rpc_nodes,
                             num_nodes,
                             max_tps,
-                            get_node_key=False,
-                            progressive_upgrade=False):
+                            get_node_key=False):
     account = get_validator_account(nodes[0])
     pmap(
         lambda node: start_load_test_helper(node,
@@ -714,7 +712,7 @@ def create_genesis_file(validator_node_names,
         total_supply += int(account.get('amount', 0))
     genesis_config['total_supply'] = str(total_supply)
     # Testing simple nightshade.
-    genesis_config['protocol_version'] = 48
+    genesis_config['protocol_version'] = 49
     genesis_config['epoch_length'] = int(epoch_length)
     genesis_config['num_block_producer_seats'] = int(num_seats)
     # Loadtest helper signs all transactions using the same block.
@@ -951,44 +949,45 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
                 else:
                     prev_stake = prev_stake + STAKE_STEP
                     staked = prev_stake * ONE_NEAR
-                stakes.append((staked, node))
+                stakes.append((staked, node.instance_name))
                 print(f'{node_account_name(node.instance_name)} {staked}')
 
         else:
-            staked = MIN_STAKE
+            for i, node in enumerate(validator_nodes):
+                stakes.append((MIN_STAKE, node.instance_name))
         logger.info(f'create_upgrade_schedule {stakes}')
 
         # Compute seat assignments.
         seats = compute_seats(stakes, num_block_producer_seats)
 
         seats_upgraded = 0
-        for seat, stake, node in seats:
-            if (seats_upgraded + seat) * 5 > 4 * num_block_producer_seats:
+        for seat, stake, instance_name in seats:
+            if (seats_upgraded + seat) * 100 > 75 * num_block_producer_seats:
                 break
-            schedule[node.instance_name] = 0
+            schedule[instance_name] = 0
             seats_upgraded += seat
 
         # Upgrade the remaining validators during 4 epochs.
         for node in validator_nodes:
             if node.instance_name not in schedule:
-                schedule[node.instance_name] = random.randint(1, 4)
+                schedule[node.instance_name] = random.randint(1, 3)
 
         for node in rpc_nodes:
-            schedule[node.instance_name] = random.randint(0, 4)
+            schedule[node.instance_name] = random.randint(0, 3)
     else:
-        # Start half of nodes upgraded.
+        # Start all nodes upgraded.
         for node in rpc_nodes:
-            schedule[node.instance_name] = 3*random.randint(0,1)
+            schedule[node.instance_name] = random.choice([1, 100])
         for node in validator_nodes:
-            schedule[node.instance_name] = 3*random.randint(0,1)
+            schedule[node.instance_name] = random.choice([1, 100])
 
     return schedule
 
 
 def compute_seats(stakes, num_block_producer_seats):
     max_stake = 0
-    for i in stakes:
-        max_stake = max(max_stake, i[0])
+    for i, j in stakes:
+        max_stake = max(max_stake, i)
 
     # Compute seats assignment.
     l = 0
@@ -999,6 +998,9 @@ def compute_seats(stakes, num_block_producer_seats):
         num_seats = 0
         for i in range(len(stakes)):
             num_seats += stakes[i][0] // tmp_seat_price
+        logger.info(
+            f'tmp_seat_price: {tmp_seat_price}, num_seats: {num_seats}, num_block_producer_seats: {num_block_producer_seats}'
+        )
         if num_seats <= num_block_producer_seats:
             r = tmp_seat_price
         else:
@@ -1018,6 +1020,18 @@ def upgrade_nodes(epoch_height, upgrade_schedule, all_nodes):
     for node in all_nodes:
         if upgrade_schedule.get(node.instance_name, 0) == epoch_height:
             upgrade_node(node)
+
+
+def restart_nodes(epoch_height, upgrade_schedule, all_nodes):
+    if epoch_height == 2:
+        logger.info(f'Restarting nodes at epoch height {epoch_height}')
+        for node in all_nodes:
+            if upgrade_schedule.get(node.instance_name,
+                                    0) == 1 and random.choice([True, False]):
+                restart_node(node)
+            if upgrade_schedule.get(node.instance_name,
+                                    0) > 1 and random.choice([True, False]):
+                upgrade_node(node)
 
 
 def get_epoch_height(rpc_nodes, prev_epoch_height):
@@ -1054,6 +1068,35 @@ def neard_restart_script(node):
     '''.format(neard_binary=shlex.quote(neard_binary))
 
 
+def neard_restart_script_old(node):
+    neard_binary = '/home/ubuntu/neard'
+    return '''
+        tmux send-keys -t near C-c
+        sudo mv /home/ubuntu/near.log /home/ubuntu/near.log.1 2>/dev/null
+        sudo mv /home/ubuntu/near.upgrade.log /home/ubuntu/near.upgrade.log.1 2>/dev/null
+        tmux send-keys -t near 'RUST_BACKTRACE=full RUST_LOG=debug,actix_web=info {neard_binary} run 2>&1 | tee -a {neard_binary}.log' C-m
+    '''.format(neard_binary=shlex.quote(neard_binary))
+
+
+def restart_node(node):
+    logger.info(f'Restarting node {node.instance_name}')
+    attempt = 0
+    success = False
+    while attempt < 3:
+        start_process = node.machine.run('sudo -u ubuntu -i',
+                                         input=neard_restart_script_old(node))
+        if start_process.returncode == 0:
+            success = True
+            break
+        logger.warn(
+            f'Failed to restart neard, returncode: {start_process.returncode}\n{node.instance_name}\n{start_process.stderr}'
+        )
+        attempt += 1
+        time.sleep(1)
+    if not success:
+        raise Exception(f'Could not upgrade node {node.instance_name}')
+
+
 def upgrade_node(node):
     logger.info(f'Upgrading node {node.instance_name}')
     attempt = 0
@@ -1065,12 +1108,13 @@ def upgrade_node(node):
             success = True
             break
         logger.warn(
-            f'Failed to upgrade neard, return code: {start_process.returncode}\n{node.instance_name}\n{start_process.stderr}'
+            f'Failed to upgrade neard, returncode: {start_process.returncode}\n{node.instance_name}\n{start_process.stderr}'
         )
         attempt += 1
         time.sleep(1)
     if not success:
         raise Exception(f'Could not upgrade node {node.instance_name}')
+
 
 STAKING_TIMEOUT = 60
 

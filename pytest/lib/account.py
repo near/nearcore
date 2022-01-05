@@ -1,6 +1,7 @@
 import base64
 import json
 import requests
+import random
 import time
 
 from transaction import (
@@ -13,16 +14,33 @@ from configured_logger import logger
 
 class Account:
 
-    def __init__(self, key, init_nonce, base_block_hash, rpc_info):
+    def __init__(self,
+                 key,
+                 init_nonce,
+                 base_block_hash,
+                 rpc_info=None,
+                 rpc_infos=None):
         self.key = key
         self.nonce = init_nonce
         self.base_block_hash = base_block_hash
-        self.rpc_addr, self.rpc_port = rpc_info
-        assert self.rpc_addr, key.account_id
+        self.rpc_info = rpc_info
+        self.rpc_infos = rpc_infos
+        assert rpc_info or rpc_infos
+        assert key.account_id
         self.tx_timestamps = []
         logger.info(
             f'Creating Account {key.account_id} {init_nonce} {rpc_info} {key.pk} {key.sk}'
         )
+
+    def get_rpc_node_address(self):
+        if self.rpc_info:
+            rpc_addr, rpc_port = self.rpc_info
+            return f'http://{rpc_addr}:{rpc_port}'
+        elif self.rpc_infos:
+            rpc_addr, rpc_port = random.choice(self.rpc_infos)
+            return f'http://{rpc_addr}:{rpc_port}'
+        else:
+            return None
 
     def json_rpc(self, method, params):
         j = {
@@ -31,9 +49,7 @@ class Account:
             'id': 'dontcare',
             'jsonrpc': '2.0'
         }
-        r = requests.post(f'http://{self.rpc_addr}:{self.rpc_port}',
-                          json=j,
-                          timeout=30)
+        r = requests.post(self.get_rpc_node_address(), json=j, timeout=30)
         return json.loads(r.content)
 
     def send_tx(self, signed_tx):
