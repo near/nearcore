@@ -41,6 +41,8 @@ pub struct InfoHelper {
     started: Instant,
     /// Total number of blocks processed.
     num_blocks_processed: u64,
+    /// Total number of blocks processed.
+    num_chunks_in_blocks_processed: u64,
     /// Total gas used during period.
     gas_used: u64,
     /// Sign telemetry with block producer key if available.
@@ -64,6 +66,7 @@ impl InfoHelper {
             pid: get_current_pid().ok(),
             started: Clock::instant(),
             num_blocks_processed: 0,
+            num_chunks_in_blocks_processed: 0,
             gas_used: 0,
             telemetry_actor,
             validator_signer,
@@ -71,8 +74,9 @@ impl InfoHelper {
         }
     }
 
-    pub fn block_processed(&mut self, gas_used: Gas) {
+    pub fn block_processed(&mut self, gas_used: Gas, num_chunks: u64) {
         self.num_blocks_processed += 1;
+        self.num_chunks_in_blocks_processed += num_chunks;
         self.gas_used += gas_used;
     }
 
@@ -103,6 +107,11 @@ impl InfoHelper {
         let avg_bls = (self.num_blocks_processed as f64)
             / (self.started.elapsed().as_millis() as f64)
             * 1000.0;
+        let chunks_per_block = if self.num_blocks_processed > 0 {
+            (self.num_chunks_in_blocks_processed as f64) / (self.num_blocks_processed as f64)
+        } else {
+            0.
+        };
         let avg_gas_used =
             ((self.gas_used as f64) / (self.started.elapsed().as_millis() as f64) * 1000.0) as u64;
 
@@ -154,6 +163,7 @@ impl InfoHelper {
         (metrics::RECEIVED_BYTES_PER_SECOND.set(network_info.received_bytes_per_sec as i64));
         (metrics::SENT_BYTES_PER_SECOND.set(network_info.sent_bytes_per_sec as i64));
         (metrics::BLOCKS_PER_MINUTE.set((avg_bls * (60 as f64)) as i64));
+        (metrics::CHUNKS_PER_BLOCK_MILLIS.set((1000. * chunks_per_block) as i64));
         (metrics::CPU_USAGE.set(cpu_usage as i64));
         (metrics::MEMORY_USAGE.set((memory_usage * 1024) as i64));
         let teragas = 1_000_000_000_000u64;
@@ -161,6 +171,7 @@ impl InfoHelper {
 
         self.started = Clock::instant();
         self.num_blocks_processed = 0;
+        self.num_chunks_in_blocks_processed = 0;
         self.gas_used = 0;
 
         let info = TelemetryInfo {

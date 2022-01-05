@@ -24,8 +24,8 @@ fn build_graph(depth: usize, size: usize) -> RoutingTableActor {
     let mut routing_table_actor = RoutingTableActor::new(source.clone(), store);
 
     let mut edges: Vec<Edge> = Vec::new();
-    for i in 0..size {
-        edges.push(Edge::make_fake_edge(source.clone(), nodes[i].clone(), 1));
+    for node in &nodes[..size] {
+        edges.push(Edge::make_fake_edge(source.clone(), node.clone(), 1));
     }
 
     for layer in 0..depth - 1 {

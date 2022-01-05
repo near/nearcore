@@ -67,78 +67,47 @@ class TxContext:
                 self.next_nonce += 1
 
 
-# opens up a log file, scrolls to the end. then allows to check if
-# a particular line appeared (or didn't) between the last time it was
-# checked and now
 class LogTracker:
+    """Opens up a log file, scrolls to the end and allows to check for patterns.
 
-    def __init__(self, node):
-        self.node = node
-        if type(node) is cluster.LocalNode:
-            self.fname = node.stderr_name
-            with open(self.fname) as f:
-                f.seek(0, 2)
-                self.offset = f.tell()
-        elif type(node) is cluster.GCloudNode:
-            self.offset = int(
-                node.machine.run("python3",
-                                 input='''
-with open('/tmp/python-rc.log') as f:
-    f.seek(0, 2)
-    logger.info(f.tell())
-''').stdout)
-        else:
-            # the above method should works for other cloud, if it has node.machine but untested
+    The tracker works only on local nodes.
+    """
+
+    def __init__(self, node: cluster.BaseNode) -> None:
+        """Initialises the tracker for given local node.
+
+        Args:
+            node: Node to create tracker for.
+        Raises:
+            NotImplementedError: If trying to create a tracker for non-local
+                node.
+        """
+        if not isinstance(node, cluster.LocalNode):
             raise NotImplementedError()
+        self.fname = node.stderr_name
+        with open(self.fname) as f:
+            f.seek(0, 2)
+            self.offset = f.tell()
 
-    # Check whether there is at least on occurrence of pattern in new logs
-    def check(self, pattern):
-        if type(self.node) is cluster.LocalNode:
-            with open(self.fname) as f:
-                f.seek(self.offset)
-                ret = pattern in f.read()
-                self.offset = f.tell()
-            return ret
-        elif type(self.node) is cluster.GCloudNode:
-            ret, offset = map(
-                int,
-                node.machine.run("python3",
-                                 input=f'''
-pattern={pattern}
-with open('/tmp/python-rc.log') as f:
-    f.seek({self.offset})
-    logger.info(s in f.read())
-    logger.info(f.tell())
-''').stdout.strip().split('\n'))
-            self.offset = int(offset)
-            return ret == "True"
-        else:
-            raise NotImplementedError()
+    def check(self, pattern: str) -> bool:
+        """Check whether the pattern can be found in the logs."""
+        with open(self.fname) as rd:
+            rd.seek(self.offset)
+            found = pattern in rd.read()
+            self.offset = rd.tell()
+        return found
 
-    def reset(self):
+    def reset(self) -> bool:
+        """Resets log offset to beginning of the file."""
         self.offset = 0
 
-    # Count number of occurrences of pattern in new logs
     def count(self, pattern):
-        if type(self.node) is cluster.LocalNode:
-            with open(self.fname) as f:
-                f.seek(self.offset)
-                ret = f.read().count(pattern)
-                self.offset = f.tell()
-            return ret
-        elif type(self.node) == cluster.GCloudNode:
-            ret, offset = node.machine.run("python3",
-                                           input=f'''
-with open('/tmp/python-rc.log') as f:
-    f.seek({self.offset})
-    logger.info(f.read().count({pattern})
-    logger.info(f.tell())
-''').stdout.strip().split('\n')
-            ret = int(ret)
-            self.offset = int(offset)
-            return ret
-        else:
-            raise NotImplementedError()
+        """Count number of occurrences of pattern in new logs."""
+        with open(self.fname) as rd:
+            rd.seek(self.offset)
+            count = rd.read().count(pattern)
+            self.offset = rd.tell()
+        return count
 
 
 def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
