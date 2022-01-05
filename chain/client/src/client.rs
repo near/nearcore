@@ -851,12 +851,13 @@ impl Client {
 
     /// Try to process chunks in the chunk cache whose previous block hash is `prev_block_hash` and
     /// who are not marked as complete yet
+    /// This function is needed because chunks in chunk cache will only be marked as complete after
+    /// the previous block is accepted. So we need to check if there are any chunks can be marked as
+    /// complete when a new block is accepted.
     pub fn check_incomplete_chunks(&mut self, prev_block_hash: &CryptoHash) -> Vec<AcceptedBlock> {
         let mut accepted_blocks = vec![];
         for chunk_header in self.shards_mgr.get_incomplete_chunks(prev_block_hash) {
             debug!(target:"client", "try to process incomplete chunks {:?}, prev_block: {:?}", chunk_header.chunk_hash(), prev_block_hash);
-            // create a fake partial encoded chunk message with empty parts and receipts
-            // because we just want to reconstruct the chunk
             let res = self.shards_mgr.check_chunk_have_all_parts_and_receipts(
                 &chunk_header,
                 self.chain.mut_store(),

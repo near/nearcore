@@ -1469,30 +1469,27 @@ impl ShardsManager {
         self.encoded_chunks.merge_in_partial_encoded_chunk(partial_encoded_chunk);
 
         // 3. Process the forwarded parts in chunk_forwards_cache
-        match self.chunk_forwards_cache.cache_remove(&chunk_hash) {
-            None => {}
-            Some(forwarded_parts) => {
-                // We have the header now, and there were some parts we were forwarded earlier.
-                // Let's process those parts now.
-                let forwarded_chunk = PartialEncodedChunkV2 {
-                    header: header.clone(),
-                    parts: forwarded_parts.into_iter().map(|(_, part)| part).collect(),
-                    receipts: Vec::new(),
-                };
-                // Make sure we mark this chunk as being requested so that it is handled
-                // properly in the next call. Note no requests are actually sent at this point.
-                self.request_chunk_single_mark_only(header);
-                // Call process_partial_encoded_chunk recursively, "simulating" as that forwarded
-                // part is just received from the network
-                return self.process_partial_encoded_chunk(
-                    // We can assert the signature on the header is valid because
-                    // it would have been checked in an earlier call to this function.
-                    MaybeValidated::from_validated(&forwarded_chunk),
-                    None,
-                    chain_store,
-                    rs,
-                );
-            }
+        if let Some(forwarded_parts) = self.chunk_forwards_cache.cache_remove(&chunk_hash) {
+            // We have the header now, and there were some parts we were forwarded earlier.
+            // Let's process those parts now.
+            let forwarded_chunk = PartialEncodedChunkV2 {
+                header: header.clone(),
+                parts: forwarded_parts.into_iter().map(|(_, part)| part).collect(),
+                receipts: Vec::new(),
+            };
+            // Make sure we mark this chunk as being requested so that it is handled
+            // properly in the next call. Note no requests are actually sent at this point.
+            self.request_chunk_single_mark_only(header);
+            // Call process_partial_encoded_chunk recursively, "simulating" as that forwarded
+            // part is just received from the network
+            return self.process_partial_encoded_chunk(
+                // We can assert the signature on the header is valid because
+                // it would have been checked in an earlier call to this function.
+                MaybeValidated::from_validated(&forwarded_chunk),
+                None,
+                chain_store,
+                rs,
+            );
         }
 
         // 4. Forward my parts to others tracking this chunk's shard
@@ -1610,9 +1607,7 @@ impl ShardsManager {
             // If we do care about the shard, we will remove the request once the full chunk is
             //    assembled.
             if !cares_about_shard {
-                self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
-                self.encoded_chunks.mark_entry_complete(&chunk_hash);
-                self.requested_partial_encoded_chunks.remove(&chunk_hash);
+                self.complete_chunk(&chunk_hash);
                 return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts);
             }
         }
@@ -1638,15 +1633,20 @@ impl ShardsManager {
 
             self.seals_mgr.approve_chunk(height, &chunk_hash);
 
-            self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
-            self.encoded_chunks.mark_entry_complete(&chunk_hash);
-            self.requested_partial_encoded_chunks.remove(&chunk_hash);
+            self.complete_chunk(&chunk_hash);
             return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts);
         }
 
         // add the chunk to the request pool in case it is not there already
         self.request_chunk_single_mark_only(header);
         Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts)
+    }
+
+    /// A helper function to be called after a chunk is considered complete
+    fn complete_chunk(&mut self, chunk_hash: &ChunkHash) {
+        self.encoded_chunks.mark_entry_complete(chunk_hash);
+        self.encoded_chunks.remove_from_cache_if_outside_horizon(chunk_hash);
+        self.requested_partial_encoded_chunks.remove(chunk_hash);
     }
 
     /// Send the parts of the partial_encoded_chunk that are owned by `self.me` to the

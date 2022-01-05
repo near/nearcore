@@ -121,7 +121,9 @@ impl EncodedChunksCache {
                 let previous_block_hash = entry.header.prev_block_hash();
                 self.remove_incomplete_chunk(previous_block_hash, chunk_hash);
             }
-            Vacant(_) => {}
+            Vacant(_) => {
+                warn!(target:"chunks", "cannot mark non-existent entry as complete {:?}", chunk_hash);
+            }
         }
     }
 
