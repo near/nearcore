@@ -3,12 +3,19 @@ use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 
+pub trait ProjectedMapKey<Key>
+where
+    Key: Hash,
+{
+    fn projected_map_key(&self) -> &Key;
+}
+
 /// Wraps around `Edge` struct. The main feature of this struct, is that it's hashed by
 /// `(Edge::key.0, Edge::key.1)` pair instead of `(Edge::key.0, Edge::key.1, Edge::nonce)`
 /// triple.
 struct HashMapHelper<T, V>
 where
-    V: Borrow<T>,
+    V: ProjectedMapKey<T>,
     T: Hash + PartialEq + Eq,
 {
     inner: V,
@@ -17,44 +24,44 @@ where
 
 impl<T, V> Borrow<T> for HashMapHelper<T, V>
 where
-    V: Borrow<T>,
+    V: ProjectedMapKey<T>,
     T: Hash + PartialEq + Eq,
 {
     fn borrow(&self) -> &T {
-        self.inner.borrow()
+        self.inner.projected_map_key()
     }
 }
 
 impl<T, V> PartialEq for HashMapHelper<T, V>
 where
-    V: Borrow<T>,
+    V: ProjectedMapKey<T>,
     T: Hash + PartialEq + Eq,
 {
     fn eq(&self, other: &Self) -> bool {
-        self.inner.borrow() == other.inner.borrow()
+        self.inner.projected_map_key() == other.inner.projected_map_key()
     }
 }
 
 impl<T, V> Eq for HashMapHelper<T, V>
 where
-    V: Borrow<T>,
+    V: ProjectedMapKey<T>,
     T: Hash + PartialEq + Eq,
 {
 }
 
 impl<T, V> Hash for HashMapHelper<T, V>
 where
-    V: Borrow<T>,
+    V: ProjectedMapKey<T>,
     T: Hash + PartialEq + Eq,
 {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.inner.borrow().hash(state)
+        self.inner.projected_map_key().hash(state)
     }
 }
 
 pub(crate) struct ProjectedHashMap<T, V>
 where
-    V: Borrow<T>,
+    V: ProjectedMapKey<T>,
     T: Hash + PartialEq + Eq,
 {
     pd: PhantomData<T>,
@@ -63,7 +70,7 @@ where
 
 impl<T, V> Default for ProjectedHashMap<T, V>
 where
-    V: Borrow<T>,
+    V: ProjectedMapKey<T>,
     T: Hash + PartialEq + Eq,
 {
     fn default() -> Self {
@@ -73,17 +80,17 @@ where
 
 impl<T, V> ProjectedHashMap<T, V>
 where
-    V: Borrow<T>,
+    V: ProjectedMapKey<T>,
     T: Hash + PartialEq + Eq,
 {
-
     pub(crate) fn get(&self, key: &T) -> Option<&V> {
         self.repr.get(key).map(|v| &v.inner)
     }
-    /// Note: We need to remove the value first.
-    /// The insert inside HashSet, will not remove existing element if it has the same key.
-    pub(crate) fn insert(&mut self, edge: V) {
-        self.repr.replace(HashMapHelper { inner: edge, pd: PhantomData });
+
+    /// Inserts `value` into the `ProjectedHashMap`.
+    /// If the map contained an equal value, the old value is returned
+    pub(crate) fn insert(&mut self, value: V) -> Option<V> {
+        self.repr.replace(HashMapHelper { inner: value, pd: PhantomData }).map(|x| x.inner)
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = &V> + '_ {
