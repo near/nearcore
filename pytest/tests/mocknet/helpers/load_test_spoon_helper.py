@@ -216,8 +216,17 @@ def get_test_accounts_from_args(argv):
     base_block_hash = get_latest_block_hash()
 
     rpc_infos = [(rpc_addr, RPC_PORT) for rpc_addr in rpc_nodes]
-    node_account = account.Account(node_account_key, get_nonce_for_pk(node_account_key.account_id, node_account_key.pk), base_block_hash, rpc_infos=rpc_infos)
-    accounts = [account.Account(key, get_nonce_for_pk(key.account_id, key.pk), base_block_hash, rpc_infos=rpc_infos]
+    node_account = account.Account(node_account_key,
+                                   get_nonce_for_pk(node_account_key.account_id,
+                                                    node_account_key.pk),
+                                   base_block_hash,
+                                   rpc_infos=rpc_infos)
+    accounts = [
+        account.Account(key,
+                        get_nonce_for_pk(key.account_id, key.pk),
+                        base_block_hash,
+                        rpc_infos=rpc_infos)
+    ]
     max_tps_per_node = max_tps / num_nodes
     return node_account, accounts, max_tps_per_node
 
