@@ -11,21 +11,26 @@ use std::cmp;
 /// best when the number of chunk producers is greater than
 /// `num_shards * min_validators_per_shard`.
 pub fn assign_shards<T: HasStake + Eq + Clone>(
-    chunk_producers: Vec<T>,
+    mut chunk_producers: Vec<T>,
     num_shards: NumShards,
     min_validators_per_shard: usize,
 ) -> Result<Vec<Vec<T>>, NotEnoughValidators> {
-    // Initially, sort by number of validators, then total stake
-    // (i.e. favour filling under-occupied shards first).
-    let mut shard_validator_heap: MinHeap<(usize, Balance, ShardId)> =
-        (0..num_shards).map(|s| (0, 0, s)).collect();
-
     let num_chunk_producers = chunk_producers.len();
     if num_chunk_producers < min_validators_per_shard {
         // Each shard must have `min_validators_per_shard` distinct validators,
         // however there are not that many, so we cannot proceed.
         return Err(NotEnoughValidators);
     }
+
+    // We’re using greedy algorithm so make sure chunk producers are sorted from
+    // the one with biggest stake.
+    chunk_producers.sort_by(|a, b| b.get_stake().cmp(&a.get_stake()));
+
+    // Initially, sort by number of validators, then total stake
+    // (i.e. favour filling under-occupied shards first).
+    let mut shard_validator_heap: MinHeap<(usize, Balance, ShardId)> =
+        (0..num_shards).map(|s| (0, 0, s)).collect();
+
     let required_validator_count =
         cmp::max(num_chunk_producers, (num_shards as usize) * min_validators_per_shard);
 
@@ -159,7 +164,7 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = (usize, T)>
 
 /// Marker struct to communicate the error where you try to assign validators to shards
 /// and there are not enough to even meet the minimum per shard.
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct NotEnoughValidators;
 
 pub trait HasStake {
@@ -175,6 +180,7 @@ impl HasStake for ValidatorStake {
 #[cfg(test)]
 mod tests {
     use near_primitives::types::{Balance, NumShards};
+    use rand::seq::SliceRandom;
     use std::collections::HashSet;
 
     const EXPONENTIAL_STAKES: [Balance; 12] = [100, 90, 81, 73, 66, 59, 53, 48, 43, 39, 35, 31];
@@ -256,14 +262,52 @@ mod tests {
         num_shards: NumShards,
         min_validators_per_shard: usize,
     ) -> Result<Vec<(usize, Balance)>, super::NotEnoughValidators> {
-        let chunk_producers = stakes.iter().copied().enumerate().collect();
-        let assignments =
-            super::assign_shards(chunk_producers, num_shards, min_validators_per_shard)?;
+        let chunk_producers: Vec<_> = stakes.iter().copied().enumerate().collect();
+        let result =
+            super::assign_shards(chunk_producers.clone(), num_shards, min_validators_per_shard);
+        verify_shuffling(&result, chunk_producers, num_shards, min_validators_per_shard);
+        result.map(|assignments| {
+            verify_assignemnts_are_sane(assignments, stakes.len(), min_validators_per_shard)
+        })
+    }
 
+    /// Calls [`super::assign_shards`] with chunk producers in random order and
+    /// verifies that the function returns the same result (i.e. that it’s not
+    /// affected by order in which chunk producers are given).
+    fn verify_shuffling(
+        want: &Result<Vec<Vec<(usize, Balance)>>, super::NotEnoughValidators>,
+        mut chunk_producers: Vec<(usize, Balance)>,
+        num_shards: NumShards,
+        min_per_shard: usize,
+    ) {
+        fn drop_idx(shards: Vec<Vec<(usize, Balance)>>) -> Vec<Vec<Balance>> {
+            shards
+                .into_iter()
+                .map(|cps| cps.into_iter().map(|(_, stake)| stake).collect())
+                .collect()
+        }
+        chunk_producers.shuffle(&mut rand::thread_rng());
+        let got = super::assign_shards(chunk_producers, num_shards, min_per_shard);
+        assert_eq!(want.clone().map(drop_idx), got.map(drop_idx));
+    }
+
+    /// Verifies that assignments returned by [`super::assign_shards`] look sane
+    /// and aggregates the assignments to (num_of_producers, total_stake) pairs.
+    ///
+    /// Checks that a) all chunk producers are assigned to at least one shard,
+    /// b) number of shards each chunk producer is assigned to is balanced
+    /// (difference of at most one), c) all shards have at least min_per_shard
+    /// chunk producers, and d) no chunk producer is assigned to the same shard
+    /// multiple times.
+    fn verify_assignemnts_are_sane(
+        assignments: Vec<Vec<(usize, Balance)>>,
+        num_chunk_producers: usize,
+        min_per_shard: usize,
+    ) -> Vec<(usize, Balance)> {
         // All chunk producers must be assigned at least once.  Furthermore, no
         // chunk producer can be assigned to more than one shard than chunk
         // producer with lowest number of assignments.
-        let mut chunk_producers_counts = vec![0; stakes.len()];
+        let mut chunk_producers_counts = vec![0; num_chunk_producers];
         for cp in assignments.iter().flat_map(|shard| shard.iter()) {
             chunk_producers_counts[cp.0] += 1;
         }
@@ -275,13 +319,13 @@ mod tests {
             .into_iter()
             .enumerate()
             .map(|(shard_id, cps)| {
-                // All shards must have at least min_validators_per_shard validators.
+                // All shards must have at least min_per_shard validators.
                 assert!(
-                    cps.len() >= min_validators_per_shard,
+                    cps.len() >= min_per_shard,
                     "Shard {} has only {} chunk producers; expected at least {}",
                     shard_id,
                     cps.len(),
-                    min_validators_per_shard
+                    min_per_shard
                 );
                 // No validator can exist twice in the same shard.
                 assert_eq!(
@@ -296,7 +340,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assignments.sort();
-        Ok(assignments)
+        assignments
     }
 
     fn test_distribution_common(stakes: &[Balance], num_shards: NumShards, diff_tolerance: i128) {
