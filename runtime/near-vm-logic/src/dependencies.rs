@@ -109,6 +109,8 @@ pub trait External {
     /// ```
     fn storage_remove(&mut self, key: &[u8]) -> Result<()>;
 
+    /// Note: The method is currently unused and untested.
+    ///
     /// Removes all keys with a given `prefix` from the storage trie associated with current
     /// account.
     ///
