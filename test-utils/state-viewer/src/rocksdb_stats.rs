@@ -93,7 +93,7 @@ pub(crate) fn get_rocksdb_stats(home_dir: &Path, file: Option<PathBuf>) -> anyho
     let out = std::str::from_utf8(&output.stdout).unwrap();
     let lines: Vec<&str> = out.lines().collect();
     let mut column_data: HashMap<String, Data> = HashMap::new();
-    for sst_file_slice in lines.split(|line| line.contains("Process")) {
+    for sst_file_slice in lines.split(|line| line.contains("Process")).skip(1) {
         let data = Data::from_sst_file_dump(sst_file_slice)?;
         if let Some(x) = column_data.get_mut(&data.col) {
             x.merge(&data);
