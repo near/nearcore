@@ -91,6 +91,7 @@ pub enum StateViewerSubCommand {
 
 impl StateViewerSubCommand {
     pub fn run(self, home_dir: &Path) {
+        tracing::info!("test");
         let near_config = load_config(home_dir);
         let store = create_store(&get_store_path(home_dir));
         match self {

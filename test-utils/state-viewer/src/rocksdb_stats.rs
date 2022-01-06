@@ -73,6 +73,7 @@ impl Data {
 }
 
 pub(crate) fn get_rocksdb_stats(home_dir: &Path, file: Option<PathBuf>) -> anyhow::Result<()> {
+    tracing::info!("test");
     let store_dir = get_store_path(&home_dir);
     let mut cmd = Command::new("sst_dump");
     cmd.arg("--file").arg(&store_dir).arg("--show_properties").arg("--command=none"); // For some reason, adding this argument makes execution 20x faster
