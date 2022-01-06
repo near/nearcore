@@ -4410,6 +4410,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rocksdb-stats"
+version = "0.0.0"
+dependencies = [
+ "nearcore",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "runtime-params-estimator"
 version = "0.0.0"
 dependencies = [
