@@ -83,7 +83,7 @@ pub(crate) fn get_rocksdb_stats(home_dir: &Path, file: Option<PathBuf>) -> anyho
         anyhow::bail!(
             "failed to run sst_dump, {}, stderr: {}",
             output.status,
-            output.stderr.to_str().unwrap()
+            std::str::from_utf8(output.stderr)?
         );
     }
 
