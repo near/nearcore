@@ -73,13 +73,12 @@ impl Data {
 }
 
 pub(crate) fn get_rocksdb_stats(home_dir: &Path, file: Option<PathBuf>) -> anyhow::Result<()> {
-    tracing::info!(target: "near", "test");
     let store_dir = get_store_path(&home_dir);
     let mut cmd = Command::new("sst_dump");
     cmd.arg(format!("--file={}", store_dir.to_str()?))
         .arg("--show_properties")
         .arg("--command=none"); // For some reason, adding this argument makes execution 20x faster
-    tracing::info!(target: "state-viewer", "Running {:?} ...", cmd);
+    eprintln!("Running {:?} ...", cmd);
     let output = cmd.output()?;
     if !output.status.success() {
         anyhow::bail!(
@@ -89,7 +88,7 @@ pub(crate) fn get_rocksdb_stats(home_dir: &Path, file: Option<PathBuf>) -> anyho
         );
     }
 
-    tracing::info!(target: "near", "Parsing output ...");
+    eprintln!("Parsing output ...");
     let out = std::str::from_utf8(&output.stdout).unwrap();
     let lines: Vec<&str> = out.lines().collect();
     let mut column_data: HashMap<String, Data> = HashMap::new();
@@ -106,7 +105,7 @@ pub(crate) fn get_rocksdb_stats(home_dir: &Path, file: Option<PathBuf>) -> anyho
     column_data_list.sort_by_key(|data| std::cmp::Reverse(data.estimated_table_size));
     let result = serde_json::to_string_pretty(&column_data_list).unwrap();
 
-    tracing::info!(target: "near", "Dumping stats ...");
+    eprintln!("Dumping stats ...");
     match file {
         None => println!("{}", result),
         Some(file) => std::fs::write(file, result)?,

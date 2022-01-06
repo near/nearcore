@@ -92,13 +92,6 @@ pub enum StateViewerSubCommand {
 
 impl StateViewerSubCommand {
     pub fn run(self, home_dir: &Path) {
-        match &self {
-            StateViewerSubCommand::RocksDBStats(cmd) => {
-                assert_matches!(get_rocksdb_stats(home_dir, None), Ok(_))
-            }
-            _ => {}
-        }
-        tracing::info!(target: "state-viewer", "test");
         let near_config = load_config(home_dir);
         let store = create_store(&get_store_path(home_dir));
         match self {
