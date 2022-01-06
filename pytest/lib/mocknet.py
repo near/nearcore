@@ -1015,23 +1015,22 @@ def compute_seats(stakes, num_block_producer_seats):
     return seats
 
 
-def upgrade_nodes(epoch_height, upgrade_schedule, all_nodes):
+def upgrade_nodes(epoch_height, upgrade_schedule, all_nodes,
+                  restart_epoch_height):
     logger.info(f'Upgrading nodes for epoch height {epoch_height}')
     for node in all_nodes:
         if upgrade_schedule.get(node.instance_name, 0) == epoch_height:
             upgrade_node(node)
-
-
-def restart_nodes(epoch_height, upgrade_schedule, all_nodes):
-    if epoch_height == 2:
-        logger.info(f'Restarting nodes at epoch height {epoch_height}')
-        for node in all_nodes:
-            if upgrade_schedule.get(node.instance_name,
-                                    0) == 1 and random.choice([True, False]):
-                restart_node(node)
-            if upgrade_schedule.get(node.instance_name,
-                                    0) > 1 and random.choice([True, False]):
-                upgrade_node(node)
+        elif upgrade_schedule.get(
+                node.instance_name, 0
+        ) < epoch_height and epoch_height == restart_epoch_height and random.choice(
+            [True, False]):
+            restart_node(node)
+        elif upgrade_schedule.get(
+                node.instance_name, 0
+        ) > epoch_height and epoch_height == restart_epoch_height and random.choice(
+            [True, False]):
+            upgrade_node(node)
 
 
 def get_epoch_height(rpc_nodes, prev_epoch_height):

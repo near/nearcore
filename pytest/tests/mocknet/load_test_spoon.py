@@ -190,7 +190,8 @@ if __name__ == '__main__':
                                                     prev_epoch_height)
             if epoch_height > prev_epoch_height:
                 mocknet.upgrade_nodes(epoch_height - initial_epoch_height,
-                                      upgrade_schedule, all_nodes)
+                                      upgrade_schedule, all_nodes,
+                                      initial_epoch_height + 2)
                 prev_epoch_height = epoch_height
             time.sleep(EPOCH_HEIGHT_CHECK_DELAY)
 
@@ -200,8 +201,9 @@ if __name__ == '__main__':
             epoch_height = mocknet.get_epoch_height(rpc_nodes,
                                                     prev_epoch_height)
             if epoch_height > prev_epoch_height:
-                mocknet.restart_nodes(epoch_height - initial_epoch_height,
-                                      upgrade_schedule, all_nodes)
+                mocknet.upgrade_nodes(epoch_height - initial_epoch_height,
+                                      upgrade_schedule, all_nodes,
+                                      initial_epoch_height + 2)
                 prev_epoch_height = epoch_height
             time.sleep(EPOCH_HEIGHT_CHECK_DELAY)
 
