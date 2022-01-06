@@ -295,6 +295,6 @@ pub struct RocksDBStatsCmd {
 
 impl RocksDBStatsCmd {
     pub fn run(self, home_dir: &Path) {
-        assert_eq!(get_rocksdb_stats(home_dir, self.file), Ok);
+        assert_matches!(get_rocksdb_stats(home_dir, self.file), Ok(_));
     }
 }
