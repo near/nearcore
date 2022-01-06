@@ -58,7 +58,7 @@ fn main() {
         )
         .get_matches();
 
-    let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
+    let home_dir = matches.value_of("home").map(Path::new).unwrap();
     let wait_period = matches
         .value_of("wait-period")
         .map(|s| s.parse().expect("Wait period must be a number"))
@@ -69,7 +69,7 @@ fn main() {
         .map(|s| s.parse().expect("Stake amount must be a number"))
         .unwrap();
 
-    let config = Config::from_file(&home_dir.join(CONFIG_FILENAME));
+    let config = Config::from_file(&home_dir.join(CONFIG_FILENAME)).expect("can't load config");
     let key_file = KeyFile::from_file(&home_dir.join(&config.validator_key_file));
     // Support configuring if there is another key.
     let signer = InMemorySigner::from_file(&home_dir.join(&config.validator_key_file));

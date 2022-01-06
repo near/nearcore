@@ -39,6 +39,13 @@ pub static SENT_BYTES_PER_SECOND: Lazy<IntGauge> = Lazy::new(|| {
 pub static BLOCKS_PER_MINUTE: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_blocks_per_minute", "Blocks produced per minute").unwrap()
 });
+pub static CHUNKS_PER_BLOCK_MILLIS: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_chunks_per_block_millis",
+        "Average number of chunks included in blocks",
+    )
+    .unwrap()
+});
 pub static CPU_USAGE: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_cpu_usage_ratio", "Percent of CPU usage").unwrap());
 pub static MEMORY_USAGE: Lazy<IntGauge> = Lazy::new(|| {

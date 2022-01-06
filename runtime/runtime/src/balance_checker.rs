@@ -30,9 +30,9 @@ pub(crate) fn check_balance(
 ) -> Result<(), RuntimeError> {
     // Delayed receipts
     let initial_delayed_receipt_indices: DelayedReceiptIndices =
-        get(&initial_state, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
+        get(initial_state, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
     let final_delayed_receipt_indices: DelayedReceiptIndices =
-        get(&final_state, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
+        get(final_state, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
     let get_delayed_receipts = |from_index, to_index, state| {
         (from_index..to_index)
             .map(|index| {
@@ -49,13 +49,13 @@ pub(crate) fn check_balance(
     let processed_delayed_receipts = get_delayed_receipts(
         initial_delayed_receipt_indices.first_index,
         final_delayed_receipt_indices.first_index,
-        &initial_state,
+        initial_state,
     )?;
     // Receipts that were not processed this time and are delayed now.
     let new_delayed_receipts = get_delayed_receipts(
         initial_delayed_receipt_indices.next_available_index,
         final_delayed_receipt_indices.next_available_index,
-        &final_state,
+        final_state,
     )?;
 
     // Accounts
@@ -92,10 +92,10 @@ pub(crate) fn check_balance(
             })
             .collect::<Result<Vec<Balance>, RuntimeError>>()?
             .into_iter()
-            .try_fold(0u128, |res, balance| safe_add_balance(res, balance))?)
+            .try_fold(0u128, safe_add_balance)?)
     };
-    let initial_accounts_balance = total_accounts_balance(&initial_state)?;
-    let final_accounts_balance = total_accounts_balance(&final_state)?;
+    let initial_accounts_balance = total_accounts_balance(initial_state)?;
+    let final_accounts_balance = total_accounts_balance(final_state)?;
     // Receipts
     let receipt_cost = |receipt: &Receipt| -> Result<Balance, IntegerOverflowError> {
         Ok(match &receipt.receipt {
@@ -127,7 +127,7 @@ pub(crate) fn check_balance(
             .map(receipt_cost)
             .collect::<Result<Vec<Balance>, IntegerOverflowError>>()?
             .into_iter()
-            .try_fold(0u128, |res, balance| safe_add_balance(res, balance))
+            .try_fold(0u128, safe_add_balance)
     };
     let incoming_receipts_balance = receipts_cost(incoming_receipts)?;
     let outgoing_receipts_balance = receipts_cost(outgoing_receipts)?;
@@ -173,7 +173,7 @@ pub(crate) fn check_balance(
             })
             .collect::<Result<Vec<Balance>, RuntimeError>>()?
             .into_iter()
-            .try_fold(0u128, |res, balance| safe_add_balance(res, balance))?)
+            .try_fold(0u128, safe_add_balance)?)
     };
     let initial_postponed_receipts_balance = total_postponed_receipts_cost(initial_state)?;
     let final_postponed_receipts_balance = total_postponed_receipts_cost(final_state)?;

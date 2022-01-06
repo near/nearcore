@@ -1,19 +1,17 @@
 #![doc = include_str!("../README.md")]
 
-use std::fmt::{self, Error, Formatter};
-
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "deepsize_feature")]
-use deepsize::DeepSizeOf;
 use near_account_id::AccountId;
 use near_rpc_error_macro::RpcError;
 use serde::{Deserialize, Serialize};
+use std::any::Any;
+use std::fmt::{self, Error, Formatter};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum VMError {
     FunctionCallError(FunctionCallError),
-    /// Serialized external error from External trait implementation.
-    ExternalError(Vec<u8>),
+    /// Type erased error from `External` trait implementation.
+    ExternalError(AnyError),
     /// An error that is caused by an operation on an inconsistent state.
     /// E.g. an integer overflow by using a value from the given context.
     InconsistentStateError(InconsistentStateError),
@@ -21,7 +19,7 @@ pub enum VMError {
     CacheError(CacheError),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum FunctionCallError {
     /// Wasm compilation error
     CompilationError(CompilationError),
@@ -48,7 +46,7 @@ pub enum FunctionCallError {
 /// add new variants at the end (but do that very carefully). This type must be never used
 /// directly, and must be converted to `ContractCallError` instead using `into()` converter.
 /// It describes stable serialization format, and only used by serialization logic.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 pub enum FunctionCallErrorSer {
     /// Wasm compilation error
@@ -69,7 +67,7 @@ pub enum FunctionCallErrorSer {
     ExecutionError(String),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum CacheError {
     ReadError,
     WriteError,
@@ -77,7 +75,7 @@ pub enum CacheError {
     SerializationError { hash: [u8; 32] },
 }
 /// A kind of a trap happened during execution of a binary
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
@@ -102,7 +100,7 @@ pub enum WasmTrap {
     GenericTrap,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
@@ -112,7 +110,7 @@ pub enum MethodResolveError {
     MethodInvalidSignature,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
@@ -123,7 +121,7 @@ pub enum CompilationError {
     UnsupportedCompiler { msg: String },
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
@@ -154,7 +152,7 @@ pub enum PrepareError {
     TooManyFunctions,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
@@ -229,23 +227,22 @@ pub enum HostError {
     AltBn128SerializationError { msg: String },
 }
 
-#[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
+#[derive(Debug, PartialEq)]
 pub enum VMLogicError {
     /// Errors coming from native Wasm VM.
     HostError(HostError),
-    /// Serialized external error from External trait implementation.
-    ExternalError(Vec<u8>),
+    /// Type erased error from `External` trait implementation.
+    ExternalError(AnyError),
     /// An error that is caused by an operation on an inconsistent state.
     InconsistentStateError(InconsistentStateError),
 }
 
 impl std::error::Error for VMLogicError {}
 
-/// An error that is caused by an operation on an inconsistent state.
-/// E.g. a deserialization error or an integer overflow.
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
+/// An error that is caused by an operation on an inconsistent state, such as
+/// integer overflow.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InconsistentStateError {
-    StorageError(String),
     /// Math operation with a value from the state resulted in a integer overflow.
     IntegerOverflow,
 }
@@ -270,14 +267,14 @@ impl From<PrepareError> for VMError {
     }
 }
 
-impl From<&VMLogicError> for VMError {
-    fn from(err: &VMLogicError) -> Self {
+impl From<VMLogicError> for VMError {
+    fn from(err: VMLogicError) -> Self {
         match err {
             VMLogicError::HostError(h) => {
-                VMError::FunctionCallError(FunctionCallError::HostError(h.clone()))
+                VMError::FunctionCallError(FunctionCallError::HostError(h))
             }
-            VMLogicError::ExternalError(s) => VMError::ExternalError(s.clone()),
-            VMLogicError::InconsistentStateError(e) => VMError::InconsistentStateError(e.clone()),
+            VMLogicError::ExternalError(s) => VMError::ExternalError(s),
+            VMLogicError::InconsistentStateError(e) => VMError::InconsistentStateError(e),
         }
     }
 }
@@ -382,7 +379,6 @@ impl fmt::Display for VMError {
 impl std::fmt::Display for InconsistentStateError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
-            InconsistentStateError::StorageError(err) => write!(f, "Storage error: {:?}", err),
             InconsistentStateError::IntegerOverflow => write!(
                 f,
                 "Math operation with a value from the state resulted in a integer overflow.",
@@ -434,27 +430,59 @@ impl std::fmt::Display for HostError {
     }
 }
 
-pub mod hex_format {
-    use hex::{decode, encode};
+/// Type-erased error used to shuttle some concrete error coming from `External`
+/// through vm-logic.
+///
+/// The caller is supposed to downcast this to a concrete error type they should
+/// know. This would be just `Box<dyn Any + Eq>` if the latter actually worked.
+pub struct AnyError {
+    any: Box<dyn AnyEq>,
+}
 
-    use serde::de;
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S, T>(data: T, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-        T: AsRef<[u8]>,
-    {
-        serializer.serialize_str(&encode(data))
+impl AnyError {
+    pub fn new<E: Any + Eq + Send + Sync + 'static>(err: E) -> AnyError {
+        AnyError { any: Box::new(err) }
     }
+    pub fn downcast<E: Any + Eq + Send + Sync + 'static>(self) -> Result<E, ()> {
+        match self.any.into_any().downcast::<E>() {
+            Ok(it) => Ok(*it),
+            Err(_) => Err(()),
+        }
+    }
+}
 
-    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
-    where
-        D: Deserializer<'de>,
-        T: From<Vec<u8>>,
-    {
-        let s = String::deserialize(deserializer)?;
-        decode(&s).map_err(|err| de::Error::custom(err.to_string())).map(Into::into)
+impl PartialEq for AnyError {
+    fn eq(&self, other: &Self) -> bool {
+        self.any.any_eq(&*other.any)
+    }
+}
+
+impl Eq for AnyError {}
+
+impl fmt::Debug for AnyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self.any.as_any(), f)
+    }
+}
+
+trait AnyEq: Any + Send + Sync {
+    fn any_eq(&self, rhs: &dyn AnyEq) -> bool;
+    fn as_any(&self) -> &dyn Any;
+    fn into_any(self: Box<Self>) -> Box<dyn Any>;
+}
+
+impl<T: Any + Eq + Sized + Send + Sync> AnyEq for T {
+    fn any_eq(&self, rhs: &dyn AnyEq) -> bool {
+        match rhs.as_any().downcast_ref::<Self>() {
+            Some(rhs) => self == rhs,
+            None => false,
+        }
+    }
+    fn as_any(&self) -> &dyn Any {
+        &*self
+    }
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
     }
 }
 

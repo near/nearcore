@@ -11,7 +11,7 @@
 
 ## Reference implementation of NEAR Protocol
 
-[![Build Status][ci-badge-master]][ci-url] 
+![Buildkite](https://img.shields.io/buildkite/0eae07525f8e44a19b48fa937813e2c21ee04aa351361cd851) 
 ![Stable Status][stable-release]
 ![Prerelease Status][prerelease]
 [![codecov][codecov-badge]][codecov-url]
@@ -62,8 +62,9 @@ pip3 install --user nearup
 ```
 
 You can join all the active networks:
-* TestNet: `nearup run testnet`
-* BetaNet: `nearup run betanet`
+* mainnet: `nearup run mainnet`
+* testnet: `nearup run testnet`
+* betanet: `nearup run betanet`
 
 Check the `nearup` repository for [more details](https://github.com/near/nearup) how to run with or without docker.
 

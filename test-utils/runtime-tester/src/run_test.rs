@@ -13,6 +13,7 @@ use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, Gas, Nonce};
 use near_store::create_store;
 use near_store::test_utils::create_test_store;
+use nearcore::TrackedConfig;
 use nearcore::{config::GenesisExt, NightshadeRuntime};
 
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -60,12 +61,13 @@ impl Scenario {
                 if let Some(tempdir) = &tempdir { tempdir.path() } else { Path::new(".") },
                 store,
                 &genesis,
+                TrackedConfig::new_empty(),
                 runtime_config_store,
             ))])
             .build();
 
         let result = self.process_blocks(&mut env);
-        ScenarioResult { result: result, homedir: tempdir, env: env }
+        ScenarioResult { result, homedir: tempdir, env }
     }
 
     fn process_blocks(&self, env: &mut TestEnv) -> Result<RuntimeStats, Error> {

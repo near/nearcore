@@ -19,6 +19,8 @@ import uuid
 from rc import gcloud
 from retrying import retry
 
+import base58
+
 import network
 from configured_logger import logger
 from key import Key
@@ -100,6 +102,33 @@ def make_boot_nodes_arg(boot_node: BootNode) -> typing.Tuple[str]:
     if not nodes:
         return ()
     return ('--boot-nodes', nodes)
+
+
+class BlockId(typing.NamedTuple):
+    """Stores block’s height and hash.
+
+    The values can be accessed either through properties or by structural
+    deconstruction, e.g.:
+
+        block_height, block_hash = block_id
+        assert block_height == block_id.height
+        assert block_hash == block_id.hash
+
+    Attributes:
+        height: Block’s height.
+        hash: Block’s hash encoding using base58.
+        hash_bytes: Block’s hash decoded as raw bytes.  Note that this attribute
+            cannot be accessed through aforementioned deconstruction.
+    """
+    height: int
+    hash: str
+
+    @property
+    def hash_bytes(self) -> bytes:
+        return base58.b58decode(self.hash.encode('ascii'))
+
+    def __str__(self) -> str:
+        return f'#{self.height} {self.height}'
 
 
 class BaseNode(object):
@@ -189,19 +218,30 @@ class BaseNode(object):
                              [base64.b64encode(signed_tx).decode('utf8')],
                              timeout=timeout)
 
-    def get_status(self, check_storage=True, timeout=4):
+    def get_status(self,
+                   check_storage: bool = True,
+                   timeout: float = 4,
+                   verbose: bool = False):
         r = requests.get("http://%s:%s/status" % self.rpc_addr(),
                          timeout=timeout)
         r.raise_for_status()
         status = json.loads(r.content)
+        if verbose:
+            logger.info(f'Status: {status}')
         if check_storage and status['sync_info']['syncing'] == False:
             # Storage is not guaranteed to be in consistent state while syncing
             self.check_store()
+        if verbose:
+            logger.info(status)
         return status
 
+    def get_latest_block(self, **kw) -> BlockId:
+        sync_info = self.get_status(**kw)['sync_info']
+        return BlockId(height=sync_info['latest_block_height'],
+                       hash=sync_info['latest_block_hash'])
+
     def get_all_heights(self):
-        status = self.get_status()
-        hash_ = status['sync_info']['latest_block_hash']
+        hash_ = self.get_latest_block().hash
         heights = []
 
         while True:
@@ -219,17 +259,21 @@ class BaseNode(object):
             heights.append(height)
             hash_ = block['result']['header']['prev_hash']
 
-        return list(reversed(heights))
+        return reversed(heights)
 
     def get_validators(self):
         return self.json_rpc('validators', [None])
 
-    def get_account(self, acc, finality='optimistic'):
-        return self.json_rpc('query', {
+    def get_account(self, acc, finality='optimistic', do_assert=True):
+        res = self.json_rpc('query', {
             "request_type": "view_account",
             "account_id": acc,
             "finality": finality
         })
+        if do_assert:
+            assert 'error' not in res, res
+
+        return res
 
     def call_function(self,
                       acc,
@@ -337,7 +381,7 @@ class LocalNode(BaseNode):
             os.path.join(node_dir, "node_key.json"))
         self.signer_key = Key.from_json_file(
             os.path.join(node_dir, "validator_key.json"))
-        self.pid = multiprocessing.Value('i', 0)
+        self._process = None
 
         self.change_config({
             'network': {
@@ -386,11 +430,12 @@ class LocalNode(BaseNode):
         self.stderr_name = node_dir / 'stderr'
         with open(self.stdout_name, 'ab') as stdout, \
              open(self.stderr_name, 'ab') as stderr:
-            self.pid.value = subprocess.Popen(cmd,
-                                              stdin=subprocess.DEVNULL,
-                                              stdout=stdout,
-                                              stderr=stderr,
-                                              env=env).pid
+            self._process = subprocess.Popen(cmd,
+                                             stdin=subprocess.DEVNULL,
+                                             stdout=stdout,
+                                             stderr=stderr,
+                                             env=env)
+        self._pid = self._process.pid
 
         if not skip_starting_proxy:
             self.start_proxy_if_needed()
@@ -407,15 +452,12 @@ class LocalNode(BaseNode):
                 logger.info(stderr.read_text('utf-8', 'replace'))
 
     def kill(self):
-        if self.pid.value != 0:
-            try:
-                os.kill(self.pid.value, signal.SIGKILL)
-            except ProcessLookupError:
-                pass  # the process has already terminated
-            self.pid.value = 0
-
-            if self._proxy_local_stopped is not None:
-                self._proxy_local_stopped.value = 1
+        if self._proxy_local_stopped is not None:
+            self._proxy_local_stopped.value = 1
+        if self._process:
+            self._process.kill()
+            self._process.wait(5)
+            self._process = None
 
     def reset_data(self):
         shutil.rmtree(os.path.join(self.node_dir, "data"))
@@ -447,12 +489,12 @@ class LocalNode(BaseNode):
         self.cleaned = True
 
     def stop_network(self):
-        logger.info("Stopping network for process %s" % self.pid.value)
-        network.stop(self.pid.value)
+        logger.info(f'Stopping network for process {self._pid}')
+        network.stop(self._pid)
 
     def resume_network(self):
-        logger.info("Resuming network for process %s" % self.pid.value)
-        network.resume_network(self.pid.value)
+        logger.info(f'Resuming network for process {self._pid}')
+        network.resume_network(self._pid)
 
 
 class GCloudNode(BaseNode):

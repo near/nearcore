@@ -1,18 +1,16 @@
 use crate::serialize::u128_dec_format;
 use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "deepsize_feature")]
-use deepsize::DeepSizeOf;
 use near_crypto::PublicKey;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
 
 use crate::hash::CryptoHash;
 use near_rpc_error_macro::RpcError;
-use near_vm_errors::{CompilationError, FunctionCallErrorSer, MethodResolveError, VMLogicError};
+use near_vm_errors::{CompilationError, FunctionCallErrorSer, MethodResolveError};
 
 /// Error returned in the ExecutionOutcome in case of failure
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -63,25 +61,8 @@ pub enum RuntimeError {
     ValidatorError(EpochError),
 }
 
-/// Error used by `RuntimeExt`. This error has to be serializable, because it's transferred through
-/// the `VMLogicError`, which isn't aware of internal Runtime errors.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
-pub enum ExternalError {
-    /// Unexpected error which is typically related to the node storage corruption.
-    /// It's possible the input state is invalid or malicious.
-    StorageError(StorageError),
-    /// Error when accessing validator information. Happens inside epoch manager.
-    ValidatorError(EpochError),
-}
-
-impl From<ExternalError> for VMLogicError {
-    fn from(err: ExternalError) -> Self {
-        VMLogicError::ExternalError(err.try_to_vec().expect("Borsh serialize cannot fail"))
-    }
-}
-
 /// Internal
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StorageError {
     /// Key-value db internal failure
     StorageInternalError,
@@ -104,7 +85,7 @@ impl std::fmt::Display for StorageError {
 impl std::error::Error for StorageError {}
 
 /// An error happened during TX execution
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -151,7 +132,7 @@ pub enum InvalidTxError {
     TransactionSizeExceeded { size: u64, limit: u64 },
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -178,7 +159,7 @@ pub enum InvalidAccessKeyError {
 }
 
 /// Describes the error for validating a list of actions.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
 )]
@@ -210,7 +191,7 @@ pub enum ActionsValidationError {
 }
 
 /// Describes the error for validating a receipt.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
 )]
@@ -327,7 +308,7 @@ impl Display for ActionsValidationError {
 }
 
 /// An error happened during Acton execution
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -339,7 +320,7 @@ pub struct ActionError {
     pub kind: ActionErrorKind,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, RpcError)]
 pub enum ContractCallError {
     MethodResolveError(MethodResolveError),
@@ -378,7 +359,7 @@ impl From<FunctionCallErrorSer> for ContractCallError {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -744,7 +725,7 @@ impl Display for ActionErrorKind {
     }
 }
 
-#[derive(Eq, PartialEq, BorshSerialize, BorshDeserialize, Clone)]
+#[derive(Eq, PartialEq, Clone)]
 pub enum EpochError {
     /// Error calculating threshold from given stakes for given number of seats.
     /// Only should happened if calling code doesn't check for integer value of stake > number of seats.

@@ -11,7 +11,7 @@ use near_primitives::block::{genesis_chunks, Block};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::account_new;
 use near_primitives::transaction::{Action, SignedTransaction, Transaction, TransferAction};
-use near_primitives::types::{AccountId, EpochId, StateRoot};
+use near_primitives::types::{EpochId, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Rational;
@@ -45,7 +45,7 @@ fn create_block() -> Block {
         1_000,
         CryptoHash::default(),
     );
-    let signer = InMemoryValidatorSigner::from_random(AccountId::test_account(), KeyType::ED25519);
+    let signer = InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519);
     Block::produce(
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
@@ -77,7 +77,7 @@ fn serialize_tx(bench: &mut Bencher) {
     let t = create_transaction();
     bench.iter(|| {
         let bytes = t.try_to_vec().unwrap();
-        assert!(bytes.len() > 0);
+        assert!(!bytes.is_empty());
     });
 }
 
@@ -94,7 +94,7 @@ fn serialize_block(bench: &mut Bencher) {
     let b = create_block();
     bench.iter(|| {
         let bytes = b.try_to_vec().unwrap();
-        assert!(bytes.len() > 0);
+        assert!(!bytes.is_empty());
     });
 }
 
@@ -111,7 +111,7 @@ fn serialize_account(bench: &mut Bencher) {
     let acc = create_account();
     bench.iter(|| {
         let bytes = acc.try_to_vec().unwrap();
-        assert!(bytes.len() > 0);
+        assert!(!bytes.is_empty());
     });
 }
 

@@ -1,5 +1,5 @@
-use crate::routing::edge::Edge;
-use crate::types::{StopMsg, ValidateEdgeList};
+use crate::network_protocol::Edge;
+use crate::private_actix::{StopMsg, ValidateEdgeList};
 use actix::{Actor, Handler, SyncContext, System};
 use conqueue::{QueueReceiver, QueueSender};
 use near_performance_metrics_macros::perf;
@@ -53,7 +53,7 @@ impl Handler<ValidateEdgeList> for EdgeValidatorActor {
                 let mut guard = msg.edges_info_shared.lock().unwrap();
                 let entry = guard.entry(key.clone());
 
-                let cur_nonce = entry.or_insert(edge.nonce());
+                let cur_nonce = entry.or_insert_with(|| edge.nonce());
                 *cur_nonce = max(*cur_nonce, edge.nonce());
             }
             msg.sender.push(edge);
