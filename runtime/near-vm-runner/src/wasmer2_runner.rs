@@ -307,7 +307,9 @@ pub(crate) fn default_wasmer2_store() -> Store {
     let compiler = Singlepass::new();
     // We only support universal engine at the moment.
     assert_eq!(WASMER2_CONFIG.engine, WasmerEngine::Universal);
-    let target_features = if cfg!(feature = "no_cpu_compatibility_checks") {
+    let target_features = if cfg!(feature = "cpu_compatibility_checks") {
+        wasmer::CpuFeature::for_host()
+    } else {
         let mut fs = wasmer::CpuFeature::set();
         // These features should be sufficient to run the single pass compiler.
         fs.insert(wasmer::CpuFeature::SSE2);
@@ -318,8 +320,6 @@ pub(crate) fn default_wasmer2_store() -> Store {
         fs.insert(wasmer::CpuFeature::POPCNT);
         fs.insert(wasmer::CpuFeature::AVX);
         fs
-    } else {
-        wasmer::CpuFeature::for_host()
     };
     let engine = wasmer::Universal::new(compiler)
         .features(WASMER_FEATURES)
