@@ -7,9 +7,7 @@ use std::fmt::{Debug, Display};
 
 use crate::hash::CryptoHash;
 use near_rpc_error_macro::RpcError;
-use near_vm_errors::{
-    AnyError, CompilationError, FunctionCallErrorSer, MethodResolveError, VMLogicError,
-};
+use near_vm_errors::{CompilationError, FunctionCallErrorSer, MethodResolveError};
 
 /// Error returned in the ExecutionOutcome in case of failure
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -61,22 +59,6 @@ pub enum RuntimeError {
     ReceiptValidationError(ReceiptValidationError),
     /// Error when accessing validator information. Happens inside epoch manager.
     ValidatorError(EpochError),
-}
-
-/// Error used by `RuntimeExt`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExternalError {
-    /// Unexpected error which is typically related to the node storage corruption.
-    /// It's possible the input state is invalid or malicious.
-    StorageError(StorageError),
-    /// Error when accessing validator information. Happens inside epoch manager.
-    ValidatorError(EpochError),
-}
-
-impl From<ExternalError> for VMLogicError {
-    fn from(err: ExternalError) -> Self {
-        VMLogicError::ExternalError(AnyError::new(err))
-    }
 }
 
 /// Internal
