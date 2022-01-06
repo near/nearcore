@@ -15,8 +15,13 @@ struct Data {
 }
 
 // SST file dump keys we use to collect statistics.
-const SST_FILE_DUMP_LINES: [&str; 5] =
-    ["column family name", "# entries", "(estimated) table size", "raw key size", "raw value size"];
+const SST_FILE_DUMP_LINES: &[&str] = &[
+    "column family name",
+    "# entries",
+    "(estimated) table size",
+    "raw key size",
+    "raw value size",
+];
 
 impl Data {
     pub fn from_sst_file_dump(lines: &[&str]) -> Self {
@@ -24,25 +29,22 @@ impl Data {
         let mut values: HashMap<&str, &str> = Default::default();
 
         for line in lines {
-            let split_line: Vec<&str> = line.split(':').collect();
-            if split_line.len() < 2 {
-                continue;
-            }
-            let line = split_line[0].trim();
-            let value = split_line[1].trim();
+            let split_result = line.split_once(':');
+            let (line, value) = match split_result {
+                None => continue,
+                Some((prefix, suffix)) => (prefix, suffix),
+            };
 
             for sst_file_line in SST_FILE_DUMP_LINES {
                 if line == sst_file_line {
-                    if values.contains_key(line) {
-                        panic!(
-                            "Line {} was presented twice and contains values {} and {}",
-                            line,
-                            values.get(line).unwrap(),
-                            value
-                        );
-                    } else {
-                        values.insert(line, value);
-                    }
+                    let prev = values.insert(line, value);
+                    assert!(
+                        prev.is_none(),
+                        "Line {} was presented twice and contains values {} and {}",
+                        line,
+                        prev.unwrap(),
+                        value
+                    );
                 }
             }
         }
@@ -68,31 +70,23 @@ impl Data {
     }
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let home_dir = get_default_home();
     let store_dir = get_store_path(&home_dir);
     let mut cmd = Command::new("sst_dump");
-    cmd.arg(format!("--file={}", store_dir.to_str().unwrap()))
-        .arg("--show_properties")
-        .arg("--command=none"); // For some reason, adding this argument makes execution 20x faster
-    eprintln!("Running {:?} ...", cmd);
-    let output = cmd.output().expect("sst_dump command failed to start");
-
-    eprintln!("Parsing output ...");
-    let out = std::str::from_utf8(&output.stdout).unwrap();
-    let mut sst_file_breaks: Vec<usize> = vec![];
-    let lines: Vec<&str> = out.lines().collect();
-    for (i, line) in lines.iter().enumerate() {
-        if line.contains("Process") {
-            sst_file_breaks.push(i);
-        }
+    cmd.arg("--file").arg(&store_dir).arg("--show_properties").arg("--command=none"); // For some reason, adding this argument makes execution 20x faster
+    tracing::info!("Running {:?} ...", cmd);
+    let output = cmd.output()?;
+    if !output.status.success() {
+        anyhow::bail!("failed to run sst_dump, exit status {}", output.status);
     }
-    sst_file_breaks.push(lines.len());
 
+    tracing::info!("Parsing output ...");
+    let out = std::str::from_utf8(&output.stdout).unwrap();
+    let lines: Vec<&str> = out.lines().collect();
     let mut column_data: HashMap<String, Data> = HashMap::new();
-
-    for i in 1..sst_file_breaks.len() {
-        let data = Data::from_sst_file_dump(&lines[sst_file_breaks[i - 1]..sst_file_breaks[i]]);
+    for sst_file_slice in lines.split(|line| line.contains("Process")) {
+        let data = Data::from_sst_file_dump(sst_file_slice);
         if let Some(x) = column_data.get_mut(&data.col) {
             x.merge(&data);
         } else {
@@ -101,7 +95,8 @@ fn main() {
     }
 
     let mut column_data_list: Vec<&Data> = column_data.values().collect();
-    column_data_list.sort_by_key(|data| u64::MAX - data.estimated_table_size);
-    eprintln!("Printing stats ...");
-    println!("{}", serde_json::to_string(&column_data_list).unwrap());
+    column_data_list.sort_by_key(|data| std::cmp::Reverse(data.estimated_table_size));
+    tracing::info!("Printing stats ...");
+    println!("{}", serde_json::to_string_pretty(&column_data_list).unwrap());
+    Ok(())
 }
