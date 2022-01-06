@@ -99,8 +99,7 @@ fn perf_internal(_attr: TokenStream, item: TokenStream, debug: bool) -> TokenStr
                 }
              ).into()
         };
-        let block: syn::Block = syn::parse(new_body).expect("failed to parse input");
-        func.block = block.into();
+        func.block = syn::parse::<syn::Block>(new_body).expect("failed to parse input").into();
 
         quote! ( #func ).into()
     } else {
