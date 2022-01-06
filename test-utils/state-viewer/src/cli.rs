@@ -84,8 +84,8 @@ pub enum StateViewerSubCommand {
     /// Print `EpochInfo` of an epoch given by `--epoch_id` or by `--epoch_height`.
     #[clap(name = "epoch_info")]
     EpochInfo(EpochInfoCmd),
-    /// Print `EpochInfo` of an epoch given by `--epoch_id` or by `--epoch_height`.
-    #[clap(name = "epoch_info")]
+    /// Dump stats for the RocksDB storage.
+    #[clap(name = "rocksdb_stats")]
     RocksDBStats(RocksDBStatsCmd),
 }
 

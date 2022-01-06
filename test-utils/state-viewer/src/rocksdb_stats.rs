@@ -99,7 +99,7 @@ pub(crate) fn get_rocksdb_stats(home_dir: &Path, file: Option<PathBuf>) -> anyho
     column_data_list.sort_by_key(|data| std::cmp::Reverse(data.estimated_table_size));
     let result = serde_json::to_string_pretty(&column_data_list).unwrap();
 
-    tracing::info!("Printing stats ...");
+    tracing::info!("Dumping stats ...");
     match file {
         None => println!("{}", result),
         Some(file) => std::fs::write(file, result)?,
