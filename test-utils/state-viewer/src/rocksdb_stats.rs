@@ -80,7 +80,11 @@ pub(crate) fn get_rocksdb_stats(home_dir: &Path, file: Option<PathBuf>) -> anyho
     tracing::info!(target: "state-viewer", "Running {:?} ...", cmd);
     let output = cmd.output()?;
     if !output.status.success() {
-        anyhow::bail!("failed to run sst_dump, {}", output.status);
+        anyhow::bail!(
+            "failed to run sst_dump, {}, stderr: {}",
+            output.status,
+            output.stderr.to_str().unwrap()
+        );
     }
 
     tracing::info!(target: "state-viewer", "Parsing output ...");
