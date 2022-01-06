@@ -3,6 +3,7 @@ extern crate syn;
 
 use proc_macro::TokenStream;
 use quote::quote;
+use syn::Block;
 
 /// Wrap the method call with near_performance_metrics::stats::measure_performance function.
 ///
@@ -83,7 +84,7 @@ fn perf_internal(_attr: TokenStream, item: TokenStream, debug: bool) -> TokenStr
 
         let new_body: TokenStream = if debug {
             quote! (
-                fn xxx() {
+                {
                     near_performance_metrics::stats::measure_performance_with_debug(std::any::type_name::<Self>(), msg, move |msg| {
                         #function_body
                     })
@@ -91,19 +92,15 @@ fn perf_internal(_attr: TokenStream, item: TokenStream, debug: bool) -> TokenStr
             ).into()
         } else {
             quote! (
-                fn xxx() {
+                {
                     near_performance_metrics::stats::measure_performance(std::any::type_name::<Self>(), msg, move |msg| {
                         #function_body
                     })
                 }
              ).into()
         };
-
-        if let syn::Item::Fn(func2) = syn::parse(new_body).expect("failed to parse input") {
-            func.block = func2.block;
-        } else {
-            panic!("failed to parse example function");
-        }
+        let block: syn::Block = syn::parse(new_body).expect("failed to parse input");
+        func.block = block.into();
 
         quote! ( #func ).into()
     } else {
