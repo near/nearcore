@@ -34,9 +34,9 @@ impl Data {
             let split_result = line.split_once(':');
             let (line, value) = match split_result {
                 None => continue,
-                Some((prefix, suffix)) => (prefix, suffix),
+                Some((prefix, suffix)) => (prefix.trim(), suffix.trim()),
             };
-
+            eprintln!("{}, {}", line, value);
             for &sst_file_line in SST_FILE_DUMP_LINES {
                 if line == sst_file_line {
                     let prev = values.insert(line, value);
