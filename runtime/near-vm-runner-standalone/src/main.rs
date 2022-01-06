@@ -176,9 +176,9 @@ fn main() {
         }
     );
 
-    if let Some(outcome) = outcome.clone() {
+    if let Some(outcome) = &outcome {
         println!("\nLogs:");
-        for log in outcome.logs {
+        for log in &outcome.logs {
             println!("{}\n", log);
         }
     }
