@@ -1346,7 +1346,10 @@ fn test_auto_xz_decode_corrupted() {
 ///
 /// If the downloaded file is an XZ stream (i.e. starts with the XZ 6-byte magic
 /// number), transparently decompresses the file as it’s being downloaded.
-async fn download_file_impl(uri: hyper::Uri, file: std::fs::File) -> anyhow::Result<(), FileDownloadError> {
+async fn download_file_impl(
+    uri: hyper::Uri,
+    file: std::fs::File,
+) -> anyhow::Result<(), FileDownloadError> {
     let mut out = AutoXzDecoder::new(file);
     let https_connector = hyper_tls::HttpsConnector::new();
     let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
