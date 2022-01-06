@@ -26,7 +26,6 @@ const SST_FILE_DUMP_LINES: &[&str] = &[
 
 impl Data {
     pub fn from_sst_file_dump(lines: &[&str]) -> anyhow::Result<Self> {
-        eprintln!("{:?}", lines);
         // Mapping from SST file dump key to value.
         let mut values: HashMap<&str, &str> = Default::default();
 
@@ -36,7 +35,7 @@ impl Data {
                 None => continue,
                 Some((prefix, suffix)) => (prefix.trim(), suffix.trim()),
             };
-            eprintln!("{}, {}", line, value);
+
             for &sst_file_line in SST_FILE_DUMP_LINES {
                 if line == sst_file_line {
                     let prev = values.insert(line, value);
@@ -73,7 +72,7 @@ impl Data {
     }
 }
 
-pub(crate) fn get_rocksdb_stats(home_dir: &Path, file: Option<PathBuf>) -> anyhow::Result<()> {
+pub fn get_rocksdb_stats(home_dir: &Path, file: Option<PathBuf>) -> anyhow::Result<()> {
     let store_dir = get_store_path(&home_dir);
     let mut cmd = Command::new("sst_dump");
     cmd.arg(format!("--file={}", store_dir.to_str().unwrap()))
