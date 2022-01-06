@@ -298,7 +298,8 @@ def main(argv):
     init_ft(node_account)
     for i, account in enumerate(test_accounts):
         logger.info(f'Deploying contract for account {i}')
-        account.send_deploy_contract_tx(mocknet.WASM_FILENAME)
+        retry_and_ignore_errors(
+            lambda: account.send_deploy_contract_tx(mocknet.WASM_FILENAME))
         init_ft_account(node_account, account, i)
         logger.info(
             f'Account {account.key.account_id} balance after initialization: {retry_and_ignore_errors(lambda:account.get_amount_yoctonear())}'

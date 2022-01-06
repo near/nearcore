@@ -977,9 +977,9 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
     else:
         # Start all nodes upgraded.
         for node in rpc_nodes:
-            schedule[node.instance_name] = random.choice([1, 100])
+            schedule[node.instance_name] = random.choice([2, 100])
         for node in validator_nodes:
-            schedule[node.instance_name] = random.choice([1, 100])
+            schedule[node.instance_name] = random.choice([2, 100])
 
     return schedule
 
