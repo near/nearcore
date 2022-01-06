@@ -26,6 +26,7 @@ const SST_FILE_DUMP_LINES: &[&str] = &[
 
 impl Data {
     pub fn from_sst_file_dump(lines: &[&str]) -> anyhow::Result<Self> {
+        eprintln!("{:?}", lines);
         // Mapping from SST file dump key to value.
         let mut values: HashMap<&str, &str> = Default::default();
 
