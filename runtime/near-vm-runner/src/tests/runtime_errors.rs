@@ -1,15 +1,12 @@
+use crate::tests::{
+    make_simple_contract_call_vm, make_simple_contract_call_with_gas_vm, with_vm_variants,
+};
+use crate::vm_kind::VMKind;
 use near_vm_errors::{
     CompilationError, FunctionCallError, HostError, MethodResolveError, PrepareError, VMError,
     WasmTrap,
 };
 use near_vm_logic::VMOutcome;
-
-use crate::cache::MockCompiledContractCache;
-use crate::tests::{
-    make_cached_contract_call_vm, make_simple_contract_call_vm,
-    make_simple_contract_call_with_gas_vm, with_vm_variants,
-};
-use crate::vm_kind::VMKind;
 
 #[track_caller]
 fn gas_and_error_match(
@@ -727,27 +724,6 @@ fn test_external_call_indirect() {
             make_simple_contract_call_vm(&external_indirect_call_contract(), "main", vm_kind);
         gas_and_error_match((outcome, err), Some(334541937), None);
     });
-}
-
-#[test]
-fn test_contract_error_caching() {
-    with_vm_variants(|vm_kind: VMKind| {
-        match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
-            VMKind::Wasmtime => return,
-        }
-        let mut cache = MockCompiledContractCache::default();
-        let code = [42; 1000];
-        let terragas = 1000000000000u64;
-        assert_eq!(cache.len(), 0);
-        let err1 =
-            make_cached_contract_call_vm(&mut cache, &code, "method_name1", terragas, vm_kind);
-        println!("{:?}", cache);
-        assert_eq!(cache.len(), 1);
-        let err2 =
-            make_cached_contract_call_vm(&mut cache, &code, "method_name2", terragas, vm_kind);
-        assert_eq!(err1, err2);
-    })
 }
 
 /// Load from address so far out of bounds that it causes integer overflow.

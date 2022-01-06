@@ -19,7 +19,7 @@ pub enum VMError {
     CacheError(CacheError),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum FunctionCallError {
     /// Wasm compilation error
     CompilationError(CompilationError),
@@ -67,7 +67,7 @@ pub enum FunctionCallErrorSer {
     ExecutionError(String),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum CacheError {
     ReadError,
     WriteError,
