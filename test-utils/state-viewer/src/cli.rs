@@ -94,7 +94,7 @@ impl StateViewerSubCommand {
     pub fn run(self, home_dir: &Path) {
         match &self {
             StateViewerSubCommand::RocksDBStats(cmd) => {
-                assert_matches!(get_rocksdb_stats(home_dir, self.file), Ok(_))
+                assert_matches!(get_rocksdb_stats(home_dir, None), Ok(_))
             }
             _ => {}
         }
