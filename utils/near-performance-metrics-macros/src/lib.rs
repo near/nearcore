@@ -3,7 +3,6 @@ extern crate syn;
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::Block;
 
 /// Wrap the method call with near_performance_metrics::stats::measure_performance function.
 ///
