@@ -169,7 +169,7 @@ fn test_single_promise_with_callback() {
     assert_receipts!(group, "near_1" => r1 @ "near_2",
                      ReceiptEnum::Action(ActionReceipt{actions, output_data_receivers, ..}), {
                         assert_eq!(output_data_receivers.len(), 1);
-                        data_id = output_data_receivers[0].data_id.clone();
+                        data_id = output_data_receivers[0].data_id;
                      },
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
@@ -510,7 +510,7 @@ fn test_single_promise_with_callback_batch() {
     assert_receipts!(group, "near_1" => r1 @ "near_2",
                      ReceiptEnum::Action(ActionReceipt{actions, output_data_receivers, ..}), {
                         assert_eq!(output_data_receivers.len(), 1);
-                        data_id = output_data_receivers[0].data_id.clone();
+                        data_id = output_data_receivers[0].data_id;
                      },
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
@@ -764,7 +764,7 @@ fn test_account_factory() {
     assert_receipts!(group, "near_1" => r1 @ "near_2",
                      ReceiptEnum::Action(ActionReceipt{actions, output_data_receivers, ..}), {
                         assert_eq!(output_data_receivers.len(), 1);
-                        data_id = output_data_receivers[0].data_id.clone();
+                        data_id = output_data_receivers[0].data_id;
                         assert_eq!(output_data_receivers[0].receiver_id.as_ref(), "near_2");
                      },
                      actions,

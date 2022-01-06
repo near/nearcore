@@ -112,19 +112,13 @@ impl fmt::Debug for MockCompiledContractCache {
 const CACHE_SIZE: usize = 128;
 
 #[cfg(not(feature = "no_cache"))]
-pub static WASMER_CACHE: once_cell::sync::Lazy<
-    near_cache::SyncLruCache<
-        CryptoHash,
-        Result<Result<wasmer_runtime::Module, CompilationError>, CacheError>,
-    >,
+static WASMER_CACHE: once_cell::sync::Lazy<
+    near_cache::SyncLruCache<CryptoHash, Result<wasmer_runtime::Module, CompilationError>>,
 > = once_cell::sync::Lazy::new(|| near_cache::SyncLruCache::new(CACHE_SIZE));
 
 #[cfg(not(feature = "no_cache"))]
-pub static WASMER2_CACHE: once_cell::sync::Lazy<
-    near_cache::SyncLruCache<
-        CryptoHash,
-        Result<Result<wasmer::Module, CompilationError>, CacheError>,
-    >,
+static WASMER2_CACHE: once_cell::sync::Lazy<
+    near_cache::SyncLruCache<CryptoHash, Result<wasmer::Module, CompilationError>>,
 > = once_cell::sync::Lazy::new(|| near_cache::SyncLruCache::new(CACHE_SIZE));
 
 #[cfg(feature = "wasmer0_vm")]
@@ -223,26 +217,18 @@ pub mod wasmer0_cache {
         }
     }
 
-    #[cfg(not(feature = "no_cache"))]
-    fn memcache_compile_module_cached_wasmer(
-        key: CryptoHash,
-        code: &ContractCode,
-        config: &VMConfig,
-        cache: Option<&dyn CompiledContractCache>,
-    ) -> Result<Result<wasmer_runtime::Module, CompilationError>, CacheError> {
-        WASMER_CACHE.get_or_insert(key, |key| {
-            compile_module_cached_wasmer_impl(*key, code.code(), config, cache)
-        })
-    }
-
     pub(crate) fn compile_module_cached_wasmer0(
         code: &ContractCode,
         config: &VMConfig,
         cache: Option<&dyn CompiledContractCache>,
     ) -> Result<Result<wasmer_runtime::Module, CompilationError>, CacheError> {
         let key = get_contract_cache_key(code, VMKind::Wasmer0, config);
+
         #[cfg(not(feature = "no_cache"))]
-        return memcache_compile_module_cached_wasmer(key, code, config, cache);
+        return WASMER_CACHE.get_or_try_put(key, |key| {
+            compile_module_cached_wasmer_impl(*key, code.code(), config, cache)
+        });
+
         #[cfg(feature = "no_cache")]
         return compile_module_cached_wasmer_impl(key, code.code(), config, cache);
     }
@@ -329,34 +315,21 @@ pub mod wasmer2_cache {
 
     fn compile_module_cached_wasmer2_impl(
         key: CryptoHash,
-        wasm_code: &[u8],
-        config: &VMConfig,
-        cache: Option<&dyn CompiledContractCache>,
-        store: &wasmer::Store,
-    ) -> Result<Result<wasmer::Module, CompilationError>, CacheError> {
-        match cache {
-            None => Ok(compile_module_wasmer2(wasm_code, config, store)),
-            Some(cache) => {
-                let serialized = cache.get(&key.0).map_err(|_io_err| CacheError::WriteError)?;
-                match serialized {
-                    Some(serialized) => deserialize_wasmer2(serialized.as_slice(), store),
-                    None => compile_and_serialize_wasmer2(wasm_code, &key, config, cache, store),
-                }
-            }
-        }
-    }
-
-    #[cfg(not(feature = "no_cache"))]
-    fn memcache_compile_module_cached_wasmer2(
-        key: CryptoHash,
         code: &ContractCode,
         config: &VMConfig,
         cache: Option<&dyn CompiledContractCache>,
         store: &wasmer::Store,
     ) -> Result<Result<wasmer::Module, CompilationError>, CacheError> {
-        WASMER2_CACHE.get_or_insert(key, |key| {
-            compile_module_cached_wasmer2_impl(*key, code.code(), config, cache, store)
-        })
+        match cache {
+            None => Ok(compile_module_wasmer2(code.code(), config, store)),
+            Some(cache) => {
+                let serialized = cache.get(&key.0).map_err(|_io_err| CacheError::ReadError)?;
+                match serialized {
+                    Some(serialized) => deserialize_wasmer2(serialized.as_slice(), store),
+                    None => compile_and_serialize_wasmer2(code.code(), &key, config, cache, store),
+                }
+            }
+        }
     }
 
     pub(crate) fn compile_module_cached_wasmer2(
@@ -366,10 +339,14 @@ pub mod wasmer2_cache {
         store: &wasmer::Store,
     ) -> Result<Result<wasmer::Module, CompilationError>, CacheError> {
         let key = get_contract_cache_key(code, VMKind::Wasmer2, config);
+
         #[cfg(not(feature = "no_cache"))]
-        return memcache_compile_module_cached_wasmer2(key, code, config, cache, store);
+        return WASMER2_CACHE.get_or_try_put(key, |key| {
+            compile_module_cached_wasmer2_impl(*key, code, config, cache, store)
+        });
+
         #[cfg(feature = "no_cache")]
-        return compile_module_cached_wasmer2_impl(key, &code.code(), config, cache, store);
+        return compile_module_cached_wasmer2_impl(key, code, config, cache, store);
     }
 }
 
