@@ -15,9 +15,9 @@ use near_primitives::serialize::to_base;
 use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
 };
-use near_primitives::types::{BlockHeight, Gas};
+use near_primitives::types::{BlockHeight, EpochHeight, Gas};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::Version;
+use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
 use near_telemetry::{telemetry, TelemetryActor};
 
 use crate::{metrics, SyncStatus};
@@ -84,6 +84,8 @@ impl InfoHelper {
         node_id: &PeerId,
         network_info: &NetworkInfo,
         validator_info: Option<ValidatorInfoHelper>,
+        epoch_height: EpochHeight,
+        protocol_upgrade_block_height: BlockHeight,
     ) {
         let (cpu_usage, memory_usage) = if let Some(pid) = self.pid {
             if self.sys.refresh_process(pid) {
@@ -158,6 +160,10 @@ impl InfoHelper {
         (metrics::MEMORY_USAGE.set((memory_usage * 1024) as i64));
         let teragas = 1_000_000_000_000u64;
         (metrics::AVG_TGAS_USAGE.set((avg_gas_used as f64 / teragas as f64).round() as i64));
+        (metrics::EPOCH_HEIGHT.set(epoch_height as i64));
+        (metrics::PROTOCOL_UPGRADE_BLOCK_HEIGHT.set(protocol_upgrade_block_height as i64));
+        (metrics::NODE_PROTOCOL_VERSION.set(PROTOCOL_VERSION as i64));
+        (metrics::NODE_DB_VERSION.set(DB_VERSION as i64));
 
         self.started = Clock::instant();
         self.num_blocks_processed = 0;
@@ -200,6 +206,7 @@ fn display_sync_status(
     head: &Tip,
     genesis_height: BlockHeight,
 ) -> String {
+    metrics::SYNC_STATUS.set(sync_status.cast_to_int() as i64);
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
         SyncStatus::NoSync => format!("#{:>8} {:>44}", head.height, head.last_block_hash),

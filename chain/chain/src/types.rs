@@ -17,7 +17,7 @@ use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::errors::InvalidTxError;
+use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -25,8 +25,8 @@ use near_primitives::sharding::{ChunkHash, ReceiptList, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
+    AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, Gas,
+    MerkleHash, NumBlocks, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
@@ -517,6 +517,12 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get epoch id given hash of previous block.
     fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error>;
 
+    /// Get epoch height given hash of previous block.
+    fn get_epoch_height_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<EpochHeight, Error>;
+
     /// Get next epoch id given hash of previous block.
     fn get_next_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash)
         -> Result<EpochId, Error>;
@@ -793,6 +799,11 @@ pub trait RuntimeAdapter: Send + Sync {
             })
             .collect()
     }
+
+    fn get_protocol_upgrade_block_height(
+        &self,
+        block_hash: CryptoHash,
+    ) -> Result<Option<BlockHeight>, EpochError>;
 }
 
 /// The last known / checked height and time when we have processed it.

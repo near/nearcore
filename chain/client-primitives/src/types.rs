@@ -153,6 +153,18 @@ impl SyncStatus {
             _ => true,
         }
     }
+
+    pub fn cast_to_int(&self) -> u8 {
+        match self {
+            SyncStatus::AwaitingPeers => 0,
+            SyncStatus::NoSync => 1,
+            SyncStatus::EpochSync { epoch_ord: _ } => 2,
+            SyncStatus::HeaderSync { current_height: _, highest_height: _ } => 3,
+            SyncStatus::StateSync(_, _) => 4,
+            SyncStatus::StateSyncDone => 5,
+            SyncStatus::BodySync { current_height: _, highest_height: _ } => 6,
+        }
+    }
 }
 
 /// Actor message requesting block by id or hash.

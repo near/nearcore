@@ -38,3 +38,6 @@ pub static VALIDATOR_ACTIVE_TOTAL: Lazy<IntGauge> = Lazy::new(|| {
 });
 pub static NUM_ORPHANS: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_num_orphans", "Number of orphan blocks.").unwrap());
+pub static HEADER_HEIGHT_HEAD: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_header_height_head", "Height of the header head").unwrap()
+});

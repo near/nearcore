@@ -68,3 +68,23 @@ pub static BLOCKS_AHEAD_OF_HEAD: Lazy<IntGauge> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static SYNC_STATUS: Lazy<IntGauge> =
+    Lazy::new(|| try_create_int_gauge("near_sync_status", "Node sync status").unwrap());
+pub static EPOCH_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_epoch_height", "Height of the epoch at the head of the blockchain")
+        .unwrap()
+});
+pub static PROTOCOL_UPGRADE_BLOCK_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_protocol_upgrade_block_height",
+        "Estimated block height of the protocol upgrade",
+    )
+    .unwrap()
+});
+pub static NODE_PROTOCOL_VERSION: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_node_protocol_version", "Max protocol version supported by the node")
+        .unwrap()
+});
+pub static NODE_DB_VERSION: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_node_db_version", "DB version used by the node").unwrap()
+});

@@ -4150,6 +4150,7 @@ impl<'a> ChainUpdate<'a> {
             let tip = Tip::from_header(header);
             self.chain_store_update.save_header_head_if_not_challenged(&tip)?;
             debug!(target: "chain", "Header head updated to {} at {}", tip.last_block_hash, tip.height);
+            metrics::HEADER_HEIGHT_HEAD.set(tip.height as i64);
 
             Ok(Some(tip))
         } else {

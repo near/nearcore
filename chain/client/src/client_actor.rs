@@ -1494,6 +1494,15 @@ impl ClientActor {
                     &act.node_id,
                     &act.network_info,
                     validator_info,
+                    act.client
+                        .runtime_adapter
+                        .get_epoch_height_from_prev_block(&head.prev_block_hash)
+                        .unwrap_or(0),
+                    act.client
+                        .runtime_adapter
+                        .get_protocol_upgrade_block_height(head.last_block_hash)
+                        .unwrap_or(None)
+                        .unwrap_or(0),
                 );
 
                 act.log_summary(ctx);
