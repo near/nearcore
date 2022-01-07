@@ -5,7 +5,7 @@ use std::process::Command;
 use tracing::info;
 
 #[derive(Serialize, Debug, Clone)]
-struct RocksDBStats {
+pub struct RocksDBStats {
     col: String,
     entries: u64,
     estimated_table_size: u64,
