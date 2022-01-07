@@ -3401,7 +3401,7 @@ mod tests {
         let mut prev_block = genesis.clone();
         let mut blocks = vec![prev_block.clone()];
         {
-            let mut store_update = chain.mut_store().store_update().store().store_update();
+            let mut store_update = chain.store().store().store_update();
             let block_info = BlockInfo::default();
             store_update
                 .set_ser(DBCol::ColBlockInfo, genesis.hash().as_ref(), &block_info)
