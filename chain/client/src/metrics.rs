@@ -118,7 +118,7 @@ pub static PROTOCOL_UPGRADE_BLOCK_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
         "near_protocol_upgrade_block_height",
         "Estimated block height of the protocol upgrade",
     )
-        .unwrap()
+    .unwrap()
 });
 pub static NODE_PROTOCOL_VERSION: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_node_protocol_version", "Max protocol version supported by the node")

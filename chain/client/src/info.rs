@@ -11,10 +11,10 @@ use near_primitives::serialize::to_base;
 use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
 };
-use near_primitives::time::{Instant,Clock};
-use near_primitives::types::{AccountId, BlockHeight, Gas, EpochHeight, NumBlocks};
+use near_primitives::time::{Clock, Instant};
+use near_primitives::types::{AccountId, BlockHeight, EpochHeight, Gas, NumBlocks};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{Version,DB_VERSION,PROTOCOL_VERSION};
+use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo, ValidatorKickoutView};
 use near_telemetry::{telemetry, TelemetryActor};
 use std::cmp::min;
