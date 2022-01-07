@@ -1,23 +1,26 @@
 //! Client actor orchestrates Client and facilitates network connection.
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
-use std::thread;
-use std::time::{Duration, Instant};
-
+use crate::client::Client;
+use crate::info::{get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper};
+use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
+#[cfg(feature = "test_features")]
+use crate::AdversarialControls;
+use crate::StatusResponse;
+use actix::dev::SendError;
 use actix::dev::ToEnvelope;
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
 use chrono::DateTime;
-use log::{debug, error, info, trace, warn};
-use near_primitives::time::{Clock, Utc};
-use rand::Rng;
-
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
+use log::{debug, error, info, trace, warn};
+use near_chain::chain::{
+    do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
+    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
+};
 use near_chain::test_utils::format_hash;
-use near_chain::types::AcceptedBlock;
+use near_chain::types::{AcceptedBlock, ValidatorInfoIdentifier};
 #[cfg(feature = "test_features")]
 use near_chain::StoreValidator;
 use near_chain::{
@@ -27,6 +30,10 @@ use near_chain::{
 use near_chain_configs::ClientConfig;
 #[cfg(feature = "test_features")]
 use near_chain_configs::GenesisConfig;
+use near_client_primitives::types::{
+    Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
+    StatusError, StatusSyncInfo, SyncStatus,
+};
 use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
@@ -35,40 +42,30 @@ use near_network::types::{
 use near_network_primitives::types::NetworkAdversarialMessage;
 #[cfg(feature = "sandbox")]
 use near_network_primitives::types::NetworkSandboxMessage;
+use near_network_primitives::types::ReasonForBan;
 use near_performance_metrics;
 use near_performance_metrics_macros::{perf, perf_with_debug};
+use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::syncing::StatePartKey;
+use near_primitives::time::{Clock, Utc};
 use near_primitives::types::BlockHeight;
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::ValidatorInfo;
+use near_store::db::DBCol::ColStateParts;
 #[cfg(feature = "test_features")]
 use near_store::ColBlock;
 use near_telemetry::TelemetryActor;
-
-use crate::client::Client;
-use crate::info::{InfoHelper, ValidatorInfoHelper};
-use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
-#[cfg(feature = "test_features")]
-use crate::AdversarialControls;
-use crate::StatusResponse;
-use actix::dev::SendError;
-use near_chain::chain::{
-    do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
-};
-use near_client_primitives::types::{
-    Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
-    StatusError, StatusSyncInfo, SyncStatus,
-};
-use near_network_primitives::types::ReasonForBan;
-use near_primitives::block_header::ApprovalType;
-use near_primitives::syncing::StatePartKey;
-use near_store::db::DBCol::ColStateParts;
+use rand::Rng;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+use std::thread;
+use std::time::{Duration, Instant};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -1490,6 +1487,13 @@ impl ClientActor {
                     None
                 };
 
+                let epoch_identifier = ValidatorInfoIdentifier::BlockHash(head.last_block_hash);
+                let validator_epoch_stats = act
+                    .client
+                    .runtime_adapter
+                    .get_validator_info(epoch_identifier)
+                    .map(get_validator_epoch_stats)
+                    .unwrap_or_default();
                 act.info_helper.info(
                     act.client.chain.store().get_genesis_height(),
                     &head,
@@ -1497,6 +1501,7 @@ impl ClientActor {
                     &act.node_id,
                     &act.network_info,
                     validator_info,
+                    validator_epoch_stats,
                     act.client
                         .runtime_adapter
                         .get_epoch_height_from_prev_block(&head.prev_block_hash)

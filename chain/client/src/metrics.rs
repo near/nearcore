@@ -1,6 +1,6 @@
 use near_metrics::{
     try_create_histogram, try_create_int_counter, try_create_int_gauge, Histogram, IntCounter,
-    IntGauge,
+    IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
 
@@ -75,6 +75,38 @@ pub static BLOCKS_AHEAD_OF_HEAD: Lazy<IntGauge> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static VALIDATORS_CHUNKS_PRODUCED: Lazy<IntGaugeVec> = Lazy::new(|| {
+    near_metrics::try_create_int_gauge_vec(
+        "near_validators_chunks_produced",
+        "Number of chunks produced by a validator",
+        &["account_id"],
+    )
+    .unwrap()
+});
+pub static VALIDATORS_CHUNKS_EXPECTED: Lazy<IntGaugeVec> = Lazy::new(|| {
+    near_metrics::try_create_int_gauge_vec(
+        "near_validators_chunks_expected",
+        "Number of chunks expected to be produced by a validator",
+        &["account_id"],
+    )
+    .unwrap()
+});
+pub static VALIDATORS_BLOCKS_PRODUCED: Lazy<IntGaugeVec> = Lazy::new(|| {
+    near_metrics::try_create_int_gauge_vec(
+        "near_validators_blocks_produced",
+        "Number of blocks produced by a validator",
+        &["account_id"],
+    )
+    .unwrap()
+});
+pub static VALIDATORS_BLOCKS_EXPECTED: Lazy<IntGaugeVec> = Lazy::new(|| {
+    near_metrics::try_create_int_gauge_vec(
+        "near_validators_blocks_expected",
+        "Number of blocks expected to be produced by a validator",
+        &["account_id"],
+    )
+    .unwrap()
+});
 pub static SYNC_STATUS: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_sync_status", "Node sync status").unwrap());
 pub static EPOCH_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
@@ -86,7 +118,7 @@ pub static PROTOCOL_UPGRADE_BLOCK_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
         "near_protocol_upgrade_block_height",
         "Estimated block height of the protocol upgrade",
     )
-    .unwrap()
+        .unwrap()
 });
 pub static NODE_PROTOCOL_VERSION: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_node_protocol_version", "Max protocol version supported by the node")
