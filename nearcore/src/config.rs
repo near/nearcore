@@ -1172,16 +1172,13 @@ impl AutoXzDecoder {
     /// Flushes all internal buffers and closes the output file.
     async fn finish(mut self) -> Result<(), FileDownloadError> {
         match self.state {
-            AutoXzState::Probing(pos) => self
-                .file
-                .write_all(&XZ_HEADER_MAGIC[..pos])
-                .await
-                .map_err(FileDownloadError::WriteError),
-            AutoXzState::PlainText => Ok(()),
+            AutoXzState::Probing(pos) => self.write_all_raw(&XZ_HEADER_MAGIC[..pos]).await?,
+            AutoXzState::PlainText => (),
             AutoXzState::Compressed(ref mut stream, ref mut buffer) => {
-                Self::decompress(&mut self.file, stream, buffer, b"").await
+                Self::decompress(&mut self.file, stream, buffer, b"").await?
             }
         }
+        self.file.flush().await.map_err(FileDownloadError::WriteError)
     }
 
     /// If object is still in `Probing` state, read more data from the input to
@@ -1221,13 +1218,16 @@ impl AutoXzDecoder {
     async fn write_all_impl(&mut self, chunk: &[u8]) -> Result<(), FileDownloadError> {
         match self.state {
             AutoXzState::Probing(_) => unreachable!(),
-            AutoXzState::PlainText => {
-                self.file.write_all(chunk).await.map_err(FileDownloadError::WriteError)
-            }
+            AutoXzState::PlainText => self.write_all_raw(chunk).await,
             AutoXzState::Compressed(ref mut stream, ref mut buffer) => {
                 Self::decompress(&mut self.file, stream, buffer, chunk).await
             }
         }
+    }
+
+    /// Writes data to output file directly.
+    async fn write_all_raw(&mut self, chunk: &[u8]) -> Result<(), FileDownloadError> {
+        self.file.write_all(chunk).await.map_err(FileDownloadError::WriteError)
     }
 
     /// Internal implementation for [`write_all`] and [`finish`] methods used
@@ -1268,17 +1268,15 @@ impl AutoXzDecoder {
 #[cfg(test)]
 fn auto_xz_test_write_file(buffer: &[u8], chunk_size: usize) -> Result<Vec<u8>, FileDownloadError> {
     let (file, path) = tempfile::NamedTempFile::new().unwrap().into_parts();
-    {
-        let mut out = AutoXzDecoder::new(file);
-        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(
-            async move {
-                for chunk in buffer.chunks(chunk_size) {
-                    out.write_all(chunk).await?;
-                }
-                out.finish().await
-            },
-        )?;
-    }
+    let mut out = AutoXzDecoder::new(file);
+    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(
+        async move {
+            for chunk in buffer.chunks(chunk_size) {
+                out.write_all(chunk).await?;
+            }
+            out.finish().await
+        },
+    )?;
     Ok(std::fs::read(path).unwrap())
 }
 
@@ -1297,11 +1295,7 @@ fn test_auto_xz_decode_plain() {
             let buffer = &data[0..len];
             for chunk_size in 1..11 {
                 let got = auto_xz_test_write_file(&buffer, chunk_size).unwrap();
-                assert_eq!(
-                    got, buffer,
-                    "got=‘{:?}’, pos={}, len={}, chunk_size={}",
-                    got, pos, len, chunk_size
-                );
+                assert_eq!(got, buffer, "pos={}, len={}, chunk_size={}", pos, len, chunk_size);
             }
         }
         data[pos] = ch;
