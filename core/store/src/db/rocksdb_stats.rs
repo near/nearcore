@@ -1,11 +1,10 @@
-use nearcore::get_store_path;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use tracing::info;
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 struct RocksDBStats {
     col: String,
     entries: u64,

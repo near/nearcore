@@ -17,7 +17,7 @@ use near_primitives::version::DbVersion;
 
 use crate::db::refcount::merge_refcounted_records;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::Ordering;
 
 pub(crate) mod refcount;
