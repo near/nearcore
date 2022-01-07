@@ -79,8 +79,7 @@ pub fn assign_shards<T: HasStake + Eq + Clone>(
     } else {
         // In this case there are not enough validators to fill all shards without repeats,
         // so we use a more complex assignment function.
-        let mut cp_iter =
-            chunk_producers.into_iter().cycle().enumerate().take(required_validator_count);
+        let mut cp_iter = chunk_producers.into_iter().cycle().take(required_validator_count);
 
         // This function assigns validators until all shards are filled. Each validator may
         // be assigned to multiple shards. This function does not attempt to balance stakes between
@@ -91,37 +90,29 @@ pub fn assign_shards<T: HasStake + Eq + Clone>(
             &mut shard_validator_heap,
             &mut result,
             &mut cp_iter,
-            num_shards,
             min_validators_per_shard,
-            num_chunk_producers,
         );
     }
 
     Ok(result)
 }
 
-fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = (usize, T)>>(
+fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = T>>(
     shard_index: &mut MinHeap<(usize, Balance, ShardId)>,
     result: &mut Vec<Vec<T>>,
     cp_iter: &mut I,
-    num_shards: NumShards,
     min_validators_per_shard: usize,
-    num_chunk_producers: usize,
 ) {
-    let mut buffer = Vec::with_capacity(usize::try_from(num_shards).unwrap());
+    let mut buffer = Vec::with_capacity(shard_index.len());
 
     while shard_index.peek().unwrap().0 < min_validators_per_shard {
-        let (assignment_index, cp) = cp_iter
+        let cp = cp_iter
             .next()
             .expect("cp_iter should contain enough elements to minimally fill each shard");
         let (least_validator_count, shard_stake, shard_id) =
             shard_index.pop().expect("shard_index should never be empty");
 
-        if assignment_index < num_chunk_producers {
-            // no need to worry about duplicates yet; still on first pass through validators
-            shard_index.push((least_validator_count + 1, shard_stake + cp.get_stake(), shard_id));
-            result[usize::try_from(shard_id).unwrap()].push(cp);
-        } else if result[usize::try_from(shard_id).unwrap()].contains(&cp) {
+        if result[usize::try_from(shard_id).unwrap()].contains(&cp) {
             // `cp` is already assigned to this shard, need to assign elsewhere
 
             // `buffer` tracks shards `cp` is already in, these will need to be pushed back into
