@@ -1782,7 +1782,6 @@ dependencies = [
  "near-network-primitives",
  "near-primitives",
  "nearcore",
- "node-runtime",
  "serde",
  "serde_json",
  "tempfile",
