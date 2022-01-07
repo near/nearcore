@@ -19,13 +19,13 @@ use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{
     convert_boot_nodes, expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal,
-    GetInfo, StopSignal, WaitOrTimeoutActor,
+    GetInfo, NetworkRecipient, StopSignal, WaitOrTimeoutActor,
 };
 
 use near_network::routing::start_routing_table_actor;
 #[cfg(feature = "test_features")]
-use near_network::types::SetAdvOptions;
-use near_network::types::{NetworkRecipient, NetworkRequests, NetworkResponses};
+use near_network::test_utils::SetAdvOptions;
+use near_network::types::{NetworkRequests, NetworkResponses};
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network::PeerManagerActor;
 use near_network_primitives::types::blacklist_from_iter;
