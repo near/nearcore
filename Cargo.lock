@@ -5056,35 +5056,13 @@ dependencies = [
 name = "testlib"
 version = "0.0.0"
 dependencies = [
- "actix",
- "actix-rt",
- "assert_matches",
- "borsh 0.9.1",
  "byteorder",
- "clap 2.33.3",
- "futures",
- "hex",
- "lazy-static-include",
- "log",
- "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
- "near-client",
  "near-crypto",
- "near-jsonrpc",
- "near-jsonrpc-client",
- "near-jsonrpc-primitives",
- "near-logger-utils",
- "near-network",
  "near-primitives",
- "near-store",
  "near-test-contracts",
- "near-vm-errors",
- "num-rational",
  "once_cell",
- "rand 0.7.3",
- "serde_json",
- "tempfile",
 ]
 
 [[package]]
