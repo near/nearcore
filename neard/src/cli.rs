@@ -43,7 +43,11 @@ impl NeardCmd {
 
         match neard_cmd.subcmd {
             NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
-            NeardSubCommand::Testnet(cmd) => cmd.run(&home_dir),
+            NeardSubCommand::Localnet(cmd) => cmd.run(&home_dir),
+            NeardSubCommand::Testnet(cmd) => {
+                warn!("The 'testnet' command has been renamed to 'localnet' and will be removed in the future");
+                cmd.run(&home_dir);
+            }
             NeardSubCommand::Run(cmd) => cmd.run(&home_dir),
 
             NeardSubCommand::UnsafeResetData => {
@@ -87,10 +91,15 @@ pub(super) enum NeardSubCommand {
     /// Runs NEAR node
     #[clap(name = "run")]
     Run(RunCmd),
-    /// Sets up testnet configuration with all necessary files (validator key, node key, genesis
-    /// and config)
+    /// Sets up local configuration with all necessary files (validator key, node key, genesis and
+    /// config)
+    #[clap(name = "localnet")]
+    Localnet(LocalnetCmd),
+    /// DEPRECATED: this command has been renamed to 'localnet' and will be removed in a future
+    /// release.
+    // TODO(#4372): Deprecated since 1.24.  Delete it in a couple of releases in 2022.
     #[clap(name = "testnet")]
-    Testnet(TestnetCmd),
+    Testnet(LocalnetCmd),
     /// (unsafe) Remove all the config, keys, data and effectively removing all information about
     /// the network
     #[clap(name = "unsafe_reset_all")]
@@ -349,22 +358,22 @@ impl RunCmd {
 }
 
 #[derive(Clap)]
-pub(super) struct TestnetCmd {
-    /// Number of non-validators to initialize the testnet with.
+pub(super) struct LocalnetCmd {
+    /// Number of non-validators to initialize the localnet with.
     #[clap(long = "n", default_value = "0")]
     non_validators: NumSeats,
     /// Prefix the directory name for each node with (node results in node0, node1, ...)
     #[clap(long, default_value = "node")]
     prefix: String,
-    /// Number of shards to initialize the testnet with.
+    /// Number of shards to initialize the localnet with.
     #[clap(long, default_value = "1")]
     shards: NumShards,
-    /// Number of validators to initialize the testnet with.
+    /// Number of validators to initialize the localnet with.
     #[clap(long = "v", default_value = "4")]
     validators: NumSeats,
 }
 
-impl TestnetCmd {
+impl LocalnetCmd {
     pub(super) fn run(self, home_dir: &Path) {
         nearcore::config::init_testnet_configs(
             home_dir,
