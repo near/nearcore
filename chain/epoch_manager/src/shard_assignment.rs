@@ -3,18 +3,35 @@ use near_primitives::types::{Balance, NumShards, ShardId};
 use near_primitives::utils::min_heap::MinHeap;
 use std::cmp;
 
-/// Assign chunk producers (a.k.a validators) to shards. The i-th element
+/// Assign chunk producers (a.k.a. validators) to shards.  The i-th element
 /// of the output corresponds to the validators assigned to the i-th shard.
+///
 /// This function ensures that every shard has at least `min_validators_per_shard`
 /// assigned to it, and attempts to balance the stakes between shards (keep the total
-/// stake assigned to each shard approximately equal). This function performs
-/// best when the number of chunk producers is greater than
-/// `num_shards * min_validators_per_shard`.
+/// stake assigned to each shard approximately equal).
+///
+/// This function performs best when the number of chunk producers is greater or
+/// equal than `num_shards * min_validators_per_shard` in which case each chunk
+/// producer will be assigned to a single shard.  If there are fewer producers,
+/// some of them will be assigned to multiple shards.
+///
+/// This function assumes that chunk_producers is ordered by stake starting from
+/// the chunk producer with highest stake.  If this is not the case the function
+/// will perform suboptimally.
 pub fn assign_shards<T: HasStake + Eq + Clone>(
     chunk_producers: Vec<T>,
     num_shards: NumShards,
     min_validators_per_shard: usize,
 ) -> Result<Vec<Vec<T>>, NotEnoughValidators> {
+    for (idx, pair) in chunk_producers.windows(2).enumerate() {
+        if pair[0].get_stake() > pair[1].get_stake() {
+            log::warn!(target: "epoch_manager",
+                       "chunk_producers aren’t sorted properly (first \
+                        discrepancy at index {}); assign_shards may give \
+                        suboptimal result", idx);
+        }
+    }
+
     // Initially, sort by number of validators, then total stake
     // (i.e. favour filling under-occupied shards first).
     let mut shard_validator_heap: MinHeap<(usize, Balance, ShardId)> =
