@@ -41,7 +41,7 @@ pub static NUM_ORPHANS: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_num_orphans", "Number of orphan blocks.").unwrap());
 
 fn create_rocksdb_metric(name: &str, help: &str) -> [Lazy<IntGauge>; 1] {
-    [Lazy::new(|| {
+    [Lazy::new(|col: usize| {
         try_create_int_gauge(&format!("{}_col{}", name, col), &format!("{}_col{}", help, col))
             .unwrap()
     })]
