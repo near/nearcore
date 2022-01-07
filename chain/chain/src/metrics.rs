@@ -40,7 +40,7 @@ pub static VALIDATOR_ACTIVE_TOTAL: Lazy<IntGauge> = Lazy::new(|| {
 pub static NUM_ORPHANS: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_num_orphans", "Number of orphan blocks.").unwrap());
 
-fn create_rocksdb_metric(name: &str, help: &str) -> &[Lazy<IntGauge>] {
+fn create_rocksdb_metric(name: &str, help: &str) -> [Lazy<IntGauge>; NUM_COLS] {
     (0..NUM_COLS)
         .map(|col: usize| {
             Lazy::new(|| {
@@ -55,16 +55,16 @@ fn create_rocksdb_metric(name: &str, help: &str) -> &[Lazy<IntGauge>] {
 }
 
 pub static ROCKSDB_COL_SIZE: &[Lazy<IntGauge>] =
-    create_rocksdb_metric("near_rocksdb_size", "Size in bytes of RocksDB column");
+    &create_rocksdb_metric("near_rocksdb_size", "Size in bytes of RocksDB column");
 
 pub static ROCKSDB_ENTRIES: &[Lazy<IntGauge>] =
-    create_rocksdb_metric("near_rocksdb_entries", "Number of entries in RocksDB column");
+    &create_rocksdb_metric("near_rocksdb_entries", "Number of entries in RocksDB column");
 
 pub static ROCKSDB_KEY_SIZE: &[Lazy<IntGauge>] =
-    create_rocksdb_metric("near_rocksdb_key_size", "Total size of keys in RocksDB column");
+    &create_rocksdb_metric("near_rocksdb_key_size", "Total size of keys in RocksDB column");
 
 pub static ROCKSDB_VALUE_SIZE: &[Lazy<IntGauge>] =
-    create_rocksdb_metric("near_rocksdb_value_size", "Total size of values in RocksDB column");
+    &create_rocksdb_metric("near_rocksdb_value_size", "Total size of values in RocksDB column");
 
 pub static ROCKSDB_STATS_PROCESSING_TIME: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram(
