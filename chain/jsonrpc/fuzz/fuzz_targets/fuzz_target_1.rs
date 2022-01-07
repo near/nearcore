@@ -1,7 +1,6 @@
 #![no_main]
 use actix::System;
 use libfuzzer_sys::{arbitrary, fuzz_target};
-use rust_base58::ToBase58;
 use serde::ser::{Serialize, Serializer};
 use serde_json::json;
 use tokio;
@@ -123,7 +122,7 @@ impl Serialize for Base58String {
     where
         S: Serializer,
     {
-        serializer.serialize_newtype_struct("Base58String", &self.0.to_base58())
+        serializer.serialize_newtype_struct("Base58String", &bs58::encode(self.0).into_string())
     }
 }
 

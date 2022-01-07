@@ -205,10 +205,6 @@ impl TouchedNodesCounter {
         self.counter.fetch_add(1, Ordering::SeqCst);
     }
 
-    pub fn reset(&self) {
-        self.counter.store(0, Ordering::SeqCst);
-    }
-
     pub fn get(&self) -> u64 {
         self.counter.load(Ordering::SeqCst)
     }

@@ -87,11 +87,11 @@ impl EncodedChunksCache {
     }
 
     pub fn get(&self, chunk_hash: &ChunkHash) -> Option<&EncodedChunksCacheEntry> {
-        self.encoded_chunks.get(&chunk_hash)
+        self.encoded_chunks.get(chunk_hash)
     }
 
     pub fn remove(&mut self, chunk_hash: &ChunkHash) -> Option<EncodedChunksCacheEntry> {
-        self.encoded_chunks.remove(&chunk_hash)
+        self.encoded_chunks.remove(chunk_hash)
     }
 
     pub fn insert(&mut self, chunk_hash: ChunkHash, entry: EncodedChunksCacheEntry) {
@@ -134,7 +134,7 @@ impl EncodedChunksCache {
         let entry =
             self.get_or_insert_from_header(chunk_hash.clone(), &partial_encoded_chunk.header);
         let height = entry.header.height_created();
-        entry.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
+        entry.merge_in_partial_encoded_chunk(partial_encoded_chunk);
         self.height_map.entry(height).or_insert_with(|| HashSet::default()).insert(chunk_hash);
     }
 

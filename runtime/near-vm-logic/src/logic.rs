@@ -108,7 +108,6 @@ impl<'a> VMLogic<'a> {
         memory: &'a mut dyn MemoryLike,
         current_protocol_version: ProtocolVersion,
     ) -> Self {
-        ext.reset_touched_nodes_counter();
         // Overflow should be checked before calling VMLogic.
         let current_account_balance = context.account_balance + context.attached_deposit;
         let current_storage_usage = context.storage_usage;

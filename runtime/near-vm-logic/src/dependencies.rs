@@ -109,6 +109,8 @@ pub trait External {
     /// ```
     fn storage_remove(&mut self, key: &[u8]) -> Result<()>;
 
+    /// Note: The method is currently unused and untested.
+    ///
     /// Removes all keys with a given `prefix` from the storage trie associated with current
     /// account.
     ///
@@ -477,9 +479,6 @@ pub trait External {
 
     /// Returns amount of touched trie nodes by storage operations
     fn get_touched_nodes_count(&self) -> u64;
-
-    /// Resets amount of touched trie nodes by storage operations
-    fn reset_touched_nodes_counter(&mut self);
 
     /// Returns the validator stake for given account in the current epoch.
     /// If the account is not a validator, returns `None`.
