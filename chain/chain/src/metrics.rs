@@ -58,17 +58,13 @@ pub static NUM_ORPHANS: Lazy<IntGauge> =
 //         .collect()
 // }
 
-pub static ROCKSDB_COL_SIZE: &[Lazy<IntGauge>] = (0..NUM_COLS)
-    .map(|col: usize| {
-        Lazy::new(|| {
-            try_create_int_gauge(
-                &format!("near_rocksdb_size_col{}", col),
-                &format!("near_rocksdb_size_col{}", col),
-            )
-            .unwrap()
-        })
-    })
-    .collect();
+pub static ROCKSDB_COL_SIZE: &[Lazy<IntGauge>] = &[Lazy::new(|| {
+    try_create_int_gauge(
+        &format!("near_rocksdb_size_col{}", 0),
+        &format!("near_rocksdb_size_col{}", 0),
+    )
+    .unwrap()
+})];
 
 // pub static ROCKSDB_COL_SIZE: &[Lazy<IntGauge>] =
 //     &create_rocksdb_metric("near_rocksdb_size", "Size in bytes of RocksDB column");
