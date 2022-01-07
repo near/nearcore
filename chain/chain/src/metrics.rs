@@ -43,13 +43,8 @@ pub static NUM_ORPHANS: Lazy<IntGauge> =
 fn create_rocksdb_metric(name: &str, help: &str) -> [IntGauge; NUM_COLS] {
     (0..NUM_COLS)
         .map(|col: usize| {
-            Lazy::new(|| {
-                try_create_int_gauge(
-                    &format!("{}_col{}", name, col),
-                    &format!("{}_col{}", help, col),
-                )
+            try_create_int_gauge(&format!("{}_col{}", name, col), &format!("{}_col{}", help, col))
                 .unwrap()
-            })
         })
         .collect()
 }
