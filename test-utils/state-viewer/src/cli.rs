@@ -1,11 +1,11 @@
 use crate::commands::*;
 use crate::epoch_info;
-use crate::rocksdb_stats::get_rocksdb_stats;
 use clap::{AppSettings, Clap};
 use near_logger_utils::init_integration_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{DB_VERSION, PROTOCOL_VERSION};
+use near_store::db::rocksdb_stats::get_rocksdb_stats;
 use near_store::{create_store, Store};
 use nearcore::{get_default_home, get_store_path, load_config, NearConfig};
 use once_cell::sync::Lazy;
@@ -294,6 +294,13 @@ pub struct RocksDBStatsCmd {
 
 impl RocksDBStatsCmd {
     pub fn run(self, home_dir: &Path) {
-        get_rocksdb_stats(home_dir, self.file).expect("Couldn't get RocksDB stats")
+        let store_dir = get_store_path(&home_dir);
+        let rocksdb_stats = get_rocksdb_stats(&store_dir).expect("Couldn't get RocksDB stats");
+        let result = serde_json::to_string_pretty(&rocksdb_stats).unwrap();
+
+        match self.file {
+            None => println!("{}", result),
+            Some(file) => std::fs::write(file, result).expect("Unable to write stats to file"),
+        }
     }
 }

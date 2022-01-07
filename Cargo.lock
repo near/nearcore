@@ -3190,6 +3190,7 @@ version = "0.0.0"
 name = "near-store"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "bencher",
  "borsh 0.9.1",
  "byteorder",
@@ -4812,7 +4813,6 @@ name = "state-viewer"
 version = "0.0.0"
 dependencies = [
  "ansi_term 0.12.1",
- "anyhow",
  "borsh 0.9.1",
  "clap 3.0.0-beta.2",
  "near-chain",

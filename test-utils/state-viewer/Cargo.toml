@@ -8,7 +8,6 @@ rust-version = "1.56.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1"
 ansi_term = "0.12"
 borsh = "0.9"
 clap = "=3.0.0-beta.2"

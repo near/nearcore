@@ -40,6 +40,7 @@ use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, Num
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{to_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_store::db::rocksdb_stats::get_rocksdb_stats;
 
 use crate::chunks_delay_tracker::ChunksDelayTracker;
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
@@ -778,6 +779,9 @@ impl Client {
 
         if let Ok(Some(_)) = result {
             self.last_time_head_progress_made = Clock::instant();
+            if self.config.compute_rocksdb_stats {
+                let _ = get_rocksdb_stats(self.chain.store().store().get_rocksdb().unwrap().path());
+            }
         }
 
         // Request any missing chunks

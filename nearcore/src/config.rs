@@ -433,6 +433,7 @@ pub struct Config {
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gas_burnt_view: Option<Gas>,
+    pub compute_rocksdb_stats: bool,
 }
 
 impl Default for Config {
@@ -459,6 +460,7 @@ impl Default for Config {
             view_client_throttle_period: default_view_client_throttle_period(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
+            ..Default::default()
         }
     }
 }
@@ -661,6 +663,7 @@ impl NearConfig {
                 view_client_throttle_period: config.view_client_throttle_period,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
                 max_gas_burnt_view: config.max_gas_burnt_view,
+                compute_rocksdb_stats:
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,

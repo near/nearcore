@@ -17,10 +17,11 @@ use near_primitives::version::DbVersion;
 
 use crate::db::refcount::merge_refcounted_records;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 
 pub(crate) mod refcount;
+pub mod rocksdb_stats;
 pub(crate) mod v6_to_v7;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -808,6 +809,10 @@ impl RocksDB {
         } else {
             Ok(())
         }
+    }
+
+    pub fn path(&self) -> &Path {
+        self.db.path()
     }
 }
 

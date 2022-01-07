@@ -3,9 +3,10 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use tracing::info;
 
 #[derive(Serialize, Debug)]
-struct Data {
+struct RocksDBStats {
     col: String,
     entries: u64,
     estimated_table_size: u64,
@@ -24,7 +25,7 @@ const SST_FILE_DUMP_LINES: &[&str] = &[
     "raw value size",
 ];
 
-impl Data {
+impl RocksDBStats {
     pub fn from_sst_file_dump(lines: &[&str]) -> anyhow::Result<Self> {
         // Mapping from SST file dump key to value.
         let mut values: HashMap<&str, &str> = Default::default();
@@ -51,7 +52,7 @@ impl Data {
             }
         }
 
-        Ok(Data {
+        Ok(RocksDBStats {
             col: String::from(values.get(SST_FILE_DUMP_LINES[0]).unwrap().clone()),
             entries: values.get(SST_FILE_DUMP_LINES[1]).unwrap().parse::<u64>().unwrap(),
             estimated_table_size: values
@@ -72,12 +73,12 @@ impl Data {
     }
 }
 
-pub fn get_rocksdb_stats(home_dir: &Path, file: Option<PathBuf>) -> anyhow::Result<()> {
-    let store_dir = get_store_path(&home_dir);
+pub fn get_rocksdb_stats(store_dir: &Path) -> anyhow::Result<Vec<RocksDBStats>> {
     let mut cmd = Command::new("sst_dump");
     cmd.arg(format!("--file={}", store_dir.to_str().unwrap()))
         .arg("--show_properties")
         .arg("--command=none"); // For some reason, adding this argument makes execution 20x faster
+    info!(target: "state_viewer", "Running {:?} ...", cmd);
     eprintln!("Running {:?} ...", cmd);
     let output = cmd.output()?;
     if !output.status.success() {
@@ -88,15 +89,16 @@ pub fn get_rocksdb_stats(home_dir: &Path, file: Option<PathBuf>) -> anyhow::Resu
         );
     }
 
+    info!(target: "state_viewer", "Parsing output ...");
     eprintln!("Parsing output ...");
     let out = std::str::from_utf8(&output.stdout).unwrap();
     let lines: Vec<&str> = out.lines().collect();
-    let mut column_data: HashMap<String, Data> = HashMap::new();
+    let mut column_data: HashMap<String, RocksDBStats> = HashMap::new();
     for sst_file_slice in lines.split(|line| line.contains("Process")).skip(1) {
         if sst_file_slice.is_empty() {
             continue;
         }
-        let data = Data::from_sst_file_dump(sst_file_slice)?;
+        let data = RocksDBStats::from_sst_file_dump(sst_file_slice)?;
         if let Some(x) = column_data.get_mut(&data.col) {
             x.merge(&data);
         } else {
@@ -104,14 +106,7 @@ pub fn get_rocksdb_stats(home_dir: &Path, file: Option<PathBuf>) -> anyhow::Resu
         }
     }
 
-    let mut column_data_list: Vec<&Data> = column_data.values().collect();
+    let mut column_data_list: Vec<RocksDBStats> = column_data.values().cloned().collect();
     column_data_list.sort_by_key(|data| std::cmp::Reverse(data.estimated_table_size));
-    let result = serde_json::to_string_pretty(&column_data_list).unwrap();
-
-    eprintln!("Dumping stats ...");
-    match file {
-        None => println!("{}", result),
-        Some(file) => std::fs::write(file, result)?,
-    }
-    Ok(())
+    Ok(column_data_list)
 }
