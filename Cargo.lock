@@ -4410,15 +4410,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rocksdb-stats"
-version = "0.0.0"
-dependencies = [
- "nearcore",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "runtime-params-estimator"
 version = "0.0.0"
 dependencies = [
@@ -4821,6 +4812,7 @@ name = "state-viewer"
 version = "0.0.0"
 dependencies = [
  "ansi_term 0.12.1",
+ "anyhow",
  "borsh 0.9.1",
  "clap 3.0.0-beta.2",
  "near-chain",
@@ -4840,6 +4832,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "testlib",
+ "tracing",
 ]
 
 [[package]]
