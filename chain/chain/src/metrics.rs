@@ -40,7 +40,7 @@ pub static VALIDATOR_ACTIVE_TOTAL: Lazy<IntGauge> = Lazy::new(|| {
 pub static NUM_ORPHANS: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_num_orphans", "Number of orphan blocks.").unwrap());
 
-fn create_rocksdb_metric(name: &str, help: &str) -> [IntGauge; NUM_COLS] {
+fn create_rocksdb_metric(name: &str, help: &str) -> Vec<IntGauge> {
     (0..NUM_COLS)
         .map(|col: usize| {
             try_create_int_gauge(&format!("{}_col{}", name, col), &format!("{}_col{}", help, col))
