@@ -7,10 +7,10 @@ use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
-#[cfg(feature = "test_features")]
-use tracing::error;
 use tracing::metadata::LevelFilter;
 use tracing::{debug, info, warn};
+use tracing::metadata::LevelFilter;
+use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 /// NEAR Protocol Node
@@ -157,17 +157,53 @@ pub(super) struct InitCmd {
     max_gas_burnt_view: Option<Gas>,
 }
 
+/// Warns if unsupported build of the executable is used on mainnet or testnet.
+///
+/// Verifies that when running on mainnet or testnet chain a neard binary built
+/// with `make release` command is used.  That Makefile targets enable
+/// optimisation options which aren’t enabled when building with different
+/// methods and is the only officially supported method of building the binary
+/// to run in production.
+///
+/// The detection is done by checking that `NEAR_RELEASE_BUILD` environment
+/// variable was set to `release` during compilation (which is what Makefile
+/// sets) and that neither `nightly_protocol` nor `nightly_protocol_features`
+/// features are enabled.
+fn check_release_build(chain: &str) {
+    let is_release_build = option_env!("NEAR_RELEASE_BUILD") == Some("release")
+        && !cfg!(feature = "nightly_protocol")
+        && !cfg!(feature = "nightly_protocol_features");
+    if !is_release_build && ["mainnet", "testnet"].contains(&chain) {
+        warn!(
+            target: "neard",
+            "Running a neard executable which wasn’t built with `make release` \
+             command isn’t supported on {}.",
+            chain
+        );
+        warn!(
+            target: "neard",
+            "Note that `cargo build --release` builds lack optimisations which \
+             may be needed to run properly on {}",
+            chain
+        );
+        warn!(
+            target: "neard",
+            "Consider recompiling the binary using `make release` command.");
+    }
+}
+
 impl InitCmd {
     pub(super) fn run(self, home_dir: &Path) {
         // TODO: Check if `home` exists. If exists check what networks we already have there.
         if (self.download_genesis || self.download_genesis_url.is_some()) && self.genesis.is_some()
         {
-            panic!(
-                    "Please specify a local genesis file or download the NEAR genesis or specify your own."
-                );
+            error!("Please give either --genesis or --download-genesis, not both.");
+            return;
         }
 
-        nearcore::init_configs(
+        self.chain_id.as_ref().map(|chain| check_release_build(chain));
+
+        if let Err(e) = nearcore::init_configs(
             home_dir,
             self.chain_id.as_deref(),
             self.account_id.and_then(|account_id| account_id.parse().ok()),
@@ -181,8 +217,9 @@ impl InitCmd {
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
-        )
-        .expect("failed to init config");
+        ) {
+            error!("Failed to initialize configs: {:#}", e);
+        }
     }
 }
 
@@ -233,6 +270,9 @@ impl RunCmd {
     pub(super) fn run(self, home_dir: &Path) {
         // Load configs from home.
         let mut near_config = nearcore::config::load_config_without_genesis_records(home_dir);
+
+        check_release_build(&near_config.client_config.chain_id);
+
         // Set current version in client config.
         near_config.client_config.version = super::NEARD_VERSION.clone();
         // Override some parameters from command line.

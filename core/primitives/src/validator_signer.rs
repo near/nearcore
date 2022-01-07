@@ -55,7 +55,7 @@ pub trait ValidatorSigner: Sync + Send {
     ) -> (near_crypto::vrf::Value, near_crypto::vrf::Proof);
 
     /// Used by test infrastructure, only implement if make sense for testing otherwise raise `unimplemented`.
-    fn write_to_file(&self, path: &Path);
+    fn write_to_file(&self, path: &Path) -> std::io::Result<()>;
 }
 
 /// Test-only signer that "signs" everything with 0s.
@@ -118,7 +118,7 @@ impl ValidatorSigner for EmptyValidatorSigner {
         unimplemented!()
     }
 
-    fn write_to_file(&self, _path: &Path) {
+    fn write_to_file(&self, _path: &Path) -> std::io::Result<()> {
         unimplemented!()
     }
 }
@@ -208,7 +208,7 @@ impl ValidatorSigner for InMemoryValidatorSigner {
         self.signer.compute_vrf_with_proof(data)
     }
 
-    fn write_to_file(&self, path: &Path) {
-        self.signer.write_to_file(path);
+    fn write_to_file(&self, path: &Path) -> std::io::Result<()> {
+        self.signer.write_to_file(path)
     }
 }
