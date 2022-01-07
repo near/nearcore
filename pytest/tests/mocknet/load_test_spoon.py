@@ -129,6 +129,7 @@ if __name__ == '__main__':
         logger.info('Setting remote python environments -- done')
 
     if not args.skip_restart:
+        logger.info(f'Restarting')
         # Make sure nodes are running by restarting them.
         mocknet.stop_nodes(all_nodes)
         time.sleep(10)

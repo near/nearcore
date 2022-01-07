@@ -779,16 +779,18 @@ def update_config_file(all_nodes, tmp_dir):
                                          switch_user='ubuntu'), all_nodes)
 
 
-def start_nodes(nodes, upgrade_schedule):
-    pmap(lambda node: start_node(node, upgrade_schedule), nodes)
+def start_nodes(nodes, upgrade_schedule=None):
+    pmap(lambda node: start_node(node, upgrade_schedule=upgrade_schedule),
+         nodes)
 
 
 def stop_nodes(nodes):
     pmap(stop_node, nodes)
 
 
-def neard_start_script(node, upgrade_schedule, epoch_height):
-    if upgrade_schedule.get(node.instance_name, 0) <= epoch_height:
+def neard_start_script(node, upgrade_schedule=None, epoch_height=None):
+    if upgrade_schedule and upgrade_schedule.get(node.instance_name,
+                                                 0) <= epoch_height:
         neard_binary = '/home/ubuntu/neard.upgrade'
     else:
         neard_binary = '/home/ubuntu/neard'
@@ -801,7 +803,7 @@ def neard_start_script(node, upgrade_schedule, epoch_height):
     '''.format(neard_binary=shlex.quote(neard_binary))
 
 
-def start_node(node, upgrade_schedule):
+def start_node(node, upgrade_schedule=None):
     m = node.machine
     logger.info(f'Starting node {m.name}')
     attempt = 0
@@ -812,8 +814,10 @@ def start_node(node, upgrade_schedule):
             success = True
             break
         start_process = m.run('sudo -u ubuntu -i',
-                              input=neard_start_script(node, upgrade_schedule,
-                                                       0))
+                              input=neard_start_script(
+                                  node,
+                                  upgrade_schedule=upgrade_schedule,
+                                  epoch_height=0))
         if start_process.returncode == 0:
             success = True
             break

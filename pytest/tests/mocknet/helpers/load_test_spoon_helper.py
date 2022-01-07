@@ -269,16 +269,21 @@ def init_ft_account(node_account, account, i):
 
 
 def wait_at_least_one_block():
-    status = get_status()
-    start_height = status['sync_info']['latest_block_height']
-    timeout_sec = 5
-    started = time.time()
-    while time.time() - started < timeout_sec:
-        status = get_status()
-        height = status['sync_info']['latest_block_height']
-        if height > start_height:
-            break
-        time.sleep(1.0)
+    while True:
+        try:
+            status = get_status()
+            start_height = status['sync_info']['latest_block_height']
+            while True:
+                status = get_status()
+                height = status['sync_info']['latest_block_height']
+                if height > start_height:
+                    return
+                time.sleep(1.0)
+        except Exception as e:
+            logger.info(
+                f'Failed "wait_at_least_one_block", will wait 1 second and try again'
+            )
+            time.sleep(1.0)
 
 
 def main(argv):
