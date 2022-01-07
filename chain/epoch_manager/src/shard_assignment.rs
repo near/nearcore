@@ -15,21 +15,16 @@ use std::cmp;
 /// producer will be assigned to a single shard.  If there are fewer producers,
 /// some of them will be assigned to multiple shards.
 ///
-/// This function assumes that chunk_producers is ordered by stake starting from
-/// the chunk producer with highest stake.  If this is not the case the function
-/// will perform suboptimally.
+/// Panics if chunk_producers vector is not sorted in descending order by
+/// producer’s stake.
 pub fn assign_shards<T: HasStake + Eq + Clone>(
     chunk_producers: Vec<T>,
     num_shards: NumShards,
     min_validators_per_shard: usize,
 ) -> Result<Vec<Vec<T>>, NotEnoughValidators> {
     for (idx, pair) in chunk_producers.windows(2).enumerate() {
-        if pair[0].get_stake() > pair[1].get_stake() {
-            log::warn!(target: "epoch_manager",
-                       "chunk_producers aren’t sorted properly (first \
-                        discrepancy at index {}); assign_shards may give \
-                        suboptimal result", idx);
-        }
+        assert!(pair[0].get_stake() >= pair[1].get_stake(),
+                "chunk_producers isn’t sorted; first discrepancy at {}", idx);
     }
 
     // Initially, sort by number of validators, then total stake
