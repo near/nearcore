@@ -58,7 +58,7 @@ pub static NUM_ORPHANS: Lazy<IntGauge> =
 //         .collect()
 // }
 
-pub static ROCKSDB_COL_SIZE: &[Lazy<IntGauge>] = &[Lazy::new(|| {
+pub static ROCKSDB_COL_SIZE: [Lazy<IntGauge>; 1] = [Lazy::new(|| {
     try_create_int_gauge(
         &format!("near_rocksdb_size_col{}", 0),
         &format!("near_rocksdb_size_col{}", 0),
