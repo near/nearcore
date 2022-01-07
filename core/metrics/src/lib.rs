@@ -59,7 +59,8 @@
 //! ```
 
 pub use prometheus::{
-    Encoder, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, Result, TextEncoder,
+    Encoder, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Result,
+    TextEncoder,
 };
 use prometheus::{HistogramOpts, HistogramTimer, Opts};
 
@@ -92,11 +93,20 @@ pub fn try_create_int_counter_vec(
     Ok(counter)
 }
 
-/// Attempts to crate an `IntGauge`, returning `Err` if the registry does not accept the counter
+/// Attempts to crate an `IntGauge`, returning `Err` if the registry does not accept the gauge
 /// (potentially due to naming conflict).
 pub fn try_create_int_gauge(name: &str, help: &str) -> Result<IntGauge> {
     let opts = Opts::new(name, help);
     let gauge = IntGauge::with_opts(opts)?;
+    prometheus::register(Box::new(gauge.clone()))?;
+    Ok(gauge)
+}
+
+/// Attempts to crate an `IntGaugeVec`, returning `Err` if the registry does not accept the gauge
+/// (potentially due to naming conflict).
+pub fn try_create_int_gauge_vec(name: &str, help: &str, labels: &[&str]) -> Result<IntGaugeVec> {
+    let opts = Opts::new(name, help);
+    let gauge = IntGaugeVec::new(opts, labels)?;
     prometheus::register(Box::new(gauge.clone()))?;
     Ok(gauge)
 }
