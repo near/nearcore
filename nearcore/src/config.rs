@@ -843,12 +843,12 @@ pub fn init_configs(
 
     if let Some(url) = download_config_url {
         download_config(&url.to_string(), &dir.join(CONFIG_FILENAME))
-            .context("Failed to download the config file")?;
+            .context(format!("Failed to download the config file from {}", url))?;
         config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     } else if should_download_config {
         let url = get_config_url(&chain_id);
         download_config(&url, &dir.join(CONFIG_FILENAME))
-            .context("Failed to download the config file")?;
+            .context(format!("Failed to download the config file from {}", url))?;
         config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     }
 
@@ -910,11 +910,11 @@ pub fn init_configs(
 
             if let Some(url) = download_genesis_url {
                 download_genesis(&url.to_string(), &genesis_path)
-                    .context("Failed to download the genesis file")?;
+                    .context(format!("Failed to download the genesis file from {}", url))?;
             } else if should_download_genesis {
                 let url = get_genesis_url(&chain_id);
                 download_genesis(&url, &genesis_path)
-                    .context("Failed to download the genesis file")?;
+                    .context(format!("Failed to download the genesis file from {}", url))?;
             } else {
                 genesis_path_str = match genesis {
                     Some(g) => g,
@@ -1137,17 +1137,17 @@ pub fn get_config_url(chain_id: &str) -> String {
 
 #[derive(thiserror::Error, Debug)]
 pub enum FileDownloadError {
-    #[error("Failed to download the file: {0}")]
-    HttpError(#[from] hyper::Error),
-    #[error("Failed to open file: {0}")]
+    #[error("{0}")]
+    HttpError(hyper::Error),
+    #[error("Failed to open temporary file: {0}")]
     OpenError(std::io::Error),
-    #[error("Failed to write to file: {0}")]
-    WriteError(std::io::Error),
-    #[error("Failed to rename file: {0}")]
-    RenameError(std::io::Error),
-    #[error("Invalid URI: {0}")]
+    #[error("Failed to write to temporary file at {0}: {1}")]
+    WriteError(String, std::io::Error),
+    #[error("Failed to rename temporary file {0} to {1} : {2}")]
+    RenameError(String, String, std::io::Error),
+    #[error("Invalid URI")]
     UriError(#[from] hyper::http::uri::InvalidUri),
-    #[error("Failed to remove the temporary file after failure: {0}, {1}")]
+    #[error("Failed to remove temporary file: {0}. Download previously failed: {1}")]
     RemoveTemporaryFileError(std::io::Error, Box<FileDownloadError>),
 }
 
@@ -1155,14 +1155,17 @@ pub enum FileDownloadError {
 /// `file` may be left in inconsistent state (i.e. may contain partial data).
 async fn download_file_impl(
     uri: hyper::Uri,
+    path: &tempfile::TempPath,
     mut file: tokio::fs::File,
 ) -> anyhow::Result<(), FileDownloadError> {
     let https_connector = hyper_tls::HttpsConnector::new();
     let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
-    let mut resp = client.get(uri).await?;
+    let mut resp = client.get(uri).await.map_err(FileDownloadError::HttpError)?;
     while let Some(next_chunk_result) = resp.data().await {
-        let next_chunk = next_chunk_result?;
-        file.write_all(next_chunk.as_ref()).await.map_err(FileDownloadError::WriteError)?;
+        let next_chunk = next_chunk_result.map_err(FileDownloadError::HttpError)?;
+        file.write_all(next_chunk.as_ref())
+            .await
+            .map_err(|e| FileDownloadError::WriteError(path.to_string_lossy().into_owned(), e))?;
     }
     Ok(())
 }
@@ -1170,32 +1173,37 @@ async fn download_file_impl(
 /// Downloads a resource at given `url` and saves it to `path`.  On success, if
 /// file at `path` exists it will be overwritten.  On failure, file at `path` is
 /// left unchanged (if it exists).
-pub fn download_file(url: &str, path: &Path) -> anyhow::Result<(), FileDownloadError> {
+pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     let uri = url.parse()?;
-    let (tmp_file, tmp_path) = {
-        let tmp_dir = path.parent().unwrap_or(Path::new("."));
-        tempfile::NamedTempFile::new_in(tmp_dir).map_err(FileDownloadError::OpenError)?.into_parts()
-    };
 
-    let result =
-        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(
-            async move {
-                let tmp_file = tokio::fs::File::from_std(tmp_file);
-                download_file_impl(uri, tmp_file).await
-            },
-        );
+    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(
+        async move {
+            let (tmp_file, tmp_path) = {
+                let tmp_dir = path.parent().unwrap_or(Path::new("."));
+                tempfile::NamedTempFile::new_in(tmp_dir)
+                    .map_err(FileDownloadError::OpenError)?
+                    .into_parts()
+            };
 
-    let result = match result {
-        Err(err) => Err((tmp_path, err)),
-        Ok(()) => {
-            tmp_path.persist(path).map_err(|e| (e.path, FileDownloadError::RenameError(e.error)))
-        }
-    };
+            let result =
+                match download_file_impl(uri, &tmp_path, tokio::fs::File::from_std(tmp_file)).await
+                {
+                    Err(err) => Err((tmp_path, err)),
+                    Ok(()) => tmp_path.persist(path).map_err(|e| {
+                        let from = e.path.to_string_lossy().into_owned();
+                        let to = path.to_string_lossy().into_owned();
+                        (e.path, FileDownloadError::RenameError(from, to, e.error))
+                    }),
+                };
 
-    result.map_err(|(tmp_path, err)| match tmp_path.close() {
-        Ok(()) => err,
-        Err(close_err) => FileDownloadError::RemoveTemporaryFileError(close_err, Box::new(err)),
-    })
+            result.map_err(|(tmp_path, err)| match tmp_path.close() {
+                Ok(()) => err,
+                Err(close_err) => {
+                    FileDownloadError::RemoveTemporaryFileError(close_err, Box::new(err))
+                }
+            })
+        },
+    )
 }
 
 pub fn download_genesis(url: &str, path: &Path) -> Result<(), FileDownloadError> {
