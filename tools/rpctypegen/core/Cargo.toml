@@ -16,7 +16,6 @@ This crate generates schema for Rust structs which can be used by TypeScript.
 serde = { version = "1.0", features = ["derive"] }
 syn = { version = "1.0", features = ["full", "extra-traits"]}
 quote = "1.0"
-proc-macro2 = "1.0"
 
 [dev-dependencies]
 serde_json = {version = "1.0", features = ["preserve_order"]}
