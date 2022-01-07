@@ -8,8 +8,6 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 use tracing::metadata::LevelFilter;
-use tracing::{debug, info, warn};
-use tracing::metadata::LevelFilter;
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
 
