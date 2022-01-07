@@ -1,7 +1,7 @@
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -1139,16 +1139,16 @@ pub fn get_config_url(chain_id: &str) -> String {
 pub enum FileDownloadError {
     #[error("{0}")]
     HttpError(hyper::Error),
-    #[error("Failed to open temporary file: {0}")]
-    OpenError(std::io::Error),
-    #[error("Failed to write to temporary file at {0}: {1}")]
-    WriteError(String, std::io::Error),
-    #[error("Failed to rename temporary file {0} to {1} : {2}")]
-    RenameError(String, String, std::io::Error),
+    #[error("Failed to open temporary file")]
+    OpenError(#[source] std::io::Error),
+    #[error("Failed to write to temporary file at {0:?}")]
+    WriteError(PathBuf, #[source] std::io::Error),
+    #[error("Failed to rename temporary file {0:?} to {1:?}")]
+    RenameError(PathBuf, PathBuf, #[source] std::io::Error),
     #[error("Invalid URI")]
     UriError(#[from] hyper::http::uri::InvalidUri),
-    #[error("Failed to remove temporary file: {0}. Download previously failed: {1}")]
-    RemoveTemporaryFileError(std::io::Error, Box<FileDownloadError>),
+    #[error("Failed to remove temporary file: {0}. Download previously failed")]
+    RemoveTemporaryFileError(std::io::Error, #[source] Box<FileDownloadError>),
 }
 
 /// Downloads resource at given `uri` and saves it to `file`.  On failure,
@@ -1165,7 +1165,7 @@ async fn download_file_impl(
         let next_chunk = next_chunk_result.map_err(FileDownloadError::HttpError)?;
         file.write_all(next_chunk.as_ref())
             .await
-            .map_err(|e| FileDownloadError::WriteError(path.to_string_lossy().into_owned(), e))?;
+            .map_err(|e| FileDownloadError::WriteError(path.to_path_buf(), e))?;
     }
     Ok(())
 }
@@ -1190,8 +1190,8 @@ pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
                 {
                     Err(err) => Err((tmp_path, err)),
                     Ok(()) => tmp_path.persist(path).map_err(|e| {
-                        let from = e.path.to_string_lossy().into_owned();
-                        let to = path.to_string_lossy().into_owned();
+                        let from = e.path.to_path_buf();
+                        let to = path.to_path_buf();
                         (e.path, FileDownloadError::RenameError(from, to, e.error))
                     }),
                 };
