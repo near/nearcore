@@ -84,7 +84,7 @@ pub fn get_rocksdb_stats(home_dir: &Path, file: Option<PathBuf>) -> anyhow::Resu
         anyhow::bail!(
             "failed to run sst_dump, {}, stderr: {}",
             output.status,
-            std::str::from_utf8(&output.stderr)?
+            String::from_utf8_lossy(&output.stderr)
         );
     }
 

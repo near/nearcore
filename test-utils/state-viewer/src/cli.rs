@@ -1,7 +1,6 @@
 use crate::commands::*;
 use crate::epoch_info;
 use crate::rocksdb_stats::get_rocksdb_stats;
-use assert_matches::assert_matches;
 use clap::{AppSettings, Clap};
 use near_logger_utils::init_integration_logger;
 use near_primitives::account::id::AccountId;
@@ -295,6 +294,6 @@ pub struct RocksDBStatsCmd {
 
 impl RocksDBStatsCmd {
     pub fn run(self, home_dir: &Path) {
-        assert_matches!(get_rocksdb_stats(home_dir, self.file), Ok(_));
+        get_rocksdb_stats(home_dir, self.file).expect("Couldn't get RocksDB stats")
     }
 }

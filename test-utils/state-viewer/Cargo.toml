@@ -10,7 +10,6 @@ edition = "2021"
 [dependencies]
 anyhow = "1"
 ansi_term = "0.12"
-assert_matches = "1.3"
 borsh = "0.9"
 clap = "=3.0.0-beta.2"
 once_cell = "1.5.2"
