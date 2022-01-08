@@ -682,10 +682,9 @@ mod tests {
     fn test_convert_block_changes_to_transactions() {
         let runtime_config = near_primitives::runtime::config::RuntimeConfig::test();
         let block_hash = near_primitives::hash::CryptoHash::default();
-        let nfvalidator1_receipt_processing_hash =
-            near_primitives::hash::CryptoHash::try_from(vec![1u8; 32]).unwrap();
+        let nfvalidator1_receipt_processing_hash = near_primitives::hash::CryptoHash([1u8; 32]);
         let nfvalidator2_action_receipt_gas_reward_hash =
-            near_primitives::hash::CryptoHash::try_from(vec![2u8; 32]).unwrap();
+            near_primitives::hash::CryptoHash([2u8; 32]);
         let accounts_changes = vec![
             near_primitives::views::StateChangeWithCauseView {
                 cause: near_primitives::views::StateChangeCauseView::ValidatorAccountsUpdate,
