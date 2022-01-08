@@ -1672,6 +1672,11 @@ impl<'a> ChainStoreUpdate<'a> {
             },
         }
 
+        // save block ordinal and height if we need to update header head
+        let block_ordinal = self.get_block_merkle_tree(&t.last_block_hash)?.size();
+        self.chain_store_cache_update
+            .block_ordinal_to_hash
+            .insert(block_ordinal, t.last_block_hash);
         self.chain_store_cache_update.height_to_hashes.insert(t.height, Some(t.last_block_hash));
         self.chain_store_cache_update
             .next_block_hashes
@@ -1745,9 +1750,6 @@ impl<'a> ChainStoreUpdate<'a> {
         block_hash: CryptoHash,
         block_merkle_tree: PartialMerkleTree,
     ) {
-        self.chain_store_cache_update
-            .block_ordinal_to_hash
-            .insert(block_merkle_tree.size(), block_hash);
         self.chain_store_cache_update.block_merkle_tree.insert(block_hash, block_merkle_tree);
     }
 
@@ -3211,8 +3213,8 @@ mod tests {
             let mut store_update = chain.mut_store().store_update();
             store_update.save_block(block.clone());
             store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
-            store_update.save_head(&Tip::from_header(block.header())).unwrap();
             store_update.save_block_header(block.header().clone()).unwrap();
+            store_update.save_head(&Tip::from_header(block.header())).unwrap();
             store_update
                 .chain_store_cache_update
                 .height_to_hashes
@@ -3313,8 +3315,8 @@ mod tests {
             blocks.push(block.clone());
             store_update.save_block(block.clone());
             store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
-            store_update.save_head(&Tip::from_header(block.header())).unwrap();
             store_update.save_block_header(block.header().clone()).unwrap();
+            store_update.save_head(&Tip::from_header(block.header())).unwrap();
             store_update
                 .chain_store_cache_update
                 .height_to_hashes
@@ -3388,7 +3390,7 @@ mod tests {
         let mut prev_block = genesis.clone();
         let mut blocks = vec![prev_block.clone()];
         {
-            let mut store_update = chain.mut_store().store_update().store().store_update();
+            let mut store_update = chain.store().store().store_update();
             let block_info = BlockInfo::default();
             store_update
                 .set_ser(DBCol::ColBlockInfo, genesis.hash().as_ref(), &block_info)
@@ -3402,8 +3404,8 @@ mod tests {
             let mut store_update = chain.mut_store().store_update();
             store_update.save_block(block.clone());
             store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
-            store_update.save_head(&Tip::from_header(&block.header())).unwrap();
             store_update.save_block_header(block.header().clone()).unwrap();
+            store_update.save_head(&Tip::from_header(&block.header())).unwrap();
             {
                 let mut store_update = store_update.store().store_update();
                 let block_info = BlockInfo::default();

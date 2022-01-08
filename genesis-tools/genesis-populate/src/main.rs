@@ -31,7 +31,7 @@ fn main() {
     let store = create_store(&get_store_path(home_dir));
     GenesisBuilder::from_config_and_store(home_dir, Arc::new(near_config.genesis), store)
         .add_additional_accounts(additional_accounts_num)
-        .add_additional_accounts_contract(near_test_contracts::tiny_contract().to_vec())
+        .add_additional_accounts_contract(near_test_contracts::trivial_contract().to_vec())
         .print_progress()
         .build()
         .unwrap()

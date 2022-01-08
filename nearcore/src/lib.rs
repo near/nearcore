@@ -15,26 +15,24 @@ use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 
 use near_network::routing::start_routing_table_actor;
-use near_network::types::NetworkRecipient;
+use near_network::test_utils::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_primitives::network::PeerId;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
-use near_store::migrations::migrate_29_to_30;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
-    migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_21_to_22,
-    migrate_25_to_26, migrate_28_to_29, migrate_6_to_7, migrate_7_to_8, migrate_8_to_9,
-    migrate_9_to_10, set_store_version,
+    migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_20_to_21,
+    migrate_21_to_22, migrate_25_to_26, migrate_26_to_27, migrate_28_to_29, migrate_29_to_30,
+    migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
 };
-use near_store::migrations::{migrate_20_to_21, migrate_26_to_27};
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
 
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
 use crate::migrations::{
     migrate_12_to_13, migrate_18_to_19, migrate_19_to_20, migrate_22_to_23, migrate_23_to_24,
-    migrate_24_to_25,
+    migrate_24_to_25, migrate_30_to_31,
 };
 pub use crate::runtime::NightshadeRuntime;
 pub use crate::shard_tracker::TrackedConfig;
@@ -255,6 +253,11 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         // version 29 => 30: migrate all structures that use ValidatorStake to versionized version
         info!(target: "near", "Migrate DB from version 29 to 30");
         migrate_29_to_30(path);
+    }
+    if db_version <= 30 {
+        // version 30 => 31: recompute block ordinal due to a bug fixed in #5761
+        info!(target: "near", "Migrate DB from version 30 to 31");
+        migrate_30_to_31(path, &near_config);
     }
 
     #[cfg(feature = "nightly_protocol")]
