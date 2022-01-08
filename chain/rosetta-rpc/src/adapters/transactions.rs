@@ -1,12 +1,14 @@
+use std::string::ToString;
+
 use near_primitives::hash::CryptoHash;
 
 use actix::Addr;
 
 /// Constructs a Rosetta transaction hash for a change with a given cause.
 ///
-/// If the change happened due to a transaction, returns hash of that
-/// transaction as well.  If the change was due to another reason, the second
-/// returned value will be None.
+/// If the change happened due to a transaction or a receipt, returns hash of
+/// that transaction as well.  If the change was due to another reason, the
+/// second returned value will be None.
 ///
 /// Transactions are significant because we need to generate list of receipts as
 /// related transactions so that Rosetta API clients can match transactions and
@@ -16,29 +18,28 @@ use actix::Addr;
 fn convert_cause_to_transaction_id(
     block_hash: &CryptoHash,
     cause: near_primitives::views::StateChangeCauseView,
-) -> crate::errors::Result<(crate::models::TransactionIdentifier, ChangeCause)> {
+) -> crate::errors::Result<(crate::models::TransactionIdentifier, Option<CryptoHash>)> {
     use crate::models::TransactionIdentifier;
     use near_primitives::views::StateChangeCauseView;
-    use ChangeCause::*;
 
     match cause {
         StateChangeCauseView::TransactionProcessing { tx_hash } => {
-            Ok((TransactionIdentifier::transaction(&tx_hash), Tx(tx_hash)))
+            Ok((TransactionIdentifier::transaction(&tx_hash), Some(tx_hash)))
         }
         StateChangeCauseView::ActionReceiptProcessingStarted { receipt_hash }
         | StateChangeCauseView::ActionReceiptGasReward { receipt_hash }
         | StateChangeCauseView::ReceiptProcessing { receipt_hash }
         | StateChangeCauseView::PostponedReceipt { receipt_hash } => {
-            Ok((TransactionIdentifier::receipt(&receipt_hash), Rx(receipt_hash)))
+            Ok((TransactionIdentifier::receipt(&receipt_hash), Some(receipt_hash)))
         }
         StateChangeCauseView::InitialState => {
-            Ok((TransactionIdentifier::block_event("block", block_hash), Other))
+            Ok((TransactionIdentifier::block_event("block", block_hash), None))
         }
         StateChangeCauseView::ValidatorAccountsUpdate => {
-            Ok((TransactionIdentifier::block_event("block-validators-update", block_hash), Other))
+            Ok((TransactionIdentifier::block_event("block-validators-update", block_hash), None))
         }
         StateChangeCauseView::UpdatedDelayedReceipts => {
-            Ok((TransactionIdentifier::block_event("block-delayed-receipts", block_hash), Other))
+            Ok((TransactionIdentifier::block_event("block-delayed-receipts", block_hash), None))
         }
         StateChangeCauseView::NotWritableToDisk => {
             Err(crate::errors::ErrorKind::InternalInvariantError(
@@ -46,20 +47,12 @@ fn convert_cause_to_transaction_id(
             ))
         }
         StateChangeCauseView::Migration => {
-            Ok((TransactionIdentifier::block_event("migration", block_hash), Other))
+            Ok((TransactionIdentifier::block_event("migration", block_hash), None))
         }
         StateChangeCauseView::Resharding => Err(crate::errors::ErrorKind::InternalInvariantError(
             "State Change 'Resharding' should never be observed".to_string(),
         )),
     }
-}
-
-/// Enum describing what caused a change: a NEAR transaction, a receipt or
-/// something else (such as staking payout)
-enum ChangeCause {
-    Tx(CryptoHash),
-    Rx(CryptoHash),
-    Other,
 }
 
 /// An builder object for generating lists of Rosetta transactions based on
@@ -137,11 +130,11 @@ impl<'a> BlockChangesToTransactionsConverter<'a> {
         cause: near_primitives::views::StateChangeCauseView,
     ) -> crate::errors::Result<&mut crate::models::Transaction> {
         use std::collections::hash_map::Entry;
-        let (identifier, tx_hash) = convert_cause_to_transaction_id(&self.block_hash, cause)?;
+        let (identifier, hash) = convert_cause_to_transaction_id(&self.block_hash, cause)?;
         Ok(match self.map.entry(identifier.hash) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
-                let tx = Self::make_transaction(&mut self.factory, entry.key(), tx_hash).await?;
+                let tx = Self::make_transaction(&mut self.factory, entry.key(), hash).await?;
                 entry.insert(tx)
             }
         })
@@ -149,27 +142,23 @@ impl<'a> BlockChangesToTransactionsConverter<'a> {
 
     /// Constructs a new Rosetta transaction object.
     ///
-    /// If `hash` is not `ChangeCause::Other`, fills out transaction’s
+    /// If `trx_hash` is not `None`, fills out transaction’s
     /// `related_transactions` with receipts given transaction/receipt
     /// generated.
     async fn make_transaction(
         factory: &mut Option<TransactionsFactory<'a>>,
         hash: &String,
-        cause: ChangeCause,
+        trx_hash: Option<CryptoHash>,
     ) -> crate::errors::Result<crate::models::Transaction> {
         let id = crate::models::TransactionIdentifier { hash: hash.clone() };
-        let related_transactions = if let Some(factory) = factory {
-            match cause {
-                ChangeCause::Tx(hash) => factory.get_related(hash).await?,
-                ChangeCause::Rx(hash) => factory.get_related(hash).await?,
-                ChangeCause::Other => None,
-            }
+        let related_transactions = if let (Some(factory), Some(hash)) = (factory, trx_hash) {
+            factory.get_related(hash).await?
         } else {
             None
         };
         Ok(crate::models::Transaction {
             transaction_identifier: id,
-            operations: vec![],
+            operations: Vec::new(),
             related_transactions: related_transactions.unwrap_or_default(),
             metadata: crate::models::TransactionMetadata {
                 type_: crate::models::TransactionType::Transaction,
@@ -182,9 +171,9 @@ impl<'a> TransactionsFactory<'a> {
     /// Returns related transactions for given NEAR transaction or receipt.
     async fn get_related(
         &mut self,
-        hash: CryptoHash,
+        trx_hash: CryptoHash,
     ) -> crate::errors::Result<Option<Vec<crate::models::RelatedTransaction>>> {
-        let related = self.get_transactions_map().await?.remove(&hash).map(|hashes| {
+        let related = self.get_transactions_map().await?.remove(&trx_hash).map(|hashes| {
             hashes
                 .iter()
                 .map(crate::models::TransactionIdentifier::receipt)

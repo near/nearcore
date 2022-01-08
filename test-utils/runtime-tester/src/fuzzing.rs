@@ -241,11 +241,7 @@ impl TransactionConfig {
                 }
             };
 
-            let signer = scope.function_call_signer(
-                u,
-                &signer_account,
-                &receiver_account.id.clone().into(),
-            )?;
+            let signer = scope.function_call_signer(u, &signer_account, &receiver_account.id)?;
 
             let mut receiver_functions = vec![];
             if let Some(contract_id) = receiver_account.deployed_contract {
@@ -594,7 +590,7 @@ impl Scope {
         &self,
         u: &mut Unstructured,
         account: &Account,
-        receiver_id: &String,
+        receiver_id: &str,
     ) -> Result<InMemorySigner> {
         let account_idx = self.usize_id(account);
         let possible_signers = self.accounts[account_idx].function_call_keys(receiver_id);
@@ -655,13 +651,13 @@ impl Account {
         full_access_keys
     }
 
-    pub fn function_call_keys(&self, receiver_id: &String) -> Vec<InMemorySigner> {
+    pub fn function_call_keys(&self, receiver_id: &str) -> Vec<InMemorySigner> {
         let mut function_call_keys = vec![];
         for (_, key) in &self.keys {
             match &key.access_key.permission {
                 AccessKeyPermission::FullAccess => function_call_keys.push(key.signer.clone()),
                 AccessKeyPermission::FunctionCall(function_call_permission) => {
-                    if function_call_permission.receiver_id == *receiver_id {
+                    if function_call_permission.receiver_id == receiver_id {
                         function_call_keys.push(key.signer.clone())
                     }
                 }

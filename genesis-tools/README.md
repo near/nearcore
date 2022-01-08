@@ -2,7 +2,7 @@
 
 * `genesis-populate` -- tool for creating genesis state dump populated with large number of accounts;
 * TODO `genesis-rebase`-- tool for rebasing the entire chain to a new genesis;
-* TODO `genesis-mainnet` -- tool for creating the main genesis used at the MainNet launch;
+* TODO `genesis-mainnet` -- tool for creating the main genesis used at the mainnet launch;
 
 ## `genesis-populate`
 
