@@ -23,8 +23,11 @@ pub fn assign_shards<T: HasStake + Eq + Clone>(
     min_validators_per_shard: usize,
 ) -> Result<Vec<Vec<T>>, NotEnoughValidators> {
     for (idx, pair) in chunk_producers.windows(2).enumerate() {
-        assert!(pair[0].get_stake() >= pair[1].get_stake(),
-                "chunk_producers isn’t sorted; first discrepancy at {}", idx);
+        assert!(
+            pair[0].get_stake() >= pair[1].get_stake(),
+            "chunk_producers isn’t sorted; first discrepancy at {}",
+            idx
+        );
     }
 
     // Initially, sort by number of validators, then total stake
