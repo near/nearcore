@@ -20,12 +20,12 @@ from configured_logger import logger
 import cluster
 import key
 
-_Dict = typing.Dict[str, typing.Any]
-BlockIdentifier = typing.Union[str, int, _Dict]
-TransIdentifier = typing.Union[str, _Dict]
+JsonDict = typing.Dict[str, typing.Any]
+BlockIdentifier = typing.Union[str, int, JsonDict]
+TxIdentifier = typing.Union[str, JsonDict]
 
 
-def block_identifier(block_id: BlockIdentifier) -> _Dict:
+def block_identifier(block_id: BlockIdentifier) -> JsonDict:
     if isinstance(block_id, int):
         return {'index': block_id}
     if isinstance(block_id, str):
@@ -35,25 +35,25 @@ def block_identifier(block_id: BlockIdentifier) -> _Dict:
     raise TypeError(f'{type(block_id).__name__} is not a block identifier')
 
 
-def trans_identifier(trans_id: TransIdentifier) -> _Dict:
-    if isinstance(trans_id, str):
-        return {'hash': trans_id}
-    if isinstance(trans_id, dict):
-        return trans_id
-    raise TypeError(
-        f'{type(trans_id).__name__} is not a transaction identifier')
+def tx_identifier(tx_id: TxIdentifier) -> JsonDict:
+    if isinstance(tx_id, str):
+        return {'hash': tx_id}
+    if isinstance(tx_id, dict):
+        return tx_id
+    raise TypeError(f'{type(tx_id).__name__} is not a transaction identifier')
 
 
 class RosettaExecResult:
-    _rpc: 'RosettaRPC'
-    _block: BlockIdentifier
     identifier: typing.Dict[str, str]
-    _data: typing.Optional[typing.Tuple[_Dict, _Dict]] = None
+    _rpc: 'RosettaRPC'
+    _block_id: BlockIdentifier
+    __block: typing.Optional[JsonDict] = None
+    __transaction: typing.Optional[JsonDict] = None
 
-    def __init__(self, rpc: 'RosettaRPC', block: BlockIdentifier,
-                 identifier: typing.Union[_Dict, str]) -> None:
+    def __init__(self, rpc: 'RosettaRPC', block_id: BlockIdentifier,
+                 identifier: typing.Dict[str, str]) -> None:
         self._rpc = rpc
-        self._block = block
+        self._block_id = block_id
         self.identifier = identifier
 
     @property
@@ -77,7 +77,7 @@ class RosettaExecResult:
         """
         return self.identifier['hash'].split(':')[1]
 
-    def block(self) -> _Dict:
+    def block(self) -> JsonDict:
         """Returns the block in which the transaction was executed.
 
         When this method or `transaction` method is called the first time, it
@@ -89,7 +89,7 @@ class RosettaExecResult:
         """
         return self.__get_transaction()[0]
 
-    def transaction(self) -> _Dict:
+    def transaction(self) -> JsonDict:
         """Returns the transaction details from Rosetta RPC.
 
         When this method or `block` method is called the first time, it queries
@@ -101,7 +101,7 @@ class RosettaExecResult:
         """
         return self.__get_transaction()[1]
 
-    def related(self, num: int) -> typing.Optional[_Dict]:
+    def related(self, num: int) -> typing.Optional[JsonDict]:
         """Returns related transaction or None if there aren’t that many.
 
         The method uses `transaction` method so all comments regarding fetching
@@ -119,36 +119,42 @@ class RosettaExecResult:
         return type(self)(self._rpc, block['block_identifier'],
                           related[num]['transaction_identifier'])
 
-    def __get_transaction(self) -> typing.Tuple[_Dict, _Dict]:
-        if self._data:
-            return self._data
-        tx_hash = self.hash
-        for _ in range(40):
+    def __get_transaction(self) -> typing.Tuple[JsonDict, JsonDict]:
+        """Fetches transaction and its block from the node if not yet retrieved.
+
+        Returns:
+            (block, transaction) tuple where first element is Rosetta Block
+            object and second Rosetta Transaction object.
+        """
+        if self.__block and self.__transaction:
+            return self.__block, self.__transaction
+        timeout = time.monotonic() + 10
+        while time.monotonic() < timeout:
             while True:
                 try:
-                    block = self._rpc.get_block(block_id=self._block)
+                    block = self._rpc.get_block(block_id=self._block_id)
                 except RuntimeError:
                     block = None
                 if not block:
                     break
                 for tx in block['transactions']:
-                    if tx['transaction_identifier']['hash'] == tx_hash:
+                    if tx['transaction_identifier']['hash'] == self.hash:
                         related = ', '.join(
                             related['transaction_identifier']['hash']
                             for related in tx.get('related_transactions',
                                                   ())) or 'none'
-                        logger.info(f'Receipts of {tx_hash}: {related}')
-                        self._data = (block, tx)
-                        return self._data
-                self._block = int(block['block_identifier']['index']) + 1
+                        logger.info(f'Receipts of {self.hash}: {related}')
+                        self.__memoised = (block, tx)
+                        return self.__memoised
+                self._block_id = int(block['block_identifier']['index']) + 1
             time.sleep(0.25)
-        assert False, f'Transaction {tx_hash} did not complete in 10 seconds'
+        assert False, f'Transaction {self.hash} did not complete in 10 seconds'
 
 
 class RosettaRPC:
     node: cluster.BaseNode
     href: str
-    network_identifier: _Dict
+    network_identifier: JsonDict
 
     def __init__(self,
                  *,
@@ -166,7 +172,7 @@ class RosettaRPC:
         result.raise_for_status()
         return result.json()['network_identifiers'][0]
 
-    def rpc(self, path: str, **data: typing.Any) -> _Dict:
+    def rpc(self, path: str, **data: typing.Any) -> JsonDict:
         data['network_identifier'] = self.network_identifier
         result = requests.post(f'{self.href}{path}',
                                headers={'content-type': 'application/json'},
@@ -286,15 +292,15 @@ class RosettaRPC:
                 },
             }, **kw)
 
-    def get_block(self, *, block_id: BlockIdentifier) -> _Dict:
+    def get_block(self, *, block_id: BlockIdentifier) -> JsonDict:
         res = self.rpc('/block', block_identifier=block_identifier(block_id))
         return res['block']
 
     def get_transaction(self, *, block_id: BlockIdentifier,
-                        trans_id: TransIdentifier) -> _Dict:
+                        tx_id: TxIdentifier) -> JsonDict:
         res = self.rpc('/block/transaction',
                        block_identifier=block_identifier(block_id),
-                       transaction_identifier=trans_identifier(trans_id))
+                       transaction_identifier=tx_identifier(tx_id))
         return res['transaction']
 
 
@@ -359,8 +365,7 @@ class RosettaTestCase(unittest.TestCase):
         # Get transaction from genesis block.
         self.assertEqual(
             trans_0,
-            self.rosetta.get_transaction(block_id=block_0_id,
-                                         trans_id=trans_0_id))
+            self.rosetta.get_transaction(block_id=block_0_id, tx_id=trans_0_id))
 
         # Block at height=1 should have genesis block as parent and only
         # validator update as a single operation.
@@ -396,8 +401,7 @@ class RosettaTestCase(unittest.TestCase):
         # Get transaction from the second block
         self.assertEqual(
             trans_1,
-            self.rosetta.get_transaction(block_id=block_1_id,
-                                         trans_id=trans_1_id))
+            self.rosetta.get_transaction(block_id=block_1_id, tx_id=trans_1_id))
 
     def test_get_block_nonexistent(self) -> None:
         """Tests querying non-existent blocks and transactions.
@@ -413,7 +417,7 @@ class RosettaTestCase(unittest.TestCase):
         block_1_id = block_1['block_identifier']
         trans_1_id = 'block:' + block_1_id['hash']
 
-        def test(want_code, callback, *args, **kw) -> _Dict:
+        def test(want_code, callback, *args, **kw) -> JsonDict:
             with self.assertRaises(requests.exceptions.HTTPError) as err:
                 callback(*args, **kw)
             self.assertEqual(500, err.exception.response.status_code)
@@ -432,11 +436,11 @@ class RosettaTestCase(unittest.TestCase):
         test(404,
              self.rosetta.get_transaction,
              block_id=block_0_id,
-             trans_id=trans_1_id)
+             tx_id=trans_1_id)
         test(404,
              self.rosetta.get_transaction,
              block_id=block_1_id,
-             trans_id=trans_0_id)
+             tx_id=trans_0_id)
 
     def _get_account_balance(self,
                              account: key.Key,
@@ -485,11 +489,6 @@ class RosettaTestCase(unittest.TestCase):
         receipt_ids = json_res['transaction_outcome']['outcome']['receipt_ids']
         self.assertEqual(1, len(receipt_ids))
         receipt_id = {'hash': 'receipt:' + receipt_ids[0]}
-
-        def get(arr: typing.Sequence[str], idx: int) -> str:
-            if idx < len(arr):
-                return arr[idx]
-            return '<hash>'
 
         # The actual amount subtracted is more than test_amount because of the
         # gas payment.

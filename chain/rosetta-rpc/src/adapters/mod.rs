@@ -99,7 +99,7 @@ async fn convert_genesis_records_to_transaction(
             &block.header.hash,
         ),
         operations,
-        related_transactions: vec![],
+        related_transactions: Vec::new(),
         metadata: crate::models::TransactionMetadata {
             type_: crate::models::TransactionType::Block,
         },
@@ -146,10 +146,16 @@ pub(crate) async fn convert_block_to_transactions(
     let runtime_config = crate::utils::query_protocol_config(block.header.hash, &view_client_addr)
         .await?
         .runtime_config;
-    transactions::BlockChangesToTransactionsConverter::new(view_client_addr, &block)
-        .convert(&runtime_config, accounts_changes, accounts_previous_state)
-        .await
-        .map(|transactions| transactions.into_values().collect())
+    let exec_to_rx =
+        transactions::ExecutionToReceipts::for_block(view_client_addr, block.header.hash).await?;
+    transactions::convert_block_changes_to_transactions(
+        &runtime_config,
+        &block.header.hash,
+        accounts_changes,
+        accounts_previous_state,
+        exec_to_rx,
+    )
+    .map(|dict| dict.into_values().collect())
 }
 
 pub(crate) async fn collect_transactions(
@@ -762,16 +768,14 @@ mod tests {
                 storage_usage: 200000,
             },
         );
-        let transactions = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-            .block_on(async move {
-                super::transactions::BlockChangesToTransactionsConverter::new_for_tests(&block_hash)
-                    .convert(&runtime_config, accounts_changes, accounts_previous_state)
-                    .await
-            })
-            .unwrap();
+        let transactions = super::transactions::convert_block_changes_to_transactions(
+            &runtime_config,
+            &block_hash,
+            accounts_changes,
+            accounts_previous_state,
+            super::transactions::ExecutionToReceipts::empty(),
+        )
+        .unwrap();
         assert_eq!(transactions.len(), 3);
         assert!(transactions.iter().all(|(transaction_hash, transaction)| {
             &transaction.transaction_identifier.hash == transaction_hash
