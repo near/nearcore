@@ -470,7 +470,6 @@ impl Config {
     pub fn from_file(path: &Path) -> anyhow::Result<Self> {
         let s = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
-        eprintln!("{}", s);
         let config = serde_json::from_str(&s)
             .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
         Ok(config)
@@ -1254,11 +1253,8 @@ impl From<NodeKeyFile> for KeyFile {
 }
 
 pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
-    eprintln!("{}, {:?}", CONFIG_FILENAME, dir.join(CONFIG_FILENAME));
     let config = Config::from_file(&dir.join(CONFIG_FILENAME)).unwrap();
-    eprintln!("{}", config.genesis_file);
     let genesis_config = GenesisConfig::from_file(&dir.join(&config.genesis_file)).unwrap();
-    eprintln!("111");
     let genesis_records_file = if let Some(genesis_records_file) = &config.genesis_records_file {
         dir.join(genesis_records_file)
     } else {
@@ -1272,7 +1268,6 @@ pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
     } else {
         None
     };
-    eprintln!("111");
     let network_signer = NodeKeyFile::from_file(&dir.join(&config.node_key_file));
     NearConfig::new(
         config,
@@ -1284,8 +1279,6 @@ pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
 
 pub fn load_config(dir: &Path) -> NearConfig {
     let mut near_config = load_config_without_genesis_records(dir);
-    eprintln!("111");
-
     near_config.genesis =
         if let Some(ref genesis_records_file) = near_config.config.genesis_records_file {
             Genesis::from_files(

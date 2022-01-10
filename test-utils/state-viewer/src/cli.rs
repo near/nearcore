@@ -91,9 +91,7 @@ pub enum StateViewerSubCommand {
 
 impl StateViewerSubCommand {
     pub fn run(self, home_dir: &Path) {
-        tracing::info!(target: "neard", "{:?}", home_dir);
         let near_config = load_config(home_dir);
-        tracing::info!(target: "neard", "{:?}", home_dir);
         let store = create_store(&get_store_path(home_dir));
         match self {
             StateViewerSubCommand::Peers => peers(store),
@@ -296,9 +294,7 @@ pub struct RocksDBStatsCmd {
 
 impl RocksDBStatsCmd {
     pub fn run(self, home_dir: &Path) {
-        eprintln!("{:?}", home_dir);
         let store_dir = get_store_path(&home_dir);
-        eprintln!("{:?}", store_dir);
         let rocksdb_stats = get_rocksdb_stats(&store_dir).expect("Couldn't get RocksDB stats");
         let result = serde_json::to_string_pretty(&rocksdb_stats).unwrap();
 

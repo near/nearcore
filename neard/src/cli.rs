@@ -41,7 +41,6 @@ impl NeardCmd {
 
         let home_dir = neard_cmd.opts.home;
 
-        info!(target: "neard", "111");
         match neard_cmd.subcmd {
             NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
             NeardSubCommand::Localnet(cmd) => cmd.run(&home_dir),
@@ -61,7 +60,7 @@ impl NeardCmd {
                 fs::remove_dir_all(home_dir).expect("Removing data and config failed.");
             }
             NeardSubCommand::StateViewer(cmd) => {
-                info!(target: "neard", "222");
+                info!(target: "neard", "Running state viewer");
                 cmd.run(&home_dir);
             }
         }
