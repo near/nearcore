@@ -41,6 +41,7 @@ mod costs_to_runtime_config;
 mod estimator_context;
 mod gas_cost;
 mod qemu;
+mod rocksdb;
 mod transaction_builder;
 
 pub(crate) mod estimator_params;
@@ -82,6 +83,7 @@ use crate::config::Config;
 use crate::cost_table::format_gas;
 use crate::estimator_context::{EstimatorContext, Testbed};
 use crate::gas_cost::GasCost;
+use crate::rocksdb::rocks_db_sequential_inserts_cost;
 use crate::transaction_builder::TransactionBuilder;
 use crate::vm_estimator::create_context;
 
@@ -156,6 +158,8 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::TouchingTrieNode, touching_trie_node),
     (Cost::GasMeteringBase, gas_metering_base),
     (Cost::GasMeteringOp, gas_metering_op),
+    (Cost::RocksDbInsertValueKByte, rocks_db_insert_value_byte),
+    (Cost::RocksDbInsertValueCompactedKByte, rocks_db_insert_value_compacted_byte),
     (Cost::CpuBenchmarkSha256, cpu_benchmark_sha256),
     (Cost::OneCPUInstruction, one_cpu_instruction),
     (Cost::OneNanosecond, one_nanosecond),
@@ -933,6 +937,17 @@ fn gas_metering_base(ctx: &mut EstimatorContext) -> GasCost {
 
 fn gas_metering_op(ctx: &mut EstimatorContext) -> GasCost {
     gas_metering(ctx).1
+}
+
+fn rocks_db_insert_value_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let value_size = bytesize::kb(1u64) as usize;
+    let inserts = 1_000_000;
+    rocks_db_sequential_inserts_cost(&ctx.config, false, value_size, inserts) / inserts as u64
+}
+fn rocks_db_insert_value_compacted_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let value_size = bytesize::kb(1u64) as usize;
+    let inserts = 1_000_000;
+    rocks_db_sequential_inserts_cost(&ctx.config, true, value_size, inserts) / inserts as u64
 }
 
 fn gas_metering(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {

@@ -69,8 +69,11 @@ struct CliArgs {
     #[clap(long)]
     full: bool,
     /// Print extra debug information
-    #[clap(long, multiple(true), possible_values=&["io"])]
+    #[clap(long, multiple(true), possible_values=&["io", "rocksdb"])]
     debug: Vec<String>,
+    /// Data dump for pseudo-random input
+    #[clap(long)]
+    pr_data_path: Option<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -179,6 +182,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     let warmup_iters_per_block = cli_args.warmup_iters;
+    let pr_data_path = cli_args.pr_data_path;
     let iter_per_block = cli_args.iters;
     let active_accounts = cli_args.accounts_num;
     let metric = match cli_args.metric.as_str() {
@@ -204,6 +208,8 @@ fn main() -> anyhow::Result<()> {
         metric,
         vm_kind,
         costs_to_measure,
+        pr_data_path,
+        debug_rocksb: debug_options.contains(&"rocksdb"),
     };
     let cost_table = runtime_params_estimator::run(config);
 

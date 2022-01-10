@@ -28,4 +28,8 @@ pub struct Config {
     pub vm_kind: VMKind,
     /// When non-none, only the specified costs will be measured.
     pub costs_to_measure: Option<Vec<String>>,
+    /// Pseudo-random input data dump
+    pub pr_data_path: Option<PathBuf>,
+    /// Print RocksDB debug output where available
+    pub debug_rocksb: bool,
 }
