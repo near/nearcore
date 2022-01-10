@@ -1252,8 +1252,10 @@ impl From<NodeKeyFile> for KeyFile {
 }
 
 pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
+    eprintln!("111");
     let config = Config::from_file(&dir.join(CONFIG_FILENAME)).unwrap();
     let genesis_config = GenesisConfig::from_file(&dir.join(&config.genesis_file)).unwrap();
+    eprintln!("111");
     let genesis_records_file = if let Some(genesis_records_file) = &config.genesis_records_file {
         dir.join(genesis_records_file)
     } else {
@@ -1267,6 +1269,7 @@ pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
     } else {
         None
     };
+    eprintln!("111");
     let network_signer = NodeKeyFile::from_file(&dir.join(&config.node_key_file));
     NearConfig::new(
         config,
@@ -1278,6 +1281,8 @@ pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
 
 pub fn load_config(dir: &Path) -> NearConfig {
     let mut near_config = load_config_without_genesis_records(dir);
+    eprintln!("111");
+
     near_config.genesis =
         if let Some(ref genesis_records_file) = near_config.config.genesis_records_file {
             Genesis::from_files(
