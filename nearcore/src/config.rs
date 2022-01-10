@@ -1253,7 +1253,7 @@ impl From<NodeKeyFile> for KeyFile {
 }
 
 pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
-    eprintln!("{}", CONFIG_FILENAME);
+    eprintln!("{}, {:?}", CONFIG_FILENAME, dir.join(CONFIG_FILENAME));
     let config = Config::from_file(&dir.join(CONFIG_FILENAME)).unwrap();
     eprintln!("{}", config.genesis_file);
     let genesis_config = GenesisConfig::from_file(&dir.join(&config.genesis_file)).unwrap();
