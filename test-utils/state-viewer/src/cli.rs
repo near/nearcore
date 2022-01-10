@@ -91,7 +91,9 @@ pub enum StateViewerSubCommand {
 
 impl StateViewerSubCommand {
     pub fn run(self, home_dir: &Path) {
+        tracing::info!(target: "neard", "{:?}", home_dir);
         let near_config = load_config(home_dir);
+        tracing::info!(target: "neard", "{:?}", home_dir);
         let store = create_store(&get_store_path(home_dir));
         match self {
             StateViewerSubCommand::Peers => peers(store),
