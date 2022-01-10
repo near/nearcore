@@ -1252,8 +1252,9 @@ impl From<NodeKeyFile> for KeyFile {
 }
 
 pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
-    eprintln!("111");
+    eprintln!("{}", CONFIG_FILENAME);
     let config = Config::from_file(&dir.join(CONFIG_FILENAME)).unwrap();
+    eprintln!("{}", config.genesis_file);
     let genesis_config = GenesisConfig::from_file(&dir.join(&config.genesis_file)).unwrap();
     eprintln!("111");
     let genesis_records_file = if let Some(genesis_records_file) = &config.genesis_records_file {
