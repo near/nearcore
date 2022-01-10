@@ -779,31 +779,7 @@ impl Client {
 
         if let Ok(Some(_)) = result {
             self.last_time_head_progress_made = Clock::instant();
-            if self.config.compute_rocksdb_stats {
-                info!(target: "neard", "Computing rocksdb stats...");
-                let rocksdb_stats =
-                    get_rocksdb_stats(self.chain.store().store().get_rocksdb().unwrap().path());
-                match rocksdb_stats {
-                    Ok(stats) => {
-                        for col_stats in stats {
-                            metrics::ROCKSDB_COL_SIZE
-                                .with_label_values(&[&col_stats.col])
-                                .set(col_stats.estimated_table_size);
-                            metrics::ROCKSDB_ENTRIES
-                                .with_label_values(&[&col_stats.col])
-                                .set(col_stats.entries);
-                            metrics::ROCKSDB_KEY_SIZE
-                                .with_label_values(&[&col_stats.col])
-                                .set(col_stats.raw_key_size);
-                            metrics::ROCKSDB_VALUE_SIZE
-                                .with_label_values(&[&col_stats.col])
-                                .set(col_stats.raw_value_size);
-                        }
-                    }
-                    Err(e) => info!("Failed to get RocksDB stats: {}", e),
-                }
-                info!(target: "neard", "Computed rocksdb stats");
-            }
+            self.compute_rocksdb_stats();
         }
 
         // Request any missing chunks
@@ -811,6 +787,34 @@ impl Client {
 
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
         (unwrapped_accepted_blocks, result)
+    }
+
+    pub fn compute_rocksdb_stats(&self) {
+        if self.config.compute_rocksdb_stats {
+            info!(target: "neard", "Computing rocksdb stats...");
+            let rocksdb_stats =
+                get_rocksdb_stats(self.chain.store().store().get_rocksdb().unwrap().path());
+            match rocksdb_stats {
+                Ok(stats) => {
+                    for col_stats in stats {
+                        metrics::ROCKSDB_COL_SIZE
+                            .with_label_values(&[&col_stats.col])
+                            .set(col_stats.estimated_table_size);
+                        metrics::ROCKSDB_ENTRIES
+                            .with_label_values(&[&col_stats.col])
+                            .set(col_stats.entries);
+                        metrics::ROCKSDB_KEY_SIZE
+                            .with_label_values(&[&col_stats.col])
+                            .set(col_stats.raw_key_size);
+                        metrics::ROCKSDB_VALUE_SIZE
+                            .with_label_values(&[&col_stats.col])
+                            .set(col_stats.raw_value_size);
+                    }
+                }
+                Err(e) => info!("Failed to get RocksDB stats: {}", e),
+            }
+            info!(target: "neard", "Computed rocksdb stats");
+        }
     }
 
     pub fn rebroadcast_block(&mut self, block: &Block) {

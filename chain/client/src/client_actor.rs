@@ -160,6 +160,7 @@ impl ClientActor {
             enable_doomslug,
             rng_seed,
         )?;
+        client.compute_rocksdb_stats();
 
         let now = Utc::now();
         Ok(ClientActor {
