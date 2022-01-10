@@ -6,7 +6,7 @@ use near_state_viewer::StateViewerSubCommand;
 use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::{fs, io};
+use std::{env, fs, io};
 use tracing::metadata::LevelFilter;
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
@@ -392,7 +392,7 @@ fn init_logging(verbose: Option<&str>) {
          delay_detector=info,near-performance-metrics=info,\
          near-rust-allocator-proxy=info";
 
-    let rust_log = std::env::var("RUST_LOG");
+    let rust_log = env::var("RUST_LOG");
     let rust_log = rust_log.as_ref().map(String::as_str).unwrap_or(DEFALUT_RUST_LOG);
     let mut env_filter = EnvFilter::new(rust_log);
 
