@@ -790,13 +790,58 @@ fn add_account_with_key(
     });
 }
 
-/// Generate a validator key and save it to the file path.
-fn generate_validator_key(account_id: AccountId, path: &Path) -> anyhow::Result<()> {
-    let signer = InMemoryValidatorSigner::from_random(account_id.clone(), KeyType::ED25519);
-    info!(target: "near", "Use key {} for {} to stake.", signer.public_key(), account_id);
-    signer
-        .write_to_file(path)
-        .with_context(|| format!("Error writing key file to {}", path.display()))
+enum KeyToGenerate<'a> {
+    Node,
+    Validator(Option<AccountId>),
+    TestValidator(AccountId, Option<&'a str>),
+}
+
+fn generate_key(
+    key: KeyToGenerate<'_>,
+    home_dir: &Path,
+    filename: &str,
+    overwrite: bool,
+) -> anyhow::Result<Option<InMemorySigner>> {
+    let path = home_dir.join(filename);
+    let signer = if !overwrite && path.exists() {
+        // Panics if the key is invalid.
+        let signer = InMemorySigner::from_file(&path);
+        match key {
+            KeyToGenerate::Node => {
+                info!(target: "near", "Reuse key {} for {}", signer.public_key(), signer.account_id);
+            }
+            KeyToGenerate::Validator(Some(account_id)) if account_id != signer.account_id => {
+                return Err(anyhow!(
+                    "‘{}’ contains key for {} but expecting key for {}",
+                    path.display(),
+                    signer.account_id,
+                    account_id
+                ))
+            }
+            _ => {
+                info!(target: "near", "Reuse key {} for {} to stake", signer.public_key(), signer.account_id);
+            }
+        }
+        signer
+    } else {
+        let (is_node_key, account_id, test_seed) = match key {
+            KeyToGenerate::Node => (true, "node".parse()?, None),
+            KeyToGenerate::Validator(None) => return Ok(None),
+            KeyToGenerate::Validator(Some(account_id)) => (false, account_id, None),
+            KeyToGenerate::TestValidator(account_id, test_seed) => (false, account_id, test_seed),
+        };
+        let signer = if let Some(seed) = test_seed {
+            InMemorySigner::from_seed(account_id, KeyType::ED25519, seed)
+        } else {
+            InMemorySigner::from_random(account_id, KeyType::ED25519)
+        };
+        info!(target: "near", "Use key {} for {}{}", signer.public_key(), signer.account_id, if is_node_key { "" } else { " to stake" });
+        signer
+            .write_to_file(&path)
+            .with_context(|| anyhow!("Failed saving key to ‘{}’", path.display()))?;
+        signer
+    };
+    Ok(Some(signer))
 }
 
 pub fn mainnet_genesis() -> Genesis {
@@ -871,15 +916,14 @@ pub fn init_configs(
             })?;
 
             let genesis = mainnet_genesis();
-            if let Some(account_id) = account_id {
-                generate_validator_key(account_id, &dir.join(config.validator_key_file))?;
-            }
 
-            let path = dir.join(config.node_key_file);
-            let network_signer = InMemorySigner::from_random("node".parse()?, KeyType::ED25519);
-            network_signer
-                .write_to_file(&path)
-                .with_context(|| format!("Error writing key file to {}", path.display()))?;
+            generate_key(
+                KeyToGenerate::Validator(account_id),
+                dir,
+                &config.validator_key_file,
+                false,
+            )?;
+            generate_key(KeyToGenerate::Node, dir, &config.node_key_file, false)?;
 
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
@@ -893,15 +937,13 @@ pub fn init_configs(
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
             })?;
 
-            if let Some(account_id) = account_id {
-                generate_validator_key(account_id, &dir.join(config.validator_key_file))?;
-            }
-
-            let path = dir.join(config.node_key_file);
-            let network_signer = InMemorySigner::from_random("node".parse()?, KeyType::ED25519);
-            network_signer
-                .write_to_file(&path)
-                .with_context(|| format!("Error writing key file to {}", path.display()))?;
+            generate_key(
+                KeyToGenerate::Validator(account_id),
+                dir,
+                &config.validator_key_file,
+                false,
+            )?;
+            generate_key(KeyToGenerate::Node, dir, &config.node_key_file, false)?;
 
             // download genesis from s3
             let genesis_path = dir.join("genesis.json");
@@ -948,26 +990,19 @@ pub fn init_configs(
             })?;
 
             let account_id = account_id.unwrap_or_else(|| "test.near".parse().unwrap());
+            let signer = generate_key(
+                KeyToGenerate::TestValidator(account_id, test_seed),
+                dir,
+                &config.node_key_file,
+                true,
+            )?
+            .unwrap();
+            generate_key(KeyToGenerate::Node, dir, &config.node_key_file, true)?;
 
-            let signer = if let Some(test_seed) = test_seed {
-                InMemoryValidatorSigner::from_seed(account_id.clone(), KeyType::ED25519, test_seed)
-            } else {
-                InMemoryValidatorSigner::from_random(account_id.clone(), KeyType::ED25519)
-            };
-            let validator_path = dir.join(config.validator_key_file);
-            signer.write_to_file(&validator_path).with_context(|| {
-                format!("Error writing validator key file to {}", validator_path.display())
-            })?;
-
-            let node_path = dir.join(config.node_key_file);
-            let network_signer = InMemorySigner::from_random("node".parse()?, KeyType::ED25519);
-            network_signer
-                .write_to_file(&node_path)
-                .with_context(|| format!("Error writing key file to {}", node_path.display()))?;
             let mut records = vec![];
             add_account_with_key(
                 &mut records,
-                account_id.clone(),
+                signer.account_id.clone(),
                 &signer.public_key(),
                 TESTING_INIT_BALANCE,
                 TESTING_INIT_STAKE,
@@ -997,7 +1032,7 @@ pub fn init_configs(
                 online_max_threshold: Rational::new(99, 100),
                 online_min_threshold: Rational::new(BLOCK_PRODUCER_KICKOUT_THRESHOLD as isize, 100),
                 validators: vec![AccountInfo {
-                    account_id: account_id.clone(),
+                    account_id: signer.account_id.clone(),
                     public_key: signer.public_key(),
                     amount: TESTING_INIT_STAKE,
                 }],
@@ -1006,7 +1041,7 @@ pub fn init_configs(
                 max_inflation_rate: MAX_INFLATION_RATE,
                 total_supply: get_initial_supply(&records),
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
-                protocol_treasury_account: account_id,
+                protocol_treasury_account: signer.account_id.clone(),
                 fishermen_threshold: FISHERMEN_THRESHOLD,
                 min_gas_price: MIN_GAS_PRICE,
                 ..Default::default()
