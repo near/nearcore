@@ -788,6 +788,15 @@ impl Client {
                             metrics::ROCKSDB_COL_SIZE
                                 .with_label_values(&[&col_stats.col])
                                 .set(col_stats.estimated_table_size);
+                            metrics::ROCKSDB_ENTRIES
+                                .with_label_values(&[&col_stats.col])
+                                .set(col_stats.entries);
+                            metrics::ROCKSDB_KEY_SIZE
+                                .with_label_values(&[&col_stats.col])
+                                .set(col_stats.raw_key_size);
+                            metrics::ROCKSDB_VALUE_SIZE
+                                .with_label_values(&[&col_stats.col])
+                                .set(col_stats.raw_value_size);
                         }
                     }
                     Err(e) => info!("Failed to get RocksDB stats: {}", e),

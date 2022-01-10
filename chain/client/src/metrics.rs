@@ -109,24 +109,6 @@ pub static VALIDATORS_BLOCKS_EXPECTED: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
-// fn create_rocksdb_metric(name: str, help: &str) -> [Lazy<IntGauge>; 1] {
-//     [Lazy::new(|| {
-//         try_create_int_gauge(&format!("{}_col{}", name, col), &format!("{}_col{}", help, col))
-//             .unwrap()
-//     })]
-//     (0..NUM_COLS)
-//         .map(|col: usize| {
-//             Lazy::new(|| {
-//                 try_create_int_gauge(
-//                     &format!("{}_col{}", name, col),
-//                     &format!("{}_col{}", help, col),
-//                 )
-//                 .unwrap()
-//             })
-//         })
-//         .collect()
-// }
-
 pub static ROCKSDB_COL_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
     near_metrics::try_create_int_gauge_vec(
         "near_rocksdb_size",
@@ -136,17 +118,32 @@ pub static ROCKSDB_COL_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
-// pub static ROCKSDB_COL_SIZE: &[Lazy<IntGauge>] =
-//     &create_rocksdb_metric("near_rocksdb_size", "Size in bytes of RocksDB column");
-//
-// pub static ROCKSDB_ENTRIES: &[Lazy<IntGauge>] =
-//     &create_rocksdb_metric("near_rocksdb_entries", "Number of entries in RocksDB column");
-//
-// pub static ROCKSDB_KEY_SIZE: &[Lazy<IntGauge>] =
-//     &create_rocksdb_metric("near_rocksdb_key_size", "Total size of keys in RocksDB column");
-//
-// pub static ROCKSDB_VALUE_SIZE: &[Lazy<IntGauge>] =
-//     &create_rocksdb_metric("near_rocksdb_value_size", "Total size of values in RocksDB column");
+pub static ROCKSDB_ENTRIES: Lazy<IntGaugeVec> = Lazy::new(|| {
+    near_metrics::try_create_int_gauge_vec(
+        "near_rocksdb_entries",
+        "Number of entries in RocksDB column",
+        &["col"],
+    )
+    .unwrap()
+});
+
+pub static ROCKSDB_KEY_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+    near_metrics::try_create_int_gauge_vec(
+        "near_rocksdb_key_size",
+        "Total size of keys in RocksDB column",
+        &["col"],
+    )
+    .unwrap()
+});
+
+pub static ROCKSDB_VALUE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+    near_metrics::try_create_int_gauge_vec(
+        "near_rocksdb_value_size",
+        "Total size of values in RocksDB column",
+        &["col"],
+    )
+    .unwrap()
+});
 
 pub static ROCKSDB_STATS_PROCESSING_TIME: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram(
