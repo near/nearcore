@@ -780,6 +780,7 @@ impl Client {
         if let Ok(Some(_)) = result {
             self.last_time_head_progress_made = Clock::instant();
             if self.config.compute_rocksdb_stats {
+                info!(target: "neard", "Computing rocksdb stats...");
                 let rocksdb_stats =
                     get_rocksdb_stats(self.chain.store().store().get_rocksdb().unwrap().path());
                 match rocksdb_stats {
@@ -801,6 +802,7 @@ impl Client {
                     }
                     Err(e) => info!("Failed to get RocksDB stats: {}", e),
                 }
+                info!(target: "neard", "Computed rocksdb stats");
             }
         }
 
