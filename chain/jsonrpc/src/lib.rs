@@ -243,7 +243,7 @@ impl JsonRpcHandler {
                     >(params)?;
                     self.peer_manager_addr
                         .send(near_network::types::PeerManagerMessageRequest::SetAdvOptions(
-                            near_network::types::SetAdvOptions {
+                            near_network::test_utils::SetAdvOptions {
                                 disable_edge_signature_verification: params
                                     .disable_edge_signature_verification,
                                 disable_edge_propagation: params.disable_edge_propagation,
@@ -263,7 +263,7 @@ impl JsonRpcHandler {
                         near_jsonrpc_adversarial_primitives::SetRoutingTableRequest::parse(params)?;
                     self.peer_manager_addr
                         .send(near_network::types::PeerManagerMessageRequest::SetRoutingTable(
-                            near_network::types::SetRoutingTable {
+                            near_network::test_utils::SetRoutingTable {
                                 add_edges: request.add_edges,
                                 remove_edges: request.remove_edges,
                                 prune_edges: request.prune_edges,
@@ -284,7 +284,7 @@ impl JsonRpcHandler {
                     self.peer_manager_addr
                         .send(
                             near_network::types::PeerManagerMessageRequest::StartRoutingTableSync(
-                                near_network::types::StartRoutingTableSync {
+                                near_network::private_actix::StartRoutingTableSync {
                                     peer_id: params.peer_id,
                                 },
                             ),
@@ -299,7 +299,7 @@ impl JsonRpcHandler {
                     let response = self
                         .peer_manager_addr
                         .send(near_network::types::PeerManagerMessageRequest::GetPeerId(
-                            near_network::types::GetPeerId {},
+                            near_network::private_actix::GetPeerId {},
                         ))
                         .await?;
                     Some(
@@ -1098,7 +1098,7 @@ impl JsonRpcHandler {
                     ))
                     .await;
                 if let Ok(NetworkClientResponses::SandboxResult(
-                              near_network::types::SandboxResponse::SandboxPatchStateFinished(true),
+                              near_network_primitives::types::SandboxResponse::SandboxPatchStateFinished(true),
                 )) = patch_state_finished
                 {
                     break;

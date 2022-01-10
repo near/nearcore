@@ -281,7 +281,7 @@ impl Runtime {
             Err(e) => {
                 metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                 state_update.rollback();
-                return Err(e);
+                Err(e)
             }
         }
     }
@@ -563,7 +563,7 @@ impl Runtime {
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
                 if let Some(amount) = get_insufficient_storage_stake(account, &apply_state.config)
-                    .map_err(|err| StorageError::StorageInconsistentState(err))?
+                    .map_err(StorageError::StorageInconsistentState)?
                 {
                     result.merge(ActionResult {
                         result: Err(ActionError {
@@ -720,10 +720,7 @@ impl Runtime {
                 );
 
                 new_receipt.receipt_id = receipt_id;
-                let is_action = match &new_receipt.receipt {
-                    ReceiptEnum::Action(_) => true,
-                    _ => false,
-                };
+                let is_action = matches!(&new_receipt.receipt, ReceiptEnum::Action(_));
                 outgoing_receipts.push(new_receipt);
                 if is_action {
                     Some(receipt_id)
@@ -846,8 +843,6 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
-        let _span = tracing::debug_span!(target: "runtime", "Runtime::process_receipt").entered();
-
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
             ReceiptEnum::Data(ref data_receipt) => {
@@ -1130,16 +1125,13 @@ impl Runtime {
             && migration_flags.is_first_block_of_version
         {
             for (account_id, delta) in &migration_data.storage_usage_delta {
-                match get_account(state_update, account_id)? {
-                    Some(mut account) => {
-                        // Storage usage is saved in state, hence it is nowhere close to max value
-                        // of u64, and maximal delta is 4196, se we can add here without checking
-                        // for overflow
-                        account.set_storage_usage(account.storage_usage() + delta);
-                        set_account(state_update, account_id.clone(), &account);
-                    }
-                    // Account could have been deleted in the meantime
-                    None => {}
+                // Account could have been deleted in the meantime, so we check if it is still Some
+                if let Some(mut account) = get_account(state_update, account_id)? {
+                    // Storage usage is saved in state, hence it is nowhere close to max value
+                    // of u64, and maximal delta is 4196, se we can add here without checking
+                    // for overflow
+                    account.set_storage_usage(account.storage_usage() + delta);
+                    set_account(state_update, account_id.clone(), &account);
                 }
             }
             gas_used += migration_data.storage_usage_fix_gas;
@@ -1212,7 +1204,7 @@ impl Runtime {
                 &apply_state.migration_flags,
                 apply_state.current_protocol_version,
             )
-            .map_err(|e| RuntimeError::StorageError(e))?;
+            .map_err(RuntimeError::StorageError)?;
         // If we have receipts that need to be restored, prepend them to the list of incoming receipts
         let incoming_receipts = if receipts_to_restore.is_empty() {
             incoming_receipts
@@ -1276,7 +1268,8 @@ impl Runtime {
                                    state_update: &mut TrieUpdate,
                                    total_gas_burnt: &mut Gas|
          -> Result<_, RuntimeError> {
-            self.process_receipt(
+            let _span = tracing::debug_span!(target: "runtime", "Runtime::process_receipt", receipt_id = %receipt.receipt_id, node_counter = state_update.trie.counter.get()).entered();
+            let result = self.process_receipt(
                 state_update,
                 apply_state,
                 receipt,
@@ -1284,9 +1277,9 @@ impl Runtime {
                 &mut validator_proposals,
                 &mut stats,
                 epoch_info_provider,
-            )?
-            .into_iter()
-            .try_for_each(
+            );
+            tracing::debug!(target: "runtime", node_counter = state_update.trie.counter.get());
+            result?.into_iter().try_for_each(
                 |outcome_with_id: ExecutionOutcomeWithId| -> Result<(), RuntimeError> {
                     *total_gas_burnt =
                         safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;

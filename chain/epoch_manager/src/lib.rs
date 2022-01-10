@@ -997,8 +997,10 @@ impl EpochManager {
                         let validator_stats = epoch_summary
                             .validator_block_chunk_stats
                             .get(info.account_id())
-                            .map(|stats| stats.block_stats.clone())
-                            .unwrap_or_else(|| ValidatorStats { produced: 0, expected: 0 });
+                            .unwrap_or(&BlockChunkValidatorStats {
+                                block_stats: ValidatorStats { produced: 0, expected: 0 },
+                                chunk_stats: ValidatorStats { produced: 0, expected: 0 },
+                            });
                         let mut shards = validator_to_shard[validator_id]
                             .iter()
                             .cloned()
@@ -1011,8 +1013,10 @@ impl EpochManager {
                             public_key,
                             stake,
                             shards,
-                            num_produced_blocks: validator_stats.produced,
-                            num_expected_blocks: validator_stats.expected,
+                            num_produced_blocks: validator_stats.block_stats.produced,
+                            num_expected_blocks: validator_stats.block_stats.expected,
+                            num_produced_chunks: validator_stats.chunk_stats.produced,
+                            num_expected_chunks: validator_stats.chunk_stats.expected,
                         })
                     })
                     .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
@@ -1028,11 +1032,19 @@ impl EpochManager {
                     .validators_iter()
                     .enumerate()
                     .map(|(validator_id, info)| {
-                        let validator_stats = aggregator
+                        let block_stats = aggregator
                             .block_tracker
                             .get(&(validator_id as u64))
                             .unwrap_or_else(|| &ValidatorStats { produced: 0, expected: 0 })
                             .clone();
+
+                        let mut chunk_stats = ValidatorStats { produced: 0, expected: 0 };
+                        for (_shard, tracker) in aggregator.shard_tracker.iter() {
+                            if let Some(stats) = tracker.get(&(validator_id as u64)) {
+                                chunk_stats.produced += stats.produced;
+                                chunk_stats.expected += stats.expected;
+                            }
+                        }
                         let mut shards = validator_to_shard[validator_id]
                             .clone()
                             .into_iter()
@@ -1045,8 +1057,10 @@ impl EpochManager {
                             public_key,
                             stake,
                             shards,
-                            num_produced_blocks: validator_stats.produced,
-                            num_expected_blocks: validator_stats.expected,
+                            num_produced_blocks: block_stats.produced,
+                            num_expected_blocks: block_stats.expected,
+                            num_produced_chunks: chunk_stats.produced,
+                            num_expected_chunks: chunk_stats.expected,
                         })
                     })
                     .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
@@ -1857,11 +1871,11 @@ mod tests2 {
             stake("test2".parse().unwrap(), amount_staked),
         ];
         let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
+            store,
+            config,
             PROTOCOL_VERSION,
             default_reward_calculator(),
-            validators.clone(),
+            validators,
         )
         .unwrap();
         let h = hash_range(8);
@@ -1927,11 +1941,11 @@ mod tests2 {
             stake("test2".parse().unwrap(), amount_staked),
         ];
         let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
+            store,
+            config,
             PROTOCOL_VERSION,
             default_reward_calculator(),
-            validators.clone(),
+            validators,
         )
         .unwrap();
 
@@ -1999,11 +2013,11 @@ mod tests2 {
             stake("test2".parse().unwrap(), amount_staked),
         ];
         let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
+            store,
+            config,
             PROTOCOL_VERSION,
             default_reward_calculator(),
-            validators.clone(),
+            validators,
         )
         .unwrap();
 
@@ -3673,14 +3687,8 @@ mod tests2 {
             stake("test1".parse().unwrap(), amount_staked),
             stake("test2".parse().unwrap(), amount_staked),
         ];
-        let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
-            0,
-            default_reward_calculator(),
-            validators.clone(),
-        )
-        .unwrap();
+        let mut epoch_manager =
+            EpochManager::new(store, config, 0, default_reward_calculator(), validators).unwrap();
         let h = hash_range(8);
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
         let mut block_info1 =
@@ -3719,11 +3727,11 @@ mod tests2 {
         ];
         let new_protocol_version = SimpleNightshade.protocol_version();
         let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
+            store,
+            config,
             new_protocol_version - 1,
             default_reward_calculator(),
-            validators.clone(),
+            validators,
         )
         .unwrap();
         let h = hash_range(8);
@@ -3810,14 +3818,8 @@ mod tests2 {
             stake("test1".parse().unwrap(), amount_staked),
             stake("test2".parse().unwrap(), amount_staked / 5),
         ];
-        let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
-            0,
-            default_reward_calculator(),
-            validators.clone(),
-        )
-        .unwrap();
+        let mut epoch_manager =
+            EpochManager::new(store, config, 0, default_reward_calculator(), validators).unwrap();
         let h = hash_range(50);
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
         let mut block_info1 =
@@ -3848,11 +3850,11 @@ mod tests2 {
             stake("test2".parse().unwrap(), amount_staked),
         ];
         let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
+            store,
+            config,
             UPGRADABILITY_FIX_PROTOCOL_VERSION,
             default_reward_calculator(),
-            validators.clone(),
+            validators,
         )
         .unwrap();
         let h = hash_range(5 * epoch_length);

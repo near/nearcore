@@ -33,10 +33,9 @@ class TestRpcFinality(unittest.TestCase):
         acc1_balance = int(nodes[0].get_account('test1')['result']['amount'])
 
         token_transfer = 10
-        status = nodes[0].get_status()
-        latest_block_hash = status['sync_info']['latest_block_hash']
+        latest_block_hash = nodes[0].get_latest_block().hash_bytes
         tx = sign_payment_tx(nodes[0].signer_key, 'test1', token_transfer, 1,
-                             base58.b58decode(latest_block_hash.encode('utf8')))
+                             latest_block_hash)
         logger.info("About to send payment")
         logger.info(nodes[0].send_tx_and_wait(tx, timeout=200))
         logger.info("Done")

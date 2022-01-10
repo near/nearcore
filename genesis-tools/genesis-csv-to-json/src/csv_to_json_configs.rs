@@ -17,7 +17,7 @@ use nearcore::NEAR_BASE;
 const ACCOUNTS_FILE: &str = "accounts.csv";
 const NUM_SHARDS: NumShards = 8;
 
-fn verify_total_supply(total_supply: Balance, chain_id: &String) {
+fn verify_total_supply(total_supply: Balance, chain_id: &str) {
     if chain_id == "mainnet" {
         assert_eq!(
             total_supply,
@@ -86,6 +86,6 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
     verify_total_supply(genesis.config.total_supply, &chain_id);
 
     // Write all configs to files.
-    config.write_to_file(&home.join(CONFIG_FILENAME));
+    config.write_to_file(&home.join(CONFIG_FILENAME)).expect("Error writing config");
     genesis.to_file(&home.join(GENESIS_CONFIG_FILENAME));
 }

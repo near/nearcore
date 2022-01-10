@@ -40,7 +40,7 @@ def docker_init(image, home_dir, init_flags):
 
 
 def nodocker_init(home_dir, is_release, init_flags):
-    target = './target/%s/near' % ('release' if is_release else 'debug')
+    target = './target/%s/neard' % ('release' if is_release else 'debug')
     cmd = [target]
     if home_dir:
         cmd.extend(['--home', home_dir])
@@ -91,13 +91,13 @@ def check_and_setup(nodocker,
         if chain_id != '' and genesis_config['chain_id'] != chain_id:
             if chain_id == 'testnet':
                 print(
-                    "Folder %s already has network configuration for %s, which is not the official TestNet.\n"
+                    "Folder %s already has network configuration for %s, which is not the official testnet.\n"
                     "Use ./scripts/start_localnet.py instead to keep running with existing configuration.\n"
                     "If you want to run a different network, either specify different --home or remove %s to start from scratch."
                     % (home_dir, genesis_config['chain_id'], home_dir))
             elif genesis_config['chain_id'] == 'testnet':
                 print(
-                    "Folder %s already has network configuration for the official TestNet.\n"
+                    "Folder %s already has network configuration for the official testnet.\n"
                     "Use ./scripts/start_testnet.py instead to keep running it.\n"
                     "If you want to run a different network, either specify different --home or remove %s to start from scratch"
                     % (home_dir, home_dir))
@@ -229,7 +229,7 @@ def run_nodocker(home_dir, is_release, boot_nodes, telemetry_url, verbose):
     print("Starting NEAR client...")
     print(
         "Autoupdate is not supported at the moment for runs outside of docker")
-    cmd = ['./target/%s/near' % ('release' if is_release else 'debug')]
+    cmd = ['./target/%s/neard' % ('release' if is_release else 'debug')]
     cmd.extend(['--home', home_dir])
     if verbose:
         cmd += ['--verbose', '']

@@ -1,18 +1,14 @@
-use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
+use crate::apply_chain_range::apply_chain_range;
+use crate::epoch_info;
+use crate::state_dump::state_dump;
 use ansi_term::Color::Red;
-
-use borsh::BorshSerialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_epoch_manager::EpochManager;
 use near_network::iter_peers_from_store;
+use near_primitives::account::id::AccountId;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
@@ -25,9 +21,11 @@ use near_store::test_utils::create_test_store;
 use near_store::{Store, TrieIterator};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
-
-use crate::apply_chain_range::apply_chain_range;
-use crate::state_dump::state_dump;
+use std::collections::HashMap;
+use std::fs::{self, File};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub(crate) fn peers(store: Arc<Store>) {
     iter_peers_from_store(store, |(peer_id, peer_info)| {
@@ -52,6 +50,8 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Arc<Store>)
 
 pub(crate) fn dump_state(
     height: Option<BlockHeight>,
+    stream: bool,
+    file: Option<PathBuf>,
     home_dir: &Path,
     near_config: NearConfig,
     store: Arc<Store>,
@@ -64,14 +64,20 @@ pub(crate) fn dump_state(
         load_trie_stop_at_height(store, home_dir, &near_config, mode);
     let height = header.height();
     let home_dir = PathBuf::from(&home_dir);
-    let output_dir = home_dir.join("output");
 
-    let records_path = output_dir.join("records.json");
-    let new_near_config =
-        state_dump(runtime, state_roots.clone(), header, &near_config, &records_path);
-
-    println!("Saving state at {:?} @ {} into {}", state_roots, height, output_dir.display(),);
-    new_near_config.save_to_dir(&output_dir);
+    if stream {
+        let output_dir = file.unwrap_or(home_dir.join("output"));
+        let records_path = output_dir.join("records.json");
+        let new_near_config =
+            state_dump(runtime, &state_roots, header, &near_config, Some(&records_path));
+        println!("Saving state at {:?} @ {} into {}", state_roots, height, output_dir.display(),);
+        new_near_config.save_to_dir(&output_dir);
+    } else {
+        let new_near_config = state_dump(runtime, &state_roots, header, &near_config, None);
+        let output_file = file.unwrap_or(home_dir.join("output.json"));
+        println!("Saving state at {:?} @ {} into {}", state_roots, height, output_file.display(),);
+        new_near_config.genesis.to_file(&output_file);
+    }
 }
 
 pub(crate) fn apply_range(
@@ -118,13 +124,10 @@ pub(crate) fn dump_code(
     let epoch_id = &runtime.get_epoch_id(header.hash()).unwrap();
 
     for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let state_root_vec: Vec<u8> = state_root.try_to_vec().unwrap();
         let shard_uid = runtime.shard_id_to_uid(shard_id as u64, epoch_id).unwrap();
-        if let Ok(contract_code) = runtime.view_contract_code(
-            &shard_uid,
-            CryptoHash::try_from(state_root_vec).unwrap(),
-            &account_id.parse().unwrap(),
-        ) {
+        if let Ok(contract_code) =
+            runtime.view_contract_code(&shard_uid, *state_root, &account_id.parse().unwrap())
+        {
             let mut file = File::create(output).unwrap();
             file.write_all(contract_code.code()).unwrap();
             println!("Dump contract of account {} into file {}", account_id, output.display());
@@ -490,6 +493,37 @@ pub(crate) fn check_block_chunk_existence(store: Arc<Store>, near_config: NearCo
     }
     println!("Block check succeed");
 }
+
+pub(crate) fn print_epoch_info(
+    epoch_selection: epoch_info::EpochSelection,
+    validator_account_id: Option<AccountId>,
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Arc<Store>,
+) {
+    let genesis_height = near_config.genesis.config.genesis_height;
+    let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+    let mut epoch_manager =
+        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
+            .expect("Failed to start Epoch Manager");
+    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::with_config(
+        &home_dir,
+        store.clone(),
+        &near_config,
+        None,
+        near_config.client_config.max_gas_burnt_view,
+    ));
+
+    epoch_info::print_epoch_info(
+        epoch_selection,
+        validator_account_id,
+        store,
+        &mut chain_store,
+        &mut epoch_manager,
+        runtime_adapter,
+    );
+}
+
 #[allow(unused)]
 enum LoadTrieMode {
     /// Load latest state

@@ -11,8 +11,8 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import init_cluster, spin_up_node, load_config
 from configured_logger import logger
-from utils import TxContext, LogTracker
 import requests
+import utils
 
 START_AT_BLOCK = 25
 TIMEOUT = 150 + START_AT_BLOCK * 10
@@ -53,23 +53,14 @@ started = time.time()
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0)
 node1 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node=boot_node)
 
-ctx = TxContext([0, 0], [boot_node, node1])
+ctx = utils.TxContext([0, 0], [boot_node, node1])
 
 sent_txs = False
 
-observed_height = 0
-while observed_height < START_AT_BLOCK:
-    assert time.time() - started < TIMEOUT
-    status = boot_node.get_status()
-    new_height = status['sync_info']['latest_block_height']
-    if new_height > observed_height:
-        observed_height = new_height
-        logger.info("Boot node got to height %s" % new_height)
-
-    time.sleep(0.1)
+utils.wait_for_blocks(boot_node, target=START_AT_BLOCK, timeout=TIMEOUT)
 
 node2 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node=boot_node)
-tracker = LogTracker(node2)
+tracker = utils.LogTracker(node2)
 time.sleep(3)
 
 try:

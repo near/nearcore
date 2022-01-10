@@ -8,7 +8,7 @@ use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use cached::{Cached, SizedCache};
+use lru::LruCache;
 
 pub use db::DBCol::{self, *};
 pub use db::{
@@ -170,7 +170,7 @@ impl StoreUpdate {
     pub fn new_with_tries(tries: ShardTries) -> Self {
         let storage = tries.get_store().storage.clone();
         let transaction = storage.transaction();
-        StoreUpdate { storage, transaction, tries: Some(tries.clone()) }
+        StoreUpdate { storage, transaction, tries: Some(tries) }
     }
 
     pub fn update_refcount(&mut self, column: DBCol, key: &[u8], value: &[u8], rc_delta: i64) {
@@ -281,16 +281,16 @@ impl fmt::Debug for StoreUpdate {
 pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
     storage: &Store,
     col: DBCol,
-    cache: &'a mut SizedCache<Vec<u8>, T>,
+    cache: &'a mut LruCache<Vec<u8>, T>,
     key: &[u8],
 ) -> io::Result<Option<&'a T>> {
     let key_vec = key.to_vec();
-    if cache.cache_get(&key_vec).is_some() {
-        return Ok(Some(cache.cache_get(&key_vec).unwrap()));
+    if cache.get(&key_vec).is_some() {
+        return Ok(Some(cache.get(&key_vec).unwrap()));
     }
     if let Some(result) = storage.get_ser(col, key)? {
-        cache.cache_set(key.to_vec(), result);
-        return Ok(cache.cache_get(&key_vec));
+        cache.put(key.to_vec(), result);
+        return Ok(cache.get(&key_vec));
     }
     Ok(None)
 }
