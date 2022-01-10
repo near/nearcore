@@ -31,6 +31,8 @@ pub struct VMLimitConfig {
     /// See <https://wiki.parity.io/WebAssembly-StackHeight> to find out
     /// how the stack frame cost is calculated.
     pub max_stack_height: u32,
+    #[serde(default = "StackLimiterVersion::v0")]
+    pub stack_limiter_version: StackLimiterVersion,
 
     /// The initial number of memory pages.
     /// NOTE: It's not a limiter itself, but it's a value we use for initial_memory_pages.
@@ -82,6 +84,53 @@ pub struct VMLimitConfig {
     pub max_functions_number_per_contract: Option<u64>,
 }
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum StackLimiterVersion {
+    V0,
+    V1,
+}
+
+impl StackLimiterVersion {
+    fn v0() -> StackLimiterVersion {
+        StackLimiterVersion::V0
+    }
+    fn repr(self) -> u32 {
+        match self {
+            StackLimiterVersion::V0 => 0,
+            StackLimiterVersion::V1 => 1,
+        }
+    }
+    fn from_repr(repr: u32) -> Option<StackLimiterVersion> {
+        let res = match repr {
+            0 => StackLimiterVersion::V0,
+            1 => StackLimiterVersion::V1,
+            _ => return None,
+        };
+        Some(res)
+    }
+}
+
+impl Serialize for StackLimiterVersion {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.repr().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for StackLimiterVersion {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        u32::deserialize(deserializer).and_then(|repr| {
+            StackLimiterVersion::from_repr(repr)
+                .ok_or_else(|| serde::de::Error::custom("invalid stack_limiter_version"))
+        })
+    }
+}
+
 impl VMConfig {
     pub fn test() -> VMConfig {
         VMConfig {
@@ -118,7 +167,8 @@ impl VMLimitConfig {
 
             // NOTE: Stack height has to be 16K, otherwise Wasmer produces non-deterministic results.
             // For experimentation try `test_stack_overflow`.
-            max_stack_height: 16 * 1024,        // 16Kib of stack.
+            max_stack_height: 16 * 1024, // 16Kib of stack.
+            stack_limiter_version: StackLimiterVersion::V1,
             initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
             max_memory_pages: 2u32.pow(11),     // 128Mib of memory.
 
