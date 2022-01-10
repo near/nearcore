@@ -6,13 +6,13 @@ use tracing::info;
 
 #[derive(Serialize, Debug, Clone)]
 pub struct RocksDBStats {
-    col: String,
-    entries: u64,
-    estimated_table_size: u64,
+    pub col: String,
+    pub entries: i64,
+    pub estimated_table_size: i64,
     // Total size of all keys in bytes.
-    raw_key_size: u64,
+    pub raw_key_size: i64,
     // Total size of all values in bytes.
-    raw_value_size: u64,
+    pub raw_value_size: i64,
 }
 
 // SST file dump keys we use to collect statistics.
@@ -53,14 +53,14 @@ impl RocksDBStats {
 
         Ok(RocksDBStats {
             col: String::from(values.get(SST_FILE_DUMP_LINES[0]).unwrap().clone()),
-            entries: values.get(SST_FILE_DUMP_LINES[1]).unwrap().parse::<u64>().unwrap(),
+            entries: values.get(SST_FILE_DUMP_LINES[1]).unwrap().parse::<i64>().unwrap(),
             estimated_table_size: values
                 .get(SST_FILE_DUMP_LINES[2])
                 .unwrap()
-                .parse::<u64>()
+                .parse::<i64>()
                 .unwrap(),
-            raw_key_size: values.get(SST_FILE_DUMP_LINES[3]).unwrap().parse::<u64>().unwrap(),
-            raw_value_size: values.get(SST_FILE_DUMP_LINES[4]).unwrap().parse::<u64>().unwrap(),
+            raw_key_size: values.get(SST_FILE_DUMP_LINES[3]).unwrap().parse::<i64>().unwrap(),
+            raw_value_size: values.get(SST_FILE_DUMP_LINES[4]).unwrap().parse::<i64>().unwrap(),
         })
     }
 
