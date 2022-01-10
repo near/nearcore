@@ -2952,8 +2952,8 @@ mod tests {
     use near_primitives::types::{BlockHeight, EpochId, GCCount, NumBlocks};
     use near_primitives::utils::index_to_bytes;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
-    use near_store::DBCol;
     use near_store::test_utils::create_test_store;
+    use near_store::DBCol;
 
     use crate::store::{ChainStoreAccess, GCMode};
     use crate::store_validator::StoreValidator;

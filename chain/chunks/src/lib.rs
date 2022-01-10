@@ -1862,8 +1862,8 @@ mod test {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use near_chain::{ChainStore, RuntimeAdapter};
     use near_chain::test_utils::KeyValueRuntime;
+    use near_chain::{ChainStore, RuntimeAdapter};
     use near_crypto::KeyType;
     use near_logger_utils::init_test_logger;
     use near_network::test_utils::MockPeerManagerAdapter;
@@ -1877,8 +1877,8 @@ mod test {
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
 
-    use crate::test_utils::*;
     use super::*;
+    use crate::test_utils::*;
 
     const TEST_SEED: RngSeed = [3; 32];
 
