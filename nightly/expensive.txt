@@ -61,8 +61,6 @@ expensive integration-tests integration_tests tests::test_tps_regression::test::
 
 expensive integration-tests integration_tests tests::standard_cases::rpc::test::test_access_key_smart_contract_testnet
 expensive integration-tests integration_tests tests::standard_cases::rpc::test::test_access_key_smart_contract_testnet --features nightly_protocol,nightly_protocol_features
-expensive integration-tests integration_tests tests::standard_cases::rpc::test::test_access_key_smart_contract_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test::test_access_key_smart_contract_testnet --features nightly_protocol,nightly_protocol_features
 expensive integration-tests integration_tests tests::standard_cases::rpc::test::test_add_access_key_function_call_testnet
 expensive integration-tests integration_tests tests::standard_cases::rpc::test::test_add_access_key_function_call_testnet --features nightly_protocol,nightly_protocol_features
 expensive integration-tests integration_tests tests::standard_cases::rpc::test::test_add_access_key_with_allowance_testnet
