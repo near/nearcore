@@ -37,7 +37,7 @@ impl ExecutionToReceipts {
 
     /// Returns list of related transactions for given NEAR transaction or
     /// receipt.
-    fn pop_related(&self, exec_hash: CryptoHash) -> Vec<crate::models::RelatedTransaction> {
+    fn get_related(&self, exec_hash: CryptoHash) -> Vec<crate::models::RelatedTransaction> {
         self.map
             .get(&exec_hash)
             .map(|hashes| {
@@ -127,7 +127,7 @@ impl<'a> RosettaTransactions<'a> {
         let (id, exec_hash) = convert_cause_to_transaction_id(&self.block_hash, cause)?;
         let tx = self.map.entry(id.hash).or_insert_with_key(|hash| {
             let related_transactions = exec_hash
-                .map(|exec_hash| self.exec_to_rx.pop_related(exec_hash))
+                .map(|exec_hash| self.exec_to_rx.get_related(exec_hash))
                 .unwrap_or_default();
             crate::models::Transaction {
                 transaction_identifier: crate::models::TransactionIdentifier { hash: hash.clone() },
