@@ -780,11 +780,14 @@ impl Client {
         if let Ok(Some(_)) = result {
             self.last_time_head_progress_made = Clock::instant();
             if self.config.compute_rocksdb_stats {
-                let rocksdb_stats =
+                let mut rocksdb_stats =
                     get_rocksdb_stats(self.chain.store().store().get_rocksdb().unwrap().path());
                 match rocksdb_stats {
-                    Ok(stats) => {
-                        metrics::ROCKSDB_COL_SIZE[0].set(stats[0].estimated_table_size);
+                    Ok(mut stats) => {
+                        stats.sort_by_key(|data| data.col);
+                        metrics::ROCKSDB_COL_SIZE
+                            .with_label_values(&metrics::ROCKSDB_LABELS)
+                            .set(stats.iter().map(|data| data.estimated_table_size).collect());
                     }
                     Err(e) => info!("Failed to get RocksDB stats: {}", e),
                 }

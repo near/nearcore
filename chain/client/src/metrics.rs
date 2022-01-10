@@ -2,6 +2,7 @@ use near_metrics::{
     try_create_histogram, try_create_int_counter, try_create_int_gauge, Histogram, IntCounter,
     IntGauge, IntGaugeVec,
 };
+use near_store::NUM_COLS;
 use once_cell::sync::Lazy;
 
 pub static BLOCK_PRODUCED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
@@ -126,13 +127,24 @@ pub static VALIDATORS_BLOCKS_EXPECTED: Lazy<IntGaugeVec> = Lazy::new(|| {
 //         .collect()
 // }
 
-pub static ROCKSDB_COL_SIZE: [Lazy<IntGauge>; 1] = [Lazy::new(|| {
-    try_create_int_gauge(
-        &format!("near_rocksdb_size_col{}", 0),
-        &format!("near_rocksdb_size_col{}", 0),
+pub static ROCKSDB_LABELS: [&str; NUM_COLS] = {
+    let mut labels = [""; NUM_COLS];
+    let mut i = 0;
+    while i < NUM_COLS {
+        labels[i] = &format!("col{}", i);
+        i += 1;
+    }
+    labels
+};
+
+pub static ROCKSDB_COL_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+    near_metrics::try_create_int_gauge_vec(
+        "near_rocksdb_size",
+        "Size in bytes of RocksDB column",
+        &ROCKSDB_LABELS,
     )
     .unwrap()
-})];
+});
 
 // pub static ROCKSDB_COL_SIZE: &[Lazy<IntGauge>] =
 //     &create_rocksdb_metric("near_rocksdb_size", "Size in bytes of RocksDB column");

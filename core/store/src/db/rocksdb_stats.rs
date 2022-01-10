@@ -78,7 +78,6 @@ pub fn get_rocksdb_stats(store_dir: &Path) -> anyhow::Result<Vec<RocksDBStats>> 
         .arg("--show_properties")
         .arg("--command=none"); // For some reason, adding this argument makes execution 20x faster
     info!(target: "neard", "Running {:?} ...", cmd);
-    eprintln!("Running {:?} ...", cmd);
     let output = cmd.output()?;
     if !output.status.success() {
         anyhow::bail!(
@@ -89,7 +88,6 @@ pub fn get_rocksdb_stats(store_dir: &Path) -> anyhow::Result<Vec<RocksDBStats>> 
     }
 
     info!(target: "neard", "Parsing output ...");
-    eprintln!("Parsing output ...");
     let out = std::str::from_utf8(&output.stdout).unwrap();
     let lines: Vec<&str> = out.lines().collect();
     let mut column_data: HashMap<String, RocksDBStats> = HashMap::new();
