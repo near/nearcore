@@ -40,7 +40,7 @@ use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, Num
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{to_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_store::db::rocksdb_stats::get_rocksdb_stats;
+use near_store::db::rocksdb_stats::{get_rocksdb_stats, RocksDBStats};
 
 use crate::chunks_delay_tracker::ChunksDelayTracker;
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
@@ -780,14 +780,15 @@ impl Client {
         if let Ok(Some(_)) = result {
             self.last_time_head_progress_made = Clock::instant();
             if self.config.compute_rocksdb_stats {
-                let mut rocksdb_stats =
+                let rocksdb_stats =
                     get_rocksdb_stats(self.chain.store().store().get_rocksdb().unwrap().path());
                 match rocksdb_stats {
-                    Ok(mut stats) => {
-                        stats.sort_by_key(|data| data.col);
-                        metrics::ROCKSDB_COL_SIZE
-                            .with_label_values(&metrics::ROCKSDB_LABELS)
-                            .set(&stats.iter().map(|data| data.estimated_table_size).collect());
+                    Ok(stats) => {
+                        for col_stats in stats {
+                            metrics::ROCKSDB_COL_SIZE
+                                .with_label_values(&[&col_stats.col])
+                                .set(col_stats.estimated_table_size);
+                        }
                     }
                     Err(e) => info!("Failed to get RocksDB stats: {}", e),
                 }

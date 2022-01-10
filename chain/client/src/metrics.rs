@@ -127,21 +127,11 @@ pub static VALIDATORS_BLOCKS_EXPECTED: Lazy<IntGaugeVec> = Lazy::new(|| {
 //         .collect()
 // }
 
-pub static ROCKSDB_LABELS: [&str; NUM_COLS] = {
-    let mut labels = [""; NUM_COLS];
-    let mut i = 0;
-    while i < NUM_COLS {
-        labels[i] = &format!("col{}", i);
-        i += 1;
-    }
-    labels
-};
-
 pub static ROCKSDB_COL_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
     near_metrics::try_create_int_gauge_vec(
         "near_rocksdb_size",
         "Size in bytes of RocksDB column",
-        &ROCKSDB_LABELS,
+        &["col"],
     )
     .unwrap()
 });
