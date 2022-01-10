@@ -1175,9 +1175,8 @@ async fn download_file_impl(
         None => {
             let bar = ProgressBar::new_spinner();
             bar.set_style(
-                ProgressStyle::default_bar().template(
-                    "{spinner:.green} [{elapsed_precise}] {bytes} [{bytes_per_sec}]",
-                ),
+                ProgressStyle::default_bar()
+                    .template("{spinner:.green} [{elapsed_precise}] {bytes} [{bytes_per_sec}]"),
             );
             bar
         }
