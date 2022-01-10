@@ -461,7 +461,7 @@ impl Default for Config {
             view_client_throttle_period: default_view_client_throttle_period(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
-            ..Default::default()
+            compute_rocksdb_stats: false,
         }
     }
 }
