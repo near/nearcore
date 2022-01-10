@@ -47,7 +47,6 @@ members = [
     "tools/delay_detector",
     "tools/storage-usage-delta-calculator",
     "tools/restored-receipts-verifier",
-    "tools/rocksdb-stats",
     "tools/themis",
     "integration-tests",
     "utils/near-rate-limiter",
