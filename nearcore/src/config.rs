@@ -433,6 +433,7 @@ pub struct Config {
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gas_burnt_view: Option<Gas>,
+    #[serde(default)]
     pub compute_rocksdb_stats: bool,
 }
 
