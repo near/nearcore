@@ -469,6 +469,7 @@ impl Config {
     pub fn from_file(path: &Path) -> anyhow::Result<Self> {
         let s = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
+        eprintln!("{}", s);
         let config = serde_json::from_str(&s)
             .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
         Ok(config)
