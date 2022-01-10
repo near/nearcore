@@ -787,7 +787,7 @@ impl Client {
                         stats.sort_by_key(|data| data.col);
                         metrics::ROCKSDB_COL_SIZE
                             .with_label_values(&metrics::ROCKSDB_LABELS)
-                            .set(stats.iter().map(|data| data.estimated_table_size).collect());
+                            .set(&stats.iter().map(|data| data.estimated_table_size).collect());
                     }
                     Err(e) => info!("Failed to get RocksDB stats: {}", e),
                 }
