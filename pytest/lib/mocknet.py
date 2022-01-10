@@ -22,7 +22,7 @@ KEY_TARGET_ENV_VAR = 'NEAR_PYTEST_KEY_TARGET'
 # NODE_SSH_KEY_PATH = '~/.ssh/near_ops'
 NODE_SSH_KEY_PATH = None
 NODE_USERNAME = 'ubuntu'
-NUM_ACCOUNTS = 26 * 10
+NUM_ACCOUNTS = 26 * 1
 PROJECT = 'near-mocknet'
 PUBLIC_KEY = 'ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN'
 TX_OUT_FILE = '/home/ubuntu/tx_events'
@@ -712,18 +712,17 @@ def create_genesis_file(validator_node_names,
         total_supply += int(account.get('amount', 0))
     genesis_config['total_supply'] = str(total_supply)
     # Testing simple nightshade.
-    genesis_config['protocol_version'] = 50
+    genesis_config['protocol_version'] = 49
     genesis_config['epoch_length'] = int(epoch_length)
     genesis_config['num_block_producer_seats'] = int(num_seats)
+    # Mainnet genesis disables protocol rewards, override to a value used today on mainnet.
+    genesis_config['protocol_reward_rate'] = [1, 10]
     # Loadtest helper signs all transactions using the same block.
     # Extend validity period to allow the same hash to be used for the whole duration of the test.
     genesis_config['transaction_validity_period'] = 10**9
     # Protocol upgrades require downtime, therefore make it harder to kickout validators.
     # The default value of this parameter is 90.
     genesis_config['block_producer_kickout_threshold'] = 10
-
-    #genesis_config.pop('simple_nightshade_shard_layout', None)
-    #genesis_config.pop('shard_layout', None)
 
     # The json object gets truncated if I don't close and reopen the file.
     with open(mocknet_genesis_filename, 'w') as f:
@@ -1092,7 +1091,7 @@ def restart_node(node):
             success = True
             break
         logger.warn(
-            f'Failed to restart neard, returncode: {start_process.returncode}\n{node.instance_name}\n{start_process.stderr}'
+            f'Failed to restart neard, return code: {start_process.returncode}\n{node.instance_name}\n{start_process.stderr}'
         )
         attempt += 1
         time.sleep(1)
@@ -1111,7 +1110,7 @@ def upgrade_node(node):
             success = True
             break
         logger.warn(
-            f'Failed to upgrade neard, returncode: {start_process.returncode}\n{node.instance_name}\n{start_process.stderr}'
+            f'Failed to upgrade neard, return code: {start_process.returncode}\n{node.instance_name}\n{start_process.stderr}'
         )
         attempt += 1
         time.sleep(1)

@@ -248,8 +248,7 @@ def init_ft(node_account):
 def init_ft_account(node_account, account, i):
     s = f'{{"account_id": "{account.key.account_id}"}}'
     tx_res = retry_and_ignore_errors(lambda: account.send_call_contract_raw_tx(
-        node_account.key.account_id, 'storage_deposit', s.encode('utf-8'), 10**
-        24 // 800))
+        node_account.key.account_id, 'storage_deposit', s.encode('utf-8'), (10**24) // 800))
     logger.info(f'Account {account.key.account_id} storage_deposit {tx_res}')
 
     # The next transaction depends on the previous transaction succeeded.
