@@ -47,7 +47,8 @@ def expensive_tests_in_file(path: pathlib.Path) -> typing.Iterable[str]:
                 is_test = is_test or line == TEST_DIRECTIVE
             elif is_expensive or is_test:
                 if is_expensive and is_test:
-                    match = re.search(r'\bfn\s+([A-Za-z_][A-Za-z_0-9]*)\b', line)
+                    match = re.search(r'\bfn\s+([A-Za-z_][A-Za-z_0-9]*)\b',
+                                      line)
                     if match:
                         yield match.group(1)
                 is_expensive = False
@@ -72,9 +73,9 @@ def main() -> typing.Optional[str]:
     repo_dir = pathlib.Path(__file__).parent.parent
     nightly_txt_tests = set(nightly_tests(repo_dir))
     for root, dirs, files in os.walk(repo_dir):
-        dirs[:] = [dirname
-                   for dirname in dirs
-                   if dirname not in IGNORED_SUBDIRS]
+        dirs[:] = [
+            dirname for dirname in dirs if dirname not in IGNORED_SUBDIRS
+        ]
         path = pathlib.Path(root)
         for filename in files:
             if filename.endswith('.rs'):
