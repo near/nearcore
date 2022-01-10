@@ -33,8 +33,7 @@ wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", vers
 wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.0.3", optional = true }
 wasmer-vm = { package = "wasmer-vm-near", version = "=2.0.3" }
 
-pwasm-utils = "0.12"
-parity-wasm = "0.41"
+pwasm-utils = "0.18"
 wasmtime = { version = "0.25.0", default-features = false, optional = true }
 anyhow = { version = "1.0.19", optional = true }
 near-vm-logic = { path = "../near-vm-logic", default-features = false, features = [] }
@@ -44,6 +43,12 @@ near-stable-hasher = { path = "../../utils/near-stable-hasher" }
 cached = "0.23.0"
 tracing = { version = "0.1", default-features = false }
 threadpool = "1.8.1"
+
+# Old versions of pwasm-utils we need to preserve backbwards compatability under
+# old protocol versions.
+pwasm-utils_12 = { package = "pwasm-utils", version = "0.12" }
+parity-wasm_41 = { package = "parity-wasm", version = "0.41" }
+
 
 [dev-dependencies]
 near-test-contracts = { path = "../near-test-contracts" }

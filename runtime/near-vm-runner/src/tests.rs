@@ -149,3 +149,21 @@ fn make_cached_contract_call_vm(
         Some(cache),
     )
 }
+
+#[track_caller]
+fn gas_and_error_match(
+    outcome_and_error: (Option<VMOutcome>, Option<VMError>),
+    expected_gas: Option<u64>,
+    expected_error: Option<VMError>,
+) {
+    match expected_gas {
+        Some(gas) => {
+            let outcome = outcome_and_error.0.unwrap();
+            assert_eq!(outcome.used_gas, gas, "used gas differs");
+            assert_eq!(outcome.burnt_gas, gas, "burnt gas differs");
+        }
+        None => assert!(outcome_and_error.0.is_none()),
+    }
+
+    assert_eq!(outcome_and_error.1, expected_error);
+}
