@@ -31,17 +31,15 @@ impl ExecutionToReceipts {
 
     /// Creates an empty mapping.  This is useful for tests.
     #[cfg(test)]
-    fn empty() -> Self {
+    pub(crate) fn empty() -> Self {
         Self { map: Default::default() }
     }
 
     /// Returns list of related transactions for given NEAR transaction or
-    /// receipt.  Note that the hash is removed from the mapping so subsequent
-    /// calls of the method with the same hash will always return an empty
-    /// vector.
-    fn pop_related(&mut self, exec_hash: CryptoHash) -> Vec<crate::models::RelatedTransaction> {
+    /// receipt.
+    fn pop_related(&self, exec_hash: CryptoHash) -> Vec<crate::models::RelatedTransaction> {
         self.map
-            .remove(&exec_hash)
+            .get(&exec_hash)
             .map(|hashes| {
                 hashes
                     .iter()
