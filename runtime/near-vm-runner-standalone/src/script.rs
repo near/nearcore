@@ -127,7 +127,6 @@ impl Script {
                         &step.method,
                         &mut external,
                         step.vm_context.clone(),
-                        &self.vm_config,
                         runtime_fees_config,
                         &step.promise_results,
                         self.protocol_version,

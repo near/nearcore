@@ -521,7 +521,6 @@ impl crate::runner::VM for Wasmer2VM {
         method_name: &str,
         ext: &mut dyn External,
         context: VMContext,
-        wasm_config: &VMConfig,
         fees_config: &RuntimeFeesConfig,
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
@@ -544,15 +543,15 @@ impl crate::runner::VM for Wasmer2VM {
             );
         }
         let artifact =
-            cache::wasmer2_cache::compile_module_cached_wasmer2(code, wasm_config, cache);
+            cache::wasmer2_cache::compile_module_cached_wasmer2(code, &self.config, cache);
         let artifact = match into_vm_result(artifact) {
             Ok(it) => it,
             Err(err) => return (None, Some(err)),
         };
 
         let mut memory = Wasmer2Memory::new(
-            wasm_config.limit_config.initial_memory_pages,
-            wasm_config.limit_config.max_memory_pages,
+            self.config.limit_config.initial_memory_pages,
+            self.config.limit_config.max_memory_pages,
         )
         .expect("Cannot create memory for a contract call");
 
@@ -562,7 +561,7 @@ impl crate::runner::VM for Wasmer2VM {
         let mut logic = VMLogic::new_with_protocol_version(
             ext,
             context,
-            wasm_config,
+            &self.config,
             fees_config,
             promise_results,
             &mut memory,
@@ -589,13 +588,12 @@ impl crate::runner::VM for Wasmer2VM {
         &self,
         code: &[u8],
         code_hash: &near_primitives::hash::CryptoHash,
-        wasm_config: &VMConfig,
         cache: &dyn CompiledContractCache,
     ) -> Option<VMError> {
         let result = crate::cache::wasmer2_cache::compile_and_serialize_wasmer2(
             code,
             code_hash,
-            wasm_config,
+            &self.config,
             cache,
         );
         into_vm_result(result).err()
