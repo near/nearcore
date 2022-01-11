@@ -531,9 +531,9 @@ pub(crate) fn get_receipt(store: Arc<Store>, receipt_id: CryptoHash) {
     println!("Receipt: {:#?}", receipt);
 }
 
-pub(crate) fn get_chunk(_store: Arc<Store>, _chunk_id: ChunkHash) {
-    // let receipt = store.get_ser::<Receipt>(DBCol::ColReceipts, receipt_id.as_ref());
-    println!("Chunk: noidea");
+pub(crate) fn get_chunk(store: Arc<Store>, chunk_id: ChunkHash) {
+    let pchunk = store.get_ser::<Receipt>(DBCol::ColPartialChunks, chunk_id.as_ref());
+    println!("partial chunk: {:#?}", pchunk);
 }
 
 #[allow(unused)]
