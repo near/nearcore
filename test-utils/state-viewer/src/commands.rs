@@ -66,9 +66,11 @@ pub(crate) fn dump_contracts(
         // Optimization: contract nodes form a contiguous segment in the set of nodes with values, so if we touched a
         // contract node and then touched a non-contract node, then we can stop iterating.
         let mut touched_contract_node = false;
-        for item in trie {
+        for (i, item) in trie.enumerate() {
             let (key, value) = item.unwrap();
-            eprintln!("{:?}", StateRecord::from_raw_key_value(key.clone(), value.clone()));
+            if i % 1_000_000 == 0 {
+                tracing::info!(target: "neard", "{:?}", StateRecord::from_raw_key_value(key.clone(), value.clone()));
+            }
             if is_contract_code_key(&key) {
                 touched_contract_node = true;
                 let account_id = parse_account_id_from_contract_code_key(&key).unwrap();
