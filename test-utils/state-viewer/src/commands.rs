@@ -55,9 +55,9 @@ pub(crate) fn dump_contracts(
     near_config: NearConfig,
     store: Arc<Store>,
 ) {
-    // let (runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
-    let (runtime, state_roots, header) =
-        load_trie_stop_at_height(store, home_dir, &near_config, LoadTrieMode::Height(55175075));
+    let (runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
+    // let (runtime, state_roots, header) =
+    //     load_trie_stop_at_height(store, home_dir, &near_config, LoadTrieMode::Height(55175075));
     println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
     let mut distinct_codes: HashSet<Vec<u8>> = HashSet::default();
     std::fs::create_dir_all(output);
