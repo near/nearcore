@@ -11,14 +11,16 @@ use near_network::iter_peers_from_store;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::Receipt;
 use near_primitives::serialize::to_base;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
 use near_store::test_utils::create_test_store;
-use near_store::{Store, TrieIterator};
+use near_store::{DBCol, Store, TrieIterator};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use std::collections::HashMap;
@@ -522,6 +524,16 @@ pub(crate) fn print_epoch_info(
         &mut epoch_manager,
         runtime_adapter,
     );
+}
+
+pub(crate) fn get_receipt(store: Arc<Store>, receipt_id: CryptoHash) {
+    let receipt = store.get_ser::<Receipt>(DBCol::ColReceipts, receipt_id.as_ref());
+    println!("Receipt: {:#?}", receipt);
+}
+
+pub(crate) fn get_chunk(_store: Arc<Store>, _chunk_id: ChunkHash) {
+    // let receipt = store.get_ser::<Receipt>(DBCol::ColReceipts, receipt_id.as_ref());
+    println!("Chunk: noidea");
 }
 
 #[allow(unused)]

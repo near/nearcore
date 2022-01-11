@@ -1,9 +1,12 @@
 use crate::commands::*;
 use crate::epoch_info;
 use crate::rocksdb_stats::get_rocksdb_stats;
+use borsh::BorshDeserialize;
 use clap::{AppSettings, Clap};
 use near_logger_utils::init_integration_logger;
 use near_primitives::account::id::AccountId;
+use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{DB_VERSION, PROTOCOL_VERSION};
 use near_store::{create_store, Store};
@@ -87,6 +90,10 @@ pub enum StateViewerSubCommand {
     /// Dump stats for the RocksDB storage.
     #[clap(name = "rocksdb_stats")]
     RocksDBStats(RocksDBStatsCmd),
+    #[clap(name = "receipts")]
+    Receipts(ReceiptsCmd),
+    #[clap(name = "chunks")]
+    Chunks(ChunksCmd),
 }
 
 impl StateViewerSubCommand {
@@ -107,6 +114,8 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(home_dir),
+            StateViewerSubCommand::Receipts(cmd) => cmd.run(store),
+            StateViewerSubCommand::Chunks(cmd) => cmd.run(store),
         }
     }
 }
@@ -294,6 +303,31 @@ pub struct RocksDBStatsCmd {
 
 impl RocksDBStatsCmd {
     pub fn run(self, home_dir: &Path) {
-        get_rocksdb_stats(home_dir, self.file).expect("Couldn't get RocksDB stats")
+        get_rocksdb_stats(home_dir, self.file).expect("Couldn't get RocksDB stats");
+    }
+}
+
+#[derive(Clap)]
+pub struct ReceiptsCmd {
+    /// Location of the dumped Rocks DB stats.
+    #[clap(long)]
+    receipt_id: String,
+}
+
+impl ReceiptsCmd {
+    pub fn run(self, store: Arc<Store>) {
+        get_receipt(store, CryptoHash::from_str(&self.receipt_id).unwrap())
+    }
+}
+#[derive(Clap)]
+pub struct ChunksCmd {
+    /// Location of the dumped Rocks DB stats.
+    #[clap(long)]
+    chunk_id: String,
+}
+
+impl ChunksCmd {
+    pub fn run(self, store: Arc<Store>) {
+        get_chunk(store, ChunkHash::try_from_slice(self.chunk_id.as_bytes()).unwrap())
     }
 }
