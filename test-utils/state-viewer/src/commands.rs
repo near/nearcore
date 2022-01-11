@@ -55,7 +55,9 @@ pub(crate) fn dump_contracts(
     near_config: NearConfig,
     store: Arc<Store>,
 ) {
-    let (runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
+    // let (runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
+    let (runtime, state_roots, header) =
+        load_trie_stop_at_height(store, home_dir, &near_config, LoadTrieMode::Height(55175075));
     println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
     let mut distinct_codes: HashSet<Vec<u8>> = HashSet::default();
     std::fs::create_dir_all(output);
@@ -68,7 +70,7 @@ pub(crate) fn dump_contracts(
         let mut touched_contract_node = false;
         for (i, item) in trie.enumerate() {
             let (key, value) = item.unwrap();
-            if i % 1_000_000 == 0 {
+            if i % 100_000 == 0 {
                 tracing::info!(target: "neard", "{:?}", StateRecord::from_raw_key_value(key.clone(), value.clone()));
             }
             if is_contract_code_key(&key) {
