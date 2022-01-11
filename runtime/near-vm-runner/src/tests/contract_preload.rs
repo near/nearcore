@@ -138,7 +138,7 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
             errs += err;
         }
     } else {
-        let runtime = vm_kind.runtime(vm_config.clone()).expect("runtime is has not been compiled");
+        let runtime = vm_kind.runtime().expect("runtime is has not been compiled");
         for _ in 0..repeat {
             let result1 = runtime.run(
                 &code1,

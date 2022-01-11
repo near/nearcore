@@ -70,7 +70,7 @@ fn make_simple_contract_call_with_gas_vm(
     let promise_results = vec![];
 
     let code = ContractCode::new(code.to_vec(), None);
-    let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
+    let runtime = vm_kind.runtime().expect("runtime has not been compiled");
     runtime.run(
         &code,
         method_name,
@@ -96,7 +96,7 @@ fn make_simple_contract_call_with_protocol_version_vm(
     let runtime_config = runtime_config_store.get_config(protocol_version);
     let config = &runtime_config.wasm_config;
     let fees = &runtime_config.transaction_costs;
-    let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
+    let runtime = vm_kind.runtime().expect("runtime has not been compiled");
 
     let promise_results = vec![];
     let code = ContractCode::new(code.to_vec(), None);
