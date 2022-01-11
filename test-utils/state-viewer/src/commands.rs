@@ -78,9 +78,10 @@ pub(crate) fn dump_contracts(
             }
         }
     }
-    let mut codes_to_dump: HashMap<_, _> =
-        distinct_codes.iter().map(|(code, account_id)| (account_id, to_base64(code))).collect();
-    std::fs::write(output, serde_json::to_string_pretty(&codes_to_dump).unwrap());
+    std::fs::create_dir_all(output);
+    distinct_codes.iter().map(|(code, account_id)| {
+        std::fs::write(output.join(format!("{}.wasm", account_id)), code)
+    });
 }
 
 pub(crate) fn dump_state(
