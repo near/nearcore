@@ -70,9 +70,10 @@ pub(crate) fn dump_contracts(
         let mut touched_contract_node = false;
         for (i, item) in trie.enumerate() {
             let (key, value) = item.unwrap();
-            if true {
-                // i % 10000 == 0 {
-                // panic!("reached limit");
+            if i % 100 == 0 {
+                if i >= 25_000 {
+                    panic!("reached limit");
+                }
                 // tracing::info!(target: "neard", "{} {:?}", i, StateRecord::from_raw_key_value(key.clone(), value.clone()));
                 tracing::info!(target: "neard", "{}", i);
             }
