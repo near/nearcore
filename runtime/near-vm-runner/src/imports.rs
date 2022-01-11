@@ -54,7 +54,7 @@ macro_rules! imports {
         $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >,)*
     ) => {
         macro_rules! for_each_available_import {
-            ($protocol_version:ident, $M:ident) => {$(
+            ($protocol_version:expr, $M:ident) => {$(
                 $(#[cfg(feature = $feature_name)])*
                 if true
                     $(&& near_primitives::checked_feature!($feature_name, $feature, $protocol_version))*
@@ -274,55 +274,155 @@ pub(crate) mod wasmer {
 
 #[cfg(feature = "wasmer2_vm")]
 pub(crate) mod wasmer2 {
+    use std::sync::Arc;
+
     use super::str_eq;
-    use near_vm_logic::{ProtocolVersion, VMLogic, VMLogicError};
+    use near_vm_logic::{ProtocolVersion, VMLogic};
+    use wasmer_engine::{ExportFunction, ExportFunctionMetadata, Resolver};
+    use wasmer_vm::{VMFunction, VMFunctionKind, VMMemory};
 
-    #[derive(wasmer::WasmerEnv, Clone)]
-    struct NearWasmerEnv {
-        /// Hack to allow usage of non-'static VMLogic as an environment in host
-        /// functions. Strictly speaking, this is unsound, but this is only
-        /// accessible to `near_vm_runner` crate, where we ensure that `VMLogic`
-        /// reference does not dangle. Still, would be great to fix this properly
-        /// one day.
-        logic: *mut (),
+    pub(crate) struct Wasmer2Imports<'vmlogic, 'vmlogic_refs> {
+        pub(crate) memory: VMMemory,
+        // Note: this same object is also referenced by the `metadata` field!
+        pub(crate) vmlogic: &'vmlogic mut VMLogic<'vmlogic_refs>,
+        pub(crate) metadata: Arc<ExportFunctionMetadata>,
+        pub(crate) protocol_version: ProtocolVersion,
     }
-    unsafe impl Send for NearWasmerEnv {}
-    unsafe impl Sync for NearWasmerEnv {}
 
-    pub(crate) fn build(
-        store: &wasmer::Store,
-        memory: wasmer::Memory,
-        logic: &mut VMLogic<'_>,
-        protocol_version: ProtocolVersion,
-    ) -> wasmer::ImportObject {
-        let env = NearWasmerEnv { logic: logic as *mut _ as *mut () };
-        let mut import_object = wasmer::ImportObject::new();
-        let mut namespace = wasmer::Exports::new();
-        namespace.insert("memory", memory);
-
-        macro_rules! add_import {
-            (
-              $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
-            ) => {
-                #[allow(unused_parens)]
-                fn $func(env: &NearWasmerEnv, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*), VMLogicError> {
-                    const IS_GAS: bool = str_eq(stringify!($func), "gas");
-                    let _span = if IS_GAS {
-                        None
-                    } else {
-                        Some(tracing::trace_span!(target: "host-function", stringify!($func)).entered())
-                    };
-                    let logic: &mut VMLogic = unsafe { &mut *(env.logic as *mut VMLogic<'_>) };
-                    logic.$func( $( $arg_name, )* )
+    trait Wasmer2Type {
+        type Wasmer;
+        fn to_wasmer(self) -> Self::Wasmer;
+        fn ty() -> wasmer_types::Type;
+    }
+    macro_rules! wasmer_types {
+        ($($native:ty as $wasmer:ty => $type_expr:expr;)*) => {
+            $(impl Wasmer2Type for $native {
+                type Wasmer = $wasmer;
+                fn to_wasmer(self) -> $wasmer {
+                    self as _
                 }
-
-                namespace.insert(stringify!($func), wasmer::Function::new_native_with_env(&store, env.clone(), $func));
-            };
+                fn ty() -> wasmer_types::Type {
+                    $type_expr
+                }
+            })*
         }
-        for_each_available_import!(protocol_version, add_import);
+    }
+    wasmer_types! {
+        u32 as i32 => wasmer_types::Type::I32;
+        u64 as i64 => wasmer_types::Type::I64;
+    }
 
-        import_object.register("env", namespace);
-        import_object
+    macro_rules! return_ty {
+        ($return_type: ident = [ ]) => {
+            type $return_type = ();
+            fn make_ret() -> () {}
+        };
+        ($return_type: ident = [ $($returns: ident),* ]) => {
+            #[repr(C)]
+            struct $return_type($(<$returns as Wasmer2Type>::Wasmer),*);
+            fn make_ret($($returns: $returns),*) -> Ret { Ret($($returns.to_wasmer()),*) }
+        }
+    }
+
+    impl<'vmlogic, 'vmlogic_refs> Resolver for Wasmer2Imports<'vmlogic, 'vmlogic_refs> {
+        fn resolve(&self, _index: u32, module: &str, field: &str) -> Option<wasmer_engine::Export> {
+            if module != "env" {
+                return None;
+            }
+            if field == "memory" {
+                return Some(wasmer_engine::Export::Memory(self.memory.clone()));
+            }
+
+            macro_rules! add_import {
+                (
+                  $func:ident <
+                    [ $( $arg_name:ident : $arg_type:ident ),* ]
+                    -> [ $( $returns:ident ),* ]
+                  >
+                ) => {
+                    return_ty!(Ret = [ $($returns),* ]);
+
+                    extern "C" fn $func(env: *mut VMLogic<'_>, $( $arg_name: $arg_type ),* )
+                    -> Ret {
+                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            const IS_GAS: bool = str_eq(stringify!($func), "gas");
+                            let _span = if IS_GAS {
+                                None
+                            } else {
+                                Some(tracing::trace_span!(
+                                    target: "host-function",
+                                    stringify!($func)
+                                ).entered())
+                            };
+
+                            // SAFETY: This code should only be executable within `'vmlogic`
+                            // lifetime and so it is safe to dereference the `env` pointer which is
+                            // known to be derived from a valid `&'vmlogic mut VMLogic<'_>` in the
+                            // first place.
+                            unsafe { (*env).$func( $( $arg_name, )* ) }
+                        }));
+                        // We want to ensure that the only kind of error that host function calls
+                        // return are VMLogicError. This is important because we later attempt to
+                        // downcast the `RuntimeError`s into `VMLogicError`.
+                        let result: Result<Result<_, near_vm_errors::VMLogicError>, _>  = result;
+                        #[allow(unused_parens)]
+                        match result {
+                            Ok(Ok(($($returns),*))) => make_ret($($returns),*),
+                            Ok(Err(trap)) => unsafe {
+                                // SAFETY: this can only be called by a WASM contract, so all the
+                                // necessary hooks are known to be in place.
+                                wasmer_vm::raise_user_trap(Box::new(trap))
+                            },
+                            Err(e) => unsafe {
+                                // SAFETY: this can only be called by a WASM contract, so all the
+                                // necessary hooks are known to be in place.
+                                wasmer_vm::resume_panic(e)
+                            },
+                        }
+                    }
+                    // TODO: a phf hashmap would probably work better here.
+                    if field == stringify!($func) {
+                        return Some(wasmer_engine::Export::Function(ExportFunction {
+                            vm_function: VMFunction {
+                                address: $func as *const _,
+                                // SAFETY: here we erase the lifetime of the `vmlogic` reference,
+                                // but we believe that the lifetimes on `Wasmer2Imports` enforce
+                                // sufficiently that it isn't possible to call this exported
+                                // function when vmlogic is no loger live.
+                                vmctx: wasmer_vm::VMFunctionEnvironment {
+                                    host_env: self.vmlogic as *const _ as *mut _
+                                },
+                                signature: wasmer_types::FunctionType::new([
+                                    $(<$arg_type as Wasmer2Type>::ty()),*
+                                ], [
+                                    $(<$returns as Wasmer2Type>::ty()),*
+                                ]),
+                                kind: VMFunctionKind::Static,
+                                call_trampoline: None,
+                                instance_ref: None,
+                            },
+                            metadata: Some(Arc::clone(&self.metadata)),
+                        }));
+                    }
+                };
+            }
+            for_each_available_import!(self.protocol_version, add_import);
+            return None;
+        }
+    }
+
+    pub(crate) fn build<'a, 'b>(
+        memory: VMMemory,
+        logic: &'a mut VMLogic<'b>,
+        protocol_version: ProtocolVersion,
+    ) -> Wasmer2Imports<'a, 'b> {
+        let metadata = unsafe {
+            // SAFETY: the functions here are thread-safe. We ensure that the lifetime of `VMLogic`
+            // is sufficiently long by tying the lifetime of VMLogic to the return type which
+            // contains this metadata.
+            ExportFunctionMetadata::new(logic as *mut _ as *mut _, None, |ptr| ptr, |_| {})
+        };
+        Wasmer2Imports { memory, vmlogic: logic, metadata: Arc::new(metadata), protocol_version }
     }
 }
 
