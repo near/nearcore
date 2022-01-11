@@ -68,7 +68,7 @@ pub(crate) fn dump_contracts(
         let mut touched_contract_node = false;
         for item in trie {
             let (key, value) = item.unwrap();
-            eprintln!("{:?}", StateRecord::from_raw_key_value(key, value));
+            eprintln!("{:?}", StateRecord::from_raw_key_value(key, value.clone()));
             if is_contract_code_key(&key) {
                 touched_contract_node = true;
                 let account_id = parse_account_id_from_contract_code_key(&key).unwrap();
