@@ -54,7 +54,7 @@ def get_chain_id_from_flags(flags):
     flags_iter = iter(flags)
     for flag in flags_iter:
         if flag.startswith('--chain-id='):
-            chain_id = flag[11:]
+            chain_id = flag[len('--chain-id='):]
         elif flag == '--chain-id':
             chain_id = next(flags_iter, chain_id)
     return chain_id
