@@ -234,7 +234,7 @@ fn display_sync_status(
     head: &Tip,
     genesis_height: BlockHeight,
 ) -> String {
-    metrics::SYNC_STATUS.set(sync_status.cast_to_int() as i64);
+    metrics::SYNC_STATUS.set(sync_status.repr() as i64);
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
         SyncStatus::NoSync => format!("#{:>8} {:>44}", head.height, head.last_block_hash),

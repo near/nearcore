@@ -154,7 +154,7 @@ impl SyncStatus {
         }
     }
 
-    pub fn cast_to_int(&self) -> u8 {
+    pub fn repr(&self) -> u8 {
         match self {
             // Represent NoSync as 0 because it is the state of a normal well-behaving node.
             SyncStatus::NoSync => 0,
