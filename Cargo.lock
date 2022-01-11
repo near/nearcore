@@ -2746,6 +2746,7 @@ dependencies = [
  "num-rational",
  "once_cell",
  "rand 0.7.3",
+ "rayon",
  "reed-solomon-erasure",
  "serde_json",
  "strum",
