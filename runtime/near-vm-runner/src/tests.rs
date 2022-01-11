@@ -70,12 +70,13 @@ fn make_simple_contract_call_with_gas_vm(
     let promise_results = vec![];
 
     let code = ContractCode::new(code.to_vec(), None);
-    let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
+    let runtime = vm_kind.runtime().expect("runtime has not been compiled");
     runtime.run(
         &code,
         method_name,
         &mut fake_external,
         context,
+        &config,
         &fees,
         &promise_results,
         LATEST_PROTOCOL_VERSION,
@@ -93,9 +94,9 @@ fn make_simple_contract_call_with_protocol_version_vm(
     let context = create_context(vec![]);
     let runtime_config_store = RuntimeConfigStore::new(None);
     let runtime_config = runtime_config_store.get_config(protocol_version);
+    let config = &runtime_config.wasm_config;
     let fees = &runtime_config.transaction_costs;
-    let runtime =
-        vm_kind.runtime(runtime_config.wasm_config.clone()).expect("runtime has not been compiled");
+    let runtime = vm_kind.runtime().expect("runtime has not been compiled");
 
     let promise_results = vec![];
     let code = ContractCode::new(code.to_vec(), None);
@@ -104,6 +105,7 @@ fn make_simple_contract_call_with_protocol_version_vm(
         method_name,
         &mut fake_external,
         context,
+        config,
         fees,
         &promise_results,
         protocol_version,
