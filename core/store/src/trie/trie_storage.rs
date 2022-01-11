@@ -2,42 +2,41 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use cached::{Cached, SizedCache};
-
 use near_primitives::hash::CryptoHash;
 
 use crate::db::refcount::decode_value_with_rc;
 use crate::trie::POISONED_LOCK_ERR;
 use crate::{ColState, StorageError, Store};
+use lru::LruCache;
 use near_primitives::shard_layout::ShardUId;
 use std::cell::RefCell;
 use std::io::ErrorKind;
 
 #[derive(Clone)]
-pub struct TrieCache(Arc<Mutex<SizedCache<CryptoHash, Vec<u8>>>>);
+pub struct TrieCache(Arc<Mutex<LruCache<CryptoHash, Vec<u8>>>>);
 
 impl TrieCache {
     pub fn new() -> Self {
-        Self(Arc::new(Mutex::new(SizedCache::with_size(TRIE_MAX_CACHE_SIZE))))
+        Self(Arc::new(Mutex::new(LruCache::new(TRIE_MAX_CACHE_SIZE))))
     }
 
     pub fn clear(&self) {
-        self.0.lock().expect(POISONED_LOCK_ERR).cache_clear()
+        self.0.lock().expect(POISONED_LOCK_ERR).clear()
     }
 
-    pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<Vec<u8>>)>) {
+    pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<&Vec<u8>>)>) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
         for (hash, opt_value_rc) in ops {
             if let Some(value_rc) = opt_value_rc {
                 if let (Some(value), _rc) = decode_value_with_rc(&value_rc) {
                     if value.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
-                        guard.cache_set(hash, value.to_vec());
+                        guard.put(hash, value.to_vec());
                     }
                 } else {
-                    guard.cache_remove(&hash);
+                    guard.pop(&hash);
                 }
             } else {
-                guard.cache_remove(&hash);
+                guard.pop(&hash);
             }
         }
     }
@@ -118,8 +117,12 @@ impl TrieStorage for TrieMemoryPartialStorage {
 }
 
 /// Maximum number of cache entries.
+/// It was chosen to fit into RAM well. RAM spend on trie cache should not exceed
+/// 50_000 * 4 (number of shards) * TRIE_LIMIT_CACHED_VALUE_SIZE = 800 MB.
+/// In our tests on a single shard, it barely occupied 40 MB, which is dominated by state cache size
+/// with 512 MB limit. The total RAM usage for a single shard was 1 GB.
 #[cfg(not(feature = "no_cache"))]
-const TRIE_MAX_CACHE_SIZE: usize = 10000;
+const TRIE_MAX_CACHE_SIZE: usize = 50000;
 
 #[cfg(feature = "no_cache")]
 const TRIE_MAX_CACHE_SIZE: usize = 1;
@@ -164,7 +167,7 @@ impl TrieCachingStorage {
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
-        if let Some(val) = guard.cache_get(hash) {
+        if let Some(val) = guard.pop(hash) {
             Ok(val.clone())
         } else {
             let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
@@ -174,7 +177,7 @@ impl TrieStorage for TrieCachingStorage {
                 .map_err(|_| StorageError::StorageInternalError)?;
             if let Some(val) = val {
                 if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
-                    guard.cache_set(*hash, val.clone());
+                    guard.put(*hash, val.clone());
                 }
                 Ok(val)
             } else {
@@ -199,10 +202,6 @@ pub struct TouchedNodesCounter {
 impl TouchedNodesCounter {
     pub fn increment(&self) {
         self.counter.fetch_add(1, Ordering::SeqCst);
-    }
-
-    pub fn reset(&self) {
-        self.counter.store(0, Ordering::SeqCst);
     }
 
     pub fn get(&self) -> u64 {

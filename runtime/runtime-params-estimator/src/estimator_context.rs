@@ -3,9 +3,10 @@ use std::collections::HashMap;
 use near_primitives::transaction::SignedTransaction;
 use near_vm_logic::ExtCosts;
 
+use crate::config::Config;
 use crate::gas_cost::GasCost;
+use crate::get_account_id;
 use crate::testbed::RuntimeTestbed;
-use crate::testbed_runners::{get_account_id, Config};
 
 use super::transaction_builder::TransactionBuilder;
 
@@ -25,6 +26,7 @@ pub(crate) struct CachedCosts {
     pub(crate) storage_read_base: Option<GasCost>,
     pub(crate) action_function_call_base_per_byte_v2: Option<(GasCost, GasCost)>,
     pub(crate) compile_cost_base_per_byte: Option<(GasCost, GasCost)>,
+    pub(crate) gas_metering_cost_base_per_op: Option<(GasCost, GasCost)>,
 }
 
 impl<'c> EstimatorContext<'c> {
@@ -36,7 +38,7 @@ impl<'c> EstimatorContext<'c> {
     pub(crate) fn testbed(&mut self) -> Testbed<'_> {
         let inner = RuntimeTestbed::from_state_dump(&self.config.state_dump_path);
         Testbed {
-            config: &self.config,
+            config: self.config,
             inner,
             transaction_builder: TransactionBuilder::new(
                 (0..self.config.active_accounts).map(get_account_id).collect(),

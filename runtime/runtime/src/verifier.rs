@@ -56,13 +56,13 @@ pub fn validate_transaction(
     }
 
     validate_actions(&config.wasm_config.limit_config, &transaction.actions)
-        .map_err(|e| InvalidTxError::ActionsValidation(e))?;
+        .map_err(InvalidTxError::ActionsValidation)?;
 
     let sender_is_receiver = &transaction.receiver_id == signer_id;
 
     tx_cost(
         &config.transaction_costs,
-        &transaction,
+        transaction,
         gas_price,
         sender_is_receiver,
         current_protocol_version,
@@ -98,7 +98,7 @@ pub fn verify_and_charge_transaction(
             return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() }.into());
         }
     };
-    let mut access_key = match get_access_key(state_update, &signer_id, &transaction.public_key)? {
+    let mut access_key = match get_access_key(state_update, signer_id, &transaction.public_key)? {
         Some(access_key) => access_key,
         None => {
             return Err(InvalidTxError::InvalidAccessKeyError(
@@ -157,7 +157,7 @@ pub fn verify_and_charge_transaction(
         }
     }
 
-    match get_insufficient_storage_stake(&signer, &config) {
+    match get_insufficient_storage_stake(&signer, config) {
         Ok(None) => {}
         Ok(Some(amount)) => {
             return Err(InvalidTxError::LackBalanceForState {
@@ -185,7 +185,7 @@ pub fn verify_and_charge_transaction(
                 )
                 .into());
             }
-            if transaction.receiver_id.as_ref() != &function_call_permission.receiver_id {
+            if transaction.receiver_id.as_ref() != function_call_permission.receiver_id {
                 return Err(InvalidTxError::InvalidAccessKeyError(
                     InvalidAccessKeyError::ReceiverMismatch {
                         tx_receiver: transaction.receiver_id.clone(),
@@ -258,7 +258,7 @@ fn validate_action_receipt(
         });
     }
     validate_actions(limit_config, &receipt.actions)
-        .map_err(|e| ReceiptValidationError::ActionsValidation(e))
+        .map_err(ReceiptValidationError::ActionsValidation)
 }
 
 /// Validates given data receipt. Checks validity of the length of the returned data.
@@ -496,16 +496,16 @@ mod tests {
         expected_err: RuntimeError,
     ) {
         assert_eq!(
-            validate_transaction(&config, gas_price, &signed_transaction, true, PROTOCOL_VERSION)
+            validate_transaction(config, gas_price, signed_transaction, true, PROTOCOL_VERSION)
                 .expect_err("expected an error"),
             expected_err,
         );
         assert_eq!(
             verify_and_charge_transaction(
-                &config,
+                config,
                 state_update,
                 gas_price,
-                &signed_transaction,
+                signed_transaction,
                 true,
                 None,
                 PROTOCOL_VERSION,

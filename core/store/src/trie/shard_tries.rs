@@ -86,7 +86,7 @@ impl ShardTries {
                 DBOp::UpdateRefcount { col, ref key, ref value } if *col == DBCol::ColState => {
                     let (shard_uid, hash) =
                         TrieCachingStorage::get_shard_uid_and_hash_from_key(key)?;
-                    shards.entry(shard_uid).or_insert(vec![]).push((hash, Some(value.clone())));
+                    shards.entry(shard_uid).or_insert(vec![]).push((hash, Some(value)));
                 }
                 DBOp::Insert { col, .. } if *col == DBCol::ColState => unreachable!(),
                 DBOp::Delete { col, .. } if *col == DBCol::ColState => unreachable!(),
@@ -112,7 +112,7 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) -> Result<(), StorageError> {
-        store_update.tries = Some(tries.clone());
+        store_update.tries = Some(tries);
         for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
             deletions.iter()
         {
@@ -123,7 +123,7 @@ impl ShardTries {
             store_update.update_refcount(
                 DBCol::ColState,
                 key.as_ref(),
-                &trie_node_or_value,
+                trie_node_or_value,
                 -(*rc as i64),
             );
         }
@@ -147,7 +147,7 @@ impl ShardTries {
             store_update.update_refcount(
                 DBCol::ColState,
                 key.as_ref(),
-                &trie_node_or_value,
+                trie_node_or_value,
                 *rc as i64,
             );
         }
@@ -328,10 +328,10 @@ impl WrappedTrieChanges {
 
     pub fn wrapped_into(
         &mut self,
-        mut store_update: &mut StoreUpdate,
+        store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.insertions_into(&mut store_update)?;
-        self.state_changes_into(&mut store_update);
+        self.insertions_into(store_update)?;
+        self.state_changes_into(store_update);
         store_update.set_ser(
             DBCol::ColTrieChanges,
             &shard_layout::get_block_shard_uid(&self.block_hash, &self.shard_uid),

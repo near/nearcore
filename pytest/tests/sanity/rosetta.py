@@ -96,7 +96,9 @@ class RosettaRPC:
                               'public_key': public_key
                           }])['signed_transaction']
         tx = self.rpc('/construction/submit', signed_transaction=signed)
-        return tx['transaction_identifier']['hash']
+        tx_hash = tx['transaction_identifier']['hash']
+        logger.info(f'Transaction hash: {tx_hash}')
+        return tx_hash
 
     def transfer(self, *, src: key.Key, dst: key.Key, amount: int) -> str:
         currency = {'symbol': 'NEAR', 'decimals': 24}
@@ -163,13 +165,15 @@ class RosettaRPC:
         )
 
     def get_block(self, *, block_id: BlockIdentifier) -> _Dict:
-        return self.rpc('/block', block_identifier=block_identifier(block_id))
+        res = self.rpc('/block', block_identifier=block_identifier(block_id))
+        return res['block']
 
     def get_transaction(self, *, block_id: BlockIdentifier,
                         trans_id: TransIdentifier) -> _Dict:
-        return self.rpc('/block/transaction',
-                        block_identifier=block_identifier(block_id),
-                        transaction_identifier=trans_identifier(trans_id))
+        res = self.rpc('/block/transaction',
+                       block_identifier=block_identifier(block_id),
+                       transaction_identifier=trans_identifier(trans_id))
+        return res['transaction']
 
 
 class RosettaTestCase(unittest.TestCase):
@@ -205,7 +209,7 @@ class RosettaTestCase(unittest.TestCase):
         differ each time the test runs, those are assumed to be correct.
         """
         block_0 = self.rosetta.get_block(block_id=0)
-        block_0_id = block_0['block']['block_identifier']
+        block_0_id = block_0['block_identifier']
         trans_0_id = 'block:' + block_0_id['hash']
         trans_0 = {
             'metadata': {
@@ -218,13 +222,11 @@ class RosettaTestCase(unittest.TestCase):
         }
         self.assertEqual(
             {
-                'block': {
-                    'block_identifier': block_0_id,
-                    # Genesis block’s parent is genesis block itself.
-                    'parent_block_identifier': block_0_id,
-                    'timestamp': block_0['block']['timestamp'],
-                    'transactions': [trans_0]
-                }
+                'block_identifier': block_0_id,
+                # Genesis block’s parent is genesis block itself.
+                'parent_block_identifier': block_0_id,
+                'timestamp': block_0['timestamp'],
+                'transactions': [trans_0]
             },
             block_0)
 
@@ -233,14 +235,15 @@ class RosettaTestCase(unittest.TestCase):
                          self.rosetta.get_block(block_id=block_0_id['hash']))
 
         # Get transaction from genesis block.
-        self.assertEqual({'transaction': trans_0},
-                         self.rosetta.get_transaction(block_id=block_0_id,
-                                                      trans_id=trans_0_id))
+        self.assertEqual(
+            trans_0,
+            self.rosetta.get_transaction(block_id=block_0_id,
+                                         trans_id=trans_0_id))
 
         # Block at height=1 should have genesis block as parent and only
         # validator update as a single operation.
         block_1 = self.rosetta.get_block(block_id=1)
-        block_1_id = block_1['block']['block_identifier']
+        block_1_id = block_1['block_identifier']
         trans_1_id = {'hash': 'block-validators-update:' + block_1_id['hash']}
         trans_1 = {
             'metadata': {
@@ -251,29 +254,28 @@ class RosettaTestCase(unittest.TestCase):
         }
         self.assertEqual(
             {
-                'block': {
-                    'block_identifier': {
-                        'hash': block_1_id['hash'],
-                        'index': 1
+                'block_identifier': {
+                    'hash': block_1_id['hash'],
+                    'index': 1
+                },
+                'parent_block_identifier':
+                    block_0_id,
+                'timestamp':
+                    block_1['timestamp'],
+                'transactions': [{
+                    'metadata': {
+                        'type': 'TRANSACTION'
                     },
-                    'parent_block_identifier':
-                        block_0_id,
-                    'timestamp':
-                        block_1['block']['timestamp'],
-                    'transactions': [{
-                        'metadata': {
-                            'type': 'TRANSACTION'
-                        },
-                        'operations': [],
-                        'transaction_identifier': trans_1_id
-                    }]
-                }
+                    'operations': [],
+                    'transaction_identifier': trans_1_id
+                }]
             }, block_1)
 
         # Get transaction from the second block
-        self.assertEqual({'transaction': trans_1},
-                         self.rosetta.get_transaction(block_id=block_1_id,
-                                                      trans_id=trans_1_id))
+        self.assertEqual(
+            trans_1,
+            self.rosetta.get_transaction(block_id=block_1_id,
+                                         trans_id=trans_1_id))
 
     def test_get_block_nonexistent(self) -> None:
         """Tests querying non-existent blocks and transactions.
@@ -282,11 +284,11 @@ class RosettaTestCase(unittest.TestCase):
         chain to see if responses are what they should be.
         """
         block_0 = self.rosetta.get_block(block_id=0)
-        block_0_id = block_0['block']['block_identifier']
+        block_0_id = block_0['block_identifier']
         trans_0_id = 'block:' + block_0_id['hash']
 
         block_1 = self.rosetta.get_block(block_id=1)
-        block_1_id = block_1['block']['block_identifier']
+        block_1_id = block_1['block_identifier']
         trans_1_id = 'block:' + block_1_id['hash']
 
         def test(want_code, callback, *args, **kw) -> _Dict:
@@ -300,8 +302,7 @@ class RosettaTestCase(unittest.TestCase):
 
         # Query for non-existent blocks
         bogus_block_hash = 'GJ92SsB76CvfaHHdaC4Vsio6xSHT7fR3EEUoK84tFe99'
-        self.assertEqual({'block': None},
-                         self.rosetta.get_block(block_id=bogus_block_hash))
+        self.assertIsNone(self.rosetta.get_block(block_id=bogus_block_hash))
 
         test(400, self.rosetta.get_block, block_id='malformed-hash')
 
@@ -315,47 +316,184 @@ class RosettaTestCase(unittest.TestCase):
              block_id=block_1_id,
              trans_id=trans_0_id)
 
-    def test_delete_implicit_account(self) -> None:
+    def _get_account_balance(self,
+                             account: key.Key,
+                             require: bool = True) -> typing.Optional[int]:
+        """Returns balance of given account or None if account doesn’t exist.
+
+        Args:
+            account: Account to get balance of.
+            require: If True, require that the account exists.
+        """
+        account_id = account.account_id
+        result = self.node.get_account(account_id, do_assert=False)
+        error = result.get('error')
+        if error is None:
+            amount = int(result['result']['amount'])
+            logger.info(f'Account {account_id} balance: {amount} yocto')
+            return amount
+        self.assertEqual('UNKNOWN_ACCOUNT', error['cause']['name'],
+                         f'Error fetching account {account_id}: {error}')
+        if require:
+            self.fail(f'Account {account.account_id} does not exist')
+        return None
+
+    def test_implicit_account(self) -> None:
         """Tests creating and deleting implicit account
 
-        First sends some funds from validator’s account to an implicit account
-        and the deletes that account refunding the validator account.
+        First sends some funds from validator’s account to an implicit account,
+        then checks how the transaction looks through Data API and finally
+        deletes that account refunding the validator account.
         """
+        test_amount = 10**22
         validator = self.node.validator_key
         implicit = key.Key.implicit_account()
 
+        # Create implicit account.
+        old_block = self.node.get_latest_block().height
         logger.info(f'Creating implicit account: {implicit.account_id}')
         tx_hash = self.rosetta.transfer(src=validator,
                                         dst=implicit,
-                                        amount=10**22)
-        logger.info(f'Transaction: {tx_hash}')
+                                        amount=test_amount)
 
-        for _ in range(10):
+        for i in range(10):
             time.sleep(1)
-            result = self.node.get_account(implicit.account_id)
-            if 'error' not in result:
-                result = result['result']
-                amount = result['amount']
-                logger.info(f'Account balance {amount}')
-                self.assertEqual(10**22, int(amount), result)
+            balance = self._get_account_balance(implicit, require=i == 9)
+            if balance is not None:
+                self.assertEqual(test_amount, balance)
+                break
+
+        new_block = self.node.get_latest_block().height
+
+        # Scan all the blocks until we find the transaction that created the
+        # account.
+        for height in range(old_block, new_block + 1):
+            block = self.rosetta.get_block(block_id=height)
+            tx = next((tx for tx in block['transactions']
+                       if tx['transaction_identifier']['hash'] == tx_hash),
+                      None)
+            if tx:
                 break
         else:
-            self.fail(f'Account {implicit.account_id} wasn’t created:\n'
-                      f'{result}')
+            self.fail(f'Transaction {tx_hash} not found')
 
+        # The actual amount subtracted is more than test_amount because of the
+        # gas payment.
+        value = -int(tx['operations'][0]['amount']['value'])
+        logger.info(f'Took {value} from validator account')
+        self.assertLess(10**22, value)
+        self.assertEqual([{
+            'metadata': {
+                'type': 'TRANSACTION'
+            },
+            'operations': [{
+                'account': {
+                    'address': 'test0'
+                },
+                'amount': {
+                    'currency': {
+                        'decimals': 24,
+                        'symbol': 'NEAR'
+                    },
+                    'value': str(-value)
+                },
+                'operation_identifier': {
+                    'index': 0
+                },
+                'status': 'SUCCESS',
+                'type': 'TRANSFER'
+            }],
+            'transaction_identifier': {
+                'hash': tx_hash
+            }
+        }], block['transactions'])
+
+        # And finally, delete the account.
+        old_block = self.node.get_latest_block().height
         logger.info(f'Deleting implicit account: {implicit.account_id}')
         tx_hash = self.rosetta.delete_account(implicit, refund_to=validator)
-        logger.info(f'Transaction: {tx_hash}')
 
         for _ in range(10):
             time.sleep(1)
-            result = self.node.get_account(implicit.account_id)
-            if ('error' in result and
-                    result['error']['cause']['name'] == 'UNKNOWN_ACCOUNT'):
+            amount = self._get_account_balance(implicit, require=False)
+            if amount is None:
                 break
         else:
-            self.fail(f'Account {implicit.account_id} wasn’t deleted:\n'
-                      f'{result}')
+            self.fail(f'Account {implicit.account_id} wasn’t deleted')
+
+        new_block = self.node.get_latest_block().height
+
+        # Scan all the blocks until we find the transaction that created the
+        # account.
+        for height in range(old_block, new_block + 1):
+            block = self.rosetta.get_block(block_id=height)
+            tx = next((tx for tx in block['transactions']
+                       if tx['transaction_identifier']['hash'] == tx_hash),
+                      None)
+            if tx:
+                break
+        else:
+            self.fail(f'Transaction {tx_hash} not found')
+
+        self.assertEqual(
+            test_amount, -sum(
+                int(op['amount']['value'])
+                for tx in block['transactions']
+                for op in tx['operations']))
+
+        transactions = sorted(block['transactions'],
+                              key=lambda tx: len(tx['operations']))
+        rx_hash = transactions[1]['transaction_identifier']['hash']
+        self.assertEqual([{
+            'metadata': {
+                'type': 'TRANSACTION'
+            },
+            'operations': [{
+                'account': {
+                    'address': implicit.account_id,
+                },
+                'amount': transactions[0]['operations'][0]['amount'],
+                'operation_identifier': {
+                    'index': 0
+                },
+                'status': 'SUCCESS',
+                'type': 'TRANSFER'
+            }],
+            'transaction_identifier': {
+                'hash': tx_hash
+            }
+        }, {
+            'metadata': {
+                'type': 'TRANSACTION'
+            },
+            'operations': [{
+                'account': {
+                    'address': implicit.account_id,
+                },
+                'amount': transactions[1]['operations'][0]['amount'],
+                'operation_identifier': {
+                    'index': 0
+                },
+                'status': 'SUCCESS',
+                'type': 'TRANSFER'
+            }, {
+                'account': {
+                    'address': implicit.account_id,
+                    'sub_account': {
+                        'address': 'LIQUID_BALANCE_FOR_STORAGE'
+                    }
+                },
+                'amount': transactions[1]['operations'][1]['amount'],
+                'operation_identifier': {
+                    'index': 1
+                },
+                'status': 'SUCCESS',
+                'type': 'TRANSFER'
+            }],
+            'transaction_identifier': {
+                'hash': rx_hash,
+            }
+        }], transactions)
 
 
 if __name__ == '__main__':

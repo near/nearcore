@@ -1,11 +1,9 @@
 use crate::types::Balance;
 use aliases::Aliases;
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "deepsize_feature")]
-use deepsize::DeepSizeOf;
 use serde::Serialize;
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct WeightedIndex {
     weight_sum: Balance,
@@ -102,11 +100,7 @@ mod aliases {
 
     impl Aliases {
         pub fn new(n: usize) -> Self {
-            let mut aliases = Vec::with_capacity(n);
-            for _ in 0..n {
-                aliases.push(0);
-            }
-            Self { aliases, smalls: Vec::with_capacity(n), bigs: Vec::with_capacity(n) }
+            Self { aliases: vec![0; n], smalls: Vec::with_capacity(n), bigs: Vec::with_capacity(n) }
         }
 
         pub fn push_big(&mut self, b: usize) {

@@ -6,7 +6,7 @@ use log::debug;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::contract::ContractCode;
-use near_primitives::errors::{ExternalError, StorageError};
+use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceiver, Receipt, ReceiptEnum};
 use near_primitives::transaction::{
@@ -18,7 +18,7 @@ use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider};
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
 use near_store::{get_code, TrieUpdate, TrieUpdateValuePtr};
-use near_vm_errors::{HostError, InconsistentStateError, VMLogicError};
+use near_vm_errors::{AnyError, HostError, VMLogicError};
 use near_vm_logic::{External, ValuePtr};
 
 pub struct RuntimeExt<'a> {
@@ -35,6 +35,22 @@ pub struct RuntimeExt<'a> {
     last_block_hash: &'a CryptoHash,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
+}
+
+/// Error used by `RuntimeExt`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ExternalError {
+    /// Unexpected error which is typically related to the node storage corruption.
+    /// It's possible the input state is invalid or malicious.
+    StorageError(StorageError),
+    /// Error when accessing validator information. Happens inside epoch manager.
+    ValidatorError(EpochError),
+}
+
+impl From<ExternalError> for VMLogicError {
+    fn from(err: ExternalError) -> Self {
+        VMLogicError::ExternalError(AnyError::new(err))
+    }
 }
 
 pub struct RuntimeExtValuePtr<'a>(TrieUpdateValuePtr<'a>);
@@ -101,9 +117,9 @@ impl<'a> RuntimeExt<'a> {
     fn new_data_id(&mut self) -> CryptoHash {
         let data_id = create_data_id(
             self.current_protocol_version,
-            &self.action_hash,
-            &self.prev_block_hash,
-            &self.last_block_hash,
+            self.action_hash,
+            self.prev_block_hash,
+            self.last_block_hash,
             self.data_count as usize,
         );
         self.data_count += 1;
@@ -140,10 +156,7 @@ impl<'a> RuntimeExt<'a> {
 }
 
 fn wrap_storage_error(error: StorageError) -> VMLogicError {
-    VMLogicError::ExternalError(
-        borsh::BorshSerialize::try_to_vec(&ExternalError::StorageError(error))
-            .expect("Borsh serialize cannot fail"),
-    )
+    VMLogicError::from(ExternalError::StorageError(error))
 }
 
 type ExtResult<T> = ::std::result::Result<T, VMLogicError>;
@@ -177,12 +190,8 @@ impl<'a> External for RuntimeExt<'a> {
     fn storage_remove_subtree(&mut self, prefix: &[u8]) -> ExtResult<()> {
         let data_keys = self
             .trie_update
-            .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(&self.account_id, prefix))
-            .map_err(|err| {
-                VMLogicError::InconsistentStateError(InconsistentStateError::StorageError(
-                    err.to_string(),
-                ))
-            })?
+            .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(self.account_id, prefix))
+            .map_err(wrap_storage_error)?
             .map(|raw_key| {
                 trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, self.account_id)
                     .map_err(|_e| {
@@ -193,11 +202,7 @@ impl<'a> External for RuntimeExt<'a> {
                     .map(Vec::from)
             })
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|err| {
-                VMLogicError::InconsistentStateError(InconsistentStateError::StorageError(
-                    err.to_string(),
-                ))
-            })?;
+            .map_err(wrap_storage_error)?;
         for key in data_keys {
             self.trie_update
                 .remove(TrieKey::ContractData { account_id: self.account_id.clone(), key });
@@ -371,10 +376,6 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn get_touched_nodes_count(&self) -> u64 {
         self.trie_update.trie.counter.get()
-    }
-
-    fn reset_touched_nodes_counter(&mut self) {
-        self.trie_update.trie.counter.reset()
     }
 
     fn validator_stake(&self, account_id: &AccountId) -> ExtResult<Option<Balance>> {

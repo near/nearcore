@@ -54,7 +54,7 @@ Note that we usually use `TrieUpdate` to interact with the state.
 
 ### `chain/chain`
 
-This crate contains most of the chain logic (consensus, block processing, etc). 
+This crate contains most of the chain logic (consensus, block processing, etc).
 `ChainUpdate::process_block` is where most of the block processing logic happens.
 
 **Architecture Invariant**: interface between chain and runtime is defined by `RuntimeAdapter`.
@@ -85,7 +85,7 @@ This crate defines two important structs, `Client` and `ViewClient`.
 
 This crate contains the entire implementation of the p2p network used by NEAR blockchain nodes.
 
-Two important structs here: `PeerManagerActor` and `Peer`. 
+Two important structs here: `PeerManagerActor` and `Peer`.
 Peer manager orchestrates all the communications from network to other components and from other components to network.
 `Peer` is responsible for low-level network communications from and to a given peer.
 Peer manager runs in one thread while each `Peer` runs in its own thread.
@@ -108,15 +108,15 @@ Transactions, on the other hand, are sent to `ClientActor` for further processin
 
 ### `runtime/runtime`
 
-This crate contains the main entry point to runtime -- `Runtime::apply`. 
+This crate contains the main entry point to runtime -- `Runtime::apply`.
 This function takes `ApplyState`, which contains necessary information passed from chain to runtime, and a list of `SignedTransaction` and a list of `Receipt`, and returns a `ApplyResult`, which includes state changes, execution outcomes, etc.
 
-**Architecture Invariant**: The state update is only finalized at the end of `apply`. 
+**Architecture Invariant**: The state update is only finalized at the end of `apply`.
 During all intermediate steps state changes can be reverted.
 
 ### `runtime/near-vm-logic`
 
-`VMLogic` contains all the implementations of host functions and is the interface between runtime and wasm. 
+`VMLogic` contains all the implementations of host functions and is the interface between runtime and wasm.
 `VMLogic` is constructed when runtime applies function call actions.
 In `VMLogic`, interaction with NEAR blockchain happens in the following two ways:
 - `VMContext`, which contains lightweight information such as current block hash, current block height, epoch id, etc.
@@ -137,6 +137,10 @@ As mentioned before, `neard` is the crate that contains that main entry points.
 All the actors are spawned in `start_with_config`.
 It is also worth noting that `NightshadeRuntime` is the struct that implements `RuntimeAdapter`.
 
+### `core/store/src/db.rs`
+
+This file contains schema (DBCol) of our internal RocksDB storage - a good starting point when reading the code base.
+
 ## Cross Cutting Concerns
 
 ### Logging & Observability
@@ -150,7 +154,28 @@ tracing::warn!(
 );
 ```
 
-The [span! API](https://tracing.rs/tracing/macro.debug_span.html) is used to measure durations of long-running operations:
+tracing supports structured logging. That is, you are not restricted to logging
+strings, and can log key-value pairs. Keys go *before* free-form message, and
+support various shortcut syntaxes:
+
+```rust
+tracing::warn!(
+    // Explicit `key = value` syntax.
+    msg_received_count = active_peer.throttle_controller.consume_msg_seen(),
+    // Shorthand for `bandwidth_used = bandwidth_used`.
+    bandwidth_used,
+    // Use `fmt::Debug` to format the value.
+    ?peer_id,
+    // Free form string
+    "Peer bandwidth exceeded threshold",
+);
+```
+
+Qualified `tracing::warn!` syntax is preferred to reduce the amount of imports.
+Tracing supports `format!`-like arguments, but prefer `key=value` paris instead.
+
+The [span! API](https://tracing.rs/tracing/macro.debug_span.html) is used to
+measure durations of long-running operations:
 
 ```rust
 fn compile_and_serialize_wasmer(code: &[u8]) -> Result<wasmer::Module> {
@@ -159,7 +184,8 @@ fn compile_and_serialize_wasmer(code: &[u8]) -> Result<wasmer::Module> {
 }
 ```
 
-This will record when the `_span` object is created and dropped, logging the time diff between the two events:
+This will record when the `_span` object is created and dropped, logging the
+time diff between the two events:
 
 ```
 May 19 21:05:07.516 DEBUG run_vm:compile_and_serialize_wasmer:  close time.busy=5ms time.idle=6ns
@@ -167,6 +193,7 @@ May 19 21:05:07.516 DEBUG run_vm:compile_and_serialize_wasmer:  close time.busy=
 
 Always specify the `target` explicitly.
 
-The `INFO` level is enabled by default, use it for information useful for node operators.
-The `DEBUG` level is enabled on the canary nodes, use it for information useful in debugging testnet failures.
-The `TRACE` level is not generally enabled, use it for arbitrary debug output.
+The `INFO` level is enabled by default, use it for information useful for node
+operators. The `DEBUG` level is enabled on the canary nodes, use it for
+information useful in debugging testnet failures. The `TRACE` level is not
+generally enabled, use it for arbitrary debug output.
