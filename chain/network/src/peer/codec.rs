@@ -96,7 +96,7 @@ impl Decoder for Codec {
             let res = Some(Ok(buffer[4..4 + len as usize].to_vec()));
             buffer.advance(4 + len as usize);
             // Fix memory leak see (#TODO)
-            if buffer.is_empty() && buffer.capacity() >= MIB as usize {
+            if buffer.is_empty() && buffer.capacity() > 0 {
                 std::mem::take(buffer);
             }
             Ok(res)
