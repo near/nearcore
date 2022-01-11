@@ -5,7 +5,7 @@ use crate::info::{get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper};
 use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
 #[cfg(feature = "test_features")]
 use crate::AdversarialControls;
-use crate::StatusResponse;
+use crate::{metrics, StatusResponse};
 use actix::dev::SendError;
 use actix::dev::ToEnvelope;
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
@@ -57,6 +57,7 @@ use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::ValidatorInfo;
+use near_store::db::rocksdb_stats::get_rocksdb_stats;
 use near_store::db::DBCol::ColStateParts;
 #[cfg(feature = "test_features")]
 use near_store::ColBlock;
@@ -240,6 +241,9 @@ impl Actor for ClientActor {
 
         // Start periodic logging of current state of the client.
         self.log_summary(ctx);
+
+        // Start periodic RocksDB stats computation.
+        self.compute_rocksdb_stats(ctx);
     }
 }
 
@@ -1507,6 +1511,38 @@ impl ClientActor {
                 act.log_summary(ctx);
             },
         );
+    }
+
+    /// Periodically compute RocksDB stats.
+    fn compute_rocksdb_stats(&self, ctx: &mut Context<Self>) {
+        if let Some(period) = self.client.config.compute_rocksdb_stats_period {
+            near_performance_metrics::actix::run_later(ctx, period, move |act, ctx| {
+                info!(target: "neard", "Computing rocksdb stats...");
+                let rocksdb_stats = get_rocksdb_stats(
+                    self.client.chain.store().store().get_rocksdb().unwrap().path(),
+                );
+                match rocksdb_stats {
+                    Ok(stats) => {
+                        for col_stats in stats {
+                            metrics::ROCKSDB_COL_SIZE
+                                .with_label_values(&[&col_stats.col])
+                                .set(col_stats.estimated_table_size);
+                            metrics::ROCKSDB_ENTRIES
+                                .with_label_values(&[&col_stats.col])
+                                .set(col_stats.entries);
+                            metrics::ROCKSDB_KEY_SIZE
+                                .with_label_values(&[&col_stats.col])
+                                .set(col_stats.raw_key_size);
+                            metrics::ROCKSDB_VALUE_SIZE
+                                .with_label_values(&[&col_stats.col])
+                                .set(col_stats.raw_value_size);
+                        }
+                    }
+                    Err(e) => info!("Failed to get RocksDB stats: {}", e),
+                }
+                act.compute_rocksdb_stats(ctx);
+            });
+        }
     }
 }
 

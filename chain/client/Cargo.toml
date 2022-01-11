@@ -15,7 +15,6 @@ futures = "0.3"
 chrono = { version = "0.4.4", features = ["serde"] }
 log = "0.4"
 rand = "0.7"
-rayon = "1.5"
 serde_json = "1"
 # Temporary workaround, fix with rust toolchain update.
 sysinfo = { git = "https://github.com/near/sysinfo", rev = "3cb97ee79a02754407d2f0f63628f247d7c65e7b" }

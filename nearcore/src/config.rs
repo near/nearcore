@@ -664,7 +664,7 @@ impl NearConfig {
                 view_client_throttle_period: config.view_client_throttle_period,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
                 max_gas_burnt_view: config.max_gas_burnt_view,
-                compute_rocksdb_stats: config.compute_rocksdb_stats,
+                compute_rocksdb_stats_period: config.compute_rocksdb_stats,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,

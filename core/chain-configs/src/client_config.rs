@@ -102,7 +102,7 @@ pub struct ClientConfig {
     /// protocol thus changing it per-node doesn’t affect the blockchain.
     pub max_gas_burnt_view: Option<Gas>,
     /// Compute RocksDB stats during block processing
-    pub compute_rocksdb_stats: bool,
+    pub compute_rocksdb_stats_period: Option<Duration>,
 }
 
 impl ClientConfig {
@@ -161,7 +161,7 @@ impl ClientConfig {
             view_client_throttle_period: Duration::from_secs(1),
             trie_viewer_state_size_limit: None,
             max_gas_burnt_view: None,
-            compute_rocksdb_stats: false,
+            compute_rocksdb_stats_period: None,
         }
     }
 }
