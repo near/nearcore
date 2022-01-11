@@ -858,7 +858,7 @@ impl Client {
         let mut accepted_blocks = vec![];
         for chunk_header in self.shards_mgr.get_incomplete_chunks(prev_block_hash) {
             debug!(target:"client", "try to process incomplete chunks {:?}, prev_block: {:?}", chunk_header.chunk_hash(), prev_block_hash);
-            let res = self.shards_mgr.check_chunk_have_all_parts_and_receipts(
+            let res = self.shards_mgr.try_process_chunk_parts_and_receipts(
                 &chunk_header,
                 self.chain.mut_store(),
                 &mut self.rs,

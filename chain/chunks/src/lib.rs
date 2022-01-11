@@ -68,7 +68,7 @@ use rand::Rng;
 //   track the shard, when a validator first receives a part it owns.
 //   TODO: this is actually not the current behavior. https://github.com/near/nearcore/issues/5886
 // Note that last two messages are only be sent from validators to validators, so the only way a
-// non-validator receives a partial encoded chunk is by requesting for it.
+// non-validator receives a partial encoded chunk is by requesting it.
 //
 // ** Requesting for chunks
 // `ShardManager` keeps a request pool that stores all requests for chunks that are not completed
@@ -81,7 +81,7 @@ use rand::Rng;
 // chunk producer, or a block producer or peer who tracks the shard, and sends out the network
 // requests. Check the logic there for details regarding how targets of requests are chosen.
 //
-// Once a request is added the pool, they can be asked to be resent through `resend_chunk_requests`,
+// Once a request is added the pool, it can be resent through `resend_chunk_requests`,
 // which is done periodically through client_actor. A request is only removed from the pool when
 // all needed parts and receipts in the requested chunk are received.
 //
@@ -1322,8 +1322,8 @@ impl ShardsManager {
         match self.runtime_adapter.verify_chunk_header_signature(header, &epoch_id, &ancestor_hash)
         {
             Ok(false) => {
-                byzantine_assert!(false);
                 return if epoch_id_confirmed {
+                    byzantine_assert!(false);
                     Err(Error::InvalidChunkSignature)
                 } else {
                     // we are not sure if we are using the correct epoch id for validation, so
@@ -1356,14 +1356,14 @@ impl ShardsManager {
         Ok(())
     }
 
-    /// Process a partial encoded chunk message, which means
+    /// Processes a partial encoded chunk message, which means
     /// 1) Checks that the partial encoded chunk message is valid, including checking
     ///    header, parts and receipts
     /// 2) If the chunk message is valid, save the parts and receipts in cache
     /// 3) Forwards newly received owned parts to other validators, if any
     /// 4) Processes forwarded chunk parts that haven't been processed yet
     /// 5) Checks if the chunk has all parts and receipts, if so and if the node cares about the shard,
-    ///    decode and persist the full chunk
+    ///    decodes and persists the full chunk
     ///
     /// Params
     /// `partial_encoded_chunk`: the partial encoded chunk needs to be processed. `MaybeValidated`
@@ -1507,21 +1507,22 @@ impl ShardsManager {
             self.send_partial_encoded_chunk_to_chunk_trackers(partial_encoded_chunk)?;
         };
 
-        self.check_chunk_have_all_parts_and_receipts(&partial_encoded_chunk.header, chain_store, rs)
+        self.try_process_chunk_parts_and_receipts(&partial_encoded_chunk.header, chain_store, rs)
     }
 
     /// Checks if the chunk has all parts and receipts, if so and if the node cares about the shard,
-    /// decode and persist the full chunk
+    /// decodes and persists the full chunk
     /// `header`: header of the chunk. It must be known by `ShardsManager`, either
     ///           by previous call to `process_partial_encoded_chunk` or `request_partial_encoded_chunk`
-    pub fn check_chunk_have_all_parts_and_receipts(
+    pub fn try_process_chunk_parts_and_receipts(
         &mut self,
         header: &ShardChunkHeader,
         chain_store: &mut ChainStore,
         rs: &mut ReedSolomonWrapper,
     ) -> Result<ProcessPartialEncodedChunkResult, Error> {
         // The logic from now on requires previous block is processed because
-        // calculating owner parts requires that
+        // calculating owner parts requires that, so we first check
+        // whether prev_block_hash is in the chain, if not, returns NeedBlock
         let prev_block_hash = header.prev_block_hash();
         let epoch_id = match self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash) {
             Ok(epoch_id) => epoch_id,
