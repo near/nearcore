@@ -72,7 +72,7 @@ pub(crate) fn dump_contracts(
                 let account_id = parse_account_id_from_contract_code_key(&key).unwrap();
                 if !distinct_codes.contains(&value) {
                     distinct_codes.insert(value.clone());
-                    std::fs::write(output.join(format!("{}.wasm", account_id)), code)
+                    std::fs::write(output.join(format!("{}.wasm", account_id)), code);
                 }
             } else if touched_contract_node {
                 break;
