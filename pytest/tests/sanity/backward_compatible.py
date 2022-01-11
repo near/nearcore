@@ -27,7 +27,14 @@ def main():
     # Setup local network.
     subprocess.check_call([
         executables.stable.neard,
-        "--home=%s" % node_root, "testnet", "--v", "2", "--prefix", "test"
+        "--home=%s" % node_root,
+        # TODO(#4372): testnet subcommand deprecated since 1.24.  Replace with
+        # localnet after a couple of releases in 2022.
+        "testnet",
+        "--v",
+        "2",
+        "--prefix",
+        "test"
     ])
 
     # Run both binaries at the same time.

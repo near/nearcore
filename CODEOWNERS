@@ -13,7 +13,7 @@
 
 /runtime/ @bowenwang1996 @EgorKulikov @mzhangmzz @mm-near
 /runtime/runtime-params-estimator/ @olonho @matklad @jakmeier
-/runtime/near-test-contracts/ @olonho @matklad
+/runtime/near-test-contracts/ @olonho @matklad @Longarithm
 /runtime/near-vm-runner-standalone/ @olonho @matklad @nagisa
 /runtime/near-vm-runner/ @olonho @matklad @nagisa
 
