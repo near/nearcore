@@ -22,7 +22,7 @@ use near_store::test_utils::create_test_store;
 use near_store::{Store, TrieIterator};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -57,7 +57,8 @@ pub(crate) fn dump_contracts(
 ) {
     let (runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
     println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
-    let mut distinct_codes: HashMap<Vec<u8>, AccountId> = HashMap::default();
+    let mut distinct_codes: HashSet<Vec<u8>> = HashSet::default();
+    std::fs::create_dir_all(output);
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
         let trie = TrieIterator::new(&trie, state_root).unwrap();
@@ -69,16 +70,15 @@ pub(crate) fn dump_contracts(
             if is_contract_code_key(&key) {
                 touched_contract_node = true;
                 let account_id = parse_account_id_from_contract_code_key(&key).unwrap();
-                distinct_codes.insert(value.clone(), account_id.clone());
+                if !distinct_codes.contains(&value) {
+                    distinct_codes.insert(value.clone());
+                    std::fs::write(output.join(format!("{}.wasm", account_id)), code)
+                }
             } else if touched_contract_node {
                 break;
             }
         }
     }
-    std::fs::create_dir_all(output);
-    distinct_codes.iter().map(|(code, account_id)| {
-        std::fs::write(output.join(format!("{}.wasm", account_id)), code)
-    });
 }
 
 pub(crate) fn dump_state(
