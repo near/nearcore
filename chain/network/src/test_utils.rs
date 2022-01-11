@@ -2,13 +2,12 @@ use crate::types::{
     NetworkInfo, NetworkResponses, PeerManagerAdapter, PeerManagerMessageRequest,
     PeerManagerMessageResponse,
 };
-use crate::PeerInfo;
 use crate::PeerManagerActor;
-use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
+use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message, Recipient};
 use futures::future::BoxFuture;
 use futures::{future, FutureExt};
 use near_crypto::{KeyType, SecretKey};
-use near_network_primitives::types::ReasonForBan;
+use near_network_primitives::types::{PeerInfo, ReasonForBan};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
@@ -196,17 +195,13 @@ impl Handler<GetInfo> for PeerManagerActor {
 }
 
 // `StopSignal is used to stop PeerManagerActor for unit tests
-#[derive(Message)]
+#[derive(Message, Default)]
 #[rtype(result = "()")]
 pub struct StopSignal {
     pub should_panic: bool,
 }
 
 impl StopSignal {
-    pub fn new() -> Self {
-        Self { should_panic: false }
-    }
-
     pub fn should_panic() -> Self {
         Self { should_panic: true }
     }
@@ -383,4 +378,67 @@ pub mod test_features {
             counter,
         )
     }
+}
+
+impl NetworkRecipient {
+    pub fn set_recipient(&self, peer_manager_recipient: Recipient<PeerManagerMessageRequest>) {
+        *self.peer_manager_recipient.write().unwrap() = Some(peer_manager_recipient);
+    }
+}
+
+#[derive(Default)]
+pub struct NetworkRecipient {
+    peer_manager_recipient: RwLock<Option<Recipient<PeerManagerMessageRequest>>>,
+}
+
+unsafe impl Sync for NetworkRecipient {}
+
+impl PeerManagerAdapter for NetworkRecipient {
+    fn send(
+        &self,
+        msg: PeerManagerMessageRequest,
+    ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, MailboxError>> {
+        self.peer_manager_recipient
+            .read()
+            .unwrap()
+            .as_ref()
+            .expect("Recipient must be set")
+            .send(msg)
+            .boxed()
+    }
+
+    fn do_send(&self, msg: PeerManagerMessageRequest) {
+        let _ = self
+            .peer_manager_recipient
+            .read()
+            .unwrap()
+            .as_ref()
+            .expect("Recipient must be set")
+            .do_send(msg);
+    }
+}
+
+#[cfg(feature = "test_features")]
+impl Message for SetAdvOptions {
+    type Result = ();
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Clone, Debug)]
+#[cfg(feature = "test_features")]
+pub struct SetAdvOptions {
+    pub disable_edge_signature_verification: Option<bool>,
+    pub disable_edge_propagation: Option<bool>,
+    pub disable_edge_pruning: Option<bool>,
+    pub set_max_peers: Option<u64>,
+}
+
+#[cfg(feature = "test_features")]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Message, Clone, Debug)]
+#[rtype(result = "()")]
+pub struct SetRoutingTable {
+    pub add_edges: Option<Vec<crate::network_protocol::Edge>>,
+    pub remove_edges: Option<Vec<crate::network_protocol::SimpleEdge>>,
+    pub prune_edges: Option<bool>,
 }

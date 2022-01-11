@@ -18,6 +18,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::utils::index_to_bytes;
 use near_store::db::DBCol::ColReceipts;
 use near_store::migrations::{set_store_version, BatchedStoreUpdate};
 use near_store::{create_store, DBCol, StoreUpdate};
@@ -478,6 +479,41 @@ pub fn migrate_24_to_25(path: &Path) {
     set_store_version(&store, 25);
 }
 
+/// Fix an issue with block ordinal (#5761)
+// This migration takes at least 3 hours to complete on mainnet
+pub fn migrate_30_to_31(path: &Path, near_config: &NearConfig) {
+    let store = create_store(path);
+    if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
+        let genesis_height = near_config.genesis.config.genesis_height;
+        let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+        let head = chain_store.head().unwrap();
+        let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
+        let mut count = 0;
+        // we manually checked mainnet archival data and the first block where the discrepancy happened is `47443088`.
+        for height in 47443088..=head.height {
+            if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
+                let block_ordinal = chain_store.get_block_merkle_tree(&block_hash).unwrap().size();
+                let block_hash_from_block_ordinal =
+                    chain_store.get_block_hash_from_ordinal(block_ordinal).unwrap();
+                if *block_hash_from_block_ordinal != block_hash {
+                    println!("Inconsistency in block ordinal to block hash mapping found at block height {}", height);
+                    count += 1;
+                    store_update
+                        .set_ser(
+                            DBCol::ColBlockOrdinal,
+                            &index_to_bytes(block_ordinal),
+                            &block_hash,
+                        )
+                        .expect("BorshSerialize should not fail");
+                }
+            }
+        }
+        println!("total inconsistency count: {}", count);
+        store_update.finish().expect("Failed to migrate");
+    }
+    set_store_version(&store, 31);
+}
+
 lazy_static_include::lazy_static_include_bytes! {
     /// File with account ids and deltas that need to be applied in order to fix storage usage
     /// difference between actual and stored usage, introduced due to bug in access key deletion,
@@ -490,7 +526,7 @@ lazy_static_include::lazy_static_include_bytes! {
 /// between 4 and 4.5s. We do not want to process any receipts in this block
 const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 1_000_000_000_000_000;
 
-pub fn load_migration_data(chain_id: &String) -> MigrationData {
+pub fn load_migration_data(chain_id: &str) -> MigrationData {
     let is_mainnet = chain_id == "mainnet";
     MigrationData {
         storage_usage_delta: if is_mainnet {
@@ -524,9 +560,9 @@ mod tests {
             to_base(&hash(&MAINNET_STORAGE_USAGE_DELTA)),
             "6CFkdSZZVj4v83cMPD3z6Y8XSQhDh3EQjFh3PRAqFEAx"
         );
-        let mainnet_migration_data = load_migration_data(&"mainnet".to_string());
+        let mainnet_migration_data = load_migration_data("mainnet");
         assert_eq!(mainnet_migration_data.storage_usage_delta.len(), 3112);
-        let testnet_migration_data = load_migration_data(&"testnet".to_string());
+        let testnet_migration_data = load_migration_data("testnet");
         assert_eq!(testnet_migration_data.storage_usage_delta.len(), 0);
     }
 
@@ -536,9 +572,9 @@ mod tests {
             to_base(&hash(&MAINNET_RESTORED_RECEIPTS)),
             "3ZHK51a2zVnLnG8Pq1y7fLaEhP9SGU1CGCmspcBUi5vT"
         );
-        let mainnet_migration_data = load_migration_data(&"mainnet".to_string());
+        let mainnet_migration_data = load_migration_data("mainnet");
         assert_eq!(mainnet_migration_data.restored_receipts.get(&0u64).unwrap().len(), 383);
-        let testnet_migration_data = load_migration_data(&"testnet".to_string());
+        let testnet_migration_data = load_migration_data("testnet");
         assert!(testnet_migration_data.restored_receipts.is_empty());
     }
 }

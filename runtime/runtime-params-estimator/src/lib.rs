@@ -43,20 +43,24 @@ mod gas_cost;
 mod qemu;
 mod transaction_builder;
 
+pub(crate) mod estimator_params;
+
 // Runs a VM (Default: Wasmer) on the given contract and measures the time it takes to do a single operation.
 pub mod vm_estimator;
 // Encapsulates the runtime so that it can be run separately from the rest of the node.
 pub mod testbed;
 // Prepares transactions and feeds them to the testbed in batches. Performs the warm up, takes care
 // of nonces.
+pub mod config;
 mod function_call;
 mod gas_metering;
-pub mod testbed_runners;
 
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::time::Instant;
 
+use estimator_params::sha256_cost;
+use gas_metering::gas_metering_cost;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::contract::ContractCode;
@@ -74,16 +78,17 @@ use num_rational::Ratio;
 use rand::Rng;
 use vm_estimator::compute_compile_cost_vm;
 
+use crate::config::Config;
 use crate::cost_table::format_gas;
 use crate::estimator_context::{EstimatorContext, Testbed};
 use crate::gas_cost::GasCost;
-use crate::testbed_runners::Config;
 use crate::transaction_builder::TransactionBuilder;
 use crate::vm_estimator::create_context;
 
 pub use crate::cost::Cost;
 pub use crate::cost_table::CostTable;
 pub use crate::costs_to_runtime_config::costs_to_runtime_config;
+pub use crate::qemu::QemuCommandBuilder;
 
 static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ActionReceiptCreation, action_receipt_creation),
@@ -149,6 +154,11 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::StorageRemoveKeyByte, storage_remove_key_byte),
     (Cost::StorageRemoveRetValueByte, storage_remove_ret_value_byte),
     (Cost::TouchingTrieNode, touching_trie_node),
+    (Cost::GasMeteringBase, gas_metering_base),
+    (Cost::GasMeteringOp, gas_metering_op),
+    (Cost::CpuBenchmarkSha256, cpu_benchmark_sha256),
+    (Cost::OneCPUInstruction, one_cpu_instruction),
+    (Cost::OneNanosecond, one_nanosecond),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -156,7 +166,7 @@ pub fn run(config: Config) -> CostTable {
     let mut res = CostTable::default();
 
     for (cost, f) in ALL_COSTS.iter().copied() {
-        let skip = match &ctx.config.metrics_to_measure {
+        let skip = match &ctx.config.costs_to_measure {
             None => false,
             Some(costs) => !costs.contains(&format!("{:?}", cost)),
         };
@@ -479,8 +489,8 @@ fn compilation_cost_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCo
     let (base, byte) = compute_compile_cost_vm(ctx.config.metric, ctx.config.vm_kind, verbose);
 
     let base_byte_cost = (
-        GasCost::from_raw(base.into(), ctx.config.metric),
-        GasCost::from_raw(byte.into(), ctx.config.metric),
+        GasCost::from_gas(base.into(), ctx.config.metric),
+        GasCost::from_gas(byte.into(), ctx.config.metric),
     );
 
     ctx.cached.compile_cost_base_per_byte = Some(base_byte_cost.clone());
@@ -530,8 +540,8 @@ fn action_function_call_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost
         Ratio::new((*r.numer()).try_into().unwrap(), (*r.denom()).try_into().unwrap())
     };
     let base_byte_cost = (
-        GasCost::from_raw(convert_ratio(base), ctx.config.metric),
-        GasCost::from_raw(convert_ratio(byte), ctx.config.metric),
+        GasCost::from_gas(convert_ratio(base), ctx.config.metric),
+        GasCost::from_gas(convert_ratio(byte), ctx.config.metric),
     );
 
     ctx.cached.action_function_call_base_per_byte_v2 = Some(base_byte_cost.clone());
@@ -602,7 +612,7 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
 
     let mut run = || {
         let context = create_context(vec![]);
-        let (outcome, err) = vm_kind.runtime().unwrap().run(
+        let (outcome, err) = vm_kind.runtime(config.clone()).unwrap().run(
             &code,
             "cpu_ram_soak_test",
             &mut fake_external,
@@ -918,7 +928,50 @@ fn touching_trie_node(ctx: &mut EstimatorContext) -> GasCost {
     storage_read_base(ctx) * 2 / 7
 }
 
+fn gas_metering_base(ctx: &mut EstimatorContext) -> GasCost {
+    gas_metering(ctx).0
+}
+
+fn gas_metering_op(ctx: &mut EstimatorContext) -> GasCost {
+    gas_metering(ctx).1
+}
+
+fn gas_metering(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {
+    if let Some(cached) = ctx.cached.gas_metering_cost_base_per_op.clone() {
+        return cached;
+    }
+    let (base, byte) = gas_metering_cost(ctx.config.metric, ctx.config.vm_kind);
+    let base = GasCost::from_gas(base.into(), ctx.config.metric);
+    let byte = GasCost::from_gas(byte.into(), ctx.config.metric);
+    ctx.cached.gas_metering_cost_base_per_op = Some((base.clone(), byte.clone()));
+    (base, byte)
+}
+
+fn cpu_benchmark_sha256(ctx: &mut EstimatorContext) -> GasCost {
+    const REPEATS: u64 = 1_000_000;
+    sha256_cost(ctx.config.metric, REPEATS)
+}
+
+/// Estimate how much gas is charged for 1 CPU instruction. (Using given runtime parameters, on the specific system this is being run on.)
+fn one_cpu_instruction(ctx: &mut EstimatorContext) -> GasCost {
+    eprintln!("Cannot estimate ONE_CPU_INSTRUCTION like any other cost. The result will only show the constant value currently used in the estimator.");
+    GasCost::from_gas(estimator_params::GAS_IN_INSTR, ctx.config.metric)
+}
+
+/// Estimate how much gas is charged for 1 nanosecond of computation. (Using given runtime parameters, on the specific system this is being run on.)
+fn one_nanosecond(ctx: &mut EstimatorContext) -> GasCost {
+    // Currently we don't have a test for this, yet. 1 gas has just always been 1ns.
+    // But it would be useful to go backwards and see how expensive computation time is on specific hardware.
+    eprintln!("Cannot estimate ONE_NANOSECOND like any other cost. The result will only show the constant value currently used in the estimator.");
+    GasCost::from_gas(estimator_params::GAS_IN_NS, ctx.config.metric)
+}
+
 // Helpers
+
+/// Get account id from its index.
+fn get_account_id(account_index: usize) -> AccountId {
+    AccountId::try_from(format!("near_{}_{}", account_index, account_index)).unwrap()
+}
 
 fn transaction_cost(
     testbed: Testbed,

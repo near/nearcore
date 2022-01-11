@@ -73,7 +73,7 @@ impl Default for SealsManagerTestFixture {
             Default::default(),
             Default::default(),
         );
-        let mock_distant_block_hash = mock_distant_block_header.hash().clone();
+        let mock_distant_block_hash = *mock_distant_block_header.hash();
         Self::store_block_header(store, mock_distant_block_header);
 
         Self {
@@ -203,7 +203,7 @@ impl Default for ChunkForwardingTestFixture {
 
         const TEST_SEED: RngSeed = [3; 32];
         let mut producer_shard_manager = ShardsManager::new(
-            Some(mock_chunk_producer.clone()),
+            Some(mock_chunk_producer),
             mock_runtime.clone(),
             mock_network.clone(),
             TEST_SEED,
@@ -242,11 +242,8 @@ impl Default for ChunkForwardingTestFixture {
                 mock_runtime.get_part_owner(&mock_parent_hash, *p).unwrap() == mock_chunk_part_owner
             })
             .collect();
-        let encoded_chunk = mock_chunk.create_partial_encoded_chunk(
-            all_part_ords.clone(),
-            Vec::new(),
-            &mock_merkles,
-        );
+        let encoded_chunk =
+            mock_chunk.create_partial_encoded_chunk(all_part_ords, Vec::new(), &mock_merkles);
         let chain_store = ChainStore::new(store, 0);
 
         ChunkForwardingTestFixture {

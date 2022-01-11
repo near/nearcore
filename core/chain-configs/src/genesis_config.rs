@@ -8,6 +8,7 @@ use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::{fmt, io};
 
+use anyhow::Context;
 use chrono::{DateTime, Utc};
 use num_rational::Rational;
 use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
@@ -71,7 +72,7 @@ fn default_num_chunk_only_producer_seats() -> u64 {
 }
 
 fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
-    return Some(ShardLayout::v1(
+    Some(ShardLayout::v1(
         vec![],
         vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
             .into_iter()
@@ -79,7 +80,7 @@ fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
             .collect(),
         Some(vec![vec![0, 1, 2, 3]]),
         1,
-    ));
+    ))
 }
 
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
@@ -297,11 +298,12 @@ impl GenesisConfig {
     ///
     /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
     /// GenesisConfig structure.
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
-        let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
-        let genesis_config: GenesisConfig =
-            serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.");
-        genesis_config
+    pub fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
+        let file = File::open(path).with_context(|| "Could not open genesis config file.")?;
+        let reader = BufReader::new(file);
+        let genesis_config: GenesisConfig = serde_json::from_reader(reader)
+            .with_context(|| "Failed to deserialize the genesis records.")?;
+        Ok(genesis_config)
     }
 
     /// Writes GenesisConfig to the file.
@@ -496,7 +498,7 @@ impl Genesis {
         P1: AsRef<Path>,
         P2: AsRef<Path>,
     {
-        let config = GenesisConfig::from_file(config_path);
+        let config = GenesisConfig::from_file(config_path).unwrap();
         let records = GenesisRecords::from_file(records_path);
         Self::new(config, records)
     }

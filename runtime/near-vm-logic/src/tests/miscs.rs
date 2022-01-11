@@ -16,7 +16,7 @@ fn test_valid_utf8() {
     let len = string_bytes.len() as u64;
     logic.log_utf8(len, string_bytes.as_ptr() as _).expect("Valid utf-8 string_bytes");
     let outcome = logic.outcome();
-    assert_eq!(outcome.logs[0], String::from_utf8(string_bytes.clone()).unwrap());
+    assert_eq!(outcome.logs[0], String::from_utf8(string_bytes).unwrap());
     assert_costs(map! {
         ExtCosts::base: 1,
         ExtCosts::log_base:  1,

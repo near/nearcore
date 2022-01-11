@@ -123,8 +123,7 @@ def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
 
         # Check current height
         try:
-            status = rpc_node.get_status(False)
-            new_height = status['sync_info']['latest_block_height']
+            new_height = rpc_node.get_latest_block(check_storage=False).height
             logging.info(f"Height: {latest_height} => {new_height}")
             latest_height = new_height
         except requests.ReadTimeout:

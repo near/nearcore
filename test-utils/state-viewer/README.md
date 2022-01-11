@@ -88,17 +88,28 @@ Flags:
 
 * `--height` takes state from the genesis up to and including the given height. By default, dumps all available state.
 
-### `dump_contracts`
+### `rocksdb_stats`
 
-Dump all **distinct** contracts from the current state of the DB to JSON file.
+Tool for measuring statistics of the store for each column:
+- number of entries
+- column size
+- total keys size
+- total values size
 
-File format is a dictionary which maps account ID to base64-encoded contract code.
+Before running, install `sst_dump` tool as follows:
 
-As of 13/12/2021, takes 1m to run, size of resulting file is ~100 MB.
+```shell
+git clone https://github.com/facebook/rocksdb.git
+cd rocksdb
+make sst_dump
+sudo cp sst_dump /usr/local/bin/
+```
 
-Flags:
+Should take ~2m for RPC node and 45m for archival node as of 4 Jan 2022.
 
-* `--output` specifies a file to which contracts will be saved.
+#### Output
+
+List of statistics for each column sorted by column size.
 
 #### Running on macOS
 
