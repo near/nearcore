@@ -1162,24 +1162,21 @@ async fn download_file_impl(
     let https_connector = hyper_tls::HttpsConnector::new();
     let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
     let mut resp = client.get(uri).await.map_err(FileDownloadError::HttpError)?;
-    let bar = match resp.size_hint().upper() {
-        Some(file_size) => {
-            let bar = ProgressBar::new(file_size);
-            bar.set_style(
-                ProgressStyle::default_bar().template(
-                    "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} [{bytes_per_sec}] ({eta})"
-                ).progress_chars("#>-")
-            );
-            bar
-        }
-        None => {
-            let bar = ProgressBar::new_spinner();
-            bar.set_style(
-                ProgressStyle::default_bar()
-                    .template("{spinner:.green} [{elapsed_precise}] {bytes} [{bytes_per_sec}]"),
-            );
-            bar
-        }
+    let bar = if let Some(file_size) = resp.size_hint().upper() {
+        let bar = ProgressBar::new(file_size);
+        bar.set_style(
+            ProgressStyle::default_bar().template(
+                "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} [{bytes_per_sec}] ({eta})"
+            ).progress_chars("#>-")
+        );
+        bar
+    } else {
+        let bar = ProgressBar::new_spinner();
+        bar.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} [{elapsed_precise}] {bytes} [{bytes_per_sec}]"),
+        );
+        bar
     };
     while let Some(next_chunk_result) = resp.data().await {
         let next_chunk = next_chunk_result.map_err(FileDownloadError::HttpError)?;
