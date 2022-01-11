@@ -11,7 +11,7 @@ use near_network::iter_peers_from_store;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::{to_base, to_base64};
+use near_primitives::serialize::to_base;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{is_contract_code_key, StateRecord};
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_contract_code_key;
@@ -61,12 +61,14 @@ pub(crate) fn dump_contracts(
     std::fs::create_dir_all(output);
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
-        let trie = TrieIterator::new(&trie, state_root).unwrap();
+        let mut trie = TrieIterator::new(&trie, state_root).unwrap();
+        // trie.seek(CONTRACT_CODE)
         // Optimization: contract nodes form a contiguous segment in the set of nodes with values, so if we touched a
         // contract node and then touched a non-contract node, then we can stop iterating.
         let mut touched_contract_node = false;
         for item in trie {
             let (key, value) = item.unwrap();
+            eprintln!("{:?}", StateRecord::from_raw_key_value(key, value));
             if is_contract_code_key(&key) {
                 touched_contract_node = true;
                 let account_id = parse_account_id_from_contract_code_key(&key).unwrap();
