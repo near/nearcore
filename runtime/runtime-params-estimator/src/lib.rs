@@ -617,6 +617,7 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
             "cpu_ram_soak_test",
             &mut fake_external,
             context,
+            &config,
             &fees,
             &promise_results,
             PROTOCOL_VERSION,

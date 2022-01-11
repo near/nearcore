@@ -41,6 +41,7 @@ pub fn run(
             method_name,
             ext,
             context,
+            wasm_config,
             fees_config,
             promise_results,
             current_protocol_version,
@@ -68,6 +69,7 @@ pub trait VM {
         method_name: &str,
         ext: &mut dyn External,
         context: VMContext,
+        wasm_config: &VMConfig,
         fees_config: &RuntimeFeesConfig,
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
@@ -82,6 +84,7 @@ pub trait VM {
         &self,
         code: &[u8],
         code_hash: &CryptoHash,
+        wasm_config: &VMConfig,
         cache: &dyn CompiledContractCache,
     ) -> Option<VMError>;
 
@@ -98,11 +101,20 @@ impl VMKind {
     pub fn runtime(&self, config: VMConfig) -> Option<Box<dyn VM>> {
         match self {
             #[cfg(feature = "wasmer0_vm")]
-            Self::Wasmer0 => Some(Box::new(crate::wasmer_runner::Wasmer0VM::new(config))),
+            Self::Wasmer0 => {
+                use crate::wasmer_runner::Wasmer0VM;
+                Some(Box::new(Wasmer0VM))
+            }
             #[cfg(feature = "wasmtime_vm")]
-            Self::Wasmtime => Some(Box::new(crate::wasmtime_runner::WasmtimeVM::new(config))),
+            Self::Wasmtime => {
+                use crate::wasmtime_runner::WasmtimeVM;
+                Some(Box::new(WasmtimeVM))
+            }
             #[cfg(feature = "wasmer2_vm")]
-            Self::Wasmer2 => Some(Box::new(crate::wasmer2_runner::Wasmer2VM::new(config))),
+            Self::Wasmer2 => {
+                use crate::wasmer2_runner::Wasmer2VM;
+                Some(Box::new(Wasmer2VM::new(config)))
+            }
             #[allow(unreachable_patterns)] // reachable when some of the VMs are disabled.
             _ => None,
         }
