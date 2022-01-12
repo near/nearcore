@@ -1,15 +1,17 @@
 use std::io::prelude::*;
 
 use rand::Rng;
+use rand_xorshift::XorShiftRng;
 use rocksdb::DB;
 
 use crate::{config::Config, gas_cost::GasCost};
 
 const MEMTABLE_SIZE: u64 = 256 * bytesize::MIB;
 
-pub(crate) fn rocks_db_sequential_inserts_cost(
+pub(crate) fn rocks_db_inserts_cost(
     config: &Config,
     force_compaction: bool,
+    sequential: bool,
     value_size: usize,
     inserts: usize,
 ) -> GasCost {
@@ -27,7 +29,13 @@ pub(crate) fn rocks_db_sequential_inserts_cost(
     // 8 files at level 1
     // 16 files at level 2
     let setup_inserts = 8 * MEMTABLE_SIZE as usize / value_size;
-    sequential_inserts(setup_inserts, value_size, &data, 0, &db, force_compaction);
+    if sequential {
+        let key_offset = 0;
+        sequential_inserts(setup_inserts, value_size, &data, key_offset, &db, force_compaction);
+    } else {
+        let key_seed = 0;
+        prandom_inserts(setup_inserts, value_size, &data, key_seed, &db, force_compaction);
+    }
 
     if config.debug_rocksb {
         println!("# After setup:");
@@ -43,7 +51,12 @@ pub(crate) fn rocks_db_sequential_inserts_cost(
 
     let gas_counter = GasCost::measure(config.metric);
 
-    sequential_inserts(inserts, value_size, &data, setup_inserts, &db, force_compaction);
+    if sequential {
+        sequential_inserts(inserts, value_size, &data, setup_inserts, &db, force_compaction);
+    } else {
+        let key_seed = 0x0465b6733af62af0u64;
+        prandom_inserts(setup_inserts, value_size, &data, key_seed, &db, force_compaction);
+    }
 
     let cost = gas_counter.elapsed();
 
@@ -91,6 +104,31 @@ fn sequential_inserts(
 ) {
     for i in 0..inserts {
         let key = (key_offset + i).to_string();
+        let start = (i * value_size) % (input_data.len() - value_size);
+        let value = &input_data[start..(start + value_size)];
+        db.put(&key, value).expect("Put failed");
+    }
+    db.flush().expect("Flush failed");
+    if force_compaction {
+        db.compact_range::<&[u8], &[u8]>(None, None);
+    }
+}
+
+/// Insert a number of generated key-value pairs and flushes
+///
+/// Keys are pseudo-random and deterministic based on the seed
+/// Values are different slices taken from `input_data`
+fn prandom_inserts(
+    inserts: usize,
+    value_size: usize,
+    input_data: &[u8],
+    key_seed: u64,
+    db: &DB,
+    force_compaction: bool,
+) {
+    let mut prng: XorShiftRng = rand::SeedableRng::seed_from_u64(key_seed);
+    for i in 0..inserts {
+        let key = prng.gen::<u64>().to_string();
         let start = (i * value_size) % (input_data.len() - value_size);
         let value = &input_data[start..(start + value_size)];
         db.put(&key, value).expect("Put failed");
