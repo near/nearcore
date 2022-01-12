@@ -32,6 +32,7 @@ def retry_and_ignore_errors(f):
         try:
             return f()
         except Exception as e:
+            time.sleep(0.1 * 2**attempt)
             continue
     return None
 

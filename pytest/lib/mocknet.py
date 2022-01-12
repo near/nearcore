@@ -956,7 +956,7 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
                 print(f'{node_account_name(node.instance_name)} {staked}')
 
         else:
-            for i, node in enumerate(validator_nodes):
+            for node in validator_nodes:
                 stakes.append((MIN_STAKE, node.instance_name))
         logger.info(f'create_upgrade_schedule {stakes}')
 
@@ -965,7 +965,7 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
 
         seats_upgraded = 0
         for seat, stake, instance_name in seats:
-            # As the protocol upgrade takes place after 80% of the nodes arei
+            # As the protocol upgrade takes place after 80% of the nodes are
             # upgraded, stop a bit earlier to start in a non-upgraded state.
             if (seats_upgraded + seat) * 100 > 75 * num_block_producer_seats:
                 break
