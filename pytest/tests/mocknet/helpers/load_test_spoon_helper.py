@@ -24,7 +24,7 @@ LOCAL_ADDR = '127.0.0.1'
 RPC_PORT = '3030'
 # We need to slowly deploy contracts, otherwise we stall out the nodes
 CONTRACT_DEPLOY_TIME = 10 * mocknet.NUM_ACCOUNTS
-TEST_TIMEOUT = 24 * 60 * 60
+TEST_TIMEOUT = 12 * 60 * 60
 
 
 def retry_and_ignore_errors(f):
@@ -248,7 +248,8 @@ def init_ft(node_account):
 def init_ft_account(node_account, account, i):
     s = f'{{"account_id": "{account.key.account_id}"}}'
     tx_res = retry_and_ignore_errors(lambda: account.send_call_contract_raw_tx(
-        node_account.key.account_id, 'storage_deposit', s.encode('utf-8'), (10**24) // 800))
+        node_account.key.account_id, 'storage_deposit', s.encode('utf-8'),
+        (10**24) // 800))
     logger.info(f'Account {account.key.account_id} storage_deposit {tx_res}')
 
     # The next transaction depends on the previous transaction succeeded.
