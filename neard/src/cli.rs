@@ -387,13 +387,13 @@ impl LocalnetCmd {
 }
 
 fn init_logging(verbose: Option<&str>) {
-    const DEFALUT_RUST_LOG: &'static str =
+    const DEFAULT_RUST_LOG: &'static str =
         "tokio_reactor=info,near=info,stats=info,telemetry=info,\
          delay_detector=info,near-performance-metrics=info,\
          near-rust-allocator-proxy=info";
 
     let rust_log = env::var("RUST_LOG");
-    let rust_log = rust_log.as_ref().map(String::as_str).unwrap_or(DEFALUT_RUST_LOG);
+    let rust_log = rust_log.as_ref().map(String::as_str).unwrap_or(DEFAULT_RUST_LOG);
     let mut env_filter = EnvFilter::new(rust_log);
 
     if let Some(module) = verbose {
