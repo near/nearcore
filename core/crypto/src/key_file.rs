@@ -28,10 +28,10 @@ impl KeyFile {
         file.write_all(str.as_bytes())
     }
 
-    pub fn from_file(path: &Path) -> Self {
-        let mut file = File::open(path).expect("Could not open key file.");
+    pub fn from_file(path: &Path) -> std::io::Result<Self> {
+        let mut file = File::open(path)?;
         let mut content = String::new();
-        file.read_to_string(&mut content).expect("Could not read from key file.");
-        serde_json::from_str(&content).expect("Failed to deserialize KeyFile")
+        file.read_to_string(&mut content)?;
+        Ok(serde_json::from_str(&content)?)
     }
 }

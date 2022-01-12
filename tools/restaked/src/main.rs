@@ -70,9 +70,23 @@ fn main() {
         .unwrap();
 
     let config = Config::from_file(&home_dir.join(CONFIG_FILENAME)).expect("can't load config");
-    let key_file = KeyFile::from_file(&home_dir.join(&config.validator_key_file));
+
+    let key_path = home_dir.join(&config.validator_key_file);
+    let key_file = match KeyFile::from_file(&key_path) {
+        Ok(f) => f,
+        Err(e) => {
+            error!("Failed to open key file at {:?}: {:#}", &key_path, e);
+            return;
+        }
+    };
     // Support configuring if there is another key.
-    let signer = InMemorySigner::from_file(&home_dir.join(&config.validator_key_file));
+    let signer = match InMemorySigner::from_file(&key_path) {
+        Ok(s) => s,
+        Err(e) => {
+            error!("Failed to initialize signer from key file at {:?}: {:#}", key_path, e);
+            return;
+        }
+    };
     let account_id = signer.account_id.clone();
     let mut last_stake_amount = stake_amount;
 

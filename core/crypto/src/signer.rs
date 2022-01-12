@@ -60,8 +60,8 @@ impl InMemorySigner {
         Self { account_id, public_key: secret_key.public_key(), secret_key }
     }
 
-    pub fn from_file(path: &Path) -> Self {
-        KeyFile::from_file(path).into()
+    pub fn from_file(path: &Path) -> std::io::Result<Self> {
+        Ok(KeyFile::from_file(path)?.into())
     }
 }
 

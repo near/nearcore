@@ -1261,9 +1261,9 @@ pub fn load_config(dir: &Path, genesis_validation: GenesisValidationMode) -> Nea
     let config = Config::from_file(&dir.join(CONFIG_FILENAME)).unwrap();
     let genesis_file = dir.join(&config.genesis_file);
     let validator_signer = if dir.join(&config.validator_key_file).exists() {
-        let signer =
-            Arc::new(InMemoryValidatorSigner::from_file(&dir.join(&config.validator_key_file)))
-                as Arc<dyn ValidatorSigner>;
+        let signer = Arc::new(
+            InMemoryValidatorSigner::from_file(&dir.join(&config.validator_key_file)).unwrap(),
+        ) as Arc<dyn ValidatorSigner>;
         Some(signer)
     } else {
         None
