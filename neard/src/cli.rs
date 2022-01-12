@@ -397,10 +397,14 @@ impl LocalnetCmd {
 }
 
 fn init_logging(verbose: Option<&str>) {
-    let mut env_filter = EnvFilter::new(
-        "tokio_reactor=info,near=info,stats=info,telemetry=info,delay_detector=info,\
-         near-performance-metrics=info,near-rust-allocator-proxy=info",
-    );
+    const DEFAULT_RUST_LOG: &'static str =
+        "tokio_reactor=info,near=info,stats=info,telemetry=info,\
+         delay_detector=info,near-performance-metrics=info,\
+         near-rust-allocator-proxy=info";
+
+    let rust_log = env::var("RUST_LOG");
+    let rust_log = rust_log.as_ref().map(String::as_str).unwrap_or(DEFAULT_RUST_LOG);
+    let mut env_filter = EnvFilter::new(rust_log);
 
     if let Some(module) = verbose {
         env_filter = env_filter
@@ -419,19 +423,6 @@ fn init_logging(verbose: Option<&str>) {
         env_filter = env_filter.add_directive(LevelFilter::WARN.into());
     }
 
-    if let Ok(rust_log) = env::var("RUST_LOG") {
-        if !rust_log.is_empty() {
-            for directive in rust_log.split(',').filter_map(|s| match s.parse() {
-                Ok(directive) => Some(directive),
-                Err(err) => {
-                    eprintln!("Ignoring directive `{}`: {}", s, err);
-                    None
-                }
-            }) {
-                env_filter = env_filter.add_directive(directive);
-            }
-        }
-    }
     tracing_subscriber::fmt::Subscriber::builder()
         .with_span_events(
             tracing_subscriber::fmt::format::FmtSpan::ENTER
