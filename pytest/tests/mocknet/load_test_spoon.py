@@ -15,6 +15,23 @@ dump of `mainnet`, `testnet` and `betanet`. Note that `mainnet` and `testnet` st
 You can run multiple tests in parallel, use `--pattern` to disambiguate.
 
 Configure the desirable generated load with the `--max-tps` flag, or disable load altogether with `--skip-load`.
+
+Example from the recent loadtest run:
+1) terraform apply -var="chain_id=mainnet" -var="size=small" -var="override_chain_id=rc3-22" -var="neard_binary_url=https://s3.us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/1.23.0/1eaa01d6abc76757b2ef50a1a127f98576b750c4/neard" -var="upgrade_neard_binary_url=https://near-protocol-public.s3.ca-central-1.amazonaws.com/mocknet/neard.rc3-22"
+2) python3 tests/mocknet/load_test_spoon.py --chain-id=mainnet-spoon --pattern=rc3-22 --epoch-length=1000 --num-nodes=120 --max-tps=100 --script=add_and_delete --increasing-stakes=0 --progressive-upgrade --num-seats=100
+
+Things to look out for when running the test:
+1) Test init phase completes before any binary upgrades start.
+2) At the beginning of each of the first epochs some nodes get upgraded.
+3) If the protocol upgrades becomes effective at epoch T, check that binaries upgraded at epochs T-1, T-2 have started successfully.
+4) BPS and TPS need to be at some sensible values.
+5) CPU usage and RAM usage need to be reasonable as well.
+6) Ideally we should check the percentage of generated transactions that succeed, but there is no easy way to do that. Maybe replay some blocks using `neard view_state apply_range --help`.
+
+Other notes:
+1) This grafana dashboard can help: https://grafana.near.org/d/jHbiNgSnz/mocknet
+2) Logs are in /home/ubuntu/neard.log and /home/ubuntu/neard.upgrade.log
+
 """
 import argparse
 import random
