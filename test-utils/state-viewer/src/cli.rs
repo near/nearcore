@@ -6,6 +6,7 @@ use near_chain_configs::GenesisValidationMode;
 use near_logger_utils::init_integration_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{DB_VERSION, PROTOCOL_VERSION};
 use near_store::{create_store, Store};
@@ -320,7 +321,6 @@ impl RocksDBStatsCmd {
 
 #[derive(Clap)]
 pub struct ReceiptsCmd {
-    /// Location of the dumped Rocks DB stats.
     #[clap(long)]
     receipt_id: String,
 }
@@ -333,7 +333,6 @@ impl ReceiptsCmd {
 
 #[derive(Clap)]
 pub struct ChunksCmd {
-    /// Location of the dumped Rocks DB stats.
     #[clap(long)]
     chunk_hash: String,
 }
@@ -346,7 +345,6 @@ impl ChunksCmd {
 }
 #[derive(Clap)]
 pub struct PartialChunksCmd {
-    /// Location of the dumped Rocks DB stats.
     #[clap(long)]
     partial_chunk_hash: String,
 }
