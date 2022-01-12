@@ -2,13 +2,15 @@ use std::collections::{HashMap, HashSet};
 
 use cached::{Cached, SizedCache};
 
+use log::warn;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ShardChunkHeader,
 };
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
+use std::collections::hash_map::Entry::{Occupied, Vacant};
 
-// This file implements EncodedChunksCache, which provides two main functionalities:
+// This file implements EncodedChunksCache, which provides three main functionalities:
 // 1) It stores a map from a chunk hash to all the parts and receipts received so far for the chunk.
 //    This map is used to aggregate chunk parts and receipts before the full chunk can be reconstructed
 //    or the necessary parts and receipts are received.
@@ -16,7 +18,10 @@ use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 //    corresponding chunk entry in the map.
 //    Entries in the map are removed if the chunk is found to be invalid or the chunk goes out of
 //    horizon [chain_head_height - HEIGHT_HORIZON, chain_head_height + MAX_HEIGHTS_AHEAD]
-// 2) It stores a map from block hash to chunk headers that are ready to be included in a block.
+// 2) It stores a map from block hash to a list of hashes of incomplete chunks whose previous block
+//    hash is the key. A chunk always starts incomplete. It can be marked as complete through
+//    `mark_entry_complete`. A complete entry means the chunk has all parts and receipts needed.
+// 3) It stores a map from block hash to chunk headers that are ready to be included in a block.
 //    This functionality is meant for block producers. When producing a block, the block producer
 //    will only include chunks in the block for which it has received the part it owns.
 //    Users of the data structure are responsible for adding chunk to this map at the right time.
@@ -37,6 +42,14 @@ pub struct EncodedChunksCacheEntry {
     pub header: ShardChunkHeader,
     pub parts: HashMap<u64, PartialEncodedChunkPart>,
     pub receipts: HashMap<ShardId, ReceiptProof>,
+    /// whether this entry has all parts and receipts
+    pub complete: bool,
+    /// whether the header has been **fully** validated
+    /// every entry added to the cache already has their header "partially" validated
+    /// by validate_chunk_header. When the previous block is accepted, they must be
+    /// validated again to make sure they are fully validated.
+    /// See comments in `validate_chunk_header` for more context on partial vs full validation
+    pub header_fully_validated: bool,
 }
 
 pub struct EncodedChunksCache {
@@ -50,6 +63,9 @@ pub struct EncodedChunksCache {
     /// A map from a block height to chunk hashes at this height for all chunk stored in the cache
     /// This is used to gc chunks that are out of horizon
     height_map: HashMap<BlockHeight, HashSet<ChunkHash>>,
+    /// A map from a block hash to a set of incomplete chunks (does not have all parts and receipts yet)
+    /// whose previous block is the block hash.
+    incomplete_chunks: HashMap<CryptoHash, HashSet<ChunkHash>>,
     /// A sized cache mapping a block hash to the chunk headers that are ready
     /// to be included when producing the next block after the block
     block_hash_to_chunk_headers: SizedCache<CryptoHash, HashMap<ShardId, ShardChunkHeader>>,
@@ -57,7 +73,13 @@ pub struct EncodedChunksCache {
 
 impl EncodedChunksCacheEntry {
     pub fn from_chunk_header(header: ShardChunkHeader) -> Self {
-        EncodedChunksCacheEntry { header, parts: HashMap::new(), receipts: HashMap::new() }
+        EncodedChunksCacheEntry {
+            header,
+            parts: HashMap::new(),
+            receipts: HashMap::new(),
+            complete: false,
+            header_fully_validated: false,
+        }
     }
 
     pub fn merge_in_partial_encoded_chunk(
@@ -82,6 +104,7 @@ impl EncodedChunksCache {
             largest_seen_height: 0,
             encoded_chunks: HashMap::new(),
             height_map: HashMap::new(),
+            incomplete_chunks: HashMap::new(),
             block_hash_to_chunk_headers: SizedCache::with_size(NUM_BLOCK_HASH_TO_CHUNK_HEADER),
         }
     }
@@ -90,24 +113,79 @@ impl EncodedChunksCache {
         self.encoded_chunks.get(chunk_hash)
     }
 
+    /// Mark an entry as complete, which means it has all parts and receipts needed
+    pub fn mark_entry_complete(&mut self, chunk_hash: &ChunkHash) {
+        match self.encoded_chunks.entry(chunk_hash.clone()) {
+            Occupied(entry) => {
+                let entry = entry.into_mut();
+                entry.complete = true;
+                let previous_block_hash = entry.header.prev_block_hash();
+                self.remove_incomplete_chunk(previous_block_hash, chunk_hash);
+            }
+            Vacant(_) => {
+                warn!(target:"chunks", "cannot mark non-existent entry as complete {:?}", chunk_hash);
+            }
+        }
+    }
+
+    pub fn mark_entry_validated(&mut self, chunk_hash: ChunkHash) {
+        self.encoded_chunks.entry(chunk_hash).and_modify(|e| {
+            e.header_fully_validated = true;
+        });
+    }
+
+    /// Get a list of incomplete chunks whose previous block hash is `prev_block_hash`
+    pub fn get_incomplete_chunks(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Option<&HashSet<ChunkHash>> {
+        self.incomplete_chunks.get(prev_block_hash)
+    }
+
     pub fn remove(&mut self, chunk_hash: &ChunkHash) -> Option<EncodedChunksCacheEntry> {
-        self.encoded_chunks.remove(chunk_hash)
+        match self.encoded_chunks.entry(chunk_hash.clone()) {
+            Occupied(entry) => {
+                let entry = entry.remove_entry().1;
+                self.remove_incomplete_chunk(entry.header.prev_block_hash(), chunk_hash);
+                Some(entry)
+            }
+            Vacant(_) => None,
+        }
     }
 
-    pub fn insert(&mut self, chunk_hash: ChunkHash, entry: EncodedChunksCacheEntry) {
-        self.height_map
-            .entry(entry.header.height_created())
-            .or_insert_with(|| HashSet::default())
-            .insert(chunk_hash.clone());
-        self.encoded_chunks.insert(chunk_hash, entry);
+    // Remove the chunk from the `incomplete_chunks` map. This is an internal function.
+    // Use `mark_entry_complete` instead for outside calls
+    fn remove_incomplete_chunk(&mut self, prev_block_hash: CryptoHash, chunk_hash: &ChunkHash) {
+        if let Some(mut chunks) = self.incomplete_chunks.remove(&prev_block_hash) {
+            chunks.remove(chunk_hash);
+            if !chunks.is_empty() {
+                self.incomplete_chunks.insert(prev_block_hash, chunks);
+            }
+        }
     }
 
-    // `chunk_header` must be `Some` if the entry is absent, caller must ensure that
+    /// Insert if entry does not exist already
+    pub fn try_insert(&mut self, chunk_hash: ChunkHash, header: &ShardChunkHeader) {
+        self.get_or_insert_from_header(chunk_hash, header);
+    }
+
+    // Create an empty entry from the header and insert it if there is no entry for the chunk already
+    // Return a mutable reference to the entry
     pub fn get_or_insert_from_header(
         &mut self,
         chunk_hash: ChunkHash,
         chunk_header: &ShardChunkHeader,
     ) -> &mut EncodedChunksCacheEntry {
+        if !self.encoded_chunks.contains_key(&chunk_hash) {
+            self.height_map
+                .entry(chunk_header.height_created())
+                .or_insert_with(|| HashSet::default())
+                .insert(chunk_hash.clone());
+            self.incomplete_chunks
+                .entry(chunk_header.prev_block_hash())
+                .or_default()
+                .insert(chunk_hash.clone());
+        }
         self.encoded_chunks
             .entry(chunk_hash)
             .or_insert_with(|| EncodedChunksCacheEntry::from_chunk_header(chunk_header.clone()))
@@ -133,9 +211,7 @@ impl EncodedChunksCache {
         let chunk_hash = partial_encoded_chunk.header.chunk_hash();
         let entry =
             self.get_or_insert_from_header(chunk_hash.clone(), &partial_encoded_chunk.header);
-        let height = entry.header.height_created();
         entry.merge_in_partial_encoded_chunk(partial_encoded_chunk);
-        self.height_map.entry(height).or_insert_with(|| HashSet::default()).insert(chunk_hash);
     }
 
     /// Remove a chunk from the cache if it is outside of horizon
@@ -143,7 +219,7 @@ impl EncodedChunksCache {
         if let Some(entry) = self.encoded_chunks.get(chunk_hash) {
             let height = entry.header.height_created();
             if !self.height_within_horizon(height) {
-                self.encoded_chunks.remove(chunk_hash);
+                self.remove(&chunk_hash);
             }
         }
     }
@@ -162,7 +238,7 @@ impl EncodedChunksCache {
             if let Some(chunks_to_remove) = self.height_map.remove(&height) {
                 for chunk_hash in chunks_to_remove {
                     if !requested_chunks.contains_key(&chunk_hash) {
-                        self.encoded_chunks.remove(&chunk_hash);
+                        self.remove(&chunk_hash);
                     }
                 }
             }

@@ -19,7 +19,7 @@ pub enum VMError {
     CacheError(CacheError),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum FunctionCallError {
     /// Wasm compilation error
     CompilationError(CompilationError),
@@ -67,7 +67,7 @@ pub enum FunctionCallErrorSer {
     ExecutionError(String),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum CacheError {
     ReadError,
     WriteError,
@@ -239,11 +239,10 @@ pub enum VMLogicError {
 
 impl std::error::Error for VMLogicError {}
 
-/// An error that is caused by an operation on an inconsistent state.
-/// E.g. a deserialization error or an integer overflow.
+/// An error that is caused by an operation on an inconsistent state, such as
+/// integer overflow.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InconsistentStateError {
-    StorageError(String),
     /// Math operation with a value from the state resulted in a integer overflow.
     IntegerOverflow,
 }
@@ -380,7 +379,6 @@ impl fmt::Display for VMError {
 impl std::fmt::Display for InconsistentStateError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
-            InconsistentStateError::StorageError(err) => write!(f, "Storage error: {:?}", err),
             InconsistentStateError::IntegerOverflow => write!(
                 f,
                 "Math operation with a value from the state resulted in a integer overflow.",

@@ -48,15 +48,16 @@ def nodocker_init(home_dir, is_release, init_flags):
     subprocess.call(cmd + init_flags)
 
 
-"""Retrieve requested chain id from the flags."""
-
-
 def get_chain_id_from_flags(flags):
-    # TODO this doesn't handle the `--chain-id my-id` syntax which should also be valid
-    chain_id_flags = [flag for flag in flags if flag.startswith('--chain-id=')]
-    if len(chain_id_flags) == 1:
-        return chain_id_flags[0][len('--chain-id='):]
-    return ''
+    """Retrieve requested chain id from the flags."""
+    chain_id = None
+    flags_iter = iter(flags)
+    for flag in flags_iter:
+        if flag.startswith('--chain-id='):
+            chain_id = flag[len('--chain-id='):]
+        elif flag == '--chain-id':
+            chain_id = next(flags_iter, chain_id)
+    return chain_id
 
 
 """Compile given package using cargo"""
@@ -88,7 +89,7 @@ def check_and_setup(nodocker,
     if os.path.exists(os.path.join(home_dir, 'config.json')):
         with open(os.path.join(os.path.join(home_dir, 'genesis.json'))) as fd:
             genesis_config = json.load(fd)
-        if chain_id != '' and genesis_config['chain_id'] != chain_id:
+        if chain_id and genesis_config['chain_id'] != chain_id:
             if chain_id == 'testnet':
                 print(
                     "Folder %s already has network configuration for %s, which is not the official testnet.\n"
@@ -113,7 +114,7 @@ def check_and_setup(nodocker,
     print("Setting up network configuration.")
     if len([x for x in init_flags if x.startswith('--account-id')]) == 0:
         prompt = "Enter your account ID"
-        if chain_id != '':
+        if chain_id:
             prompt += " (leave empty if not going to be a validator): "
         else:
             prompt += ": "
