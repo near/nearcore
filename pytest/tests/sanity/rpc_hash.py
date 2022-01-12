@@ -250,7 +250,7 @@ class HashTestCase(unittest.TestCase):
                                  (header['height'], header['hash']),
                                  (block_id, header))
                 got = compute_block_hash(header, msg_version)
-                self.assertEqual(header['hash'], got)
+                self.assertEqual(header['hash'], got, header)
 
                 if all(header['approvals']):
                     if not got_all_set:
