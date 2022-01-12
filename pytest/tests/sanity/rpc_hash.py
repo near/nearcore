@@ -51,13 +51,6 @@ def compute_block_hash(header: typing.Dict[str, typing.Any],
         assert len(result) == 32, (key, value, len(result))
         return result
 
-    def encode_bitmap(vec: typing.Sequence[bool]) -> bytes:
-        bases = tuple(2**n for n in range(8))
-        return bytes(
-            sum(is_set * base
-                for is_set, base in zip(vec[n:n + 8], bases))
-            for n in range(0, len(vec), 8))
-
     def sha256(*chunks: bytes) -> bytes:
         return hashlib.sha256(b''.join(chunks)).digest()
 
@@ -93,7 +86,7 @@ def compute_block_hash(header: typing.Dict[str, typing.Any],
     inner_rest.random_value = get_hash('random_value')
     # TODO: Handle non-empty list.
     inner_rest.validator_proposals = header['validator_proposals']
-    inner_rest.chunk_mask = encode_bitmap(header['chunk_mask'])
+    inner_rest.chunk_mask = bytes(header['chunk_mask'])
     inner_rest.gas_price = get_int('gas_price')
     inner_rest.total_supply = get_int('total_supply')
     # TODO: Handle non-empty list.
