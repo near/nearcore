@@ -790,58 +790,42 @@ fn add_account_with_key(
     });
 }
 
-enum KeyToGenerate<'a> {
-    Node,
-    Validator(Option<AccountId>),
-    TestValidator(AccountId, Option<&'a str>),
-}
-
-fn generate_key(
-    key: KeyToGenerate<'_>,
+fn generate_or_load_key(
     home_dir: &Path,
     filename: &str,
-    overwrite: bool,
+    account_id: Option<AccountId>,
+    test_seed: Option<&str>,
 ) -> anyhow::Result<Option<InMemorySigner>> {
     let path = home_dir.join(filename);
-    let signer = if !overwrite && path.exists() {
+    if path.exists() {
         // Panics if the key is invalid.
         let signer = InMemorySigner::from_file(&path);
-        match key {
-            KeyToGenerate::Node => {
-                info!(target: "near", "Reuse key {} for {}", signer.public_key(), signer.account_id);
-            }
-            KeyToGenerate::Validator(Some(account_id)) if account_id != signer.account_id => {
+        if let Some(account_id) = account_id {
+            if account_id != signer.account_id {
                 return Err(anyhow!(
                     "‘{}’ contains key for {} but expecting key for {}",
                     path.display(),
                     signer.account_id,
                     account_id
-                ))
-            }
-            _ => {
-                info!(target: "near", "Reuse key {} for {} to stake", signer.public_key(), signer.account_id);
+                ));
             }
         }
-        signer
-    } else {
-        let (is_node_key, account_id, test_seed) = match key {
-            KeyToGenerate::Node => (true, "node".parse()?, None),
-            KeyToGenerate::Validator(None) => return Ok(None),
-            KeyToGenerate::Validator(Some(account_id)) => (false, account_id, None),
-            KeyToGenerate::TestValidator(account_id, test_seed) => (false, account_id, test_seed),
-        };
+        info!(target: "near", "Reusing key {} for {}", signer.public_key(), signer.account_id);
+        Ok(Some(signer))
+    } else if let Some(account_id) = account_id {
         let signer = if let Some(seed) = test_seed {
             InMemorySigner::from_seed(account_id, KeyType::ED25519, seed)
         } else {
             InMemorySigner::from_random(account_id, KeyType::ED25519)
         };
-        info!(target: "near", "Use key {} for {}{}", signer.public_key(), signer.account_id, if is_node_key { "" } else { " to stake" });
+        info!(target: "near", "Using key {} for {}", signer.public_key(), signer.account_id);
         signer
             .write_to_file(&path)
             .with_context(|| anyhow!("Failed saving key to ‘{}’", path.display()))?;
-        signer
-    };
-    Ok(Some(signer))
+        Ok(Some(signer))
+    } else {
+        Ok(None)
+    }
 }
 
 pub fn mainnet_genesis() -> Genesis {
@@ -917,13 +901,8 @@ pub fn init_configs(
 
             let genesis = mainnet_genesis();
 
-            generate_key(
-                KeyToGenerate::Validator(account_id),
-                dir,
-                &config.validator_key_file,
-                false,
-            )?;
-            generate_key(KeyToGenerate::Node, dir, &config.node_key_file, false)?;
+            generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
+            generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
 
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
@@ -937,13 +916,8 @@ pub fn init_configs(
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
             })?;
 
-            generate_key(
-                KeyToGenerate::Validator(account_id),
-                dir,
-                &config.validator_key_file,
-                false,
-            )?;
-            generate_key(KeyToGenerate::Node, dir, &config.node_key_file, false)?;
+            generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
+            generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
 
             // download genesis from s3
             let genesis_path = dir.join("genesis.json");
@@ -990,14 +964,10 @@ pub fn init_configs(
             })?;
 
             let account_id = account_id.unwrap_or_else(|| "test.near".parse().unwrap());
-            let signer = generate_key(
-                KeyToGenerate::TestValidator(account_id, test_seed),
-                dir,
-                &config.node_key_file,
-                true,
-            )?
-            .unwrap();
-            generate_key(KeyToGenerate::Node, dir, &config.node_key_file, true)?;
+            let signer =
+                generate_or_load_key(dir, &config.validator_key_file, Some(account_id), test_seed)?
+                    .unwrap();
+            generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
 
             let mut records = vec![];
             add_account_with_key(
