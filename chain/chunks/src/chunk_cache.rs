@@ -8,7 +8,7 @@ use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ShardChunkHeader,
 };
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
-use std::collections::hash_map::Entry::{Occupied, Vacant};
+use std::collections::hash_map::Entry::Occupied;
 
 // This file implements EncodedChunksCache, which provides three main functionalities:
 // 1) It stores a map from a chunk hash to all the parts and receipts received so far for the chunk.
@@ -18,8 +18,8 @@ use std::collections::hash_map::Entry::{Occupied, Vacant};
 //    corresponding chunk entry in the map.
 //    Entries in the map are removed if the chunk is found to be invalid or the chunk goes out of
 //    horizon [chain_head_height - HEIGHT_HORIZON, chain_head_height + MAX_HEIGHTS_AHEAD]
-// 2) It stores a map from block hash to a list of hashes of incomplete chunks whose previous block
-//    hash is the key. A chunk always starts incomplete. It can be marked as complete through
+// 2) It stores the set of incomplete chunks, indexed by the block hash of the previous block.
+//    A chunk always starts incomplete. It can be marked as complete through
 //    `mark_entry_complete`. A complete entry means the chunk has all parts and receipts needed.
 // 3) It stores a map from block hash to chunk headers that are ready to be included in a block.
 //    This functionality is meant for block producers. When producing a block, the block producer
@@ -44,8 +44,8 @@ pub struct EncodedChunksCacheEntry {
     pub receipts: HashMap<ShardId, ReceiptProof>,
     /// whether this entry has all parts and receipts
     pub complete: bool,
-    /// whether the header has been **fully** validated
-    /// every entry added to the cache already has their header "partially" validated
+    /// Whether the header has been **fully** validated.
+    /// Every entry added to the cache already has their header "partially" validated
     /// by validate_chunk_header. When the previous block is accepted, they must be
     /// validated again to make sure they are fully validated.
     /// See comments in `validate_chunk_header` for more context on partial vs full validation
@@ -115,23 +115,21 @@ impl EncodedChunksCache {
 
     /// Mark an entry as complete, which means it has all parts and receipts needed
     pub fn mark_entry_complete(&mut self, chunk_hash: &ChunkHash) {
-        match self.encoded_chunks.entry(chunk_hash.clone()) {
-            Occupied(entry) => {
-                let entry = entry.into_mut();
-                entry.complete = true;
-                let previous_block_hash = entry.header.prev_block_hash();
-                self.remove_incomplete_chunk(previous_block_hash, chunk_hash);
-            }
-            Vacant(_) => {
-                warn!(target:"chunks", "cannot mark non-existent entry as complete {:?}", chunk_hash);
-            }
+        if let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) {
+            entry.complete = true;
+            let previous_block_hash = entry.header.prev_block_hash();
+            self.remove_incomplete_chunk(previous_block_hash, chunk_hash);
+        } else {
+            warn!(target:"chunks", "cannot mark non-existent entry as complete {:?}", chunk_hash);
         }
     }
 
-    pub fn mark_entry_validated(&mut self, chunk_hash: ChunkHash) {
-        self.encoded_chunks.entry(chunk_hash).and_modify(|e| {
-            e.header_fully_validated = true;
-        });
+    pub fn mark_entry_validated(&mut self, chunk_hash: &ChunkHash) {
+        if let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) {
+            entry.header_fully_validated = true;
+        } else {
+            warn!("no entry exist {:?}", chunk_hash);
+        }
     }
 
     /// Get a list of incomplete chunks whose previous block hash is `prev_block_hash`
@@ -143,23 +141,21 @@ impl EncodedChunksCache {
     }
 
     pub fn remove(&mut self, chunk_hash: &ChunkHash) -> Option<EncodedChunksCacheEntry> {
-        match self.encoded_chunks.entry(chunk_hash.clone()) {
-            Occupied(entry) => {
-                let entry = entry.remove_entry().1;
-                self.remove_incomplete_chunk(entry.header.prev_block_hash(), chunk_hash);
-                Some(entry)
-            }
-            Vacant(_) => None,
+        if let Some(entry) = self.encoded_chunks.remove(chunk_hash) {
+            self.remove_incomplete_chunk(entry.header.prev_block_hash(), chunk_hash);
+            Some(entry)
+        } else {
+            None
         }
     }
 
     // Remove the chunk from the `incomplete_chunks` map. This is an internal function.
     // Use `mark_entry_complete` instead for outside calls
     fn remove_incomplete_chunk(&mut self, prev_block_hash: CryptoHash, chunk_hash: &ChunkHash) {
-        if let Some(mut chunks) = self.incomplete_chunks.remove(&prev_block_hash) {
-            chunks.remove(chunk_hash);
-            if !chunks.is_empty() {
-                self.incomplete_chunks.insert(prev_block_hash, chunks);
+        if let Occupied(mut entry) = self.incomplete_chunks.entry(prev_block_hash) {
+            entry.get_mut().remove(chunk_hash);
+            if !entry.get().is_empty() {
+                entry.remove();
             }
         }
     }

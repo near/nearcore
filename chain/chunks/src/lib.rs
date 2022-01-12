@@ -1,54 +1,4 @@
-use std::cmp;
-use std::collections::{btree_map, hash_map, BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
-use borsh::BorshSerialize;
-use cached::{Cached, SizedCache};
-use chrono::DateTime;
-use log::{debug, error, warn};
-use near_primitives::time::Utc;
-use rand::seq::IteratorRandom;
-use rand::seq::SliceRandom;
-
-use near_chain::validate::validate_chunk_proofs;
-use near_chain::{
-    byzantine_assert, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind, RuntimeAdapter,
-};
-use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
-use near_pool::{PoolIteratorWrapper, TransactionPool};
-use near_primitives::block::Tip;
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::{merklize, verify_path, MerklePath};
-use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{
-    ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart,
-    PartialEncodedChunkV1, PartialEncodedChunkV2, ReceiptList, ReceiptProof, ReedSolomonWrapper,
-    ShardChunkHeader, ShardProof,
-};
-use near_primitives::time::Clock;
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, ShardId, StateRoot,
-};
-use near_primitives::utils::MaybeValidated;
-use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::ProtocolVersion;
-use near_primitives::{checked_feature, unwrap_or_return};
-
-use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
-use near_chain::near_chain_primitives::error::ErrorKind::DBNotFoundErr;
-pub use near_chunks_primitives::Error;
-use near_network_primitives::types::{
-    AccountIdOrPeerTrackingShard, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg,
-};
-use near_primitives::epoch_manager::RngSeed;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
-use rand::Rng;
-
-// This file implements ShardManager, which handles chunks requesting and processing.
+//! This module implements ShardManager, which handles chunks requesting and processing.
 // Since blocks only contain chunk headers, full chunks must be communicated separately.
 // For data availability, information in a chunk is divided into parts by Reed Solomon encoding,
 // and each validator holds a subset of parts of each chunk (a validator is called the owner
@@ -67,7 +17,7 @@ use rand::Rng;
 // - by receiving a PartialEncodedChunkForward, which is sent from part owners to validators who
 //   track the shard, when a validator first receives a part it owns.
 //   TODO: this is actually not the current behavior. https://github.com/near/nearcore/issues/5886
-// Note that last two messages are only be sent from validators to validators, so the only way a
+// Note that last two messages can only be sent from validators to validators, so the only way a
 // non-validator receives a partial encoded chunk is by requesting it.
 //
 // ** Requesting for chunks
@@ -126,6 +76,56 @@ use rand::Rng;
 // We also guarantee that all entries stored inside ShardsManager::encoded_chunks have the chunk header
 // at least "partially" validated by `validate_chunk_header` (see the comments there for what "partial"
 // validation means).
+
+use std::cmp;
+use std::collections::{btree_map, hash_map, BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use borsh::BorshSerialize;
+use cached::{Cached, SizedCache};
+use chrono::DateTime;
+use log::{debug, error, warn};
+use near_primitives::time::Utc;
+use rand::seq::IteratorRandom;
+use rand::seq::SliceRandom;
+
+use near_chain::validate::validate_chunk_proofs;
+use near_chain::{
+    byzantine_assert, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind, RuntimeAdapter,
+};
+use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
+use near_pool::{PoolIteratorWrapper, TransactionPool};
+use near_primitives::block::Tip;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::merkle::{merklize, verify_path, MerklePath};
+use near_primitives::receipt::Receipt;
+use near_primitives::sharding::{
+    ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart,
+    PartialEncodedChunkV1, PartialEncodedChunkV2, ReceiptList, ReceiptProof, ReedSolomonWrapper,
+    ShardChunkHeader, ShardProof,
+};
+use near_primitives::time::Clock;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, ShardId, StateRoot,
+};
+use near_primitives::utils::MaybeValidated;
+use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::ProtocolVersion;
+use near_primitives::{checked_feature, unwrap_or_return};
+
+use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
+use near_chain::near_chain_primitives::error::ErrorKind::DBNotFoundErr;
+pub use near_chunks_primitives::Error;
+use near_network_primitives::types::{
+    AccountIdOrPeerTrackingShard, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
+    PartialEncodedChunkResponseMsg,
+};
+use near_primitives::epoch_manager::RngSeed;
+use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
+use rand::Rng;
 
 mod chunk_cache;
 pub mod test_utils;
@@ -1538,7 +1538,7 @@ impl ShardsManager {
                 let res = self.validate_chunk_header(None, header);
                 match res {
                     Ok(()) => {
-                        self.encoded_chunks.mark_entry_validated(chunk_hash.clone());
+                        self.encoded_chunks.mark_entry_validated(&chunk_hash);
                     }
                     Err(err) => {
                         return match err {
