@@ -1,6 +1,7 @@
 use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION};
 use clap::{AppSettings, Clap};
 use futures::future::FutureExt;
+use near_chain_configs::GenesisValidationMode;
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use nearcore::get_store_path;
@@ -40,6 +41,11 @@ impl NeardCmd {
         }
 
         let home_dir = neard_cmd.opts.home;
+        let genesis_validation = if neard_cmd.opts.unsafe_fast_startup {
+            GenesisValidationMode::UnsafeFast
+        } else {
+            GenesisValidationMode::Full
+        };
 
         match neard_cmd.subcmd {
             NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
@@ -48,7 +54,7 @@ impl NeardCmd {
                 warn!("The 'testnet' command has been renamed to 'localnet' and will be removed in the future");
                 cmd.run(&home_dir);
             }
-            NeardSubCommand::Run(cmd) => cmd.run(&home_dir),
+            NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation),
 
             NeardSubCommand::UnsafeResetData => {
                 let store_path = get_store_path(&home_dir);
@@ -60,7 +66,7 @@ impl NeardCmd {
                 fs::remove_dir_all(home_dir).expect("Removing data and config failed.");
             }
             NeardSubCommand::StateViewer(cmd) => {
-                cmd.run(&home_dir);
+                cmd.run(&home_dir, genesis_validation);
             }
         }
     }
@@ -75,6 +81,10 @@ struct NeardOpts {
     /// Directory for config and data.
     #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
     home: PathBuf,
+    /// Skips consistency checks of the 'genesis.json' file upon startup.
+    /// Let's you start `neard` slightly faster.
+    #[clap(long)]
+    pub unsafe_fast_startup: bool,
 }
 
 impl NeardOpts {
@@ -100,12 +110,13 @@ pub(super) enum NeardSubCommand {
     // TODO(#4372): Deprecated since 1.24.  Delete it in a couple of releases in 2022.
     #[clap(name = "testnet")]
     Testnet(LocalnetCmd),
-    /// (unsafe) Remove all the config, keys, data and effectively removing all information about
-    /// the network
+    /// (unsafe) Remove the entire NEAR home directory (which includes the
+    /// configuration, genesis files, private keys and data).  This effectively
+    /// removes all information about the network.
     #[clap(name = "unsafe_reset_all")]
     UnsafeResetAll,
     /// (unsafe) Remove all the data, effectively resetting node to the genesis state (keeps genesis and
-    /// config)
+    /// config).
     #[clap(name = "unsafe_reset_data")]
     UnsafeResetData,
     /// View DB state.
@@ -265,9 +276,9 @@ pub(super) struct RunCmd {
 }
 
 impl RunCmd {
-    pub(super) fn run(self, home_dir: &Path) {
+    pub(super) fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
         // Load configs from home.
-        let mut near_config = nearcore::config::load_config_without_genesis_records(home_dir);
+        let mut near_config = nearcore::config::load_config(home_dir, genesis_validation);
 
         check_release_build(&near_config.client_config.chain_id);
 
@@ -387,10 +398,14 @@ impl LocalnetCmd {
 }
 
 fn init_logging(verbose: Option<&str>) {
-    let mut env_filter = EnvFilter::new(
-        "tokio_reactor=info,near=info,stats=info,telemetry=info,delay_detector=info,\
-         near-performance-metrics=info,near-rust-allocator-proxy=info",
-    );
+    const DEFAULT_RUST_LOG: &'static str =
+        "tokio_reactor=info,near=info,stats=info,telemetry=info,\
+         delay_detector=info,near-performance-metrics=info,\
+         near-rust-allocator-proxy=info";
+
+    let rust_log = env::var("RUST_LOG");
+    let rust_log = rust_log.as_ref().map(String::as_str).unwrap_or(DEFAULT_RUST_LOG);
+    let mut env_filter = EnvFilter::new(rust_log);
 
     if let Some(module) = verbose {
         env_filter = env_filter
@@ -409,19 +424,6 @@ fn init_logging(verbose: Option<&str>) {
         env_filter = env_filter.add_directive(LevelFilter::WARN.into());
     }
 
-    if let Ok(rust_log) = env::var("RUST_LOG") {
-        if !rust_log.is_empty() {
-            for directive in rust_log.split(',').filter_map(|s| match s.parse() {
-                Ok(directive) => Some(directive),
-                Err(err) => {
-                    eprintln!("Ignoring directive `{}`: {}", s, err);
-                    None
-                }
-            }) {
-                env_filter = env_filter.add_directive(directive);
-            }
-        }
-    }
     tracing_subscriber::fmt::Subscriber::builder()
         .with_span_events(
             tracing_subscriber::fmt::format::FmtSpan::ENTER
