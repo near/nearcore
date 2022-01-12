@@ -3400,6 +3400,7 @@ dependencies = [
  "clap 3.0.0-beta.2",
  "futures",
  "git-version",
+ "near-chain-configs",
  "near-performance-metrics",
  "near-primitives",
  "near-rust-allocator-proxy",
@@ -4356,6 +4357,7 @@ version = "0.0.0"
 dependencies = [
  "clap 3.0.0-beta.2",
  "near-chain",
+ "near-chain-configs",
  "near-jsonrpc",
  "near-primitives",
  "near-store",
