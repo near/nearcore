@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+
+import pathlib
+import shlex
+import subprocess
+import sys
+import typing
+
+try:
+    import colorama
+    RED = colorama.Fore.RED
+    GREEN = colorama.Fore.GREEN
+    RESET_ALL = colorama.Style.RESET_ALL
+except ImportError:
+    RED = GREEN = RESET_ALL = ''
+
+SELF_FILE = pathlib.Path(__file__).resolve()
+REPO_DIR = SELF_FILE.parent.parent
+SELF_RELATIVE = SELF_FILE.relative_to(REPO_DIR)
+
+
+def run(args: typing.Sequence[typing.Union[str, pathlib.Path]]) -> bool:
+    print('+ ' + ' '.join(shlex.quote(str(arg)) for arg in args),
+          file=sys.stderr)
+    return subprocess.run(args,
+                          cwd=REPO_DIR,
+                          stdin=subprocess.DEVNULL,
+                          check=False).returncode == 0
+
+
+def run_tools(*, check: bool) -> str:
+    langs = []
+
+    if not run(('cargo', 'fmt') + (('--', '--check') if check else ())):
+        langs.append('Rust')
+
+    try:
+        import yapf as _
+        has_yapf = True
+    except ImportError:
+        has_yapf = run((sys.executable, '-m', 'pip', 'install', 'yapf'))
+
+    flag = '-pdr' if check else '-pir'
+    args = ('pytest', 'script', SELF_FILE)
+    if not has_yapf or not run((sys.executable, '-m', 'yapf', flag) + args):
+        langs.append('Python')
+
+    return ' and '.join(langs)
+
+
+def main(argv: typing.Sequence[str]) -> typing.Optional[str]:
+    if len(argv) != 2 or argv[1] not in ('--fix', '--check'):
+        return 'usage: {} (--check | --fix)'.format(shlex.quote(argv[0]))
+
+    check = argv[1] == '--check'
+    what_broke = run_tools(check=check)
+    if not what_broke:
+        print(f'{GREEN}All {"good" if check else "fixed"}.{RESET_ALL}')
+        return None
+    elif check:
+        return f'''
+{RED}Found formatting issues in {what_broke} code.{RESET_ALL}
+Please fix by running:
+    ./{SELF_RELATIVE} --fix'''
+    else:
+        return f'\n{RED}Failed fixing {what_broke} code.{RESET_ALL}\n'
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv))

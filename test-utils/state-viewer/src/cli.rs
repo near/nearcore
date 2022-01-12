@@ -1,5 +1,6 @@
 use crate::commands::*;
 use crate::epoch_info;
+use crate::rocksdb_stats::get_rocksdb_stats;
 use clap::{AppSettings, Clap};
 use near_chain_configs::GenesisValidationMode;
 use near_logger_utils::init_integration_logger;
@@ -93,6 +94,9 @@ pub enum StateViewerSubCommand {
     /// Print `EpochInfo` of an epoch given by `--epoch_id` or by `--epoch_height`.
     #[clap(name = "epoch_info")]
     EpochInfo(EpochInfoCmd),
+    /// Dump stats for the RocksDB storage.
+    #[clap(name = "rocksdb_stats")]
+    RocksDBStats(RocksDBStatsCmd),
 }
 
 impl StateViewerSubCommand {
@@ -112,6 +116,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(home_dir),
         }
     }
 }
@@ -287,5 +292,18 @@ impl EpochInfoCmd {
             near_config,
             store,
         );
+    }
+}
+
+#[derive(Clap)]
+pub struct RocksDBStatsCmd {
+    /// Location of the dumped Rocks DB stats.
+    #[clap(long, parse(from_os_str))]
+    file: Option<PathBuf>,
+}
+
+impl RocksDBStatsCmd {
+    pub fn run(self, home_dir: &Path) {
+        get_rocksdb_stats(home_dir, self.file).expect("Couldn't get RocksDB stats")
     }
 }
