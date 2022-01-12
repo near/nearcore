@@ -20,7 +20,7 @@ pub fn test_ts_contract() {
 
         // Call method that panics.
         let promise_results = vec![];
-        let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
+        let runtime = vm_kind.runtime().expect("runtime has not been compiled");
         let result = runtime.run(
             &code,
             "try_panic",
