@@ -1,6 +1,7 @@
-use nearcore::{get_default_home, get_store_path};
+use nearcore::get_store_path;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[derive(Serialize, Debug)]
@@ -15,39 +16,42 @@ struct Data {
 }
 
 // SST file dump keys we use to collect statistics.
-const SST_FILE_DUMP_LINES: [&str; 5] =
-    ["column family name", "# entries", "(estimated) table size", "raw key size", "raw value size"];
+const SST_FILE_DUMP_LINES: &[&str] = &[
+    "column family name",
+    "# entries",
+    "(estimated) table size",
+    "raw key size",
+    "raw value size",
+];
 
 impl Data {
-    pub fn from_sst_file_dump(lines: &[&str]) -> Self {
+    pub fn from_sst_file_dump(lines: &[&str]) -> anyhow::Result<Self> {
         // Mapping from SST file dump key to value.
         let mut values: HashMap<&str, &str> = Default::default();
 
         for line in lines {
-            let split_line: Vec<&str> = line.split(':').collect();
-            if split_line.len() < 2 {
-                continue;
-            }
-            let line = split_line[0].trim();
-            let value = split_line[1].trim();
+            let split_result = line.split_once(':');
+            let (line, value) = match split_result {
+                None => continue,
+                Some((prefix, suffix)) => (prefix.trim(), suffix.trim()),
+            };
 
-            for sst_file_line in SST_FILE_DUMP_LINES {
+            for &sst_file_line in SST_FILE_DUMP_LINES {
                 if line == sst_file_line {
-                    if values.contains_key(line) {
-                        panic!(
+                    let prev = values.insert(line, value);
+                    if prev.is_some() {
+                        anyhow::bail!(
                             "Line {} was presented twice and contains values {} and {}",
                             line,
-                            values.get(line).unwrap(),
+                            prev.unwrap(),
                             value
                         );
-                    } else {
-                        values.insert(line, value);
                     }
                 }
             }
         }
 
-        Data {
+        Ok(Data {
             col: String::from(values.get(SST_FILE_DUMP_LINES[0]).unwrap().clone()),
             entries: values.get(SST_FILE_DUMP_LINES[1]).unwrap().parse::<u64>().unwrap(),
             estimated_table_size: values
@@ -57,7 +61,7 @@ impl Data {
                 .unwrap(),
             raw_key_size: values.get(SST_FILE_DUMP_LINES[3]).unwrap().parse::<u64>().unwrap(),
             raw_value_size: values.get(SST_FILE_DUMP_LINES[4]).unwrap().parse::<u64>().unwrap(),
-        }
+        })
     }
 
     pub fn merge(&mut self, other: &Self) {
@@ -68,31 +72,31 @@ impl Data {
     }
 }
 
-fn main() {
-    let home_dir = get_default_home();
+pub fn get_rocksdb_stats(home_dir: &Path, file: Option<PathBuf>) -> anyhow::Result<()> {
     let store_dir = get_store_path(&home_dir);
     let mut cmd = Command::new("sst_dump");
     cmd.arg(format!("--file={}", store_dir.to_str().unwrap()))
         .arg("--show_properties")
         .arg("--command=none"); // For some reason, adding this argument makes execution 20x faster
     eprintln!("Running {:?} ...", cmd);
-    let output = cmd.output().expect("sst_dump command failed to start");
+    let output = cmd.output()?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "failed to run sst_dump, {}, stderr: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     eprintln!("Parsing output ...");
     let out = std::str::from_utf8(&output.stdout).unwrap();
-    let mut sst_file_breaks: Vec<usize> = vec![];
     let lines: Vec<&str> = out.lines().collect();
-    for (i, line) in lines.iter().enumerate() {
-        if line.contains("Process") {
-            sst_file_breaks.push(i);
-        }
-    }
-    sst_file_breaks.push(lines.len());
-
     let mut column_data: HashMap<String, Data> = HashMap::new();
-
-    for i in 1..sst_file_breaks.len() {
-        let data = Data::from_sst_file_dump(&lines[sst_file_breaks[i - 1]..sst_file_breaks[i]]);
+    for sst_file_slice in lines.split(|line| line.contains("Process")).skip(1) {
+        if sst_file_slice.is_empty() {
+            continue;
+        }
+        let data = Data::from_sst_file_dump(sst_file_slice)?;
         if let Some(x) = column_data.get_mut(&data.col) {
             x.merge(&data);
         } else {
@@ -101,7 +105,13 @@ fn main() {
     }
 
     let mut column_data_list: Vec<&Data> = column_data.values().collect();
-    column_data_list.sort_by_key(|data| u64::MAX - data.estimated_table_size);
-    eprintln!("Printing stats ...");
-    println!("{}", serde_json::to_string(&column_data_list).unwrap());
+    column_data_list.sort_by_key(|data| std::cmp::Reverse(data.estimated_table_size));
+    let result = serde_json::to_string_pretty(&column_data_list).unwrap();
+
+    eprintln!("Dumping stats ...");
+    match file {
+        None => println!("{}", result),
+        Some(file) => std::fs::write(file, result)?,
+    }
+    Ok(())
 }

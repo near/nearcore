@@ -104,11 +104,9 @@ fn sync_state_nodes() {
 }
 
 /// One client is in front, another must sync to it using state (fast) sync.
+#[cfg(feature = "expensive_tests")]
 #[test]
 fn sync_state_nodes_multishard() {
-    if !cfg!(feature = "expensive_tests") {
-        return;
-    }
     heavy_test(|| {
         init_integration_logger();
 
