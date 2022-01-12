@@ -100,6 +100,10 @@ pub enum StateViewerSubCommand {
     RocksDBStats(RocksDBStatsCmd),
     #[clap(name = "receipts")]
     Receipts(ReceiptsCmd),
+    #[clap(name = "chunks")]
+    Chunks(ChunksCmd),
+    #[clap(name = "partial_chunks")]
+    PartialChunks(PartialChunksCmd),
 }
 
 impl StateViewerSubCommand {
@@ -121,6 +125,8 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(home_dir),
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
         }
     }
 }
@@ -322,5 +328,33 @@ pub struct ReceiptsCmd {
 impl ReceiptsCmd {
     pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
         get_receipt(CryptoHash::from_str(&self.receipt_id).unwrap(), near_config, store)
+    }
+}
+
+#[derive(Clap)]
+pub struct ChunksCmd {
+    /// Location of the dumped Rocks DB stats.
+    #[clap(long)]
+    chunk_hash: String,
+}
+
+impl ChunksCmd {
+    pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
+        let chunk_hash = ChunkHash::try_from_slice(self.chunk_hash.as_bytes()).unwrap();
+        get_chunk(chunk_hash, near_config, store)
+    }
+}
+#[derive(Clap)]
+pub struct PartialChunksCmd {
+    /// Location of the dumped Rocks DB stats.
+    #[clap(long)]
+    partial_chunk_hash: String,
+}
+
+impl PartialChunksCmd {
+    pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
+        let partial_chunk_hash =
+            ChunkHash::try_from_slice(self.partial_chunk_hash.as_bytes()).unwrap();
+        get_partial_chunk(partial_chunk_hash, near_config, store)
     }
 }
