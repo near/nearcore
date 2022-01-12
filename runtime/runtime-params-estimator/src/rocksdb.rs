@@ -1,12 +1,24 @@
 use std::io::prelude::*;
 
-use rand::Rng;
+use rand::{prelude::SliceRandom, Rng};
 use rand_xorshift::XorShiftRng;
 use rocksdb::DB;
 
 use crate::{config::Config, gas_cost::GasCost};
 
 const MEMTABLE_SIZE: u64 = 256 * bytesize::MIB;
+const INPUT_DATA_BUFFER_SIZE: usize = bytesize::MIB as usize;
+
+/// The goal is to build up a store that stretches all 3 layers in the underlying LSM tree
+/// Since we use the same target size on all layers, writing one memtable worth of data will create *at least* one node (usually substantially more due to meta data and overhead).
+/// Using 8 memtables, I got a reasonably structured tree like this (before compaction):
+/// 3 files at level 0
+/// 8 files at level 1
+/// 16 files at level 2
+const SETUP_INSERTION_BYTES: u64 = 8 * MEMTABLE_SIZE;
+
+const SETUP_PRANDOM_SEED: u64 = 0x1d9f5711fc8b0117;
+const ANOTHER_PRANDOM_SEED: u64 = 0x0465b6733af62af0;
 
 pub(crate) fn rocks_db_inserts_cost(
     config: &Config,
@@ -15,47 +27,93 @@ pub(crate) fn rocks_db_inserts_cost(
     value_size: usize,
     inserts: usize,
 ) -> GasCost {
+    let data = input_data(config, INPUT_DATA_BUFFER_SIZE);
     let tmp_dir = tempfile::TempDir::new().expect("Failed to create directory for temp DB");
-
-    let db = new_empty_db(&tmp_dir);
-
-    const DATA_SIZE: usize = bytesize::MIB as usize;
-    let data = input_data(config, DATA_SIZE);
-
-    // Build up a store that includes at least 3 layers in the underlying LSM tree
-    // Since we use the same target size on all layers, writing one memtable worth of data will create *at least* one node (usually substantially more due to meta data and overhead).
-    // Using 8 memtables, I got a reasonably structured tree like this (before compaction):
-    // 3 files at level 0
-    // 8 files at level 1
-    // 16 files at level 2
-    let setup_inserts = 8 * MEMTABLE_SIZE as usize / value_size;
-    if sequential {
-        let key_offset = 0;
-        sequential_inserts(setup_inserts, value_size, &data, key_offset, &db, force_compaction);
-    } else {
-        let key_seed = 0;
-        prandom_inserts(setup_inserts, value_size, &data, key_seed, &db, force_compaction);
-    }
+    let db = new_test_db(&tmp_dir, &data, value_size, force_compaction);
 
     if config.debug_rocksb {
-        println!("# After setup:");
+        println!("# After setup / before measurement:");
         print_levels_info(&db);
     }
-
-    // Wait for potential background threads to terminate:
-    std::thread::sleep(std::time::Duration::from_millis(500));
-    // Note on better solutions:
-    // Thread info would be ideal but is not exposed on C interface. (http://rocksdb.org/blog/2015/10/27/getthreadlist.html)
-    // Cancelling all bkg threads as blow almost works. But it initiates shutdown, which means the DB is no longer usable afterwards.
-    // db.cancel_all_background_work(true);
 
     let gas_counter = GasCost::measure(config.metric);
 
     if sequential {
-        sequential_inserts(inserts, value_size, &data, setup_inserts, &db, force_compaction);
+        sequential_inserts(
+            inserts,
+            value_size,
+            &data,
+            SETUP_INSERTION_BYTES as usize / value_size,
+            &db,
+            force_compaction,
+        );
     } else {
-        let key_seed = 0x0465b6733af62af0u64;
-        prandom_inserts(setup_inserts, value_size, &data, key_seed, &db, force_compaction);
+        prandom_inserts(inserts, value_size, &data, ANOTHER_PRANDOM_SEED, &db, force_compaction);
+    }
+
+    let cost = gas_counter.elapsed();
+
+    if config.debug_rocksb {
+        println!("# Cost: {:?}", cost);
+        print_levels_info(&db);
+    }
+
+    drop(db);
+    tmp_dir.close().expect("Could not clean up temp DB");
+
+    // Store generated input data in a file for reproducibility of any results
+    if config.pr_data_path.is_none() {
+        let mut stats_file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .append(true)
+            .create(true)
+            .open("names-to-stats.txt")
+            .unwrap();
+        let stats_num = std::io::BufReader::new(&stats_file).lines().count();
+        let data_dump_path = format!("data_dump_{:<04}.bin", stats_num);
+
+        let mut dump = std::fs::File::create(&data_dump_path).unwrap();
+        dump.write_all(&data).unwrap();
+
+        writeln!(stats_file, "# DATA {} written to {}", stats_num, data_dump_path)
+            .expect("Writing to \"names-to-stats.txt\" failed");
+    }
+
+    cost
+}
+
+pub(crate) fn rocks_db_read_cost(
+    config: &Config,
+    force_compaction: bool,
+    sequential: bool,
+    value_size: usize,
+    ops: usize,
+) -> GasCost {
+    let tmp_dir = tempfile::TempDir::new().expect("Failed to create directory for temp DB");
+    let data = input_data(config, INPUT_DATA_BUFFER_SIZE);
+    let db = new_test_db(&tmp_dir, &data, value_size, force_compaction);
+
+    if config.debug_rocksb {
+        println!("# After setup / before measurement:");
+        print_levels_info(&db);
+    }
+
+    let keys_available = SETUP_INSERTION_BYTES as usize / value_size;
+    let mut prng: XorShiftRng = rand::SeedableRng::seed_from_u64(SETUP_PRANDOM_SEED);
+    let mut keys: Vec<usize> = (0..keys_available).map(|_| prng.gen()).collect();
+    if sequential {
+        keys.sort();
+    } else {
+        // give it another shuffle to make lookup order different from insertion order
+        keys.shuffle(&mut prng);
+    }
+
+    let gas_counter = GasCost::measure(config.metric);
+
+    for i in 0..ops {
+        let key = keys[i % keys.len()];
+        db.get(&key.to_string()).unwrap();
     }
 
     let cost = gas_counter.elapsed();
@@ -150,7 +208,12 @@ fn input_data(config: &Config, data_size: usize) -> Vec<u8> {
     data
 }
 
-fn new_empty_db(tmp_dir: impl AsRef<std::path::Path>) -> DB {
+fn new_test_db(
+    db_dir: impl AsRef<std::path::Path>,
+    data: &[u8],
+    value_size: usize,
+    force_compaction: bool,
+) -> DB {
     let mut opts = rocksdb::Options::default();
 
     opts.create_if_missing(true);
@@ -160,16 +223,29 @@ fn new_empty_db(tmp_dir: impl AsRef<std::path::Path>) -> DB {
     opts.set_write_buffer_size(MEMTABLE_SIZE as usize);
     opts.set_max_bytes_for_level_base(MEMTABLE_SIZE);
 
-    // Using default (as in nearcore)
-    // opts.set_target_file_size_multiplier(1);
-
     // Simplify DB a bit for more consistency:
     // * Only have one memtable at the time
     opts.set_max_write_buffer_number(1);
     // * Never slow down writes due to increased number of L0 files
     opts.set_level_zero_slowdown_writes_trigger(-1);
 
-    rocksdb::DB::open(&opts, tmp_dir).expect("Failed to create RocksDB")
+    // TODO: Maybe add option to enable/disable cache
+    // let mut block_opts = rocksdb::BlockBasedOptions::default();
+    // block_opts.disable_cache();
+    // opts.set_block_based_table_factory(&block_opts);
+
+    let db = rocksdb::DB::open(&opts, db_dir).expect("Failed to create RocksDB");
+
+    prandom_inserts(
+        SETUP_INSERTION_BYTES as usize / value_size,
+        value_size,
+        &data,
+        SETUP_PRANDOM_SEED,
+        &db,
+        force_compaction,
+    );
+
+    db
 }
 
 fn print_levels_info(db: &DB) {
