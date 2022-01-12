@@ -109,7 +109,13 @@ pub enum StateViewerSubCommand {
 
 impl StateViewerSubCommand {
     pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
-        let near_config = load_config(home_dir, genesis_validation);
+        let near_config = match load_config(home_dir, genesis_validation) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("Error loading config: {:#}", e);
+                return;
+            }
+        };
         let store = create_store(&get_store_path(home_dir));
         match self {
             StateViewerSubCommand::Peers => peers(store),

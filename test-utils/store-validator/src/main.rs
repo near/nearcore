@@ -28,7 +28,13 @@ fn main() {
         .get_matches();
 
     let home_dir = matches.value_of("home").map(Path::new).unwrap();
-    let near_config = load_config(home_dir, GenesisValidationMode::Full);
+    let near_config = match load_config(home_dir, GenesisValidationMode::Full) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error loading config: {:#}", e);
+            return;
+        }
+    };
 
     let store = create_store(&get_store_path(home_dir));
 

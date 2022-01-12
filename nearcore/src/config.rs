@@ -1233,11 +1233,11 @@ struct NodeKeyFile {
 }
 
 impl NodeKeyFile {
-    fn from_file(path: &Path) -> Self {
-        let mut file = File::open(path).expect("Could not open key file.");
+    fn from_file(path: &Path) -> std::io::Result<Self> {
+        let mut file = File::open(path)?;
         let mut content = String::new();
-        file.read_to_string(&mut content).expect("Could not read from key file.");
-        serde_json::from_str(&content).expect("Failed to deserialize KeyFile")
+        file.read_to_string(&mut content)?;
+        Ok(serde_json::from_str(&content)?)
     }
 }
 
@@ -1257,21 +1257,29 @@ impl From<NodeKeyFile> for KeyFile {
     }
 }
 
-pub fn load_config(dir: &Path, genesis_validation: GenesisValidationMode) -> NearConfig {
-    let config = Config::from_file(&dir.join(CONFIG_FILENAME)).unwrap();
+pub fn load_config(
+    dir: &Path,
+    genesis_validation: GenesisValidationMode,
+) -> anyhow::Result<NearConfig> {
+    let config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     let genesis_file = dir.join(&config.genesis_file);
-    let validator_signer = if dir.join(&config.validator_key_file).exists() {
-        let signer = Arc::new(
-            InMemoryValidatorSigner::from_file(&dir.join(&config.validator_key_file)).unwrap(),
-        ) as Arc<dyn ValidatorSigner>;
+    let validator_file = dir.join(&config.validator_key_file);
+    let validator_signer = if validator_file.exists() {
+        let signer =
+            Arc::new(InMemoryValidatorSigner::from_file(&validator_file).with_context(|| {
+                format!("Failed initializing validator signer from {}", validator_file.display())
+            })?) as Arc<dyn ValidatorSigner>;
         Some(signer)
     } else {
         None
     };
-    let network_signer = NodeKeyFile::from_file(&dir.join(&config.node_key_file));
+    let node_key_path = dir.join(&config.node_key_file);
+    let network_signer = NodeKeyFile::from_file(&node_key_path).with_context(|| {
+        format!("Failed reading node key file from {}", node_key_path.display())
+    })?;
 
     let genesis_records_file = config.genesis_records_file.clone();
-    NearConfig::new(
+    Ok(NearConfig::new(
         config,
         match genesis_records_file {
             Some(genesis_records_file) => Genesis::from_files(
@@ -1283,7 +1291,7 @@ pub fn load_config(dir: &Path, genesis_validation: GenesisValidationMode) -> Nea
         },
         network_signer.into(),
         validator_signer,
-    )
+    ))
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
