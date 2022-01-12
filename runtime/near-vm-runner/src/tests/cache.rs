@@ -71,7 +71,7 @@ fn make_cached_contract_call_vm(
     let promise_results = vec![];
     context.prepaid_gas = prepaid_gas;
     let code = ContractCode::new(code.to_vec(), None);
-    let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
+    let runtime = vm_kind.runtime().expect("runtime has not been compiled");
 
     runtime.run(
         &code,
