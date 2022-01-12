@@ -3,6 +3,7 @@
 use anyhow::Context;
 use clap::Clap;
 use genesis_populate::GenesisBuilder;
+use near_chain_configs::GenesisValidationMode;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::create_store;
 use near_vm_runner::internal::VMKind;
@@ -119,7 +120,7 @@ fn main() -> anyhow::Result<()> {
             )
             .expect("failed to init config");
 
-            let near_config = load_config(&state_dump_path);
+            let near_config = load_config(&state_dump_path, GenesisValidationMode::Full);
             let store = create_store(&get_store_path(&state_dump_path));
             GenesisBuilder::from_config_and_store(
                 &state_dump_path,

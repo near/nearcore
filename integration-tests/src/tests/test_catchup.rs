@@ -1,6 +1,6 @@
 //! Checks that late validator can catch-up and start validating.
-#[test]
 #[cfg(feature = "expensive_tests")]
+#[test]
 fn test_catchup() {
     use std::time::Duration;
 

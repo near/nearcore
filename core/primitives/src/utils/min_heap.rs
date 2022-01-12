@@ -19,6 +19,10 @@ impl<T: Ord> MinHeap<T> {
     pub fn peek(&self) -> Option<&T> {
         self.inner.peek().map(|Reverse(t)| t)
     }
+
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
 }
 
 impl<T> Default for MinHeap<T>
@@ -60,10 +64,12 @@ mod tests {
         heap.push(4);
         heap.push(1);
 
+        assert_eq!(heap.len(), 4);
         assert_eq!(heap.pop(), Some(1));
         assert_eq!(heap.pop(), Some(4));
         assert_eq!(heap.pop(), Some(7));
         assert_eq!(heap.pop(), Some(11));
+        assert_eq!(heap.len(), 0);
         assert_eq!(heap.pop(), None);
     }
 
@@ -77,12 +83,15 @@ mod tests {
         heap.push(2);
         heap.push(1);
 
+        assert_eq!(heap.len(), 4);
         assert_eq!(heap.pop(), Some(1));
         assert_eq!(heap.pop(), Some(2));
+        assert_eq!(heap.len(), 2);
 
         heap.push(4);
         heap.push(32);
 
+        assert_eq!(heap.len(), 4);
         assert_eq!(heap.pop(), Some(4));
         assert_eq!(heap.pop(), Some(8));
         assert_eq!(heap.pop(), Some(16));
@@ -95,6 +104,7 @@ mod tests {
         // Elements collected into a heap should be popped back in increasing order.
         let mut heap: MinHeap<usize> = [9, 3, 100, 10, 5].iter().copied().collect();
 
+        assert_eq!(heap.len(), 5);
         assert_eq!(heap.pop(), Some(3));
         assert_eq!(heap.pop(), Some(5));
         assert_eq!(heap.pop(), Some(9));
