@@ -1,6 +1,7 @@
 use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION};
 use clap::{AppSettings, Clap};
 use futures::future::FutureExt;
+use near_chain_configs::GenesisValidationMode;
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use nearcore::get_store_path;
@@ -40,6 +41,11 @@ impl NeardCmd {
         }
 
         let home_dir = neard_cmd.opts.home;
+        let genesis_validation = if neard_cmd.opts.unsafe_fast_startup {
+            GenesisValidationMode::UnsafeFast
+        } else {
+            GenesisValidationMode::Full
+        };
 
         match neard_cmd.subcmd {
             NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
@@ -48,7 +54,7 @@ impl NeardCmd {
                 warn!("The 'testnet' command has been renamed to 'localnet' and will be removed in the future");
                 cmd.run(&home_dir);
             }
-            NeardSubCommand::Run(cmd) => cmd.run(&home_dir),
+            NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation),
 
             NeardSubCommand::UnsafeResetData => {
                 let store_path = get_store_path(&home_dir);
@@ -60,8 +66,7 @@ impl NeardCmd {
                 fs::remove_dir_all(home_dir).expect("Removing data and config failed.");
             }
             NeardSubCommand::StateViewer(cmd) => {
-                info!(target: "neard", "Running state viewer");
-                cmd.run(&home_dir);
+                cmd.run(&home_dir, genesis_validation);
             }
         }
     }
@@ -76,6 +81,10 @@ struct NeardOpts {
     /// Directory for config and data.
     #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
     home: PathBuf,
+    /// Skips consistency checks of the 'genesis.json' file upon startup.
+    /// Let's you start `neard` slightly faster.
+    #[clap(long)]
+    pub unsafe_fast_startup: bool,
 }
 
 impl NeardOpts {
@@ -266,9 +275,9 @@ pub(super) struct RunCmd {
 }
 
 impl RunCmd {
-    pub(super) fn run(self, home_dir: &Path) {
+    pub(super) fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
         // Load configs from home.
-        let mut near_config = nearcore::config::load_config_without_genesis_records(home_dir);
+        let mut near_config = nearcore::config::load_config(home_dir, genesis_validation);
 
         check_release_build(&near_config.client_config.chain_id);
 
