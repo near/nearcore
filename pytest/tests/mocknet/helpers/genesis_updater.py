@@ -10,6 +10,7 @@ need at 4 hours.
 import pathlib
 import sys
 
+# Don't use the pathlib magic because this file runs on a remote machine.
 sys.path.append('lib')
 import mocknet
 from configured_logger import logger

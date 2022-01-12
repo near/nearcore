@@ -186,14 +186,12 @@ if __name__ == '__main__':
             f'Waiting for contracts to be deployed for {deploy_time} seconds.')
         prev_epoch_height = initial_epoch_height
         EPOCH_HEIGHT_CHECK_DELAY = 30
-        restart_epoch_height = None # initial_epoch_height + 3
         while time.time() - start_time < deploy_time:
             epoch_height = mocknet.get_epoch_height(rpc_nodes,
                                                     prev_epoch_height)
             if epoch_height > prev_epoch_height:
                 mocknet.upgrade_nodes(epoch_height - initial_epoch_height,
-                                      upgrade_schedule, all_nodes,
-                                      restart_epoch_height)
+                                      upgrade_schedule, all_nodes)
                 prev_epoch_height = epoch_height
             time.sleep(EPOCH_HEIGHT_CHECK_DELAY)
 
@@ -204,8 +202,7 @@ if __name__ == '__main__':
                                                     prev_epoch_height)
             if epoch_height > prev_epoch_height:
                 mocknet.upgrade_nodes(epoch_height - initial_epoch_height,
-                                      upgrade_schedule, all_nodes,
-                                      restart_epoch_height)
+                                      upgrade_schedule, all_nodes)
                 prev_epoch_height = epoch_height
             time.sleep(EPOCH_HEIGHT_CHECK_DELAY)
 

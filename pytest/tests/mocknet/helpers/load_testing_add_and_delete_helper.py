@@ -14,6 +14,7 @@ import base58
 import requests
 from rc import pmap
 
+# Don't use the pathlib magic because this file runs on a remote machine.
 sys.path.append('lib')
 import account
 import key

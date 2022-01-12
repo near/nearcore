@@ -14,6 +14,10 @@ from configured_logger import logger
 
 class Account:
 
+    # `rpc_info` takes precedence over `rpc_infos` for compatibility. One of them must be set.
+    # If `rpc_info` is set, only this RPC node will be contacted.
+    # Otherwise if `rpc_infos` is set, an RPC node will be selected randomly
+    # from that set for each transaction attempt.
     def __init__(self,
                  key,
                  init_nonce,
@@ -32,6 +36,7 @@ class Account:
             f'Creating Account {key.account_id} {init_nonce} {rpc_info} {key.pk} {key.sk}'
         )
 
+    # Returns an address of a random known RPC node.
     def get_rpc_node_address(self):
         if self.rpc_info:
             rpc_addr, rpc_port = self.rpc_info

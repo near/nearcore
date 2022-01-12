@@ -22,7 +22,7 @@ KEY_TARGET_ENV_VAR = 'NEAR_PYTEST_KEY_TARGET'
 # NODE_SSH_KEY_PATH = '~/.ssh/near_ops'
 NODE_SSH_KEY_PATH = None
 NODE_USERNAME = 'ubuntu'
-NUM_ACCOUNTS = 26 * 1
+NUM_ACCOUNTS = 26 * 2
 PROJECT = 'near-mocknet'
 PUBLIC_KEY = 'ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN'
 TX_OUT_FILE = '/home/ubuntu/tx_events'
@@ -965,6 +965,8 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
 
         seats_upgraded = 0
         for seat, stake, instance_name in seats:
+            # As the protocol upgrade takes place after 80% of the nodes arei
+            # upgraded, stop a bit earlier to start in a non-upgraded state.
             if (seats_upgraded + seat) * 100 > 75 * num_block_producer_seats:
                 break
             schedule[instance_name] = 0
@@ -973,24 +975,24 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
         # Upgrade the remaining validators during 4 epochs.
         for node in validator_nodes:
             if node.instance_name not in schedule:
-                schedule[node.instance_name] = random.randint(1, 3)
+                schedule[node.instance_name] = random.randint(1, 4)
 
         for node in rpc_nodes:
-            schedule[node.instance_name] = random.randint(0, 3)
+            schedule[node.instance_name] = random.randint(0, 4)
     else:
         # Start all nodes upgraded.
         for node in rpc_nodes:
-            schedule[node.instance_name] = random.choice([2, 100])
+            schedule[node.instance_name] = 0
         for node in validator_nodes:
-            schedule[node.instance_name] = random.choice([2, 100])
+            schedule[node.instance_name] = 0
 
     return schedule
 
 
 def compute_seats(stakes, num_block_producer_seats):
     max_stake = 0
-    for i, j in stakes:
-        max_stake = max(max_stake, i)
+    for i in stakes:
+        max_stake = max(max_stake, i[0])
 
     # Compute seats assignment.
     l = 0
@@ -1001,9 +1003,6 @@ def compute_seats(stakes, num_block_producer_seats):
         num_seats = 0
         for i in range(len(stakes)):
             num_seats += stakes[i][0] // tmp_seat_price
-        logger.info(
-            f'tmp_seat_price: {tmp_seat_price}, num_seats: {num_seats}, num_block_producer_seats: {num_block_producer_seats}'
-        )
         if num_seats <= num_block_producer_seats:
             r = tmp_seat_price
         else:
@@ -1018,21 +1017,10 @@ def compute_seats(stakes, num_block_producer_seats):
     return seats
 
 
-def upgrade_nodes(epoch_height, upgrade_schedule, all_nodes,
-                  restart_epoch_height):
+def upgrade_nodes(epoch_height, upgrade_schedule, all_nodes):
     logger.info(f'Upgrading nodes for epoch height {epoch_height}')
     for node in all_nodes:
         if upgrade_schedule.get(node.instance_name, 0) == epoch_height:
-            upgrade_node(node)
-        elif upgrade_schedule.get(
-                node.instance_name, 0
-        ) < epoch_height and epoch_height == restart_epoch_height and random.choice(
-            [True, False]):
-            restart_node(node)
-        elif upgrade_schedule.get(
-                node.instance_name, 0
-        ) > epoch_height and epoch_height == restart_epoch_height and random.choice(
-            [True, False]):
             upgrade_node(node)
 
 
@@ -1068,35 +1056,6 @@ def neard_restart_script(node):
         sudo mv /home/ubuntu/near.upgrade.log /home/ubuntu/near.upgrade.log.1 2>/dev/null
         tmux send-keys -t near 'RUST_BACKTRACE=full RUST_LOG=debug,actix_web=info {neard_binary} run 2>&1 | tee -a {neard_binary}.log' C-m
     '''.format(neard_binary=shlex.quote(neard_binary))
-
-
-def neard_restart_script_old(node):
-    neard_binary = '/home/ubuntu/neard'
-    return '''
-        tmux send-keys -t near C-c
-        sudo mv /home/ubuntu/near.log /home/ubuntu/near.log.1 2>/dev/null
-        sudo mv /home/ubuntu/near.upgrade.log /home/ubuntu/near.upgrade.log.1 2>/dev/null
-        tmux send-keys -t near 'RUST_BACKTRACE=full RUST_LOG=debug,actix_web=info {neard_binary} run 2>&1 | tee -a {neard_binary}.log' C-m
-    '''.format(neard_binary=shlex.quote(neard_binary))
-
-
-def restart_node(node):
-    logger.info(f'Restarting node {node.instance_name}')
-    attempt = 0
-    success = False
-    while attempt < 3:
-        start_process = node.machine.run('sudo -u ubuntu -i',
-                                         input=neard_restart_script_old(node))
-        if start_process.returncode == 0:
-            success = True
-            break
-        logger.warn(
-            f'Failed to restart neard, return code: {start_process.returncode}\n{node.instance_name}\n{start_process.stderr}'
-        )
-        attempt += 1
-        time.sleep(1)
-    if not success:
-        raise Exception(f'Could not upgrade node {node.instance_name}')
 
 
 def upgrade_node(node):
