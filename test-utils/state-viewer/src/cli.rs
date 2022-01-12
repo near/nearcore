@@ -6,7 +6,6 @@ use near_chain_configs::GenesisValidationMode;
 use near_logger_utils::init_integration_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{DB_VERSION, PROTOCOL_VERSION};
 use near_store::{create_store, Store};
@@ -356,7 +355,6 @@ impl PartialChunksCmd {
     pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
         let partial_chunk_hash =
             ChunkHash::from(CryptoHash::from_str(&self.partial_chunk_hash).unwrap());
-        println!("partial_chunk_hash: {:#?}", partial_chunk_hash);
         get_partial_chunk(partial_chunk_hash, near_config, store)
     }
 }
