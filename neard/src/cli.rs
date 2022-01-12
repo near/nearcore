@@ -110,12 +110,13 @@ pub(super) enum NeardSubCommand {
     // TODO(#4372): Deprecated since 1.24.  Delete it in a couple of releases in 2022.
     #[clap(name = "testnet")]
     Testnet(LocalnetCmd),
-    /// (unsafe) Remove all the config, keys, data and effectively removing all information about
-    /// the network
+    /// (unsafe) Remove the entire NEAR home directory (which includes the
+    /// configuration, genesis files, private keys and data).  This effectively
+    /// removes all information about the network.
     #[clap(name = "unsafe_reset_all")]
     UnsafeResetAll,
     /// (unsafe) Remove all the data, effectively resetting node to the genesis state (keeps genesis and
-    /// config)
+    /// config).
     #[clap(name = "unsafe_reset_data")]
     UnsafeResetData,
     /// View DB state.
