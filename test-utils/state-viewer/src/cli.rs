@@ -5,6 +5,7 @@ use clap::{AppSettings, Clap};
 use near_chain_configs::GenesisValidationMode;
 use near_logger_utils::init_integration_logger;
 use near_primitives::account::id::AccountId;
+use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{DB_VERSION, PROTOCOL_VERSION};
 use near_store::{create_store, Store};
@@ -97,6 +98,8 @@ pub enum StateViewerSubCommand {
     /// Dump stats for the RocksDB storage.
     #[clap(name = "rocksdb_stats")]
     RocksDBStats(RocksDBStatsCmd),
+    #[clap(name = "receipts")]
+    Receipts(ReceiptsCmd),
 }
 
 impl StateViewerSubCommand {
@@ -117,6 +120,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(home_dir),
+            StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
         }
     }
 }
@@ -304,6 +308,19 @@ pub struct RocksDBStatsCmd {
 
 impl RocksDBStatsCmd {
     pub fn run(self, home_dir: &Path) {
-        get_rocksdb_stats(home_dir, self.file).expect("Couldn't get RocksDB stats")
+        get_rocksdb_stats(home_dir, self.file).expect("Couldn't get RocksDB stats");
+    }
+}
+
+#[derive(Clap)]
+pub struct ReceiptsCmd {
+    /// Location of the dumped Rocks DB stats.
+    #[clap(long)]
+    receipt_id: String,
+}
+
+impl ReceiptsCmd {
+    pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
+        get_receipt(CryptoHash::from_str(&self.receipt_id).unwrap(), near_config, store)
     }
 }

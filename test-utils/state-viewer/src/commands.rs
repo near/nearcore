@@ -524,6 +524,12 @@ pub(crate) fn print_epoch_info(
     );
 }
 
+pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store: Arc<Store>) {
+    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+    let receipt = chain_store.get_receipt(&receipt_id);
+    println!("Receipt: {:#?}", receipt);
+}
+
 #[allow(unused)]
 enum LoadTrieMode {
     /// Load latest state
