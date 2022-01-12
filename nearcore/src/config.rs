@@ -791,6 +791,16 @@ fn add_account_with_key(
     });
 }
 
+/// Generates or loads a signer key from given file.
+///
+/// If the file already exists, loads the file (panicking if the file is
+/// invalid), checks that account id in the file matches `account_id` if it’s
+/// given and returns the key.  `test_seed` is ignored in this case.
+///
+/// If the file does not exist and `account_id` is not `None`, generates a new
+/// key, saves it in the file and returns it.  If `test_seed` is note `None`,
+/// the key generation algorithm is seeded with given string making it fully
+/// deterministic.
 fn generate_or_load_key(
     home_dir: &Path,
     filename: &str,
@@ -827,6 +837,70 @@ fn generate_or_load_key(
     } else {
         Ok(None)
     }
+}
+
+#[test]
+fn test_generate_or_load_key() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home_dir = tmp.path();
+
+    let gen = move |filename: &str, account: &str, seed: &str| {
+        generate_or_load_key(
+            home_dir,
+            filename,
+            if account.is_empty() { None } else { Some(account.parse().unwrap()) },
+            if seed.is_empty() { None } else { Some(seed) },
+        )
+    };
+
+    let test_ok = |filename: &str, account: &str, seed: &str| {
+        let result = gen(filename, account, seed);
+        let key = result.unwrap().unwrap();
+        assert!(home_dir.join("key").exists());
+        if !account.is_empty() {
+            assert_eq!(account, key.account_id.as_str());
+        }
+        key
+    };
+
+    let test_err = |filename: &str, account: &str, seed: &str| {
+        let result = gen(filename, account, seed);
+        assert!(result.is_err());
+    };
+
+    // account_id == None → do nothing, return None
+    assert!(generate_or_load_key(home_dir, "key", None, None).unwrap().is_none());
+    assert!(!home_dir.join("key").exists());
+
+    // account_id == Some, file doesn’t exist → create new key
+    let key = test_ok("key", "fred", "");
+
+    // file exists → load key, compare account if given
+    assert!(key == test_ok("key", "", ""));
+    assert!(key == test_ok("key", "fred", ""));
+    test_err("key", "barney", "");
+
+    // test_seed == Some → the same key is generated
+    let k1 = test_ok("k1", "fred", "foo");
+    let k2 = test_ok("k2", "barney", "foo");
+    let k3 = test_ok("k3", "fred", "bar");
+
+    assert!(k1.public_key == k2.public_key && k1.secret_key == k2.secret_key);
+    assert!(k1 != k3);
+}
+
+#[test]
+#[should_panic(expected = "Failed to deserialize")]
+fn test_generate_or_load_key_panic() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home_dir = tmp.path();
+
+    {
+        let mut file = std::fs::File::create(&home_dir.join("key")).unwrap();
+        writeln!(file, "not JSON").unwrap();
+    }
+
+    let _ = generate_or_load_key(home_dir, "key", Some("fred".parse().unwrap()), None);
 }
 
 pub fn mainnet_genesis() -> Genesis {
