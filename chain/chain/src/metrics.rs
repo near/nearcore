@@ -2,7 +2,6 @@ use near_metrics::{
     try_create_histogram, try_create_int_counter, try_create_int_gauge, Histogram, IntCounter,
     IntGauge,
 };
-use near_store::NUM_COLS;
 use once_cell::sync::Lazy;
 
 pub static BLOCK_PROCESSED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
