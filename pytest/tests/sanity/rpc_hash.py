@@ -98,7 +98,8 @@ def compute_block_hash(header: typing.Dict[str, typing.Any],
     # TODO: Handle non-None values.
     inner_rest.epoch_sync_data_hash = header['epoch_sync_data_hash']
     inner_rest.approvals = [
-        messages.crypto.Signature(approval) for approval in header['approvals']
+        approval and messages.crypto.Signature(approval)
+        for approval in header['approvals']
     ]
     inner_rest.latest_protocol_version = get_int('latest_protocol_version')
     inner_rest_blob = serialize(inner_rest)
@@ -196,10 +197,23 @@ class HashTestCase(unittest.TestCase):
         ):
             self.assertEqual(block_hash, compute_block_hash(header, msg_ver))
 
+        # Now try with one approval missing
+        header['approvals'][1] = None
+        for msg_ver, block_hash in (
+            (1, 'EE2JtxdqWLBDKqNARxdFDqH36mEJ1xJ6LjQ9f7qCSDRE'),
+            (2, '2WdpJD5dYPjEMn3EYbm1BhGgCAX7ksxJGTQm4xHazBxt'),
+            (3, '3bx6vfbH8GrYp8UFMagiBgYyKMH63D7Qo5J7jCsNbh9o'),
+        ):
+            self.assertEqual(block_hash, compute_block_hash(header, msg_ver))
+
     def _test_block_hash(self,
                          msg_version: int,
                          protocol_version: typing.Optional[int] = None) -> None:
-        """Starts a cluster, fetches a block and computes its hash.
+        """Starts a cluster, fetches blocks and computes their hashes.
+
+        The cluster is started with genesis configured to use given protocol
+        version.  The code fetches blocks until a block with all approvals set
+        is encountered and another block with at least one approval missing.
 
         Args:
             msg_version: Version of the BlockHeaderInnerRest to use when
@@ -214,22 +228,32 @@ class HashTestCase(unittest.TestCase):
 
         nodes = ()
         try:
-            nodes = cluster.start_cluster(2, 0, 1, None, genesis_overrides, {})
-            node = nodes[0]
-            block_id = utils.wait_for_blocks(node, target=1)
-            header = node.get_block(block_id.hash)['result']['header']
+            nodes = cluster.start_cluster(4, 0, 4, None, genesis_overrides, {})
+            got_all_set = False
+            got_some_unset = False
+            for block_id in utils.poll_blocks(nodes[0]):
+                header = nodes[0].get_block(block_id.hash)['result']['header']
+                self.assertEqual((block_id.height, block_id.hash),
+                                 (header['height'], header['hash']),
+                                 (block_id, header))
+                got = compute_block_hash(header, msg_version)
+                self.assertEqual(header['hash'], got)
+
+                if all(header['approvals']):
+                    if not got_all_set:
+                        nodes[1].kill()
+                        got_all_set = True
+                elif any(approval is None for approval in header['approvals']):
+                    got_some_unset = True
+
+                if got_all_set and got_some_unset:
+                    break
         finally:
             for node in nodes:
                 node.cleanup()
 
-        self.assertEqual((block_id.height, block_id.hash),
-                         (header['height'], header['hash']), (block_id, header))
-
-        got = compute_block_hash(header, msg_version)
-        self.assertEqual(header['hash'], got)
-
     def test_block_hash_v1(self):
-        """Starts a cluster, fetches a block and computes its hash.
+        """Starts a cluster using protocol version 24 and verifies block hashes.
 
         The cluster is started with a protocol version in which the first
         version of the BlockHeaderInnerRest has been used.
@@ -237,7 +261,7 @@ class HashTestCase(unittest.TestCase):
         self._test_block_hash(1, 24)
 
     def test_block_hash_v2(self):
-        """Starts a cluster, fetches a block and computes its hash.
+        """Starts a cluster using protocol version 42 and verifies block hashes.
 
         The cluster is started with a protocol version in which the second
         version of the BlockHeaderInnerRest has been used.
@@ -245,7 +269,7 @@ class HashTestCase(unittest.TestCase):
         self._test_block_hash(2, 42)
 
     def test_block_hash_v3(self):
-        """Starts a cluster, fetches a block and computes its hash.
+        """Starts a cluster using protocol version 50 and verifies block hashes.
 
         The cluster is started with a protocol version in which the third
         version of the BlockHeaderInnerRest has been used.
@@ -253,7 +277,7 @@ class HashTestCase(unittest.TestCase):
         self._test_block_hash(3, 50)
 
     def test_block_hash_latest(self):
-        """Starts a cluster, fetches a block and computes its hash.
+        """Starts a cluster using latest protocol and verifies block hashes.
 
         The cluster is started with the newest protocol version supported by the
         node.  If this test fails while others pass this may indicate that a new
