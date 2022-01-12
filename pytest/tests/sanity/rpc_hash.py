@@ -45,8 +45,10 @@ def compute_block_hash(header: typing.Dict[str, typing.Any],
             return None
         return int(value)
 
-    def get_hash(key: str) -> bytes:
+    def get_hash(key: str) -> typing.Optional[bytes]:
         value = header[key]
+        if value is None:
+            return value
         result = base58.b58decode(value)
         assert len(result) == 32, (key, value, len(result))
         return result
@@ -95,8 +97,7 @@ def compute_block_hash(header: typing.Dict[str, typing.Any],
     inner_rest.last_ds_final_block = get_hash('last_ds_final_block')
     inner_rest.block_ordinal = get_int('block_ordinal')
     inner_rest.prev_height = get_int('prev_height')
-    # TODO: Handle non-None values.
-    inner_rest.epoch_sync_data_hash = header['epoch_sync_data_hash']
+    inner_rest.epoch_sync_data_hash = get_hash('epoch_sync_data_hash')
     inner_rest.approvals = [
         approval and messages.crypto.Signature(approval)
         for approval in header['approvals']
@@ -180,7 +181,7 @@ class HashTestCase(unittest.TestCase):
             'block_merkle_root':
                 'Gf3uWgULzc5WDuaAq4feehh7M1TFRFxTWVv2xH6AsnpA',
             'epoch_sync_data_hash':
-                None,
+                '4JTQn5LGcxdx4xstsAXgXHcP3oHKatzdzHBw6atBDSWV',
             'approvals': [
                 'ed25519:5Jdeg8rk5hAbcooyxXQSTcxBgUK39Z8Qtfkhqmpi26biU26md5wBiFvkAEGXrMyn3sgq3cTMG8Lr3HD7RxWPjkPh',
                 'ed25519:4vqTaN6bucu6ALsb1m15e8HWGGxLQeKJhWrcU8zPRrzfkZbakaSzW8rfas2ZG89rFKheZUyrnZRKooRny6YKFyKi'
@@ -190,6 +191,16 @@ class HashTestCase(unittest.TestCase):
             'latest_protocol_version':
                 50
         }
+
+        for msg_ver, block_hash in (
+            (1, '3ckGjcedZiN3RnvfiuEN83BtudDTVa9Pub4yZ8R737qt'),
+            (2, 'Hezx56VTH815G6JTzWqJ7iuWxdR9X4ZqGwteaDF8q2z'),
+            (3, 'Finjr87adnUqpFHVXbmAWiVAY12EA9G4DfUw27XYHox'),
+        ):
+            self.assertEqual(block_hash, compute_block_hash(header, msg_ver))
+
+        # Now try witohut epoch_sync_data_hash
+        header['epoch_sync_data_hash'] = None
         for msg_ver, block_hash in (
             (1, '3ckGjcedZiN3RnvfiuEN83BtudDTVa9Pub4yZ8R737qt'),
             (2, 'Hezx56VTH815G6JTzWqJ7iuWxdR9X4ZqGwteaDF8q2z'),
@@ -212,8 +223,9 @@ class HashTestCase(unittest.TestCase):
         """Starts a cluster, fetches blocks and computes their hashes.
 
         The cluster is started with genesis configured to use given protocol
-        version.  The code fetches blocks until a block with all approvals set
-        is encountered and another block with at least one approval missing.
+        version.  The code fetches blocks until: 1) a block with all approvals
+        set is encountered, 2) another block with at least one approval missing
+        and 3) at least ten blocks total are checked.
 
         Args:
             msg_version: Version of the BlockHeaderInnerRest to use when
@@ -231,6 +243,7 @@ class HashTestCase(unittest.TestCase):
             nodes = cluster.start_cluster(4, 0, 4, None, genesis_overrides, {})
             got_all_set = False
             got_some_unset = False
+            count = 0
             for block_id in utils.poll_blocks(nodes[0]):
                 header = nodes[0].get_block(block_id.hash)['result']['header']
                 self.assertEqual((block_id.height, block_id.hash),
@@ -246,7 +259,8 @@ class HashTestCase(unittest.TestCase):
                 elif any(approval is None for approval in header['approvals']):
                     got_some_unset = True
 
-                if got_all_set and got_some_unset:
+                count += 1
+                if got_all_set and got_some_unset and count >= 10:
                     break
         finally:
             for node in nodes:
