@@ -1560,6 +1560,7 @@ fn test_gc_after_state_sync() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_process_block_after_state_sync() {
     let epoch_length = 1024;
     // test with shard_version > 0
