@@ -244,7 +244,7 @@ pub mod wasmer2_cache {
 
     use super::*;
 
-    fn compile_module_wasmer2(
+    pub(crate) fn compile_module_wasmer2(
         code: &[u8],
         config: &VMConfig,
     ) -> Result<VMArtifact, CompilationError> {

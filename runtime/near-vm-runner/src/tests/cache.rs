@@ -9,6 +9,7 @@ use near_primitives::types::CompiledContractCache;
 use near_vm_errors::VMError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMOutcome};
+use std::hash::{Hash, Hasher};
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -82,6 +83,43 @@ fn make_cached_contract_call_vm(
         LATEST_PROTOCOL_VERSION,
         Some(cache),
     )
+}
+
+#[test]
+fn test_artifact_output_stability() {
+    // If this test has failed, you want to adjust the necessary constants so that `cache::vm_hash`
+    // changes (and the only then the hashes here).
+    //
+    // Note that this test is a best-effort fish net. Some changes that should modify the hash will
+    // fall-through here, but hopefully it should catch most of the fish just fine.
+    with_vm_variants(|vm_kind: VMKind| {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let code = near_test_contracts::trivial_contract();
+        let config = VMConfig::test();
+        match vm_kind {
+            VMKind::Wasmer0 => {
+                let module = crate::cache::wasmer0_cache::compile_module(code, &config).unwrap();
+                let serialized = module.cache().unwrap().serialize().unwrap();
+                serialized.hash(&mut hasher);
+                assert_eq!(hasher.finish(), 14834942313012294999, "wasmer0_vm_hash needs change");
+            }
+            VMKind::Wasmer2 => {
+                let module =
+                    crate::cache::wasmer2_cache::compile_module_wasmer2(code, &config).unwrap();
+                let serialized = module.artifact().serialize().unwrap();
+                serialized.hash(&mut hasher);
+                assert_eq!(
+                    hasher.finish(),
+                    8182333688074141947,
+                    "WASMER2_CONFIG needs version change"
+                );
+            }
+            VMKind::Wasmtime => {
+                // Not currently participating in caching.
+                return;
+            }
+        };
+    });
 }
 
 /// [`CompiledContractCache`] which simulates failures in the underlying
