@@ -1,7 +1,8 @@
 //! Tests that `CompiledContractCache` is working correctly.
 use super::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
 use crate::internal::VMKind;
-use crate::MockCompiledContractCache;
+use crate::wasmer2_runner::Wasmer2VM;
+use crate::{MockCompiledContractCache, prepare};
 use assert_matches::assert_matches;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -12,6 +13,7 @@ use near_vm_logic::{VMConfig, VMOutcome};
 use std::hash::{Hash, Hasher};
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
+use wasmer_compiler::{CpuFeature, Target};
 
 #[test]
 fn test_caches_compilation_error() {
@@ -86,40 +88,25 @@ fn make_cached_contract_call_vm(
 }
 
 #[test]
-fn test_artifact_output_stability() {
+fn test_wasmer2_artifact_output_stability() {
     // If this test has failed, you want to adjust the necessary constants so that `cache::vm_hash`
     // changes (and the only then the hashes here).
     //
     // Note that this test is a best-effort fish net. Some changes that should modify the hash will
     // fall-through here, but hopefully it should catch most of the fish just fine.
-    with_vm_variants(|vm_kind: VMKind| {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        let code = near_test_contracts::trivial_contract();
-        let config = VMConfig::test();
-        match vm_kind {
-            VMKind::Wasmer0 => {
-                let module = crate::cache::wasmer0_cache::compile_module(code, &config).unwrap();
-                let serialized = module.cache().unwrap().serialize().unwrap();
-                serialized.hash(&mut hasher);
-                assert_eq!(hasher.finish(), 14834942313012294999, "wasmer0_vm_hash needs change");
-            }
-            VMKind::Wasmer2 => {
-                let module =
-                    crate::cache::wasmer2_cache::compile_module_wasmer2(code, &config).unwrap();
-                let serialized = module.artifact().serialize().unwrap();
-                serialized.hash(&mut hasher);
-                assert_eq!(
-                    hasher.finish(),
-                    8182333688074141947,
-                    "WASMER2_CONFIG needs version change"
-                );
-            }
-            VMKind::Wasmtime => {
-                // Not currently participating in caching.
-                return;
-            }
-        };
-    });
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let code = near_test_contracts::trivial_contract();
+    let config = VMConfig::test();
+    let prepared_code = prepare::prepare_contract(code, &config).unwrap();
+    let mut features = CpuFeature::set();
+    features.insert(CpuFeature::AVX);
+    let triple = "x86_64-unknown-linux-gnu".parse().unwrap();
+    let target = Target::new(triple, features);
+    let vm = Wasmer2VM::new_for_target(config, target);
+    let artifact = vm.compile_uncached(&prepared_code).unwrap();
+    let serialized = artifact.artifact().serialize().unwrap();
+    serialized.hash(&mut hasher);
+    assert_eq!(hasher.finish(), 7017891230624373240, "WASMER2_CONFIG needs version change");
 }
 
 /// [`CompiledContractCache`] which simulates failures in the underlying
