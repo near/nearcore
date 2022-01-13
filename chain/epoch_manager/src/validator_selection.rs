@@ -724,56 +724,54 @@ mod tests {
             &ValidatorKickoutReason::NotEnoughStake { stake: 50, threshold: expected_threshold },
         );
 
+        let bp_threshold = epoch_info.seat_price();
+        let num_validators = epoch_info.validators_iter().len();
+        let proposals = create_proposals(&[
+            ("test1", 1000),
+            ("test2", 1000),
+            ("test3", 1000), // the total up to this point is 3000
+            ("test4", 200),  // 200 is < 1/10 of 3000, so not validator, but can be fisherman
+            ("test5", 100),  // 100 is even too small to be a fisherman, cannot get any role
+            ("test6", 50),
+            ("test7", bp_threshold),
+        ]);
+        let epoch_info = proposals_to_epoch_info(
+            &epoch_config,
+            [0; 32],
+            &epoch_info,
+            proposals,
+            Default::default(),
+            Default::default(),
+            0,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+        )
+        .unwrap();
         #[cfg(feature = "protocol_feature_fix_staking_threshold")]
-        {
-            let bp_threshold = epoch_info.seat_price();
-            let num_validators = epoch_info.validators_iter().len();
-            let proposals = create_proposals(&[
-                ("test1", 1000),
-                ("test2", 1000),
-                ("test3", 1000), // the total up to this point is 3000
-                ("test4", 200),  // 200 is < 1/10 of 3000, so not validator, but can be fisherman
-                ("test5", 100),  // 100 is even too small to be a fisherman, cannot get any role
-                ("test6", 50),
-                ("test7", bp_threshold),
-            ]);
-            let epoch_info = proposals_to_epoch_info(
-                &epoch_config,
-                [0; 32],
-                &epoch_info,
-                proposals,
-                Default::default(),
-                Default::default(),
-                0,
-                PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
-            )
-            .unwrap();
-            assert_eq!(num_validators + 1, epoch_info.validators_iter().len());
+        assert_eq!(num_validators + 1, epoch_info.validators_iter().len());
 
-            let proposals = create_proposals(&[
-                ("test1", 1000),
-                ("test2", 1000),
-                ("test3", 1000), // the total up to this point is 3000
-                ("test4", 200),  // 200 is < 1/10 of 3000, so not validator, but can be fisherman
-                ("test5", 100),  // 100 is even too small to be a fisherman, cannot get any role
-                ("test6", 50),
-                ("test7", bp_threshold - 1),
-            ]);
-            let epoch_info = proposals_to_epoch_info(
-                &epoch_config,
-                [0; 32],
-                &epoch_info,
-                proposals,
-                Default::default(),
-                Default::default(),
-                0,
-                PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
-            )
-            .unwrap();
-            assert_eq!(num_validators, epoch_info.validators_iter().len());
-        }
+        let proposals = create_proposals(&[
+            ("test1", 1000),
+            ("test2", 1000),
+            ("test3", 1000), // the total up to this point is 3000
+            ("test4", 200),  // 200 is < 1/10 of 3000, so not validator, but can be fisherman
+            ("test5", 100),  // 100 is even too small to be a fisherman, cannot get any role
+            ("test6", 50),
+            ("test7", bp_threshold - 1),
+        ]);
+        let epoch_info = proposals_to_epoch_info(
+            &epoch_config,
+            [0; 32],
+            &epoch_info,
+            proposals,
+            Default::default(),
+            Default::default(),
+            0,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+        )
+        .unwrap();
+        assert_eq!(num_validators, epoch_info.validators_iter().len());
     }
 
     #[test]
