@@ -164,7 +164,15 @@ pub(crate) fn wasmtime_vm_hash() -> u64 {
     64
 }
 
-pub(crate) struct WasmtimeVM;
+pub(crate) struct WasmtimeVM {
+    config: VMConfig,
+}
+
+impl WasmtimeVM {
+    pub(crate) fn new(config: VMConfig) -> Self {
+        Self { config }
+    }
+}
 
 impl crate::runner::VM for WasmtimeVM {
     fn run(
@@ -173,7 +181,6 @@ impl crate::runner::VM for WasmtimeVM {
         method_name: &str,
         ext: &mut dyn External,
         context: VMContext,
-        wasm_config: &VMConfig,
         fees_config: &RuntimeFeesConfig,
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
@@ -191,11 +198,11 @@ impl crate::runner::VM for WasmtimeVM {
         let store = Store::new(&engine);
         let mut memory = WasmtimeMemory::new(
             &store,
-            wasm_config.limit_config.initial_memory_pages,
-            wasm_config.limit_config.max_memory_pages,
+            self.config.limit_config.initial_memory_pages,
+            self.config.limit_config.max_memory_pages,
         )
         .unwrap();
-        let prepared_code = match prepare::prepare_contract(code.code(), wasm_config) {
+        let prepared_code = match prepare::prepare_contract(code.code(), &self.config) {
             Ok(code) => code,
             Err(err) => return (None, Some(VMError::from(err))),
         };
@@ -209,7 +216,7 @@ impl crate::runner::VM for WasmtimeVM {
         let mut logic = VMLogic::new_with_protocol_version(
             ext,
             context,
-            wasm_config,
+            &self.config,
             fees_config,
             promise_results,
             &mut memory,
@@ -294,7 +301,6 @@ impl crate::runner::VM for WasmtimeVM {
         &self,
         _code: &[u8],
         _code_hash: &CryptoHash,
-        _wasm_config: &VMConfig,
         _cache: &dyn CompiledContractCache,
     ) -> Option<VMError> {
         Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
