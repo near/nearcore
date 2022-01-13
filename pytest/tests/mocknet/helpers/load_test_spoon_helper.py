@@ -5,17 +5,16 @@ This file is uploaded to each mocknet node and run there.
 """
 
 import json
-import itertools
 import random
 import sys
 import time
-import pathlib
 
 import base58
 import requests
 from rc import pmap
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
+# Don't use the pathlib magic because this file runs on a remote machine.
+sys.path.append('lib')
 import account
 import key
 import mocknet
@@ -25,7 +24,17 @@ LOCAL_ADDR = '127.0.0.1'
 RPC_PORT = '3030'
 # We need to slowly deploy contracts, otherwise we stall out the nodes
 CONTRACT_DEPLOY_TIME = 10 * mocknet.NUM_ACCOUNTS
-TEST_TIMEOUT = 24 * 60 * 60
+TEST_TIMEOUT = 12 * 60 * 60
+
+
+def retry_and_ignore_errors(f):
+    for attempt in range(3):
+        try:
+            return f()
+        except Exception as e:
+            time.sleep(0.1 * 2**attempt)
+            continue
+    return None
 
 
 def get_status():
@@ -63,7 +72,7 @@ def send_transfer(account, i, node_account):
     next_id = random.randrange(mocknet.NUM_ACCOUNTS)
     dest_account_id = mocknet.load_testing_account_id(
         node_account.key.account_id, next_id)
-    account.send_transfer_tx(dest_account_id)
+    retry_and_ignore_errors(lambda: account.send_transfer_tx(dest_account_id))
 
 
 def function_call_set_delete_state(account, i, node_account):
@@ -86,8 +95,9 @@ def function_call_set_delete_state(account, i, node_account):
         logger.info(
             f'Calling function "set_state" of account {next_account_id} with arguments {s} from account {account.key.account_id}'
         )
-        tx_res = account.send_call_contract_raw_tx(next_account_id, 'set_state',
-                                                   s.encode('utf-8'), 0)
+        tx_res = retry_and_ignore_errors(
+            lambda: account.send_call_contract_raw_tx(
+                next_account_id, 'set_state', s.encode('utf-8'), 0))
         logger.info(
             f'{account.key.account_id} set_state on {next_account_id} {tx_res}')
         function_call_state[i].append((next_id, next_val))
@@ -101,9 +111,9 @@ def function_call_set_delete_state(account, i, node_account):
         logger.info(
             f'Calling function "delete_state" of account {next_account_id} with arguments {s} from account {account.key.account_id}'
         )
-        tx_res = account.send_call_contract_raw_tx(next_account_id,
-                                                   'delete_state',
-                                                   s.encode('utf-8'), 0)
+        tx_res = retry_and_ignore_errors(
+            lambda: account.send_call_contract_raw_tx(
+                next_account_id, 'delete_state', s.encode('utf-8'), 0))
         logger.info(
             f'{account.key.account_id} delete_state on {next_account_id} {tx_res}'
         )
@@ -127,11 +137,13 @@ def function_call_ft_transfer_call(account, i, node_account):
     logger.info(
         f'Calling function "ft_transfer_call" with arguments {s} on account {account.key.account_id} contract {dest_account_id}'
     )
-    tx_res = account.send_call_contract_raw_tx(dest_account_id,
-                                               'ft_transfer_call',
-                                               s.encode('utf-8'), 1)
+    tx_res = retry_and_ignore_errors(lambda: account.send_call_contract_raw_tx(
+        dest_account_id, 'ft_transfer_call', s.encode('utf-8'), 1))
     logger.info(
         f'{account.key.account_id} ft_transfer to {dest_account_id} {tx_res}')
+
+
+QUERIES_PER_TX = 5
 
 
 def random_transaction(account, i, node_account, max_tps_per_node):
@@ -144,6 +156,11 @@ def random_transaction(account, i, node_account, max_tps_per_node):
         function_call_set_delete_state(account, i, node_account)
     elif choice == 2:
         function_call_ft_transfer_call(account, i, node_account)
+    for t in range(QUERIES_PER_TX):
+        wait_at_least_one_block()
+        logger.info(
+            f'Account {account.key.account_id} balance after {t} blocks: {retry_and_ignore_errors(lambda:account.get_amount_yoctonear())}'
+        )
 
 
 def send_random_transactions(node_account, test_accounts, max_tps_per_node):
@@ -199,14 +216,17 @@ def get_test_accounts_from_args(argv):
 
     base_block_hash = get_latest_block_hash()
 
-    node_account = account.Account(
-        node_account_key,
-        get_nonce_for_pk(node_account_key.account_id, node_account_key.pk),
-        base_block_hash, (rpc_nodes[0], RPC_PORT))
+    rpc_infos = [(rpc_addr, RPC_PORT) for rpc_addr in rpc_nodes]
+    node_account = account.Account(node_account_key,
+                                   get_nonce_for_pk(node_account_key.account_id,
+                                                    node_account_key.pk),
+                                   base_block_hash,
+                                   rpc_infos=rpc_infos)
     accounts = [
-        account.Account(key, get_nonce_for_pk(key.account_id, key.pk),
-                        base_block_hash, (rpc_node, RPC_PORT))
-        for key, rpc_node in zip(test_account_keys, itertools.cycle(rpc_nodes))
+        account.Account(key,
+                        get_nonce_for_pk(key.account_id, key.pk),
+                        base_block_hash,
+                        rpc_infos=rpc_infos) for key in test_account_keys
     ]
     max_tps_per_node = max_tps / num_nodes
     return node_account, accounts, max_tps_per_node
@@ -219,17 +239,18 @@ def init_ft(node_account):
     wait_at_least_one_block()
 
     s = f'{{"owner_id": "{node_account.key.account_id}", "total_supply": "{10**33}"}}'
-    tx_res = node_account.send_call_contract_raw_tx(node_account.key.account_id,
-                                                    'new_default_meta',
-                                                    s.encode('utf-8'), 0)
+    tx_res = retry_and_ignore_errors(
+        lambda: node_account.send_call_contract_raw_tx(
+            node_account.key.account_id, 'new_default_meta', s.encode('utf-8'),
+            0))
     logger.info(f'ft new_default_meta {tx_res}')
 
 
 def init_ft_account(node_account, account, i):
     s = f'{{"account_id": "{account.key.account_id}"}}'
-    tx_res = account.send_call_contract_raw_tx(node_account.key.account_id,
-                                               'storage_deposit',
-                                               s.encode('utf-8'), 10**24 // 800)
+    tx_res = retry_and_ignore_errors(lambda: account.send_call_contract_raw_tx(
+        node_account.key.account_id, 'storage_deposit', s.encode('utf-8'),
+        (10**24) // 800))
     logger.info(f'Account {account.key.account_id} storage_deposit {tx_res}')
 
     # The next transaction depends on the previous transaction succeeded.
@@ -240,25 +261,30 @@ def init_ft_account(node_account, account, i):
     s = f'{{"receiver_id": "{account.key.account_id}", "amount": "{10**18}"}}'
     logger.info(
         f'Calling function "ft_transfer" with arguments {s} on account {i}')
-    tx_res = node_account.send_call_contract_raw_tx(node_account.key.account_id,
-                                                    'ft_transfer',
-                                                    s.encode('utf-8'), 1)
+    tx_res = retry_and_ignore_errors(
+        lambda: node_account.send_call_contract_raw_tx(
+            node_account.key.account_id, 'ft_transfer', s.encode('utf-8'), 1))
     logger.info(
         f'{node_account.key.account_id} ft_transfer to {account.key.account_id} {tx_res}'
     )
 
 
 def wait_at_least_one_block():
-    status = get_status()
-    start_height = status['sync_info']['latest_block_height']
-    timeout_sec = 5
-    started = time.time()
-    while time.time() - started < timeout_sec:
-        status = get_status()
-        height = status['sync_info']['latest_block_height']
-        if height > start_height:
-            break
-        time.sleep(1.0)
+    while True:
+        try:
+            status = get_status()
+            start_height = status['sync_info']['latest_block_height']
+            while True:
+                status = get_status()
+                height = status['sync_info']['latest_block_height']
+                if height > start_height:
+                    return
+                time.sleep(1.0)
+        except Exception as e:
+            logger.info(
+                f'Failed "wait_at_least_one_block", will wait 1 second and try again'
+            )
+            time.sleep(1.0)
 
 
 def main(argv):
@@ -278,8 +304,12 @@ def main(argv):
     init_ft(node_account)
     for i, account in enumerate(test_accounts):
         logger.info(f'Deploying contract for account {i}')
-        account.send_deploy_contract_tx(mocknet.WASM_FILENAME)
+        retry_and_ignore_errors(
+            lambda: account.send_deploy_contract_tx(mocknet.WASM_FILENAME))
         init_ft_account(node_account, account, i)
+        logger.info(
+            f'Account {account.key.account_id} balance after initialization: {retry_and_ignore_errors(lambda:account.get_amount_yoctonear())}'
+        )
         time.sleep(max(1.0, start_time + (i + 1) * delay - time.time()))
 
     logger.info('Done deploying')
