@@ -2,7 +2,7 @@
 //! and verifies that the output tps is not much different from the input tps (makes sure there is
 //! no choking on transactions). The input tps -- is how fast the nodes can be accepting
 //! transactions. The output tps -- is how fast the nodes propagate transactions into the blocks.
-#[cfg(any(feature = "expensive_tests", feature = "regression_tests"))]
+#[cfg(feature = "expensive_tests")]
 #[cfg(test)]
 mod test {
     use std::io::stdout;

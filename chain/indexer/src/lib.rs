@@ -12,6 +12,7 @@ pub use self::streamer::{
     IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
     StreamerMessage,
 };
+use near_chain_configs::GenesisValidationMode;
 
 mod streamer;
 
@@ -96,7 +97,7 @@ impl Indexer {
         );
 
         let near_config =
-            nearcore::config::load_config_without_genesis_records(&indexer_config.home_dir);
+            nearcore::config::load_config(&indexer_config.home_dir, GenesisValidationMode::Full);
 
         assert!(
             !&near_config.client_config.tracked_shards.is_empty(),
