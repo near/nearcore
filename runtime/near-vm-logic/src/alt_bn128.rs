@@ -9,33 +9,11 @@ const POINT_IS_NOT_ON_THE_CURVE: &str = "point is not on the curve";
 const POINT_IS_NOT_IN_THE_SUBGROUP: &str = "point is not in the subgroup";
 const NOT_IN_FIELD: &str = "integer is not less than modulus";
 
-pub fn ilog2(mut n: u64) -> u64 {
+#[inline]
+pub fn ilog2(n: u64) -> u64 {
     assert!(n > 0);
     let mut r = 0;
-    if n >> 32 != 0 {
-        n >>= 32;
-        r += 32;
-    }
-    if n >> 16 != 0 {
-        n >>= 16;
-        r += 16;
-    }
-    if n >> 8 != 0 {
-        n >>= 8;
-        r += 8;
-    }
-    if n >> 4 != 0 {
-        n >>= 4;
-        r += 4;
-    }
-    if n >> 2 != 0 {
-        n >>= 2;
-        r += 2;
-    }
-    if n >> 1 != 0 {
-        r += 1;
-    }
-    r
+    63 - n.leading_zeros() as u64
 }
 
 pub fn alt_bn128_g1_multiexp_sublinear_complexity_estimate(n_bytes: u64, discount: u64) -> u64 {
