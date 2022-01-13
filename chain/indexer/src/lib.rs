@@ -96,15 +96,9 @@ impl Indexer {
             indexer_config.home_dir.display()
         );
 
-        let near_config = match nearcore::config::load_config(
-            &indexer_config.home_dir,
-            GenesisValidationMode::Full,
-        ) {
-            Ok(c) => c,
-            Err(e) => {
-                panic!("Error loading config: {:#}", e);
-            }
-        };
+        let near_config =
+            nearcore::config::load_config(&indexer_config.home_dir, GenesisValidationMode::Full)
+                .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         assert!(
             !&near_config.client_config.tracked_shards.is_empty(),

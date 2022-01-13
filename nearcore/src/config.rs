@@ -1265,11 +1265,10 @@ pub fn load_config(
     let genesis_file = dir.join(&config.genesis_file);
     let validator_file = dir.join(&config.validator_key_file);
     let validator_signer = if validator_file.exists() {
-        let signer =
-            Arc::new(InMemoryValidatorSigner::from_file(&validator_file).with_context(|| {
-                format!("Failed initializing validator signer from {}", validator_file.display())
-            })?) as Arc<dyn ValidatorSigner>;
-        Some(signer)
+        let signer = InMemoryValidatorSigner::from_file(&validator_file).with_context(|| {
+            format!("Failed initializing validator signer from {}", validator_file.display())
+        })?;
+        Some(Arc::new(signer) as Arc<dyn ValidatorSigner>)
     } else {
         None
     };

@@ -278,13 +278,8 @@ pub(super) struct RunCmd {
 impl RunCmd {
     pub(super) fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
         // Load configs from home.
-        let mut near_config = match nearcore::config::load_config(home_dir, genesis_validation) {
-            Ok(c) => c,
-            Err(e) => {
-                error!("Error loading config: {:#}", e);
-                return;
-            }
-        };
+        let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation)
+            .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         check_release_build(&near_config.client_config.chain_id);
 
