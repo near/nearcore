@@ -20,13 +20,12 @@ pub fn test_ts_contract() {
 
         // Call method that panics.
         let promise_results = vec![];
-        let runtime = vm_kind.runtime().expect("runtime has not been compiled");
+        let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
         let result = runtime.run(
             &code,
             "try_panic",
             &mut fake_external,
             context,
-            &config,
             &fees,
             &promise_results,
             LATEST_PROTOCOL_VERSION,
@@ -47,7 +46,6 @@ pub fn test_ts_contract() {
                 "try_storage_write",
                 &mut fake_external,
                 context,
-                &config,
                 &fees,
                 &promise_results,
                 LATEST_PROTOCOL_VERSION,
@@ -71,7 +69,6 @@ pub fn test_ts_contract() {
             "try_storage_read",
             &mut fake_external,
             context,
-            &config,
             &fees,
             &promise_results,
             LATEST_PROTOCOL_VERSION,
