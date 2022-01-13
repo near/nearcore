@@ -271,7 +271,7 @@ fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
     let fees = RuntimeFeesConfig::test();
 
     let start = GasCost::measure(gas_metric);
-    if let Some(runtime) = vm_kind.runtime() {
+    if let Some(runtime) = vm_kind.runtime(vm_config) {
         for contract in &contracts {
             let promise_results = vec![];
             let result = runtime.run(
@@ -279,7 +279,6 @@ fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
                 "hello",
                 &mut fake_external,
                 fake_context.clone(),
-                &vm_config,
                 &fees,
                 &promise_results,
                 ProtocolVersion::MAX,

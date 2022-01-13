@@ -95,7 +95,6 @@ pub fn compute_function_call_cost(
     repeats: u64,
     contract: &ContractCode,
 ) -> Gas {
-    let runtime = vm_kind.runtime().expect("runtime has not been enabled");
     let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
     let store = create_store(&get_store_path(workdir.path()));
     let cache_store = Arc::new(StoreCompiledContractCache { store });
@@ -104,6 +103,7 @@ pub fn compute_function_call_cost(
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(protocol_version).as_ref();
     let vm_config = runtime_config.wasm_config.clone();
+    let runtime = vm_kind.runtime(vm_config).expect("runtime has not been enabled");
     let fees = runtime_config.transaction_costs.clone();
     let mut fake_external = MockedExternal::new();
     let fake_context = create_context(vec![]);
@@ -116,7 +116,6 @@ pub fn compute_function_call_cost(
             "hello0",
             &mut fake_external,
             fake_context.clone(),
-            &vm_config,
             &fees,
             &promise_results,
             protocol_version,
@@ -132,7 +131,6 @@ pub fn compute_function_call_cost(
             "hello0",
             &mut fake_external,
             fake_context.clone(),
-            &vm_config,
             &fees,
             &promise_results,
             protocol_version,
