@@ -75,7 +75,7 @@ impl NeardCmd {
 fn unsafe_reset(command: &str, path: &std::path::Path, what: &str, default: &str) {
     let dir =
         path.to_str().map(|path| shell_escape::unix::escape(path.into())).unwrap_or(default.into());
-    warn!(target: "neard", "The ‘{}’ command is deprecated", command);
+    warn!(target: "neard", "The ‘{}’ command is deprecated and will be removed in Q3 2022", command);
     warn!(target: "neard", "Use ‘rm -r -- {}’ instead (which is effectively what this command does)", dir);
     info!(target: "neard", "Removing all {} from {}", what, path.display());
     fs::remove_dir_all(path).expect("Removing data failed");
