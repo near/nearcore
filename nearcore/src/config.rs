@@ -1,7 +1,7 @@
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,7 +14,8 @@ use tokio::io::AsyncWriteExt;
 use tracing::{error, info};
 
 use near_chain_configs::{
-    get_initial_supply, ClientConfig, Genesis, GenesisConfig, LogSummaryStyle,
+    get_initial_supply, ClientConfig, Genesis, GenesisConfig, GenesisValidationMode,
+    LogSummaryStyle,
 };
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
@@ -843,12 +844,12 @@ pub fn init_configs(
 
     if let Some(url) = download_config_url {
         download_config(&url.to_string(), &dir.join(CONFIG_FILENAME))
-            .context("Failed to download the config file")?;
+            .context(format!("Failed to download the config file from {}", url))?;
         config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     } else if should_download_config {
         let url = get_config_url(&chain_id);
         download_config(&url, &dir.join(CONFIG_FILENAME))
-            .context("Failed to download the config file")?;
+            .context(format!("Failed to download the config file from {}", url))?;
         config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     }
 
@@ -910,11 +911,11 @@ pub fn init_configs(
 
             if let Some(url) = download_genesis_url {
                 download_genesis(&url.to_string(), &genesis_path)
-                    .context("Failed to download the genesis file")?;
+                    .context(format!("Failed to download the genesis file from {}", url))?;
             } else if should_download_genesis {
                 let url = get_genesis_url(&chain_id);
                 download_genesis(&url, &genesis_path)
-                    .context("Failed to download the genesis file")?;
+                    .context(format!("Failed to download the genesis file from {}", url))?;
             } else {
                 genesis_path_str = match genesis {
                     Some(g) => g,
@@ -928,7 +929,7 @@ pub fn init_configs(
                 };
             }
 
-            let mut genesis = Genesis::from_file(&genesis_path_str);
+            let mut genesis = Genesis::from_file(&genesis_path_str, GenesisValidationMode::Full);
             genesis.config.chain_id = chain_id.clone();
 
             genesis.to_file(&dir.join(config.genesis_file));
@@ -1137,28 +1138,29 @@ pub fn get_config_url(chain_id: &str) -> String {
 
 #[derive(thiserror::Error, Debug)]
 pub enum FileDownloadError {
-    #[error("Failed to download the file: {0}")]
-    HttpError(#[from] hyper::Error),
-    #[error("Failed to open file: {0}")]
-    OpenError(std::io::Error),
-    #[error("Failed to write to file: {0}")]
-    WriteError(std::io::Error),
+    #[error("{0}")]
+    HttpError(hyper::Error),
+    #[error("Failed to open temporary file")]
+    OpenError(#[source] std::io::Error),
+    #[error("Failed to write to temporary file at {0:?}")]
+    WriteError(PathBuf, #[source] std::io::Error),
     #[error("Failed to decompress XZ stream: {0}")]
     XzDecodeError(#[from] xz2::stream::Error),
     #[error("Failed to decompress XZ stream: internal error: unexpected status {0:?}")]
     XzStatusError(String),
-    #[error("Failed to rename file: {0}")]
-    RenameError(std::io::Error),
-    #[error("Invalid URI: {0}")]
+    #[error("Failed to rename temporary file {0:?} to {1:?}")]
+    RenameError(PathBuf, PathBuf, #[source] std::io::Error),
+    #[error("Invalid URI")]
     UriError(#[from] hyper::http::uri::InvalidUri),
-    #[error("Failed to remove the temporary file after failure: {0}, {1}")]
-    RemoveTemporaryFileError(std::io::Error, Box<FileDownloadError>),
+    #[error("Failed to remove temporary file: {0}. Download previously failed")]
+    RemoveTemporaryFileError(std::io::Error, #[source] Box<FileDownloadError>),
 }
 
 /// Object which allows transparent XZ decoding when saving data to a file.
 /// It automatically detects whether the data being read is compressed by
 /// looking at the magic at the beginning of the file.
-struct AutoXzDecoder {
+struct AutoXzDecoder<'a> {
+    path: &'a std::path::Path,
     file: tokio::fs::File,
     state: AutoXzState,
 }
@@ -1183,9 +1185,9 @@ enum AutoXzState {
 /// <https://tukaani.org/xz/xz-file-format-1.0.4.txt> § 2.1.1.1.
 static XZ_HEADER_MAGIC: [u8; 6] = [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
 
-impl AutoXzDecoder {
-    fn new(file: std::fs::File) -> Self {
-        Self { file: tokio::fs::File::from_std(file), state: AutoXzState::Probing(0) }
+impl<'a> AutoXzDecoder<'a> {
+    fn new(path: &'a std::path::Path, file: std::fs::File) -> Self {
+        Self { path, file: tokio::fs::File::from_std(file), state: AutoXzState::Probing(0) }
     }
 
     /// Writes data from the chunk to the output file automatically
@@ -1208,10 +1210,13 @@ impl AutoXzDecoder {
             AutoXzState::Probing(pos) => self.write_all_raw(&XZ_HEADER_MAGIC[..pos]).await?,
             AutoXzState::PlainText => (),
             AutoXzState::Compressed(ref mut stream, ref mut buffer) => {
-                Self::decompress(&mut self.file, stream, buffer, b"").await?
+                Self::decompress(self.path, &mut self.file, stream, buffer, b"").await?
             }
         }
-        self.file.flush().await.map_err(FileDownloadError::WriteError)
+        self.file
+            .flush()
+            .await
+            .map_err(|e| FileDownloadError::WriteError(self.path.to_path_buf(), e))
     }
 
     /// If object is still in `Probing` state, read more data from the input to
@@ -1253,20 +1258,24 @@ impl AutoXzDecoder {
             AutoXzState::Probing(_) => unreachable!(),
             AutoXzState::PlainText => self.write_all_raw(chunk).await,
             AutoXzState::Compressed(ref mut stream, ref mut buffer) => {
-                Self::decompress(&mut self.file, stream, buffer, chunk).await
+                Self::decompress(self.path, &mut self.file, stream, buffer, chunk).await
             }
         }
     }
 
     /// Writes data to output file directly.
     async fn write_all_raw(&mut self, chunk: &[u8]) -> Result<(), FileDownloadError> {
-        self.file.write_all(chunk).await.map_err(FileDownloadError::WriteError)
+        self.file
+            .write_all(chunk)
+            .await
+            .map_err(|e| FileDownloadError::WriteError(self.path.to_path_buf(), e))
     }
 
     /// Internal implementation for [`write_all`] and [`finish`] methods used
     /// when performing decompression.  Calling it with an empty `chunk`
     /// indicates the end of the compressed data.
     async fn decompress(
+        path: &std::path::Path,
         file: &mut tokio::fs::File,
         stream: &mut xz2::stream::Stream,
         buffer: &mut [u8],
@@ -1290,7 +1299,9 @@ impl AutoXzDecoder {
             let read = (stream.total_in() - total_in).try_into().unwrap();
             chunk = &chunk[read..];
             let out = (stream.total_out() - total_out).try_into().unwrap();
-            file.write_all(&buffer[..out]).await.map_err(FileDownloadError::WriteError)?;
+            file.write_all(&buffer[..out])
+                .await
+                .map_err(|e| FileDownloadError::WriteError(path.to_path_buf(), e))?;
             if chunk.is_empty() {
                 break Ok(());
             }
@@ -1375,14 +1386,16 @@ fn test_auto_xz_decode_corrupted() {
 /// number), transparently decompresses the file as it’s being downloaded.
 async fn download_file_impl(
     uri: hyper::Uri,
+    path: &tempfile::TempPath,
     file: std::fs::File,
 ) -> anyhow::Result<(), FileDownloadError> {
-    let mut out = AutoXzDecoder::new(file);
+    let mut out = AutoXzDecoder::new(path, file);
     let https_connector = hyper_tls::HttpsConnector::new();
     let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
-    let mut resp = client.get(uri).await?;
+    let mut resp = client.get(uri).await.map_err(FileDownloadError::HttpError)?;
     while let Some(next_chunk_result) = resp.data().await {
-        out.write_all(next_chunk_result?.as_ref()).await?;
+        let next_chunk = next_chunk_result.map_err(FileDownloadError::HttpError)?;
+        out.write_all(next_chunk_result.as_ref()).await?;
     }
     out.finish().await
 }
@@ -1390,7 +1403,7 @@ async fn download_file_impl(
 /// Downloads a resource at given `url` and saves it to `path`.  On success, if
 /// file at `path` exists it will be overwritten.  On failure, file at `path` is
 /// left unchanged (if it exists).
-pub fn download_file(url: &str, path: &Path) -> anyhow::Result<(), FileDownloadError> {
+pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     let uri = url.parse()?;
     let (tmp_file, tmp_path) = {
         let tmp_dir = path.parent().unwrap_or(Path::new("."));
@@ -1400,15 +1413,16 @@ pub fn download_file(url: &str, path: &Path) -> anyhow::Result<(), FileDownloadE
         .enable_all()
         .build()
         .unwrap()
-        .block_on(async move { download_file_impl(uri, tmp_file).await });
-
+        .block_on(async move { download_file_impl(uri, &tmp_path, tmp_file).await });
     let result = match result {
         Err(err) => Err((tmp_path, err)),
-        Ok(()) => {
-            tmp_path.persist(path).map_err(|e| (e.path, FileDownloadError::RenameError(e.error)))
-        }
+        Ok(()) => tmp_path.persist(path).map_err(|e| {
+            (
+                e.path,
+                FileDownloadError::RenameError(e.path.to_path_buf(), path.to_path_buf(), e.error),
+            )
+        }),
     };
-
     result.map_err(|(tmp_path, err)| match tmp_path.close() {
         Ok(()) => err,
         Err(close_err) => FileDownloadError::RemoveTemporaryFileError(close_err, Box::new(err)),
@@ -1465,14 +1479,9 @@ impl From<NodeKeyFile> for KeyFile {
     }
 }
 
-pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
+pub fn load_config(dir: &Path, genesis_validation: GenesisValidationMode) -> NearConfig {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME)).unwrap();
-    let genesis_config = GenesisConfig::from_file(&dir.join(&config.genesis_file)).unwrap();
-    let genesis_records_file = if let Some(genesis_records_file) = &config.genesis_records_file {
-        dir.join(genesis_records_file)
-    } else {
-        dir.join(&config.genesis_file)
-    };
+    let genesis_file = dir.join(&config.genesis_file);
     let validator_signer = if dir.join(&config.validator_key_file).exists() {
         let signer =
             Arc::new(InMemoryValidatorSigner::from_file(&dir.join(&config.validator_key_file)))
@@ -1482,26 +1491,21 @@ pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
         None
     };
     let network_signer = NodeKeyFile::from_file(&dir.join(&config.node_key_file));
+
+    let genesis_records_file = config.genesis_records_file.clone();
     NearConfig::new(
         config,
-        Genesis::new_with_path(genesis_config, genesis_records_file),
+        match genesis_records_file {
+            Some(genesis_records_file) => Genesis::from_files(
+                &genesis_file,
+                &dir.join(genesis_records_file),
+                genesis_validation,
+            ),
+            None => Genesis::from_file(&genesis_file, genesis_validation),
+        },
         network_signer.into(),
         validator_signer,
     )
-}
-
-pub fn load_config(dir: &Path) -> NearConfig {
-    let mut near_config = load_config_without_genesis_records(dir);
-    near_config.genesis =
-        if let Some(ref genesis_records_file) = near_config.config.genesis_records_file {
-            Genesis::from_files(
-                &dir.join(&near_config.config.genesis_file),
-                &dir.join(genesis_records_file),
-            )
-        } else {
-            Genesis::from_file(&dir.join(&near_config.config.genesis_file))
-        };
-    near_config
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
