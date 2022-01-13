@@ -118,7 +118,7 @@ impl EncodedChunksCache {
         if let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) {
             entry.complete = true;
             let previous_block_hash = entry.header.prev_block_hash();
-            self.remove_incomplete_chunk(previous_block_hash, chunk_hash);
+            self.remove_chunk_from_incomplete_chunks(previous_block_hash, chunk_hash);
         } else {
             warn!(target:"chunks", "cannot mark non-existent entry as complete {:?}", chunk_hash);
         }
@@ -142,7 +142,7 @@ impl EncodedChunksCache {
 
     pub fn remove(&mut self, chunk_hash: &ChunkHash) -> Option<EncodedChunksCacheEntry> {
         if let Some(entry) = self.encoded_chunks.remove(chunk_hash) {
-            self.remove_incomplete_chunk(entry.header.prev_block_hash(), chunk_hash);
+            self.remove_chunk_from_incomplete_chunks(entry.header.prev_block_hash(), chunk_hash);
             Some(entry)
         } else {
             None
@@ -151,27 +151,31 @@ impl EncodedChunksCache {
 
     // Remove the chunk from the `incomplete_chunks` map. This is an internal function.
     // Use `mark_entry_complete` instead for outside calls
-    fn remove_incomplete_chunk(&mut self, prev_block_hash: CryptoHash, chunk_hash: &ChunkHash) {
+    fn remove_chunk_from_incomplete_chunks(
+        &mut self,
+        prev_block_hash: CryptoHash,
+        chunk_hash: &ChunkHash,
+    ) {
         if let Occupied(mut entry) = self.incomplete_chunks.entry(prev_block_hash) {
             entry.get_mut().remove(chunk_hash);
-            if !entry.get().is_empty() {
+            if entry.get().is_empty() {
                 entry.remove();
             }
         }
     }
 
     /// Insert if entry does not exist already
-    pub fn try_insert(&mut self, chunk_hash: ChunkHash, header: &ShardChunkHeader) {
-        self.get_or_insert_from_header(chunk_hash, header);
+    pub fn try_insert(&mut self, header: &ShardChunkHeader) {
+        self.get_or_insert_from_header(header);
     }
 
     // Create an empty entry from the header and insert it if there is no entry for the chunk already
     // Return a mutable reference to the entry
-    pub fn get_or_insert_from_header(
+    fn get_or_insert_from_header(
         &mut self,
-        chunk_hash: ChunkHash,
         chunk_header: &ShardChunkHeader,
     ) -> &mut EncodedChunksCacheEntry {
+        let chunk_hash = chunk_header.chunk_hash();
         if !self.encoded_chunks.contains_key(&chunk_hash) {
             self.height_map
                 .entry(chunk_header.height_created())
@@ -204,9 +208,7 @@ impl EncodedChunksCache {
         &mut self,
         partial_encoded_chunk: &PartialEncodedChunkV2,
     ) {
-        let chunk_hash = partial_encoded_chunk.header.chunk_hash();
-        let entry =
-            self.get_or_insert_from_header(chunk_hash.clone(), &partial_encoded_chunk.header);
+        let entry = self.get_or_insert_from_header(&partial_encoded_chunk.header);
         entry.merge_in_partial_encoded_chunk(partial_encoded_chunk);
     }
 
@@ -280,7 +282,7 @@ impl EncodedChunksCache {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     use near_crypto::KeyType;
     use near_primitives::hash::CryptoHash;
@@ -290,28 +292,56 @@ mod tests {
     use crate::chunk_cache::EncodedChunksCache;
     use crate::ChunkRequestInfo;
 
+    fn create_chunk_header(height: u64, shard_id: u64) -> ShardChunkHeader {
+        let signer =
+            InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519);
+        ShardChunkHeader::V2(ShardChunkHeaderV2::new(
+            CryptoHash::default(),
+            CryptoHash::default(),
+            CryptoHash::default(),
+            CryptoHash::default(),
+            1,
+            height,
+            shard_id,
+            0,
+            0,
+            0,
+            CryptoHash::default(),
+            CryptoHash::default(),
+            vec![],
+            &signer,
+        ))
+    }
+
+    #[test]
+    fn test_incomplete_chunks() {
+        let mut cache = EncodedChunksCache::new();
+        let header0 = create_chunk_header(1, 0);
+        let header1 = create_chunk_header(1, 1);
+        cache.try_insert(&header0);
+        cache.merge_in_partial_encoded_chunk(&PartialEncodedChunkV2 {
+            header: header1.clone(),
+            parts: vec![],
+            receipts: vec![],
+        });
+        assert_eq!(
+            cache.get_incomplete_chunks(&CryptoHash::default()).unwrap(),
+            &vec![header0.chunk_hash(), header1.chunk_hash()].into_iter().collect::<HashSet<_>>()
+        );
+        cache.mark_entry_complete(&header0.chunk_hash());
+        assert_eq!(
+            cache.get_incomplete_chunks(&CryptoHash::default()).unwrap(),
+            &vec![header1.chunk_hash()].into_iter().collect::<HashSet<_>>()
+        );
+        cache.mark_entry_complete(&header1.chunk_hash());
+        assert_eq!(cache.get_incomplete_chunks(&CryptoHash::default()), None);
+    }
+
     #[test]
     fn test_cache_removal() {
         let mut cache = EncodedChunksCache::new();
-        let signer =
-            InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519);
         let partial_encoded_chunk = PartialEncodedChunkV2 {
-            header: ShardChunkHeader::V2(ShardChunkHeaderV2::new(
-                CryptoHash::default(),
-                CryptoHash::default(),
-                CryptoHash::default(),
-                CryptoHash::default(),
-                1,
-                1,
-                0,
-                0,
-                0,
-                0,
-                CryptoHash::default(),
-                CryptoHash::default(),
-                vec![],
-                &signer,
-            )),
+            header: create_chunk_header(1, 0),
             parts: vec![],
             receipts: vec![],
         };
