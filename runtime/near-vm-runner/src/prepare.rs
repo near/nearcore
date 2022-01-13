@@ -39,6 +39,10 @@ pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u
         .map_err(|_| PrepareError::Deserialization)?;
 
     match config.limit_config.stack_limiter_version {
+        // Support for old protocol versions, where we incorrectly didn't
+        // account for many locals of the same type.
+        //
+        // See `test_stack_instrumentation_protocol_upgrade` test.
         near_vm_logic::StackLimiterVersion::V0 => pwasm_12::prepare_contract(original_code, config),
         near_vm_logic::StackLimiterVersion::V1 => ContractModule::init(original_code, config)?
             .validate_functions_number()?
@@ -197,7 +201,7 @@ impl<'a> ContractModule<'a> {
     }
 }
 
-/// Legacy validation for old protocol versions
+/// Legacy validation for old protocol versions.
 mod pwasm_12 {
     use near_vm_errors::PrepareError;
     use near_vm_logic::VMConfig;

@@ -31,6 +31,8 @@ pub struct VMLimitConfig {
     /// See <https://wiki.parity.io/WebAssembly-StackHeight> to find out
     /// how the stack frame cost is calculated.
     pub max_stack_height: u32,
+    /// Whether a legacy version of stack limiting should be used, see
+    /// [`StackLimiterVersion`].
     #[serde(default = "StackLimiterVersion::v0")]
     pub stack_limiter_version: StackLimiterVersion,
 
@@ -84,9 +86,18 @@ pub struct VMLimitConfig {
     pub max_functions_number_per_contract: Option<u64>,
 }
 
+/// Our original code for limiting WASM stack was buggy. We fixed that, but we
+/// still have to use old (`V0`) limiter for old protocol versions.
+///
+/// This struct here exists to enforce that the value in the config is either
+/// `0` or `1`. We could have used a `bool` instead, but there's a chance that
+/// our current impl isn't perfect either and would need further tweaks in the
+/// future.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum StackLimiterVersion {
+    /// Old, buggy version, don't use it unless specifically to support old protocol version.
     V0,
+    /// What we use in today's protocol.
     V1,
 }
 
