@@ -1193,14 +1193,18 @@ impl<'a> ChainStoreUpdate<'a> {
         }
     }
 
+    /// Return all incoming receipts that need to be processed by shard `shard_id` at block with
+    /// block hash `block_hash`. `last_chunk_height_included` is the height of the last block that
+    /// contains a non-empty chunk for the shard before `block_hash`. The results will include
+    /// all incoming receipts sent to shard `shard_id` from the block at height
+    /// `last_chunk_height_included` + 1 to the block at `block_hash`.
     pub fn get_incoming_receipts_for_shard(
         &mut self,
         shard_id: ShardId,
         mut block_hash: CryptoHash,
         last_chunk_height_included: BlockHeight,
     ) -> Result<Vec<ReceiptProofResponse>, Error> {
-        let mut ret = vec![];
-
+        let mut blocks = vec![];
         loop {
             let header = self.get_block_header(&block_hash)?;
 
@@ -1213,14 +1217,18 @@ impl<'a> ChainStoreUpdate<'a> {
             }
 
             let prev_hash = *header.prev_hash();
+            blocks.push(block_hash);
 
+            block_hash = prev_hash;
+        }
+
+        let mut ret = vec![];
+        for block_hash in blocks.into_iter().rev() {
             if let Ok(receipt_proofs) = self.get_incoming_receipts(&block_hash, shard_id) {
                 ret.push(ReceiptProofResponse(block_hash, receipt_proofs.clone()));
             } else {
                 ret.push(ReceiptProofResponse(block_hash, vec![]));
             }
-
-            block_hash = prev_hash;
         }
 
         Ok(ret)
@@ -3094,6 +3102,46 @@ mod tests {
             ),
             Err(InvalidTxError::Expired)
         );
+    }
+
+    #[test]
+    fn test_incoming_receipts() {
+        let mut chain = get_chain();
+        let genesis_block = chain.get_block_by_height(0).unwrap().clone();
+        let mut chain_update = chain.mut_store().store_update();
+        let mut blocks = vec![genesis_block];
+        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
+            "test1".parse().unwrap(),
+            KeyType::ED25519,
+            "test1",
+        ));
+        for i in 1..=10 {
+            let block = Block::empty_with_height(blocks.last().unwrap(), i, &*signer.clone());
+            chain_update.save_block_header(block.header().clone()).unwrap();
+            chain_update.save_incoming_receipt(block.hash(), 0, vec![]);
+            blocks.push(block);
+        }
+        let block_hashes: Vec<_> = blocks.iter().map(|b| *b.hash()).collect();
+        let mut check_incoming_receipts =
+            |block_height: usize, last_chunk_height_included: usize| {
+                let incoming_receipts_blocks: Vec<_> = chain_update
+                    .get_incoming_receipts_for_shard(
+                        0,
+                        *blocks[block_height].hash(),
+                        last_chunk_height_included as u64,
+                    )
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.0)
+                    .collect();
+                assert_eq!(
+                    incoming_receipts_blocks,
+                    block_hashes[last_chunk_height_included + 1..block_height + 1].to_vec(),
+                );
+            };
+        for i in 0..9 {
+            check_incoming_receipts(10, i);
+        }
     }
 
     #[test]
