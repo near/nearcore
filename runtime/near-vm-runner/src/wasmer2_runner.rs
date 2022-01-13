@@ -276,10 +276,7 @@ impl Wasmer2VM {
         assert_eq!(WASMER2_CONFIG.engine, WasmerEngine::Universal);
         Self {
             config,
-            engine: Universal::new(compiler)
-                .target(target)
-                .features(WASMER_FEATURES)
-                .engine(),
+            engine: Universal::new(compiler).target(target).features(WASMER_FEATURES).engine(),
         }
     }
 

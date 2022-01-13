@@ -2,11 +2,12 @@
 use super::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
 use crate::internal::VMKind;
 use crate::wasmer2_runner::Wasmer2VM;
-use crate::{MockCompiledContractCache, prepare};
+use crate::{prepare, MockCompiledContractCache};
 use assert_matches::assert_matches;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
+use near_stable_hasher::StableHasher;
 use near_vm_errors::VMError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMOutcome};
@@ -94,7 +95,7 @@ fn test_wasmer2_artifact_output_stability() {
     //
     // Note that this test is a best-effort fish net. Some changes that should modify the hash will
     // fall-through here, but hopefully it should catch most of the fish just fine.
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let mut hasher = StableHasher::new();
     let code = near_test_contracts::trivial_contract();
     let config = VMConfig::test();
     let prepared_code = prepare::prepare_contract(code, &config).unwrap();
