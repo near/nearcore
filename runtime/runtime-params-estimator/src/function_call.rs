@@ -37,30 +37,6 @@ pub(crate) fn test_function_call(metric: GasMetric, vm_kind: VMKind) -> (Ratio<i
     (cost_base, cost_byte)
 }
 
-#[test]
-fn test_function_call_time() {
-    // Run with
-    // cargo test --release --lib function_call::test_function_call_time
-    //    --features required  -- --exact --nocapture
-    test_function_call(GasMetric::Time, VMKind::Wasmer0);
-    test_function_call(GasMetric::Time, VMKind::Wasmer2);
-    test_function_call(GasMetric::Time, VMKind::Wasmtime);
-}
-
-#[test]
-fn test_function_call_icount() {
-    // Use smth like
-    // CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=./runner.sh \
-    // cargo test --release --features no_cpu_compatibility_checks,required  \
-    // --lib function_call::test_function_call_icount -- --exact --nocapture
-    // Where runner.sh is
-    // /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
-    // -cpu Westmere-v1 -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so $@
-    test_function_call(GasMetric::ICount, VMKind::Wasmer0);
-    test_function_call(GasMetric::ICount, VMKind::Wasmer2);
-    test_function_call(GasMetric::ICount, VMKind::Wasmtime);
-}
-
 fn make_many_methods_contract(method_count: i32) -> ContractCode {
     let mut methods = String::new();
     for i in 0..method_count {
