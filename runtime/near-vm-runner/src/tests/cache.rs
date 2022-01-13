@@ -107,7 +107,7 @@ fn test_wasmer2_artifact_output_stability() {
     let artifact = vm.compile_uncached(&prepared_code).unwrap();
     let serialized = artifact.artifact().serialize().unwrap();
     serialized.hash(&mut hasher);
-    assert_eq!(hasher.finish(), 7017891230624373240, "WASMER2_CONFIG needs version change");
+    assert_eq!(hasher.finish(), 18352148442716835594, "WASMER2_CONFIG needs version change");
 }
 
 /// [`CompiledContractCache`] which simulates failures in the underlying
