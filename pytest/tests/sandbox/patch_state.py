@@ -34,7 +34,7 @@ def figure_out_binary():
                 CONFIG['binary_name'] = exe
                 return
     assert False, ('Unable to figure out location of neard-sandbox binary; '
-                   'Did you forget to run `make sandbax`?')
+                   'Did you forget to run `make sandbox`?')
 
 
 figure_out_binary()
