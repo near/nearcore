@@ -1,4 +1,27 @@
 #!/usr/bin/env python3
+"""Checks whether all expensive tests are mentioned in NayDuck tests list
+
+Scans all Rust source files looking for expensive tests and than makes sure that
+they are all referenced in NayDuck test list files (the nightly/*.txt files).
+Returns with success if that's the case; with failure otherwise.
+
+An expensive test is one which is marked with expensive_tests feature as
+follows:
+
+    #[test]
+    #[cfg_attr(not(feature = "expensive_tests"), ignore)]
+    fn test_gc_random_large() {
+        test_gc_random_common(25);
+    }
+
+The `test` and `cfg_attr` annotations can be specified in whatever order but
+note that the script isn’t too smart about parsing Rust files and using
+something more complicated in the `cfg_attr` will confuse it.
+
+Expensive tests are not executed when running `cargo test` nor are they run in
+CI and it’s the purpose of this script to make sure that they are listed for
+NayDuck to run.
+"""
 
 import os
 import pathlib
