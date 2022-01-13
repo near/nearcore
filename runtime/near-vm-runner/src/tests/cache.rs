@@ -91,10 +91,10 @@ fn make_cached_contract_call_vm(
 #[test]
 fn test_wasmer2_artifact_output_stability() {
     // If this test has failed, you want to adjust the necessary constants so that `cache::vm_hash`
-    // changes (and the only then the hashes here).
+    // changes (and only then the hashes here).
     //
     // Note that this test is a best-effort fish net. Some changes that should modify the hash will
-    // fall-through here, but hopefully it should catch most of the fish just fine.
+    // fall through the cracks here, but hopefully it should catch most of the fish just fine.
     let mut hasher = StableHasher::new();
     let code = near_test_contracts::trivial_contract();
     let config = VMConfig::test();
