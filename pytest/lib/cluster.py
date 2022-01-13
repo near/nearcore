@@ -128,7 +128,7 @@ class BlockId(typing.NamedTuple):
         return base58.b58decode(self.hash.encode('ascii'))
 
     def __str__(self) -> str:
-        return f'#{self.height} {self.height}'
+        return f'#{self.height} {self.hash}'
 
 
 class BaseNode(object):

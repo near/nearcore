@@ -2,8 +2,11 @@ use crate::commands::*;
 use crate::epoch_info;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use clap::{AppSettings, Clap};
+use near_chain_configs::GenesisValidationMode;
 use near_logger_utils::init_integration_logger;
 use near_primitives::account::id::AccountId;
+use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{DB_VERSION, PROTOCOL_VERSION};
 use near_store::{create_store, Store};
@@ -30,7 +33,12 @@ impl StateViewerCmd {
         println!("state_viewer: Latest Protocol: {}, DB Version: {}", PROTOCOL_VERSION, DB_VERSION);
 
         let home_dir = state_viewer_cmd.opts.home;
-        state_viewer_cmd.subcmd.run(&home_dir);
+        let genesis_validation = if state_viewer_cmd.opts.unsafe_fast_startup {
+            GenesisValidationMode::UnsafeFast
+        } else {
+            GenesisValidationMode::Full
+        };
+        state_viewer_cmd.subcmd.run(&home_dir, genesis_validation);
     }
 }
 
@@ -39,6 +47,10 @@ struct StateViewerOpts {
     /// Directory for config and data.
     #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
     home: PathBuf,
+    /// Skips consistency checks of the 'genesis.json' file upon startup.
+    /// Let's you start `neard` slightly faster.
+    #[clap(long)]
+    pub unsafe_fast_startup: bool,
 }
 
 impl StateViewerOpts {
@@ -87,11 +99,17 @@ pub enum StateViewerSubCommand {
     /// Dump stats for the RocksDB storage.
     #[clap(name = "rocksdb_stats")]
     RocksDBStats(RocksDBStatsCmd),
+    #[clap(name = "receipts")]
+    Receipts(ReceiptsCmd),
+    #[clap(name = "chunks")]
+    Chunks(ChunksCmd),
+    #[clap(name = "partial_chunks")]
+    PartialChunks(PartialChunksCmd),
 }
 
 impl StateViewerSubCommand {
-    pub fn run(self, home_dir: &Path) {
-        let near_config = load_config(home_dir);
+    pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
+        let near_config = load_config(home_dir, genesis_validation);
         let store = create_store(&get_store_path(home_dir));
         match self {
             StateViewerSubCommand::Peers => peers(store),
@@ -107,6 +125,9 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(home_dir),
+            StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
         }
     }
 }
@@ -294,6 +315,44 @@ pub struct RocksDBStatsCmd {
 
 impl RocksDBStatsCmd {
     pub fn run(self, home_dir: &Path) {
-        get_rocksdb_stats(home_dir, self.file).expect("Couldn't get RocksDB stats")
+        get_rocksdb_stats(home_dir, self.file).expect("Couldn't get RocksDB stats");
+    }
+}
+
+#[derive(Clap)]
+pub struct ReceiptsCmd {
+    #[clap(long)]
+    receipt_id: String,
+}
+
+impl ReceiptsCmd {
+    pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
+        get_receipt(CryptoHash::from_str(&self.receipt_id).unwrap(), near_config, store)
+    }
+}
+
+#[derive(Clap)]
+pub struct ChunksCmd {
+    #[clap(long)]
+    chunk_hash: String,
+}
+
+impl ChunksCmd {
+    pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
+        let chunk_hash = ChunkHash::from(CryptoHash::from_str(&self.chunk_hash).unwrap());
+        get_chunk(chunk_hash, near_config, store)
+    }
+}
+#[derive(Clap)]
+pub struct PartialChunksCmd {
+    #[clap(long)]
+    partial_chunk_hash: String,
+}
+
+impl PartialChunksCmd {
+    pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
+        let partial_chunk_hash =
+            ChunkHash::from(CryptoHash::from_str(&self.partial_chunk_hash).unwrap());
+        get_partial_chunk(partial_chunk_hash, near_config, store)
     }
 }

@@ -23,17 +23,18 @@ wasmparser = "0.78"
 memoffset = "0.6"
 
 # Use the following for development versions of Wasmer.
-# wasmer = { package = "wasmer-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true, default-features = false, features = ["singlepass", "universal"] }
 # wasmer-types = { package = "wasmer-types-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
 # wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
 # wasmer-engine-universal = { package = "wasmer-engine-universal-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
 # wasmer-vm = { package = "wasmer-vm-near", git = "https://github.com/near/wasmer", branch = "near-main" }
-wasmer = { package = "wasmer-near", version = "=2.1.2", optional = true, default-features = false, features = ["singlepass", "universal"] }
-wasmer-types = { package = "wasmer-types-near", version = "=2.1.2", optional = true }
+wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.1.2", optional = true }
 wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.1.2", optional = true }
-wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.1.2", optional = true }
-wasmer-vm = { package = "wasmer-vm-near", version = "=2.1.2" }
+wasmer-engine = { package = "wasmer-engine-near", version = "=2.1.2", optional = true }
+wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.1.2", optional = true, features = ["compiler"] }
+wasmer-types = { package = "wasmer-types-near", version = "=2.1.2", optional = true }
+wasmer-vm = { package = "wasmer-vm-near", version = "=2.1.2", optional = true }
 
+loupe = "0.1"
 once_cell = "1.5.2"
 pwasm-utils = "0.12"
 parity-wasm = "0.41"
@@ -58,7 +59,14 @@ base64 = "0.13"
 default = ["wasmer0_vm", "wasmtime_vm", "wasmer2_vm"]
 wasmer0_vm = [ "wasmer-runtime", "wasmer-runtime-core" ]
 wasmtime_vm = [ "wasmtime", "anyhow"]
-wasmer2_vm = [ "wasmer", "wasmer-types", "wasmer-compiler-singlepass",  "wasmer-engine-universal", ]
+wasmer2_vm = [
+    "wasmer-compiler",
+    "wasmer-compiler-singlepass",
+    "wasmer-engine",
+    "wasmer-engine-universal",
+    "wasmer-types",
+    "wasmer-vm"
+]
 
 # Force usage of a specific wasm vm irrespective of protocol version.
 force_wasmer0 = ["wasmer0_vm"]
