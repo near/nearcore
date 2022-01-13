@@ -56,10 +56,6 @@ class SyncData:
     pass
 
 
-class RoutingTableSyncV2:
-    pass
-
-
 class AnnounceAccount:
     pass
 

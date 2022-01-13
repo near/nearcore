@@ -26,6 +26,7 @@ futures = "0.3"
 tikv-jemallocator = { version = "0.4.0", optional = true }
 
 nearcore = { path = "../nearcore" }
+near-chain-configs = { path = "../core/chain-configs" }
 near-primitives = { path = "../core/primitives" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
 near-state-viewer = { path = "../test-utils/state-viewer", package = "state-viewer" }

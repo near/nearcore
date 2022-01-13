@@ -1,7 +1,7 @@
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    Edge, Handshake, HandshakeFailureReason, HandshakeV2, PartialEdgeInfo, PeerMessage,
-    RoutingTableUpdate, SimpleEdge,
+    Edge, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, RoutingTableUpdate,
+    SimpleEdge,
 };
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 pub use crate::network_protocol::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
@@ -9,16 +9,14 @@ use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, Unregister,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
-use crate::PeerInfo;
 use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, MailboxError, Message, Recipient};
+use actix::{Actor, MailboxError, Message};
 use futures::future::BoxFuture;
-use futures::FutureExt;
 use near_network_primitives::types::{
     AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, InboundTcpConnect, KnownProducer,
     OutboundTcpConnect, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfoV2, Ping, Pong, ReasonForBan, RoutedMessageBody,
-    RoutedMessageFrom, StateResponseInfo,
+    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, Ping, Pong, ReasonForBan,
+    RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
 };
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
@@ -33,23 +31,7 @@ use near_primitives::types::{AccountId, BlockReference, EpochId, ShardId};
 use near_primitives::views::QueryRequest;
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::sync::RwLock;
 use strum::AsStaticStr;
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Clone, Debug)]
-#[cfg(feature = "test_features")]
-pub struct SetAdvOptions {
-    pub disable_edge_signature_verification: Option<bool>,
-    pub disable_edge_propagation: Option<bool>,
-    pub disable_edge_pruning: Option<bool>,
-    pub set_max_peers: Option<u64>,
-}
-
-#[cfg(feature = "test_features")]
-impl Message for SetAdvOptions {
-    type Result = ();
-}
 
 /// Message from peer to peer manager
 #[derive(strum::AsRefStr, Clone, Debug)]
@@ -114,10 +96,10 @@ pub enum PeerManagerMessageRequest {
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     StartRoutingTableSync(crate::private_actix::StartRoutingTableSync),
     #[cfg(feature = "test_features")]
-    SetAdvOptions(SetAdvOptions),
+    SetAdvOptions(crate::test_utils::SetAdvOptions),
     #[cfg(feature = "test_features")]
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    SetRoutingTable(SetRoutingTable),
+    SetRoutingTable(crate::test_utils::SetRoutingTable),
 }
 
 impl PeerManagerMessageRequest {
@@ -501,53 +483,6 @@ pub trait PeerManagerAdapter: Sync + Send {
     ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, MailboxError>>;
 
     fn do_send(&self, msg: PeerManagerMessageRequest);
-}
-
-#[derive(Default)]
-pub struct NetworkRecipient {
-    peer_manager_recipient: RwLock<Option<Recipient<PeerManagerMessageRequest>>>,
-}
-
-unsafe impl Sync for NetworkRecipient {}
-
-impl NetworkRecipient {
-    pub fn set_recipient(&self, peer_manager_recipient: Recipient<PeerManagerMessageRequest>) {
-        *self.peer_manager_recipient.write().unwrap() = Some(peer_manager_recipient);
-    }
-}
-
-impl PeerManagerAdapter for NetworkRecipient {
-    fn send(
-        &self,
-        msg: PeerManagerMessageRequest,
-    ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, MailboxError>> {
-        self.peer_manager_recipient
-            .read()
-            .unwrap()
-            .as_ref()
-            .expect("Recipient must be set")
-            .send(msg)
-            .boxed()
-    }
-
-    fn do_send(&self, msg: PeerManagerMessageRequest) {
-        let _ = self
-            .peer_manager_recipient
-            .read()
-            .unwrap()
-            .as_ref()
-            .expect("Recipient must be set")
-            .do_send(msg);
-    }
-}
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Message, Clone, Debug)]
-#[rtype(result = "()")]
-pub struct SetRoutingTable {
-    pub add_edges: Option<Vec<Edge>>,
-    pub remove_edges: Option<Vec<SimpleEdge>>,
-    pub prune_edges: Option<bool>,
 }
 
 #[cfg(test)]

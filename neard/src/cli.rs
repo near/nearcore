@@ -1,17 +1,15 @@
 use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION};
 use clap::{AppSettings, Clap};
 use futures::future::FutureExt;
+use near_chain_configs::GenesisValidationMode;
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
-use tracing::debug;
-#[cfg(feature = "test_features")]
-use tracing::error;
-use tracing::info;
 use tracing::metadata::LevelFilter;
+use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 /// NEAR Protocol Node
@@ -43,11 +41,20 @@ impl NeardCmd {
         }
 
         let home_dir = neard_cmd.opts.home;
+        let genesis_validation = if neard_cmd.opts.unsafe_fast_startup {
+            GenesisValidationMode::UnsafeFast
+        } else {
+            GenesisValidationMode::Full
+        };
 
         match neard_cmd.subcmd {
             NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
-            NeardSubCommand::Testnet(cmd) => cmd.run(&home_dir),
-            NeardSubCommand::Run(cmd) => cmd.run(&home_dir),
+            NeardSubCommand::Localnet(cmd) => cmd.run(&home_dir),
+            NeardSubCommand::Testnet(cmd) => {
+                warn!("The 'testnet' command has been renamed to 'localnet' and will be removed in the future");
+                cmd.run(&home_dir);
+            }
+            NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation),
 
             NeardSubCommand::UnsafeResetData => {
                 let store_path = get_store_path(&home_dir);
@@ -59,7 +66,7 @@ impl NeardCmd {
                 fs::remove_dir_all(home_dir).expect("Removing data and config failed.");
             }
             NeardSubCommand::StateViewer(cmd) => {
-                cmd.run(&home_dir);
+                cmd.run(&home_dir, genesis_validation);
             }
         }
     }
@@ -74,6 +81,10 @@ struct NeardOpts {
     /// Directory for config and data.
     #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
     home: PathBuf,
+    /// Skips consistency checks of the 'genesis.json' file upon startup.
+    /// Let's you start `neard` slightly faster.
+    #[clap(long)]
+    pub unsafe_fast_startup: bool,
 }
 
 impl NeardOpts {
@@ -90,16 +101,22 @@ pub(super) enum NeardSubCommand {
     /// Runs NEAR node
     #[clap(name = "run")]
     Run(RunCmd),
-    /// Sets up testnet configuration with all necessary files (validator key, node key, genesis
-    /// and config)
+    /// Sets up local configuration with all necessary files (validator key, node key, genesis and
+    /// config)
+    #[clap(name = "localnet")]
+    Localnet(LocalnetCmd),
+    /// DEPRECATED: this command has been renamed to 'localnet' and will be removed in a future
+    /// release.
+    // TODO(#4372): Deprecated since 1.24.  Delete it in a couple of releases in 2022.
     #[clap(name = "testnet")]
-    Testnet(TestnetCmd),
-    /// (unsafe) Remove all the config, keys, data and effectively removing all information about
-    /// the network
+    Testnet(LocalnetCmd),
+    /// (unsafe) Remove the entire NEAR home directory (which includes the
+    /// configuration, genesis files, private keys and data).  This effectively
+    /// removes all information about the network.
     #[clap(name = "unsafe_reset_all")]
     UnsafeResetAll,
     /// (unsafe) Remove all the data, effectively resetting node to the genesis state (keeps genesis and
-    /// config)
+    /// config).
     #[clap(name = "unsafe_reset_data")]
     UnsafeResetData,
     /// View DB state.
@@ -149,17 +166,53 @@ pub(super) struct InitCmd {
     max_gas_burnt_view: Option<Gas>,
 }
 
+/// Warns if unsupported build of the executable is used on mainnet or testnet.
+///
+/// Verifies that when running on mainnet or testnet chain a neard binary built
+/// with `make release` command is used.  That Makefile targets enable
+/// optimisation options which aren’t enabled when building with different
+/// methods and is the only officially supported method of building the binary
+/// to run in production.
+///
+/// The detection is done by checking that `NEAR_RELEASE_BUILD` environment
+/// variable was set to `release` during compilation (which is what Makefile
+/// sets) and that neither `nightly_protocol` nor `nightly_protocol_features`
+/// features are enabled.
+fn check_release_build(chain: &str) {
+    let is_release_build = option_env!("NEAR_RELEASE_BUILD") == Some("release")
+        && !cfg!(feature = "nightly_protocol")
+        && !cfg!(feature = "nightly_protocol_features");
+    if !is_release_build && ["mainnet", "testnet"].contains(&chain) {
+        warn!(
+            target: "neard",
+            "Running a neard executable which wasn’t built with `make release` \
+             command isn’t supported on {}.",
+            chain
+        );
+        warn!(
+            target: "neard",
+            "Note that `cargo build --release` builds lack optimisations which \
+             may be needed to run properly on {}",
+            chain
+        );
+        warn!(
+            target: "neard",
+            "Consider recompiling the binary using `make release` command.");
+    }
+}
+
 impl InitCmd {
     pub(super) fn run(self, home_dir: &Path) {
         // TODO: Check if `home` exists. If exists check what networks we already have there.
         if (self.download_genesis || self.download_genesis_url.is_some()) && self.genesis.is_some()
         {
-            panic!(
-                    "Please specify a local genesis file or download the NEAR genesis or specify your own."
-                );
+            error!("Please give either --genesis or --download-genesis, not both.");
+            return;
         }
 
-        nearcore::init_configs(
+        self.chain_id.as_ref().map(|chain| check_release_build(chain));
+
+        if let Err(e) = nearcore::init_configs(
             home_dir,
             self.chain_id.as_deref(),
             self.account_id.and_then(|account_id| account_id.parse().ok()),
@@ -173,8 +226,9 @@ impl InitCmd {
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
-        )
-        .expect("failed to init config");
+        ) {
+            error!("Failed to initialize configs: {:#}", e);
+        }
     }
 }
 
@@ -222,9 +276,12 @@ pub(super) struct RunCmd {
 }
 
 impl RunCmd {
-    pub(super) fn run(self, home_dir: &Path) {
+    pub(super) fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
         // Load configs from home.
-        let mut near_config = nearcore::config::load_config_without_genesis_records(home_dir);
+        let mut near_config = nearcore::config::load_config(home_dir, genesis_validation);
+
+        check_release_build(&near_config.client_config.chain_id);
+
         // Set current version in client config.
         near_config.client_config.version = super::NEARD_VERSION.clone();
         // Override some parameters from command line.
@@ -312,22 +369,22 @@ impl RunCmd {
 }
 
 #[derive(Clap)]
-pub(super) struct TestnetCmd {
-    /// Number of non-validators to initialize the testnet with.
+pub(super) struct LocalnetCmd {
+    /// Number of non-validators to initialize the localnet with.
     #[clap(long = "n", default_value = "0")]
     non_validators: NumSeats,
     /// Prefix the directory name for each node with (node results in node0, node1, ...)
     #[clap(long, default_value = "node")]
     prefix: String,
-    /// Number of shards to initialize the testnet with.
+    /// Number of shards to initialize the localnet with.
     #[clap(long, default_value = "1")]
     shards: NumShards,
-    /// Number of validators to initialize the testnet with.
+    /// Number of validators to initialize the localnet with.
     #[clap(long = "v", default_value = "4")]
     validators: NumSeats,
 }
 
-impl TestnetCmd {
+impl LocalnetCmd {
     pub(super) fn run(self, home_dir: &Path) {
         nearcore::config::init_testnet_configs(
             home_dir,
@@ -341,10 +398,14 @@ impl TestnetCmd {
 }
 
 fn init_logging(verbose: Option<&str>) {
-    let mut env_filter = EnvFilter::new(
-        "tokio_reactor=info,near=info,stats=info,telemetry=info,delay_detector=info,\
-         near-performance-metrics=info,near-rust-allocator-proxy=info",
-    );
+    const DEFAULT_RUST_LOG: &'static str =
+        "tokio_reactor=info,near=info,stats=info,telemetry=info,\
+         delay_detector=info,near-performance-metrics=info,\
+         near-rust-allocator-proxy=info";
+
+    let rust_log = env::var("RUST_LOG");
+    let rust_log = rust_log.as_ref().map(String::as_str).unwrap_or(DEFAULT_RUST_LOG);
+    let mut env_filter = EnvFilter::new(rust_log);
 
     if let Some(module) = verbose {
         env_filter = env_filter
@@ -363,19 +424,6 @@ fn init_logging(verbose: Option<&str>) {
         env_filter = env_filter.add_directive(LevelFilter::WARN.into());
     }
 
-    if let Ok(rust_log) = env::var("RUST_LOG") {
-        if !rust_log.is_empty() {
-            for directive in rust_log.split(',').filter_map(|s| match s.parse() {
-                Ok(directive) => Some(directive),
-                Err(err) => {
-                    eprintln!("Ignoring directive `{}`: {}", s, err);
-                    None
-                }
-            }) {
-                env_filter = env_filter.add_directive(directive);
-            }
-        }
-    }
     tracing_subscriber::fmt::Subscriber::builder()
         .with_span_events(
             tracing_subscriber::fmt::format::FmtSpan::ENTER

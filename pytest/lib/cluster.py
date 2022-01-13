@@ -128,7 +128,7 @@ class BlockId(typing.NamedTuple):
         return base58.b58decode(self.hash.encode('ascii'))
 
     def __str__(self) -> str:
-        return f'#{self.height} {self.height}'
+        return f'#{self.height} {self.hash}'
 
 
 class BaseNode(object):
@@ -691,7 +691,7 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
                 ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
 
     process = subprocess.Popen([
-        os.path.join(near_root, binary_name), "testnet", "--v",
+        os.path.join(near_root, binary_name), "localnet", "--v",
         str(num_nodes), "--shards",
         str(num_shards), "--n",
         str(num_observers), "--prefix", "test"
