@@ -53,14 +53,7 @@ pub const NS_PER_SECOND: u128 = 1_000_000_000;
 
 /// Get random peer from the hightest height peers.
 pub fn highest_height_peer(highest_height_peers: &Vec<FullPeerInfo>) -> Option<FullPeerInfo> {
-    if highest_height_peers.len() == 0 {
-        return None;
-    }
-
-    match highest_height_peers.iter().choose(&mut thread_rng()) {
-        None => highest_height_peers.choose(&mut thread_rng()).cloned(),
-        Some(peer) => Some(peer.clone()),
-    }
+    highest_height_peers.choose(&mut thread_rng()).cloned()
 }
 
 /// Helper to keep track of the Epoch Sync
