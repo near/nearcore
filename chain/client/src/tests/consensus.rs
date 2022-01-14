@@ -21,8 +21,8 @@ use near_primitives::types::{AccountId, BlockHeight};
 /// the future, and delay the distribution of the block produced this way.
 /// Periodically verify finality is not violated.
 /// This test is designed to reproduce finality bugs on the epoch boundaries.
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_consensus_with_epoch_switches() {
     init_integration_logger();
 

@@ -231,7 +231,7 @@ impl Wasmer2Config {
 //  major version << 6
 //  minor version
 const WASMER2_CONFIG: Wasmer2Config = Wasmer2Config {
-    seed: (1 << 10) | (4 << 6) | 0,
+    seed: (1 << 10) | (5 << 6) | 0,
     engine: WasmerEngine::Universal,
     compiler: WasmerCompiler::Singlepass,
 };
@@ -268,13 +268,20 @@ pub(crate) struct Wasmer2VM {
 }
 
 impl Wasmer2VM {
-    pub(crate) fn new(config: VMConfig) -> Self {
-        use wasmer_compiler::{CpuFeature, Target, Triple};
+    pub(crate) fn new_for_target(config: VMConfig, target: wasmer_compiler::Target) -> Self {
         // We only support singlepass compiler at the moment.
         assert_eq!(WASMER2_CONFIG.compiler, WasmerCompiler::Singlepass);
         let compiler = Singlepass::new();
         // We only support universal engine at the moment.
         assert_eq!(WASMER2_CONFIG.engine, WasmerEngine::Universal);
+        Self {
+            config,
+            engine: Universal::new(compiler).target(target).features(WASMER_FEATURES).engine(),
+        }
+    }
+
+    pub(crate) fn new(config: VMConfig) -> Self {
+        use wasmer_compiler::{CpuFeature, Target, Triple};
         let target_features = if cfg!(feature = "no_cpu_compatibility_checks") {
             let mut fs = CpuFeature::set();
             // These features should be sufficient to run the single pass compiler.
@@ -289,13 +296,7 @@ impl Wasmer2VM {
         } else {
             CpuFeature::for_host()
         };
-        Self {
-            config,
-            engine: Universal::new(compiler)
-                .target(Target::new(Triple::host(), target_features))
-                .features(WASMER_FEATURES)
-                .engine(),
-        }
+        Self::new_for_target(config, Target::new(Triple::host(), target_features))
     }
 
     pub(crate) fn compile_uncached(&self, code: &[u8]) -> Result<VMArtifact, CompilationError> {
@@ -521,7 +522,6 @@ impl crate::runner::VM for Wasmer2VM {
         method_name: &str,
         ext: &mut dyn External,
         context: VMContext,
-        wasm_config: &VMConfig,
         fees_config: &RuntimeFeesConfig,
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
@@ -544,15 +544,15 @@ impl crate::runner::VM for Wasmer2VM {
             );
         }
         let artifact =
-            cache::wasmer2_cache::compile_module_cached_wasmer2(code, wasm_config, cache);
+            cache::wasmer2_cache::compile_module_cached_wasmer2(code, &self.config, cache);
         let artifact = match into_vm_result(artifact) {
             Ok(it) => it,
             Err(err) => return (None, Some(err)),
         };
 
         let mut memory = Wasmer2Memory::new(
-            wasm_config.limit_config.initial_memory_pages,
-            wasm_config.limit_config.max_memory_pages,
+            self.config.limit_config.initial_memory_pages,
+            self.config.limit_config.max_memory_pages,
         )
         .expect("Cannot create memory for a contract call");
 
@@ -562,7 +562,7 @@ impl crate::runner::VM for Wasmer2VM {
         let mut logic = VMLogic::new_with_protocol_version(
             ext,
             context,
-            wasm_config,
+            &self.config,
             fees_config,
             promise_results,
             &mut memory,
@@ -589,13 +589,12 @@ impl crate::runner::VM for Wasmer2VM {
         &self,
         code: &[u8],
         code_hash: &near_primitives::hash::CryptoHash,
-        wasm_config: &VMConfig,
         cache: &dyn CompiledContractCache,
     ) -> Option<VMError> {
         let result = crate::cache::wasmer2_cache::compile_and_serialize_wasmer2(
             code,
             code_hash,
-            wasm_config,
+            &self.config,
             cache,
         );
         into_vm_result(result).err()
