@@ -2499,21 +2499,6 @@ impl<'a> VMLogic<'a> {
         }
     }
 
-    /// clones the outcome of execution.
-    pub fn clone_outcome(&self) -> VMOutcome {
-        let logs = self.logs.clone();
-        let return_data = self.return_data.clone();
-        VMOutcome {
-            balance: self.current_account_balance,
-            storage_usage: self.current_storage_usage,
-            return_data,
-            burnt_gas: self.gas_counter.burnt_gas(),
-            used_gas: self.gas_counter.used_gas(),
-            logs,
-            profile: self.gas_counter.profile_data(),
-        }
-    }
-
     // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
     pub fn add_contract_compile_fee(&mut self, code_len: u64) -> Result<()> {
         self.gas_counter.pay_per(contract_compile_bytes, code_len)?;
