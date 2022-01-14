@@ -2039,26 +2039,27 @@ impl ShardsManager {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::test_utils::*;
-    use near_chain::test_utils::KeyValueRuntime;
-    use near_network::test_utils::MockPeerManagerAdapter;
-    use near_primitives::hash::{hash, CryptoHash};
-    use near_store::test_utils::create_test_store;
+
     use std::sync::Arc;
     use std::time::Duration;
 
+    use near_chain::test_utils::KeyValueRuntime;
+    use near_chain::{ChainStore, RuntimeAdapter};
+    use near_crypto::KeyType;
+    use near_logger_utils::init_test_logger;
+    use near_network::test_utils::MockPeerManagerAdapter;
     use near_network::types::NetworkRequests;
     use near_primitives::block::Tip;
+    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::merkle::merklize;
+    use near_primitives::sharding::ReedSolomonWrapper;
     use near_primitives::types::EpochId;
-    #[cfg(feature = "expensive_tests")]
-    use {
-        crate::ACCEPTING_SEAL_PERIOD_MS, near_chain::ChainStore, near_chain::RuntimeAdapter,
-        near_crypto::KeyType, near_logger_utils::init_test_logger,
-        near_primitives::merkle::merklize, near_primitives::sharding::ReedSolomonWrapper,
-        near_primitives::validator_signer::InMemoryValidatorSigner,
-        near_primitives::version::PROTOCOL_VERSION,
-    };
+    use near_primitives::validator_signer::InMemoryValidatorSigner;
+    use near_primitives::version::PROTOCOL_VERSION;
+    use near_store::test_utils::create_test_store;
+
+    use super::*;
+    use crate::test_utils::*;
 
     const TEST_SEED: RngSeed = [3; 32];
 
@@ -2106,8 +2107,8 @@ mod test {
         };
     }
 
-    #[cfg(feature = "expensive_tests")]
     #[test]
+    #[cfg_attr(not(feature = "expensive_tests"), ignore)]
     fn test_seal_removal() {
         init_test_logger();
         let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
@@ -2181,7 +2182,7 @@ mod test {
             encoded_chunk.create_partial_encoded_chunk(vec![0, 1], vec![], &proof);
         let partial_encoded_chunk2 =
             encoded_chunk.create_partial_encoded_chunk(vec![2, 3, 4], vec![], &proof);
-        std::thread::sleep(Duration::from_millis(ACCEPTING_SEAL_PERIOD_MS as u64 + 100));
+        std::thread::sleep(Duration::from_millis(crate::ACCEPTING_SEAL_PERIOD_MS as u64 + 100));
         for partial_encoded_chunk in vec![partial_encoded_chunk1, partial_encoded_chunk2] {
             let pec_v2 = partial_encoded_chunk.into();
             shards_manager

@@ -33,9 +33,10 @@ neard-release: NEAR_RELEASE_BUILD=release
 neard-release:
 	cargo build -p neard --release
 
+neard-debug:
+	cargo build -p neard
 
 debug: neard-debug
-	cargo build -p neard
 	cargo build -p near-vm-runner-standalone
 	cargo build -p state-viewer
 	cargo build -p store-validator
