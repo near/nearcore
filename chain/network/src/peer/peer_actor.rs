@@ -1,4 +1,3 @@
-use crate::network_protocol::{Edge, PartialEdgeInfo};
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
 use crate::peer::utils;
@@ -25,6 +24,7 @@ use near_network_primitives::types::{
     RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
     UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
+use near_network_primitives::types::{Edge, PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
@@ -38,7 +38,6 @@ use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
 use near_rate_limiter::{ActixMessageWrapper, ThrottleController};
-use near_rust_allocator_proxy::allocator::get_tid;
 use std::cmp::max;
 use std::fmt::Debug;
 use std::io;
@@ -182,9 +181,13 @@ impl PeerActor {
                 self.tracker.increment_sent(bytes.len() as u64);
                 let bytes_len = bytes.len();
                 if !self.framed.write(bytes) {
+                    #[cfg(feature = "performance_stats")]
+                    let tid = near_rust_allocator_proxy::allocator::get_tid();
+                    #[cfg(not(feature = "performance_stats"))]
+                    let tid = 0;
                     error!(
                         "{} Failed to send message {} of size {}",
-                        get_tid(),
+                        tid,
                         strum::AsStaticRef::as_static(msg),
                         bytes_len,
                     )
@@ -707,8 +710,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             msg.len() as u64,
         );
 
-        match (self.peer_type, self.peer_status, peer_msg) {
-            (_, _, PeerMessage::HandshakeFailure(peer_info, reason)) => {
+        match (self.peer_status, peer_msg) {
+            (_, PeerMessage::HandshakeFailure(peer_info, reason)) => {
                 match reason {
                     HandshakeFailureReason::GenesisMismatch(genesis) => {
                         warn!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {:?}, their genesis: {:?}", peer_info, self.genesis_id, genesis);
@@ -745,7 +748,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 }
                 ctx.stop();
             }
-            (_, PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
+            (PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.my_node_info.id, handshake);
 
                 debug_assert!(
@@ -852,7 +855,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     })
                     .wait(ctx);
             }
-            (_, PeerStatus::Connecting, PeerMessage::LastEdge(edge)) => {
+            (PeerStatus::Connecting, PeerMessage::LastEdge(edge)) => {
                 // This message will be received only if we started the connection.
                 if self.peer_type == PeerType::Inbound {
                     info!(target: "network", "{:?}: Inbound peer {:?} sent invalid message. Disconnect.", self.my_node_id(), self.peer_addr);
@@ -887,15 +890,15 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     })
                     .spawn(ctx);
             }
-            (_, PeerStatus::Ready, PeerMessage::Disconnect) => {
+            (PeerStatus::Ready, PeerMessage::Disconnect) => {
                 debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
                 ctx.stop();
             }
-            (_, PeerStatus::Ready, PeerMessage::Handshake(_)) => {
+            (PeerStatus::Ready, PeerMessage::Handshake(_)) => {
                 // Received handshake after already have seen handshake from this peer.
                 debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
             }
-            (_, PeerStatus::Ready, PeerMessage::PeersRequest) => {
+            (PeerStatus::Ready, PeerMessage::PeersRequest) => {
                 self.peer_manager_addr.send(ActixMessageWrapper::new_without_size(PeerManagerMessageRequest::PeersRequest(PeersRequest {}),
                                                                      Some(self.throttle_controller.clone()),
 
@@ -909,14 +912,14 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     actix::fut::ready(())
                 }).spawn(ctx);
             }
-            (_, PeerStatus::Ready, PeerMessage::PeersResponse(peers)) => {
+            (PeerStatus::Ready, PeerMessage::PeersResponse(peers)) => {
                 debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
                 self.peer_manager_addr.do_send(ActixMessageWrapper::new_without_size(
                     PeerManagerMessageRequest::PeersResponse(PeersResponse { peers }),
                     Some(self.throttle_controller.clone()),
                 ));
             }
-            (_, PeerStatus::Ready, PeerMessage::RequestUpdateNonce(edge_info)) => self
+            (PeerStatus::Ready, PeerMessage::RequestUpdateNonce(edge_info)) => self
                 .peer_manager_addr
                 .send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::RequestUpdateNonce(
@@ -938,7 +941,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     actix::fut::ready(())
                 })
                 .spawn(ctx),
-            (_, PeerStatus::Ready, PeerMessage::ResponseUpdateNonce(edge)) => self
+            (PeerStatus::Ready, PeerMessage::ResponseUpdateNonce(edge)) => self
                 .peer_manager_addr
                 .send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::ResponseUpdateNonce(edge),
@@ -953,7 +956,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     actix::fut::ready(())
                 })
                 .spawn(ctx),
-            (_, PeerStatus::Ready, PeerMessage::SyncRoutingTable(routing_table_update)) => {
+            (PeerStatus::Ready, PeerMessage::SyncRoutingTable(routing_table_update)) => {
                 self.peer_manager_addr.do_send(ActixMessageWrapper::new_without_size(
                     PeerManagerMessageRequest::NetworkRequests(NetworkRequests::SyncRoutingTable {
                         peer_id: self.other_peer_id().unwrap().clone(),
@@ -963,7 +966,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 ));
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-            (_, PeerStatus::Ready, PeerMessage::RoutingTableSyncV2(ibf_message)) => {
+            (PeerStatus::Ready, PeerMessage::RoutingTableSyncV2(ibf_message)) => {
                 // TODO(#5155) Add wrapper to be something like this for all messages.
                 // self.peer_manager_addr.do_send(ActixMessageWrapper<NetworkRequests>::new(
                 //        self.rate_limiter.clone, NetworkRequests::IbfMessage {
@@ -977,7 +980,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     Some(self.throttle_controller.clone()),
                 ));
             }
-            (_, PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
+            (PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
                 trace!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.target);
 
                 // Receive invalid routed message from peer.
@@ -1003,10 +1006,10 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         .spawn(ctx);
                 }
             }
-            (_, PeerStatus::Ready, msg) => {
+            (PeerStatus::Ready, msg) => {
                 self.receive_message(ctx, msg);
             }
-            (_, _, msg) => {
+            (_, msg) => {
                 warn!(target: "network", "Received {} while {:?} from {:?} connection.", msg, self.peer_status, self.peer_type);
             }
         }
