@@ -6,6 +6,7 @@ use near_chain_configs::GenesisValidationMode;
 use near_logger_utils::init_integration_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{DB_VERSION, PROTOCOL_VERSION};
 use near_store::{create_store, Store};
@@ -100,6 +101,10 @@ pub enum StateViewerSubCommand {
     RocksDBStats(RocksDBStatsCmd),
     #[clap(name = "receipts")]
     Receipts(ReceiptsCmd),
+    #[clap(name = "chunks")]
+    Chunks(ChunksCmd),
+    #[clap(name = "partial_chunks")]
+    PartialChunks(PartialChunksCmd),
 }
 
 impl StateViewerSubCommand {
@@ -121,6 +126,8 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(home_dir),
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
         }
     }
 }
@@ -314,7 +321,6 @@ impl RocksDBStatsCmd {
 
 #[derive(Clap)]
 pub struct ReceiptsCmd {
-    /// Location of the dumped Rocks DB stats.
     #[clap(long)]
     receipt_id: String,
 }
@@ -322,5 +328,31 @@ pub struct ReceiptsCmd {
 impl ReceiptsCmd {
     pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
         get_receipt(CryptoHash::from_str(&self.receipt_id).unwrap(), near_config, store)
+    }
+}
+
+#[derive(Clap)]
+pub struct ChunksCmd {
+    #[clap(long)]
+    chunk_hash: String,
+}
+
+impl ChunksCmd {
+    pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
+        let chunk_hash = ChunkHash::from(CryptoHash::from_str(&self.chunk_hash).unwrap());
+        get_chunk(chunk_hash, near_config, store)
+    }
+}
+#[derive(Clap)]
+pub struct PartialChunksCmd {
+    #[clap(long)]
+    partial_chunk_hash: String,
+}
+
+impl PartialChunksCmd {
+    pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
+        let partial_chunk_hash =
+            ChunkHash::from(CryptoHash::from_str(&self.partial_chunk_hash).unwrap());
+        get_partial_chunk(partial_chunk_hash, near_config, store)
     }
 }
