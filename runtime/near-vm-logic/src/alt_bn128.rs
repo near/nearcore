@@ -25,7 +25,7 @@ pub fn alt_bn128_g1_multiexp_sublinear_complexity_estimate(n_bytes: u64, discoun
     // A+C*n/(log2(n)+4) - B*n - discount
 
     let n = (n_bytes + MULTIEXP_ITEM_SIZE - 1) / MULTIEXP_ITEM_SIZE;
-    let mut res = A + if n == 0 {
+    let res = A + if n == 0 {
         0
     } else {
         // set linear complexity growth for n > 32768
