@@ -1386,7 +1386,7 @@ fn test_auto_xz_decode_corrupted() {
 /// number), transparently decompresses the file as it’s being downloaded.
 async fn download_file_impl(
     uri: hyper::Uri,
-    path: &tempfile::TempPath,
+    path: &std::path::Path,
     file: std::fs::File,
 ) -> anyhow::Result<(), FileDownloadError> {
     let mut out = AutoXzDecoder::new(path, file);
@@ -1395,7 +1395,7 @@ async fn download_file_impl(
     let mut resp = client.get(uri).await.map_err(FileDownloadError::HttpError)?;
     while let Some(next_chunk_result) = resp.data().await {
         let next_chunk = next_chunk_result.map_err(FileDownloadError::HttpError)?;
-        out.write_all(next_chunk_result.as_ref()).await?;
+        out.write_all(next_chunk.as_ref()).await?;
     }
     out.finish().await
 }
@@ -1405,22 +1405,22 @@ async fn download_file_impl(
 /// left unchanged (if it exists).
 pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     let uri = url.parse()?;
-    let (tmp_file, tmp_path) = {
-        let tmp_dir = path.parent().unwrap_or(Path::new("."));
-        tempfile::NamedTempFile::new_in(tmp_dir).map_err(FileDownloadError::OpenError)?.into_parts()
-    };
-    let result = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(async move { download_file_impl(uri, &tmp_path, tmp_file).await });
+    let (tmp_file, tmp_path) =
+        tempfile::NamedTempFile::new_in(path.parent().unwrap_or(Path::new(".")))
+            .map_err(FileDownloadError::OpenError)?
+            .into_parts();
+    let (result, tmp_path) =
+        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(
+            async move {
+                let result = download_file_impl(uri, &tmp_path, tmp_file).await;
+                (result, tmp_path)
+            },
+        );
     let result = match result {
         Err(err) => Err((tmp_path, err)),
         Ok(()) => tmp_path.persist(path).map_err(|e| {
-            (
-                e.path,
-                FileDownloadError::RenameError(e.path.to_path_buf(), path.to_path_buf(), e.error),
-            )
+            let from = e.path.to_path_buf();
+            (e.path, FileDownloadError::RenameError(from, path.to_path_buf(), e.error))
         }),
     };
     result.map_err(|(tmp_path, err)| match tmp_path.close() {
