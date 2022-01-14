@@ -52,7 +52,7 @@ pub const MAX_PENDING_PART: u64 = MAX_STATE_PART_REQUEST * 10000;
 pub const NS_PER_SECOND: u128 = 1_000_000_000;
 
 /// Get random peer from the hightest height peers.
-pub fn highest_height_peer(highest_height_peers: &Vec<FullPeerInfo>) -> Option<FullPeerInfo> {
+pub fn highest_height_peer(highest_height_peers: &[FullPeerInfo]) -> Option<FullPeerInfo> {
     highest_height_peers.choose(&mut thread_rng()).cloned()
 }
 
