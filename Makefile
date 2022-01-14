@@ -34,7 +34,7 @@ neard-release:
 	cargo build -p neard --release
 
 
-debug: neard-debug
+debug:
 	cargo build -p neard
 	cargo build -p near-vm-runner-standalone
 	cargo build -p state-viewer
