@@ -3026,7 +3026,6 @@ dependencies = [
  "libc",
  "log",
  "near-rust-allocator-proxy",
- "nix",
  "once_cell",
  "strum",
  "tokio",
