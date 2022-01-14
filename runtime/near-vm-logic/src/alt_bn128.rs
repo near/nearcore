@@ -12,7 +12,6 @@ const NOT_IN_FIELD: &str = "integer is not less than modulus";
 #[inline]
 pub fn ilog2(n: u64) -> u64 {
     assert!(n > 0);
-    let mut r = 0;
     63 - n.leading_zeros() as u64
 }
 
