@@ -326,7 +326,7 @@ mod tests {
         });
         assert_eq!(
             cache.get_incomplete_chunks(&CryptoHash::default()).unwrap(),
-            &vec![header0.chunk_hash(), header1.chunk_hash()].into_iter().collect::<HashSet<_>>()
+            &HashSet::from([header0.chunk_hash(), header1.chunk_hash()])
         );
         cache.mark_entry_complete(&header0.chunk_hash());
         assert_eq!(
