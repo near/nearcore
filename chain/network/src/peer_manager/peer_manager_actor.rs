@@ -41,8 +41,8 @@ use near_primitives::time::Clock;
 use near_primitives::types::{AccountId, ProtocolVersion};
 use near_primitives::utils::from_timestamp;
 use near_rate_limiter::{
-    ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleToken,
-    ThrottledFrameRead,
+    ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleFramedRead,
+    ThrottleToken,
 };
 use near_store::Store;
 use rand::seq::{IteratorRandom, SliceRandom};
@@ -55,8 +55,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Semaphore;
-use tokio_util::sync::PollSemaphore;
 use tracing::{debug, error, info, trace, warn};
 
 /// How often to request peers from active peers.
@@ -889,14 +887,9 @@ impl PeerManagerActor {
             let (read, write) = tokio::io::split(stream);
 
             // TODO: check if peer is banned or known based on IP address and port.
-            let semaphore = PollSemaphore::new(Arc::new(Semaphore::new(0)));
-            let rate_limiter = ThrottleController::new(
-                semaphore.clone(),
-                MAX_MESSAGES_COUNT,
-                MAX_MESSAGES_TOTAL_SIZE,
-            );
+            let rate_limiter = ThrottleController::new(MAX_MESSAGES_COUNT, MAX_MESSAGES_TOTAL_SIZE);
             PeerActor::add_stream(
-                ThrottledFrameRead::new(read, Codec::default(), rate_limiter.clone(), semaphore)
+                ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone())
                     .take_while(|x| match x {
                         Ok(_) => future::ready(true),
                         Err(e) => {
