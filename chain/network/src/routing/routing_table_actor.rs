@@ -1,4 +1,3 @@
-use crate::network_protocol::{Edge, EdgeState};
 use crate::private_actix::{StopMsg, ValidateEdgeList};
 use crate::routing::edge_validator_actor::EdgeValidatorActor;
 use crate::routing::graph::Graph;
@@ -9,6 +8,7 @@ use actix::{
     Actor, ActorFuture, Addr, Context, ContextFutureSpawner, Handler, Message, Running,
     SyncArbiter, System, WrapFuture,
 };
+use near_network_primitives::types::{Edge, EdgeState};
 use near_performance_metrics_macros::perf;
 use near_primitives::borsh::BorshSerialize;
 use near_primitives::network::PeerId;
@@ -506,11 +506,11 @@ impl RoutingTableActor {
     pub fn exchange_routing_tables_using_ibf(
         &self,
         peer_id: &PeerId,
-        ibf_set: &crate::routing::IbfSet<crate::routing::SimpleEdge>,
+        ibf_set: &crate::routing::IbfSet<near_network_primitives::types::SimpleEdge>,
         ibf_level: crate::routing::ibf_peer_set::ValidIBFLevel,
         ibf_vec: &[crate::routing::ibf::IbfBox],
         seed: u64,
-    ) -> (Vec<crate::routing::SimpleEdge>, Vec<u64>, u64) {
+    ) -> (Vec<near_network_primitives::types::SimpleEdge>, Vec<u64>, u64) {
         let ibf = ibf_set.get_ibf(ibf_level);
 
         let mut new_ibf = crate::routing::ibf::Ibf::from_vec(ibf_vec, seed ^ (ibf_level.0 as u64));

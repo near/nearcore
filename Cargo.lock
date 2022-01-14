@@ -2863,7 +2863,7 @@ version = "0.0.0"
 dependencies = [
  "deepsize",
  "near-jsonrpc-primitives",
- "near-network",
+ "near-network-primitives",
  "near-primitives",
  "serde",
  "serde_json",
@@ -3009,6 +3009,7 @@ dependencies = [
  "deepsize",
  "near-crypto",
  "near-primitives",
+ "serde",
  "strum",
  "tokio",
  "tracing",
