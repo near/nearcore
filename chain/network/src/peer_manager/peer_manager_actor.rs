@@ -2008,7 +2008,7 @@ impl PeerManagerActor {
     #[perf]
     fn handle_msg_set_adv_options(
         &mut self,
-        msg: crate::types::SetAdvOptions,
+        msg: crate::test_utils::SetAdvOptions,
         _ctx: &mut Context<Self>,
     ) {
         if let Some(disable_edge_propagation) = msg.disable_edge_propagation {
@@ -2030,7 +2030,7 @@ impl PeerManagerActor {
     #[perf]
     fn handle_msg_set_routing_table(
         &mut self,
-        msg: crate::types::SetRoutingTable,
+        msg: crate::test_utils::SetRoutingTable,
         ctx: &mut Context<Self>,
     ) {
         if let Some(add_edges) = msg.add_edges {

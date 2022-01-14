@@ -56,7 +56,7 @@ pub fn validate_transaction(
     }
 
     validate_actions(&config.wasm_config.limit_config, &transaction.actions)
-        .map_err(|e| InvalidTxError::ActionsValidation(e))?;
+        .map_err(InvalidTxError::ActionsValidation)?;
 
     let sender_is_receiver = &transaction.receiver_id == signer_id;
 
@@ -185,7 +185,7 @@ pub fn verify_and_charge_transaction(
                 )
                 .into());
             }
-            if transaction.receiver_id.as_ref() != &function_call_permission.receiver_id {
+            if transaction.receiver_id.as_ref() != function_call_permission.receiver_id {
                 return Err(InvalidTxError::InvalidAccessKeyError(
                     InvalidAccessKeyError::ReceiverMismatch {
                         tx_receiver: transaction.receiver_id.clone(),
@@ -258,7 +258,7 @@ fn validate_action_receipt(
         });
     }
     validate_actions(limit_config, &receipt.actions)
-        .map_err(|e| ReceiptValidationError::ActionsValidation(e))
+        .map_err(ReceiptValidationError::ActionsValidation)
 }
 
 /// Validates given data receipt. Checks validity of the length of the returned data.

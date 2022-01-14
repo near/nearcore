@@ -1,3 +1,4 @@
+mod cache;
 mod compile_errors;
 mod contract_preload;
 mod rs_contract;
@@ -10,7 +11,6 @@ use crate::vm_kind::VMKind;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
 use near_vm_errors::VMError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
@@ -70,13 +70,12 @@ fn make_simple_contract_call_with_gas_vm(
     let promise_results = vec![];
 
     let code = ContractCode::new(code.to_vec(), None);
-    let runtime = vm_kind.runtime().expect("runtime has not been compiled");
+    let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
     runtime.run(
         &code,
         method_name,
         &mut fake_external,
         context,
-        &config,
         &fees,
         &promise_results,
         LATEST_PROTOCOL_VERSION,
@@ -94,9 +93,9 @@ fn make_simple_contract_call_with_protocol_version_vm(
     let context = create_context(vec![]);
     let runtime_config_store = RuntimeConfigStore::new(None);
     let runtime_config = runtime_config_store.get_config(protocol_version);
-    let config = &runtime_config.wasm_config;
     let fees = &runtime_config.transaction_costs;
-    let runtime = vm_kind.runtime().expect("runtime has not been compiled");
+    let runtime =
+        vm_kind.runtime(runtime_config.wasm_config.clone()).expect("runtime has not been compiled");
 
     let promise_results = vec![];
     let code = ContractCode::new(code.to_vec(), None);
@@ -105,7 +104,6 @@ fn make_simple_contract_call_with_protocol_version_vm(
         method_name,
         &mut fake_external,
         context,
-        config,
         fees,
         &promise_results,
         protocol_version,
@@ -119,33 +117,4 @@ fn make_simple_contract_call_vm(
     vm_kind: VMKind,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     make_simple_contract_call_with_gas_vm(code, method_name, 10u64.pow(14), vm_kind)
-}
-
-fn make_cached_contract_call_vm(
-    cache: &mut dyn CompiledContractCache,
-    code: &[u8],
-    method_name: &str,
-    prepaid_gas: u64,
-    vm_kind: VMKind,
-) -> (Option<VMOutcome>, Option<VMError>) {
-    let mut fake_external = MockedExternal::new();
-    let mut context = create_context(vec![]);
-    let config = VMConfig::test();
-    let fees = RuntimeFeesConfig::test();
-    let promise_results = vec![];
-    context.prepaid_gas = prepaid_gas;
-    let code = ContractCode::new(code.to_vec(), None);
-    let runtime = vm_kind.runtime().expect("runtime has not been compiled");
-
-    runtime.run(
-        &code,
-        method_name,
-        &mut fake_external,
-        context.clone(),
-        &config,
-        &fees,
-        &promise_results,
-        LATEST_PROTOCOL_VERSION,
-        Some(cache),
-    )
 }
