@@ -9,9 +9,9 @@ use near_store::create_store;
 use near_vm_runner::internal::VMKind;
 use nearcore::{get_store_path, load_config};
 use runtime_params_estimator::config::{Config, GasMetric};
-use runtime_params_estimator::read_resource;
 use runtime_params_estimator::CostTable;
 use runtime_params_estimator::{costs_to_runtime_config, QemuCommandBuilder};
+use runtime_params_estimator::{read_resource, RocksDBTestConfig};
 use std::env;
 use std::fmt::Write;
 use std::fs;
@@ -71,9 +71,9 @@ struct CliArgs {
     /// Print extra debug information
     #[clap(long, multiple(true), possible_values=&["io", "rocksdb"])]
     debug: Vec<String>,
-    /// Data dump for pseudo-random input
-    #[clap(long)]
-    pr_data_path: Option<PathBuf>,
+    /// Extra configuration parameters for RocksDB specific estimations
+    #[clap(flatten)]
+    db_test_config: RocksDBTestConfig,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -182,7 +182,8 @@ fn main() -> anyhow::Result<()> {
     }
 
     let warmup_iters_per_block = cli_args.warmup_iters;
-    let pr_data_path = cli_args.pr_data_path;
+    let mut rocksdb_test_config = cli_args.db_test_config;
+    rocksdb_test_config.debug_rocksdb = debug_options.contains(&"rocksdb");
     let iter_per_block = cli_args.iters;
     let active_accounts = cli_args.accounts_num;
     let metric = match cli_args.metric.as_str() {
@@ -208,8 +209,7 @@ fn main() -> anyhow::Result<()> {
         metric,
         vm_kind,
         costs_to_measure,
-        pr_data_path,
-        debug_rocksb: debug_options.contains(&"rocksdb"),
+        rocksdb_test_config,
     };
     let cost_table = runtime_params_estimator::run(config);
 

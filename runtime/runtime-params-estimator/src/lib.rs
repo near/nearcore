@@ -91,6 +91,7 @@ pub use crate::cost::Cost;
 pub use crate::cost_table::CostTable;
 pub use crate::costs_to_runtime_config::costs_to_runtime_config;
 pub use crate::qemu::QemuCommandBuilder;
+pub use crate::rocksdb::RocksDBTestConfig;
 
 static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ActionReceiptCreation, action_receipt_creation),
@@ -158,54 +159,8 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::TouchingTrieNode, touching_trie_node),
     (Cost::GasMeteringBase, gas_metering_base),
     (Cost::GasMeteringOp, gas_metering_op),
-    (Cost::RocksDbInsertSeqValueKByte, |ctx| {
-        rocks_db_insert_value_byte(ctx, bytesize::kb(1u64) as usize, true, false)
-    }),
-    (Cost::RocksDbInsertSeqValueCompactedKByte, |ctx| {
-        rocks_db_insert_value_byte(ctx, bytesize::kb(1u64) as usize, true, true)
-    }),
-    (Cost::RocksDbInsertSeqValue100KByte, |ctx| {
-        rocks_db_insert_value_byte(ctx, bytesize::kb(100u64) as usize, true, false)
-    }),
-    (Cost::RocksDbInsertSeqValueCompacted100KByte, |ctx| {
-        rocks_db_insert_value_byte(ctx, bytesize::kb(100u64) as usize, true, true)
-    }),
-    (Cost::RocksDbInsertRandValueKByte, |ctx| {
-        rocks_db_insert_value_byte(ctx, bytesize::kb(1u64) as usize, false, false)
-    }),
-    (Cost::RocksDbInsertRandValueCompactedKByte, |ctx| {
-        rocks_db_insert_value_byte(ctx, bytesize::kb(1u64) as usize, false, true)
-    }),
-    (Cost::RocksDbInsertRandValue100KByte, |ctx| {
-        rocks_db_insert_value_byte(ctx, bytesize::kb(100u64) as usize, false, false)
-    }),
-    (Cost::RocksDbInsertRandValueCompacted100KByte, |ctx| {
-        rocks_db_insert_value_byte(ctx, bytesize::kb(100u64) as usize, false, true)
-    }),
-    (Cost::RocksDbReadSeqValueKByte, |ctx| {
-        rocks_db_read_value_byte(ctx, bytesize::kb(1u64) as usize, true, false)
-    }),
-    (Cost::RocksDbReadSeqValueCompactedKByte, |ctx| {
-        rocks_db_read_value_byte(ctx, bytesize::kb(1u64) as usize, true, true)
-    }),
-    (Cost::RocksDbReadSeqValue100KByte, |ctx| {
-        rocks_db_read_value_byte(ctx, bytesize::kb(100u64) as usize, true, false)
-    }),
-    (Cost::RocksDbReadSeqValueCompacted100KByte, |ctx| {
-        rocks_db_read_value_byte(ctx, bytesize::kb(100u64) as usize, true, true)
-    }),
-    (Cost::RocksDbReadRandValueKByte, |ctx| {
-        rocks_db_read_value_byte(ctx, bytesize::kb(1u64) as usize, false, false)
-    }),
-    (Cost::RocksDbReadRandValueCompactedKByte, |ctx| {
-        rocks_db_read_value_byte(ctx, bytesize::kb(1u64) as usize, false, true)
-    }),
-    (Cost::RocksDbReadRandValue100KByte, |ctx| {
-        rocks_db_read_value_byte(ctx, bytesize::kb(100u64) as usize, false, false)
-    }),
-    (Cost::RocksDbReadRandValueCompacted100KByte, |ctx| {
-        rocks_db_read_value_byte(ctx, bytesize::kb(100u64) as usize, false, true)
-    }),
+    (Cost::RocksDbInsertValueByte, rocks_db_insert_value_byte),
+    (Cost::RocksDbReadValueByte, rocks_db_read_value_byte),
     (Cost::CpuBenchmarkSha256, cpu_benchmark_sha256),
     (Cost::OneCPUInstruction, one_cpu_instruction),
     (Cost::OneNanosecond, one_nanosecond),
@@ -985,26 +940,16 @@ fn gas_metering_op(ctx: &mut EstimatorContext) -> GasCost {
     gas_metering(ctx).1
 }
 
-fn rocks_db_insert_value_byte(
-    ctx: &mut EstimatorContext,
-    value_size: usize,
-    sequential: bool,
-    force_compaction: bool,
-) -> GasCost {
-    let inserts = bytesize::gb(1u64) as usize / value_size;
-    rocks_db_inserts_cost(&ctx.config, force_compaction, sequential, value_size, inserts)
-        / inserts as u64
+fn rocks_db_insert_value_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let total_bytes = ctx.config.rocksdb_test_config.op_count as u64
+        * ctx.config.rocksdb_test_config.value_size as u64;
+    rocks_db_inserts_cost(&ctx.config) / total_bytes
 }
 
-fn rocks_db_read_value_byte(
-    ctx: &mut EstimatorContext,
-    value_size: usize,
-    sequential: bool,
-    force_compaction: bool,
-) -> GasCost {
-    let inserts = bytesize::gb(1u64) as usize / value_size;
-    rocks_db_read_cost(&ctx.config, force_compaction, sequential, value_size, inserts)
-        / inserts as u64
+fn rocks_db_read_value_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let total_bytes = ctx.config.rocksdb_test_config.op_count as u64
+        * ctx.config.rocksdb_test_config.value_size as u64;
+    rocks_db_read_cost(&ctx.config) / total_bytes
 }
 
 fn gas_metering(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {

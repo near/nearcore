@@ -1,59 +1,104 @@
-use std::io::prelude::*;
+use std::{io::prelude::*, path::PathBuf};
 
+use clap::Clap;
 use rand::{prelude::SliceRandom, Rng};
 use rand_xorshift::XorShiftRng;
 use rocksdb::DB;
 
 use crate::{config::Config, gas_cost::GasCost};
 
-const MEMTABLE_SIZE: u64 = 256 * bytesize::MIB;
-const INPUT_DATA_BUFFER_SIZE: usize = bytesize::MIB as usize;
+#[derive(Debug, Clone, Clap)]
+pub struct RocksDBTestConfig {
+    /// Value size used for all DB operations in RocksDB tests
+    /// (`RocksDb*` estimations only)
+    #[clap(name = "rdb-value-size", long, default_value = "1000")]
+    pub value_size: usize,
+    /// Number of insertions/reads performed in RocksDB tests
+    /// (`RocksDb*` estimations only)
+    #[clap(name = "rdb-op-count", long, default_value = "1000000")]
+    pub op_count: usize,
+    /// Size of memtable used in RocksDB tests
+    /// (`RocksDb*` estimations only)
+    #[clap(name = "rdb-memtable-size", long, default_value = "256000000")]
+    pub memtable_size: usize,
+    /// Number of insertions into test DB before measurement begins
+    /// (`RocksDb*` estimations only)
+    #[clap(name = "rdb-setup-insertions", long, default_value = "2000000")]
+    pub setup_insertions: usize,
+    /// Keys will be ordered sequentially if this is set, randomized otherwise.
+    /// (`RocksDb*` estimations only)
+    #[clap(name = "rdb-sequential-keys", long)]
+    pub sequential_keys: bool,
+    /// Force compactions after a bulk of operations.
+    /// The compaction time will be included in the reported measurement.
+    /// (`RocksDb*` estimations only)
+    #[clap(long, name = "rdb-force-compaction", long)]
+    pub force_compaction: bool,
+    /// Enable the default block cache used for reads, disabled by default.
+    /// (`RocksDb*` estimations only)
+    #[clap(long, name = "rdb-block-cache", long)]
+    pub block_cache: bool,
+    /// Print RocksDB debug output where available
+    #[clap(skip)]
+    pub debug_rocksdb: bool,
+    /// Pseudo-random input data dump
+    /// (`RocksDb*` estimations only)
+    #[clap(long, name = "rdb-pr-data-path", long)]
+    pub pr_data_path: Option<PathBuf>,
+}
 
-/// The goal is to build up a store that stretches all 3 layers in the underlying LSM tree
-/// Since we use the same target size on all layers, writing one memtable worth of data will create *at least* one node (usually substantially more due to meta data and overhead).
-/// Using 8 memtables, I got a reasonably structured tree like this (before compaction):
-/// 3 files at level 0
-/// 8 files at level 1
-/// 16 files at level 2
-const SETUP_INSERTION_BYTES: u64 = 8 * MEMTABLE_SIZE;
+/*
+    These tests make use of reproducible pseud-randomness.
+    Two different strategies are used for keys and data values.
 
+    > Keys: XorShiftRng with an initial seed value to produce a series of pseudo-random keys
+    > Values: A buffer of random bytes is loaded into memory.
+              The values are slices from this buffer at different offsets.
+              The initial buffer can be dynamically generated from thread_rng or loaded from a dump from previous runs.
+
+    The rational behind this setup is to have random keys/values readily available during benchmarks without consuming much memory or CPU time.
+*/
 const SETUP_PRANDOM_SEED: u64 = 0x1d9f5711fc8b0117;
 const ANOTHER_PRANDOM_SEED: u64 = 0x0465b6733af62af0;
+const INPUT_DATA_BUFFER_SIZE: usize = (bytesize::MIB as usize) - 1;
 
-pub(crate) fn rocks_db_inserts_cost(
-    config: &Config,
-    force_compaction: bool,
-    sequential: bool,
-    value_size: usize,
-    inserts: usize,
-) -> GasCost {
-    let data = input_data(config, INPUT_DATA_BUFFER_SIZE);
+pub(crate) fn rocks_db_inserts_cost(config: &Config) -> GasCost {
+    let db_config = &config.rocksdb_test_config;
+    let data = input_data(db_config, INPUT_DATA_BUFFER_SIZE);
     let tmp_dir = tempfile::TempDir::new().expect("Failed to create directory for temp DB");
-    let db = new_test_db(&tmp_dir, &data, value_size, force_compaction);
+    let db = new_test_db(&tmp_dir, &data, &db_config);
 
-    if config.debug_rocksb {
+    if db_config.debug_rocksdb {
+        println!("# {:?}", db_config);
         println!("# After setup / before measurement:");
         print_levels_info(&db);
     }
 
     let gas_counter = GasCost::measure(config.metric);
 
-    if sequential {
+    if db_config.sequential_keys {
         sequential_inserts(
-            inserts,
-            value_size,
+            db_config.op_count,
+            db_config.value_size,
             &data,
-            SETUP_INSERTION_BYTES as usize / value_size,
+            db_config.setup_insertions,
             &db,
-            force_compaction,
+            db_config.force_compaction,
         );
     } else {
-        prandom_inserts(inserts, value_size, &data, ANOTHER_PRANDOM_SEED, &db, force_compaction);
+        prandom_inserts(
+            db_config.op_count,
+            db_config.value_size,
+            &data,
+            ANOTHER_PRANDOM_SEED,
+            &db,
+            db_config.force_compaction,
+        );
     }
 
     let cost = gas_counter.elapsed();
 
-    if config.debug_rocksb {
+    if db_config.debug_rocksdb {
         println!("# Cost: {:?}", cost);
         print_levels_info(&db);
     }
@@ -62,7 +107,7 @@ pub(crate) fn rocks_db_inserts_cost(
     tmp_dir.close().expect("Could not clean up temp DB");
 
     // Store generated input data in a file for reproducibility of any results
-    if config.pr_data_path.is_none() {
+    if db_config.pr_data_path.is_none() {
         let mut stats_file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
@@ -83,26 +128,21 @@ pub(crate) fn rocks_db_inserts_cost(
     cost
 }
 
-pub(crate) fn rocks_db_read_cost(
-    config: &Config,
-    force_compaction: bool,
-    sequential: bool,
-    value_size: usize,
-    ops: usize,
-) -> GasCost {
+pub(crate) fn rocks_db_read_cost(config: &Config) -> GasCost {
+    let db_config = &config.rocksdb_test_config;
     let tmp_dir = tempfile::TempDir::new().expect("Failed to create directory for temp DB");
-    let data = input_data(config, INPUT_DATA_BUFFER_SIZE);
-    let db = new_test_db(&tmp_dir, &data, value_size, force_compaction);
+    let data = input_data(db_config, INPUT_DATA_BUFFER_SIZE);
+    let db = new_test_db(&tmp_dir, &data, &db_config);
 
-    if config.debug_rocksb {
+    if db_config.debug_rocksdb {
+        println!("# {:?}", db_config);
         println!("# After setup / before measurement:");
         print_levels_info(&db);
     }
 
-    let keys_available = SETUP_INSERTION_BYTES as usize / value_size;
     let mut prng: XorShiftRng = rand::SeedableRng::seed_from_u64(SETUP_PRANDOM_SEED);
-    let mut keys: Vec<usize> = (0..keys_available).map(|_| prng.gen()).collect();
-    if sequential {
+    let mut keys: Vec<usize> = (0..db_config.setup_insertions).map(|_| prng.gen()).collect();
+    if db_config.sequential_keys {
         keys.sort();
     } else {
         // give it another shuffle to make lookup order different from insertion order
@@ -111,14 +151,14 @@ pub(crate) fn rocks_db_read_cost(
 
     let gas_counter = GasCost::measure(config.metric);
 
-    for i in 0..ops {
-        let key = keys[i % keys.len()];
+    for i in 0..db_config.op_count {
+        let key = keys[i as usize % keys.len()];
         db.get(&key.to_string()).unwrap();
     }
 
     let cost = gas_counter.elapsed();
 
-    if config.debug_rocksb {
+    if db_config.debug_rocksdb {
         println!("# Cost: {:?}", cost);
         print_levels_info(&db);
     }
@@ -127,7 +167,7 @@ pub(crate) fn rocks_db_read_cost(
     tmp_dir.close().expect("Could not clean up temp DB");
 
     // Store generated input data in a file for reproducibility of any results
-    if config.pr_data_path.is_none() {
+    if db_config.pr_data_path.is_none() {
         let mut stats_file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
@@ -197,9 +237,9 @@ fn prandom_inserts(
     }
 }
 
-fn input_data(config: &Config, data_size: usize) -> Vec<u8> {
+fn input_data(db_config: &RocksDBTestConfig, data_size: usize) -> Vec<u8> {
     let mut data = vec![0u8; data_size];
-    if let Some(path) = config.pr_data_path.as_ref() {
+    if let Some(path) = db_config.pr_data_path.as_ref() {
         let mut input = std::fs::File::open(path).unwrap();
         input.read_exact(&mut data).unwrap();
     } else {
@@ -211,8 +251,7 @@ fn input_data(config: &Config, data_size: usize) -> Vec<u8> {
 fn new_test_db(
     db_dir: impl AsRef<std::path::Path>,
     data: &[u8],
-    value_size: usize,
-    force_compaction: bool,
+    db_config: &RocksDBTestConfig,
 ) -> DB {
     let mut opts = rocksdb::Options::default();
 
@@ -220,8 +259,8 @@ fn new_test_db(
 
     // Options as used in nearcore
     opts.set_bytes_per_sync(bytesize::MIB);
-    opts.set_write_buffer_size(MEMTABLE_SIZE as usize);
-    opts.set_max_bytes_for_level_base(MEMTABLE_SIZE);
+    opts.set_write_buffer_size(db_config.memtable_size);
+    opts.set_max_bytes_for_level_base(db_config.memtable_size as u64);
 
     // Simplify DB a bit for more consistency:
     // * Only have one memtable at the time
@@ -229,20 +268,21 @@ fn new_test_db(
     // * Never slow down writes due to increased number of L0 files
     opts.set_level_zero_slowdown_writes_trigger(-1);
 
-    // TODO: Maybe add option to enable/disable cache
-    // let mut block_opts = rocksdb::BlockBasedOptions::default();
-    // block_opts.disable_cache();
-    // opts.set_block_based_table_factory(&block_opts);
+    if !db_config.block_cache {
+        let mut block_opts = rocksdb::BlockBasedOptions::default();
+        block_opts.disable_cache();
+        opts.set_block_based_table_factory(&block_opts);
+    }
 
     let db = rocksdb::DB::open(&opts, db_dir).expect("Failed to create RocksDB");
 
     prandom_inserts(
-        SETUP_INSERTION_BYTES as usize / value_size,
-        value_size,
+        db_config.setup_insertions,
+        db_config.value_size,
         &data,
         SETUP_PRANDOM_SEED,
         &db,
-        force_compaction,
+        db_config.force_compaction,
     );
 
     db
