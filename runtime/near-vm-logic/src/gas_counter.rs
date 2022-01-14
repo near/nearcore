@@ -69,7 +69,6 @@ impl GasCounter {
     pub fn new(
         ext_costs_config: ExtCostsConfig,
         max_gas_burnt: Gas,
-        opcode_cost: u32,
         prepaid_gas: Gas,
         is_view: bool,
     ) -> Self {
@@ -81,7 +80,7 @@ impl GasCounter {
             fast_counter: FastGasCounter {
                 burnt_gas: 0,
                 gas_limit: min(max_gas_burnt, prepaid_gas),
-                opcode_cost: Gas::from(opcode_cost),
+                opcode_cost: 1,
             },
             max_gas_burnt: max_gas_burnt,
             promises_gas: 0,
@@ -153,11 +152,6 @@ impl GasCounter {
         } else {
             HostError::GasExceeded
         }
-    }
-
-    pub fn pay_wasm_gas(&mut self, opcodes: u32) -> Result<()> {
-        let value = Gas::from(opcodes) * self.fast_counter.opcode_cost;
-        self.burn_gas(value)
     }
 
     /// Very special function to get the gas counter pointer for generated machine code.
@@ -290,7 +284,7 @@ mod tests {
     use near_primitives_core::types::Gas;
 
     fn make_test_counter(max_burnt: Gas, prepaid: Gas, is_view: bool) -> super::GasCounter {
-        super::GasCounter::new(ExtCostsConfig::test(), max_burnt, 1, prepaid, is_view)
+        super::GasCounter::new(ExtCostsConfig::test(), max_burnt, prepaid, is_view)
     }
 
     #[test]

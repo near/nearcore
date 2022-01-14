@@ -119,7 +119,6 @@ impl<'a> VMLogic<'a> {
         let gas_counter = GasCounter::new(
             config.ext_costs.clone(),
             max_gas_burnt,
-            config.regular_op_cost,
             context.prepaid_gas,
             context.is_view(),
         );
@@ -1045,15 +1044,27 @@ impl<'a> VMLogic<'a> {
         Ok(false as u64)
     }
 
-    /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
+    /// Potentially called by gas metering injected into Wasm. Counts both towards `burnt_gas` and
+    /// `used_gas`.
+    ///
+    /// Today we implement this operation directly within the codegen so this function is called
+    /// only in non-standard situations – use of the different runtime, or if testing with
+    /// intrinsification disabled.
     ///
     /// # Errors
     ///
     /// * If passed gas amount somehow overflows internal gas counters returns `IntegerOverflow`;
     /// * If we exceed usage limit imposed on burnt gas returns `GasLimitExceeded`;
     /// * If we exceed the `prepaid_gas` then returns `GasExceeded`.
-    pub fn gas(&mut self, opcodes: u32) -> Result<()> {
-        self.gas_counter.pay_wasm_gas(opcodes)
+    pub fn gas(&mut self, gas: u32) -> Result<()> {
+        let gas = Gas::from(gas);
+        self.gas_counter.burn_gas(gas)
+    }
+
+    /// See [`Self::gas`]. This takes u64 gas count.
+    pub fn gas64(&mut self, gas: u64) -> Result<()> {
+        let gas = Gas::from(gas);
+        self.gas_counter.burn_gas(gas)
     }
 
     // ################
