@@ -25,9 +25,9 @@ use tracing::{debug, trace, warn};
 #[derive(Debug, Eq, PartialEq)]
 pub enum Prune {
     /// Prune once per hour - default.
-    PruneOncePerHour,
+    OncePerHour,
     /// Prune right now - for testing purposes.
-    PruneNow,
+    Now,
     /// Don't prune at all - this happens in case we are in the middle of adding new edges.
     Disable,
 }
@@ -266,7 +266,7 @@ impl RoutingTableActor {
         let _d = delay_detector::DelayDetector::new("pruning edges".into());
 
         let edges_to_remove = self.prune_unreachable_edges_and_save_to_db(
-            prune == Prune::PruneNow,
+            prune == Prune::Now,
             prune_edges_not_reachable_for,
         );
         self.remove_edges(&edges_to_remove);
@@ -546,13 +546,12 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                 mut prune,
                 prune_edges_not_reachable_for,
             } => {
-                if prune == Prune::PruneOncePerHour && self.edge_validator_requests_in_progress != 0
-                {
+                if prune == Prune::OncePerHour && self.edge_validator_requests_in_progress != 0 {
                     prune = Prune::Disable;
                 }
 
                 let mut edges_removed =
-                    if self.needs_routing_table_recalculation || prune == Prune::PruneNow {
+                    if self.needs_routing_table_recalculation || prune == Prune::Now {
                         self.needs_routing_table_recalculation = false;
                         self.recalculate_routing_table();
                         self.prune_edges(prune, prune_edges_not_reachable_for)
