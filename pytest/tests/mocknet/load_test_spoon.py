@@ -38,7 +38,10 @@ For the terraform command to work, please do the following:
 3) cd provisioning/terraform/network/mocknet
 4) Run `terraform init`
 5) Run `terraform apply` as specified above and check the output.
-6) If you don't have permissions for the GCP project `near-mocknet`, ask your friendly SREs to give you permissions.
+6) If you don't have permissions for the GCP project `near-mocknet`, please ask your friendly SREs to give you permissions.
+7) Make the pair of neard binaries available for download. The pair of binaries is the baseline version, e.g. the current mainnet binary version, and your experimental binary. The simplest way to make the binaries available is to upload them to https://s3.console.aws.amazon.com/s3/buckets/near-protocol-public?region=ca-central-1&prefix=mocknet/
+8) If you don't have access to S3 AWS, please ask your friendly SREs to give you access.
+9) A reliable way to make an experimental binary compatible with mocknet instances, is to build it on machine "builder" in project "near-mocknet". You may need to "Resume" the instance in the GCP console: https://console.cloud.google.com/compute/instancesDetail/zones/us-central1-a/instances/builder?project=near-mocknet
 
 For the `load_test_spoon.py` to work, please do the following:
 1) git clone https://github.com/near/nearcore
