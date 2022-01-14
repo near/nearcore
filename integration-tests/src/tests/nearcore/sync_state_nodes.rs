@@ -14,6 +14,7 @@ use nearcore::{config::GenesisExt, load_test_config, start_with_config};
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn sync_state_nodes() {
     heavy_test(|| {
         init_integration_logger();
@@ -254,6 +255,7 @@ fn sync_state_nodes_multishard() {
 /// Start a validator that validators four shards. Since we only have 3 accounts one shard must have
 /// empty state. Start another node that does state sync. Check state sync on empty state works.
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn sync_empty_state() {
     heavy_test(|| {
         init_integration_logger();
