@@ -7,6 +7,7 @@ use clap::{App, Arg, SubCommand};
 
 use near_chain::store_validator::StoreValidator;
 use near_chain::RuntimeAdapter;
+use near_chain_configs::GenesisValidationMode;
 use near_logger_utils::init_integration_logger;
 use near_store::create_store;
 use nearcore::{get_default_home, get_store_path, load_config, TrackedConfig};
@@ -27,7 +28,7 @@ fn main() {
         .get_matches();
 
     let home_dir = matches.value_of("home").map(Path::new).unwrap();
-    let near_config = load_config(home_dir);
+    let near_config = load_config(home_dir, GenesisValidationMode::Full);
 
     let store = create_store(&get_store_path(home_dir));
 

@@ -16,18 +16,16 @@ pub struct KeyFile {
 }
 
 impl KeyFile {
-    pub fn write_to_file(&self, path: &Path) {
-        let mut file = File::create(path).expect("Failed to create / write a key file.");
-        #[cfg(platform = "unix")]
+    pub fn write_to_file(&self, path: &Path) -> std::io::Result<()> {
+        let mut file = File::create(path)?;
+        #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let perm = std::fs::Permissions::from_mode(u32::from(libc::S_IWUSR | libc::S_IRUSR));
-            file.set_permissions(perm).expect("Failed to set permissions for a key file.");
+            file.set_permissions(perm)?;
         }
-        let str = serde_json::to_string_pretty(self).expect("Error serializing the key file.");
-        if let Err(err) = file.write_all(str.as_bytes()) {
-            panic!("Failed to write a key file {}", err);
-        }
+        let str = serde_json::to_string_pretty(self)?;
+        file.write_all(str.as_bytes())
     }
 
     pub fn from_file(path: &Path) -> Self {

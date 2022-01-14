@@ -14,6 +14,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
+type SimpleEdgeDescription = (usize, usize, bool);
+
 #[derive(Eq, PartialEq, Hash)]
 struct EdgeDescription(usize, usize, EdgeState);
 
@@ -78,7 +80,7 @@ impl RoutingTableTest {
     fn check(
         &mut self,
         on_memory: Vec<(usize, usize, bool)>,
-        on_disk_edges: Vec<(u64, Vec<(usize, usize, bool)>)>,
+        on_disk_edges: Vec<(u64, Vec<SimpleEdgeDescription>)>,
         on_disk_peers: Vec<(usize, u64)>,
     ) {
         let on_memory = on_memory.into_iter().map(EdgeDescription::from).collect::<HashSet<_>>();
@@ -166,7 +168,7 @@ impl RoutingTableTest {
 
     fn update_routing_table(&mut self) {
         self.routing_table.recalculate_routing_table();
-        self.routing_table.prune_edges(Prune::PruneOncePerHour, DELETE_PEERS_AFTER_TIME);
+        self.routing_table.prune_edges(Prune::OncePerHour, DELETE_PEERS_AFTER_TIME);
     }
 }
 

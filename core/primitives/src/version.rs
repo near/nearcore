@@ -14,7 +14,7 @@ pub struct Version {
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 30;
+pub const DB_VERSION: DbVersion = 31;
 
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
@@ -125,6 +125,12 @@ pub enum ProtocolFeature {
     /// https://github.com/near/NEPs/pull/167 for general description, note that we would not
     /// introduce chunk-only validators with this feature
     AliasValidatorSelectionAlgorithm,
+    /// Make block producers produce chunks for the same block they would later produce to avoid
+    /// network delays
+    SynchronizeBlockChunkProduction,
+    /// Change the algorithm to count WASM stack usage to avoid undercounting in
+    /// some cases.
+    CorrectStackLimit,
     /// Add `AccessKey` nonce range for implicit accounts, as in `AccessKeyNonceRange` feature.
     AccessKeyNonceForImplicitAccounts,
 
@@ -144,7 +150,7 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = MAIN_NET_PROTOCOL
 /// Current protocol version used on the main net.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const MAIN_NET_PROTOCOL_VERSION: ProtocolVersion = 50;
+const MAIN_NET_PROTOCOL_VERSION: ProtocolVersion = 51;
 
 /// Version used by this binary.
 #[cfg(not(feature = "nightly_protocol"))]
@@ -178,7 +184,9 @@ impl ProtocolFeature {
             | ProtocolFeature::LimitContractFunctionsNumber
             | ProtocolFeature::BlockHeaderV3
             | ProtocolFeature::AliasValidatorSelectionAlgorithm => 49,
-            ProtocolFeature::AccessKeyNonceForImplicitAccounts => 50,
+            ProtocolFeature::SynchronizeBlockChunkProduction
+            | ProtocolFeature::CorrectStackLimit => 50,
+            ProtocolFeature::AccessKeyNonceForImplicitAccounts => 51,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
