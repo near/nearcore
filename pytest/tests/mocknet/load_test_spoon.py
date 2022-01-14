@@ -38,6 +38,7 @@ For the terraform command to work, please do the following:
 3) cd provisioning/terraform/network/mocknet
 4) Run `terraform init`
 5) Run `terraform apply` as specified above and check the output.
+6) If you don't have permissions for the GCP project `near-mocknet`, ask your friendly SREs to give you permissions.
 
 For the `load_test_spoon.py` to work, please do the following:
 1) git clone https://github.com/near/nearcore
