@@ -612,12 +612,11 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
 
     let mut run = || {
         let context = create_context(vec![]);
-        let (outcome, err) = vm_kind.runtime().unwrap().run(
+        let (outcome, err) = vm_kind.runtime(config.clone()).unwrap().run(
             &code,
             "cpu_ram_soak_test",
             &mut fake_external,
             context,
-            &config,
             &fees,
             &promise_results,
             PROTOCOL_VERSION,

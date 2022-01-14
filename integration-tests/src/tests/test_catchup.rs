@@ -1,13 +1,13 @@
 //! Checks that late validator can catch-up and start validating.
-#[cfg(feature = "expensive_tests")]
+use std::time::Duration;
+
+use crate::node::{create_nodes, Node};
+use crate::test_helpers::{heavy_test, wait};
+use std::sync::{Arc, RwLock};
+
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_catchup() {
-    use std::time::Duration;
-
-    use crate::node::{create_nodes, Node};
-    use crate::test_helpers::{heavy_test, wait};
-    use std::sync::{Arc, RwLock};
-
     /// Creates a network of `num_nodes` nodes, but starts only `num_nodes - 1`. After
     /// `num_blocks_to_wait` starts the last node and verifies that it can start validating within
     /// `catchup_timeout`.

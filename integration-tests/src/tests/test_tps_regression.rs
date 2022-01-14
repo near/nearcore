@@ -2,8 +2,6 @@
 //! and verifies that the output tps is not much different from the input tps (makes sure there is
 //! no choking on transactions). The input tps -- is how fast the nodes can be accepting
 //! transactions. The output tps -- is how fast the nodes propagate transactions into the blocks.
-#[cfg(feature = "expensive_tests")]
-#[cfg(test)]
 mod test {
     use std::io::stdout;
     use std::io::Write;
@@ -166,6 +164,7 @@ mod test {
     }
 
     #[test]
+    #[cfg_attr(not(feature = "expensive_tests"), ignore)]
     #[ignore]
     fn test_highload() {
         // Run 4 nodes with 20 input tps and check the output tps to be 20.

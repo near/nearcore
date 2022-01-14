@@ -52,6 +52,10 @@ skip = [
     { name = "wasmparser", version = "=0.76.0" },
     # Wasmtime 0.17 use older target-lexicon.
     { name = "target-lexicon", version = "=0.11.2" },
+    # Need this specific version of pwasm-utils for backwards-compatible
+    # stack limiting.
+    { name = "pwasm-utils", version = "=0.12.0" },
+    { name = "parity-wasm", version = "=0.41.0" },
 
     # param estimator uses newer imports, but it's not part of neard
     { name = "indicatif", version = "=0.15.0" },
