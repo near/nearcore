@@ -230,11 +230,11 @@ impl Actor for PeerManagerActor {
 
                     ctx.add_message_stream(incoming.filter_map(move |conn| {
                         if let Ok(conn) = conn {
-                            if pending_incoming_connections_counter.load(Ordering::SeqCst)
-                                + peer_counter.load(Ordering::SeqCst)
+                            if pending_incoming_connections_counter.load(Ordering::Relaxed)
+                                + peer_counter.load(Ordering::Relaxed)
                                 < max_num_peers + LIMIT_PENDING_PEERS
                             {
-                                pending_incoming_connections_counter.fetch_add(1, Ordering::SeqCst);
+                                pending_incoming_connections_counter.fetch_add(1, Ordering::Relaxed);
                                 return future::ready(Some(
                                     PeerManagerMessageRequest::InboundTcpConnect(
                                         InboundTcpConnect::new(conn),
@@ -880,7 +880,7 @@ impl PeerManagerActor {
         // Start every peer actor on separate thread.
         let arbiter = Arbiter::new();
         let peer_counter = self.peer_counter.clone();
-        peer_counter.fetch_add(1, Ordering::SeqCst);
+        peer_counter.fetch_add(1, Ordering::Relaxed);
 
         PeerActor::start_in_arbiter(&arbiter.handle(), move |ctx| {
             let (read, write) = tokio::io::split(stream);
@@ -1592,7 +1592,7 @@ impl PeerManagerActor {
                     addr: None,
                 })
                 .collect(),
-            peer_counter: self.peer_counter.load(Ordering::SeqCst),
+            peer_counter: self.peer_counter.load(Ordering::Relaxed),
         }
     }
 
@@ -2052,7 +2052,7 @@ impl PeerManagerActor {
             // TODO(1896): Gracefully drop inbound connection for other peer.
             debug!(target: "network", "Inbound connection dropped (network at max capacity).");
         }
-        self.pending_incoming_connections_counter.fetch_sub(1, Ordering::SeqCst);
+        self.pending_incoming_connections_counter.fetch_sub(1, Ordering::Relaxed);
     }
 
     #[cfg(feature = "test_features")]
