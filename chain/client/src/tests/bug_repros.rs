@@ -17,10 +17,9 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
 use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
 use near_network::types::{
-    NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
-    PeerManagerMessageResponse,
+    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
-use near_network_primitives::types::PeerInfo;
+use near_network_primitives::types::{NetworkClientMessages, PeerInfo};
 use near_primitives::block::Block;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;

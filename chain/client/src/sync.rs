@@ -14,7 +14,7 @@ use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{thread_rng, Rng};
 
 use near_chain::{Chain, RuntimeAdapter};
-use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter};
+use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerAdapter};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -32,7 +32,7 @@ use near_client_primitives::types::{
     DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus,
 };
 use near_network::types::PeerManagerMessageRequest;
-use near_network_primitives::types::AccountOrPeerIdOrHash;
+use near_network_primitives::types::{AccountOrPeerIdOrHash, FullPeerInfo};
 use near_primitives::shard_layout::ShardUId;
 
 /// Maximum number of block headers send over the network.

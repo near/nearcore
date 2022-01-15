@@ -21,12 +21,11 @@ use near_chain::{
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::test_utils::{MockPeerManagerAdapter, NetworkRecipient};
-use near_network::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
-    PeerManagerAdapter,
-};
+use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerAdapter};
 use near_network::PeerManagerActor;
-use near_network_primitives::types::PartialEdgeInfo;
+use near_network_primitives::types::{
+    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkInfo, PartialEdgeInfo,
+};
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
@@ -53,7 +52,7 @@ use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor}
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_chain::types::AcceptedBlock;
 use near_client_primitives::types::Error;
-use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
+use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, NetworkViewClientMessages, NetworkViewClientResponses,
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo,

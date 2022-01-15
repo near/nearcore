@@ -13,12 +13,15 @@ use actix::{Actor, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use near_crypto::{SecretKey, Signature};
-use near_primitives::block::{Block, BlockHeader, GenesisId};
+use near_primitives::block::{Approval, Block, BlockHeader, GenesisId};
+use near_primitives::challenge::Challenge;
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::time::{Clock, Utc};
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
+use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
@@ -510,5 +513,127 @@ mod tests {
                 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 0, 0,
             ],
         );
+    }
+}
+
+/// Combines peer address info, chain and edge information.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct FullPeerInfo {
+    pub peer_info: PeerInfo,
+    pub chain_info: PeerChainInfoV2,
+    pub partial_edge_info: PartialEdgeInfo,
+}
+
+#[derive(Debug)]
+pub struct NetworkInfo {
+    pub connected_peers: Vec<FullPeerInfo>,
+    pub num_connected_peers: usize,
+    pub peer_max_count: u32,
+    pub highest_height_peers: Vec<FullPeerInfo>,
+    pub sent_bytes_per_sec: u64,
+    pub received_bytes_per_sec: u64,
+    /// Accounts of known block and chunk producers from routing table.
+    pub known_producers: Vec<KnownProducer>,
+    pub peer_counter: usize,
+}
+
+impl<A, M> MessageResponse<A, M> for NetworkInfo
+where
+    A: Actor,
+    M: Message<Result = NetworkInfo>,
+{
+    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
+        if let Some(tx) = tx {
+            tx.send(self)
+        }
+    }
+}
+
+#[derive(Debug, strum::AsRefStr, AsStaticStr)]
+// TODO(#1313): Use Box
+#[allow(clippy::large_enum_variant)]
+pub enum NetworkClientMessages {
+    #[cfg(feature = "test_features")]
+    Adversarial(NetworkAdversarialMessage),
+
+    #[cfg(feature = "sandbox")]
+    Sandbox(NetworkSandboxMessage),
+
+    /// Received transaction.
+    Transaction {
+        transaction: SignedTransaction,
+        /// Whether the transaction is forwarded from other nodes.
+        is_forwarded: bool,
+        /// Whether the transaction needs to be submitted.
+        check_only: bool,
+    },
+    /// Received block, possibly requested.
+    Block(Block, PeerId, bool),
+    /// Received list of headers for syncing.
+    BlockHeaders(Vec<BlockHeader>, PeerId),
+    /// Block approval.
+    BlockApproval(Approval, PeerId),
+    /// State response.
+    StateResponse(StateResponseInfo),
+    /// Epoch Sync response for light client block request
+    EpochSyncResponse(PeerId, Box<EpochSyncResponse>),
+    /// Epoch Sync response for finalization request
+    EpochSyncFinalizationResponse(PeerId, Box<EpochSyncFinalizationResponse>),
+
+    /// Request chunk parts and/or receipts.
+    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
+    /// Response to a request for  chunk parts and/or receipts.
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
+    /// Information about chunk such as its header, some subset of parts and/or incoming receipts
+    PartialEncodedChunk(PartialEncodedChunk),
+    /// Forwarding parts to those tracking the shard (so they don't need to send requests)
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
+
+    /// A challenge to invalidate the block.
+    Challenge(Challenge),
+
+    NetworkInfo(NetworkInfo),
+}
+
+impl Message for NetworkClientMessages {
+    type Result = NetworkClientResponses;
+}
+
+// TODO(#1313): Use Box
+#[derive(Eq, PartialEq, Debug)]
+#[allow(clippy::large_enum_variant)]
+pub enum NetworkClientResponses {
+    /// Adv controls.
+    #[cfg(feature = "test_features")]
+    AdvResult(u64),
+
+    /// Sandbox controls
+    #[cfg(feature = "sandbox")]
+    SandboxResult(SandboxResponse),
+
+    /// No response.
+    NoResponse,
+    /// Valid transaction inserted into mempool as response to Transaction.
+    ValidTx,
+    /// Invalid transaction inserted into mempool as response to Transaction.
+    InvalidTx(InvalidTxError),
+    /// The request is routed to other shards
+    RequestRouted,
+    /// The node being queried does not track the shard needed and therefore cannot provide userful
+    /// response.
+    DoesNotTrackShard,
+    /// Ban peer for malicious behavior.
+    Ban { ban_reason: ReasonForBan },
+}
+
+impl<A, M> MessageResponse<A, M> for NetworkClientResponses
+where
+    A: Actor,
+    M: Message<Result = NetworkClientResponses>,
+{
+    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
+        if let Some(tx) = tx {
+            tx.send(self)
+        }
     }
 }

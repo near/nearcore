@@ -25,7 +25,7 @@ use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
-use near_network::types::{NetworkClientMessages, NetworkClientResponses};
+use near_network_primitives::types::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
 use near_primitives::transaction::SignedTransaction;
@@ -1132,7 +1132,7 @@ impl JsonRpcHandler {
     async fn adv_disable_header_sync(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr
-                .send(near_network::types::NetworkClientMessages::Adversarial(
+                .send(near_network_primitives::types::NetworkClientMessages::Adversarial(
                     near_network_primitives::types::NetworkAdversarialMessage::AdvDisableHeaderSync,
                 ))
                 .map(|_| ()),

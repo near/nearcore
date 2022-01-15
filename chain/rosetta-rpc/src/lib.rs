@@ -739,22 +739,22 @@ async fn construction_submit(
 
     let transaction_hash = signed_transaction.as_ref().get_hash();
     let transaction_submittion = client_addr
-        .send(near_network::types::NetworkClientMessages::Transaction {
+        .send(near_network_primitives::types::NetworkClientMessages::Transaction {
             transaction: signed_transaction.into_inner(),
             is_forwarded: false,
             check_only: false,
         })
         .await?;
     match transaction_submittion {
-        near_network::types::NetworkClientResponses::ValidTx
-        | near_network::types::NetworkClientResponses::RequestRouted => {
+        near_network_primitives::types::NetworkClientResponses::ValidTx
+        | near_network_primitives::types::NetworkClientResponses::RequestRouted => {
             Ok(Json(models::TransactionIdentifierResponse {
                 transaction_identifier: models::TransactionIdentifier::transaction(
                     &transaction_hash,
                 ),
             }))
         }
-        near_network::types::NetworkClientResponses::InvalidTx(error) => {
+        near_network_primitives::types::NetworkClientResponses::InvalidTx(error) => {
             Err(errors::ErrorKind::InvalidInput(error.to_string()).into())
         }
         _ => Err(errors::ErrorKind::InternalInvariantError(format!(

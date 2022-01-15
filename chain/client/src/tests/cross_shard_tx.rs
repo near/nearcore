@@ -12,10 +12,9 @@ use near_chain::test_utils::account_id_to_shard_id;
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_integration_logger;
 use near_network::types::{
-    NetworkClientMessages, NetworkClientResponses, NetworkResponses, PeerManagerMessageRequest,
-    PeerManagerMessageResponse,
+    NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
-use near_network_primitives::types::PeerInfo;
+use near_network_primitives::types::{NetworkClientMessages, NetworkClientResponses, PeerInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference};

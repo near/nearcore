@@ -6,9 +6,8 @@ use crate::private_actix::{
 };
 use crate::stats::metrics::{self, NetworkMetrics};
 use crate::types::{
-    Handshake, HandshakeFailureReason, NetworkClientMessages, NetworkClientResponses,
-    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerMessage, PeerRequest,
-    PeerResponse, PeersResponse,
+    Handshake, HandshakeFailureReason, NetworkRequests, NetworkResponses,
+    PeerManagerMessageRequest, PeerMessage, PeerRequest, PeerResponse, PeersResponse,
 };
 use crate::PeerManagerActor;
 use actix::{
@@ -19,10 +18,10 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::types::{
-    Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfoV2, PeerIdOrHash,
-    PeerInfo, PeerManagerRequest, PeerStatsResult, PeerType, QueryPeerStats, ReasonForBan,
-    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
-    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+    Ban, NetworkClientMessages, NetworkClientResponses, NetworkViewClientMessages,
+    NetworkViewClientResponses, PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeerManagerRequest,
+    PeerStatsResult, PeerType, QueryPeerStats, ReasonForBan, RoutedMessage, RoutedMessageBody,
+    RoutedMessageFrom, StateResponseInfo, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 use near_network_primitives::types::{Edge, PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};

@@ -1,13 +1,12 @@
 use crate::types::{
-    NetworkInfo, NetworkResponses, PeerManagerAdapter, PeerManagerMessageRequest,
-    PeerManagerMessageResponse,
+    NetworkResponses, PeerManagerAdapter, PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
 use crate::PeerManagerActor;
 use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message, Recipient};
 use futures::future::BoxFuture;
 use futures::{future, FutureExt};
 use near_crypto::{KeyType, SecretKey};
-use near_network_primitives::types::{PeerInfo, ReasonForBan};
+use near_network_primitives::types::{NetworkInfo, PeerInfo, ReasonForBan};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
@@ -187,7 +186,7 @@ impl Message for GetInfo {
 }
 
 impl Handler<GetInfo> for PeerManagerActor {
-    type Result = crate::types::NetworkInfo;
+    type Result = near_network_primitives::types::NetworkInfo;
 
     fn handle(&mut self, _msg: GetInfo, _ctx: &mut Context<Self>) -> Self::Result {
         self.get_network_info()
@@ -276,12 +275,12 @@ impl MockPeerManagerAdapter {
 pub mod test_features {
     use crate::routing::routing_table_actor::{start_routing_table_actor, RoutingTableActor};
     use crate::test_utils::{convert_boot_nodes, open_port};
-    use crate::types::{NetworkClientMessages, NetworkClientResponses};
     use crate::PeerManagerActor;
     use actix::actors::mocker::Mocker;
     use actix::{Actor, Addr};
     use near_network_primitives::types::{
-        NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
+        NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkViewClientMessages,
+        NetworkViewClientResponses,
     };
     use near_primitives::block::GenesisId;
     use near_primitives::network::PeerId;

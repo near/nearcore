@@ -35,7 +35,7 @@ near-crypto = { path = "../../core/crypto" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-client = { path = "../client" }
 near-client-primitives = { path = "../client-primitives" }
-near-network = { path = "../network" }
+near-network-primitives = { path = "../network-primitives" }
 
 [dev-dependencies]
 insta = "1"

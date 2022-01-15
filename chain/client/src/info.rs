@@ -4,7 +4,7 @@ use ansi_term::Color::{Blue, Cyan, Green, White, Yellow};
 use log::info;
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_client_primitives::types::ShardSyncStatus;
-use near_network::types::NetworkInfo;
+use near_network_primitives::types::NetworkInfo;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
 use near_primitives::serialize::to_base;

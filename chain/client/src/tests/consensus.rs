@@ -9,10 +9,8 @@ use crate::{ClientActor, ViewClientActor};
 use near_actix_test_utils::run_actix;
 use near_chain::Block;
 use near_logger_utils::init_integration_logger;
-use near_network::types::{
-    NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
-};
-use near_network_primitives::types::PeerInfo;
+use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
+use near_network_primitives::types::{NetworkClientMessages, PeerInfo};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::types::{AccountId, BlockHeight};
 

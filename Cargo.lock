@@ -3126,7 +3126,7 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-crypto",
- "near-network",
+ "near-network-primitives",
  "near-primitives",
  "paperclip",
  "serde",
