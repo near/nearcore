@@ -135,11 +135,6 @@ impl Actor for WaitOrTimeoutActor {
     }
 }
 
-// Converts Vec<&str> to Vec<String>
-pub fn vec_ref_to_str(values: Vec<&str>) -> Vec<String> {
-    values.into_iter().map(|x| x.to_string()).collect()
-}
-
 // Gets random PeerId
 pub fn random_peer_id() -> PeerId {
     let sk = SecretKey::from_random(KeyType::ED25519);
