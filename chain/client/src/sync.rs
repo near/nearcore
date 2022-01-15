@@ -51,11 +51,6 @@ pub const MAX_PENDING_PART: u64 = MAX_STATE_PART_REQUEST * 10000;
 
 pub const NS_PER_SECOND: u128 = 1_000_000_000;
 
-/// Get random peer from the hightest height peers.
-pub fn highest_height_peer(highest_height_peers: &[FullPeerInfo]) -> Option<FullPeerInfo> {
-    highest_height_peers.choose(&mut thread_rng()).cloned()
-}
-
 /// Helper to keep track of the Epoch Sync
 // TODO #3488
 #[allow(dead_code)]
@@ -194,7 +189,7 @@ impl HeaderSync {
             *sync_status =
                 SyncStatus::HeaderSync { current_height: header_head.height, highest_height };
             self.syncing_peer = None;
-            if let Some(peer) = highest_height_peer(highest_height_peers) {
+            if let Some(peer) = highest_height_peers.choose(&mut thread_rng()).cloned() {
                 if peer.chain_info.height > header_head.height {
                     self.syncing_peer = self.request_headers(chain, peer);
                 }
