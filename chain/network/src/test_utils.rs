@@ -180,11 +180,9 @@ pub fn expected_routing_tables(
 }
 
 /// `GetInfo` gets `NetworkInfo` from `PeerManager`.
+#[derive(Message)]
+#[rtype(result = "NetworkInfo")]
 pub struct GetInfo {}
-
-impl Message for GetInfo {
-    type Result = NetworkInfo;
-}
 
 impl Handler<GetInfo> for PeerManagerActor {
     type Result = crate::types::NetworkInfo;
@@ -391,8 +389,6 @@ pub struct NetworkRecipient {
     peer_manager_recipient: RwLock<Option<Recipient<PeerManagerMessageRequest>>>,
 }
 
-unsafe impl Sync for NetworkRecipient {}
-
 impl PeerManagerAdapter for NetworkRecipient {
     fn send(
         &self,
@@ -418,14 +414,10 @@ impl PeerManagerAdapter for NetworkRecipient {
     }
 }
 
-#[cfg(feature = "test_features")]
-impl Message for SetAdvOptions {
-    type Result = ();
-}
-
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Clone, Debug)]
+#[derive(Message, Clone, Debug)]
 #[cfg(feature = "test_features")]
+#[rtype(result = "()")]
 pub struct SetAdvOptions {
     pub disable_edge_signature_verification: Option<bool>,
     pub disable_edge_propagation: Option<bool>,
