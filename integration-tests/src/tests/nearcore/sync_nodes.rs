@@ -125,6 +125,7 @@ fn setup_configs() -> (Genesis, Block, NearConfig, NearConfig) {
 
 /// One client is in front, another must sync to it before they can produce blocks.
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn sync_nodes() {
     heavy_test(|| {
         init_integration_logger();
@@ -168,6 +169,7 @@ fn sync_nodes() {
 
 /// Clients connect and then one of them becomes in front. The other one must then sync to it.
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn sync_after_sync_nodes() {
     heavy_test(|| {
         init_integration_logger();
@@ -230,6 +232,7 @@ fn sync_after_sync_nodes() {
 /// Starts one validation node, it reduces it's stake to 1/2 of the stake.
 /// Second node starts after 1s, needs to catchup & state sync and then make sure it's
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn sync_state_stake_change() {
     heavy_test(|| {
         init_integration_logger();

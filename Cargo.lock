@@ -2863,7 +2863,7 @@ version = "0.0.0"
 dependencies = [
  "deepsize",
  "near-jsonrpc-primitives",
- "near-network",
+ "near-network-primitives",
  "near-primitives",
  "serde",
  "serde_json",
@@ -3009,6 +3009,7 @@ dependencies = [
  "deepsize",
  "near-crypto",
  "near-primitives",
+ "serde",
  "strum",
  "tokio",
  "tracing",
@@ -3026,7 +3027,6 @@ dependencies = [
  "libc",
  "log",
  "near-rust-allocator-proxy",
- "nix",
  "once_cell",
  "strum",
  "tokio",
@@ -3074,7 +3074,6 @@ dependencies = [
  "reed-solomon-erasure",
  "serde",
  "serde_json",
- "sha2",
  "smart-default",
 ]
 
@@ -3141,7 +3140,6 @@ dependencies = [
 name = "near-rpc-error-core"
 version = "0.0.0"
 dependencies = [
- "proc-macro2",
  "quote",
  "serde",
  "serde_json",
@@ -3153,8 +3151,6 @@ name = "near-rpc-error-macro"
 version = "0.0.0"
 dependencies = [
  "near-rpc-error-core",
- "proc-macro2",
- "quote",
  "serde",
  "serde_json",
  "syn",
@@ -3188,16 +3184,13 @@ dependencies = [
  "derive_more",
  "elastic-array",
  "fs2",
- "lazy_static",
  "lru",
  "near-crypto",
  "near-primitives",
  "num_cpus",
  "rand 0.7.3",
  "rocksdb",
- "serde",
  "serde_json",
- "smart-default",
  "strum",
  "tempfile",
  "thiserror",
@@ -3234,7 +3227,6 @@ version = "0.0.0"
 dependencies = [
  "borsh 0.9.1",
  "deepsize",
- "hex",
  "near-account-id",
  "near-rpc-error-macro",
  "serde",
@@ -3279,8 +3271,9 @@ dependencies = [
  "near-vm-errors",
  "near-vm-logic",
  "once_cell",
- "parity-wasm",
- "pwasm-utils",
+ "parity-wasm 0.41.0",
+ "pwasm-utils 0.12.0",
+ "pwasm-utils 0.18.2",
  "serde",
  "threadpool",
  "tracing",
@@ -3729,6 +3722,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddfc878dac00da22f8f61e7af3157988424567ab01d9920b962ef7dcbd7cd865"
 
 [[package]]
+name = "parity-wasm"
+version = "0.42.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be5e13c266502aadf83426d87d81a0f5d1ef45b8027f5a471c360abfe4bfae92"
+
+[[package]]
 name = "parking_lot"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3981,7 +3980,18 @@ checksum = "4f7a12f176deee919f4ba55326ee17491c8b707d0987aed822682c821b660192"
 dependencies = [
  "byteorder",
  "log",
- "parity-wasm",
+ "parity-wasm 0.41.0",
+]
+
+[[package]]
+name = "pwasm-utils"
+version = "0.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "880b3384fb00b8f6ecccd5d358b93bd2201900ae3daad213791d1864f6441f5c"
+dependencies = [
+ "byteorder",
+ "log",
+ "parity-wasm 0.42.2",
 ]
 
 [[package]]

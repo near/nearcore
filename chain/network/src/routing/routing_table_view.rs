@@ -1,7 +1,6 @@
-use crate::network_protocol::Edge;
 use crate::routing::route_back_cache::RouteBackCache;
 use lru::LruCache;
-use near_network_primitives::types::{PeerIdOrHash, Ping, Pong};
+use near_network_primitives::types::{Edge, PeerIdOrHash, Ping, Pong};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::time::Clock;
