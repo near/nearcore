@@ -1802,7 +1802,6 @@ dependencies = [
  "near-crypto",
  "near-epoch-manager",
  "near-jsonrpc",
- "near-network",
  "near-pool",
  "near-primitives",
  "near-store",
