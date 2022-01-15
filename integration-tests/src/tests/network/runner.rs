@@ -131,7 +131,7 @@ pub enum Action {
     #[cfg(feature = "test_features")]
     SetOptions {
         target: usize,
-        max_num_peers: Option<u64>,
+        max_num_peers: Option<usize>,
     },
 }
 
@@ -452,15 +452,15 @@ impl StateMachine {
 }
 
 struct TestConfig {
-    max_num_peers: u32,
+    max_num_peers: usize,
     routed_message_ttl: u8,
     boot_nodes: Vec<usize>,
     blacklist: HashSet<Option<usize>>,
     outbound_disabled: bool,
     ban_window: Duration,
-    ideal_connections: Option<(u32, u32)>,
-    minimum_outbound_peers: Option<u32>,
-    safe_set_size: Option<u32>,
+    ideal_connections: Option<(usize, usize)>,
+    minimum_outbound_peers: Option<usize>,
+    safe_set_size: Option<usize>,
     archive: bool,
 }
 
@@ -541,8 +541,8 @@ impl Runner {
 
     pub fn ideal_connections(
         mut self,
-        ideal_connections_lo: u32,
-        ideal_connections_hi: u32,
+        ideal_connections_lo: usize,
+        ideal_connections_hi: usize,
     ) -> Self {
         self.apply_all(move |test_config| {
             test_config.ideal_connections = Some((ideal_connections_lo, ideal_connections_hi));
@@ -550,21 +550,21 @@ impl Runner {
         self
     }
 
-    pub fn minimum_outbound_peers(mut self, minimum_outbound_peers: u32) -> Self {
+    pub fn minimum_outbound_peers(mut self, minimum_outbound_peers: usize) -> Self {
         self.apply_all(move |test_config| {
             test_config.minimum_outbound_peers = Some(minimum_outbound_peers);
         });
         self
     }
 
-    pub fn safe_set_size(mut self, safe_set_size: u32) -> Self {
+    pub fn safe_set_size(mut self, safe_set_size: usize) -> Self {
         self.apply_all(move |test_config| {
             test_config.safe_set_size = Some(safe_set_size);
         });
         self
     }
 
-    pub fn max_num_peers(mut self, max_num_peers: u32) -> Self {
+    pub fn max_num_peers(mut self, max_num_peers: usize) -> Self {
         self.apply_all(move |test_config| {
             test_config.max_num_peers = max_num_peers;
         });

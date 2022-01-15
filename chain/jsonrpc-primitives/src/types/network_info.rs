@@ -22,7 +22,7 @@ pub struct RpcKnownProducer {
 pub struct RpcNetworkInfoResponse {
     pub active_peers: Vec<RpcPeerInfo>,
     pub num_active_peers: usize,
-    pub peer_max_count: u32,
+    pub peer_max_count: usize,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.

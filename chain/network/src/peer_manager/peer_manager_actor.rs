@@ -874,14 +874,14 @@ impl PeerManagerActor {
             .count()
             + self.outgoing_peers.len();
 
-        (total_connections < self.config.ideal_connections_lo as usize
-            || (total_connections < self.config.max_num_peers as usize
-                && potential_outgoing_connections < self.config.minimum_outbound_peers as usize))
+        (total_connections < self.config.ideal_connections_lo
+            || (total_connections < self.config.max_num_peers
+                && potential_outgoing_connections < self.config.minimum_outbound_peers))
             && !self.config.outbound_disabled
     }
 
     fn is_inbound_allowed(&self) -> bool {
-        self.connected_peers.len() + self.outgoing_peers.len() < self.config.max_num_peers as usize
+        self.connected_peers.len() + self.outgoing_peers.len() < self.config.max_num_peers
     }
 
     /// Returns single random peer with close to the highest height
@@ -1093,7 +1093,7 @@ impl PeerManagerActor {
             && (self.connected_peers.values())
                 .filter(|connected_peer| connected_peer.full_peer_info.chain_info.archival)
                 .count()
-                <= self.config.archival_peer_connections_lower_bound as usize
+                <= self.config.archival_peer_connections_lower_bound
         {
             for (peer, active) in self.connected_peers.iter() {
                 if active.full_peer_info.chain_info.archival {
@@ -1120,9 +1120,8 @@ impl PeerManagerActor {
         });
 
         // Take remaining peers
-        for (peer_id, _) in recent_connections
-            .iter()
-            .take((self.config.safe_set_size as usize).saturating_sub(safe_set.len()))
+        for (peer_id, _) in
+            recent_connections.iter().take(self.config.safe_set_size.saturating_sub(safe_set.len()))
         {
             safe_set.insert(peer_id);
         }
@@ -1204,7 +1203,7 @@ impl PeerManagerActor {
         }
 
         // If there are too many active connections try to remove some connections
-        if self.connected_peers.len() > self.config.ideal_connections_hi as usize {
+        if self.connected_peers.len() > self.config.ideal_connections_hi {
             self.try_stop_active_connection();
         }
 
@@ -1884,7 +1883,7 @@ impl PeerManagerActor {
             self.adv_helper.adv_disable_edge_pruning = disable_edge_pruning;
         }
         if let Some(set_max_peers) = msg.set_max_peers {
-            self.config.max_num_peers = set_max_peers as u32;
+            self.config.max_num_peers = set_max_peers;
         }
     }
 

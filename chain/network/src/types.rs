@@ -331,7 +331,7 @@ pub struct FullPeerInfo {
 pub struct NetworkInfo {
     pub connected_peers: Vec<FullPeerInfo>,
     pub num_connected_peers: usize,
-    pub peer_max_count: u32,
+    pub peer_max_count: usize,
     pub highest_height_peers: Vec<FullPeerInfo>,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,

@@ -584,7 +584,7 @@ pub fn setup_mock_all_validators(
                         let info = NetworkInfo {
                             connected_peers: peers,
                             num_connected_peers: key_pairs1.len(),
-                            peer_max_count: key_pairs1.len() as u32,
+                            peer_max_count: key_pairs1.len(),
                             highest_height_peers: peers2,
                             sent_bytes_per_sec: 0,
                             received_bytes_per_sec: 0,

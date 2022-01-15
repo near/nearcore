@@ -9,9 +9,9 @@ use std::cmp::min;
 /// active peers and start new node. Wait until new node is connected.
 pub fn connect_at_max_capacity(
     num_node: usize,
-    ideal_lo: u32,
-    ideal_hi: u32,
-    max_num_peers: u32,
+    ideal_lo: usize,
+    ideal_hi: usize,
+    max_num_peers: usize,
     expected_connections: usize,
     extra_nodes: usize,
 ) {

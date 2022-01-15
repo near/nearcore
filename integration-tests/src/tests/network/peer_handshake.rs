@@ -36,7 +36,7 @@ fn make_peer_manager(
     seed: &str,
     port: u16,
     boot_nodes: Vec<(&str, u16)>,
-    peer_max_count: u32,
+    peer_max_count: usize,
 ) -> PeerManagerActor {
     let store = create_test_store();
     let mut config = NetworkConfig::from_seed(seed, port);

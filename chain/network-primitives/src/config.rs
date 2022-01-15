@@ -19,27 +19,27 @@ pub struct NetworkConfig {
     pub reconnect_delay: Duration,
     pub bootstrap_peers_period: Duration,
     /// Maximum number of active peers. Hard limit.
-    pub max_num_peers: u32,
+    pub max_num_peers: usize,
     /// Minimum outbound connections a peer should have to avoid eclipse attacks.
-    pub minimum_outbound_peers: u32,
+    pub minimum_outbound_peers: usize,
     /// Lower bound of the ideal number of connections.
-    pub ideal_connections_lo: u32,
+    pub ideal_connections_lo: usize,
     /// Upper bound of the ideal number of connections.
-    pub ideal_connections_hi: u32,
+    pub ideal_connections_hi: usize,
     /// Peers which last message is was within this period of time are considered active recent peers.
     pub peer_recent_time_window: Duration,
     /// Number of peers to keep while removing a connection.
     /// Used to avoid disconnecting from peers we have been connected since long time.
-    pub safe_set_size: u32,
+    pub safe_set_size: usize,
     /// Lower bound of the number of connections to archival peers to keep
     /// if we are an archival node.
-    pub archival_peer_connections_lower_bound: u32,
+    pub archival_peer_connections_lower_bound: usize,
     /// Duration of the ban for misbehaving peers.
     pub ban_window: Duration,
     /// Remove expired peers.
     pub peer_expiration_duration: Duration,
     /// Maximum number of peer addresses we should ever send on PeersRequest.
-    pub max_send_peers: u32,
+    pub max_send_peers: usize,
     /// Duration for checking on stats from the peers.
     pub peer_stats_period: Duration,
     /// Time to persist Accounts Id in the router without removing them.

@@ -160,19 +160,19 @@ pub const MAX_INFLATION_RATE: Rational = Rational::new_raw(1, 20);
 pub const PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational = Rational::new_raw(4, 5);
 
 /// Maximum number of active peers. Hard limit.
-fn default_max_num_peers() -> u32 {
+fn default_max_num_peers() -> usize {
     40
 }
 /// Minimum outbound connections a peer should have to avoid eclipse attacks.
-fn default_minimum_outbound_connections() -> u32 {
+fn default_minimum_outbound_connections() -> usize {
     5
 }
 /// Lower bound of the ideal number of connections.
-fn default_ideal_connections_lo() -> u32 {
+fn default_ideal_connections_lo() -> usize {
     30
 }
 /// Upper bound of the ideal number of connections.
-fn default_ideal_connections_hi() -> u32 {
+fn default_ideal_connections_hi() -> usize {
     35
 }
 /// Peers which last message is was within this period of time are considered active recent peers.
@@ -181,12 +181,12 @@ fn default_peer_recent_time_window() -> Duration {
 }
 /// Number of peers to keep while removing a connection.
 /// Used to avoid disconnecting from peers we have been connected since long time.
-fn default_safe_set_size() -> u32 {
+fn default_safe_set_size() -> usize {
     20
 }
 /// Lower bound of the number of connections to archival peers to keep
 /// if we are an archival node.
-fn default_archival_peer_connections_lower_bound() -> u32 {
+fn default_archival_peer_connections_lower_bound() -> usize {
     10
 }
 /// Time to persist Accounts Id in the router without removing them in seconds.
@@ -209,27 +209,27 @@ pub struct Network {
     pub boot_nodes: String,
     /// Maximum number of active peers. Hard limit.
     #[serde(default = "default_max_num_peers")]
-    pub max_num_peers: u32,
+    pub max_num_peers: usize,
     /// Minimum outbound connections a peer should have to avoid eclipse attacks.
     #[serde(default = "default_minimum_outbound_connections")]
-    pub minimum_outbound_peers: u32,
+    pub minimum_outbound_peers: usize,
     /// Lower bound of the ideal number of connections.
     #[serde(default = "default_ideal_connections_lo")]
-    pub ideal_connections_lo: u32,
+    pub ideal_connections_lo: usize,
     /// Upper bound of the ideal number of connections.
     #[serde(default = "default_ideal_connections_hi")]
-    pub ideal_connections_hi: u32,
+    pub ideal_connections_hi: usize,
     /// Peers which last message is was within this period of time are considered active recent peers (in seconds).
     #[serde(default = "default_peer_recent_time_window")]
     pub peer_recent_time_window: Duration,
     /// Number of peers to keep while removing a connection.
     /// Used to avoid disconnecting from peers we have been connected since long time.
     #[serde(default = "default_safe_set_size")]
-    pub safe_set_size: u32,
+    pub safe_set_size: usize,
     /// Lower bound of the number of connections to archival peers to keep
     /// if we are an archival node.
     #[serde(default = "default_archival_peer_connections_lower_bound")]
-    pub archival_peer_connections_lower_bound: u32,
+    pub archival_peer_connections_lower_bound: usize,
     /// Handshake timeout.
     pub handshake_timeout: Duration,
     /// Duration before trying to reconnect to a peer.
