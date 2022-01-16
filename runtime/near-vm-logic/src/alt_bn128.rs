@@ -29,8 +29,8 @@ pub fn alt_bn128_g1_multiexp_sublinear_complexity_estimate(n_bytes: u64, discoun
         0
     } else {
         // set linear complexity growth for n > 32768
-        let l = std::cmp::min(ilog2(n), 15);
-        (n * (l + 3) + (1 << (1 + l))) * C / ((l + 4) * (l + 5))
+        let growth_factor = std::cmp::min(ilog2(n), 15);
+        (n * (growth_factor + 3) + (1 << (1 + growth_factor))) * C / ((growth_factor + 4) * (growth_factor + 5))
     };
 
     res.saturating_sub(B*n + discount)
