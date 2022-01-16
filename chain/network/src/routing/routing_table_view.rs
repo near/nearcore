@@ -22,8 +22,6 @@ pub const SAVE_PEERS_MAX_TIME: Duration = Duration::from_secs(7_200);
 pub const DELETE_PEERS_AFTER_TIME: Duration = Duration::from_secs(3_600);
 
 pub struct RoutingTableView {
-    /// PeerId associated with this instance.
-    my_peer_id: PeerId,
     /// PeerId associated for every known account id.
     account_peers: LruCache<AccountId, AnnounceAccount>,
     /// Active PeerId that are part of the shortest path to each PeerId.
@@ -57,11 +55,10 @@ pub enum FindRouteError {
 }
 
 impl RoutingTableView {
-    pub fn new(my_peer_id: PeerId, store: Arc<Store>) -> Self {
+    pub fn new(store: Arc<Store>) -> Self {
         // Find greater nonce on disk and set `component_nonce` to this value.
 
         Self {
-            my_peer_id,
             account_peers: LruCache::new(ANNOUNCE_ACCOUNT_CACHE_SIZE),
             peer_forwarding: Default::default(),
             local_edges_info: Default::default(),
@@ -157,13 +154,9 @@ impl RoutingTableView {
         })
     }
 
-    pub fn remove_local_edges(&mut self, edges: &[Edge]) {
-        for edge in edges.iter() {
-            if let Some(other_peer) = edge.other(&self.my_peer_id) {
-                self.local_edges_info.remove(other_peer);
-            } else {
-                panic!("We tried to remove non-local edge");
-            }
+    pub fn remove_local_edges(&mut self, peers: &[PeerId]) {
+        for other_peer in peers.iter() {
+            self.local_edges_info.remove(other_peer);
         }
     }
 
