@@ -347,7 +347,7 @@ impl PeerManagerActor {
                     peer_forwarding,
                     peers_to_ban,
                 }) => {
-                    act.routing_table_view.remove_local_edges(&local_edges_to_remove);
+                    act.routing_table_view.remove_local_edges(local_edges_to_remove.iter());
                     act.routing_table_view.peer_forwarding = peer_forwarding;
                     for peer in peers_to_ban {
                         act.ban_peer(ctx, &peer, ReasonForBan::InvalidEdge);
@@ -1029,7 +1029,8 @@ impl PeerManagerActor {
                 )
             })
             .collect();
-        self.routing_table_view.remove_local_edges(&edges);
+        self.routing_table_view
+            .remove_local_edges(edges.iter().filter_map(|e| e.other(&self.my_peer_id)));
         self.routing_table_addr
             .send(RoutingTableMessages::AdvRemoveEdges(edges))
             .into_actor(self)

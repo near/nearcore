@@ -154,8 +154,8 @@ impl RoutingTableView {
         })
     }
 
-    pub fn remove_local_edges(&mut self, peers: &[PeerId]) {
-        for other_peer in peers.iter() {
+    pub fn remove_local_edges<'a>(&mut self, peers: impl Iterator<Item = &'a PeerId>) {
+        for other_peer in peers {
             self.local_edges_info.remove(other_peer);
         }
     }
