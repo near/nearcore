@@ -6,7 +6,7 @@ use near_primitives::network::PeerId;
 use near_primitives::time::Utc;
 use near_primitives::utils::to_timestamp;
 use near_store::{ColPeers, Store};
-use rand::seq::SliceRandom;
+use rand::prelude::IteratorRandom;
 use rand::thread_rng;
 use std::collections::hash_map::{Entry, Iter};
 use std::collections::HashMap;
@@ -184,13 +184,11 @@ impl PeerStore {
     where
         F: FnMut(&&KnownPeerState) -> bool,
     {
-        let peers: Vec<_> =
-            self.peer_states.values().filter(filter).map(|p| &p.peer_info).collect();
-        if count >= peers.len() {
-            peers.iter().cloned().cloned().collect()
-        } else {
-            peers.choose_multiple(&mut thread_rng(), count).cloned().cloned().collect()
-        }
+        (self.peer_states.values().filter(filter))
+            .choose_multiple(&mut thread_rng(), count)
+            .into_iter()
+            .map(|p| p.peer_info.clone())
+            .collect()
     }
 
     /// Return unconnected or peers with unknown status that we can try to connect to.
