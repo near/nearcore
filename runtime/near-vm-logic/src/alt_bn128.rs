@@ -272,7 +272,7 @@ pub fn alt_bn128_g1_sum(data: &[u8]) -> crate::logic::Result<Vec<u8>> {
         .collect::<Vec<_>>();
 
     let mut acc = G1::zero();
-    acc = items.iter().fold(acc, |acc, &(sign, e)| if sign {acc - e} else {acc} );
+    acc = items.iter().fold(acc, |acc, &(sign, e)| if sign {acc - e} else {acc + e} );
 
     let result = WrapG1(acc)
         .try_to_vec()
