@@ -184,7 +184,8 @@ impl PeerStore {
     where
         F: FnMut(&&KnownPeerState) -> bool,
     {
-        (self.peer_states.values().filter(filter))
+        (self.peer_states.values())
+            .filter(filter)
             .choose_multiple(&mut thread_rng(), count)
             .into_iter()
             .map(|kps| kps.peer_info.clone())
