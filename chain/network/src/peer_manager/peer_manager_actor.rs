@@ -1496,11 +1496,9 @@ impl PeerManagerActor {
 
     pub(crate) fn get_network_info(&mut self) -> NetworkInfo {
         NetworkInfo {
-            connected_peers: self
-                .connected_peers
-                .values()
-                .map(|a| a.full_peer_info.clone())
-                .collect::<Vec<_>>(),
+            connected_peers: (self.connected_peers.values())
+                .map(|cp| cp.full_peer_info.clone())
+                .collect(),
             num_connected_peers: self.connected_peers.len(),
             peer_max_count: self.config.max_num_peers,
             highest_height_peers: self.highest_height_peers(),
