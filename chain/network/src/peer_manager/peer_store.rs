@@ -6,7 +6,7 @@ use near_primitives::network::PeerId;
 use near_primitives::time::Utc;
 use near_primitives::utils::to_timestamp;
 use near_store::{ColPeers, Store};
-use rand::prelude::IteratorRandom;
+use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::collections::hash_map::{Entry, Iter};
 use std::collections::HashMap;
@@ -187,7 +187,7 @@ impl PeerStore {
         (self.peer_states.values().filter(filter))
             .choose_multiple(&mut thread_rng(), count)
             .into_iter()
-            .map(|p| p.peer_info.clone())
+            .map(|kps| kps.peer_info.clone())
             .collect()
     }
 
