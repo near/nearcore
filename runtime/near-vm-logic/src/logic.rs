@@ -799,7 +799,7 @@ impl<'a> VMLogic<'a> {
             + alt_bn128_g1_multiexp_byte as u64 * len)
             / alt_bn128_g1_multiexp_sublinear as u64;
         let sublinear_complexity =
-            crate::alt_bn128::alt_bn128_g1_multiexp_sublinear_complexity_estimate(len, discount);
+            crate::alt_bn128::alt_bn128_g1_multiexp_sublinear_complexity_estimate(len, discount)?;
         self.gas_counter.pay_per(alt_bn128_g1_multiexp_sublinear, sublinear_complexity)?;
 
         let res = crate::alt_bn128::alt_bn128_g1_multiexp(&value_buf)?;

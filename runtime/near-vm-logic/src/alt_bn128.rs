@@ -15,7 +15,10 @@ pub fn ilog2(n: u64) -> u64 {
     63 - n.leading_zeros() as u64
 }
 
-pub fn alt_bn128_g1_multiexp_sublinear_complexity_estimate(n_bytes: u64, discount: u64) -> u64 {
+pub fn alt_bn128_g1_multiexp_sublinear_complexity_estimate(
+    n_bytes: u64,
+    discount: u64,
+) -> Result<u64, HostError> {
     // details of computation alt_bn128 parameters are available at https://gist.github.com/snjax/90e8b3e7f5c16a983a5f6347d1d28bde
     const A: u64 = 85158;
     const B: u64 = 15119;
@@ -24,16 +27,31 @@ pub fn alt_bn128_g1_multiexp_sublinear_complexity_estimate(n_bytes: u64, discoun
 
     // A+C*n/(log2(n)+4) - B*n - discount
 
-    let n = (n_bytes + MULTIEXP_ITEM_SIZE - 1) / MULTIEXP_ITEM_SIZE;
-    let res = A + if n == 0 {
-        0
-    } else {
-        // set linear complexity growth for n > 32768
-        let growth_factor = std::cmp::min(ilog2(n), 15);
-        (n * (growth_factor + 3) + (1 << (1 + growth_factor))) * C / ((growth_factor + 4) * (growth_factor + 5))
-    };
+    let n = (n_bytes - 1).checked_add(MULTIEXP_ITEM_SIZE).ok_or(HostError::IntegerOverflow)?
+        / MULTIEXP_ITEM_SIZE;
+    let res = A
+        .checked_add(if n == 0 {
+            0
+        } else {
+            // set linear complexity growth for n > 32768
+            let growth_factor = std::cmp::min(ilog2(n), 15);
 
-    res.saturating_sub(B*n + discount)
+            // (n * (growth_factor + 3) +  (1 << (1 + growth_factor)))  * C / ((growth_factor + 4) * (growth_factor + 5))
+            (n.checked_mul(growth_factor + 3).ok_or(HostError::IntegerOverflow)?)
+                .checked_add(1 << (1 + growth_factor))
+                .ok_or(HostError::IntegerOverflow)?
+                .checked_mul(C)
+                .ok_or(HostError::IntegerOverflow)?
+                / ((growth_factor + 4) * (growth_factor + 5))
+        })
+        .ok_or(HostError::IntegerOverflow)?;
+
+    Ok(res.saturating_sub(
+        B.checked_mul(n)
+            .ok_or(HostError::IntegerOverflow)?
+            .checked_add(discount)
+            .ok_or(HostError::IntegerOverflow)?,
+    ))
 }
 
 #[derive(Copy, Clone)]
@@ -272,7 +290,7 @@ pub fn alt_bn128_g1_sum(data: &[u8]) -> crate::logic::Result<Vec<u8>> {
         .collect::<Vec<_>>();
 
     let mut acc = G1::zero();
-    acc = items.iter().fold(acc, |acc, &(sign, e)| if sign {acc - e} else {acc + e} );
+    acc = items.iter().fold(acc, |acc, &(sign, e)| if sign { acc - e } else { acc + e });
 
     let result = WrapG1(acc)
         .try_to_vec()
