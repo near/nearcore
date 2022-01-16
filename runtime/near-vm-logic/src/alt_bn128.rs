@@ -99,15 +99,15 @@ impl BorshDeserialize for WrapFq {
 
 impl BorshSerialize for WrapFq2 {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
-        WrapFq(self.0.imaginary()).serialize(writer)?;
-        WrapFq(self.0.real()).serialize(writer)
+        WrapFq(self.0.real()).serialize(writer)?;
+        WrapFq(self.0.imaginary()).serialize(writer)
     }
 }
 
 impl BorshDeserialize for WrapFq2 {
     fn deserialize(buf: &mut &[u8]) -> Result<Self, Error> {
-        let im = WrapFq::deserialize(buf)?.0;
         let re = WrapFq::deserialize(buf)?.0;
+        let im = WrapFq::deserialize(buf)?.0;
 
         Ok(WrapFq2(Fq2::new(re, im)))
     }
