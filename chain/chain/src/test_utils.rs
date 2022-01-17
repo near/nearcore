@@ -16,7 +16,7 @@ use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::errors::InvalidTxError;
+use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
@@ -30,8 +30,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, NumShards,
-    ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
+    AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Gas, Nonce, NumBlocks,
+    NumShards, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
@@ -1203,6 +1203,20 @@ impl RuntimeAdapter for KeyValueRuntime {
         _next_epoch_shard_layout: &ShardLayout,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         Ok(HashMap::new())
+    }
+
+    fn get_protocol_upgrade_block_height(
+        &self,
+        _block_hash: CryptoHash,
+    ) -> Result<Option<BlockHeight>, EpochError> {
+        Ok(None)
+    }
+
+    fn get_epoch_height_from_prev_block(
+        &self,
+        _prev_block_hash: &CryptoHash,
+    ) -> Result<EpochHeight, Error> {
+        Ok(0)
     }
 }
 

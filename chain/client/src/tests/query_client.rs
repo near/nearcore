@@ -221,18 +221,15 @@ fn test_state_request() {
                 .await
                 .unwrap();
             assert!(matches!(res, NetworkViewClientResponses::NoResponse));
-            #[cfg(feature = "expensive_tests")]
-            {
-                actix::clock::sleep(Duration::from_secs(40)).await;
-                let res = view_client
-                    .send(NetworkViewClientMessages::StateRequestHeader {
-                        shard_id: 0,
-                        sync_hash: block_hash,
-                    })
-                    .await
-                    .unwrap();
-                assert!(matches!(res, NetworkViewClientResponses::StateResponse(_)));
-            }
+            actix::clock::sleep(Duration::from_secs(40)).await;
+            let res = view_client
+                .send(NetworkViewClientMessages::StateRequestHeader {
+                    shard_id: 0,
+                    sync_hash: block_hash,
+                })
+                .await
+                .unwrap();
+            assert!(matches!(res, NetworkViewClientResponses::StateResponse(_)));
             System::current().stop();
         });
         near_network::test_utils::wait_or_panic(50000);
