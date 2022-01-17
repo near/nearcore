@@ -410,7 +410,7 @@ fn init_logging(verbose: Option<&str>) {
     const DEFAULT_RUST_LOG: &'static str =
         "tokio_reactor=info,near=info,stats=info,telemetry=info,\
          delay_detector=info,near-performance-metrics=info,\
-         near-rust-allocator-proxy=info";
+         near-rust-allocator-proxy=info,warn";
 
     let rust_log = env::var("RUST_LOG");
     let rust_log = rust_log.as_ref().map(String::as_str).unwrap_or(DEFAULT_RUST_LOG);
@@ -429,8 +429,6 @@ fn init_logging(verbose: Option<&str>) {
         } else {
             env_filter = env_filter.add_directive(format!("{}=debug", module).parse().unwrap());
         }
-    } else {
-        env_filter = env_filter.add_directive(LevelFilter::WARN.into());
     }
 
     tracing_subscriber::fmt::Subscriber::builder()

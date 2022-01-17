@@ -2943,9 +2943,9 @@ mod tests {
     use borsh::BorshSerialize;
     use strum::IntoEnumIterator;
 
+    use near_chain_configs::GenesisConfig;
     use near_crypto::KeyType;
     use near_primitives::block::{Block, Tip};
-    #[cfg(feature = "expensive_tests")]
     use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::errors::InvalidTxError;
     use near_primitives::hash::hash;
@@ -2954,10 +2954,9 @@ mod tests {
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::create_test_store;
     use near_store::DBCol;
-    #[cfg(feature = "expensive_tests")]
-    use {crate::store_validator::StoreValidator, near_chain_configs::GenesisConfig};
 
     use crate::store::{ChainStoreAccess, GCMode};
+    use crate::store_validator::StoreValidator;
     use crate::test_utils::KeyValueRuntime;
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
 
@@ -3366,8 +3365,8 @@ mod tests {
     }
 
     /// Test that `gc_blocks_limit` works properly
-    #[cfg(feature = "expensive_tests")]
     #[test]
+    #[cfg_attr(not(feature = "expensive_tests"), ignore)]
     fn test_clear_old_data_too_many_heights() {
         for i in 1..5 {
             println!("gc_blocks_limit == {:?}", i);
@@ -3378,7 +3377,6 @@ mod tests {
         test_clear_old_data_too_many_heights_common(87);
     }
 
-    #[cfg(feature = "expensive_tests")]
     fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
         let mut chain = get_chain_with_epoch_length(1);
         let genesis = chain.get_block_by_height(0).unwrap().clone();
