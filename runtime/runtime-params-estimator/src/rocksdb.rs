@@ -29,6 +29,11 @@ pub struct RocksDBTestConfig {
     /// (`RocksDb*` estimations only)
     #[clap(name = "rdb-sequential-keys", long)]
     pub sequential_keys: bool,
+    /// Flush after a bulk of write operations.
+    /// The flush time will be included in the reported measurement.
+    /// (`RocksDb*` estimations only)
+    #[clap(long, name = "rdb-force-flush", long)]
+    pub force_flush: bool,
     /// Force compactions after a bulk of operations.
     /// The compaction time will be included in the reported measurement.
     /// (`RocksDb*` estimations only)
@@ -84,6 +89,7 @@ pub(crate) fn rocks_db_inserts_cost(config: &Config) -> GasCost {
             db_config.setup_insertions,
             &db,
             db_config.force_compaction,
+            db_config.force_flush,
         );
     } else {
         prandom_inserts(
@@ -93,6 +99,7 @@ pub(crate) fn rocks_db_inserts_cost(config: &Config) -> GasCost {
             ANOTHER_PRANDOM_SEED,
             &db,
             db_config.force_compaction,
+            db_config.force_flush,
         );
     }
 
@@ -199,6 +206,7 @@ fn sequential_inserts(
     key_offset: usize,
     db: &DB,
     force_compaction: bool,
+    force_flush: bool,
 ) {
     for i in 0..inserts {
         let key = (key_offset + i).to_string();
@@ -206,7 +214,9 @@ fn sequential_inserts(
         let value = &input_data[start..(start + value_size)];
         db.put(&key, value).expect("Put failed");
     }
-    db.flush().expect("Flush failed");
+    if force_flush {
+        db.flush().expect("Flush failed");
+    }
     if force_compaction {
         db.compact_range::<&[u8], &[u8]>(None, None);
     }
@@ -223,6 +233,7 @@ fn prandom_inserts(
     key_seed: u64,
     db: &DB,
     force_compaction: bool,
+    force_flush: bool,
 ) {
     let mut prng: XorShiftRng = rand::SeedableRng::seed_from_u64(key_seed);
     for i in 0..inserts {
@@ -231,7 +242,9 @@ fn prandom_inserts(
         let value = &input_data[start..(start + value_size)];
         db.put(&key, value).expect("Put failed");
     }
-    db.flush().expect("Flush failed");
+    if force_flush {
+        db.flush().expect("Flush failed");
+    }
     if force_compaction {
         db.compact_range::<&[u8], &[u8]>(None, None);
     }
@@ -283,6 +296,7 @@ fn new_test_db(
         SETUP_PRANDOM_SEED,
         &db,
         db_config.force_compaction,
+        true, // always force-flush in setup
     );
 
     db
