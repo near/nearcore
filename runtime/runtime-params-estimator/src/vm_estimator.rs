@@ -2,12 +2,10 @@ use crate::config::GasMetric;
 use crate::gas_cost::GasCost;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::types::{CompiledContractCache, Gas, ProtocolVersion};
+use near_primitives::types::{CompiledContractCache, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{create_store, StoreCompiledContractCache};
-use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::{VMConfig, VMContext};
+use near_vm_logic::VMContext;
 use near_vm_runner::internal::VMKind;
 use near_vm_runner::precompile_contract_vm;
 use nearcore::get_store_path;
@@ -209,105 +207,4 @@ pub(crate) fn compute_compile_cost_vm(
         // Time metric can lead to negative coefficients.
         GasMetric::Time => (u64::try_from(base).unwrap_or(0), u64::try_from(per_byte).unwrap_or(0)),
     }
-}
-
-#[allow(dead_code)]
-fn test_compile_cost(metric: GasMetric) {
-    compute_compile_cost_vm(metric, VMKind::Wasmer0, true);
-    compute_compile_cost_vm(metric, VMKind::Wasmer2, true);
-}
-
-#[test]
-fn test_compile_cost_time() {
-    test_compile_cost(GasMetric::Time)
-}
-
-#[test]
-fn test_compile_cost_icount() {
-    // Use smth like
-    // CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=./runner.sh cargo test --release \
-    // --lib vm_estimator::test_compile_cost_icount --no-fail-fast -- --exact --nocapture
-    // Where runner.sh is
-    // /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
-    // -cpu Westmere-v1 -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so $@
-    test_compile_cost(GasMetric::ICount)
-}
-
-#[allow(dead_code)]
-fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
-    if cfg!(debug_assertions) {
-        eprintln!("WARNING: did you pass --release flag, results do not make sense otherwise")
-    }
-    let count = 10000;
-    let mut contracts = vec![];
-    // Create many similar, yet not identical small contracts.
-    for index in 0..count {
-        let code_str = format!(
-            r#"
-            (module
-              (type (;0;) (func))
-              (func (;0;) (type 0)
-               i32.const {}
-               return
-              )
-              (export "hello" (func 0))
-            )"#,
-            index
-        );
-        let code = ContractCode::new(wat::parse_str(&code_str).unwrap(), None);
-        contracts.push(code);
-    }
-    let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-    let store = create_store(&get_store_path(workdir.path()));
-    let cache_store = Arc::new(StoreCompiledContractCache { store });
-    let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
-    let vm_config = VMConfig::test();
-    for contract in &contracts {
-        let result = precompile_contract_vm(vm_kind, contract, &vm_config, cache);
-        assert!(result.is_ok());
-    }
-    let mut fake_external = MockedExternal::new();
-    let fake_context = create_context(vec![]);
-    let fees = RuntimeFeesConfig::test();
-
-    let start = GasCost::measure(gas_metric);
-    if let Some(runtime) = vm_kind.runtime(vm_config.clone()) {
-        for contract in &contracts {
-            let promise_results = vec![];
-            let result = runtime.run(
-                contract,
-                "hello",
-                &mut fake_external,
-                fake_context.clone(),
-                &vm_config,
-                &fees,
-                &promise_results,
-                ProtocolVersion::MAX,
-                cache,
-            );
-            assert!(result.1.is_none());
-        }
-    } else {
-        panic!("the {:?} runtime has not been enabled at compile time", vm_kind);
-    }
-    let total_gas = start.elapsed().to_gas();
-    let gas_per_call = Ratio::new(total_gas, count);
-    println!("{} calls: {:?}, {} gas ({} per call)", count, gas_metric, total_gas, gas_per_call);
-}
-
-#[test]
-fn test_many_contracts_call_time() {
-    test_many_contracts_call(GasMetric::Time, VMKind::Wasmer0)
-}
-
-#[test]
-fn test_many_contracts_call_icount() {
-    // Use smth like
-    // CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=./runner.sh cargo test --release \
-    // --features near-vm-runner/no_cpu_compatibility_checks \
-    // --lib vm_estimator::test_many_contracts_call_icount --no-fail-fast -- --exact --nocapture
-    // Where runner.sh is
-    // /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
-    // -cpu Westmere-v1 -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so $@
-    test_many_contracts_call(GasMetric::ICount, VMKind::Wasmer0)
 }

@@ -70,13 +70,12 @@ fn make_simple_contract_call_with_gas_vm(
     let promise_results = vec![];
 
     let code = ContractCode::new(code.to_vec(), None);
-    let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
+    let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
     runtime.run(
         &code,
         method_name,
         &mut fake_external,
         context,
-        &config,
         &fees,
         &promise_results,
         LATEST_PROTOCOL_VERSION,
@@ -94,9 +93,9 @@ fn make_simple_contract_call_with_protocol_version_vm(
     let context = create_context(vec![]);
     let runtime_config_store = RuntimeConfigStore::new(None);
     let runtime_config = runtime_config_store.get_config(protocol_version);
-    let config = &runtime_config.wasm_config;
     let fees = &runtime_config.transaction_costs;
-    let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
+    let runtime =
+        vm_kind.runtime(runtime_config.wasm_config.clone()).expect("runtime has not been compiled");
 
     let promise_results = vec![];
     let code = ContractCode::new(code.to_vec(), None);
@@ -105,7 +104,6 @@ fn make_simple_contract_call_with_protocol_version_vm(
         method_name,
         &mut fake_external,
         context,
-        config,
         fees,
         &promise_results,
         protocol_version,
@@ -119,4 +117,22 @@ fn make_simple_contract_call_vm(
     vm_kind: VMKind,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     make_simple_contract_call_with_gas_vm(code, method_name, 10u64.pow(14), vm_kind)
+}
+
+#[track_caller]
+fn gas_and_error_match(
+    outcome_and_error: (Option<VMOutcome>, Option<VMError>),
+    expected_gas: Option<u64>,
+    expected_error: Option<VMError>,
+) {
+    match expected_gas {
+        Some(gas) => {
+            let outcome = outcome_and_error.0.unwrap();
+            assert_eq!(outcome.used_gas, gas, "used gas differs");
+            assert_eq!(outcome.burnt_gas, gas, "burnt gas differs");
+        }
+        None => assert!(outcome_and_error.0.is_none()),
+    }
+
+    assert_eq!(outcome_and_error.1, expected_error);
 }

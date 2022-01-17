@@ -1,5 +1,5 @@
 use log::{debug, LevelFilter};
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, GenesisValidationMode};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::state_record::StateRecord;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -16,7 +16,7 @@ fn main() -> Result<(), Error> {
 
     debug!("Start");
 
-    let genesis = Genesis::from_file("output.json");
+    let genesis = Genesis::from_file("output.json", GenesisValidationMode::Full);
     debug!("Genesis read");
 
     let config_store = RuntimeConfigStore::new(None);
