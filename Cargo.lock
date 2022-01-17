@@ -3038,7 +3038,9 @@ version = "0.0.0"
 dependencies = [
  "borsh 0.9.1",
  "near-crypto",
+ "near-metrics",
  "near-primitives",
+ "once_cell",
  "rand 0.7.3",
 ]
 
@@ -4401,6 +4403,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "borsh 0.9.1",
+ "bytesize",
  "cfg-if 1.0.0",
  "chrono",
  "clap 3.0.0-beta.2",
