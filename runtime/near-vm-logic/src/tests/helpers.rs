@@ -1,4 +1,4 @@
-use crate::{with_ext_cost_counter, VMLogic};
+use crate::{with_ext_cost_counter, VMLogicPlusMemory};
 use near_primitives_core::{config::ExtCosts, types::Gas};
 use near_vm_errors::VMLogicError;
 use std::collections::HashMap;
@@ -8,14 +8,15 @@ type Result<T> = ::std::result::Result<T, VMLogicError>;
 
 #[allow(dead_code)]
 pub fn promise_create(
-    logic: &mut crate::VMLogic<'_>,
+    l: &mut crate::VMLogicPlusMemory<'_>,
     account_id: &[u8],
     amount: u128,
     gas: Gas,
 ) -> Result<u64> {
     let method = b"promise_create";
     let args = b"args";
-    logic.promise_create(
+    l.logic.promise_create(
+        l.mem,
         account_id.len() as _,
         account_id.as_ptr() as _,
         method.len() as _,
@@ -29,7 +30,7 @@ pub fn promise_create(
 
 #[allow(dead_code)]
 pub fn promise_batch_action_function_call(
-    logic: &mut VMLogic<'_>,
+    l: &mut VMLogicPlusMemory<'_>,
     promise_index: u64,
     amount: u128,
     gas: Gas,
@@ -37,7 +38,8 @@ pub fn promise_batch_action_function_call(
     let method_id = b"promise_batch_action";
     let args = b"promise_batch_action_args";
 
-    logic.promise_batch_action_function_call(
+    l.logic.promise_batch_action_function_call(
+        l.mem,
         promise_index,
         method_id.len() as _,
         method_id.as_ptr() as _,
@@ -50,7 +52,7 @@ pub fn promise_batch_action_function_call(
 
 #[allow(dead_code)]
 pub fn promise_batch_action_add_key_with_function_call(
-    logic: &mut VMLogic<'_>,
+    l: &mut VMLogicPlusMemory<'_>,
     promise_index: u64,
     public_key: &[u8],
     nonce: u64,
@@ -58,7 +60,8 @@ pub fn promise_batch_action_add_key_with_function_call(
     receiver_id: &[u8],
     method_names: &[u8],
 ) -> Result<()> {
-    logic.promise_batch_action_add_key_with_function_call(
+    l.logic.promise_batch_action_add_key_with_function_call(
+        l.mem,
         promise_index,
         public_key.len() as _,
         public_key.as_ptr() as _,

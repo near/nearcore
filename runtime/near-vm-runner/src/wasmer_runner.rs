@@ -10,7 +10,7 @@ use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
+use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMLogicPlusMemory, VMOutcome};
 use wasmer_runtime::{ImportObject, Module};
 
 const WASMER_FEATURES: wasmer_runtime::Features =
@@ -244,24 +244,25 @@ pub(crate) fn run_wasmer0_module<'a>(
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
 
-    let mut logic = VMLogic::new_with_protocol_version(
+    let logic = VMLogic::new_with_protocol_version(
         ext,
         context,
         wasm_config,
         fees_config,
         promise_results,
-        memory,
         current_protocol_version,
     );
+    let mut logic_plus_mem = VMLogicPlusMemory { logic, mem: memory };
 
-    let import_object = imports::wasmer::build(memory_copy, &mut logic, current_protocol_version);
+    let import_object =
+        imports::wasmer::build(memory_copy, &mut logic_plus_mem, current_protocol_version);
 
     if let Err(e) = check_method(&module, method_name) {
         return (None, Some(e));
     }
 
     let err = run_method(&module, &import_object, method_name).err();
-    (Some(logic.outcome()), err)
+    (Some(logic_plus_mem.logic.outcome()), err)
 }
 
 pub(crate) fn wasmer0_vm_hash() -> u64 {
@@ -339,7 +340,6 @@ impl crate::runner::VM for Wasmer0VM {
             &self.config,
             fees_config,
             promise_results,
-            &mut memory,
             current_protocol_version,
         );
 
@@ -353,15 +353,17 @@ impl crate::runner::VM for Wasmer0VM {
             );
         }
 
+        let mut logic_plus_mem = VMLogicPlusMemory { logic, mem: &mut memory };
+
         let import_object =
-            imports::wasmer::build(memory_copy, &mut logic, current_protocol_version);
+            imports::wasmer::build(memory_copy, &mut logic_plus_mem, current_protocol_version);
 
         if let Err(e) = check_method(&module, method_name) {
             return (None, Some(e));
         }
 
         let err = run_method(&module, &import_object, method_name).err();
-        (Some(logic.outcome()), err)
+        (Some(logic_plus_mem.logic.outcome()), err)
     }
 
     fn precompile(

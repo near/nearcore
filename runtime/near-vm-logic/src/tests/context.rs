@@ -27,10 +27,10 @@ macro_rules! decl_test_bytes {
         #[test]
         fn $testname() {
             let mut logic_builder = VMLogicBuilder::default();
-            let mut logic = logic_builder.build(create_context());
+            let mut l = logic_builder.build(create_context());
             let res = vec![0u8; $input.len()];
-            logic.$method(0).expect("read bytes into register from context should be ok");
-            logic.read_register(0, res.as_ptr() as _).expect("read register should be ok");
+            l.logic.$method(l.mem, 0).expect("read bytes into register from context should be ok");
+            l.logic.read_register(l.mem, 0, res.as_ptr() as _).expect("read register should be ok");
             assert_eq!(res, $input);
         }
     };
@@ -41,8 +41,8 @@ macro_rules! decl_test_u64 {
         #[test]
         fn $testname() {
             let mut logic_builder = VMLogicBuilder::default();
-            let mut logic = logic_builder.build(create_context());
-            let res = logic.$method().expect("read from context should be ok");
+            let mut l = logic_builder.build(create_context());
+            let res = l.logic.$method(l.mem).expect("read from context should be ok");
             assert_eq!(res, $input);
         }
     };
@@ -53,10 +53,10 @@ macro_rules! decl_test_u128 {
         #[test]
         fn $testname() {
             let mut logic_builder = VMLogicBuilder::default();
-            let mut logic = logic_builder.build(create_context());
+            let mut l = logic_builder.build(create_context());
             let buf = [0u8; std::mem::size_of::<u128>()];
 
-            logic.$method(buf.as_ptr() as _).expect("read from context should be ok");
+            l.logic.$method(l.mem, buf.as_ptr() as _).expect("read from context should be ok");
             let res = u128::from_le_bytes(buf);
             assert_eq!(res, $input);
         }

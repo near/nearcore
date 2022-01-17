@@ -10,7 +10,9 @@ use near_stable_hasher::StableHasher;
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
 use near_vm_logic::gas_counter::FastGasCounter;
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
-use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
+use near_vm_logic::{
+    External, MemoryLike, VMConfig, VMContext, VMLogic, VMLogicPlusMemory, VMOutcome,
+};
 use std::hash::{Hash, Hasher};
 use std::mem::size_of;
 use std::sync::Arc;
@@ -344,7 +346,7 @@ impl Wasmer2VM {
             offset_of!(FastGasCounter, opcode_cost),
             offset_of!(wasmer_types::FastGasCounter, opcode_cost)
         );
-        let gas = import.vmlogic.gas_counter_pointer() as *mut wasmer_types::FastGasCounter;
+        let gas = import.vmlogic.logic.gas_counter_pointer() as *mut wasmer_types::FastGasCounter;
 
         let entrypoint = get_entrypoint_index(&*artifact.artifact, method_name)?;
         unsafe {
@@ -375,12 +377,12 @@ impl Wasmer2VM {
                         // entirety of this function.
                         InstanceConfig::new_with_counter(gas),
                     )
-                    .map_err(|err| translate_instantiation_error(err, import.vmlogic))?;
+                    .map_err(|err| translate_instantiation_error(err, &mut import.vmlogic.logic))?;
                 // SAFETY: being called immediately after instantiation.
                 artifact
                     .artifact
                     .finish_instantiation(self, &handle)
-                    .map_err(|err| translate_instantiation_error(err, import.vmlogic))?;
+                    .map_err(|err| translate_instantiation_error(err, &mut import.vmlogic.logic))?;
                 handle
             };
             let external = instance.lookup_by_declaration(&ExportIndex::Function(entrypoint));
@@ -403,7 +405,7 @@ impl Wasmer2VM {
                     .map_err(|e| {
                         translate_runtime_error(
                             wasmer_engine::RuntimeError::from_trap(e),
-                            import.vmlogic,
+                            &mut import.vmlogic.logic,
                         )
                     })?;
                 } else {
@@ -435,21 +437,22 @@ impl Wasmer2VM {
         current_protocol_version: ProtocolVersion,
     ) -> (Option<VMOutcome>, Option<VMError>) {
         let vmmemory = memory.vm();
-        let mut logic = VMLogic::new_with_protocol_version(
+        let logic = VMLogic::new_with_protocol_version(
             ext,
             context,
             &self.config,
             fees_config,
             promise_results,
-            memory,
             current_protocol_version,
         );
-        let import = imports::wasmer2::build(vmmemory, &mut logic, current_protocol_version);
+        let mut logic_plus_mem = VMLogicPlusMemory { logic, mem: memory };
+        let import =
+            imports::wasmer2::build(vmmemory, &mut logic_plus_mem, current_protocol_version);
         if let Err(e) = get_entrypoint_index(&*artifact.artifact, method_name) {
             return (None, Some(e));
         }
         let err = self.run_method(artifact, import, method_name).err();
-        (Some(logic.outcome()), err)
+        (Some(logic_plus_mem.logic.outcome()), err)
     }
 }
 
@@ -565,7 +568,6 @@ impl crate::runner::VM for Wasmer2VM {
             &self.config,
             fees_config,
             promise_results,
-            &mut memory,
             current_protocol_version,
         );
         // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
@@ -577,12 +579,14 @@ impl crate::runner::VM for Wasmer2VM {
                 ))),
             );
         }
-        let import = imports::wasmer2::build(vmmemory, &mut logic, current_protocol_version);
+        let mut logic_plus_memory = VMLogicPlusMemory { logic, mem: &mut memory };
+        let import =
+            imports::wasmer2::build(vmmemory, &mut logic_plus_memory, current_protocol_version);
         if let Err(e) = get_entrypoint_index(&*artifact.artifact, method_name) {
             return (None, Some(e));
         }
         let err = self.run_method(&artifact, import, method_name).err();
-        (Some(logic.outcome()), err)
+        (Some(logic_plus_memory.logic.outcome()), err)
     }
 
     fn precompile(

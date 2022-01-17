@@ -1,8 +1,8 @@
 use crate::mocks::mock_external::MockedExternal;
 use crate::mocks::mock_memory::MockedMemory;
 use crate::types::PromiseResult;
-use crate::VMContext;
 use crate::{VMConfig, VMLogic};
+use crate::{VMContext, VMLogicPlusMemory};
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::types::ProtocolVersion;
 
@@ -31,16 +31,18 @@ impl Default for VMLogicBuilder {
 }
 
 impl VMLogicBuilder {
-    pub fn build(&mut self, context: VMContext) -> VMLogic<'_> {
-        VMLogic::new_with_protocol_version(
-            &mut self.ext,
-            context,
-            &self.config,
-            &self.fees_config,
-            &self.promise_results,
-            &mut self.memory,
-            self.current_protocol_version,
-        )
+    pub fn build(&mut self, context: VMContext) -> VMLogicPlusMemory<'_> {
+        VMLogicPlusMemory {
+            logic: VMLogic::new_with_protocol_version(
+                &mut self.ext,
+                context,
+                &self.config,
+                &self.fees_config,
+                &self.promise_results,
+                self.current_protocol_version,
+            ),
+            mem: &mut self.memory,
+        }
     }
     #[allow(dead_code)]
     pub fn free() -> Self {

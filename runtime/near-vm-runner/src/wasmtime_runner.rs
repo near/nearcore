@@ -11,7 +11,7 @@ use near_vm_errors::{
     CompilationError, FunctionCallError, MethodResolveError, VMError, VMLogicError, WasmTrap,
 };
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, MemoryLike, VMContext, VMLogic, VMOutcome};
+use near_vm_logic::{External, MemoryLike, VMContext, VMLogic, VMLogicPlusMemory, VMOutcome};
 use std::ffi::c_void;
 use std::str;
 use wasmtime::ExternType::Func;
@@ -219,7 +219,6 @@ impl crate::runner::VM for WasmtimeVM {
             &self.config,
             fees_config,
             promise_results,
-            &mut memory,
             current_protocol_version,
         );
 
@@ -235,8 +234,16 @@ impl crate::runner::VM for WasmtimeVM {
 
         // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
         // lifetimes of the logic instance and pass raw pointers here.
-        let raw_logic = &mut logic as *mut _ as *mut c_void;
-        imports::wasmtime::link(&mut linker, memory_copy, raw_logic, current_protocol_version);
+        let mut logic_plus_memory = VMLogicPlusMemory { logic, mem: &mut memory };
+        let raw_logic_plus_memory = &mut logic_plus_memory as *mut _ as *mut c_void;
+        unsafe {
+            imports::wasmtime::link(
+                &mut linker,
+                memory_copy,
+                raw_logic_plus_memory,
+                current_protocol_version,
+            );
+        }
         if method_name.is_empty() {
             return (
                 None,
@@ -281,10 +288,14 @@ impl crate::runner::VM for WasmtimeVM {
             Ok(instance) => match instance.get_func(method_name) {
                 Some(func) => match func.typed::<(), ()>() {
                     Ok(run) => match run.call(()) {
-                        Ok(_) => (Some(logic.outcome()), None),
-                        Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+                        Ok(_) => (Some(logic_plus_memory.logic.outcome()), None),
+                        Err(err) => {
+                            (Some(logic_plus_memory.logic.outcome()), Some(err.into_vm_error()))
+                        }
                     },
-                    Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+                    Err(err) => {
+                        (Some(logic_plus_memory.logic.outcome()), Some(err.into_vm_error()))
+                    }
                 },
                 None => (
                     None,
@@ -293,7 +304,7 @@ impl crate::runner::VM for WasmtimeVM {
                     ))),
                 ),
             },
-            Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+            Err(err) => (Some(logic_plus_memory.logic.outcome()), Some(err.into_vm_error())),
         }
     }
 

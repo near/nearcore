@@ -222,7 +222,7 @@ imports! {
 #[cfg(feature = "wasmer0_vm")]
 pub(crate) mod wasmer {
     use super::str_eq;
-    use near_vm_logic::{ProtocolVersion, VMLogic, VMLogicError};
+    use near_vm_logic::{ProtocolVersion, VMLogicError, VMLogicPlusMemory};
     use std::ffi::c_void;
 
     #[derive(Clone, Copy)]
@@ -232,7 +232,7 @@ pub(crate) mod wasmer {
 
     pub(crate) fn build(
         memory: wasmer_runtime::memory::Memory,
-        logic: &mut VMLogic<'_>,
+        logic: &mut VMLogicPlusMemory<'_>,
         protocol_version: ProtocolVersion,
     ) -> wasmer_runtime::ImportObject {
         let raw_ptr = logic as *mut _ as *mut c_void;
@@ -258,8 +258,8 @@ pub(crate) mod wasmer {
                     } else {
                         Some(tracing::trace_span!(target: "host-function", stringify!($func)).entered())
                     };
-                    let logic: &mut VMLogic<'_> = unsafe { &mut *(ctx.data as *mut VMLogic<'_>) };
-                    logic.$func( $( $arg_name, )* )
+                    let ctx: &mut VMLogicPlusMemory<'_> = unsafe { &mut *(ctx.data as *mut VMLogicPlusMemory<'_>) };
+                    ctx.logic.$func(ctx.mem, $( $arg_name, )* )
                 }
 
                 ns.insert(stringify!($func), wasmer_runtime::func!($func));
@@ -277,14 +277,14 @@ pub(crate) mod wasmer2 {
     use std::sync::Arc;
 
     use super::str_eq;
-    use near_vm_logic::{ProtocolVersion, VMLogic};
+    use near_vm_logic::{ProtocolVersion, VMLogicPlusMemory};
     use wasmer_engine::{ExportFunction, ExportFunctionMetadata, Resolver};
     use wasmer_vm::{VMFunction, VMFunctionKind, VMMemory};
 
     pub(crate) struct Wasmer2Imports<'vmlogic, 'vmlogic_refs> {
         pub(crate) memory: VMMemory,
         // Note: this same object is also referenced by the `metadata` field!
-        pub(crate) vmlogic: &'vmlogic mut VMLogic<'vmlogic_refs>,
+        pub(crate) vmlogic: &'vmlogic mut VMLogicPlusMemory<'vmlogic_refs>,
         pub(crate) metadata: Arc<ExportFunctionMetadata>,
         pub(crate) protocol_version: ProtocolVersion,
     }
@@ -342,7 +342,7 @@ pub(crate) mod wasmer2 {
                 ) => {
                     return_ty!(Ret = [ $($returns),* ]);
 
-                    extern "C" fn $func(env: *mut VMLogic<'_>, $( $arg_name: $arg_type ),* )
+                    extern "C" fn $func(env: *mut VMLogicPlusMemory<'_>, $( $arg_name: $arg_type ),* )
                     -> Ret {
                         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                             const IS_GAS: bool = str_eq(stringify!($func), "gas");
@@ -359,7 +359,7 @@ pub(crate) mod wasmer2 {
                             // lifetime and so it is safe to dereference the `env` pointer which is
                             // known to be derived from a valid `&'vmlogic mut VMLogic<'_>` in the
                             // first place.
-                            unsafe { (*env).$func( $( $arg_name, )* ) }
+                            unsafe { (*env).logic.$func((*env).mem, $( $arg_name, )* ) }
                         }));
                         // We want to ensure that the only kind of error that host function calls
                         // return are VMLogicError. This is important because we later attempt to
@@ -413,7 +413,7 @@ pub(crate) mod wasmer2 {
 
     pub(crate) fn build<'a, 'b>(
         memory: VMMemory,
-        logic: &'a mut VMLogic<'b>,
+        logic: &'a mut VMLogicPlusMemory<'b>,
         protocol_version: ProtocolVersion,
     ) -> Wasmer2Imports<'a, 'b> {
         let metadata = unsafe {
@@ -429,7 +429,7 @@ pub(crate) mod wasmer2 {
 #[cfg(feature = "wasmtime_vm")]
 pub(crate) mod wasmtime {
     use super::str_eq;
-    use near_vm_logic::{ProtocolVersion, VMLogic, VMLogicError};
+    use near_vm_logic::{ProtocolVersion, VMLogicError, VMLogicPlusMemory};
     use std::cell::{RefCell, UnsafeCell};
     use std::ffi::c_void;
 
@@ -455,13 +455,14 @@ pub(crate) mod wasmtime {
         };
     }
 
-    pub(crate) fn link(
+    pub(crate) unsafe fn link(
         linker: &mut wasmtime::Linker,
         memory: wasmtime::Memory,
-        raw_logic: *mut c_void,
+        raw_logic_plus_memory: *mut c_void,
         protocol_version: ProtocolVersion,
     ) {
-        CALLER_CONTEXT.with(|caller_context| unsafe { *caller_context.get() = raw_logic });
+        CALLER_CONTEXT
+            .with(|caller_context| unsafe { *caller_context.get() = raw_logic_plus_memory });
         linker.define("env", "memory", memory).expect("cannot define memory");
 
         macro_rules! add_import {
@@ -481,8 +482,8 @@ pub(crate) mod wasmtime {
                             *caller_context.get()
                         }
                     });
-                    let logic: &mut VMLogic<'_> = unsafe { &mut *(data as *mut VMLogic<'_>) };
-                    match logic.$func( $( $arg_name as $arg_type, )* ) {
+                    let ctx: &mut VMLogicPlusMemory<'_> = unsafe { &mut *(data as *mut VMLogicPlusMemory<'_>) };
+                    match ctx.logic.$func(ctx.mem, $( $arg_name as $arg_type, )* ) {
                         Ok(result) => Ok(result as ($( rust2wasm!($returns) ),* ) ),
                         Err(err) => {
                             // Wasmtime doesn't have proper mechanism for wrapping custom errors
