@@ -5,8 +5,8 @@ use std::fs::File;
 use std::io::Read;
 use std::net::SocketAddr;
 
-#[test]
-fn test_file_download() {
+#[tokio::test]
+async fn test_file_download() {
     let port = portpicker::pick_unused_port().expect("No ports free");
 
     async fn handle_request(_req: Request<Body>) -> Result<Response<Body>, Infallible> {
@@ -14,24 +14,30 @@ fn test_file_download() {
         Ok(Response::new(Body::from(data.to_vec())))
     }
 
-    std::thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async move {
-            let addr = SocketAddr::from(([127, 0, 0, 1], port));
-            let make_svc =
-                make_service_fn(|_conn| async { Ok::<_, Infallible>(service_fn(handle_request)) });
-            let server = Server::bind(&addr).serve(make_svc);
-            if let Err(e) = server.await {
-                eprintln!("server error: {}", e);
-            }
-        });
+    let (tx, rx) = tokio::sync::oneshot::channel();
+
+    tokio::task::spawn(async move {
+        let addr = SocketAddr::from(([127, 0, 0, 1], port));
+        let make_svc =
+            make_service_fn(|_conn| async { Ok::<_, Infallible>(service_fn(handle_request)) });
+        let server = Server::bind(&addr).serve(make_svc);
+
+        tx.send(()).unwrap();
+        if let Err(e) = server.await {
+            eprintln!("server error: {}", e);
+        }
     });
 
     let tmp_downloaded_file = tempfile::NamedTempFile::new().unwrap();
     let tmp_downloaded_file_path = tmp_downloaded_file.path();
+
+    rx.await.unwrap();
+
     nearcore::config::download_file(
         &format!("http://localhost:{}", port),
         tmp_downloaded_file_path,
     )
+    .await
     .unwrap();
 
     let mut downloaded_file = File::open(tmp_downloaded_file_path).unwrap();
