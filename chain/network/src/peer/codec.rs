@@ -10,7 +10,6 @@ use bytes::{Buf, BufMut, BytesMut};
 use bytesize::{GIB, MIB};
 use near_network_primitives::types::ReasonForBan;
 use near_performance_metrics::framed_write::EncoderCallBack;
-use near_rust_allocator_proxy::allocator::get_tid;
 use std::io::{Error, ErrorKind};
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::error;
@@ -54,7 +53,13 @@ impl Encoder<Vec<u8>> for Codec {
             if buf.capacity() >= MAX_WRITE_BUFFER_CAPACITY_BYTES
                 && item.len() + 4 + buf.len() > buf.capacity()
             {
-                error!(target: "network", "{} throwing away message, because buffer is full item.len(): {} buf.capacity: {}", get_tid(), item.len(), buf.capacity());
+                #[cfg(feature = "performance_stats")]
+                let tid = near_rust_allocator_proxy::allocator::get_tid();
+                #[cfg(not(feature = "performance_stats"))]
+                let tid = 0;
+                error!(target: "network", "{} throwing away message, because buffer is full item.len(): {} buf.capacity: {}", 
+                    tid,
+                    item.len(), buf.capacity());
 
                 metrics::DROPPED_MESSAGES_COUNT.inc_by(1);
                 return Err(Error::new(ErrorKind::Other, "Buf max capacity exceeded"));
@@ -98,13 +103,13 @@ impl Decoder for Codec {
 #[cfg(test)]
 mod test {
     use crate::peer::codec::{Codec, NETWORK_MESSAGE_MAX_SIZE_BYTES};
-    use crate::routing::network_protocol::PartialEdgeInfo;
     use crate::types::{Handshake, PeerMessage, RoutingTableUpdate};
     use borsh::{BorshDeserialize, BorshSerialize};
     use bytes::{BufMut, BytesMut};
     use near_crypto::{KeyType, SecretKey};
     use near_network_primitives::types::{
-        PeerChainInfoV2, PeerIdOrHash, PeerInfo, ReasonForBan, RoutedMessage, RoutedMessageBody,
+        PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, ReasonForBan, RoutedMessage,
+        RoutedMessageBody,
     };
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::CryptoHash;

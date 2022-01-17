@@ -1,4 +1,3 @@
-use crate::network_protocol::{Edge, PartialEdgeInfo};
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
 use crate::peer::utils;
@@ -25,6 +24,7 @@ use near_network_primitives::types::{
     RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
     UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
+use near_network_primitives::types::{Edge, PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
@@ -38,7 +38,6 @@ use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
 use near_rate_limiter::{ActixMessageWrapper, ThrottleController};
-use near_rust_allocator_proxy::allocator::get_tid;
 use std::cmp::max;
 use std::fmt::Debug;
 use std::io;
@@ -182,9 +181,13 @@ impl PeerActor {
                 self.tracker.increment_sent(bytes.len() as u64);
                 let bytes_len = bytes.len();
                 if !self.framed.write(bytes) {
+                    #[cfg(feature = "performance_stats")]
+                    let tid = near_rust_allocator_proxy::allocator::get_tid();
+                    #[cfg(not(feature = "performance_stats"))]
+                    let tid = 0;
                     error!(
                         "{} Failed to send message {} of size {}",
-                        get_tid(),
+                        tid,
                         strum::AsStaticRef::as_static(msg),
                         bytes_len,
                     )
