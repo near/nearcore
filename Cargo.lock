@@ -3335,6 +3335,7 @@ dependencies = [
  "futures",
  "hyper",
  "hyper-tls",
+ "indicatif",
  "lazy-static-include",
  "near-actix-test-utils",
  "near-chain",

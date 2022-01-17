@@ -34,6 +34,7 @@ near-rust-allocator-proxy = { version = "0.3.0", optional = true }
 lazy-static-include = "3"
 tempfile = "3"
 anyhow = "1.0.51"
+indicatif = "0.15.0"
 
 near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }
