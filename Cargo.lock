@@ -1874,15 +1874,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b919933a397b79c37e33b77bb2aa3dc8eb6e165ad809e58ff75bc7db2e34574"
 
 [[package]]
-name = "gnuplot"
-version = "0.0.37"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8de437277a7ec10de5f34e3147c7da4c6d8b279c5d8ae1e33e842fd9432bb0f3"
-dependencies = [
- "byteorder",
-]
-
-[[package]]
 name = "h2"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4412,10 +4403,7 @@ dependencies = [
  "cfg-if 1.0.0",
  "chrono",
  "clap 3.0.0-beta.2",
- "csv",
  "genesis-populate",
- "glob",
- "gnuplot",
  "hex",
  "indicatif",
  "libc",
@@ -4435,9 +4423,7 @@ dependencies = [
  "rocksdb",
  "serde_json",
  "sha256",
- "state-viewer",
  "tempfile",
- "testlib",
  "walrus",
  "wat",
 ]
