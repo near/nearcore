@@ -1,4 +1,8 @@
-use std::{io::prelude::*, path::PathBuf};
+use std::{
+    io::{prelude::*, SeekFrom},
+    iter,
+    path::PathBuf,
+};
 
 use clap::Clap;
 use rand::{prelude::SliceRandom, Rng};
@@ -48,21 +52,20 @@ pub struct RocksDBTestConfig {
     pub debug_rocksdb: bool,
     /// Pseudo-random input data dump
     /// (`RocksDb*` estimations only)
-    #[clap(long, name = "rdb-pr-data-path", long)]
-    pub pr_data_path: Option<PathBuf>,
+    #[clap(long, name = "rdb-input-data-path", long)]
+    pub input_data_path: Option<PathBuf>,
 }
 
-/*
-    These tests make use of reproducible pseud-randomness.
-    Two different strategies are used for keys and data values.
+// These tests make use of reproducible pseud-randomness.
+// Two different strategies are used for keys and data values.
+//
+// > Keys: XorShiftRng with an initial seed value to produce a series of pseudo-random keys
+// > Values: A buffer of random bytes is loaded into memory.
+//           The values are slices from this buffer at different offsets.
+//           The initial buffer can be dynamically generated from thread_rng or loaded from a dump from previous runs.
+//
+// The rational behind this setup is to have random keys/values readily available during benchmarks without consuming much memory or CPU time.
 
-    > Keys: XorShiftRng with an initial seed value to produce a series of pseudo-random keys
-    > Values: A buffer of random bytes is loaded into memory.
-              The values are slices from this buffer at different offsets.
-              The initial buffer can be dynamically generated from thread_rng or loaded from a dump from previous runs.
-
-    The rational behind this setup is to have random keys/values readily available during benchmarks without consuming much memory or CPU time.
-*/
 const SETUP_PRANDOM_SEED: u64 = 0x1d9f5711fc8b0117;
 const ANOTHER_PRANDOM_SEED: u64 = 0x0465b6733af62af0;
 const INPUT_DATA_BUFFER_SIZE: usize = (bytesize::MIB as usize) - 1;
@@ -74,7 +77,7 @@ pub(crate) fn rocks_db_inserts_cost(config: &Config) -> GasCost {
     let db = new_test_db(&tmp_dir, &data, &db_config);
 
     if db_config.debug_rocksdb {
-        println!("# {:?}", db_config);
+        eprintln!("# {:?}", db_config);
         println!("# After setup / before measurement:");
         print_levels_info(&db);
     }
@@ -113,23 +116,8 @@ pub(crate) fn rocks_db_inserts_cost(config: &Config) -> GasCost {
     drop(db);
     tmp_dir.close().expect("Could not clean up temp DB");
 
-    // Store generated input data in a file for reproducibility of any results
-    if db_config.pr_data_path.is_none() {
-        let mut stats_file = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .append(true)
-            .create(true)
-            .open("names-to-stats.txt")
-            .unwrap();
-        let stats_num = std::io::BufReader::new(&stats_file).lines().count();
-        let data_dump_path = format!("data_dump_{:<04}.bin", stats_num);
-
-        let mut dump = std::fs::File::create(&data_dump_path).unwrap();
-        dump.write_all(&data).unwrap();
-
-        writeln!(stats_file, "# DATA {} written to {}", stats_num, data_dump_path)
-            .expect("Writing to \"names-to-stats.txt\" failed");
+    if db_config.input_data_path.is_none() {
+        backup_input_data(&data);
     }
 
     cost
@@ -142,13 +130,14 @@ pub(crate) fn rocks_db_read_cost(config: &Config) -> GasCost {
     let db = new_test_db(&tmp_dir, &data, &db_config);
 
     if db_config.debug_rocksdb {
-        println!("# {:?}", db_config);
+        eprintln!("# {:?}", db_config);
         println!("# After setup / before measurement:");
         print_levels_info(&db);
     }
 
     let mut prng: XorShiftRng = rand::SeedableRng::seed_from_u64(SETUP_PRANDOM_SEED);
-    let mut keys: Vec<usize> = (0..db_config.setup_insertions).map(|_| prng.gen()).collect();
+    let mut keys: Vec<usize> =
+        iter::repeat_with(|| prng.gen()).take(db_config.setup_insertions).collect();
     if db_config.sequential_keys {
         keys.sort();
     } else {
@@ -173,23 +162,8 @@ pub(crate) fn rocks_db_read_cost(config: &Config) -> GasCost {
     drop(db);
     tmp_dir.close().expect("Could not clean up temp DB");
 
-    // Store generated input data in a file for reproducibility of any results
-    if db_config.pr_data_path.is_none() {
-        let mut stats_file = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .append(true)
-            .create(true)
-            .open("names-to-stats.txt")
-            .unwrap();
-        let stats_num = std::io::BufReader::new(&stats_file).lines().count();
-        let data_dump_path = format!("data_dump_{:<04}.bin", stats_num);
-
-        let mut dump = std::fs::File::create(&data_dump_path).unwrap();
-        dump.write_all(&data).unwrap();
-
-        writeln!(stats_file, "# DATA {} written to {}", stats_num, data_dump_path)
-            .expect("Writing to \"names-to-stats.txt\" failed");
+    if db_config.input_data_path.is_none() {
+        backup_input_data(&data);
     }
 
     cost
@@ -252,13 +226,31 @@ fn prandom_inserts(
 
 fn input_data(db_config: &RocksDBTestConfig, data_size: usize) -> Vec<u8> {
     let mut data = vec![0u8; data_size];
-    if let Some(path) = db_config.pr_data_path.as_ref() {
+    if let Some(path) = db_config.input_data_path.as_ref() {
         let mut input = std::fs::File::open(path).unwrap();
         input.read_exact(&mut data).unwrap();
+        assert_eq!(input.seek(SeekFrom::End(0)).unwrap(), 0, "Provided input file has wrong size");
     } else {
         rand::thread_rng().fill(data.as_mut_slice());
     }
     data
+}
+
+/// Store generated input data in a file for reproducibility of any results
+fn backup_input_data(data: &[u8]) {
+    let mut stats_file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .append(true)
+        .create(true)
+        .open("names-to-stats.txt")
+        .unwrap();
+    let stats_num = std::io::BufReader::new(&stats_file).lines().count();
+    let data_dump_path = format!("data_dump_{:<04}.bin", stats_num);
+
+    std::fs::write(&data_dump_path, data).unwrap();
+    writeln!(stats_file, "# DATA {} written to {}", stats_num, data_dump_path)
+        .expect("Writing to \"names-to-stats.txt\" failed");
 }
 
 fn new_test_db(
