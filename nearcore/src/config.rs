@@ -833,8 +833,11 @@ pub fn init_configs(
         let genesis = GenesisConfig::from_file(&file_path).with_context(move || {
             anyhow!("Failed to read genesis config {}/{}", dir.display(), config.genesis_file)
         })?;
-        bail!("Config is already downloaded: {} with chain-id = {}. Use 'cargo run -p neard -- unsafe_reset_all' to clear the folder.",
-                file_path.display(), genesis.chain_id);
+        bail!(
+            "Config is already downloaded to ‘{}’ with chain-id ‘{}’.",
+            file_path.display(),
+            genesis.chain_id
+        );
     }
 
     let mut config = Config::default();
