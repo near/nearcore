@@ -128,6 +128,9 @@ pub enum ProtocolFeature {
     /// Make block producers produce chunks for the same block they would later produce to avoid
     /// network delays
     SynchronizeBlockChunkProduction,
+    /// Change the algorithm to count WASM stack usage to avoid undercounting in
+    /// some cases.
+    CorrectStackLimit,
     /// Add `AccessKey` nonce range for implicit accounts, as in `AccessKeyNonceRange` feature.
     AccessKeyNonceForImplicitAccounts,
 
@@ -186,7 +189,8 @@ impl ProtocolFeature {
             | ProtocolFeature::LimitContractFunctionsNumber
             | ProtocolFeature::BlockHeaderV3
             | ProtocolFeature::AliasValidatorSelectionAlgorithm => 49,
-            ProtocolFeature::SynchronizeBlockChunkProduction => 50,
+            ProtocolFeature::SynchronizeBlockChunkProduction
+            | ProtocolFeature::CorrectStackLimit => 50,
             ProtocolFeature::AccessKeyNonceForImplicitAccounts => 51,
 
             // Nightly features
