@@ -229,7 +229,11 @@ fn input_data(db_config: &RocksDBTestConfig, data_size: usize) -> Vec<u8> {
     if let Some(path) = &db_config.input_data_path {
         let mut input = std::fs::File::open(path).unwrap();
         input.read_exact(&mut data).unwrap();
-        assert_eq!(input.seek(SeekFrom::End(0)).unwrap(), 0, "Provided input file has wrong size");
+        assert_eq!(
+            input.seek(SeekFrom::End(0)).unwrap(),
+            data_size as u64,
+            "Provided input file has wrong size"
+        );
     } else {
         rand::thread_rng().fill(data.as_mut_slice());
     }
