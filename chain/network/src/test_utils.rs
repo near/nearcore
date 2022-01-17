@@ -438,7 +438,7 @@ pub struct SetAdvOptions {
 #[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub struct SetRoutingTable {
-    pub add_edges: Option<Vec<crate::network_protocol::Edge>>,
-    pub remove_edges: Option<Vec<crate::network_protocol::SimpleEdge>>,
+    pub add_edges: Option<Vec<near_network_primitives::types::Edge>>,
+    pub remove_edges: Option<Vec<near_network_primitives::types::SimpleEdge>>,
     pub prune_edges: Option<bool>,
 }

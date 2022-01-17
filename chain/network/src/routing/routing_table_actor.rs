@@ -1,4 +1,3 @@
-use crate::network_protocol::{Edge, EdgeState};
 use crate::private_actix::{StopMsg, ValidateEdgeList};
 use crate::routing::edge_validator_actor::EdgeValidatorActor;
 use crate::routing::graph::Graph;
@@ -9,6 +8,7 @@ use actix::{
     Actor, ActorFuture, Addr, Context, ContextFutureSpawner, Handler, Message, Running,
     SyncArbiter, System, WrapFuture,
 };
+use near_network_primitives::types::{Edge, EdgeState};
 use near_performance_metrics_macros::perf;
 use near_primitives::borsh::BorshSerialize;
 use near_primitives::network::PeerId;
@@ -176,6 +176,33 @@ impl RoutingTableActor {
     }
 
     /// If peer_id is not in memory check if it is on disk in bring it back on memory.
+    ///
+    /// Note: here an advanced example, which shows what's happening.
+    /// Let's say we have a full graph fully connected with nodes `A, B, C, D`.
+    /// Step 1 ) `A`, `B` get removed.
+    /// We store edges belonging to `A` and `B`: `<A,B>, <A,C>, <A, D>, <B, C>, <B, D>`
+    /// into component 1 let's call it `C_1`.
+    /// And mapping from `A` to `C_1`, and from `B` to `C_1`
+    ///
+    /// Note that `C`, `D` is still active.
+    ///
+    /// Step 2) 'C' gets removed.
+    /// We stored edges <C, D> into component 2 `C_2`.
+    /// And a mapping from `C` to `C_2`.
+    ///
+    /// Note that `D` is still active.
+    ///
+    /// Step 3) An active edge gets added from `D` to `A`.
+    /// We will load `C_1` and try to re-add all edges belonging to `C_1`.
+    /// We will add `<A,B>, <A,C>, <A, D>, <B, C>, <B, D>`
+    ///
+    /// Important note: `C_1` also contains an edge from `A` to `C`, though `C` was removed in `C_2`.
+    /// - 1) We will not load edges belonging to `C_2`, even though we are adding an edges from `A` to deleted `C`.
+    /// - 2) We will not delete mapping from `C` to `C_2`, because `C` doesn't belong to `C_1`.
+    /// - 3) Later, `C` will be deleted, because we will figure out it's not reachable.
+    /// New component `C_3` will be created.
+    /// And mapping from `C` to `C_2` will be overridden by mapping from `C` to `C_3`.
+    /// And therefore `C_2` component will become unreachable.
     fn fetch_edges_for_peer_from_disk(&mut self, other_peer_id: &PeerId) {
         if other_peer_id == self.my_peer_id()
             || self.peer_last_time_reachable.contains_key(other_peer_id)
@@ -506,11 +533,11 @@ impl RoutingTableActor {
     pub fn exchange_routing_tables_using_ibf(
         &self,
         peer_id: &PeerId,
-        ibf_set: &crate::routing::IbfSet<crate::routing::SimpleEdge>,
+        ibf_set: &crate::routing::IbfSet<near_network_primitives::types::SimpleEdge>,
         ibf_level: crate::routing::ibf_peer_set::ValidIBFLevel,
         ibf_vec: &[crate::routing::ibf::IbfBox],
         seed: u64,
-    ) -> (Vec<crate::routing::SimpleEdge>, Vec<u64>, u64) {
+    ) -> (Vec<near_network_primitives::types::SimpleEdge>, Vec<u64>, u64) {
         let ibf = ibf_set.get_ibf(ibf_level);
 
         let mut new_ibf = crate::routing::ibf::Ibf::from_vec(ibf_vec, seed ^ (ibf_level.0 as u64));

@@ -17,13 +17,11 @@ proc-macro = true
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-serde_json = {version = "1.0", features = ["preserve_order"]}
+serde_json = {version = "1.0", features = ["preserve_order"], optional = true}
 syn = { version = "1.0", features = ["full", "extra-traits"]}
-quote = "1.0"
-proc-macro2 = "1.0"
 
 near-rpc-error-core = { path = "../core" }
 
 [features]
 test = []
-dump_errors_schema = ["near-rpc-error-core/dump_errors_schema"]
+dump_errors_schema = ["near-rpc-error-core/dump_errors_schema", "serde_json"]
