@@ -14,7 +14,7 @@ import base58
 import requests
 from rc import pmap
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
+sys.path.append('lib')
 import account
 import key
 import mocknet
@@ -236,8 +236,8 @@ def get_test_accounts_from_args(argv):
     rpc_nodes = argv[4].split(',')
     logger.info(f'rpc_nodes: {rpc_nodes}')
     max_tps = float(argv[5])
-    need_create_test_accounts = argv[6]
-    need_deploy = argv[7]
+    need_create_test_accounts = (argv[6]=='create')
+    need_deploy = (argv[7] == 'deploy')
 
     rpc_infos = [(rpc_addr, RPC_PORT) for rpc_addr in rpc_nodes]
 
