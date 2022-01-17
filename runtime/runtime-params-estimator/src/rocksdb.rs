@@ -226,7 +226,7 @@ fn prandom_inserts(
 
 fn input_data(db_config: &RocksDBTestConfig, data_size: usize) -> Vec<u8> {
     let mut data = vec![0u8; data_size];
-    if let Some(path) = db_config.input_data_path.as_ref() {
+    if let Some(path) = &db_config.input_data_path {
         let mut input = std::fs::File::open(path).unwrap();
         input.read_exact(&mut data).unwrap();
         assert_eq!(input.seek(SeekFrom::End(0)).unwrap(), 0, "Provided input file has wrong size");
