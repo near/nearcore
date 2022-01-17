@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""
-Generates transactions on a mocknet node.
-This file is uploaded to each mocknet node and run there.
-"""
+# This file is uploaded to each mocknet node and run there.
+# It is responsible for making the node send many transactions
+# to itself.
 
 import json
+import itertools
 import random
 import sys
 import time
+import pathlib
 
 import base58
 import requests
 from rc import pmap
 
-# Don't use the pathlib magic because this file runs on a remote machine.
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 import account
 import key
 import mocknet
@@ -23,18 +23,9 @@ from configured_logger import logger
 LOCAL_ADDR = '127.0.0.1'
 RPC_PORT = '3030'
 # We need to slowly deploy contracts, otherwise we stall out the nodes
-CONTRACT_DEPLOY_TIME = 10 * mocknet.NUM_ACCOUNTS
+CONTRACT_DEPLOY_TIME = 12 * mocknet.NUM_ACCOUNTS
 TEST_TIMEOUT = 12 * 60 * 60
-
-
-def retry_and_ignore_errors(f):
-    for attempt in range(3):
-        try:
-            return f()
-        except Exception as e:
-            time.sleep(0.1 * 2**attempt)
-            continue
-    return None
+SKYWARD_INIT_TIME = 120
 
 
 def get_status():
@@ -52,9 +43,9 @@ def json_rpc(method, params):
 def get_nonce_for_pk(account_id, pk, finality='optimistic'):
     access_keys = json_rpc(
         'query', {
-            "request_type": "view_access_key_list",
-            "account_id": account_id,
-            "finality": finality
+            'request_type': 'view_access_key_list',
+            'account_id': account_id,
+            'finality': finality
         })
     logger.info(f'get_nonce_for_pk {account_id}')
     assert access_keys['result']['keys'], account_id
@@ -127,7 +118,7 @@ def function_call_set_delete_state(account, i, node_account):
             )
 
 
-def function_call_ft_transfer_call(account, i, node_account):
+def function_call_ft_transfer_call(account, node_account):
     next_id = random.randint(0, mocknet.NUM_ACCOUNTS - 1)
     dest_account_id = mocknet.load_testing_account_id(
         node_account.key.account_id, next_id)
@@ -154,20 +145,13 @@ def random_transaction(account, i, node_account, max_tps_per_node):
     elif choice == 1:
         function_call_set_delete_state(account, i, node_account)
     elif choice == 2:
-        function_call_ft_transfer_call(account, i, node_account)
+        function_call_ft_transfer_call(account, node_account)
     for t in range(QUERIES_PER_TX):
         wait_at_least_one_block()
         logger.info(
             f'Account {account.key.account_id} balance after {t} blocks: {retry_and_ignore_errors(lambda:account.get_amount_yoctonear())}'
         )
         break
-
-
-def send_random_transactions(node_account, test_accounts, max_tps_per_node):
-    pmap(
-        lambda index_and_account: random_transaction(index_and_account[
-            1], index_and_account[0], node_account, max_tps_per_node),
-        enumerate(test_accounts))
 
 
 def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps_per_node,
@@ -188,48 +172,21 @@ def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps_per_node,
     return total_tx_sent, elapsed_time
 
 
-def write_tx_events(accounts_and_indices, filename):
-    # record events for accurate input tps measurements
-    all_tx_events = []
-    for (account, _) in accounts_and_indices:
-        all_tx_events += account.tx_timestamps
-    all_tx_events.sort()
-    with open(filename, 'w') as output:
-        for t in all_tx_events:
-            output.write(f'{t}\n')
+def send_random_transactions(node_account, test_accounts, max_tps_per_node):
+    pmap(
+        lambda index_and_account: random_transaction(index_and_account[
+            1], index_and_account[0], node_account, max_tps_per_node),
+        enumerate(test_accounts))
 
 
-def get_test_accounts_from_args(argv):
-    node_account_id = argv[1]
-    pk = argv[2]
-    sk = argv[3]
-    rpc_nodes = argv[4].split(',')
-    num_nodes = int(argv[5])
-    max_tps = float(argv[6])
-    logger.info(f'rpc_nodes: {rpc_nodes}')
-
-    node_account_key = key.Key(node_account_id, pk, sk)
-    test_account_keys = [
-        key.Key(mocknet.load_testing_account_id(node_account_id, i), pk, sk)
-        for i in range(mocknet.NUM_ACCOUNTS)
-    ]
-
-    base_block_hash = get_latest_block_hash()
-
-    rpc_infos = [(rpc_addr, RPC_PORT) for rpc_addr in rpc_nodes]
-    node_account = account.Account(node_account_key,
-                                   get_nonce_for_pk(node_account_key.account_id,
-                                                    node_account_key.pk),
-                                   base_block_hash,
-                                   rpc_infos=rpc_infos)
-    accounts = [
-        account.Account(key,
-                        get_nonce_for_pk(key.account_id, key.pk),
-                        base_block_hash,
-                        rpc_infos=rpc_infos) for key in test_account_keys
-    ]
-    max_tps_per_node = max_tps / num_nodes
-    return node_account, accounts, max_tps_per_node
+def retry_and_ignore_errors(f):
+    for attempt in range(3):
+        try:
+            return f()
+        except Exception as e:
+            time.sleep(0.1 * 2**attempt)
+            continue
+    return None
 
 
 def init_ft(node_account):
@@ -270,22 +227,77 @@ def init_ft_account(node_account, account):
     )
 
 
-def wait_at_least_one_block():
-    while True:
-        try:
-            status = get_status()
-            start_height = status['sync_info']['latest_block_height']
-            while True:
-                status = get_status()
-                height = status['sync_info']['latest_block_height']
-                if height > start_height:
-                    return
-                time.sleep(1.0)
-        except Exception as e:
+def get_test_accounts_from_args(argv):
+    assert (len(argv) == 8)
+    node_account_id = argv[1]
+    pk = argv[2]
+    sk = argv[3]
+    assert argv[4]
+    rpc_nodes = argv[4].split(',')
+    logger.info(f'rpc_nodes: {rpc_nodes}')
+    max_tps = float(argv[5])
+    need_create_test_accounts = argv[6]
+    need_deploy = argv[7]
+
+    rpc_infos = [(rpc_addr, RPC_PORT) for rpc_addr in rpc_nodes]
+
+    node_account_key = key.Key(node_account_id, pk, sk)
+    test_account_keys = [
+        key.Key(mocknet.load_testing_account_id(node_account_id, i), pk, sk)
+        for i in range(mocknet.NUM_ACCOUNTS)
+    ]
+
+    base_block_hash = get_latest_block_hash()
+    node_account = account.Account(node_account_key,
+                                   get_nonce_for_pk(node_account_key.account_id,
+                                                    node_account_key.pk),
+                                   base_block_hash,
+                                   rpc_infos=rpc_infos)
+
+    if need_deploy:
+        init_ft(node_account)
+
+    accounts = []
+    for key in test_account_keys:
+        base_block_hash = get_latest_block_hash()
+        acc = account.Account(key,
+                              get_nonce_for_pk(key.account_id, key.pk),
+                              base_block_hash,
+                              rpc_infos=rpc_infos)
+        accounts.append(acc)
+        if need_create_test_accounts:
+            logger.info(f'Creating account {key.account_id}')
+            node_account.send_create_account_tx(
+                key.account_id, base_block_hash=get_latest_block_hash())
+            wait_at_least_one_block()
             logger.info(
-                f'Failed "wait_at_least_one_block", will wait 1 second and try again'
+                f'Account {account.key.account_id} balance after creation: {retry_and_ignore_errors(lambda:account.get_amount_yoctonear())}'
             )
-            time.sleep(1.0)
+        if need_deploy:
+            logger.info(f'Deploying contract for account {key.account_id}')
+            retry_and_ignore_errors(
+                lambda: account.send_deploy_contract_tx(mocknet.WASM_FILENAME))
+            init_ft_account(node_account, account)
+            logger.info(
+                f'Account {account.key.account_id} balance after initialization: {retry_and_ignore_errors(lambda:account.get_amount_yoctonear())}'
+            )
+            wait_at_least_one_block()
+        break
+
+    return node_account, accounts, max_tps
+
+
+def wait_at_least_one_block():
+    status = get_status()
+    start_height = status['sync_info']['latest_block_height']
+    timeout_sec = 5
+    started = time.time()
+    while time.time() - started < timeout_sec:
+        status = get_status()
+        height = status['sync_info']['latest_block_height']
+        if height > start_height:
+            break
+        time.sleep(1.0)
 
 
 def main(argv):
@@ -293,51 +305,15 @@ def main(argv):
     (node_account, test_accounts,
      max_tps_per_node) = get_test_accounts_from_args(argv)
 
-    # Ensure load testing contract is deployed to all accounts before
-    # starting to send random transactions (ensures we do not try to
-    # call the contract before it is deployed).
-    delay = CONTRACT_DEPLOY_TIME / mocknet.NUM_ACCOUNTS
-    logger.info(f'Start deploying, delay between deployments: {delay}')
-
-    time.sleep(random.random() * delay)
-    start_time = time.time()
-    assert delay >= 1
-    init_ft(node_account)
-    for i, account in enumerate(test_accounts):
-        logger.info(f'Deploying contract for account {account.key.account_id}')
-        retry_and_ignore_errors(
-            lambda: account.send_deploy_contract_tx(mocknet.WASM_FILENAME))
-        init_ft_account(node_account, account)
-        logger.info(
-            f'Account {account.key.account_id} balance after initialization: {retry_and_ignore_errors(lambda:account.get_amount_yoctonear())}'
-        )
-        time.sleep(max(1.0, start_time + (i + 1) * delay - time.time()))
-
-    logger.info('Done deploying')
-
     global function_call_state
     function_call_state = [[]] * mocknet.NUM_ACCOUNTS
 
-    # begin with only transfers for TPS measurement
     total_tx_sent, elapsed_time = 0, 0
-    logger.info(
-        f'Start the test, expected TPS {max_tps_per_node} over the next {TEST_TIMEOUT} seconds'
-    )
-    last_staking = 0
-    start_time = time.time()
-    while time.time() - start_time < TEST_TIMEOUT:
-        # Repeat the staking transactions in case the validator selection algorithm changes.
-        staked_time = mocknet.stake_available_amount(node_account, last_staking)
-        if staked_time is not None:
-            last_staking = staked_time
+    while True:
         (total_tx_sent,
          elapsed_time) = throttle_txns(send_random_transactions, total_tx_sent,
                                        elapsed_time, max_tps_per_node,
                                        node_account, test_accounts)
-    logger.info('Stop the test')
-
-    write_tx_events(test_accounts, f'{mocknet.TX_OUT_FILE}.0')
-    logger.info('Wrote tx events')
 
 
 if __name__ == '__main__':
