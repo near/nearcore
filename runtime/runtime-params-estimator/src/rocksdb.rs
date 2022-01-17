@@ -1,8 +1,4 @@
-use std::{
-    io::{prelude::*, SeekFrom},
-    iter,
-    path::PathBuf,
-};
+use std::{io::prelude::*, iter, path::PathBuf};
 
 use clap::Clap;
 use rand::{prelude::SliceRandom, Rng};
@@ -225,19 +221,15 @@ fn prandom_inserts(
 }
 
 fn input_data(db_config: &RocksDBTestConfig, data_size: usize) -> Vec<u8> {
-    let mut data = vec![0u8; data_size];
     if let Some(path) = &db_config.input_data_path {
-        let mut input = std::fs::File::open(path).unwrap();
-        input.read_exact(&mut data).unwrap();
-        assert_eq!(
-            input.seek(SeekFrom::End(0)).unwrap(),
-            data_size as u64,
-            "Provided input file has wrong size"
-        );
+        let data = std::fs::read(path).unwrap();
+        assert_eq!(data.len(), data_size, "Provided input file has wrong size");
+        data
     } else {
+        let mut data = vec![0u8; data_size];
         rand::thread_rng().fill(data.as_mut_slice());
+        data
     }
-    data
 }
 
 /// Store generated input data in a file for reproducibility of any results
