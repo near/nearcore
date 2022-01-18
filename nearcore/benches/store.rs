@@ -42,7 +42,7 @@ fn read_trie_items(bench: &mut Bencher, num_trie_items: usize, shard_id: usize) 
         let trie = TrieIterator::new(&trie, &state_root).unwrap();
 
         let start = Instant::now();
-        let _ = trie
+        let num_items_read = trie
             .enumerate()
             .map(|(i, item)| {
                 if i % 100 == 0 {
@@ -51,14 +51,14 @@ fn read_trie_items(bench: &mut Bencher, num_trie_items: usize, shard_id: usize) 
                 tracing::info!(target: "neard", "{:?}", item);
             })
             .take(num_trie_items)
-            .collect();
+            .count();
         let took = start.elapsed();
 
         println!(
-            "took on avg {:?} op per sec {} assuming {} items",
-            took / (num_trie_items as u32),
-            (num_trie_items as u128) * Duration::from_secs(1).as_nanos() / took.as_nanos(),
-            num_trie_items
+            "took on avg {:?} op per sec {} items read {}",
+            took / (num_items_read as u32),
+            (num_items_read as u128) * Duration::from_secs(1).as_nanos() / took.as_nanos(),
+            num_items_read
         );
     });
 }
