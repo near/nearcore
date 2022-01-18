@@ -248,6 +248,9 @@ def get_test_accounts_from_args(argv):
     need_create_test_accounts = (argv[6] == 'create')
     need_deploy = (argv[7] == 'deploy')
 
+    logger.info(f'need_create_test_accounts: {need_create_test_accounts}')
+    logger.info(f'need_deploy: {need_deploy}')
+
     rpc_infos = [(rpc_addr, RPC_PORT) for rpc_addr in rpc_nodes]
 
     node_account_key = kkey.Key(node_account_id, pk, sk)
@@ -293,7 +296,6 @@ def get_test_accounts_from_args(argv):
                 f'Account {key.account_id} balance after initialization: {retry_and_ignore_errors(lambda:acc.get_amount_yoctonear())}'
             )
             wait_at_least_one_block()
-        break
 
     return node_account, accounts, max_tps
 
