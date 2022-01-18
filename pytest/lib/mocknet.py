@@ -935,55 +935,10 @@ def wait_all_nodes_up(all_nodes):
 
 def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
                             increasing_stakes, num_block_producer_seats):
-    schedule = {}
-    if progressive_upgrade:
-        # Re-create stakes assignment.
-        stakes = []
-        if increasing_stakes:
-            prev_stake = None
-            for i, node in enumerate(validator_nodes):
-                if i * 5 < num_block_producer_seats * 3 and i < len(
-                        MAINNET_STAKES):
-                    staked = MAINNET_STAKES[i] * ONE_NEAR
-                elif prev_stake is None:
-                    prev_stake = MIN_STAKE - STAKE_STEP
-                    staked = prev_stake * ONE_NEAR
-                else:
-                    prev_stake = prev_stake + STAKE_STEP
-                    staked = prev_stake * ONE_NEAR
-                stakes.append((staked, node.instance_name))
-                print(f'{node_account_name(node.instance_name)} {staked}')
-
-        else:
-            for node in validator_nodes:
-                stakes.append((MIN_STAKE, node.instance_name))
-        logger.info(f'create_upgrade_schedule {stakes}')
-
-        # Compute seat assignments.
-        seats = compute_seats(stakes, num_block_producer_seats)
-
-        seats_upgraded = 0
-        for seat, stake, instance_name in seats:
-            # As the protocol upgrade takes place after 80% of the nodes are
-            # upgraded, stop a bit earlier to start in a non-upgraded state.
-            if (seats_upgraded + seat) * 100 > 75 * num_block_producer_seats:
-                break
-            schedule[instance_name] = 0
-            seats_upgraded += seat
-
-        # Upgrade the remaining validators during 4 epochs.
-        for node in validator_nodes:
-            if node.instance_name not in schedule:
-                schedule[node.instance_name] = random.randint(1, 4)
-
-        for node in rpc_nodes:
-            schedule[node.instance_name] = random.randint(0, 4)
-    else:
-        # Start all nodes upgraded.
-        for node in rpc_nodes:
-            schedule[node.instance_name] = 0
-        for node in validator_nodes:
-            schedule[node.instance_name] = 0
+    for node in rpc_nodes:
+        schedule[node.instance_name] = 1000
+    for node in validator_nodes:
+        schedule[node.instance_name] = 1000
 
     return schedule
 
