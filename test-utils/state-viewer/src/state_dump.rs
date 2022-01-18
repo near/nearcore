@@ -176,7 +176,7 @@ mod test {
         epoch_length: NumBlocks,
         protocol_version: ProtocolVersion,
         simple_nightshade_layout: Option<ShardLayout>,
-    ) -> (Arc<Store>, Genesis, TestEnv, NearConfig) {
+    ) -> (Store, Genesis, TestEnv, NearConfig) {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.num_block_producer_seats = 2;

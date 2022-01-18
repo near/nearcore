@@ -17,7 +17,7 @@ use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
 use crate::{StorageError, Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 
 struct ShardTriesInner {
-    store: Arc<Store>,
+    store: Store,
     /// Cache reserved for client actor to use
     caches: RwLock<HashMap<ShardUId, TrieCache>>,
     /// Cache for readers.
@@ -32,7 +32,7 @@ impl ShardTries {
         shards.iter().map(|&shard_id| (shard_id, TrieCache::new())).collect()
     }
 
-    pub fn new(store: Arc<Store>, shard_version: ShardVersion, num_shards: NumShards) -> Self {
+    pub fn new(store: Store, shard_version: ShardVersion, num_shards: NumShards) -> Self {
         assert_ne!(num_shards, 0);
         let shards: Vec<_> = (0..num_shards)
             .map(|shard_id| ShardUId { version: shard_version, shard_id: shard_id as u32 })
@@ -74,7 +74,7 @@ impl ShardTries {
         self.get_trie_for_shard_internal(shard_uid, true)
     }
 
-    pub fn get_store(&self) -> Arc<Store> {
+    pub fn get_store(&self) -> Store {
         self.0.store.clone()
     }
 

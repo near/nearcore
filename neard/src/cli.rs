@@ -56,20 +56,29 @@ impl NeardCmd {
             }
             NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation),
 
+            // TODO(mina86): Remove the command in Q3 2022.
             NeardSubCommand::UnsafeResetData => {
                 let store_path = get_store_path(&home_dir);
-                info!(target: "neard", "Removing all data from {}", store_path.display());
-                fs::remove_dir_all(store_path).expect("Removing data failed");
+                unsafe_reset("unsafe_reset_data", &store_path, "data", "<near-home-dir>/data");
             }
+            // TODO(mina86): Remove the command in Q3 2022.
             NeardSubCommand::UnsafeResetAll => {
-                info!(target: "neard", "Removing all data and config from {}", home_dir.to_string_lossy());
-                fs::remove_dir_all(home_dir).expect("Removing data and config failed.");
+                unsafe_reset("unsafe_reset_all", &home_dir, "data and config", "<near-home-dir>");
             }
             NeardSubCommand::StateViewer(cmd) => {
                 cmd.run(&home_dir, genesis_validation);
             }
         }
     }
+}
+
+fn unsafe_reset(command: &str, path: &std::path::Path, what: &str, default: &str) {
+    let dir =
+        path.to_str().map(|path| shell_escape::unix::escape(path.into())).unwrap_or(default.into());
+    warn!(target: "neard", "The ‘{}’ command is deprecated and will be removed in Q3 2022", command);
+    warn!(target: "neard", "Use ‘rm -r -- {}’ instead (which is effectively what this command does)", dir);
+    info!(target: "neard", "Removing all {} from {}", what, path.display());
+    fs::remove_dir_all(path).expect("Removing data failed");
 }
 
 #[derive(Clap, Debug)]
@@ -342,7 +351,7 @@ impl RunCmd {
         let sys = actix::System::new();
         sys.block_on(async move {
             let nearcore::NearNode { rpc_servers, .. } =
-                nearcore::start_with_config(home_dir, near_config);
+                nearcore::start_with_config(home_dir, near_config).expect("start_with_config");
 
             let sig = if cfg!(unix) {
                 use tokio::signal::unix::{signal, SignalKind};
@@ -401,7 +410,7 @@ fn init_logging(verbose: Option<&str>) {
     const DEFAULT_RUST_LOG: &'static str =
         "tokio_reactor=info,near=info,stats=info,telemetry=info,\
          delay_detector=info,near-performance-metrics=info,\
-         near-rust-allocator-proxy=info";
+         near-rust-allocator-proxy=info,warn";
 
     let rust_log = env::var("RUST_LOG");
     let rust_log = rust_log.as_ref().map(String::as_str).unwrap_or(DEFAULT_RUST_LOG);
@@ -420,8 +429,6 @@ fn init_logging(verbose: Option<&str>) {
         } else {
             env_filter = env_filter.add_directive(format!("{}=debug", module).parse().unwrap());
         }
-    } else {
-        env_filter = env_filter.add_directive(LevelFilter::WARN.into());
     }
 
     tracing_subscriber::fmt::Subscriber::builder()
