@@ -834,8 +834,7 @@ def reset_data(node, retries=0):
         m = node.machine
         stop_node(node)
         logger.info(f'Clearing data directory of node {m.name}')
-        start_process = m.run('bash',
-                              input='/home/ubuntu/neard unsafe_reset_data')
+        start_process = m.run('bash', input='rm -r /home/ubuntu/.near')
         assert start_process.returncode == 0, m.name + '\n' + start_process.stderr
     except:
         if retries < 3:
