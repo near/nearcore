@@ -205,18 +205,18 @@ def init_ft(node_account):
     wait_at_least_one_block()
 
     s = f'{{"owner_id": "{node_account.key.account_id}", "total_supply": "{10**33}"}}'
-    tx_res = retry_and_ignore_errors(
-        lambda: node_account.send_call_contract_raw_tx(
-            node_account.key.account_id, 'new_default_meta', s.encode('utf-8'),
-            0))
+    tx_res = node_account.send_call_contract_raw_tx(node_account.key.account_id,
+                                                    'new_default_meta',
+                                                    s.encode('utf-8'), 0)
     logger.info(f'ft new_default_meta {tx_res}')
 
 
 def init_ft_account(node_account, account):
     s = f'{{"account_id": "{account.key.account_id}"}}'
-    tx_res = retry_and_ignore_errors(lambda: account.send_call_contract_raw_tx(
-        node_account.key.account_id, 'storage_deposit', s.encode('utf-8'),
-        (10**24) // 800))
+    tx_res = account.send_call_contract_raw_tx(node_account.key.account_id,
+                                               'storage_deposit',
+                                               s.encode('utf-8'),
+                                               (10**24) // 800)
     logger.info(f'Account {account.key.account_id} storage_deposit {tx_res}')
 
     # The next transaction depends on the previous transaction succeeded.
@@ -228,9 +228,9 @@ def init_ft_account(node_account, account):
     logger.info(
         f'Calling function "ft_transfer" with arguments {s} on account {account.key.account_id}'
     )
-    tx_res = retry_and_ignore_errors(
-        lambda: node_account.send_call_contract_raw_tx(
-            node_account.key.account_id, 'ft_transfer', s.encode('utf-8'), 1))
+    tx_res = node_account.send_call_contract_raw_tx(node_account.key.account_id,
+                                                    'ft_transfer',
+                                                    s.encode('utf-8'), 1)
     logger.info(
         f'{node_account.key.account_id} ft_transfer to {account.key.account_id} {tx_res}'
     )
@@ -271,19 +271,18 @@ def get_test_accounts_from_args(argv):
     accounts = []
     for key in test_account_keys:
         base_block_hash = get_latest_block_hash()
-        try:
-            nonce = get_nonce_for_pk(key.account_id, key.pk),
-        except Exception as e:
-            nonce = 1
-        acc = aaccount.Account(key, nonce, base_block_hash, rpc_infos=rpc_infos)
+        acc = aaccount.Account(key,
+                               get_nonce_for_pk(key.account_id, key.pk),
+                               base_block_hash,
+                               rpc_infos=rpc_infos)
         accounts.append(acc)
         if need_deploy:
             logger.info(f'Deploying contract for account {key.account_id}')
-            retry_and_ignore_errors(
-                lambda: acc.send_deploy_contract_tx(mocknet.WASM_FILENAME))
+            tx_res = acc.send_deploy_contract_tx(mocknet.WASM_FILENAME)
+            logger.info(f'Deploying result: {tx_res}')
             init_ft_account(node_account, acc)
             logger.info(
-                f'Account {key.account_id} balance after initialization: {retry_and_ignore_errors(lambda:acc.get_amount_yoctonear())}'
+                f'Account {key.account_id} balance after initialization: {acc.get_amount_yoctonear()}'
             )
             wait_at_least_one_block()
 
