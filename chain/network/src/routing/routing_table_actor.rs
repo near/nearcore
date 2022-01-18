@@ -453,46 +453,36 @@ impl RoutingTableActor {
     }
 }
 
-// Messages for RoutingTableActor
+/// Messages for `RoutingTableActor`
 #[derive(Debug)]
 pub enum RoutingTableMessages {
-    // Add verified edges to routing table actor and update stats.
-    // Each edge contains signature of both peers.
-    // We say that the edge is "verified" if and only if we checked that the `signature0` and
-    // `signature1` is valid.
-    AddVerifiedEdges {
-        edges: Vec<Edge>,
-    },
-    // Remove edges for unit tests
+    /// Add verified edges to routing table actor and update stats.
+    /// Each edge contains signature of both peers.
+    /// We say that the edge is "verified" if and only if we checked that the `signature0` and
+    /// `signature1` is valid.
+    AddVerifiedEdges { edges: Vec<Edge> },
+    /// Remove edges for unit tests
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     AdvRemoveEdges(Vec<Edge>),
-    // Get RoutingTable for debugging purposes.
+    /// Get `RoutingTable` for debugging purposes.
     RequestRoutingTable,
-    // Add Peer and generate IbfSet.
+    /// Add `PeerId` and generate `IbfSet`.
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     AddPeerIfMissing(PeerId, Option<u64>),
-    // Remove Peer from IbfSet
+    /// Remove `PeerId` from `IbfSet`
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RemovePeer(PeerId),
-    // Do new routing table exchange algorithm.
+    /// Do new routing table exchange algorithm.
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    ProcessIbfMessage {
-        peer_id: PeerId,
-        ibf_msg: crate::types::RoutingVersion2,
-    },
-    // Start new routing table sync.
+    ProcessIbfMessage { peer_id: PeerId, ibf_msg: crate::types::RoutingVersion2 },
+    /// Start new routing table sync.
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    StartRoutingTableSync {
-        seed: u64,
-    },
-    // Request routing table update and maybe prune edges.
-    RoutingTableUpdate {
-        prune: Prune,
-        prune_edges_not_reachable_for: Duration,
-    },
-    // Gets list of edges to validate from another peer.
-    // Those edges will be filtered, by removing exising edges, and then
-    // those edges will be sent to `EdgeValidatorActor`.
+    StartRoutingTableSync { seed: u64 },
+    /// Request routing table update and maybe prune edges.
+    RoutingTableUpdate { prune: Prune, prune_edges_not_reachable_for: Duration },
+    /// Gets list of edges to validate from another peer.
+    /// Those edges will be filtered, by removing existing edges, and then
+    /// those edges will be sent to `EdgeValidatorActor`.
     ValidateEdgeList(ValidateEdgeList),
 }
 
