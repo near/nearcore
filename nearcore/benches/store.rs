@@ -42,10 +42,11 @@ fn read_trie_items(bench: &mut Bencher, num_trie_items: usize, shard_id: usize) 
         let start = Instant::now();
         let _ = trie
             .enumerate()
-            .map(|(i, _)| {
+            .map(|(i, item)| {
                 if i % 100 == 0 {
                     tracing::info!(target: "neard", "{}", i)
                 }
+                tracing::info!(target: "neard", "{:?}", item);
             })
             .take(num_trie_items);
         let took = start.elapsed();
