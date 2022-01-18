@@ -691,7 +691,7 @@ impl Handler<GetNetworkInfo> for ClientActor {
     type Result = Result<NetworkInfoResponse, String>;
 
     #[perf]
-    fn handle(&mut self, msg: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, _msg: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("client get network info".into());
         self.check_triggers(ctx);
