@@ -44,7 +44,7 @@ use near_rate_limiter::{
     ThrottleToken,
 };
 use near_store::Store;
-use rand::seq::{IteratorRandom, SliceRandom};
+use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
@@ -1172,7 +1172,7 @@ impl PeerManagerActor {
         {
             for (peer, active) in self.connected_peers.iter() {
                 if active.peer_type == PeerType::Outbound {
-                    safe_set.insert(peer.clone());
+                    safe_set.insert(peer);
                 }
             }
         }
@@ -1183,7 +1183,7 @@ impl PeerManagerActor {
         {
             for (peer, active) in self.connected_peers.iter() {
                 if active.full_peer_info.chain_info.archival {
-                    safe_set.insert(peer.clone());
+                    safe_set.insert(peer);
                 }
             }
         }
@@ -1209,26 +1209,20 @@ impl PeerManagerActor {
 
         // Take remaining peers
         for (peer_id, _) in recent_connections
-            .into_iter()
+            .iter()
             .take((self.config.safe_set_size as usize).saturating_sub(safe_set.len()))
         {
-            safe_set.insert(peer_id.clone());
+            safe_set.insert(peer_id);
         }
 
         // Build valid candidate list to choose the peer to be removed. All peers outside the safe set.
-        let candidates = self
-            .connected_peers
-            .keys()
-            .filter_map(
-                |peer_id| {
-                    if safe_set.contains(peer_id) {
-                        None
-                    } else {
-                        Some(peer_id.clone())
-                    }
-                },
-            )
-            .collect::<Vec<_>>();
+        let candidates = self.connected_peers.keys().filter_map(|peer_id| {
+            if safe_set.contains(peer_id) {
+                None
+            } else {
+                Some(peer_id)
+            }
+        });
 
         if let Some(peer_id) = candidates.choose(&mut rand::thread_rng()) {
             if let Some(active_peer) = self.connected_peers.get(peer_id) {
