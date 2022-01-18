@@ -1,7 +1,7 @@
 # near-epoch-manager crate
 
 Epoch manager crate is responsible for code related to epochs and epoch switching.
-An epoch is a unit of time when validators of the network remain constant.
+An epoch is a unit of time when the set of validators of the network remain constant.
 
 You can read more about the epoch here: https://docs.near.org/docs/concepts/epoch
 
@@ -10,10 +10,10 @@ You can read more about Epoch finalization and Epoch changes here: https://githu
 ## EpochManager
 Main class that has two main functions:
 * it creates new epochs (EpochIds)
-* allows accessing information about past and current epochs.
+* allows accessing information about past and current epochs (who is producing/approving given blocks, info about validators/fishermen etc  ).
 
 ### New Epoch Creation
-When 'finalize_epoch' is called, the EpochManager will do all the necessary processing (like computing validator rewards, selecting validators for the next epoch etc) and create the new EpochId/EpochInfo.
+When 'finalize_epoch' is called, the EpochManager will do all the necessary processing (like computing validator rewards for the current epoch (T), selecting validators for the next next epoch (T+2) etc) and create the new EpochId/EpochInfo.
 
 ### Accessing epoch information
 EpochManager has also a lot of methords that allows you to fetch information from different past and present epochs (like who is the chunk/block producer for a given chunk/block, whether the block is at the end of epoch boundary and requires more signatures etc)
