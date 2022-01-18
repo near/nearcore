@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
 use hyper::body::HttpBody;
+use indicatif::{ProgressBar, ProgressStyle};
 use near_primitives::time::Clock;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
@@ -833,8 +834,11 @@ pub fn init_configs(
         let genesis = GenesisConfig::from_file(&file_path).with_context(move || {
             anyhow!("Failed to read genesis config {}/{}", dir.display(), config.genesis_file)
         })?;
-        bail!("Config is already downloaded: {} with chain-id = {}. Use 'cargo run -p neard -- unsafe_reset_all' to clear the folder.",
-                file_path.display(), genesis.chain_id);
+        bail!(
+            "Config is already downloaded to ‘{}’ with chain-id ‘{}’.",
+            file_path.display(),
+            genesis.chain_id
+        );
     }
 
     let mut config = Config::default();
@@ -1393,11 +1397,30 @@ async fn download_file_impl(
     let https_connector = hyper_tls::HttpsConnector::new();
     let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
     let mut resp = client.get(uri).await.map_err(FileDownloadError::HttpError)?;
+    let bar = if let Some(file_size) = resp.size_hint().upper() {
+        let bar = ProgressBar::new(file_size);
+        bar.set_style(
+            ProgressStyle::default_bar().template(
+                "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} [{bytes_per_sec}] ({eta})"
+            ).progress_chars("#>-")
+        );
+        bar
+    } else {
+        let bar = ProgressBar::new_spinner();
+        bar.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} [{elapsed_precise}] {bytes} [{bytes_per_sec}]"),
+        );
+        bar
+    };
     while let Some(next_chunk_result) = resp.data().await {
         let next_chunk = next_chunk_result.map_err(FileDownloadError::HttpError)?;
         out.write_all(next_chunk.as_ref()).await?;
+        bar.inc(next_chunk.len() as u64);
     }
-    out.finish().await
+    out.finish().await?;
+    bar.finish();
+    Ok(())
 }
 
 /// Downloads a resource at given `url` and saves it to `path`.  On success, if
