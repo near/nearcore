@@ -1,11 +1,11 @@
 use near_primitives::version::ProtocolFeature;
-use near_vm_errors::{CompilationError, FunctionCallError, PrepareError, VMError};
+use near_vm_errors::{CompilationError, FunctionCallError, PrepareError, VMError, WasmTrap};
 
 use assert_matches::assert_matches;
 
 use crate::tests::{
-    make_simple_contract_call_vm, make_simple_contract_call_with_protocol_version_vm,
-    with_vm_variants,
+    gas_and_error_match, make_simple_contract_call_vm,
+    make_simple_contract_call_with_protocol_version_vm, with_vm_variants,
 };
 use crate::vm_kind::VMKind;
 
@@ -191,4 +191,47 @@ fn test_limit_contract_functions_number() {
             )))
         );
     });
+}
+
+fn many_locals(n_locals: usize) -> Vec<u8> {
+    wat::parse_str(&format!(
+        r#"
+            (module
+              (func $main (export "main")
+                (local {})
+                (call $main))
+            )"#,
+        "i32 ".repeat(n_locals)
+    ))
+    .unwrap()
+}
+
+#[test]
+fn test_limit_locals() {
+    with_vm_variants(|vm_kind| {
+        match vm_kind {
+            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
+            // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
+            // Restore, once get rid of Wasmer 0.x.
+            VMKind::Wasmtime => return,
+        }
+
+        let wasm_err = many_locals(50_001);
+        let res = make_simple_contract_call_vm(&wasm_err, "main", vm_kind);
+        gas_and_error_match(
+            res,
+            None,
+            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+                CompilationError::PrepareError(PrepareError::Deserialization),
+            ))),
+        );
+
+        let wasm_ok = many_locals(50_000);
+        let res = make_simple_contract_call_vm(&wasm_ok, "main", vm_kind);
+        gas_and_error_match(
+            res,
+            Some(47583963),
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
+        );
+    })
 }

@@ -12,6 +12,7 @@ use near_primitives::hash::CryptoHash;
 use crate::tests::nearcore::node_cluster::NodeCluster;
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn track_shards() {
     init_integration_logger();
 

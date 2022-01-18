@@ -51,18 +51,6 @@ pub const MAX_PENDING_PART: u64 = MAX_STATE_PART_REQUEST * 10000;
 
 pub const NS_PER_SECOND: u128 = 1_000_000_000;
 
-/// Get random peer from the hightest height peers.
-pub fn highest_height_peer(highest_height_peers: &Vec<FullPeerInfo>) -> Option<FullPeerInfo> {
-    if highest_height_peers.len() == 0 {
-        return None;
-    }
-
-    match highest_height_peers.iter().choose(&mut thread_rng()) {
-        None => highest_height_peers.choose(&mut thread_rng()).cloned(),
-        Some(peer) => Some(peer.clone()),
-    }
-}
-
 /// Helper to keep track of the Epoch Sync
 // TODO #3488
 #[allow(dead_code)]
@@ -201,7 +189,7 @@ impl HeaderSync {
             *sync_status =
                 SyncStatus::HeaderSync { current_height: header_head.height, highest_height };
             self.syncing_peer = None;
-            if let Some(peer) = highest_height_peer(highest_height_peers) {
+            if let Some(peer) = highest_height_peers.choose(&mut thread_rng()).cloned() {
                 if peer.chain_info.height > header_head.height {
                     self.syncing_peer = self.request_headers(chain, peer);
                 }
@@ -1293,8 +1281,7 @@ mod test {
 
     use super::*;
     use crate::test_utils::TestEnv;
-    use near_network::types::PartialEdgeInfo;
-    use near_network_primitives::types::PeerInfo;
+    use near_network_primitives::types::{PartialEdgeInfo, PeerInfo};
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
     use near_primitives::validator_signer::InMemoryValidatorSigner;

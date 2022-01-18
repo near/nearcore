@@ -1,6 +1,4 @@
 //! Simply starts and runs testnet for a while.
-#[cfg(test)]
-#[cfg(feature = "expensive_tests")]
 mod test {
     use crate::node::{create_nodes, sample_two_nodes, Node};
     use crate::test_helpers::{heavy_test, wait};
@@ -74,16 +72,19 @@ mod test {
     }
 
     #[test]
+    #[cfg_attr(not(feature = "expensive_tests"), ignore)]
     fn test_2_10_multiple_nodes() {
         heavy_test(|| run_multiple_nodes(2, 10, "2_10"));
     }
 
     #[test]
+    #[cfg_attr(not(feature = "expensive_tests"), ignore)]
     fn test_4_10_multiple_nodes() {
         heavy_test(|| run_multiple_nodes(4, 10, "4_10"));
     }
 
     #[test]
+    #[cfg_attr(not(feature = "expensive_tests"), ignore)]
     fn test_7_10_multiple_nodes() {
         heavy_test(|| run_multiple_nodes(7, 10, "7_10"));
     }

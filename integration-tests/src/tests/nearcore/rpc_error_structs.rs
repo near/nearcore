@@ -20,6 +20,7 @@ use near_primitives::types::BlockId;
 // Queries json-rpc block that doesn't exists
 // Checks if the struct is expected and contains the proper data
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_block_unknown_block_error() {
     init_integration_logger();
 
@@ -77,6 +78,7 @@ fn test_block_unknown_block_error() {
 // (randomish chunk hash, we hope it won't happen in test case)
 // Checks if the struct is expected and contains the proper data
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_chunk_unknown_chunk_error() {
     init_integration_logger();
 
@@ -205,6 +207,7 @@ fn test_protocol_config_unknown_block_error() {
 // Queries json-rpc gas_price that doesn't exists
 // Checks if the struct is expected and contains the proper data
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_gas_price_unknown_block_error() {
     init_integration_logger();
 
@@ -262,6 +265,7 @@ fn test_gas_price_unknown_block_error() {
 // Queries json-rpc EXPERIMENTAL_receipt that doesn't exists
 // Checks if the struct is expected and contains the proper data
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_receipt_id_unknown_receipt_error() {
     init_integration_logger();
 
@@ -332,6 +336,7 @@ fn test_receipt_id_unknown_receipt_error() {
 /// Sends tx to first light client through `broadcast_tx_commit` and checks that the transaction has failed.
 /// Checks if the struct is expected and contains the proper data
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_tx_invalid_tx_error() {
     init_integration_logger();
 
@@ -404,6 +409,7 @@ fn test_tx_invalid_tx_error() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_query_rpc_account_view_unknown_block_must_return_error() {
     init_integration_logger();
 

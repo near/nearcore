@@ -23,6 +23,8 @@ use std::fmt::{Debug, Error, Formatter};
 use std::net::SocketAddr;
 use std::str::FromStr;
 
+pub(crate) mod edge;
+
 /// Peer information.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
 pub struct PeerInfo {
