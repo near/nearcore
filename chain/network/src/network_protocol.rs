@@ -3,9 +3,10 @@
 /// WARNING WARNING WARNING
 /// WARNING WARNING WARNING
 /// We need to maintain backwards compatibility, all changes to this file needs to be reviews.
-pub use crate::routing::network_protocol::{Edge, EdgeState, PartialEdgeInfo, SimpleEdge};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, RoutedMessage, RoutedMessageBody};
+use near_network_primitives::types::{
+    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessage, RoutedMessageBody,
+};
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
@@ -97,7 +98,7 @@ impl BorshDeserialize for Handshake {
 
         if PEER_MIN_ALLOWED_PROTOCOL_VERSION <= version && version <= PROTOCOL_VERSION {
             // If we support this version, then try to deserialize with custom deserializer
-            HandshakeAutoDes::deserialize(buf).map(Into::into)
+            <HandshakeAutoDes as BorshDeserialize>::deserialize(buf).map(Into::into)
         } else {
             Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,

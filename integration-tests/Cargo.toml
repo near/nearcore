@@ -55,7 +55,6 @@ portpicker = "0.1.1"
 
 [features]
 performance_stats = ["nearcore/performance_stats", "near-network/performance_stats"]
-regression_tests = []
 expensive_tests = []
 test_features = ["nearcore/test_features"]
 protocol_feature_alt_bn128 = [

@@ -47,7 +47,7 @@ fn inc_and_report_progress(cnt: &AtomicU64, ts: &AtomicU64, all: u64, skipped: &
 }
 
 fn old_outcomes(
-    store: Arc<Store>,
+    store: Store,
     new_outcomes: &Vec<ExecutionOutcomeWithId>,
 ) -> Vec<ExecutionOutcomeWithId> {
     new_outcomes
@@ -74,7 +74,7 @@ fn maybe_add_to_csv(csv_file_mutex: &Mutex<Option<&mut File>>, s: &str) {
 }
 
 pub fn apply_chain_range(
-    store: Arc<Store>,
+    store: Store,
     genesis: &Genesis,
     start_height: Option<BlockHeight>,
     end_height: Option<BlockHeight>,
@@ -331,7 +331,7 @@ mod test {
 
     use crate::apply_chain_range::apply_chain_range;
 
-    fn setup(epoch_length: NumBlocks) -> (Arc<Store>, Genesis, TestEnv) {
+    fn setup(epoch_length: NumBlocks) -> (Store, Genesis, TestEnv) {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.num_block_producer_seats = 2;

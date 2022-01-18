@@ -1,5 +1,4 @@
 use near_primitives::time::Instant;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -41,13 +40,14 @@ fn chunks_produced_and_distributed_common(
     let height_to_hash = Arc::new(RwLock::new(HashMap::new()));
     let height_to_epoch = Arc::new(RwLock::new(HashMap::new()));
 
-    let check_height = move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash) {
-        Entry::Occupied(entry) => {
-            assert_eq!(*entry.get(), height);
+    let check_heights = move |prev_hash: &CryptoHash, hash: &CryptoHash, height| {
+        let mut map = heights1.write().unwrap();
+        // Note that height of the previous block is not guaranteed to be height
+        // - 1.  All we know is that it’s less than height of the current block.
+        if let Some(prev_height) = map.get(prev_hash) {
+            assert!(*prev_height < height);
         }
-        Entry::Vacant(entry) => {
-            entry.insert(height);
-        }
+        assert_eq!(*map.entry(*hash).or_insert(height), height);
     };
 
     let validators = vec![
@@ -87,10 +87,8 @@ fn chunks_produced_and_distributed_common(
                 let msg = msg.as_network_requests_ref();
                 match msg {
                     NetworkRequests::Block { block } => {
-                        check_height(*block.hash(), block.header().height());
-                        check_height(*block.header().prev_hash(), block.header().height() - 1);
-
                         let h = block.header().height();
+                        check_heights(block.header().prev_hash(), block.hash(), h);
 
                         let mut height_to_hash = height_to_hash.write().unwrap();
                         height_to_hash.insert(h, *block.hash());
@@ -271,6 +269,7 @@ fn chunks_produced_and_distributed_one_val_per_shard() {
 /// give up on getting the part from test1 and will get it from test2 (who will have it because
 /// `validator_groups=2`)
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn chunks_recovered_from_others() {
     heavy_test(|| {
         run_actix(async {
@@ -284,6 +283,7 @@ fn chunks_recovered_from_others() {
 /// but they won't do it for the first 3 seconds, and 3s block_timeout means that the block producers
 /// only wait for 3000/2 milliseconds until they produce a block with some chunks missing
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 #[should_panic]
 fn chunks_recovered_from_full_timeout_too_short() {
     heavy_test(|| {
@@ -296,6 +296,7 @@ fn chunks_recovered_from_full_timeout_too_short() {
 /// Same test as above, but the timeout is sufficiently large for test4 now to reconstruct the full
 /// chunk
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn chunks_recovered_from_full() {
     heavy_test(|| {
         run_actix(async {

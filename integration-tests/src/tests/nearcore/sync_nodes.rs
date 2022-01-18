@@ -125,6 +125,7 @@ fn setup_configs() -> (Genesis, Block, NearConfig, NearConfig) {
 
 /// One client is in front, another must sync to it before they can produce blocks.
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn sync_nodes() {
     heavy_test(|| {
         init_integration_logger();
@@ -133,7 +134,8 @@ fn sync_nodes() {
 
         run_actix(async move {
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-            let nearcore::NearNode { client: client1, .. } = start_with_config(dir1.path(), near1);
+            let nearcore::NearNode { client: client1, .. } =
+                start_with_config(dir1.path(), near1).expect("start_with_config");
 
             let signer = InMemoryValidatorSigner::from_seed(
                 "other".parse().unwrap(),
@@ -145,7 +147,7 @@ fn sync_nodes() {
 
             let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
             let nearcore::NearNode { view_client: view_client2, .. } =
-                start_with_config(dir2.path(), near2);
+                start_with_config(dir2.path(), near2).expect("start_with_config");
 
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
@@ -168,6 +170,7 @@ fn sync_nodes() {
 
 /// Clients connect and then one of them becomes in front. The other one must then sync to it.
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn sync_after_sync_nodes() {
     heavy_test(|| {
         init_integration_logger();
@@ -176,11 +179,12 @@ fn sync_after_sync_nodes() {
 
         run_actix(async move {
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-            let nearcore::NearNode { client: client1, .. } = start_with_config(dir1.path(), near1);
+            let nearcore::NearNode { client: client1, .. } =
+                start_with_config(dir1.path(), near1).expect("start_with_config");
 
             let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
             let nearcore::NearNode { view_client: view_client2, .. } =
-                start_with_config(dir2.path(), near2);
+                start_with_config(dir2.path(), near2).expect("start_with_config");
 
             let signer = InMemoryValidatorSigner::from_seed(
                 "other".parse().unwrap(),
@@ -230,6 +234,7 @@ fn sync_after_sync_nodes() {
 /// Starts one validation node, it reduces it's stake to 1/2 of the stake.
 /// Second node starts after 1s, needs to catchup & state sync and then make sure it's
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn sync_state_stake_change() {
     heavy_test(|| {
         init_integration_logger();
@@ -257,7 +262,7 @@ fn sync_state_stake_change() {
             let dir2 =
                 tempfile::Builder::new().prefix("sync_state_stake_change_2").tempdir().unwrap();
             let nearcore::NearNode { client: client1, view_client: view_client1, .. } =
-                start_with_config(dir1.path(), near1.clone());
+                start_with_config(dir1.path(), near1.clone()).expect("start_with_config");
 
             let genesis_hash = *genesis_block(&genesis).hash();
             let signer = Arc::new(InMemorySigner::from_seed(
@@ -299,7 +304,8 @@ fn sync_state_stake_change() {
                         if !started_copy.load(Ordering::SeqCst) && latest_height > 10 {
                             started_copy.store(true, Ordering::SeqCst);
                             let nearcore::NearNode { view_client: view_client2, arbiters, .. } =
-                                start_with_config(&dir2_path_copy, near2_copy);
+                                start_with_config(&dir2_path_copy, near2_copy)
+                                    .expect("start_with_config");
                             *arbiters_holder2.write().unwrap() = arbiters;
 
                             WaitOrTimeoutActor::new(

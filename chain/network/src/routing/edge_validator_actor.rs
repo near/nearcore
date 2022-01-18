@@ -1,13 +1,19 @@
-use crate::network_protocol::Edge;
 use crate::private_actix::{StopMsg, ValidateEdgeList};
 use actix::{Actor, Handler, SyncContext, System};
 use conqueue::{QueueReceiver, QueueSender};
+use near_network_primitives::types::Edge;
 use near_performance_metrics_macros::perf;
 use near_primitives::borsh::maybestd::collections::HashMap;
 use near_primitives::borsh::maybestd::sync::{Arc, Mutex};
 use near_primitives::network::PeerId;
 use std::cmp::max;
 
+/// `EdgeListToValidate` contains list of `Edge`, and it's associated with a connected peer.
+/// Checks signatures of all edges in `EdgeListToValidate` and if any signature is not valid,
+/// we will ban the peer, who sent us incorrect edges.
+///
+/// TODO(#5230): This code needs to be rewritten to fix memory leak - there is a cache that stores
+///              all edges `edges_info_shared` forever in memory.
 pub(crate) struct EdgeValidatorActor {}
 
 impl Actor for EdgeValidatorActor {
@@ -21,12 +27,6 @@ impl Handler<StopMsg> for EdgeValidatorActor {
     }
 }
 
-/// EdgeListToValidate contains list of Edges, and it's associated with a connected peer.
-/// Check signatures of all edges in `EdgeListToValidate` and if any signature is not valid,
-/// we will ban the peer, who sent us incorrect edges.
-///
-/// TODO(#5230): This code needs to be rewritten to fix memory leak - there is a cache that stores
-///              all edges `edges_info_shared` forever in memory.
 impl Handler<ValidateEdgeList> for EdgeValidatorActor {
     type Result = bool;
 
@@ -63,9 +63,9 @@ impl Handler<ValidateEdgeList> for EdgeValidatorActor {
 }
 
 pub struct EdgeValidatorHelper {
-    /// Shared version of edges_info used by multiple threads
+    /// Shared version of `edges_info` used by multiple threads.
     pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
-    /// Queue of edges verified, but not added yes
+    /// Queue of edges verified, but not added yes.
     pub edges_to_add_receiver: QueueReceiver<Edge>,
     pub edges_to_add_sender: QueueSender<Edge>,
 }

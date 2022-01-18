@@ -1,12 +1,13 @@
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
 use hyper::body::HttpBody;
+use indicatif::{ProgressBar, ProgressStyle};
 use near_primitives::time::Clock;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
@@ -14,7 +15,8 @@ use tokio::io::AsyncWriteExt;
 use tracing::info;
 
 use near_chain_configs::{
-    get_initial_supply, ClientConfig, Genesis, GenesisConfig, LogSummaryStyle,
+    get_initial_supply, ClientConfig, Genesis, GenesisConfig, GenesisValidationMode,
+    LogSummaryStyle,
 };
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
@@ -832,8 +834,11 @@ pub fn init_configs(
         let genesis = GenesisConfig::from_file(&file_path).with_context(move || {
             anyhow!("Failed to read genesis config {}/{}", dir.display(), config.genesis_file)
         })?;
-        bail!("Config is already downloaded: {} with chain-id = {}. Use 'cargo run -p neard -- unsafe_reset_all' to clear the folder.",
-                file_path.display(), genesis.chain_id);
+        bail!(
+            "Config is already downloaded to ‘{}’ with chain-id ‘{}’.",
+            file_path.display(),
+            genesis.chain_id
+        );
     }
 
     let mut config = Config::default();
@@ -843,12 +848,12 @@ pub fn init_configs(
 
     if let Some(url) = download_config_url {
         download_config(&url.to_string(), &dir.join(CONFIG_FILENAME))
-            .context("Failed to download the config file")?;
+            .context(format!("Failed to download the config file from {}", url))?;
         config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     } else if should_download_config {
         let url = get_config_url(&chain_id);
         download_config(&url, &dir.join(CONFIG_FILENAME))
-            .context("Failed to download the config file")?;
+            .context(format!("Failed to download the config file from {}", url))?;
         config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     }
 
@@ -910,11 +915,11 @@ pub fn init_configs(
 
             if let Some(url) = download_genesis_url {
                 download_genesis(&url.to_string(), &genesis_path)
-                    .context("Failed to download the genesis file")?;
+                    .context(format!("Failed to download the genesis file from {}", url))?;
             } else if should_download_genesis {
                 let url = get_genesis_url(&chain_id);
                 download_genesis(&url, &genesis_path)
-                    .context("Failed to download the genesis file")?;
+                    .context(format!("Failed to download the genesis file from {}", url))?;
             } else {
                 genesis_path_str = match genesis {
                     Some(g) => g,
@@ -928,7 +933,7 @@ pub fn init_configs(
                 };
             }
 
-            let mut genesis = Genesis::from_file(&genesis_path_str);
+            let mut genesis = Genesis::from_file(&genesis_path_str, GenesisValidationMode::Full);
             genesis.config.chain_id = chain_id.clone();
 
             genesis.to_file(&dir.join(config.genesis_file));
@@ -1137,65 +1142,91 @@ pub fn get_config_url(chain_id: &str) -> String {
 
 #[derive(thiserror::Error, Debug)]
 pub enum FileDownloadError {
-    #[error("Failed to download the file: {0}")]
-    HttpError(#[from] hyper::Error),
-    #[error("Failed to open file: {0}")]
-    OpenError(std::io::Error),
-    #[error("Failed to write to file: {0}")]
-    WriteError(std::io::Error),
-    #[error("Failed to rename file: {0}")]
-    RenameError(std::io::Error),
-    #[error("Invalid URI: {0}")]
+    #[error("{0}")]
+    HttpError(hyper::Error),
+    #[error("Failed to open temporary file")]
+    OpenError(#[source] std::io::Error),
+    #[error("Failed to write to temporary file at {0:?}")]
+    WriteError(PathBuf, #[source] std::io::Error),
+    #[error("Failed to rename temporary file {0:?} to {1:?}")]
+    RenameError(PathBuf, PathBuf, #[source] std::io::Error),
+    #[error("Invalid URI")]
     UriError(#[from] hyper::http::uri::InvalidUri),
-    #[error("Failed to remove the temporary file after failure: {0}, {1}")]
-    RemoveTemporaryFileError(std::io::Error, Box<FileDownloadError>),
+    #[error("Failed to remove temporary file: {0}. Download previously failed")]
+    RemoveTemporaryFileError(std::io::Error, #[source] Box<FileDownloadError>),
 }
 
 /// Downloads resource at given `uri` and saves it to `file`.  On failure,
 /// `file` may be left in inconsistent state (i.e. may contain partial data).
 async fn download_file_impl(
     uri: hyper::Uri,
+    path: &tempfile::TempPath,
     mut file: tokio::fs::File,
 ) -> anyhow::Result<(), FileDownloadError> {
     let https_connector = hyper_tls::HttpsConnector::new();
     let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
-    let mut resp = client.get(uri).await?;
+    let mut resp = client.get(uri).await.map_err(FileDownloadError::HttpError)?;
+    let bar = if let Some(file_size) = resp.size_hint().upper() {
+        let bar = ProgressBar::new(file_size);
+        bar.set_style(
+            ProgressStyle::default_bar().template(
+                "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} [{bytes_per_sec}] ({eta})"
+            ).progress_chars("#>-")
+        );
+        bar
+    } else {
+        let bar = ProgressBar::new_spinner();
+        bar.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} [{elapsed_precise}] {bytes} [{bytes_per_sec}]"),
+        );
+        bar
+    };
     while let Some(next_chunk_result) = resp.data().await {
-        let next_chunk = next_chunk_result?;
-        file.write_all(next_chunk.as_ref()).await.map_err(FileDownloadError::WriteError)?;
+        let next_chunk = next_chunk_result.map_err(FileDownloadError::HttpError)?;
+        file.write_all(next_chunk.as_ref())
+            .await
+            .map_err(|e| FileDownloadError::WriteError(path.to_path_buf(), e))?;
+        bar.inc(next_chunk.len() as u64);
     }
+    bar.finish();
     Ok(())
 }
 
 /// Downloads a resource at given `url` and saves it to `path`.  On success, if
 /// file at `path` exists it will be overwritten.  On failure, file at `path` is
 /// left unchanged (if it exists).
-pub fn download_file(url: &str, path: &Path) -> anyhow::Result<(), FileDownloadError> {
+pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     let uri = url.parse()?;
-    let (tmp_file, tmp_path) = {
-        let tmp_dir = path.parent().unwrap_or(Path::new("."));
-        tempfile::NamedTempFile::new_in(tmp_dir).map_err(FileDownloadError::OpenError)?.into_parts()
-    };
 
-    let result =
-        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(
-            async move {
-                let tmp_file = tokio::fs::File::from_std(tmp_file);
-                download_file_impl(uri, tmp_file).await
-            },
-        );
+    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(
+        async move {
+            let (tmp_file, tmp_path) = {
+                let tmp_dir = path.parent().unwrap_or(Path::new("."));
+                tempfile::NamedTempFile::new_in(tmp_dir)
+                    .map_err(FileDownloadError::OpenError)?
+                    .into_parts()
+            };
 
-    let result = match result {
-        Err(err) => Err((tmp_path, err)),
-        Ok(()) => {
-            tmp_path.persist(path).map_err(|e| (e.path, FileDownloadError::RenameError(e.error)))
-        }
-    };
+            let result =
+                match download_file_impl(uri, &tmp_path, tokio::fs::File::from_std(tmp_file)).await
+                {
+                    Err(err) => Err((tmp_path, err)),
+                    Ok(()) => tmp_path.persist(path).map_err(|e| {
+                        let from = e.path.to_path_buf();
+                        let to = path.to_path_buf();
+                        (e.path, FileDownloadError::RenameError(from, to, e.error))
+                    }),
+                };
 
-    result.map_err(|(tmp_path, err)| match tmp_path.close() {
-        Ok(()) => err,
-        Err(close_err) => FileDownloadError::RemoveTemporaryFileError(close_err, Box::new(err)),
-    })
+            result.map_err(|(tmp_path, err)| match tmp_path.close() {
+                Ok(()) => err,
+                Err(close_err) => {
+                    FileDownloadError::RemoveTemporaryFileError(close_err, Box::new(err))
+                }
+            })
+        },
+    )
 }
 
 pub fn download_genesis(url: &str, path: &Path) -> Result<(), FileDownloadError> {
@@ -1248,14 +1279,9 @@ impl From<NodeKeyFile> for KeyFile {
     }
 }
 
-pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
+pub fn load_config(dir: &Path, genesis_validation: GenesisValidationMode) -> NearConfig {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME)).unwrap();
-    let genesis_config = GenesisConfig::from_file(&dir.join(&config.genesis_file)).unwrap();
-    let genesis_records_file = if let Some(genesis_records_file) = &config.genesis_records_file {
-        dir.join(genesis_records_file)
-    } else {
-        dir.join(&config.genesis_file)
-    };
+    let genesis_file = dir.join(&config.genesis_file);
     let validator_signer = if dir.join(&config.validator_key_file).exists() {
         let signer =
             Arc::new(InMemoryValidatorSigner::from_file(&dir.join(&config.validator_key_file)))
@@ -1265,26 +1291,21 @@ pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
         None
     };
     let network_signer = NodeKeyFile::from_file(&dir.join(&config.node_key_file));
+
+    let genesis_records_file = config.genesis_records_file.clone();
     NearConfig::new(
         config,
-        Genesis::new_with_path(genesis_config, genesis_records_file),
+        match genesis_records_file {
+            Some(genesis_records_file) => Genesis::from_files(
+                &genesis_file,
+                &dir.join(genesis_records_file),
+                genesis_validation,
+            ),
+            None => Genesis::from_file(&genesis_file, genesis_validation),
+        },
         network_signer.into(),
         validator_signer,
     )
-}
-
-pub fn load_config(dir: &Path) -> NearConfig {
-    let mut near_config = load_config_without_genesis_records(dir);
-    near_config.genesis =
-        if let Some(ref genesis_records_file) = near_config.config.genesis_records_file {
-            Genesis::from_files(
-                &dir.join(&near_config.config.genesis_file),
-                &dir.join(genesis_records_file),
-            )
-        } else {
-            Genesis::from_file(&dir.join(&near_config.config.genesis_file))
-        };
-    near_config
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
