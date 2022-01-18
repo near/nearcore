@@ -281,8 +281,8 @@ def get_test_accounts_from_args(argv):
         accounts.append(acc)
         if need_create_test_accounts:
             logger.info(f'Creating account {key.account_id}')
-            node_account.send_create_account_tx(
-                key.account_id, base_block_hash=get_latest_block_hash())
+            tx_res = node_account.send_create_account_tx(key.account_id, base_block_hash=get_latest_block_hash())
+            logger.info(f'Account {key.account_id} creation result: {tx_res}')
             wait_at_least_one_block()
             logger.info(
                 f'Account {key.account_id} balance after creation: {retry_and_ignore_errors(lambda:acc.get_amount_yoctonear())}'
