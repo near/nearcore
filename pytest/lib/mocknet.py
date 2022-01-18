@@ -935,6 +935,7 @@ def wait_all_nodes_up(all_nodes):
 
 def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
                             increasing_stakes, num_block_producer_seats):
+    schedule = {}
     for node in rpc_nodes:
         schedule[node.instance_name] = 1000
     for node in validator_nodes:
