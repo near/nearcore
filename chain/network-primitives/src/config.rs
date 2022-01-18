@@ -1,4 +1,5 @@
 use crate::network_protocol::PeerInfo;
+use crate::types::ROUTED_MESSAGE_TTL;
 use near_crypto::{KeyType, PublicKey, SecretKey};
 use near_primitives::types::AccountId;
 use std::collections::{HashMap, HashSet};
@@ -145,11 +146,6 @@ pub enum BlockedPorts {
     Some(HashSet<u16>),
 }
 
-/// Number of hops a message is allowed to travel before being dropped.
-/// This is used to avoid infinite loop because of inconsistent view of the network
-/// by different nodes.
-pub const ROUTED_MESSAGE_TTL: u8 = 100;
-
 /// converts list of addresses represented by strings to <IpAddr, BlockedPorts> HashMap
 ///
 /// Arguments:
@@ -194,16 +190,6 @@ where
 pub enum PatternAddr {
     Ip(IpAddr),
     IpPort(SocketAddr),
-}
-
-impl PatternAddr {
-    #[allow(unused)]
-    pub fn contains(&self, addr: &SocketAddr) -> bool {
-        match self {
-            PatternAddr::Ip(pattern) => &addr.ip() == pattern,
-            PatternAddr::IpPort(pattern) => addr == pattern,
-        }
-    }
 }
 
 impl FromStr for PatternAddr {

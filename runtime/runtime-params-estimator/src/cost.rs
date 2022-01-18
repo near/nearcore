@@ -91,6 +91,8 @@ pub enum Cost {
     ContractCompileBytes, // TODO: Needs estimation function
     GasMeteringBase,
     GasMeteringOp,
+    RocksDbInsertValueByte,
+    RocksDbReadValueByte,
     IoReadByte,
     IoWriteByte,
     CpuBenchmarkSha256,

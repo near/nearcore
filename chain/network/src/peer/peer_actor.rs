@@ -105,7 +105,6 @@ pub struct PeerActor {
     /// Cache of recently routed messages, this allows us to drop duplicates
     routed_message_cache: LruCache<(PeerId, PeerIdOrHash, Signature), Instant>,
     /// A helper data structure for limiting reading
-    #[allow(unused)]
     throttle_controller: ThrottleController,
 }
 
