@@ -9,14 +9,12 @@ import base58
 import requests
 from rc import pmap
 
-print(str(pathlib.Path(__file__).resolve().parents[2]))
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
-import account as aaccount
-import key as kkey
+import mocknet_helpers
+import account
+import key
 from configured_logger import logger
 
-LOCAL_ADDR = '127.0.0.1'
-RPC_PORT = '3030'
 NUM_LETTERS = 26
 NUM_ACCOUNTS = NUM_LETTERS * 5
 
@@ -27,42 +25,11 @@ def load_testing_account_id(node_account_id, i):
     return '%s%02d.%s' % (chr(ord('a') + letter), num, node_account_id)
 
 
-def get_status():
-    r = requests.get(f'http://{LOCAL_ADDR}:{RPC_PORT}/status', timeout=10)
-    r.raise_for_status()
-    return json.loads(r.content)
-
-
-def json_rpc(method, params):
-    j = {'method': method, 'params': params, 'id': 'dontcare', 'jsonrpc': '2.0'}
-    r = requests.post(f'http://{LOCAL_ADDR}:{RPC_PORT}', json=j, timeout=10)
-    return r.json()
-
-
-def get_nonce_for_pk(account_id, pk, finality='optimistic'):
-    access_keys = json_rpc(
-        'query', {
-            'request_type': 'view_access_key_list',
-            'account_id': account_id,
-            'finality': finality
-        })
-    logger.info(f'get_nonce_for_pk {account_id}')
-    assert access_keys['result']['keys'], account_id
-    for k in access_keys['result']['keys']:
-        if k['public_key'] == pk:
-            return k['access_key']['nonce']
-
-
-def get_latest_block_hash():
-    last_block_hash = get_status()['sync_info']['latest_block_hash']
-    return base58.b58decode(last_block_hash.encode('utf-8'))
-
-
 def send_transfer(account, node_account, base_block_hash=None):
     next_id = random.randrange(NUM_ACCOUNTS)
     dest_account_id = load_testing_account_id(node_account.key.account_id,
                                               next_id)
-    retry_and_ignore_errors(lambda: account.send_transfer_tx(
+    mocknet_helpers.retry_and_ignore_errors(lambda: account.send_transfer_tx(
         dest_account_id, base_block_hash=base_block_hash))
 
 
@@ -88,7 +55,7 @@ def function_call_set_delete_state(account,
         logger.info(
             f'Calling function "set_state" of account {next_account_id} with arguments {s} from account {account.key.account_id}'
         )
-        tx_res = retry_and_ignore_errors(
+        tx_res = mocknet_helpers.retry_and_ignore_errors(
             lambda: account.send_call_contract_raw_tx(next_account_id,
                                                       'set_state',
                                                       s.encode('utf-8'),
@@ -108,7 +75,7 @@ def function_call_set_delete_state(account,
         logger.info(
             f'Calling function "delete_state" of account {next_account_id} with arguments {s} from account {account.key.account_id}'
         )
-        tx_res = retry_and_ignore_errors(
+        tx_res = mocknet_helpers.retry_and_ignore_errors(
             lambda: account.send_call_contract_raw_tx(next_account_id,
                                                       'delete_state',
                                                       s.encode('utf-8'),
@@ -138,17 +105,15 @@ def function_call_ft_transfer_call(account, node_account, base_block_hash=None):
     logger.info(
         f'Calling function "ft_transfer_call" with arguments {s} on account {account.key.account_id} contract {dest_account_id}'
     )
-    tx_res = retry_and_ignore_errors(lambda: account.send_call_contract_raw_tx(
-        dest_account_id,
-        'ft_transfer_call',
-        s.encode('utf-8'),
-        1,
-        base_block_hash=base_block_hash))
+    tx_res = mocknet_helpers.retry_and_ignore_errors(
+        lambda: account.send_call_contract_raw_tx(dest_account_id,
+                                                  'ft_transfer_call',
+                                                  s.encode('utf-8'),
+                                                  1,
+                                                  base_block_hash=
+                                                  base_block_hash))
     logger.info(
         f'{account.key.account_id} ft_transfer to {dest_account_id} {tx_res}')
-
-
-QUERIES_PER_TX = 5
 
 
 def random_transaction(account,
@@ -172,28 +137,10 @@ def random_transaction(account,
                                        base_block_hash=base_block_hash)
 
 
-def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps_per_node,
-                  node_account, test_accounts):
-    start_time = time.time()
-    send_txns(node_account, test_accounts, max_tps_per_node)
-    duration = time.time() - start_time
-    total_tx_sent += len(test_accounts)
-    elapsed_time += duration
-
-    excess_transactions = total_tx_sent - (max_tps_per_node * elapsed_time)
-    if excess_transactions > 0:
-        delay = excess_transactions / max_tps_per_node
-        elapsed_time += delay
-        logger.info(f'Sleeping for {delay} seconds to throttle transactions')
-        time.sleep(delay)
-
-    return total_tx_sent, elapsed_time
-
-
 def send_random_transactions(node_account, test_accounts, max_tps_per_node):
     logger.info("===========================================")
     logger.info("New iteration of 'send_random_transactions'")
-    base_block_hash = get_latest_block_hash()
+    base_block_hash = mocknet_helpers.get_latest_block_hash()
     pmap(
         lambda index_and_account: random_transaction(index_and_account[1],
                                                      index_and_account[0],
@@ -204,21 +151,11 @@ def send_random_transactions(node_account, test_accounts, max_tps_per_node):
         enumerate(test_accounts))
 
 
-def retry_and_ignore_errors(f):
-    for attempt in range(3):
-        try:
-            return f()
-        except Exception as e:
-            time.sleep(0.1 * 2**attempt)
-            continue
-    return None
-
-
 def init_ft(node_account):
     tx_res = node_account.send_deploy_contract_tx(
         '/home/ubuntu/fungible_token.wasm')
     logger.info(f'ft deployment {tx_res}')
-    wait_at_least_one_block()
+    mocknet_helpers.wait_at_least_one_block()
 
     s = f'{{"owner_id": "{node_account.key.account_id}", "total_supply": "{10**33}"}}'
     tx_res = node_account.send_call_contract_raw_tx(node_account.key.account_id,
@@ -238,7 +175,7 @@ def init_ft_account(node_account, account):
     # The next transaction depends on the previous transaction succeeded.
     # Sleeping for 1 second is the poor man's solution for waiting for that transaction to succeed.
     # This works because the contracts are being deployed slow enough to keep block production above 1 bps.
-    wait_at_least_one_block()
+    mocknet_helpers.wait_at_least_one_block()
 
     s = f'{{"receiver_id": "{account.key.account_id}", "amount": "{10**18}"}}'
     logger.info(
@@ -265,31 +202,32 @@ def get_test_accounts_from_args(argv):
 
     logger.info(f'need_deploy: {need_deploy}')
 
-    rpc_infos = [(rpc_addr, RPC_PORT) for rpc_addr in rpc_nodes]
+    rpc_infos = [(rpc_addr, mocknet_helpers.RPC_PORT) for rpc_addr in rpc_nodes]
 
-    node_account_key = kkey.Key(node_account_id, pk, sk)
+    node_account_key = key.Key(node_account_id, pk, sk)
     test_account_keys = [
-        kkey.Key(load_testing_account_id(node_account_id, i), pk, sk)
+        key.Key(load_testing_account_id(node_account_id, i), pk, sk)
         for i in range(NUM_ACCOUNTS)
     ]
 
-    base_block_hash = get_latest_block_hash()
-    node_account = aaccount.Account(node_account_key,
-                                    get_nonce_for_pk(
-                                        node_account_key.account_id,
-                                        node_account_key.pk),
-                                    base_block_hash,
-                                    rpc_infos=rpc_infos)
+    base_block_hash = mocknet_helpers.get_latest_block_hash()
+    node_account = account.Account(node_account_key,
+                                   mocknet_helpers.get_nonce_for_pk(
+                                       node_account_key.account_id,
+                                       node_account_key.pk),
+                                   base_block_hash,
+                                   rpc_infos=rpc_infos)
 
     if need_deploy:
         init_ft(node_account)
 
     accounts = []
     for key in test_account_keys:
-        acc = aaccount.Account(key,
-                               get_nonce_for_pk(key.account_id, key.pk),
-                               base_block_hash,
-                               rpc_infos=rpc_infos)
+        acc = account.Account(key,
+                              mocknet_helpers.get_nonce_for_pk(
+                                  key.account_id, key.pk),
+                              base_block_hash,
+                              rpc_infos=rpc_infos)
         accounts.append(acc)
         if need_deploy:
             logger.info(f'Deploying contract for account {key.account_id}')
@@ -299,22 +237,9 @@ def get_test_accounts_from_args(argv):
             logger.info(
                 f'Account {key.account_id} balance after initialization: {acc.get_amount_yoctonear()}'
             )
-            wait_at_least_one_block()
+            mocknet_helpers.wait_at_least_one_block()
 
     return node_account, accounts, max_tps
-
-
-def wait_at_least_one_block():
-    status = get_status()
-    start_height = status['sync_info']['latest_block_height']
-    timeout_sec = 5
-    started = time.time()
-    while time.time() - started < timeout_sec:
-        status = get_status()
-        height = status['sync_info']['latest_block_height']
-        if height > start_height:
-            break
-        time.sleep(1.0)
 
 
 def main(argv):
@@ -327,10 +252,9 @@ def main(argv):
 
     total_tx_sent, elapsed_time = 0, 0
     while True:
-        (total_tx_sent,
-         elapsed_time) = throttle_txns(send_random_transactions, total_tx_sent,
-                                       elapsed_time, max_tps_per_node,
-                                       node_account, test_accounts)
+        (total_tx_sent, elapsed_time) = mocknet_helpers.throttle_txns(
+            send_random_transactions, total_tx_sent, elapsed_time,
+            max_tps_per_node, node_account, test_accounts)
 
 
 if __name__ == '__main__':
