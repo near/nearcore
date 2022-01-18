@@ -446,7 +446,6 @@ impl RoutingTableActor {
                     act.peers_to_ban.push(peer_id);
                 }
             })
-            .map(|_, _, _| ())
             .spawn(ctx);
 
         true
