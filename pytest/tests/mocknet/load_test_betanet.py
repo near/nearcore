@@ -268,7 +268,7 @@ def get_test_accounts_from_args(argv):
         accounts.append(acc)
         if need_deploy:
             logger.info(f'Deploying contract for account {key.account_id}')
-            tx_res = acc.send_deploy_contract_tx('add_and_delete_state.wasm')
+            tx_res = acc.send_deploy_contract_tx('betanet_state.wasm')
             logger.info(f'Deploying result: {tx_res}')
             init_ft_account(node_account, acc)
             logger.info(
