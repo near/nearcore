@@ -44,21 +44,21 @@ pub struct Handshake {
 /// Struct describing the layout for Handshake.
 /// It is used to automatically derive BorshDeserialize.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub(crate) struct HandshakeAutoDes {
+struct HandshakeAutoDes {
     /// Protocol version.
-    pub(crate) version: u32,
+    version: u32,
     /// Oldest supported protocol version.
-    pub(crate) oldest_supported_version: u32,
+    oldest_supported_version: u32,
     /// Sender's peer id.
-    pub(crate) peer_id: PeerId,
+    peer_id: PeerId,
     /// Receiver's peer id.
-    pub(crate) target_peer_id: PeerId,
+    target_peer_id: PeerId,
     /// Sender's listening addr.
-    pub(crate) listen_port: Option<u16>,
+    listen_port: Option<u16>,
     /// Peer's chain information.
-    pub(crate) chain_info: PeerChainInfoV2,
+    chain_info: PeerChainInfoV2,
     /// Info for new edge.
-    pub(crate) partial_edge_info: PartialEdgeInfo,
+    partial_edge_info: PartialEdgeInfo,
 }
 
 impl Handshake {
