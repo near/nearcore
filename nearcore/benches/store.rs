@@ -38,7 +38,8 @@ fn read_trie_items(bench: &mut Bencher, num_trie_items: usize, shard_id: usize) 
         let mut trie = TrieIterator::new(&trie, &state_root).unwrap();
 
         let start = Instant::now();
-        trie.enumerate()
+        let _ = trie
+            .enumerate()
             .map(|(i, _)| {
                 if i % 100 == 0 {
                     tracing::info!(target: "neard", "{}", i)
