@@ -1874,15 +1874,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b919933a397b79c37e33b77bb2aa3dc8eb6e165ad809e58ff75bc7db2e34574"
 
 [[package]]
-name = "gnuplot"
-version = "0.0.37"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8de437277a7ec10de5f34e3147c7da4c6d8b279c5d8ae1e33e842fd9432bb0f3"
-dependencies = [
- "byteorder",
-]
-
-[[package]]
 name = "h2"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2863,7 +2854,7 @@ version = "0.0.0"
 dependencies = [
  "deepsize",
  "near-jsonrpc-primitives",
- "near-network",
+ "near-network-primitives",
  "near-primitives",
  "serde",
  "serde_json",
@@ -3009,6 +3000,7 @@ dependencies = [
  "deepsize",
  "near-crypto",
  "near-primitives",
+ "serde",
  "strum",
  "tokio",
  "tracing",
@@ -3046,7 +3038,9 @@ version = "0.0.0"
 dependencies = [
  "borsh 0.9.1",
  "near-crypto",
+ "near-metrics",
  "near-primitives",
+ "once_cell",
  "rand 0.7.3",
 ]
 
@@ -3073,7 +3067,6 @@ dependencies = [
  "reed-solomon-erasure",
  "serde",
  "serde_json",
- "sha2",
  "smart-default",
 ]
 
@@ -3140,7 +3133,6 @@ dependencies = [
 name = "near-rpc-error-core"
 version = "0.0.0"
 dependencies = [
- "proc-macro2",
  "quote",
  "serde",
  "serde_json",
@@ -3152,8 +3144,6 @@ name = "near-rpc-error-macro"
 version = "0.0.0"
 dependencies = [
  "near-rpc-error-core",
- "proc-macro2",
- "quote",
  "serde",
  "serde_json",
  "syn",
@@ -3187,16 +3177,13 @@ dependencies = [
  "derive_more",
  "elastic-array",
  "fs2",
- "lazy_static",
  "lru",
  "near-crypto",
  "near-primitives",
  "num_cpus",
  "rand 0.7.3",
  "rocksdb",
- "serde",
  "serde_json",
- "smart-default",
  "strum",
  "tempfile",
  "thiserror",
@@ -3233,7 +3220,6 @@ version = "0.0.0"
 dependencies = [
  "borsh 0.9.1",
  "deepsize",
- "hex",
  "near-account-id",
  "near-rpc-error-macro",
  "serde",
@@ -3349,6 +3335,7 @@ dependencies = [
  "futures",
  "hyper",
  "hyper-tls",
+ "indicatif",
  "lazy-static-include",
  "near-actix-test-utils",
  "near-chain",
@@ -3400,6 +3387,7 @@ dependencies = [
  "nearcore",
  "once_cell",
  "openssl-probe",
+ "shell-escape",
  "state-viewer",
  "tikv-jemallocator",
  "tokio",
@@ -4416,13 +4404,11 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "borsh 0.9.1",
+ "bytesize",
  "cfg-if 1.0.0",
  "chrono",
  "clap 3.0.0-beta.2",
- "csv",
  "genesis-populate",
- "glob",
- "gnuplot",
  "hex",
  "indicatif",
  "libc",
@@ -4442,9 +4428,7 @@ dependencies = [
  "rocksdb",
  "serde_json",
  "sha256",
- "state-viewer",
  "tempfile",
- "testlib",
  "walrus",
  "wat",
 ]
@@ -4726,6 +4710,12 @@ checksum = "900fba806f70c630b0a382d0d825e17a0f19fcd059a2ade1ff237bcddf446b31"
 dependencies = [
  "lazy_static",
 ]
+
+[[package]]
+name = "shell-escape"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "45bb67a18fa91266cc7807181f62f9178a6873bfad7dc788c42e6430db40184f"
 
 [[package]]
 name = "shlex"

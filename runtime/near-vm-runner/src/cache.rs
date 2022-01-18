@@ -1,9 +1,6 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::prepare;
 use crate::vm_kind::VMKind;
-use crate::wasmer2_runner::wasmer2_vm_hash;
-use crate::wasmer_runner::wasmer0_vm_hash;
-use crate::wasmtime_runner::wasmtime_vm_hash;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
@@ -35,9 +32,18 @@ enum CacheRecord {
 
 fn vm_hash(vm_kind: VMKind) -> u64 {
     match vm_kind {
-        VMKind::Wasmer0 => wasmer0_vm_hash(),
-        VMKind::Wasmer2 => wasmer2_vm_hash(),
-        VMKind::Wasmtime => wasmtime_vm_hash(),
+        #[cfg(feature = "wasmer0_vm")]
+        VMKind::Wasmer0 => crate::wasmer_runner::wasmer0_vm_hash(),
+        #[cfg(not(feature = "wasmer0_vm"))]
+        VMKind::Wasmer0 => panic!("Wasmer0 is not enabled"),
+        #[cfg(feature = "wasmer2_vm")]
+        VMKind::Wasmer2 => crate::wasmer2_runner::wasmer2_vm_hash(),
+        #[cfg(not(feature = "wasmer2_vm"))]
+        VMKind::Wasmer2 => panic!("Wasmer2 is not enabled"),
+        #[cfg(feature = "wasmtime_vm")]
+        VMKind::Wasmtime => crate::wasmtime_runner::wasmtime_vm_hash(),
+        #[cfg(not(feature = "wasmtime_vm"))]
+        VMKind::Wasmtime => panic!("Wasmtime is not enabled"),
     }
 }
 
@@ -111,12 +117,12 @@ impl fmt::Debug for MockCompiledContractCache {
 #[cfg(not(feature = "no_cache"))]
 const CACHE_SIZE: usize = 128;
 
-#[cfg(not(feature = "no_cache"))]
+#[cfg(all(feature = "wasmer0_vm", not(feature = "no_cache")))]
 static WASMER_CACHE: once_cell::sync::Lazy<
     near_cache::SyncLruCache<CryptoHash, Result<wasmer_runtime::Module, CompilationError>>,
 > = once_cell::sync::Lazy::new(|| near_cache::SyncLruCache::new(CACHE_SIZE));
 
-#[cfg(not(feature = "no_cache"))]
+#[cfg(all(feature = "wasmer2_vm", not(feature = "no_cache")))]
 static WASMER2_CACHE: once_cell::sync::Lazy<
     near_cache::SyncLruCache<
         CryptoHash,
@@ -360,20 +366,23 @@ pub fn precompile_contract_vm(
         Some(_) => return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache)),
         None => {}
     };
-    let res = match vm_kind {
+    match vm_kind {
+        #[cfg(feature = "wasmer0_vm")]
         VMKind::Wasmer0 => {
-            wasmer0_cache::compile_and_serialize_wasmer(wasm_code.code(), config, &key, cache)?
-                .map(|_module| ())
+            Ok(wasmer0_cache::compile_and_serialize_wasmer(wasm_code.code(), config, &key, cache)?
+                .map(|_| ContractPrecompilatonResult::ContractCompiled))
         }
+        #[cfg(not(feature = "wasmer0_vm"))]
+        VMKind::Wasmer0 => panic!("Wasmer0 is not enabled!"),
+        #[cfg(feature = "wasmer2_vm")]
         VMKind::Wasmer2 => {
-            wasmer2_cache::compile_and_serialize_wasmer2(wasm_code.code(), &key, config, cache)?
-                .map(|_module| ())
+            Ok(wasmer2_cache::compile_and_serialize_wasmer2(wasm_code.code(), &key, config, cache)?
+                .map(|_| ContractPrecompilatonResult::ContractCompiled))
         }
-        VMKind::Wasmtime => {
-            panic!("Not yet supported")
-        }
-    };
-    Ok(res.map(|()| ContractPrecompilatonResult::ContractCompiled))
+        #[cfg(not(feature = "wasmer2_vm"))]
+        VMKind::Wasmer2 => panic!("Wasmer2 is not enabled!"),
+        VMKind::Wasmtime => panic!("Not yet supported"),
+    }
 }
 
 /// Precompiles contract for the current default VM, and stores result to the cache.

@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::io::AsyncRead;
+use tokio::sync::Semaphore;
 use tokio_util::codec::Decoder;
 use tokio_util::io::poll_read_buf;
 use tokio_util::sync::PollSemaphore;
@@ -16,7 +17,7 @@ use tracing::trace;
 const INITIAL_CAPACITY: usize = 8 * 1024;
 
 pin_project! {
-    pub struct ThrottledFrameRead<T, D> {
+    pub struct ThrottleFramedRead<T, D> {
         #[pin]
         inner: FramedImpl<T, D, ReadFrame>,
     }
@@ -30,7 +31,6 @@ pin_project! {
         pub(crate) state: State,
         pub(crate) codec: U,
         pub(crate) throttle_controller: ThrottleController,
-        pub(crate) semaphore: PollSemaphore,
     }
 }
 
@@ -52,8 +52,8 @@ pub struct ThrottleController {
     bandwidth_read: Arc<AtomicUsize>,
     /// Stores count of messages seen.
     msg_seen: Arc<AtomicUsize>,
-    /// We have an unbounded queue of messages, that we use to wake `ThrottledRateLimiter`.
-    /// This is the sender part, which is used to notify `ThrottledRateLimiter` to try to
+    /// We have an unbounded queue of messages, that we use to wake `ThrottleRateLimiter`.
+    /// This is the sender part, which is used to notify `ThrottleRateLimiter` to try to
     /// read again from queue.
     /// max size of num_messages_in_progress
     max_num_messages_in_progress: usize,
@@ -113,7 +113,6 @@ impl ThrottleController {
     /// - `max_total_sizeof_messages_in_progress` - maximum total size of messages count
     ///        before throttling starts.
     pub fn new(
-        semaphore: PollSemaphore,
         max_num_messages_in_progress: usize,
         max_total_sizeof_messages_in_progress: usize,
     ) -> Self {
@@ -125,11 +124,11 @@ impl ThrottleController {
             msg_seen: Default::default(),
             max_num_messages_in_progress,
             max_total_sizeof_messages_in_progress,
-            semaphore,
+            semaphore: PollSemaphore::new(Arc::new(Semaphore::new(0))),
         }
     }
 
-    /// Check whenever `ThrottleFrameRead` is allowed to read from socket.
+    /// Check whenever `ThrottleFramedRead` is allowed to read from socket.
     /// That is, we didn't exceed limits yet.
     fn is_ready(&self) -> bool {
         (self.num_messages_in_progress.load(Ordering::Relaxed) < self.max_num_messages_in_progress)
@@ -147,7 +146,7 @@ impl ThrottleController {
     }
 
     /// Un-tracks the message and decreases limits by size of the message and notifies
-    /// `ThrottledFramedReader` to try to read again
+    /// `ThrottleFramedReader` to try to read again
     pub fn remove_msg(&mut self, msg_size: usize) {
         self.num_messages_in_progress.fetch_sub(1, Ordering::Relaxed);
         if msg_size != 0 {
@@ -179,7 +178,7 @@ impl ThrottleController {
     }
 }
 
-impl<T, D> ThrottledFrameRead<T, D>
+impl<T, D> ThrottleFramedRead<T, D>
 where
     T: AsyncRead,
     D: Decoder,
@@ -189,21 +188,19 @@ where
         inner: T,
         decoder: D,
         throttle_controller: ThrottleController,
-        semaphore: PollSemaphore,
-    ) -> ThrottledFrameRead<T, D> {
-        ThrottledFrameRead {
+    ) -> ThrottleFramedRead<T, D> {
+        ThrottleFramedRead {
             inner: FramedImpl {
                 inner,
                 codec: decoder,
                 state: Default::default(),
                 throttle_controller,
-                semaphore,
             },
         }
     }
 }
 
-impl<T, D> ThrottledFrameRead<T, D> {
+impl<T, D> ThrottleFramedRead<T, D> {
     pub fn get_ref(&self) -> &T {
         &self.inner.inner
     }
@@ -222,7 +219,7 @@ impl<T, D> ThrottledFrameRead<T, D> {
 }
 
 // This impl just defers to the underlying FramedImpl
-impl<T, D> Stream for ThrottledFrameRead<T, D>
+impl<T, D> Stream for ThrottleFramedRead<T, D>
 where
     T: AsyncRead,
     D: Decoder,
@@ -261,7 +258,7 @@ where
             while !pinned.throttle_controller.is_ready() {
                 // This will cause us to subscribe to notifier when something gets pushed to
                 // `pinned.receiver`. If there is an element in the queue, we will check again.
-                ready!(pinned.semaphore.poll_acquire(cx));
+                ready!(pinned.throttle_controller.semaphore.poll_acquire(cx));
             }
 
             // Repeatedly call `decode` or `decode_eof` as long as it is
@@ -307,30 +304,25 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{ThrottleController, ThrottledFrameRead};
+    use crate::{ThrottleController, ThrottleFramedRead};
     use bytes::{Buf, BytesMut};
     use futures_core::Stream;
     use std::error::Error;
     use std::pin::Pin;
     use std::ptr::null;
     use std::sync::atomic::Ordering;
-    use std::sync::Arc;
     use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
     use std::time::Duration;
     use tokio::io::AsyncWriteExt;
     use tokio::net::{TcpListener, TcpStream};
-    use tokio::sync::Semaphore;
     use tokio::time::Instant;
     use tokio_stream::StreamExt;
     use tokio_util::codec::Decoder;
-    use tokio_util::sync::PollSemaphore;
 
     #[tokio::test]
     async fn test_rate_limiter_helper_by_count() {
-        let semaphore = PollSemaphore::new(Arc::new(Semaphore::new(0)));
         let max_messages_count = 20;
-        let mut throttle_controller =
-            ThrottleController::new(semaphore.clone(), max_messages_count, 2000000);
+        let mut throttle_controller = ThrottleController::new(max_messages_count, 2000000);
         for _ in 0..max_messages_count {
             assert!(throttle_controller.is_ready());
             throttle_controller.add_msg(100);
@@ -368,15 +360,13 @@ mod tests {
             0
         );
 
-        assert_eq!(semaphore.available_permits(), 40);
+        assert_eq!(throttle_controller.semaphore.available_permits(), 40);
     }
 
     #[tokio::test]
     async fn test_rate_limiter_helper_by_size() {
         let max_messages_total_size = 500_000_000;
-        let semaphore = PollSemaphore::new(Arc::new(Semaphore::new(0)));
-        let mut throttle_controller =
-            ThrottleController::new(semaphore.clone(), 1000, max_messages_total_size);
+        let mut throttle_controller = ThrottleController::new(1000, max_messages_total_size);
 
         for _ in 0..8 {
             assert!(throttle_controller.is_ready());
@@ -412,15 +402,13 @@ mod tests {
             0
         );
 
-        assert_eq!(semaphore.available_permits(), 16);
+        assert_eq!(throttle_controller.semaphore.available_permits(), 16);
     }
 
     #[test]
     fn test_throttle_controller() {
         let max_messages_total_size = 500_000_000;
-        let semaphore = PollSemaphore::new(Arc::new(Semaphore::new(0)));
-        let mut throttle_controller =
-            ThrottleController::new(semaphore, 1000, max_messages_total_size);
+        let mut throttle_controller = ThrottleController::new(1000, max_messages_total_size);
 
         assert_eq!(throttle_controller.consume_msg_seen(), 0);
         throttle_controller.report_msg_seen();
@@ -439,8 +427,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_max_messages_in_progress() {
-        let semaphore = PollSemaphore::new(Arc::new(Semaphore::new(0)));
-        let mut throttle_controller = ThrottleController::new(semaphore, 1000, usize::MAX);
+        let mut throttle_controller = ThrottleController::new(1000, usize::MAX);
 
         assert_eq!(throttle_controller.consume_max_messages_in_progress(), 0);
         throttle_controller.add_msg(0);
@@ -487,9 +474,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_throttled_framed_read() -> Result<(), Box<dyn Error>> {
-        let semaphore = PollSemaphore::new(Arc::new(Semaphore::new(0)));
-        let rate_limiter = ThrottleController::new(semaphore, 1, usize::MAX);
+    async fn test_throttle_framed_read() -> Result<(), Box<dyn Error>> {
+        let rate_limiter = ThrottleController::new(1, usize::MAX);
 
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("TcpListener::bind");
         let addr = listener.local_addr().expect("addr");
@@ -502,9 +488,7 @@ mod tests {
         server_tcp_stream.write_all(b"hello world!").await?;
 
         let (read, _write) = tokio::io::split(client_stream);
-        let semaphore = PollSemaphore::new(Arc::new(Semaphore::new(0)));
-        let mut read =
-            ThrottledFrameRead::new(read, Codec::default(), rate_limiter.clone(), semaphore);
+        let mut read = ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone());
 
         let waker = noop_waker();
         let mut context = Context::from_waker(&waker);
