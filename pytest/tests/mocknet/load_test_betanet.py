@@ -18,7 +18,7 @@ from configured_logger import logger
 LOCAL_ADDR = '127.0.0.1'
 RPC_PORT = '3030'
 NUM_LETTERS = 26
-NUM_ACCOUNTS = NUM_LETTERS * 2
+NUM_ACCOUNTS = NUM_LETTERS * 5
 
 
 def load_testing_account_id(node_account_id, i):
@@ -170,12 +170,6 @@ def random_transaction(account,
         function_call_ft_transfer_call(account,
                                        node_account,
                                        base_block_hash=base_block_hash)
-    for t in range(QUERIES_PER_TX):
-        wait_at_least_one_block()
-        logger.info(
-            f'Account {account.key.account_id} balance after {t+1} blocks: {retry_and_ignore_errors(lambda:account.get_amount_yoctonear())}'
-        )
-        break
 
 
 def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps_per_node,
@@ -197,6 +191,8 @@ def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps_per_node,
 
 
 def send_random_transactions(node_account, test_accounts, max_tps_per_node):
+    logger.info("===========================================")
+    logger.info("New iteration of 'send_random_transactions'")
     base_block_hash = get_latest_block_hash()
     pmap(
         lambda index_and_account: random_transaction(index_and_account[1],
