@@ -1,3 +1,82 @@
+//! This module implements ShardManager, which handles chunks requesting and processing.
+//! Since blocks only contain chunk headers, full chunks must be communicated separately.
+//! For data availability, information in a chunk is divided into parts by Reed Solomon encoding,
+//! and each validator holds a subset of parts of each chunk (a validator is called the owner
+//! of the parts that they hold). This way, a chunk can be retrieved from any X validators
+//! where X is the threshold for the Reed Solomon encoding for retrieving the full information.
+//! Currently, X is set to be 1/3 of total validator seats (num_data_parts).
+//!
+//! **How chunks are propagated in the network
+//! Instead sending the full chunk, chunk content is communicated between nodes through
+//! PartialEncodedChunk, which includes the chunk header, some parts and receipts of the chunk.
+//! Full chunk can be reconstructed if a node receives enough chunk parts.
+//! A node receives partial encoded chunks in three ways,
+//! - by requesting it and receiving a PartialEncodedChunkResponse,
+//! - by receiving a PartialEncodedChunk, which is sent from the original chunk producer to the part owners
+//!   after the chunk is produced
+//! - by receiving a PartialEncodedChunkForward, which is sent from part owners to validators who
+//!   track the shard, when a validator first receives a part it owns.
+//!   TODO: this is actually not the current behavior. https://github.com/near/nearcore/issues/5886
+//! Note that last two messages can only be sent from validators to validators, so the only way a
+//! non-validator receives a partial encoded chunk is by requesting it.
+//!
+//! ** Requesting for chunks
+//! `ShardManager` keeps a request pool that stores all requests for chunks that are not completed
+//! yet. The requests are managed at the chunk level, instead of individual parts and receipts.
+//! A new request can be added by calling function `request_chunk_single`. If it is not
+//! in the pool yet, `request_partial_encoded_chunk` will be called, which checks which parts or
+//! receipts are still needed for the chunk by checking `encoded_chunks` (see the section on
+//! ** Storing chunks). This way, the node won't send requests for parts and receipts they already have.
+//! It then figures out where to request them, either from the original
+//! chunk producer, or a block producer or peer who tracks the shard, and sends out the network
+//! requests. Check the logic there for details regarding how targets of requests are chosen.
+//!
+//! Once a request is added the pool, it can be resent through `resend_chunk_requests`,
+//! which is done periodically through client_actor. A request is only removed from the pool when
+//! all needed parts and receipts in the requested chunk are received.
+//!
+//! ** Storing chunks
+//! Before a chunk can be reconstructed fully, parts and receipts in the chunk are stored in
+//! `encoded_chunks`. Full chunks will be persisted in the database storage after they are
+//! reconstructed.
+//!
+//! ** Forwarding chunks
+//! To save messages and time for chunks to propagate among validators, we implemented a feature
+//! called ForwardChunkParts. When a validator receives a part it owns, it forwards the part to
+//! other validators who are assigned to track the shard through a PartialEncodedChunkForward message.
+//! This saves the number of requests validators need to send to get all parts they need. A forwarded
+//! part can only be processed after the node has the corresponding chunk header, either from blocks
+//! or partial chunk requests. Before that, they are temporarily stored in `chunk_forwards_cache`.
+//! After that, they are processed as a PartialEncodedChunk message only containing one part.
+//!
+//! ** Processing chunks
+//! Function `process_partial_encoded_chunk` processes a partial encoded chunk message.
+//! 1) validates the parts and receipts in the message
+//! 2) merges the parts and receipts are into `encoded_chunks`.
+//! 3) forwards newly received owned parts to other validators, if any.
+//! 4) checks if there are any forwarded chunk parts in `chunk_forwards_cache` that can be processed.
+//! 5) checks if all needed parts and receipts are received and tries to reconstruct the full chunk.
+//!    If successful, removes request for the chunk from the request pool.
+//! Note that the last step requires the previous block of the chunk has been accepted.
+//! If not, the function will return `NeedBlock`. To avoid a chunk getting stuck waiting on
+//! the previous block, when a new block is accepted, client must remember to call
+//! `get_incomplete_chunks` to get the list of incomplete chunks who are waiting on the block
+//! and process them
+//!
+//! ** Validating chunks
+//! Before `process_partial_encoded_chunk` returns HaveAllPartsAndReceipts, it will perform
+//! the validation steps and return error if validation fails.
+//! 1) validate the chunk header is signed by the correct chunk producer and the chunk producer
+//!    is not slashed (see `validate_chunk_header`)
+//! 2) validate the merkle proofs of the parts and receipts with regarding to the parts root and
+//!    receipts root in the chunk header (see the beginning of `process_partial_encoded_chunk`)
+//! 3) after the full chunk is reconstructed, validate chunk's proofs in the header matches the body
+//!    (see validate_chunk_proofs)
+//!
+//! We also guarantee that all entries stored inside ShardsManager::encoded_chunks have the chunk header
+//! at least "partially" validated by `validate_chunk_header` (see the comments there for what "partial"
+//! validation means).
+
 use std::cmp;
 use std::collections::{btree_map, hash_map, BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -47,85 +126,6 @@ use near_network_primitives::types::{
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use rand::Rng;
-
-// This file implements ShardManager, which handles chunks requesting and processing.
-// Since blocks only contain chunk headers, full chunks must be communicated separately.
-// For data availability, information in a chunk is divided into parts by Reed Solomon encoding,
-// and each validator holds a subset of parts of each chunk (a validator is called the owner
-// of the parts that they hold). This way, a chunk can be retrieved from any X validators
-// where X is the threshold for the Reed Solomon encoding for retrieving the full information.
-// Currently, X is set to be 1/3 of total validator seats (num_data_parts).
-//
-// **How chunks are propagated in the network
-// Instead sending the full chunk, chunk content is communicated between nodes through
-// PartialEncodedChunk, which includes the chunk header, some parts and receipts of the chunk.
-// Full chunk can be reconstructed if a node receives enough chunk parts.
-// A node receives partial encoded chunks in three ways,
-// - by requesting it and receiving a PartialEncodedChunkResponse,
-// - by receiving a PartialEncodedChunk, which is sent from the original chunk producer to the part owners
-//   after the chunk is produced
-// - by receiving a PartialEncodedChunkForward, which is sent from part owners to validators who
-//   track the shard, when a validator first receives a part it owns.
-//   TODO: this is actually not the current behavior. https://github.com/near/nearcore/issues/5886
-// Note that last two messages are only be sent from validators to validators, so the only way a
-// non-validator receives a partial encoded chunk is by requesting it.
-//
-// ** Requesting for chunks
-// `ShardManager` keeps a request pool that stores all requests for chunks that are not completed
-// yet. The requests are managed at the chunk level, instead of individual parts and receipts.
-// A new request can be added by calling function `request_chunk_single`. If it is not
-// in the pool yet, `request_partial_encoded_chunk` will be called, which checks which parts or
-// receipts are still needed for the chunk by checking `encoded_chunks` (see the section on
-// ** Storing chunks). This way, the node won't send requests for parts and receipts they already have.
-// It then figures out where to request them, either from the original
-// chunk producer, or a block producer or peer who tracks the shard, and sends out the network
-// requests. Check the logic there for details regarding how targets of requests are chosen.
-//
-// Once a request is added the pool, it can be resent through `resend_chunk_requests`,
-// which is done periodically through client_actor. A request is only removed from the pool when
-// all needed parts and receipts in the requested chunk are received.
-//
-// ** Storing chunks
-// Before a chunk can be reconstructed fully, parts and receipts in the chunk are stored in
-// `encoded_chunks`. Full chunks will be persisted in the database storage after they are
-// reconstructed.
-//
-// ** Forwarding chunks
-// To save messages and time for chunks to propagate among validators, we implemented a feature
-// called ForwardChunkParts. When a validator receives a part it owns, it forwards the part to
-// other validators who are assigned to track the shard through a PartialEncodedChunkForward message.
-// This saves the number of requests validators need to send to get all parts they need. A forwarded
-// part can only be processed after the node has the corresponding chunk header, either from blocks
-// or partial chunk requests. Before that, they are temporarily stored in `chunk_forwards_cache`.
-// After that, they are processed as a PartialEncodedChunk message only containing one part.
-//
-// ** Processing chunks
-// Function `process_partial_encoded_chunk` processes a partial encoded chunk message.
-// 1) validates the parts and receipts in the message
-// 2) merges the parts and receipts are into `encoded_chunks`.
-// 3) forwards newly received owned parts to other validators, if any.
-// 4) checks if there are any forwarded chunk parts in `chunk_forwards_cache` that can be processed.
-// 5) checks if all needed parts and receipts are received and tries to reconstruct the full chunk.
-//    If successful, removes request for the chunk from the request pool.
-// Note that the last step requires the previous block of the chunk has been accepted.
-// If not, the function will return `NeedBlock`. To avoid a chunk getting stuck waiting on
-// the previous block, when a new block is accepted, client must remember to call
-// `get_incomplete_chunks` to get the list of incomplete chunks who are waiting on the block
-// and process them
-//
-// ** Validating chunks
-// Before `process_partial_encoded_chunk` returns HaveAllPartsAndReceipts, it will perform
-// the validation steps and return error if validation fails.
-// 1) validate the chunk header is signed by the correct chunk producer and the chunk producer
-//    is not slashed (see `validate_chunk_header`)
-// 2) validate the merkle proofs of the parts and receipts with regarding to the parts root and
-//    receipts root in the chunk header (see the beginning of `process_partial_encoded_chunk`)
-// 3) after the full chunk is reconstructed, validate chunk's proofs in the header matches the body
-//    (see validate_chunk_proofs)
-//
-// We also guarantee that all entries stored inside ShardsManager::encoded_chunks have the chunk header
-// at least "partially" validated by `validate_chunk_header` (see the comments there for what "partial"
-// validation means).
 
 mod chunk_cache;
 pub mod test_utils;
@@ -757,7 +757,7 @@ impl ShardsManager {
             return;
         }
 
-        self.encoded_chunks.try_insert(chunk_hash.clone(), &chunk_header);
+        self.encoded_chunks.try_insert(&chunk_header);
 
         let prev_block_hash = chunk_header.prev_block_hash();
         self.requested_partial_encoded_chunks.insert(
@@ -1538,7 +1538,7 @@ impl ShardsManager {
                 let res = self.validate_chunk_header(None, header);
                 match res {
                     Ok(()) => {
-                        self.encoded_chunks.mark_entry_validated(chunk_hash.clone());
+                        self.encoded_chunks.mark_entry_validated(&chunk_hash);
                     }
                     Err(err) => {
                         return match err {
