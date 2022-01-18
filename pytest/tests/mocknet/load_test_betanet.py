@@ -258,10 +258,11 @@ def get_test_accounts_from_args(argv):
 
     base_block_hash = get_latest_block_hash()
     node_account = aaccount.Account(node_account_key,
-                                   get_nonce_for_pk(node_account_key.account_id,
-                                                    node_account_key.pk),
-                                   base_block_hash,
-                                   rpc_infos=rpc_infos)
+                                    get_nonce_for_pk(
+                                        node_account_key.account_id,
+                                        node_account_key.pk),
+                                    base_block_hash,
+                                    rpc_infos=rpc_infos)
 
     if need_deploy:
         init_ft(node_account)
@@ -281,15 +282,15 @@ def get_test_accounts_from_args(argv):
                 key.account_id, base_block_hash=get_latest_block_hash())
             wait_at_least_one_block()
             logger.info(
-                f'Account {account.key.account_id} balance after creation: {retry_and_ignore_errors(lambda:account.get_amount_yoctonear())}'
+                f'Account {key.account_id} balance after creation: {retry_and_ignore_errors(lambda:acc.get_amount_yoctonear())}'
             )
         if need_deploy:
             logger.info(f'Deploying contract for account {key.account_id}')
             retry_and_ignore_errors(
-                lambda: account.send_deploy_contract_tx(mocknet.WASM_FILENAME))
-            init_ft_account(node_account, account)
+                lambda: acc.send_deploy_contract_tx(mocknet.WASM_FILENAME))
+            init_ft_account(node_account, acc)
             logger.info(
-                f'Account {account.key.account_id} balance after initialization: {retry_and_ignore_errors(lambda:account.get_amount_yoctonear())}'
+                f'Account {key.account_id} balance after initialization: {retry_and_ignore_errors(lambda:acc.get_amount_yoctonear())}'
             )
             wait_at_least_one_block()
         break
