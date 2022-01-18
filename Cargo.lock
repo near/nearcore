@@ -3326,6 +3326,7 @@ dependencies = [
  "actix_derive",
  "anyhow",
  "awc",
+ "bencher",
  "borsh 0.9.1",
  "byteorder",
  "chrono",
