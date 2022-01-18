@@ -46,17 +46,17 @@ pub struct Handshake {
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 struct HandshakeAutoDes {
     /// Protocol version.
-    version: u32,
+    protocol_version: u32,
     /// Oldest supported protocol version.
     oldest_supported_version: u32,
     /// Sender's peer id.
-    peer_id: PeerId,
+    sender_peer_id: PeerId,
     /// Receiver's peer id.
     target_peer_id: PeerId,
     /// Sender's listening addr.
-    listen_port: Option<u16>,
+    sender_listen_port: Option<u16>,
     /// Peer's chain information.
-    chain_info: PeerChainInfoV2,
+    sender_chain_info: PeerChainInfoV2,
     /// Info for new edge.
     partial_edge_info: PartialEdgeInfo,
 }
@@ -114,12 +114,12 @@ impl BorshDeserialize for Handshake {
 impl From<HandshakeAutoDes> for Handshake {
     fn from(handshake: HandshakeAutoDes) -> Self {
         Self {
-            protocol_version: handshake.version,
+            protocol_version: handshake.protocol_version,
             oldest_supported_version: handshake.oldest_supported_version,
-            sender_peer_id: handshake.peer_id,
+            sender_peer_id: handshake.sender_peer_id,
             target_peer_id: handshake.target_peer_id,
-            sender_listen_port: handshake.listen_port,
-            sender_chain_info: handshake.chain_info,
+            sender_listen_port: handshake.sender_listen_port,
+            sender_chain_info: handshake.sender_chain_info,
             partial_edge_info: handshake.partial_edge_info,
         }
     }
