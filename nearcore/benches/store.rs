@@ -13,28 +13,30 @@ use std::time::{Duration, Instant};
 fn read_trie_items(bench: &mut Bencher, num_trie_items: usize, shard_id: usize) {
     let home_dir = get_default_home();
     let near_config = load_config(&home_dir, GenesisValidationMode::UnsafeFast);
-    let store = create_store(&get_store_path(&home_dir));
-
-    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
-
-    let runtime = NightshadeRuntime::with_config(
-        &home_dir,
-        store,
-        &near_config,
-        None,
-        near_config.client_config.max_gas_burnt_view,
-    );
-    let head = chain_store.head().unwrap();
-    let last_block = chain_store.get_block(&head.last_block_hash).unwrap().clone();
-    let state_roots: Vec<StateRoot> =
-        last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
-    let header = last_block.header();
-
-    let state_root = state_roots[shard_id];
-    let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
-    let mut trie = TrieIterator::new(&trie, &state_root).unwrap();
 
     bench.iter(move || {
+        let store = create_store(&get_store_path(&home_dir));
+
+        let mut chain_store =
+            ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+
+        let runtime = NightshadeRuntime::with_config(
+            &home_dir,
+            store,
+            &near_config,
+            None,
+            near_config.client_config.max_gas_burnt_view,
+        );
+        let head = chain_store.head().unwrap();
+        let last_block = chain_store.get_block(&head.last_block_hash).unwrap().clone();
+        let state_roots: Vec<StateRoot> =
+            last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        let header = last_block.header();
+
+        let state_root = state_roots[shard_id];
+        let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
+        let mut trie = TrieIterator::new(&trie, &state_root).unwrap();
+
         let start = Instant::now();
         trie.enumerate()
             .map(|(i, _)| {
