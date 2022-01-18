@@ -237,7 +237,7 @@ def init_ft_account(node_account, account):
 
 
 def get_test_accounts_from_args(argv):
-    assert (len(argv) == 8)
+    assert (len(argv) == 7)
     node_account_id = argv[1]
     pk = argv[2]
     sk = argv[3]
@@ -245,10 +245,8 @@ def get_test_accounts_from_args(argv):
     rpc_nodes = argv[4].split(',')
     logger.info(f'rpc_nodes: {rpc_nodes}')
     max_tps = float(argv[5])
-    need_create_test_accounts = (argv[6] == 'create')
-    need_deploy = (argv[7] == 'deploy')
+    need_deploy = (argv[6] == 'deploy')
 
-    logger.info(f'need_create_test_accounts: {need_create_test_accounts}')
     logger.info(f'need_deploy: {need_deploy}')
 
     rpc_infos = [(rpc_addr, RPC_PORT) for rpc_addr in rpc_nodes]
@@ -279,14 +277,6 @@ def get_test_accounts_from_args(argv):
             nonce = 1
         acc = aaccount.Account(key, nonce, base_block_hash, rpc_infos=rpc_infos)
         accounts.append(acc)
-        if need_create_test_accounts:
-            logger.info(f'Creating account {key.account_id}')
-            tx_res = node_account.send_create_account_tx(key.account_id, base_block_hash=get_latest_block_hash())
-            logger.info(f'Account {key.account_id} creation result: {tx_res}')
-            wait_at_least_one_block()
-            logger.info(
-                f'Account {key.account_id} balance after creation: {retry_and_ignore_errors(lambda:acc.get_amount_yoctonear())}'
-            )
         if need_deploy:
             logger.info(f'Deploying contract for account {key.account_id}')
             retry_and_ignore_errors(
