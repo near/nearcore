@@ -23,7 +23,6 @@ use near_primitives::sharding::ShardChunkHeaderInner;
 use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 
@@ -156,9 +155,9 @@ fn test_process_partial_encoded_chunk_with_missing_block() {
     // based on a missing block.
     let result = client.shards_mgr.process_partial_encoded_chunk(
         MaybeValidated::from(&mock_chunk),
+        None,
         client.chain.mut_store(),
         &mut client.rs,
-        PROTOCOL_VERSION,
     );
     assert!(matches!(result, Ok(ProcessPartialEncodedChunkResult::NeedBlock)));
 

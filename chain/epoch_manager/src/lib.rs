@@ -1475,6 +1475,26 @@ impl EpochManager {
         self.epoch_info_aggregator = Some(aggregator);
         Ok(())
     }
+
+    pub fn get_protocol_upgrade_block_height(
+        &mut self,
+        block_hash: CryptoHash,
+    ) -> Result<Option<BlockHeight>, EpochError> {
+        let cur_epoch_info = self.get_epoch_info_from_hash(&block_hash)?.clone();
+        let next_epoch_id = self.get_next_epoch_id(&block_hash)?;
+        let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
+        if cur_epoch_info.protocol_version() != next_epoch_info.protocol_version() {
+            let block_info = self.get_block_info(&block_hash)?.clone();
+            let epoch_length =
+                self.config.for_protocol_version(cur_epoch_info.protocol_version()).epoch_length;
+            let estimated_next_epoch_start =
+                self.get_block_info(block_info.epoch_first_block())?.height() + epoch_length;
+
+            Ok(Some(estimated_next_epoch_start))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(test)]

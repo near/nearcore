@@ -9,6 +9,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use std::ops::Bound;
 
+mod metrics;
 pub mod types;
 
 /// Transaction pool: keeps track of transactions that were not yet accepted into the block chain.
@@ -45,8 +46,11 @@ impl TransactionPool {
     /// Insert a signed transaction into the pool that passed validation.
     pub fn insert_transaction(&mut self, signed_transaction: SignedTransaction) -> bool {
         if !self.unique_transactions.insert(signed_transaction.get_hash()) {
+            // The hash of this transaction was already seen, skip it.
             return false;
         }
+        metrics::TRANSACTION_POOL_TOTAL.inc();
+
         let signer_id = &signed_transaction.transaction.signer_id;
         let signer_public_key = &signed_transaction.transaction.public_key;
         self.transactions
@@ -86,8 +90,10 @@ impl TransactionPool {
             if remove_entry {
                 self.transactions.remove(&key);
             }
-            for hash in hashes {
-                self.unique_transactions.remove(&hash);
+            for hash in &hashes {
+                if self.unique_transactions.remove(&hash) {
+                    metrics::TRANSACTION_POOL_TOTAL.dec();
+                }
             }
         }
     }
@@ -172,7 +178,9 @@ impl<'a> PoolIterator for PoolIteratorWrapper<'a> {
             while let Some(sorted_group) = self.sorted_groups.pop_front() {
                 if sorted_group.transactions.is_empty() {
                     for hash in sorted_group.removed_transaction_hashes {
-                        self.pool.unique_transactions.remove(&hash);
+                        if self.pool.unique_transactions.remove(&hash) {
+                            metrics::TRANSACTION_POOL_TOTAL.dec();
+                        }
                     }
                 } else {
                     self.sorted_groups.push_back(sorted_group);
@@ -191,7 +199,9 @@ impl<'a> Drop for PoolIteratorWrapper<'a> {
     fn drop(&mut self) {
         for group in self.sorted_groups.drain(..) {
             for hash in group.removed_transaction_hashes {
-                self.pool.unique_transactions.remove(&hash);
+                if self.pool.unique_transactions.remove(&hash) {
+                    metrics::TRANSACTION_POOL_TOTAL.dec();
+                }
             }
             if !group.transactions.is_empty() {
                 self.pool.transactions.insert(group.key, group.transactions);

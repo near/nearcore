@@ -1,33 +1,14 @@
+use super::gas_and_error_match;
+use crate::tests::{
+    make_simple_contract_call_vm, make_simple_contract_call_with_gas_vm,
+    make_simple_contract_call_with_protocol_version_vm, with_vm_variants,
+};
+use crate::vm_kind::VMKind;
+use near_primitives::version::ProtocolFeature;
 use near_vm_errors::{
     CompilationError, FunctionCallError, HostError, MethodResolveError, PrepareError, VMError,
     WasmTrap,
 };
-use near_vm_logic::VMOutcome;
-
-use crate::cache::MockCompiledContractCache;
-use crate::tests::{
-    make_cached_contract_call_vm, make_simple_contract_call_vm,
-    make_simple_contract_call_with_gas_vm, with_vm_variants,
-};
-use crate::vm_kind::VMKind;
-
-#[track_caller]
-fn gas_and_error_match(
-    outcome_and_error: (Option<VMOutcome>, Option<VMError>),
-    expected_gas: Option<u64>,
-    expected_error: Option<VMError>,
-) {
-    match expected_gas {
-        Some(gas) => {
-            let outcome = outcome_and_error.0.unwrap();
-            assert_eq!(outcome.used_gas, gas, "used gas differs");
-            assert_eq!(outcome.burnt_gas, gas, "burnt gas differs");
-        }
-        None => assert!(outcome_and_error.0.is_none()),
-    }
-
-    assert_eq!(outcome_and_error.1, expected_error);
-}
 
 fn infinite_initializer_contract() -> Vec<u8> {
     wat::parse_str(
@@ -478,6 +459,80 @@ fn test_stack_overflow() {
     });
 }
 
+fn stack_overflow_many_locals() -> Vec<u8> {
+    wat::parse_str(
+        r#"
+            (module
+              (func $f1 (export "f1")
+                (local i32)
+                (call $f1))
+              (func $f2 (export "f2")
+                (local i32 i32 i32 i32)
+                (call $f2))
+            )"#,
+    )
+    .unwrap()
+}
+
+#[test]
+fn test_stack_instrumentation_protocol_upgrade() {
+    with_vm_variants(|vm_kind: VMKind| {
+        match vm_kind {
+            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
+            // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
+            // Restore, once get rid of Wasmer 0.x.
+            VMKind::Wasmtime => return,
+        }
+        let code = stack_overflow_many_locals();
+
+        let res = make_simple_contract_call_with_protocol_version_vm(
+            &code,
+            "f1",
+            ProtocolFeature::CorrectStackLimit.protocol_version() - 1,
+            vm_kind,
+        );
+        gas_and_error_match(
+            res,
+            Some(6789985365),
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
+        );
+        let res = make_simple_contract_call_with_protocol_version_vm(
+            &code,
+            "f2",
+            ProtocolFeature::CorrectStackLimit.protocol_version() - 1,
+            vm_kind,
+        );
+        gas_and_error_match(
+            res,
+            Some(6789985365),
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
+        );
+
+        let res = make_simple_contract_call_with_protocol_version_vm(
+            &code,
+            "f1",
+            ProtocolFeature::CorrectStackLimit.protocol_version(),
+            vm_kind,
+        );
+        gas_and_error_match(
+            res,
+            Some(6789985365),
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
+        );
+        let res = make_simple_contract_call_with_protocol_version_vm(
+            &code,
+            "f2",
+            ProtocolFeature::CorrectStackLimit.protocol_version(),
+            vm_kind,
+        );
+        gas_and_error_match(
+            res,
+            Some(2745316869),
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
+        );
+    });
+}
+
 fn memory_grow() -> Vec<u8> {
     wat::parse_str(
         r#"
@@ -727,27 +782,6 @@ fn test_external_call_indirect() {
             make_simple_contract_call_vm(&external_indirect_call_contract(), "main", vm_kind);
         gas_and_error_match((outcome, err), Some(334541937), None);
     });
-}
-
-#[test]
-fn test_contract_error_caching() {
-    with_vm_variants(|vm_kind: VMKind| {
-        match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
-            VMKind::Wasmtime => return,
-        }
-        let mut cache = MockCompiledContractCache::default();
-        let code = [42; 1000];
-        let terragas = 1000000000000u64;
-        assert_eq!(cache.len(), 0);
-        let err1 =
-            make_cached_contract_call_vm(&mut cache, &code, "method_name1", terragas, vm_kind);
-        println!("{:?}", cache);
-        assert_eq!(cache.len(), 1);
-        let err2 =
-            make_cached_contract_call_vm(&mut cache, &code, "method_name2", terragas, vm_kind);
-        assert_eq!(err1, err2);
-    })
 }
 
 /// Load from address so far out of bounds that it causes integer overflow.

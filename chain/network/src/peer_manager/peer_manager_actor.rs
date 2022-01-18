@@ -1,4 +1,3 @@
-use crate::network_protocol::{EdgeState, PartialEdgeInfo};
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
@@ -7,7 +6,6 @@ use crate::private_actix::{
     Unregister, ValidateEdgeList,
 };
 use crate::routing::edge_validator_actor::EdgeValidatorHelper;
-use crate::routing::network_protocol::Edge;
 use crate::routing::routing_table_actor::{
     Prune, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
 };
@@ -26,12 +24,13 @@ use actix::{
 use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
 use near_network_primitives::types::{
-    AccountOrPeerIdOrHash, Ban, BlockedPorts, InboundTcpConnect, KnownPeerState, KnownPeerStatus,
-    KnownProducer, NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
-    OutboundTcpConnect, PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerType, Ping, Pong,
-    QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, StateResponseInfo,
+    AccountOrPeerIdOrHash, Ban, BlockedPorts, Edge, InboundTcpConnect, KnownPeerState,
+    KnownPeerStatus, KnownProducer, NetworkConfig, NetworkViewClientMessages,
+    NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerInfo, PeerManagerRequest,
+    PeerType, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage,
+    RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
 };
+use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::checked_feature;
@@ -41,11 +40,11 @@ use near_primitives::time::Clock;
 use near_primitives::types::{AccountId, ProtocolVersion};
 use near_primitives::utils::from_timestamp;
 use near_rate_limiter::{
-    ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleToken,
-    ThrottledFrameRead,
+    ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleFramedRead,
+    ThrottleToken,
 };
 use near_store::Store;
-use rand::seq::{IteratorRandom, SliceRandom};
+use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
@@ -55,8 +54,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Semaphore;
-use tokio_util::sync::PollSemaphore;
 use tracing::{debug, error, info, trace, warn};
 
 /// How often to request peers from active peers.
@@ -310,7 +307,7 @@ impl PeerManagerActor {
         debug!(target: "network", blacklist = ?config.blacklist, "Blacklist");
 
         let my_peer_id: PeerId = PeerId::new(config.public_key.clone());
-        let routing_table = RoutingTableView::new(my_peer_id.clone(), store);
+        let routing_table = RoutingTableView::new(store);
 
         let txns_since_last_block = Arc::new(AtomicUsize::new(0));
 
@@ -350,7 +347,7 @@ impl PeerManagerActor {
                     peer_forwarding,
                     peers_to_ban,
                 }) => {
-                    act.routing_table_view.remove_local_edges(&local_edges_to_remove);
+                    act.routing_table_view.remove_local_edges(local_edges_to_remove.iter());
                     act.routing_table_view.peer_forwarding = peer_forwarding;
                     for peer in peers_to_ban {
                         act.ban_peer(ctx, &peer, ReasonForBan::InvalidEdge);
@@ -432,7 +429,7 @@ impl PeerManagerActor {
 
         self.update_routing_table_and_prune_edges(
             ctx,
-            if can_prune_edges { Prune::PruneOncePerHour } else { Prune::Disable },
+            if can_prune_edges { Prune::OncePerHour } else { Prune::Disable },
             DELETE_PEERS_AFTER_TIME,
         );
 
@@ -889,14 +886,9 @@ impl PeerManagerActor {
             let (read, write) = tokio::io::split(stream);
 
             // TODO: check if peer is banned or known based on IP address and port.
-            let semaphore = PollSemaphore::new(Arc::new(Semaphore::new(0)));
-            let rate_limiter = ThrottleController::new(
-                semaphore.clone(),
-                MAX_MESSAGES_COUNT,
-                MAX_MESSAGES_TOTAL_SIZE,
-            );
+            let rate_limiter = ThrottleController::new(MAX_MESSAGES_COUNT, MAX_MESSAGES_TOTAL_SIZE);
             PeerActor::add_stream(
-                ThrottledFrameRead::new(read, Codec::default(), rate_limiter.clone(), semaphore)
+                ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone())
                     .take_while(|x| match x {
                         Ok(_) => future::ready(true),
                         Err(e) => {
@@ -1022,7 +1014,7 @@ impl PeerManagerActor {
     fn adv_remove_edges_from_routing_table(
         &mut self,
         ctx: &mut Context<Self>,
-        edges: Vec<crate::network_protocol::SimpleEdge>,
+        edges: Vec<near_network_primitives::types::SimpleEdge>,
     ) {
         // Create fake edges with no signature for unit test purposes
         let edges: Vec<Edge> = edges
@@ -1037,7 +1029,8 @@ impl PeerManagerActor {
                 )
             })
             .collect();
-        self.routing_table_view.remove_local_edges(&edges);
+        self.routing_table_view
+            .remove_local_edges(edges.iter().filter_map(|e| e.other(&self.my_peer_id)));
         self.routing_table_addr
             .send(RoutingTableMessages::AdvRemoveEdges(edges))
             .into_actor(self)
@@ -1179,7 +1172,7 @@ impl PeerManagerActor {
         {
             for (peer, active) in self.connected_peers.iter() {
                 if active.peer_type == PeerType::Outbound {
-                    safe_set.insert(peer.clone());
+                    safe_set.insert(peer);
                 }
             }
         }
@@ -1190,7 +1183,7 @@ impl PeerManagerActor {
         {
             for (peer, active) in self.connected_peers.iter() {
                 if active.full_peer_info.chain_info.archival {
-                    safe_set.insert(peer.clone());
+                    safe_set.insert(peer);
                 }
             }
         }
@@ -1216,26 +1209,20 @@ impl PeerManagerActor {
 
         // Take remaining peers
         for (peer_id, _) in recent_connections
-            .into_iter()
+            .iter()
             .take((self.config.safe_set_size as usize).saturating_sub(safe_set.len()))
         {
-            safe_set.insert(peer_id.clone());
+            safe_set.insert(peer_id);
         }
 
         // Build valid candidate list to choose the peer to be removed. All peers outside the safe set.
-        let candidates = self
-            .connected_peers
-            .keys()
-            .filter_map(
-                |peer_id| {
-                    if safe_set.contains(peer_id) {
-                        None
-                    } else {
-                        Some(peer_id.clone())
-                    }
-                },
-            )
-            .collect::<Vec<_>>();
+        let candidates = self.connected_peers.keys().filter_map(|peer_id| {
+            if safe_set.contains(peer_id) {
+                None
+            } else {
+                Some(peer_id)
+            }
+        });
 
         if let Some(peer_id) = candidates.choose(&mut rand::thread_rng()) {
             if let Some(active_peer) = self.connected_peers.get(peer_id) {
@@ -1572,8 +1559,7 @@ impl PeerManagerActor {
 
     /// Handle pong messages. Add pong temporary to the routing table, mostly used for testing.
     fn handle_pong(&mut self, _ctx: &mut Context<Self>, pong: Pong) {
-        #[allow(unused_variables)]
-        let latency = self.routing_table_view.add_pong(pong);
+        self.routing_table_view.add_pong(pong);
     }
 
     pub(crate) fn get_network_info(&mut self) -> NetworkInfo {
@@ -2008,7 +1994,7 @@ impl PeerManagerActor {
     #[perf]
     fn handle_msg_set_adv_options(
         &mut self,
-        msg: crate::types::SetAdvOptions,
+        msg: crate::test_utils::SetAdvOptions,
         _ctx: &mut Context<Self>,
     ) {
         if let Some(disable_edge_propagation) = msg.disable_edge_propagation {
@@ -2030,7 +2016,7 @@ impl PeerManagerActor {
     #[perf]
     fn handle_msg_set_routing_table(
         &mut self,
-        msg: crate::types::SetRoutingTable,
+        msg: crate::test_utils::SetRoutingTable,
         ctx: &mut Context<Self>,
     ) {
         if let Some(add_edges) = msg.add_edges {
@@ -2043,7 +2029,7 @@ impl PeerManagerActor {
         }
         if let Some(true) = msg.prune_edges {
             debug!(target: "network", "test_features prune_edges");
-            self.update_routing_table_and_prune_edges(ctx, Prune::PruneNow, Duration::from_secs(2));
+            self.update_routing_table_and_prune_edges(ctx, Prune::Now, Duration::from_secs(2));
         }
     }
 

@@ -1,16 +1,7 @@
-use near_primitives::types::AccountId;
 use near_vm_runner::internal::VMKind;
 use std::path::PathBuf;
 
-/// Get account id from its index.
-pub fn get_account_id(account_index: usize) -> AccountId {
-    AccountId::try_from(format!("near_{}_{}", account_index, account_index)).unwrap()
-}
-
-/// Total number of transactions that we need to prepare.
-pub fn total_transactions(config: &Config) -> usize {
-    config.block_sizes.iter().sum::<usize>() * config.iter_per_block
-}
+use crate::rocksdb::RocksDBTestConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GasMetric {
@@ -37,6 +28,8 @@ pub struct Config {
     pub metric: GasMetric,
     /// VMKind used
     pub vm_kind: VMKind,
-    /// When non-none, only the specified metrics will be measured.
-    pub metrics_to_measure: Option<Vec<String>>,
+    /// When non-none, only the specified costs will be measured.
+    pub costs_to_measure: Option<Vec<String>>,
+    /// Configuration specific to raw RocksDB tests. Does NOT affect normal tests that use RocksDB through the nearcore interface.
+    pub rocksdb_test_config: RocksDBTestConfig,
 }
