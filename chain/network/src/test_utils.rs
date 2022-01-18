@@ -23,6 +23,7 @@ use tracing::debug;
 static OPENED_PORTS: Lazy<Mutex<HashSet<u16>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 
 /// Returns available port.
+#[must_use]
 pub fn open_port() -> u16 {
     // Use port 0 to allow the OS to assign an open port.
     // TcpListener's Drop impl will unbind the port as soon as listener goes out of scope.
@@ -46,11 +47,13 @@ pub fn open_port() -> u16 {
 }
 
 // `peer_id_from_seed` generate `PeerId` from seed for unit tests
+#[must_use]
 pub fn peer_id_from_seed(seed: &str) -> PeerId {
     PeerId::new(SecretKey::from_seed(KeyType::ED25519, seed).public_key())
 }
 
 // `convert_boot_nodes` generate list of `PeerInfos` for unit tests
+#[must_use]
 pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
     let mut result = vec![];
     for (peer_seed, port) in boot_nodes {
@@ -101,6 +104,7 @@ pub struct WaitOrTimeoutActor {
 }
 
 impl WaitOrTimeoutActor {
+    #[must_use]
     pub fn new(
         f: Box<dyn FnMut(&mut Context<WaitOrTimeoutActor>)>,
         check_interval_ms: u64,
@@ -136,17 +140,20 @@ impl Actor for WaitOrTimeoutActor {
 }
 
 // Gets random PeerId
+#[must_use]
 pub fn random_peer_id() -> PeerId {
     let sk = SecretKey::from_random(KeyType::ED25519);
     PeerId::new(sk.public_key())
 }
 
 // Gets random EpochId
+#[must_use]
 pub fn random_epoch_id() -> EpochId {
     EpochId(hash(index_to_bytes(thread_rng().next_u64()).as_ref()))
 }
 
 // Compare whenever routing table match.
+#[must_use]
 pub fn expected_routing_tables(
     current: HashMap<PeerId, Vec<PeerId>>,
     expected: Vec<(PeerId, Vec<PeerId>)>,
@@ -155,7 +162,7 @@ pub fn expected_routing_tables(
         return false;
     }
 
-    for (peer, paths) in expected.into_iter() {
+    for (peer, paths) in expected {
         let cur_paths = current.get(&peer);
         if cur_paths.is_none() {
             return false;
@@ -164,7 +171,7 @@ pub fn expected_routing_tables(
         if cur_paths.len() != paths.len() {
             return false;
         }
-        for next_hop in paths.into_iter() {
+        for next_hop in paths {
             if !cur_paths.contains(&next_hop) {
                 return false;
             }
@@ -195,6 +202,7 @@ pub struct StopSignal {
 }
 
 impl StopSignal {
+    #[must_use]
     pub fn should_panic() -> Self {
         Self { should_panic: true }
     }
@@ -224,6 +232,7 @@ pub struct BanPeerSignal {
 }
 
 impl BanPeerSignal {
+    #[must_use]
     pub fn new(peer_id: PeerId) -> Self {
         Self { peer_id, ban_reason: ReasonForBan::None }
     }
@@ -260,6 +269,7 @@ impl PeerManagerAdapter for MockPeerManagerAdapter {
 }
 
 impl MockPeerManagerAdapter {
+    #[must_use]
     pub fn pop(&self) -> Option<PeerManagerMessageRequest> {
         self.requests.write().unwrap().pop_front()
     }
@@ -290,6 +300,7 @@ pub mod test_features {
 
     // Start PeerManagerActor, and RoutingTableActor together and returns pairs of addresses
     // for each of them.
+    #[must_use]
     pub fn make_peer_manager_routing_table_addr_pair(
     ) -> (Addr<PeerManagerActor>, Addr<RoutingTableActor>) {
         let seed = "test2";
@@ -318,6 +329,7 @@ pub mod test_features {
     //    PeerId - PeerId associated with given actor
     //    Arc<AtomicUsize> - shared pointer for counting the number of received
     //                       `NetworkViewClientMessages::AnnounceAccount` messages
+    #[must_use]
     pub fn make_peer_manager(
         store: Store,
         mut config: NetworkConfig,

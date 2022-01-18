@@ -226,7 +226,7 @@ impl PeerStore {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let now = Utc::now();
         let mut to_remove = vec![];
-        for (peer_id, peer_status) in self.peer_states.iter() {
+        for (peer_id, peer_status) in &self.peer_states {
             let diff = (now - peer_status.last_seen()).to_std()?;
             if peer_status.status != KnownPeerStatus::Connected
                 && diff > config.peer_expiration_duration

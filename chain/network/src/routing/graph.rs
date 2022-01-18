@@ -31,6 +31,7 @@ pub struct Graph {
 }
 
 impl Graph {
+    #[must_use]
     pub fn new(source: PeerId) -> Self {
         let mut res = Self {
             my_peer_id: source.clone(),
@@ -50,15 +51,18 @@ impl Graph {
         res
     }
 
+    #[must_use]
     pub fn my_peer_id(&self) -> &PeerId {
         &self.my_peer_id
     }
 
+    #[must_use]
     pub fn total_active_edges(&self) -> u64 {
         self.total_active_edges
     }
 
     // Compute number of active edges. We divide by 2 to remove duplicates.
+    #[must_use]
     pub fn compute_total_active_edges(&self) -> u64 {
         let result: u64 = self.adjacency.iter().map(|x| x.len() as u64).sum();
         assert_eq!(result % 2, 0);
@@ -140,6 +144,7 @@ impl Graph {
     /// Compute for every node `u` on the graph (other than `source`) which are the neighbors of
     /// `sources` which belong to the shortest path from `source` to `u`. Nodes that are
     /// not connected to `source` will not appear in the result.
+    #[must_use]
     pub fn calculate_distance(&self) -> HashMap<PeerId, Vec<PeerId>> {
         // TODO add removal of unreachable nodes
 
@@ -156,7 +161,7 @@ impl Graph {
             for (id, &neighbor) in neighbors.iter().enumerate().take(MAX_NUM_PEERS) {
                 queue.push_back(neighbor);
                 distance[neighbor as usize] = 1;
-                routes[neighbor as usize] = 1u128 << id;
+                routes[neighbor as usize] = 1_u128 << id;
             }
         }
 
@@ -198,7 +203,7 @@ impl Graph {
             }
             if key as u32 == self.source_id
                 || distance[key] == -1
-                || cur_route == 0u128
+                || cur_route == 0_u128
                 || !self.used[key]
             {
                 continue;
@@ -210,7 +215,7 @@ impl Graph {
                 .iter()
                 .enumerate()
                 .take(MAX_NUM_PEERS)
-                .filter(|(id, _)| (cur_route & (1u128 << id)) != 0)
+                .filter(|(id, _)| (cur_route & (1_u128 << id)) != 0)
                 .map(|(_, &neighbor)| self.id2p[neighbor as usize].clone())
                 .collect();
             res.insert(self.id2p[key].clone(), peer_set);

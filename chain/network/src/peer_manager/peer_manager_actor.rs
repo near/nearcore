@@ -26,13 +26,12 @@ use futures::task::Poll;
 use futures::FutureExt;
 use futures::{future, Stream, StreamExt};
 use near_network_primitives::types::{
-    AccountOrPeerIdOrHash, Ban, BlockedPorts, Edge, InboundTcpConnect, KnownPeerState,
+    AccountOrPeerIdOrHash, Ban, BlockedPorts, Edge, EdgeState, InboundTcpConnect, KnownPeerState,
     KnownPeerStatus, KnownProducer, NetworkConfig, NetworkViewClientMessages,
-    NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerInfo, PeerManagerRequest,
-    PeerType, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage,
-    RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+    NetworkViewClientResponses, OutboundTcpConnect, PartialEdgeInfo, PeerIdOrHash, PeerInfo,
+    PeerManagerRequest, PeerType, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan,
+    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
 };
-use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::checked_feature;
@@ -282,7 +281,7 @@ impl Actor for PeerManagerActor {
     fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
         let msg = SendMessage { message: PeerMessage::Disconnect };
 
-        for (_, active_peer) in self.connected_peers.iter() {
+        for (_, active_peer) in &self.connected_peers {
             active_peer.addr.do_send(msg.clone());
         }
 
@@ -366,7 +365,7 @@ impl PeerManagerActor {
             return;
         }
         // RoutingTable keeps list of local edges; let's apply changes immediately.
-        for edge in edges.iter() {
+        for edge in &edges {
             if let Some(other_peer) = edge.other(&self.my_peer_id) {
                 if !self.routing_table_view.is_local_edge_newer(other_peer, edge.nonce()) {
                     continue;
@@ -401,7 +400,7 @@ impl PeerManagerActor {
             return;
         }
         debug!(target: "network", account_id = ?self.config.account_id, ?accounts, "Received new accounts");
-        for account in accounts.iter() {
+        for account in &accounts {
             self.routing_table_view.add_account(account.clone());
         }
 
@@ -437,7 +436,7 @@ impl PeerManagerActor {
         let mut total_bandwidth_used_by_all_peers: usize = 0;
         let mut total_msg_received_count: usize = 0;
         let mut max_max_record_num_messages_in_progress: usize = 0;
-        for (peer_id, active_peer) in self.connected_peers.iter_mut() {
+        for (peer_id, active_peer) in &mut self.connected_peers {
             let bandwidth_used = active_peer.throttle_controller.consume_bandwidth_used();
             let msg_received_count = active_peer.throttle_controller.consume_msg_seen();
             let max_record = active_peer.throttle_controller.consume_max_messages_in_progress();
@@ -488,7 +487,7 @@ impl PeerManagerActor {
             //
             // Also check whenever there is an edge indicating that we should be disconnected
             // from a peer, but we are connected. And try to resolve the inconsistency.
-            for edge in new_edges.iter() {
+            for edge in &new_edges {
                 if let Some(other_peer) = edge.other(&self.my_peer_id) {
                     if !self.routing_table_view.is_local_edge_newer(other_peer, edge.nonce()) {
                         continue;
@@ -573,7 +572,7 @@ impl PeerManagerActor {
                 ))
                 .then(move |response| match response.map(|r| r.into_inner()) {
                     Ok(RoutingTableMessagesResponse::StartRoutingTableSyncResponse(response)) => {
-                        let _ = addr.do_send(SendMessage {
+                        addr.do_send(SendMessage {
                             message: crate::types::PeerMessage::RoutingTableSyncV2(response),
                         });
                         future::ready(())
@@ -702,7 +701,7 @@ impl PeerManagerActor {
             // Start syncing network point of view. Wait until both parties are connected before start
             // sending messages.
             let known_accounts = act.routing_table_view.get_announce_accounts();
-            let _ = addr.do_send(SendMessage {
+            addr.do_send(SendMessage {
                 message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(
                     known_edges,
                     known_accounts,
@@ -710,7 +709,7 @@ impl PeerManagerActor {
             });
 
             // Ask for peers list on connection.
-            let _ = addr.do_send(SendMessage { message: PeerMessage::PeersRequest });
+            addr.do_send(SendMessage { message: PeerMessage::PeersRequest });
             if let Some(active_peer) = act.connected_peers.get_mut(&target_peer_id) {
                 active_peer.last_time_peer_requested = Clock::instant();
             }
@@ -818,7 +817,7 @@ impl PeerManagerActor {
         ban_reason: ReasonForBan,
     ) {
         if let Some(peer) = self.connected_peers.get(peer_id) {
-            let _ = peer.addr.do_send(PeerManagerRequest::BanPeer(ban_reason));
+            peer.addr.do_send(PeerManagerRequest::BanPeer(ban_reason));
         } else {
             warn!(target: "network", ?ban_reason, ?peer_id, "Try to ban a disconnected peer for");
             // Call `ban_peer` in peer manager to trigger action that persists information
@@ -970,7 +969,7 @@ impl PeerManagerActor {
     fn query_active_peers_for_more_peers(&mut self) {
         let mut requests = futures::stream::FuturesUnordered::new();
         let msg = SendMessage { message: PeerMessage::PeersRequest };
-        for (_, active_peer) in self.connected_peers.iter_mut() {
+        for (_, active_peer) in &mut self.connected_peers {
             if active_peer.last_time_peer_requested.elapsed() > REQUEST_PEERS_INTERVAL {
                 active_peer.last_time_peer_requested = Clock::instant();
                 requests.push(active_peer.addr.send(msg.clone()));
@@ -1085,7 +1084,7 @@ impl PeerManagerActor {
 
     /// Periodically query peer actors for latest weight and traffic info.
     fn monitor_peer_stats_trigger(&mut self, ctx: &mut Context<Self>, interval: Duration) {
-        for (peer_id, active_peer) in self.connected_peers.iter() {
+        for (peer_id, active_peer) in &self.connected_peers {
             let peer_id1 = peer_id.clone();
             active_peer
                 .addr
@@ -1143,7 +1142,7 @@ impl PeerManagerActor {
             + self.outgoing_peers.len()
             <= self.config.minimum_outbound_peers as usize
         {
-            for (peer, active) in self.connected_peers.iter() {
+            for (peer, active) in &self.connected_peers {
                 if active.peer_type == PeerType::Outbound {
                     safe_set.insert(peer);
                 }
@@ -1156,7 +1155,7 @@ impl PeerManagerActor {
                 .count()
                 <= self.config.archival_peer_connections_lower_bound as usize
         {
-            for (peer, active) in self.connected_peers.iter() {
+            for (peer, active) in &self.connected_peers {
                 if active.full_peer_info.chain_info.archival {
                     safe_set.insert(peer);
                 }
@@ -1383,9 +1382,12 @@ impl PeerManagerActor {
             AccountOrPeerIdOrHash::AccountId(account_id) => {
                 self.send_message_to_account(account_id, msg)
             }
-            peer_or_hash @ AccountOrPeerIdOrHash::PeerId(_)
-            | peer_or_hash @ AccountOrPeerIdOrHash::Hash(_) => self
-                .send_message_to_peer(RawRoutedMessage { target: peer_or_hash.clone(), body: msg }),
+            peer_or_hash @ (AccountOrPeerIdOrHash::PeerId(_) | AccountOrPeerIdOrHash::Hash(_)) => {
+                self.send_message_to_peer(RawRoutedMessage {
+                    target: peer_or_hash.clone(),
+                    body: msg,
+                })
+            }
         }
     }
 
@@ -1683,7 +1685,7 @@ impl PeerManagerActor {
                         }
                     } else {
                         let mut matching_peers = vec![];
-                        for (peer_id, active_peer) in self.connected_peers.iter() {
+                        for (peer_id, active_peer) in &self.connected_peers {
                             if (active_peer.full_peer_info.chain_info.archival
                                 || !target.only_archival)
                                 && active_peer.full_peer_info.chain_info.height >= target.min_height
@@ -2345,7 +2347,7 @@ impl PeerManagerActor {
                             ibf_msg: response_ibf_msg,
                         }) => {
                             if let Some(response_ibf_msg) = response_ibf_msg {
-                                let _ = addr.do_send(SendMessage {
+                                addr.do_send(SendMessage {
                                     message: PeerMessage::RoutingTableSyncV2(
                                         crate::network_protocol::RoutingSyncV2::Version2(
                                             response_ibf_msg,

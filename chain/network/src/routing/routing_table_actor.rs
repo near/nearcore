@@ -82,6 +82,7 @@ pub struct RoutingTableActor {
 }
 
 impl RoutingTableActor {
+    #[must_use]
     pub fn new(my_peer_id: PeerId, store: Store) -> Self {
         let component_nonce = store
             .get_ser::<u64>(ColLastComponentNonce, &[])
@@ -339,7 +340,7 @@ impl RoutingTableActor {
 
         // Sets mapping from `peer_id` to `component nonce` in DB. This is later used to find
         // component that the edge belonged to.
-        for peer_id in peers_to_remove.iter() {
+        for peer_id in &peers_to_remove {
             let _ = update.set_ser(
                 ColPeerComponent,
                 peer_id.try_to_vec().unwrap().as_ref(),
@@ -371,6 +372,7 @@ impl RoutingTableActor {
     }
 
     /// Checks whenever given edge is newer than the one we already have.
+    #[must_use]
     pub fn is_edge_newer(&self, key: &(PeerId, PeerId), nonce: u64) -> bool {
         self.edges_info.get(key).map_or(0, |x| x.nonce()) < nonce
     }
@@ -401,6 +403,7 @@ impl RoutingTableActor {
         res
     }
 
+    #[must_use]
     pub fn get_all_edges(&self) -> Vec<Edge> {
         self.edges_info.iter().map(|x| x.1.clone()).collect()
     }
@@ -519,6 +522,7 @@ pub enum RoutingTableMessagesResponse {
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 impl RoutingTableActor {
+    #[must_use]
     pub fn exchange_routing_tables_using_ibf(
         &self,
         peer_id: &PeerId,
@@ -596,7 +600,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             RoutingTableMessages::AdvRemoveEdges(edges) => {
-                for edge in edges.iter() {
+                for edge in &edges {
                     self.remove_edge(edge);
                 }
                 RoutingTableMessagesResponse::Empty
@@ -771,6 +775,7 @@ impl Handler<ActixMessageWrapper<RoutingTableMessages>> for RoutingTableActor {
     }
 }
 
+#[must_use]
 pub fn start_routing_table_actor(peer_id: PeerId, store: Store) -> Addr<RoutingTableActor> {
     RoutingTableActor::new(peer_id, store).start()
 }

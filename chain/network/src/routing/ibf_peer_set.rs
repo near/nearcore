@@ -55,7 +55,7 @@ impl SlotMap {
     }
 
     pub fn get(&self, edge: &SimpleEdge) -> Option<SlotMapId> {
-        self.e2id.get(edge).cloned()
+        self.e2id.get(edge).copied()
     }
 
     fn get_by_id(&self, id: &SlotMapId) -> Option<&SimpleEdge> {
@@ -126,7 +126,7 @@ impl IbfPeerSet {
         let id = self.slot_map.insert(edge);
         if let Some(id) = id {
             self.edges += 1;
-            for (_, val) in self.peers.iter_mut() {
+            for (_, val) in &mut self.peers {
                 val.add_edge(edge, id);
             }
         }
@@ -137,7 +137,7 @@ impl IbfPeerSet {
     pub fn remove_edge(&mut self, edge: &SimpleEdge) -> bool {
         if let Some(_id) = self.slot_map.pop(edge) {
             self.edges -= 1;
-            for (_, val) in self.peers.iter_mut() {
+            for (_, val) in &mut self.peers {
                 val.remove_edge(edge);
             }
             return true;

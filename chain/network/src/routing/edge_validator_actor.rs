@@ -34,7 +34,7 @@ impl Handler<ValidateEdgeList> for EdgeValidatorActor {
     fn handle(&mut self, msg: ValidateEdgeList, _ctx: &mut Self::Context) -> Self::Result {
         for edge in msg.edges {
             let key = edge.key();
-            if msg.edges_info_shared.lock().unwrap().get(key).cloned().unwrap_or(0u64)
+            if msg.edges_info_shared.lock().unwrap().get(key).copied().unwrap_or(0_u64)
                 >= edge.nonce()
             {
                 continue;

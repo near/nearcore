@@ -235,7 +235,7 @@ mod tests {
 
     fn create_blt(elements: impl IntoIterator<Item = u64>, capacity: usize) -> Ibf {
         let mut sketch = Ibf::new(capacity, 0);
-        for item in elements.into_iter() {
+        for item in elements {
             sketch.add(item);
         }
         sketch

@@ -53,9 +53,9 @@ impl RoutingTableTest {
     }
 
     fn set_times(&mut self, times: Vec<(usize, usize)>) {
-        for (peer_ix, time) in times.iter() {
+        for (peer_ix, time) in &times {
             let peer_id = self.get_peer(*peer_ix).clone();
-            let instant = self.times.get(*time).cloned().unwrap();
+            let instant = self.times.get(*time).copied().unwrap();
             self.routing_table.peer_last_time_reachable.insert(peer_id, instant);
         }
     }
@@ -103,7 +103,7 @@ impl RoutingTableTest {
         let on_disk_peers = on_disk_peers.into_iter().collect::<HashMap<_, _>>();
 
         // Check memory edges
-        for EdgeDescription(peer0, peer1, edge_type) in on_memory.iter() {
+        for EdgeDescription(peer0, peer1, edge_type) in &on_memory {
             let peer0 = self.get_peer(*peer0).clone();
             let peer1 = self.get_peer(*peer1).clone();
             let (peer0, peer1) = Edge::make_key(peer0, peer1);
@@ -150,7 +150,7 @@ impl RoutingTableTest {
 
             assert_eq!(edges.len(), current_edges.len());
 
-            for edge in edges.iter() {
+            for edge in &edges {
                 let edge_description = self.get_edge_description(edge);
                 assert!(current_edges.contains(&edge_description));
             }

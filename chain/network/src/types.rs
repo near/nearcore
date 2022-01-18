@@ -149,6 +149,7 @@ pub enum PeerManagerMessageResponse {
 }
 
 impl PeerManagerMessageResponse {
+    #[must_use]
     pub fn as_routed_message_from(self) -> bool {
         if let PeerManagerMessageResponse::RoutedMessageFrom(item) = self {
             item
@@ -157,6 +158,7 @@ impl PeerManagerMessageResponse {
         }
     }
 
+    #[must_use]
     pub fn as_network_response(self) -> NetworkResponses {
         if let PeerManagerMessageResponse::NetworkResponses(item) = self {
             item
@@ -165,6 +167,7 @@ impl PeerManagerMessageResponse {
         }
     }
 
+    #[must_use]
     pub fn as_consolidate_response(self) -> RegisterPeerResponse {
         if let PeerManagerMessageResponse::RegisterPeerResponse(item) = self {
             item
@@ -173,6 +176,7 @@ impl PeerManagerMessageResponse {
         }
     }
 
+    #[must_use]
     pub fn as_peers_request_result(self) -> PeerRequestResult {
         if let PeerManagerMessageResponse::PeerRequestResult(item) = self {
             item
@@ -181,6 +185,7 @@ impl PeerManagerMessageResponse {
         }
     }
 
+    #[must_use]
     pub fn as_peer_response(self) -> PeerResponse {
         if let PeerManagerMessageResponse::PeerResponse(item) = self {
             item
@@ -190,6 +195,7 @@ impl PeerManagerMessageResponse {
     }
 
     #[cfg(feature = "test_features")]
+    #[must_use]
     pub fn as_peer_id_result(self) -> crate::private_actix::GetPeerIdResult {
         if let PeerManagerMessageResponse::GetPeerIdResult(item) = self {
             item

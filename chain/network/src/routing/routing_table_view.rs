@@ -55,6 +55,7 @@ pub enum FindRouteError {
 }
 
 impl RoutingTableView {
+    #[must_use]
     pub fn new(store: Store) -> Self {
         // Find greater nonce on disk and set `component_nonce` to this value.
 
@@ -74,6 +75,7 @@ impl RoutingTableView {
 
     /// Checks whenever edge is newer than the one we already have.
     /// Works only for local edges.
+    #[must_use]
     pub fn is_local_edge_newer(&self, other_peer: &PeerId, nonce: u64) -> bool {
         self.local_edges_info.get(other_peer).map_or(0, |x| x.nonce()) < nonce
     }
@@ -96,11 +98,11 @@ impl RoutingTableView {
             // max nonce - threshold.
             let nonce_peer = routes
                 .iter()
-                .map(|peer_id| (self.route_nonce.get(peer_id).cloned().unwrap_or(0), peer_id))
+                .map(|peer_id| (self.route_nonce.get(peer_id).copied().unwrap_or(0), peer_id))
                 .collect::<Vec<_>>();
 
             // Neighbor with minimum and maximum nonce respectively.
-            let (mut min_v, next_hop) = nonce_peer.iter().min().cloned().unwrap();
+            let (mut min_v, next_hop) = nonce_peer.iter().min().copied().unwrap();
             let (max_v, _) = nonce_peer.into_iter().max().unwrap();
 
             min_v = std::cmp::max(
@@ -174,7 +176,7 @@ impl RoutingTableView {
     }
 
     pub fn add_ping(&mut self, ping: Ping) {
-        let cnt = self.ping_info.get(&(ping.nonce as usize)).map(|v| v.1).unwrap_or(0);
+        let cnt = self.ping_info.get(&(ping.nonce as usize)).map_or(0, |v| v.1);
 
         self.ping_info.put(ping.nonce as usize, (ping, cnt + 1));
     }
@@ -185,11 +187,11 @@ impl RoutingTableView {
 
         if let Some(nonces) = self.waiting_pong.get_mut(&pong.source) {
             res = nonces.pop(&(pong.nonce as usize)).map(|sent| {
-                Clock::instant().saturating_duration_since(sent).as_secs_f64() * 1000f64
+                Clock::instant().saturating_duration_since(sent).as_secs_f64() * 1000_f64
             });
         }
 
-        let cnt = self.pong_info.get(&(pong.nonce as usize)).map(|v| v.1).unwrap_or(0);
+        let cnt = self.pong_info.get(&(pong.nonce as usize)).map_or(0, |v| v.1);
 
         self.pong_info.put(pong.nonce as usize, (pong, (cnt + 1)));
 
@@ -276,6 +278,7 @@ impl RoutingTableView {
         }
     }
 
+    #[must_use]
     pub fn get_local_edge(&self, other_peer: &PeerId) -> Option<&Edge> {
         self.local_edges_info.get(other_peer)
     }

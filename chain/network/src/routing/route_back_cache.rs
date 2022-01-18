@@ -100,7 +100,7 @@ impl RouteBackCache {
             {
                 let records = entry.get_mut();
 
-                match records.iter().nth(self.remove_frequent_min_size).cloned() {
+                match records.iter().nth(self.remove_frequent_min_size).copied() {
                     Some(key) => {
                         let mut to_remove = records.split_off(&key);
                         std::mem::swap(&mut to_remove, records);
@@ -142,7 +142,7 @@ impl RouteBackCache {
             let remove_until = now - self.evict_timeout;
             let mut remove_empty = vec![];
 
-            for (key, value) in self.record_per_target.iter_mut() {
+            for (key, value) in &mut self.record_per_target {
                 let prev_size = value.len();
                 let keep = value.split_off(&(remove_until, CryptoHash::default()));
 
@@ -244,7 +244,7 @@ mod test {
         assert!(cache.main.len() <= cache.capacity);
         assert_eq!(cache.size_per_target.len(), cache.record_per_target.len());
 
-        for (neg_size, target) in cache.size_per_target.iter() {
+        for (neg_size, target) in &cache.size_per_target {
             let size = cache.capacity - neg_size;
             assert!(size > 0);
             assert_eq!(size, cache.record_per_target.get(target).map(|x| x.len()).unwrap());
@@ -252,7 +252,7 @@ mod test {
 
         let mut total = 0;
 
-        for (target, records) in cache.record_per_target.iter() {
+        for (target, records) in &cache.record_per_target {
             total += records.len();
 
             for (time, record) in records.iter() {
@@ -269,7 +269,7 @@ mod test {
 
     #[test]
     fn simple() {
-        let mut cache = RouteBackCache::new(100, Duration::from_millis(1000000000), 1);
+        let mut cache = RouteBackCache::new(100, Duration::from_millis(1_000_000_000), 1);
         let (peer0, hash0) = create_message(0);
 
         check_consistency(&cache);
@@ -317,7 +317,7 @@ mod test {
     /// Check element is removed after insert because cache is at max capacity.
     #[test]
     fn insert_override() {
-        let mut cache = RouteBackCache::new(1, Duration::from_millis(1000000000), 1);
+        let mut cache = RouteBackCache::new(1, Duration::from_millis(1_000_000_000), 1);
         let (peer0, hash0) = create_message(0);
         let (peer1, hash1) = create_message(1);
 
@@ -358,7 +358,7 @@ mod test {
     /// Check that older element from peer1 is removed, since evict timeout haven't passed yet.
     #[test]
     fn prefer_full() {
-        let mut cache = RouteBackCache::new(3, Duration::from_millis(100000), 1);
+        let mut cache = RouteBackCache::new(3, Duration::from_millis(100_000), 1);
         let (peer0, hash0) = create_message(0);
         let (peer1, hash1) = create_message(1);
         let (_, hash2) = create_message(2);
@@ -381,7 +381,7 @@ mod test {
     /// Check that older element from peer1 is removed, since evict timeout haven't passed yet.
     #[test]
     fn remove_all_frequent() {
-        let mut cache = RouteBackCache::new(3, Duration::from_millis(100000), 2);
+        let mut cache = RouteBackCache::new(3, Duration::from_millis(100_000), 2);
         let (peer0, hash0) = create_message(0);
         let (peer1, hash1) = create_message(1);
         let (_, hash2) = create_message(2);
@@ -407,7 +407,7 @@ mod test {
     /// initial hashes should be present in the cache after the attack.
     #[test]
     fn poison_attack() {
-        let mut cache = RouteBackCache::new(17, Duration::from_millis(1000000), 1);
+        let mut cache = RouteBackCache::new(17, Duration::from_millis(1_000_000), 1);
         let mut ix = 0;
 
         let mut peers = vec![];

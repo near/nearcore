@@ -137,6 +137,7 @@ impl RoutingTableUpdate {
         Self { edges, accounts: Vec::new() }
     }
 
+    #[must_use]
     pub fn from_accounts(accounts: Vec<AnnounceAccount>) -> Self {
         Self { edges: Vec::new(), accounts }
     }

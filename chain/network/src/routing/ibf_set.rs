@@ -29,20 +29,24 @@ impl<T> IbfSet<T>
 where
     T: Hash + Clone,
 {
+    #[must_use]
     pub fn get_ibf_vec(&self, k: ValidIBFLevel) -> &Vec<IbfBox> {
         &self.ibf[(k.0 - MIN_IBF_LEVEL.0) as usize].data
     }
 
     /// Get seed used to generate this IbfSet
+    #[must_use]
     pub fn get_seed(&self) -> u64 {
         self.seed
     }
 
     /// Get `Ibf` based on selected `k`.
+    #[must_use]
     pub fn get_ibf(&self, k: ValidIBFLevel) -> &Ibf {
         &self.ibf[(k.0 - MIN_IBF_LEVEL.0) as usize]
     }
 
+    #[must_use]
     pub fn new(seed: u64) -> Self {
         let ibf = (MIN_IBF_LEVEL.0..=MAX_IBF_LEVEL.0).map(|i| Ibf::new(1 << i, seed ^ i));
         let mut hasher = StableHasher::default();
@@ -57,6 +61,7 @@ where
     }
 
     /// Get list of edges based on given list of hashes.
+    #[must_use]
     pub fn get_edges_by_hashes_ext(&self, edges: &[u64]) -> (Vec<SlotMapId>, Vec<u64>) {
         let mut known_edges = vec![];
         let mut unknown_edges = vec![];
@@ -80,7 +85,7 @@ where
             warn!(target: "network", "hash already exists in IbfSet");
             return false;
         }
-        for ibf in self.ibf.iter_mut() {
+        for ibf in &mut self.ibf {
             ibf.add(h);
         }
         true
@@ -95,7 +100,7 @@ where
             error!(target: "network", "trying to remove not existing edge from IbfSet");
             return false;
         }
-        for ibf in self.ibf.iter_mut() {
+        for ibf in &mut self.ibf {
             ibf.remove(h);
         }
         true
@@ -113,13 +118,13 @@ mod test {
         let mut b = IbfSet::<u64>::new(12);
 
         for i in 0..10000 {
-            a.add_edge(&(i as u64), (i + 1000000) as SlotMapId);
+            a.add_edge(&(i as u64), (i + 1_000_000) as SlotMapId);
         }
         for i in 0..10 {
             a.remove_edge(&(i as u64));
         }
         for i in 0..10000 {
-            b.add_edge(&(i + 100_u64), (i + 2000000) as SlotMapId);
+            b.add_edge(&(i + 100_u64), (i + 2_000_000) as SlotMapId);
         }
         for i in 10..=17 {
             let mut ibf1 = a.get_ibf(ValidIBFLevel(i)).clone();
@@ -130,7 +135,7 @@ mod test {
             assert_eq!(200 - 10, res.len());
 
             for x in 0..333 {
-                res.push(x + 33333333);
+                res.push(x + 33_333_333);
             }
             assert_eq!(100 - 10, a.get_edges_by_hashes_ext(&res).0.len());
             assert_eq!(100 + 333, a.get_edges_by_hashes_ext(&res).1.len());
