@@ -294,7 +294,7 @@ impl Actor for PeerManagerActor {
 
 impl PeerManagerActor {
     pub fn new(
-        store: Arc<Store>,
+        store: Store,
         config: NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,

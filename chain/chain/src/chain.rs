@@ -1634,7 +1634,7 @@ impl Chain {
     ) -> Result<ShardStateSyncResponseHeader, Error> {
         // Check cache
         let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
-        if let Ok(Some(header)) = self.store.owned_store().get_ser(ColStateHeaders, &key) {
+        if let Ok(Some(header)) = self.store.store().get_ser(ColStateHeaders, &key) {
             return Ok(header);
         }
 
@@ -1805,7 +1805,7 @@ impl Chain {
         };
 
         // Saving the header data
-        let mut store_update = self.store.owned_store().store_update();
+        let mut store_update = self.store.store().store_update();
         store_update.set_ser(ColStateHeaders, &key, &shard_state_header)?;
         store_update.commit()?;
 
@@ -1820,7 +1820,7 @@ impl Chain {
     ) -> Result<Vec<u8>, Error> {
         // Check cache
         let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-        if let Ok(Some(state_part)) = self.store.owned_store().get(ColStateParts, &key) {
+        if let Ok(Some(state_part)) = self.store.store().get(ColStateParts, &key) {
             return Ok(state_part);
         }
 
@@ -1862,7 +1862,7 @@ impl Chain {
         self.get_state_response_header(shard_id, sync_hash)?;
 
         // Saving the part data
-        let mut store_update = self.store.owned_store().store_update();
+        let mut store_update = self.store.store().store_update();
         store_update.set(ColStateParts, &key, &state_part);
         store_update.commit()?;
 
@@ -2035,7 +2035,7 @@ impl Chain {
         }
 
         // Saving the header data.
-        let mut store_update = self.store.owned_store().store_update();
+        let mut store_update = self.store.store().store_update();
         let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
         store_update.set_ser(ColStateHeaders, &key, &shard_state_header)?;
         store_update.commit()?;
@@ -2071,7 +2071,7 @@ impl Chain {
         }
 
         // Saving the part data.
-        let mut store_update = self.store.owned_store().store_update();
+        let mut store_update = self.store.store().store_update();
         let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
         store_update.set(ColStateParts, &key, data);
         store_update.commit()?;

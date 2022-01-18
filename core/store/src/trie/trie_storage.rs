@@ -64,7 +64,7 @@ pub trait TrieStorage {
 /// Records every value read by retrieve_raw_bytes.
 /// Used for obtaining state parts (and challenges in the future).
 pub struct TrieRecordingStorage {
-    pub(crate) store: Arc<Store>,
+    pub(crate) store: Store,
     pub(crate) shard_uid: ShardUId,
     pub(crate) recorded: RefCell<HashMap<CryptoHash, Vec<u8>>>,
 }
@@ -132,13 +132,13 @@ const TRIE_MAX_CACHE_SIZE: usize = 1;
 const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 4000;
 
 pub struct TrieCachingStorage {
-    pub(crate) store: Arc<Store>,
+    pub(crate) store: Store,
     pub(crate) cache: TrieCache,
     pub(crate) shard_uid: ShardUId,
 }
 
 impl TrieCachingStorage {
-    pub fn new(store: Arc<Store>, cache: TrieCache, shard_uid: ShardUId) -> TrieCachingStorage {
+    pub fn new(store: Store, cache: TrieCache, shard_uid: ShardUId) -> TrieCachingStorage {
         TrieCachingStorage { store, cache, shard_uid }
     }
 
