@@ -4,6 +4,8 @@ use std::convert::Infallible;
 use std::fs::File;
 use std::io::Read;
 use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::sync::Barrier;
 
 #[tokio::test]
 async fn test_file_download() {
@@ -14,7 +16,8 @@ async fn test_file_download() {
         Ok(Response::new(Body::from(data.to_vec())))
     }
 
-    let (tx, rx) = tokio::sync::oneshot::channel();
+    let barrier = Arc::new(Barrier::new(2));
+    let server_barrier = barrier.clone();
 
     tokio::task::spawn(async move {
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
@@ -22,7 +25,7 @@ async fn test_file_download() {
             make_service_fn(|_conn| async { Ok::<_, Infallible>(service_fn(handle_request)) });
         let server = Server::bind(&addr).serve(make_svc);
 
-        tx.send(()).unwrap();
+        server_barrier.wait().await;
         if let Err(e) = server.await {
             eprintln!("server error: {}", e);
         }
@@ -31,7 +34,7 @@ async fn test_file_download() {
     let tmp_downloaded_file = tempfile::NamedTempFile::new().unwrap();
     let tmp_downloaded_file_path = tmp_downloaded_file.path();
 
-    rx.await.unwrap();
+    barrier.wait().await;
 
     nearcore::config::download_file(
         &format!("http://localhost:{}", port),
