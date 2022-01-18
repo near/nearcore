@@ -17,11 +17,11 @@ from configured_logger import logger
 
 LOCAL_ADDR = '127.0.0.1'
 RPC_PORT = '3030'
-NUM_ACCOUNTS = 26 * 3
+NUM_LETTERS = 26
+NUM_ACCOUNTS = NUM_LETTERS * 2
 
 
 def load_testing_account_id(node_account_id, i):
-    NUM_LETTERS = 26
     letter = i % NUM_LETTERS
     num = i // NUM_LETTERS
     return '%s%02d.%s' % (chr(ord('a') + letter), num, node_account_id)
@@ -58,14 +58,18 @@ def get_latest_block_hash():
     return base58.b58decode(last_block_hash.encode('utf-8'))
 
 
-def send_transfer(account, node_account):
+def send_transfer(account, node_account, base_block_hash=None):
     next_id = random.randrange(NUM_ACCOUNTS)
     dest_account_id = load_testing_account_id(node_account.key.account_id,
                                               next_id)
-    retry_and_ignore_errors(lambda: account.send_transfer_tx(dest_account_id))
+    retry_and_ignore_errors(lambda: account.send_transfer_tx(
+        dest_account_id, base_block_hash=base_block_hash))
 
 
-def function_call_set_delete_state(account, i, node_account):
+def function_call_set_delete_state(account,
+                                   i,
+                                   node_account,
+                                   base_block_hash=None):
     assert i < len(function_call_state)
 
     if not function_call_state[i]:
@@ -85,8 +89,12 @@ def function_call_set_delete_state(account, i, node_account):
             f'Calling function "set_state" of account {next_account_id} with arguments {s} from account {account.key.account_id}'
         )
         tx_res = retry_and_ignore_errors(
-            lambda: account.send_call_contract_raw_tx(
-                next_account_id, 'set_state', s.encode('utf-8'), 0))
+            lambda: account.send_call_contract_raw_tx(next_account_id,
+                                                      'set_state',
+                                                      s.encode('utf-8'),
+                                                      0,
+                                                      base_block_hash=
+                                                      base_block_hash))
         logger.info(
             f'{account.key.account_id} set_state on {next_account_id} {tx_res}')
         function_call_state[i].append((next_id, next_val))
@@ -101,8 +109,12 @@ def function_call_set_delete_state(account, i, node_account):
             f'Calling function "delete_state" of account {next_account_id} with arguments {s} from account {account.key.account_id}'
         )
         tx_res = retry_and_ignore_errors(
-            lambda: account.send_call_contract_raw_tx(
-                next_account_id, 'delete_state', s.encode('utf-8'), 0))
+            lambda: account.send_call_contract_raw_tx(next_account_id,
+                                                      'delete_state',
+                                                      s.encode('utf-8'),
+                                                      0,
+                                                      base_block_hash=
+                                                      base_block_hash))
         logger.info(
             f'{account.key.account_id} delete_state on {next_account_id} {tx_res}'
         )
@@ -117,7 +129,7 @@ def function_call_set_delete_state(account, i, node_account):
             )
 
 
-def function_call_ft_transfer_call(account, node_account):
+def function_call_ft_transfer_call(account, node_account, base_block_hash=None):
     next_id = random.randint(0, NUM_ACCOUNTS - 1)
     dest_account_id = load_testing_account_id(node_account.key.account_id,
                                               next_id)
@@ -127,7 +139,11 @@ def function_call_ft_transfer_call(account, node_account):
         f'Calling function "ft_transfer_call" with arguments {s} on account {account.key.account_id} contract {dest_account_id}'
     )
     tx_res = retry_and_ignore_errors(lambda: account.send_call_contract_raw_tx(
-        dest_account_id, 'ft_transfer_call', s.encode('utf-8'), 1))
+        dest_account_id,
+        'ft_transfer_call',
+        s.encode('utf-8'),
+        1,
+        base_block_hash=base_block_hash))
     logger.info(
         f'{account.key.account_id} ft_transfer to {dest_account_id} {tx_res}')
 
@@ -135,16 +151,25 @@ def function_call_ft_transfer_call(account, node_account):
 QUERIES_PER_TX = 5
 
 
-def random_transaction(account, i, node_account, max_tps_per_node):
+def random_transaction(account,
+                       i,
+                       node_account,
+                       max_tps_per_node,
+                       base_block_hash=None):
     time.sleep(random.random() * NUM_ACCOUNTS / max_tps_per_node / 3)
     choice = random.randint(0, 2)
     if choice == 0:
         logger.info(f'Account {i} transfers')
-        send_transfer(account, node_account)
+        send_transfer(account, node_account, base_block_hash=base_block_hash)
     elif choice == 1:
-        function_call_set_delete_state(account, i, node_account)
+        function_call_set_delete_state(account,
+                                       i,
+                                       node_account,
+                                       base_block_hash=base_block_hash)
     elif choice == 2:
-        function_call_ft_transfer_call(account, node_account)
+        function_call_ft_transfer_call(account,
+                                       node_account,
+                                       base_block_hash=base_block_hash)
     for t in range(QUERIES_PER_TX):
         wait_at_least_one_block()
         logger.info(
@@ -172,9 +197,14 @@ def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps_per_node,
 
 
 def send_random_transactions(node_account, test_accounts, max_tps_per_node):
+    base_block_hash = get_latest_block_hash()
     pmap(
-        lambda index_and_account: random_transaction(index_and_account[
-            1], index_and_account[0], node_account, max_tps_per_node),
+        lambda index_and_account: random_transaction(index_and_account[1],
+                                                     index_and_account[0],
+                                                     node_account,
+                                                     max_tps_per_node,
+                                                     base_block_hash=
+                                                     base_block_hash),
         enumerate(test_accounts))
 
 
@@ -260,7 +290,6 @@ def get_test_accounts_from_args(argv):
 
     accounts = []
     for key in test_account_keys:
-        base_block_hash = get_latest_block_hash()
         acc = aaccount.Account(key,
                                get_nonce_for_pk(key.account_id, key.pk),
                                base_block_hash,
