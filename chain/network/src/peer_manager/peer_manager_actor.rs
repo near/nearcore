@@ -1564,8 +1564,7 @@ impl PeerManagerActor {
 
     /// Handle pong messages. Add pong temporary to the routing table, mostly used for testing.
     fn handle_pong(&mut self, _ctx: &mut Context<Self>, pong: Pong) {
-        #[allow(unused_variables)]
-        let latency = self.routing_table_view.add_pong(pong);
+        self.routing_table_view.add_pong(pong);
     }
 
     pub(crate) fn get_network_info(&mut self) -> NetworkInfo {
