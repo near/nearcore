@@ -70,7 +70,8 @@ def get_latest_block_hash():
 
 def send_transfer(account, node_account):
     next_id = random.randrange(mocknet.NUM_ACCOUNTS)
-    dest_account_id = load_testing_account_id(node_account.key.account_id, next_id)
+    dest_account_id = load_testing_account_id(node_account.key.account_id,
+                                              next_id)
     retry_and_ignore_errors(lambda: account.send_transfer_tx(dest_account_id))
 
 
@@ -87,7 +88,8 @@ def function_call_set_delete_state(account, i, node_account):
     if action == "add":
         next_id = random.randrange(mocknet.NUM_ACCOUNTS)
         next_val = random.randint(0, 1000)
-        next_account_id = load_testing_account_id(node_account.key.account_id, next_id)
+        next_account_id = load_testing_account_id(node_account.key.account_id,
+                                                  next_id)
         s = f'{{"account_id": "account_{next_val}", "message":"{next_val}"}}'
         logger.info(
             f'Calling function "set_state" of account {next_account_id} with arguments {s} from account {account.key.account_id}'
@@ -102,7 +104,8 @@ def function_call_set_delete_state(account, i, node_account):
         assert function_call_state[i]
         item = random.choice(function_call_state[i])
         (next_id, next_val) = item
-        next_account_id = load_testing_account_id(node_account.key.account_id, next_id)
+        next_account_id = load_testing_account_id(node_account.key.account_id,
+                                                  next_id)
         s = f'{{"account_id": "account_{next_val}"}}'
         logger.info(
             f'Calling function "delete_state" of account {next_account_id} with arguments {s} from account {account.key.account_id}'
@@ -126,7 +129,8 @@ def function_call_set_delete_state(account, i, node_account):
 
 def function_call_ft_transfer_call(account, node_account):
     next_id = random.randint(0, mocknet.NUM_ACCOUNTS - 1)
-    dest_account_id = load_testing_account_id(node_account.key.account_id, next_id)
+    dest_account_id = load_testing_account_id(node_account.key.account_id,
+                                              next_id)
 
     s = f'{{"receiver_id": "{dest_account_id}", "amount": "3", "msg": "\\"hi\\""}}'
     logger.info(
@@ -241,7 +245,7 @@ def get_test_accounts_from_args(argv):
     rpc_nodes = argv[4].split(',')
     logger.info(f'rpc_nodes: {rpc_nodes}')
     max_tps = float(argv[5])
-    need_create_test_accounts = (argv[6]=='create')
+    need_create_test_accounts = (argv[6] == 'create')
     need_deploy = (argv[7] == 'deploy')
 
     rpc_infos = [(rpc_addr, RPC_PORT) for rpc_addr in rpc_nodes]
@@ -265,10 +269,11 @@ def get_test_accounts_from_args(argv):
     accounts = []
     for key in test_account_keys:
         base_block_hash = get_latest_block_hash()
-        acc = account.Account(key,
-                              get_nonce_for_pk(key.account_id, key.pk),
-                              base_block_hash,
-                              rpc_infos=rpc_infos)
+        try:
+            nonce = get_nonce_for_pk(key.account_id, key.pk),
+        except Exception as e:
+            nonce = 1
+        acc = account.Account(key, nonce, base_block_hash, rpc_infos=rpc_infos)
         accounts.append(acc)
         if need_create_test_accounts:
             logger.info(f'Creating account {key.account_id}')
