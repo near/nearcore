@@ -14,9 +14,10 @@ import base58
 import requests
 from rc import pmap
 
-sys.path.append('lib')
+print(str(pathlib.Path(__file__).resolve().parents[2]))
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 import account
-import key
+import key as kkey
 import mocknet
 from configured_logger import logger
 
@@ -26,6 +27,14 @@ RPC_PORT = '3030'
 CONTRACT_DEPLOY_TIME = 12 * mocknet.NUM_ACCOUNTS
 TEST_TIMEOUT = 12 * 60 * 60
 SKYWARD_INIT_TIME = 120
+NUM_ACCOUNTS = 26 * 3
+
+
+def load_testing_account_id(node_account_id, i):
+    NUM_LETTERS = 26
+    letter = i % NUM_LETTERS
+    num = i // NUM_LETTERS
+    return '%s%02d.%s' % (chr(ord('a') + letter), num, node_account_id)
 
 
 def get_status():
@@ -61,8 +70,7 @@ def get_latest_block_hash():
 
 def send_transfer(account, node_account):
     next_id = random.randrange(mocknet.NUM_ACCOUNTS)
-    dest_account_id = mocknet.load_testing_account_id(
-        node_account.key.account_id, next_id)
+    dest_account_id = load_testing_account_id(node_account.key.account_id, next_id)
     retry_and_ignore_errors(lambda: account.send_transfer_tx(dest_account_id))
 
 
@@ -79,8 +87,7 @@ def function_call_set_delete_state(account, i, node_account):
     if action == "add":
         next_id = random.randrange(mocknet.NUM_ACCOUNTS)
         next_val = random.randint(0, 1000)
-        next_account_id = mocknet.load_testing_account_id(
-            node_account.key.account_id, next_id)
+        next_account_id = load_testing_account_id(node_account.key.account_id, next_id)
         s = f'{{"account_id": "account_{next_val}", "message":"{next_val}"}}'
         logger.info(
             f'Calling function "set_state" of account {next_account_id} with arguments {s} from account {account.key.account_id}'
@@ -95,8 +102,7 @@ def function_call_set_delete_state(account, i, node_account):
         assert function_call_state[i]
         item = random.choice(function_call_state[i])
         (next_id, next_val) = item
-        next_account_id = mocknet.load_testing_account_id(
-            node_account.key.account_id, next_id)
+        next_account_id = load_testing_account_id(node_account.key.account_id, next_id)
         s = f'{{"account_id": "account_{next_val}"}}'
         logger.info(
             f'Calling function "delete_state" of account {next_account_id} with arguments {s} from account {account.key.account_id}'
@@ -120,8 +126,7 @@ def function_call_set_delete_state(account, i, node_account):
 
 def function_call_ft_transfer_call(account, node_account):
     next_id = random.randint(0, mocknet.NUM_ACCOUNTS - 1)
-    dest_account_id = mocknet.load_testing_account_id(
-        node_account.key.account_id, next_id)
+    dest_account_id = load_testing_account_id(node_account.key.account_id, next_id)
 
     s = f'{{"receiver_id": "{dest_account_id}", "amount": "3", "msg": "\\"hi\\""}}'
     logger.info(
@@ -241,9 +246,9 @@ def get_test_accounts_from_args(argv):
 
     rpc_infos = [(rpc_addr, RPC_PORT) for rpc_addr in rpc_nodes]
 
-    node_account_key = key.Key(node_account_id, pk, sk)
+    node_account_key = kkey.Key(node_account_id, pk, sk)
     test_account_keys = [
-        key.Key(mocknet.load_testing_account_id(node_account_id, i), pk, sk)
+        kkey.Key(load_testing_account_id(node_account_id, i), pk, sk)
         for i in range(mocknet.NUM_ACCOUNTS)
     ]
 
