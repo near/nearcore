@@ -17,6 +17,7 @@ fn read_trie_items(bench: &mut Bencher, num_trie_items: usize, shard_id: usize) 
     let near_config = load_config(&home_dir, GenesisValidationMode::UnsafeFast);
 
     bench.iter(move || {
+        tracing::info!(target: "neard", "{:?}", home_dir);
         let store = create_store(&get_store_path(&home_dir));
 
         let mut chain_store =
@@ -34,6 +35,7 @@ fn read_trie_items(bench: &mut Bencher, num_trie_items: usize, shard_id: usize) 
         let state_roots: Vec<StateRoot> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let header = last_block.header();
+        tracing::info!(target: "neard", "{:?}", header);
 
         let state_root = state_roots[shard_id];
         let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
@@ -48,7 +50,8 @@ fn read_trie_items(bench: &mut Bencher, num_trie_items: usize, shard_id: usize) 
                 }
                 tracing::info!(target: "neard", "{:?}", item);
             })
-            .take(num_trie_items);
+            .take(num_trie_items)
+            .collect();
         let took = start.elapsed();
 
         println!(
