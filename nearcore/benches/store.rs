@@ -8,7 +8,6 @@ use near_primitives::types::StateRoot;
 use near_store::{create_store, TrieIterator};
 use nearcore::{get_default_home, get_store_path, load_config, NightshadeRuntime};
 use std::time::{Duration, Instant};
-use test::Bencher;
 
 /// Read `TrieItem`s - nodes containing values - using Trie iterator, stop when `num_trie_items` items were read.
 fn read_trie_items(bench: &mut Bencher, num_trie_items: usize, shard_id: usize) {
