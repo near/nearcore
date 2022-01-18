@@ -1,13 +1,9 @@
-use near_primitives::time::Instant;
-use std::cmp::min;
-use std::sync::Arc;
-
+use crate::{metrics, SyncStatus};
 use actix::Addr;
 use ansi_term::Color::{Blue, Cyan, Green, White, Yellow};
 use log::info;
-use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
-
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
+use near_client_primitives::types::ShardSyncStatus;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
@@ -15,14 +11,15 @@ use near_primitives::serialize::to_base;
 use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
 };
-use near_primitives::types::{BlockHeight, Gas};
+use near_primitives::time::{Clock, Instant};
+use near_primitives::types::{AccountId, BlockHeight, EpochHeight, Gas, NumBlocks};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::Version;
+use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
+use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo, ValidatorKickoutView};
 use near_telemetry::{telemetry, TelemetryActor};
-
-use crate::{metrics, SyncStatus};
-use near_client_primitives::types::ShardSyncStatus;
-use near_primitives::time::Clock;
+use std::cmp::min;
+use std::sync::Arc;
+use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
 
 pub struct ValidatorInfoHelper {
     pub is_validator: bool,
@@ -88,6 +85,9 @@ impl InfoHelper {
         node_id: &PeerId,
         network_info: &NetworkInfo,
         validator_info: Option<ValidatorInfoHelper>,
+        validator_epoch_stats: Vec<ValidatorProductionStats>,
+        epoch_height: EpochHeight,
+        protocol_upgrade_block_height: BlockHeight,
     ) {
         let (cpu_usage, memory_usage) = if let Some(pid) = self.pid {
             if self.sys.refresh_process(pid) {
@@ -168,6 +168,29 @@ impl InfoHelper {
         (metrics::MEMORY_USAGE.set((memory_usage * 1024) as i64));
         let teragas = 1_000_000_000_000u64;
         (metrics::AVG_TGAS_USAGE.set((avg_gas_used as f64 / teragas as f64).round() as i64));
+        (metrics::EPOCH_HEIGHT.set(epoch_height as i64));
+        (metrics::PROTOCOL_UPGRADE_BLOCK_HEIGHT.set(protocol_upgrade_block_height as i64));
+        (metrics::NODE_PROTOCOL_VERSION.set(PROTOCOL_VERSION as i64));
+        (metrics::NODE_DB_VERSION.set(DB_VERSION as i64));
+
+        // In case we can't get the list of validators for the current and the previous epoch,
+        // skip updating the per-validator metrics.
+        // Note that the metrics are set to 0 for previous epoch validators who are no longer
+        // validators.
+        for stats in validator_epoch_stats {
+            (metrics::VALIDATORS_BLOCKS_PRODUCED
+                .with_label_values(&[stats.account_id.as_str()])
+                .set(stats.num_produced_blocks as i64));
+            (metrics::VALIDATORS_BLOCKS_EXPECTED
+                .with_label_values(&[stats.account_id.as_str()])
+                .set(stats.num_expected_blocks as i64));
+            (metrics::VALIDATORS_CHUNKS_PRODUCED
+                .with_label_values(&[stats.account_id.as_str()])
+                .set(stats.num_produced_chunks as i64));
+            (metrics::VALIDATORS_CHUNKS_EXPECTED
+                .with_label_values(&[stats.account_id.as_str()])
+                .set(stats.num_expected_chunks as i64));
+        }
 
         self.started = Clock::instant();
         self.num_blocks_processed = 0;
@@ -211,6 +234,7 @@ fn display_sync_status(
     head: &Tip,
     genesis_height: BlockHeight,
 ) -> String {
+    metrics::SYNC_STATUS.set(sync_status.repr() as i64);
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
         SyncStatus::NoSync => format!("#{:>8} {:>44}", head.height, head.last_block_hash),
@@ -314,4 +338,49 @@ fn gas_used_per_sec(num: u64) -> String {
     } else {
         format!("{:.2} Tgas/s", num as f64 / 1_000_000_000_000.0)
     }
+}
+
+/// Number of blocks and chunks produced and expected by a certain validator.
+pub struct ValidatorProductionStats {
+    pub account_id: AccountId,
+    pub num_produced_blocks: NumBlocks,
+    pub num_expected_blocks: NumBlocks,
+    pub num_produced_chunks: NumBlocks,
+    pub num_expected_chunks: NumBlocks,
+}
+
+impl ValidatorProductionStats {
+    pub fn kickout(kickout: ValidatorKickoutView) -> Self {
+        Self {
+            account_id: kickout.account_id,
+            num_produced_blocks: 0,
+            num_expected_blocks: 0,
+            num_produced_chunks: 0,
+            num_expected_chunks: 0,
+        }
+    }
+    pub fn validator(info: CurrentEpochValidatorInfo) -> Self {
+        Self {
+            account_id: info.account_id,
+            num_produced_blocks: info.num_produced_blocks,
+            num_expected_blocks: info.num_expected_blocks,
+            num_produced_chunks: info.num_produced_chunks,
+            num_expected_chunks: info.num_expected_chunks,
+        }
+    }
+}
+
+/// Converts EpochValidatorInfo into a vector of ValidatorProductionStats.
+pub fn get_validator_epoch_stats(
+    current_validator_epoch_info: EpochValidatorInfo,
+) -> Vec<ValidatorProductionStats> {
+    let mut stats = vec![];
+    // Record kickouts to replace latest stats of kicked out validators with zeros.
+    for kickout in current_validator_epoch_info.prev_epoch_kickout {
+        stats.push(ValidatorProductionStats::kickout(kickout));
+    }
+    for validator in current_validator_epoch_info.current_validators {
+        stats.push(ValidatorProductionStats::validator(validator));
+    }
+    stats
 }
