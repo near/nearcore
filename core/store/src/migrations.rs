@@ -123,8 +123,21 @@ pub fn fill_col_transaction_refcount(store: &Store) {
     store_update.commit().expect("Failed to migrate");
 }
 
+fn recompute_block_ordinal(store: &Store) {
+    let mut store_update = BatchedStoreUpdate::new(store, 10_000_000);
+    for (_, value) in store.iter(ColBlockHeight) {
+        let block_merkle_tree =
+            store.get_ser::<PartialMerkleTree>(ColBlockMerkleTree, &value).unwrap().unwrap();
+        let block_hash = CryptoHash::try_from_slice(&value).unwrap();
+        store_update
+            .set_ser(ColBlockOrdinal, &index_to_bytes(block_merkle_tree.size()), &block_hash)
+            .unwrap();
+    }
+    store_update.finish().unwrap();
+}
+
 pub fn migrate_6_to_7(path: &Path) {
-    let db = Arc::pin(RocksDB::new_v6(path).expect("Failed to open the database"));
+    let db = Arc::new(RocksDB::new_v6(path).expect("Failed to open the database"));
     let store = Store::new(db);
     let mut store_update = store.store_update();
     col_state_refcount_8byte(&store, &mut store_update);
@@ -646,8 +659,7 @@ pub fn migrate_20_to_21(path: &Path) {
 }
 
 pub fn migrate_21_to_22(path: &Path) {
-    use near_primitives::epoch_manager::BlockInfoV1;
-    use near_primitives::epoch_manager::SlashState;
+    use near_primitives::epoch_manager::{BlockInfoV1, SlashState};
     use near_primitives::types::validator_stake::ValidatorStakeV1;
     use near_primitives::types::{BlockHeight, EpochId};
     use near_primitives::version::ProtocolVersion;
@@ -722,16 +734,7 @@ pub fn migrate_25_to_26(path: &Path) {
 pub fn migrate_26_to_27(path: &Path, is_archival: bool) {
     let store = create_store(path);
     if is_archival {
-        let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
-        for (_, value) in store.iter(ColBlockHeight) {
-            let block_merkle_tree =
-                store.get_ser::<PartialMerkleTree>(ColBlockMerkleTree, &value).unwrap().unwrap();
-            let block_hash = CryptoHash::try_from_slice(&value).unwrap();
-            store_update
-                .set_ser(ColBlockOrdinal, &index_to_bytes(block_merkle_tree.size()), &block_hash)
-                .unwrap();
-        }
-        store_update.finish().unwrap();
+        recompute_block_ordinal(&store);
     }
     set_store_version(&store, 27);
 }

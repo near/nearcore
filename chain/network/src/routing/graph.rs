@@ -226,6 +226,7 @@ impl Graph {
 mod test {
     use crate::routing::graph::Graph;
     use crate::test_utils::{expected_routing_tables, random_peer_id};
+    use std::ops::Not;
 
     #[test]
     fn graph_contains_edge() {
@@ -236,22 +237,22 @@ mod test {
 
         let mut graph = Graph::new(source.clone());
 
-        assert_eq!(graph.contains_edge(&source, &node0), false);
-        assert_eq!(graph.contains_edge(&source, &node1), false);
-        assert_eq!(graph.contains_edge(&node0, &node1), false);
-        assert_eq!(graph.contains_edge(&node1, &node0), false);
+        assert!(graph.contains_edge(&source, &node0).not());
+        assert!(graph.contains_edge(&source, &node1).not());
+        assert!(graph.contains_edge(&node0, &node1).not());
+        assert!(graph.contains_edge(&node1, &node0).not());
 
         graph.add_edge(&node0, &node1);
 
-        assert_eq!(graph.contains_edge(&source, &node0), false);
-        assert_eq!(graph.contains_edge(&source, &node1), false);
-        assert_eq!(graph.contains_edge(&node0, &node1), true);
-        assert_eq!(graph.contains_edge(&node1, &node0), true);
+        assert!(graph.contains_edge(&source, &node0).not());
+        assert!(graph.contains_edge(&source, &node1).not());
+        assert!(graph.contains_edge(&node0, &node1));
+        assert!(graph.contains_edge(&node1, &node0));
 
         graph.remove_edge(&node1, &node0);
 
-        assert_eq!(graph.contains_edge(&node0, &node1), false);
-        assert_eq!(graph.contains_edge(&node1, &node0), false);
+        assert!(graph.contains_edge(&node0, &node1).not());
+        assert!(graph.contains_edge(&node1, &node0).not());
 
         assert_eq!(0, graph.total_active_edges() as usize);
         assert_eq!(0, graph.compute_total_active_edges() as usize);
@@ -317,7 +318,6 @@ mod test {
         assert_eq!(3, graph.total_active_edges() as usize);
         assert_eq!(3, graph.compute_total_active_edges() as usize);
     }
-
     #[test]
     fn graph_distance3() {
         let source = random_peer_id();
@@ -361,8 +361,8 @@ mod test {
 
         let mut graph = Graph::new(source.clone());
 
-        for i in 0..3 {
-            graph.add_edge(&source, &nodes[i]);
+        for node in &nodes[0..3] {
+            graph.add_edge(&source, node);
         }
 
         for level in 0..2 {
@@ -380,8 +380,8 @@ mod test {
             (0..3).map(|i| (nodes[i].clone(), vec![nodes[i].clone()])).collect();
         let target: Vec<_> = (0..3).map(|i| nodes[i].clone()).collect();
 
-        for i in 3..9 {
-            next_hops.push((nodes[i].clone(), target.clone()));
+        for node in &nodes[3..9] {
+            next_hops.push((node.clone(), target.clone()));
         }
 
         assert!(expected_routing_tables(graph.calculate_distance(), next_hops));
