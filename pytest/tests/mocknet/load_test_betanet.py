@@ -16,7 +16,7 @@ from rc import pmap
 
 print(str(pathlib.Path(__file__).resolve().parents[2]))
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
-import account
+import account as aaccount
 import key as kkey
 import mocknet
 from configured_logger import logger
@@ -257,7 +257,7 @@ def get_test_accounts_from_args(argv):
     ]
 
     base_block_hash = get_latest_block_hash()
-    node_account = account.Account(node_account_key,
+    node_account = aaccount.Account(node_account_key,
                                    get_nonce_for_pk(node_account_key.account_id,
                                                     node_account_key.pk),
                                    base_block_hash,
@@ -273,7 +273,7 @@ def get_test_accounts_from_args(argv):
             nonce = get_nonce_for_pk(key.account_id, key.pk),
         except Exception as e:
             nonce = 1
-        acc = account.Account(key, nonce, base_block_hash, rpc_infos=rpc_infos)
+        acc = aaccount.Account(key, nonce, base_block_hash, rpc_infos=rpc_infos)
         accounts.append(acc)
         if need_create_test_accounts:
             logger.info(f'Creating account {key.account_id}')
