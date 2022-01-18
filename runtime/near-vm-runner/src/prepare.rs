@@ -457,4 +457,28 @@ mod tests {
         assert_matches!(r, Err(Error::Instantiate));
         */
     }
+
+    #[test]
+    fn many_instructions_basic_block() {
+        let config = VMConfig::test();
+        let max_insn_in_block = u32::max_value() / config.regular_op_cost;
+        let r = parse_and_prepare_wat(&format!(
+            r#"(module
+            (func $main (export "main")
+                {}
+            )
+        )"#,
+            "(nop)\n".repeat(max_insn_in_block as usize)
+        ));
+        assert_matches!(r, Ok(_));
+        let r = parse_and_prepare_wat(&format!(
+            r#"(module
+            (func $main (export "main")
+                {}
+            )
+        )"#,
+            "(nop)\n".repeat(max_insn_in_block as usize + 1)
+        ));
+        assert_matches!(r, Err(PrepareError::GasInstrumentation));
+    }
 }
