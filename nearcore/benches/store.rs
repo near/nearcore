@@ -71,7 +71,6 @@ fn read_trie_items_10k(bench: &mut Bencher) {
     read_trie_items(bench, 10_000, 0);
 }
 
-benchmark_group!(benches, read_trie_items_1k);
-benchmark_group!(benches, read_trie_items_10k);
+benchmark_group!(benches, read_trie_items_1k, read_trie_items_10k);
 
 benchmark_main!(benches);
