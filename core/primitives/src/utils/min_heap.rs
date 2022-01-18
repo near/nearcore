@@ -1,5 +1,5 @@
 use std::cmp::Reverse;
-use std::collections::binary_heap::{BinaryHeap, IntoIter};
+use std::collections::binary_heap::{BinaryHeap, IntoIter, PeekMut};
 
 /// Wrapper around `BinaryHeap` to be default min heap instead of max heap.
 #[derive(Debug, Clone)]
@@ -20,8 +20,18 @@ impl<T: Ord> MinHeap<T> {
         self.inner.peek().map(|Reverse(t)| t)
     }
 
+    // This sadly leaks an abstraction.
+    pub fn peek_mut(&mut self) -> Option<PeekMut<'_, Reverse<T>>> {
+        self.inner.peek_mut()
+    }
+
     pub fn len(&self) -> usize {
         self.inner.len()
+    }
+
+    // This sadly leaks an abstraction.
+    pub fn extend<I: std::iter::IntoIterator<Item = Reverse<T>>>(&mut self, iter: I) {
+        self.inner.extend(iter)
     }
 }
 
