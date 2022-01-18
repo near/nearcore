@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-# This file is uploaded to each mocknet node and run there.
-# It is responsible for making the node send many transactions
-# to itself.
-
 import json
-import itertools
 import random
 import sys
 import time
@@ -18,15 +13,10 @@ print(str(pathlib.Path(__file__).resolve().parents[2]))
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 import account as aaccount
 import key as kkey
-import mocknet
 from configured_logger import logger
 
 LOCAL_ADDR = '127.0.0.1'
 RPC_PORT = '3030'
-# We need to slowly deploy contracts, otherwise we stall out the nodes
-CONTRACT_DEPLOY_TIME = 12 * mocknet.NUM_ACCOUNTS
-TEST_TIMEOUT = 12 * 60 * 60
-SKYWARD_INIT_TIME = 120
 NUM_ACCOUNTS = 26 * 3
 
 
@@ -69,7 +59,7 @@ def get_latest_block_hash():
 
 
 def send_transfer(account, node_account):
-    next_id = random.randrange(mocknet.NUM_ACCOUNTS)
+    next_id = random.randrange(NUM_ACCOUNTS)
     dest_account_id = load_testing_account_id(node_account.key.account_id,
                                               next_id)
     retry_and_ignore_errors(lambda: account.send_transfer_tx(dest_account_id))
@@ -86,7 +76,7 @@ def function_call_set_delete_state(account, i, node_account):
         action = random.choice(["add", "delete"])
 
     if action == "add":
-        next_id = random.randrange(mocknet.NUM_ACCOUNTS)
+        next_id = random.randrange(NUM_ACCOUNTS)
         next_val = random.randint(0, 1000)
         next_account_id = load_testing_account_id(node_account.key.account_id,
                                                   next_id)
@@ -128,7 +118,7 @@ def function_call_set_delete_state(account, i, node_account):
 
 
 def function_call_ft_transfer_call(account, node_account):
-    next_id = random.randint(0, mocknet.NUM_ACCOUNTS - 1)
+    next_id = random.randint(0, NUM_ACCOUNTS - 1)
     dest_account_id = load_testing_account_id(node_account.key.account_id,
                                               next_id)
 
@@ -146,7 +136,7 @@ QUERIES_PER_TX = 5
 
 
 def random_transaction(account, i, node_account, max_tps_per_node):
-    time.sleep(random.random() * mocknet.NUM_ACCOUNTS / max_tps_per_node / 3)
+    time.sleep(random.random() * NUM_ACCOUNTS / max_tps_per_node / 3)
     choice = random.randint(0, 2)
     if choice == 0:
         logger.info(f'Account {i} transfers')
@@ -254,7 +244,7 @@ def get_test_accounts_from_args(argv):
     node_account_key = kkey.Key(node_account_id, pk, sk)
     test_account_keys = [
         kkey.Key(load_testing_account_id(node_account_id, i), pk, sk)
-        for i in range(mocknet.NUM_ACCOUNTS)
+        for i in range(NUM_ACCOUNTS)
     ]
 
     base_block_hash = get_latest_block_hash()
@@ -308,7 +298,7 @@ def main(argv):
      max_tps_per_node) = get_test_accounts_from_args(argv)
 
     global function_call_state
-    function_call_state = [[]] * mocknet.NUM_ACCOUNTS
+    function_call_state = [[]] * NUM_ACCOUNTS
 
     total_tx_sent, elapsed_time = 0, 0
     while True:

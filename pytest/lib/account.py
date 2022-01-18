@@ -91,7 +91,7 @@ class Account:
                                   deposit,
                                   base_block_hash=None):
         self.prep_tx()
-        tx = sign_function_call_tx(self.key, self.key.account_id, method_name,
+        tx = sign_function_call_tx(self.key, contract_id, method_name,
                                    args, 3 * 10**14, deposit, self.nonce,
                                    base_block_hash or self.base_block_hash)
         return self.send_tx(tx)
