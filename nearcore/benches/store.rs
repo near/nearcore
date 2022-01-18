@@ -35,7 +35,6 @@ fn read_trie_items(bench: &mut Bencher, num_trie_items: usize, shard_id: usize) 
         let state_roots: Vec<StateRoot> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let header = last_block.header();
-        tracing::info!(target: "neard", "{:?}", header);
 
         let state_root = state_roots[shard_id];
         let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
@@ -44,8 +43,8 @@ fn read_trie_items(bench: &mut Bencher, num_trie_items: usize, shard_id: usize) 
         let start = Instant::now();
         let num_items_read = trie
             .enumerate()
-            .map(|(i, item)| {
-                if i % 100 == 0 {
+            .map(|(i, _)| {
+                if i % 500 == 0 {
                     tracing::info!(target: "neard", "{}", i)
                 }
             })
@@ -64,7 +63,7 @@ fn read_trie_items(bench: &mut Bencher, num_trie_items: usize, shard_id: usize) 
 
 fn read_trie_items_10k(bench: &mut Bencher) {
     // Read trie items until 10k items found from shard 0.
-    read_trie_items(bench, 10_000, 2);
+    read_trie_items(bench, 10_000, 0);
 }
 
 benchmark_group!(benches, read_trie_items_10k);
