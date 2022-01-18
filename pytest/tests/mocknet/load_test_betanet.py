@@ -1,18 +1,14 @@
 #!/usr/bin/env python3
-import json
 import random
 import sys
 import time
 import pathlib
-
-import base58
-import requests
 from rc import pmap
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 import mocknet_helpers
-import account
-import key
+import account as account_mod
+import key as key_mod
 from configured_logger import logger
 
 NUM_LETTERS = 26
@@ -204,38 +200,38 @@ def get_test_accounts_from_args(argv):
 
     rpc_infos = [(rpc_addr, mocknet_helpers.RPC_PORT) for rpc_addr in rpc_nodes]
 
-    node_account_key = key.Key(node_account_id, pk, sk)
+    node_account_key = key_mod.Key(node_account_id, pk, sk)
     test_account_keys = [
-        key.Key(load_testing_account_id(node_account_id, i), pk, sk)
+        key_mod.Key(load_testing_account_id(node_account_id, i), pk, sk)
         for i in range(NUM_ACCOUNTS)
     ]
 
     base_block_hash = mocknet_helpers.get_latest_block_hash()
-    node_account = account.Account(node_account_key,
-                                   mocknet_helpers.get_nonce_for_pk(
-                                       node_account_key.account_id,
-                                       node_account_key.pk),
-                                   base_block_hash,
-                                   rpc_infos=rpc_infos)
+    node_account = account_mod.Account(node_account_key,
+                                       mocknet_helpers.get_nonce_for_pk(
+                                           node_account_key.account_id,
+                                           node_account_key.pk),
+                                       base_block_hash,
+                                       rpc_infos=rpc_infos)
 
     if need_deploy:
         init_ft(node_account)
 
     accounts = []
     for key in test_account_keys:
-        acc = account.Account(key,
-                              mocknet_helpers.get_nonce_for_pk(
-                                  key.account_id, key.pk),
-                              base_block_hash,
-                              rpc_infos=rpc_infos)
-        accounts.append(acc)
+        account = account_mod.Account(key,
+                                      mocknet_helpers.get_nonce_for_pk(
+                                          key.account_id, key.pk),
+                                      base_block_hash,
+                                      rpc_infos=rpc_infos)
+        accounts.append(account)
         if need_deploy:
             logger.info(f'Deploying contract for account {key.account_id}')
-            tx_res = acc.send_deploy_contract_tx('betanet_state.wasm')
+            tx_res = account.send_deploy_contract_tx('betanet_state.wasm')
             logger.info(f'Deploying result: {tx_res}')
-            init_ft_account(node_account, acc)
+            init_ft_account(node_account, account)
             logger.info(
-                f'Account {key.account_id} balance after initialization: {acc.get_amount_yoctonear()}'
+                f'Account {key.account_id} balance after initialization: {account.get_amount_yoctonear()}'
             )
             mocknet_helpers.wait_at_least_one_block()
 

@@ -1,16 +1,8 @@
 #!/usr/bin/env python3
 import json
-import random
-import sys
 import time
-import pathlib
-
 import base58
 import requests
-from rc import pmap
-
-import account as aaccount
-import key as kkey
 from configured_logger import logger
 
 LOCAL_ADDR = '127.0.0.1'
