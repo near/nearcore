@@ -56,20 +56,29 @@ impl NeardCmd {
             }
             NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation),
 
+            // TODO(mina86): Remove the command in Q3 2022.
             NeardSubCommand::UnsafeResetData => {
                 let store_path = get_store_path(&home_dir);
-                info!(target: "neard", "Removing all data from {}", store_path.display());
-                fs::remove_dir_all(store_path).expect("Removing data failed");
+                unsafe_reset("unsafe_reset_data", &store_path, "data", "<near-home-dir>/data");
             }
+            // TODO(mina86): Remove the command in Q3 2022.
             NeardSubCommand::UnsafeResetAll => {
-                info!(target: "neard", "Removing all data and config from {}", home_dir.to_string_lossy());
-                fs::remove_dir_all(home_dir).expect("Removing data and config failed.");
+                unsafe_reset("unsafe_reset_all", &home_dir, "data and config", "<near-home-dir>");
             }
             NeardSubCommand::StateViewer(cmd) => {
                 cmd.run(&home_dir, genesis_validation);
             }
         }
     }
+}
+
+fn unsafe_reset(command: &str, path: &std::path::Path, what: &str, default: &str) {
+    let dir =
+        path.to_str().map(|path| shell_escape::unix::escape(path.into())).unwrap_or(default.into());
+    warn!(target: "neard", "The ‘{}’ command is deprecated and will be removed in Q3 2022", command);
+    warn!(target: "neard", "Use ‘rm -r -- {}’ instead (which is effectively what this command does)", dir);
+    info!(target: "neard", "Removing all {} from {}", what, path.display());
+    fs::remove_dir_all(path).expect("Removing data failed");
 }
 
 #[derive(Clap, Debug)]
@@ -110,12 +119,13 @@ pub(super) enum NeardSubCommand {
     // TODO(#4372): Deprecated since 1.24.  Delete it in a couple of releases in 2022.
     #[clap(name = "testnet")]
     Testnet(LocalnetCmd),
-    /// (unsafe) Remove all the config, keys, data and effectively removing all information about
-    /// the network
+    /// (unsafe) Remove the entire NEAR home directory (which includes the
+    /// configuration, genesis files, private keys and data).  This effectively
+    /// removes all information about the network.
     #[clap(name = "unsafe_reset_all")]
     UnsafeResetAll,
     /// (unsafe) Remove all the data, effectively resetting node to the genesis state (keeps genesis and
-    /// config)
+    /// config).
     #[clap(name = "unsafe_reset_data")]
     UnsafeResetData,
     /// View DB state.
@@ -397,10 +407,14 @@ impl LocalnetCmd {
 }
 
 fn init_logging(verbose: Option<&str>) {
-    let mut env_filter = EnvFilter::new(
-        "tokio_reactor=info,near=info,stats=info,telemetry=info,delay_detector=info,\
-         near-performance-metrics=info,near-rust-allocator-proxy=info",
-    );
+    const DEFAULT_RUST_LOG: &'static str =
+        "tokio_reactor=info,near=info,stats=info,telemetry=info,\
+         delay_detector=info,near-performance-metrics=info,\
+         near-rust-allocator-proxy=info,warn";
+
+    let rust_log = env::var("RUST_LOG");
+    let rust_log = rust_log.as_ref().map(String::as_str).unwrap_or(DEFAULT_RUST_LOG);
+    let mut env_filter = EnvFilter::new(rust_log);
 
     if let Some(module) = verbose {
         env_filter = env_filter
@@ -415,23 +429,8 @@ fn init_logging(verbose: Option<&str>) {
         } else {
             env_filter = env_filter.add_directive(format!("{}=debug", module).parse().unwrap());
         }
-    } else {
-        env_filter = env_filter.add_directive(LevelFilter::WARN.into());
     }
 
-    if let Ok(rust_log) = env::var("RUST_LOG") {
-        if !rust_log.is_empty() {
-            for directive in rust_log.split(',').filter_map(|s| match s.parse() {
-                Ok(directive) => Some(directive),
-                Err(err) => {
-                    eprintln!("Ignoring directive `{}`: {}", s, err);
-                    None
-                }
-            }) {
-                env_filter = env_filter.add_directive(directive);
-            }
-        }
-    }
     tracing_subscriber::fmt::Subscriber::builder()
         .with_span_events(
             tracing_subscriber::fmt::format::FmtSpan::ENTER

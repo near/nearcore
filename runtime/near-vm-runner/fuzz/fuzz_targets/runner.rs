@@ -26,12 +26,11 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> (Option<VMOutcome>, Option<
     let promise_results = vec![];
 
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
-    vm_kind.runtime().unwrap().run(
+    vm_kind.runtime(config).unwrap().run(
         code,
         &method_name,
         &mut fake_external,
         context,
-        &config,
         &fees,
         &promise_results,
         PROTOCOL_VERSION,

@@ -1,12 +1,13 @@
 /// This file is contains all types used for communication between `Actors` within this crate.
 /// They are not meant to be used outside.
 use crate::network_protocol::PeerMessage;
-use crate::network_protocol::{Edge, PartialEdgeInfo, SimpleEdge};
 use crate::peer::peer_actor::PeerActor;
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, Message};
 use conqueue::QueueSender;
-use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, PeerType};
+use near_network_primitives::types::{
+    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerType, SimpleEdge,
+};
 use near_primitives::network::PeerId;
 use near_primitives::version::ProtocolVersion;
 use near_rate_limiter::ThrottleController;
