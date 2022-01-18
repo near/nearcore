@@ -26,7 +26,6 @@ use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
-use near_network::types::PartialEdgeInfo;
 use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
@@ -958,7 +957,7 @@ fn client_sync_headers() {
                     tracked_shards: vec![],
                     archival: false,
                 },
-                partial_edge_info: PartialEdgeInfo::default(),
+                partial_edge_info: near_network_primitives::types::PartialEdgeInfo::default(),
             }],
             num_connected_peers: 1,
             peer_max_count: 1,
@@ -970,7 +969,7 @@ fn client_sync_headers() {
                     tracked_shards: vec![],
                     archival: false,
                 },
-                partial_edge_info: PartialEdgeInfo::default(),
+                partial_edge_info: near_network_primitives::types::PartialEdgeInfo::default(),
             }],
             sent_bytes_per_sec: 0,
             received_bytes_per_sec: 0,
@@ -1328,7 +1327,7 @@ fn test_bad_chunk_mask() {
             create_chunk_on_height(&mut clients[chunk_producer], height);
         for client in clients.iter_mut() {
             let mut chain_store =
-                ChainStore::new(client.chain.store().owned_store(), chain_genesis.height);
+                ChainStore::new(client.chain.store().store().clone(), chain_genesis.height);
             client
                 .shards_mgr
                 .distribute_encoded_chunk(
@@ -1525,8 +1524,8 @@ fn test_gc_execution_outcome() {
     assert!(env.clients[0].chain.get_final_transaction_result(&tx_hash).is_err());
 }
 
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_gc_after_state_sync() {
     let epoch_length = 1024;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -1560,6 +1559,7 @@ fn test_gc_after_state_sync() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_process_block_after_state_sync() {
     let epoch_length = 1024;
     // test with shard_version > 0
@@ -2216,7 +2216,7 @@ fn test_validate_chunk_extra() {
 
     // Process the previously unavailable chunk. This causes two blocks to be accepted.
     let mut chain_store =
-        ChainStore::new(env.clients[0].chain.store().owned_store(), genesis_height);
+        ChainStore::new(env.clients[0].chain.store().store().clone(), genesis_height);
     let chunk_header = encoded_chunk.cloned_header();
     env.clients[0]
         .shards_mgr
@@ -2818,7 +2818,7 @@ fn test_epoch_protocol_version_change() {
 
         for j in 0..2 {
             let mut chain_store =
-                ChainStore::new(env.clients[j].chain.store().owned_store(), genesis_height);
+                ChainStore::new(env.clients[j].chain.store().store().clone(), genesis_height);
             env.clients[j]
                 .shards_mgr
                 .distribute_encoded_chunk(
@@ -3631,7 +3631,7 @@ mod access_key_nonce_range_tests {
         let (encoded_shard_chunk, merkle_path, receipts, block) =
             create_chunk_with_transactions(&mut env.clients[0], vec![tx]);
         let mut chain_store = ChainStore::new(
-            env.clients[0].chain.store().owned_store(),
+            env.clients[0].chain.store().store().clone(),
             genesis_block.header().height(),
         );
         env.clients[0]
@@ -4211,7 +4211,7 @@ mod contract_precompilation_tests {
     #[test]
     fn test_sync_and_call_cached_contract() {
         let num_clients = 2;
-        let stores: Vec<Arc<Store>> = (0..num_clients).map(|_| create_test_store()).collect();
+        let stores: Vec<Store> = (0..num_clients).map(|_| create_test_store()).collect();
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
@@ -4314,7 +4314,7 @@ mod contract_precompilation_tests {
     #[test]
     fn test_two_deployments() {
         let num_clients = 2;
-        let stores: Vec<Arc<Store>> = (0..num_clients).map(|_| create_test_store()).collect();
+        let stores: Vec<Store> = (0..num_clients).map(|_| create_test_store()).collect();
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
@@ -4397,7 +4397,7 @@ mod contract_precompilation_tests {
     #[test]
     fn test_sync_after_delete_account() {
         let num_clients = 3;
-        let stores: Vec<Arc<Store>> = (0..num_clients).map(|_| create_test_store()).collect();
+        let stores: Vec<Store> = (0..num_clients).map(|_| create_test_store()).collect();
         let mut genesis = Genesis::test(
             vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()],
             1,

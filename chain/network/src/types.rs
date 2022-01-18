@@ -1,7 +1,6 @@
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    Edge, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, RoutingTableUpdate,
-    SimpleEdge,
+    Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
 };
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 pub use crate::network_protocol::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
@@ -13,10 +12,10 @@ use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, MailboxError, Message};
 use futures::future::BoxFuture;
 use near_network_primitives::types::{
-    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, InboundTcpConnect, KnownProducer,
-    OutboundTcpConnect, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, Ping, Pong, ReasonForBan,
-    RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, Edge, InboundTcpConnect,
+    KnownProducer, OutboundTcpConnect, PartialEdgeInfo, PartialEncodedChunkForwardMsg,
+    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, Ping,
+    Pong, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
 };
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::Challenge;

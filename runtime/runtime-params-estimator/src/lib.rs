@@ -41,6 +41,7 @@ mod costs_to_runtime_config;
 mod estimator_context;
 mod gas_cost;
 mod qemu;
+mod rocksdb;
 mod transaction_builder;
 
 pub(crate) mod estimator_params;
@@ -82,6 +83,7 @@ use crate::config::Config;
 use crate::cost_table::format_gas;
 use crate::estimator_context::{EstimatorContext, Testbed};
 use crate::gas_cost::GasCost;
+use crate::rocksdb::{rocks_db_inserts_cost, rocks_db_read_cost};
 use crate::transaction_builder::TransactionBuilder;
 use crate::vm_estimator::create_context;
 
@@ -89,6 +91,7 @@ pub use crate::cost::Cost;
 pub use crate::cost_table::CostTable;
 pub use crate::costs_to_runtime_config::costs_to_runtime_config;
 pub use crate::qemu::QemuCommandBuilder;
+pub use crate::rocksdb::RocksDBTestConfig;
 
 static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ActionReceiptCreation, action_receipt_creation),
@@ -156,6 +159,8 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::TouchingTrieNode, touching_trie_node),
     (Cost::GasMeteringBase, gas_metering_base),
     (Cost::GasMeteringOp, gas_metering_op),
+    (Cost::RocksDbInsertValueByte, rocks_db_insert_value_byte),
+    (Cost::RocksDbReadValueByte, rocks_db_read_value_byte),
     (Cost::CpuBenchmarkSha256, cpu_benchmark_sha256),
     (Cost::OneCPUInstruction, one_cpu_instruction),
     (Cost::OneNanosecond, one_nanosecond),
@@ -933,6 +938,18 @@ fn gas_metering_base(ctx: &mut EstimatorContext) -> GasCost {
 
 fn gas_metering_op(ctx: &mut EstimatorContext) -> GasCost {
     gas_metering(ctx).1
+}
+
+fn rocks_db_insert_value_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let total_bytes = ctx.config.rocksdb_test_config.op_count as u64
+        * ctx.config.rocksdb_test_config.value_size as u64;
+    rocks_db_inserts_cost(&ctx.config) / total_bytes
+}
+
+fn rocks_db_read_value_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let total_bytes = ctx.config.rocksdb_test_config.op_count as u64
+        * ctx.config.rocksdb_test_config.value_size as u64;
+    rocks_db_read_cost(&ctx.config) / total_bytes
 }
 
 fn gas_metering(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {

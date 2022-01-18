@@ -7,11 +7,11 @@ Typically, we open a new connection, we define handles in actors, and `tokio` ha
 Encoding/decoding messages, as well as splitting messages into frames, is done by `FramedRead`, `FramedWrite` pair from `tokio`.
 
 However, neither `tokio`, nor `actix` solve the issue of load-balancing. 
-`near-rate-limiter` provides a `ThrottledFrameRead` as a replacement for `FramedRead` with a couple of extra features.
+`near-rate-limiter` provides a `ThrottleFramedRead` as a replacement for `FramedRead` with a couple of extra features.
 
 ## Implemented features:
 - Stopping/resuming reading from tcp socket at will.
-- `ThrottledFramedRead` can be controlled with a helper data structure `ThrottleController`.
+- `ThrottleFramedRead` can be controlled with a helper data structure `ThrottleController`.
 - For example, can be based on total memory usage, cpu, or other metrics, `ThrottleFramedRead` can stop or resume reading from socket.
 - An `ActixMessageWrapper`, wraps around `Actix` messages, can be used to track, the number, and size of all messages
 that originated from `TcpSocket`, and are still alive, and/or being transported inside `Actix` mailboxes, etc.
@@ -26,14 +26,14 @@ The full design, needs its own separate section. TODO(#5672)
 
 ## Structure
 
-### `ThrottledFrameRead`
+### `ThrottleFramedRead`
 - Manages a read `TcpSocket`. Is controlled by `ThrottleController` helper data structure.
 - Holds a copy of `ThrottleController`.
 
 ### `ThrottleController`
 - Holds a counter of number of messages/total size of messages tracked (`atomics`).
 - Is created with thresholds, defining, maximum values of the counters above, before read throttling starts happening.
-- Has a semaphore, which can be used to wake up the `ThrottledFrameRead`.
+- Has a semaphore, which can be used to wake up the `ThrottleFramedRead`.
 - Provides `is_ready` method, for determining, whenever `TcpStream` is ready to be read.
 That method can be accessed from any thread.
 

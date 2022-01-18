@@ -2,17 +2,19 @@
 name = "near-rate-limiter"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-publish = false
+edition = "2021"
 # Please update rust-toolchain.toml as well when changing version here:
 rust-version = "1.56.0"
-edition = "2021"
+publish = false
 
 [dependencies]
 actix = "=0.11.0-beta.2"
 bytes = "1.0.0"
 futures-core = "0.3.0"
 pin-project-lite = "0.2.0"
-tokio-stream = { version = "0.1.2", features = ["net"] }
-tokio-util = { version = "0.6.9", features = ["io", "codec"] }
-tokio = { version = "1.1", features = ["sync", "rt", "macros"] }
+tokio = { version = "1.1", features = ["macros", "rt", "sync"] }
+tokio-util = { version = "0.6.9", features = ["codec", "io"] }
 tracing = "0.1"
+
+[dev-dependencies]
+tokio-stream = { version = "0.1.2", features = ["net"] }
