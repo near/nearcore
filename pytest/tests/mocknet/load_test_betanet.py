@@ -173,7 +173,7 @@ def random_transaction(account,
     for t in range(QUERIES_PER_TX):
         wait_at_least_one_block()
         logger.info(
-            f'Account {account.key.account_id} balance after {t} blocks: {retry_and_ignore_errors(lambda:account.get_amount_yoctonear())}'
+            f'Account {account.key.account_id} balance after {t+1} blocks: {retry_and_ignore_errors(lambda:account.get_amount_yoctonear())}'
         )
         break
 
