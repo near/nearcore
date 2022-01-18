@@ -510,7 +510,7 @@ pub enum RoutingTableMessagesResponse {
     RoutingTableUpdateResponse {
         /// PeerManager maintains list of local edges. We will notify `PeerManager`
         /// to remove those edges.
-        local_edges_to_remove: Vec<Edge>,
+        local_edges_to_remove: Vec<PeerId>,
         /// Active PeerId that are part of the shortest path to each PeerId.
         peer_forwarding: Arc<HashMap<PeerId, Vec<PeerId>>>,
         /// List of peers to ban for sending invalid edges.
@@ -567,19 +567,19 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                     prune = Prune::Disable;
                 }
 
-                let mut edges_removed =
-                    if self.needs_routing_table_recalculation || prune == Prune::Now {
-                        self.needs_routing_table_recalculation = false;
-                        self.recalculate_routing_table();
-                        self.prune_edges(prune, prune_edges_not_reachable_for)
-                    } else {
-                        Vec::new()
-                    };
-                // Only keep local edges
-                edges_removed.retain(|p| p.contains_peer(self.my_peer_id()));
-
+                let edges_removed = if self.needs_routing_table_recalculation || prune == Prune::Now
+                {
+                    self.needs_routing_table_recalculation = false;
+                    self.recalculate_routing_table();
+                    self.prune_edges(prune, prune_edges_not_reachable_for)
+                } else {
+                    Vec::new()
+                };
                 RoutingTableMessagesResponse::RoutingTableUpdateResponse {
-                    local_edges_to_remove: edges_removed,
+                    local_edges_to_remove: (edges_removed.iter())
+                        .filter_map(|e| e.other(self.my_peer_id()))
+                        .cloned()
+                        .collect(),
                     peer_forwarding: self.peer_forwarding.clone(),
                     peers_to_ban: std::mem::take(&mut self.peers_to_ban),
                 }
