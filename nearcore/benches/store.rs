@@ -43,8 +43,7 @@ fn read_trie_items(bench: &mut Bencher, num_trie_items: usize, shard_id: usize) 
                     tracing::info!(target: "neard", "{}", i)
                 }
             })
-            .take(num_trie_items)
-            .collect();
+            .take(num_trie_items);
         let took = start.elapsed();
 
         println!(
