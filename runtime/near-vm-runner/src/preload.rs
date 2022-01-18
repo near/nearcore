@@ -11,22 +11,22 @@ use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, ProtocolVersion, VMConfig, VMContext, VMOutcome};
 
 use crate::cache::{self, into_vm_result};
-use crate::memory::WasmerMemory;
-use crate::preload::VMModule::{Wasmer0, Wasmer2};
 use crate::vm_kind::VMKind;
-use crate::wasmer2_runner::{Wasmer2Memory, Wasmer2VM};
-use crate::wasmer_runner::run_wasmer0_module;
 
 const SHARE_MEMORY_INSTANCE: bool = false;
 
 enum VMModule {
+    #[cfg(feature = "wasmer0_vm")]
     Wasmer0(wasmer_runtime::Module),
+    #[cfg(feature = "wasmer2_vm")]
     Wasmer2(crate::wasmer2_runner::VMArtifact),
 }
 
 enum VMDataPrivate {
-    Wasmer0(Option<WasmerMemory>),
-    Wasmer2(Option<Wasmer2Memory>),
+    #[cfg(feature = "wasmer0_vm")]
+    Wasmer0(Option<crate::memory::WasmerMemory>),
+    #[cfg(feature = "wasmer2_vm")]
+    Wasmer2(Option<crate::wasmer2_runner::Wasmer2Memory>),
 }
 
 struct VMCallData {
@@ -57,9 +57,12 @@ pub struct ContractCaller {
 impl ContractCaller {
     pub fn new(num_threads: usize, vm_kind: VMKind, vm_config: VMConfig) -> ContractCaller {
         let private = match vm_kind {
+            #[cfg(not(feature = "wasmer0_vm"))]
+            VMKind::Wasmer0 => panic!("Wasmer0 is not enabled"),
+            #[cfg(feature = "wasmer0_vm")]
             VMKind::Wasmer0 => VMDataPrivate::Wasmer0(if SHARE_MEMORY_INSTANCE {
                 Some(
-                    WasmerMemory::new(
+                    crate::memory::WasmerMemory::new(
                         vm_config.limit_config.initial_memory_pages,
                         vm_config.limit_config.max_memory_pages,
                     )
@@ -68,9 +71,12 @@ impl ContractCaller {
             } else {
                 None
             }),
+            #[cfg(not(feature = "wasmer2_vm"))]
+            VMKind::Wasmer2 => panic!("Wasmer2 is not enabled"),
+            #[cfg(feature = "wasmer2_vm")]
             VMKind::Wasmer2 => VMDataPrivate::Wasmer2(if SHARE_MEMORY_INSTANCE {
                 Some(
-                    Wasmer2Memory::new(
+                    crate::wasmer2_runner::Wasmer2Memory::new(
                         vm_config.limit_config.initial_memory_pages,
                         vm_config.limit_config.max_memory_pages,
                     )
@@ -126,14 +132,15 @@ impl ContractCaller {
                 match call_data.result {
                     Err(err) => (None, Some(err)),
                     Ok(module) => match (&module, &mut self.vm_data_private) {
-                        (Wasmer0(module), VMDataPrivate::Wasmer0(memory)) => {
+                        #[cfg(feature = "wasmer0_vm")]
+                        (VMModule::Wasmer0(module), VMDataPrivate::Wasmer0(memory)) => {
                             let mut new_memory;
-                            run_wasmer0_module(
+                            crate::wasmer_runner::run_wasmer0_module(
                                 module.clone(),
                                 if memory.is_some() {
                                     memory.as_mut().unwrap()
                                 } else {
-                                    new_memory = WasmerMemory::new(
+                                    new_memory = crate::memory::WasmerMemory::new(
                                         self.vm_config.limit_config.initial_memory_pages,
                                         self.vm_config.limit_config.max_memory_pages,
                                     )
@@ -149,27 +156,29 @@ impl ContractCaller {
                                 current_protocol_version,
                             )
                         }
-                        (Wasmer2(module), VMDataPrivate::Wasmer2(memory)) => {
+                        #[cfg(feature = "wasmer2_vm")]
+                        (VMModule::Wasmer2(module), VMDataPrivate::Wasmer2(memory)) => {
                             let mut new_memory;
-                            Wasmer2VM::new(self.vm_config.clone()).run_module(
-                                &module,
-                                if memory.is_some() {
-                                    memory.as_mut().unwrap()
-                                } else {
-                                    new_memory = Wasmer2Memory::new(
-                                        self.vm_config.limit_config.initial_memory_pages,
-                                        self.vm_config.limit_config.max_memory_pages,
-                                    )
-                                    .unwrap();
-                                    &mut new_memory
-                                },
-                                method_name,
-                                ext,
-                                context,
-                                fees_config,
-                                promise_results,
-                                current_protocol_version,
-                            )
+                            crate::wasmer2_runner::Wasmer2VM::new(self.vm_config.clone())
+                                .run_module(
+                                    &module,
+                                    if memory.is_some() {
+                                        memory.as_mut().unwrap()
+                                    } else {
+                                        new_memory = crate::wasmer2_runner::Wasmer2Memory::new(
+                                            self.vm_config.limit_config.initial_memory_pages,
+                                            self.vm_config.limit_config.max_memory_pages,
+                                        )
+                                        .unwrap();
+                                        &mut new_memory
+                                    },
+                                    method_name,
+                                    ext,
+                                    context,
+                                    fees_config,
+                                    promise_results,
+                                    current_protocol_version,
+                                )
                         }
                         _ => panic!("Incorrect logic"),
                     },
@@ -194,6 +203,7 @@ fn preload_in_thread(
 ) {
     let cache = request.cache.as_deref();
     let result = match vm_kind {
+        #[cfg(feature = "wasmer0_vm")]
         VMKind::Wasmer0 => {
             let module = cache::wasmer0_cache::compile_module_cached_wasmer0(
                 &request.code,
@@ -202,6 +212,7 @@ fn preload_in_thread(
             );
             into_vm_result(module).map(VMModule::Wasmer0)
         }
+        #[cfg(feature = "wasmer2_vm")]
         VMKind::Wasmer2 => {
             let module = cache::wasmer2_cache::compile_module_cached_wasmer2(
                 &request.code,
