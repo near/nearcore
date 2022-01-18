@@ -63,12 +63,12 @@ fn read_trie_items(bench: &mut Bencher, num_trie_items: usize, shard_id: usize) 
 
 fn read_trie_items_1k(bench: &mut Bencher) {
     // Read trie items until 1k items found from shard 0.
-    read_trie_items(bench, 1_000, 0);
+    read_trie_items(bench, 1_000, 2);
 }
 
 fn read_trie_items_10k(bench: &mut Bencher) {
     // Read trie items until 10k items found from shard 0.
-    read_trie_items(bench, 10_000, 0);
+    read_trie_items(bench, 10_000, 2);
 }
 
 benchmark_group!(benches, read_trie_items_1k, read_trie_items_10k);
