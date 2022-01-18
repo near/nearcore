@@ -33,7 +33,7 @@ impl Trie {
         assert!(self.storage.as_caching_storage().is_some());
 
         let with_recording = self.recording_reads();
-        with_recording.visit_nodes_for_state_part(&state_root, part_id, num_parts)?;
+        with_recording.visit_nodes_for_state_part(state_root, part_id, num_parts)?;
         let recorded = with_recording.recorded_storage().unwrap();
 
         let trie_nodes = recorded.nodes;
@@ -55,12 +55,12 @@ impl Trie {
     ) -> Result<(), StorageError> {
         let path_begin = self.find_path_for_part_boundary(root_hash, part_id, num_parts)?;
         let path_end = self.find_path_for_part_boundary(root_hash, part_id + 1, num_parts)?;
-        let mut iterator = self.iter(&root_hash)?;
+        let mut iterator = self.iter(root_hash)?;
         iterator.visit_nodes_interval(&path_begin, &path_end)?;
 
         // Extra nodes for compatibility with the previous version of computing state parts
         if part_id + 1 != num_parts {
-            let mut iterator = TrieIterator::new(&self, root_hash)?;
+            let mut iterator = TrieIterator::new(self, root_hash)?;
             let path_end_encoded = NibbleSlice::encode_nibbles(&path_end, false);
             iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_end_encoded[..]).0)?;
             if let Some(item) = iterator.next() {
@@ -83,7 +83,7 @@ impl Trie {
         if part_id == num_parts {
             return Ok(vec![16]);
         }
-        let root_node = self.retrieve_node(&state_root)?;
+        let root_node = self.retrieve_node(state_root)?;
         let total_size = root_node.memory_usage;
         let size_start = (total_size + num_parts - 1) / num_parts * part_id;
         self.find_path(&root_node, size_start)
@@ -118,7 +118,7 @@ impl Trie {
                         Some(NodeHandle::InMemory(_)) => {
                             unreachable!("only possible while mutating")
                         }
-                        Some(NodeHandle::Hash(h)) => self.retrieve_node(&h)?,
+                        Some(NodeHandle::Hash(h)) => self.retrieve_node(h)?,
                     };
                     if *size_skipped + child.memory_usage <= size_start {
                         *size_skipped += child.memory_usage;
@@ -148,7 +148,7 @@ impl Trie {
             TrieNode::Extension(key, child_handle) => {
                 let child = match child_handle {
                     NodeHandle::InMemory(_) => unreachable!("only possible while mutating"),
-                    NodeHandle::Hash(h) => self.retrieve_node(&h)?,
+                    NodeHandle::Hash(h) => self.retrieve_node(h)?,
                 };
                 let (slice, _is_leaf) = NibbleSlice::from_encoded(key);
                 key_nibbles.extend(slice.iter());
@@ -187,7 +187,7 @@ impl Trie {
         let num_nodes = trie_nodes.0.len();
         let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes });
 
-        trie.visit_nodes_for_state_part(&state_root, part_id, num_parts)?;
+        trie.visit_nodes_for_state_part(state_root, part_id, num_parts)?;
         let storage = trie.storage.as_partial_storage().unwrap();
 
         if storage.visited_nodes.borrow().len() != num_nodes {
@@ -251,10 +251,10 @@ impl Trie {
     }
 
     pub fn get_memory_usage_from_serialized(bytes: &Vec<u8>) -> Result<u64, StorageError> {
-        match RawTrieNodeWithSize::decode(&bytes) {
+        match RawTrieNodeWithSize::decode(bytes) {
             Ok(value) => Ok(TrieNodeWithSize::from_raw(value).memory_usage),
             Err(_) => {
-                Err(StorageError::StorageInconsistentState(format!("Failed to decode node",)))
+                Err(StorageError::StorageInconsistentState("Failed to decode node".to_string()))
             }
         }
     }
@@ -296,7 +296,7 @@ mod tests {
                 .collect::<Vec<_>>();
             let trie = Trie::from_recorded_storage(PartialStorage { nodes: PartialState(nodes) });
             let mut insertions = <HashMap<CryptoHash, (Vec<u8>, u32)>>::new();
-            trie.traverse_all_nodes(&state_root, |hash| {
+            trie.traverse_all_nodes(state_root, |hash| {
                 if let Some((_bytes, rc)) = insertions.get_mut(hash) {
                     *rc += 1;
                 } else {
@@ -415,11 +415,11 @@ mod tests {
             size_start: u64,
             size_end: u64,
         ) -> Result<(), StorageError> {
-            let root_node = self.retrieve_node(&root_hash)?;
+            let root_node = self.retrieve_node(root_hash)?;
             let path_begin = self.find_path(&root_node, size_start)?;
             let path_end = self.find_path(&root_node, size_end)?;
 
-            let mut iterator = TrieIterator::new(&self, root_hash)?;
+            let mut iterator = TrieIterator::new(self, root_hash)?;
             let path_begin_encoded = NibbleSlice::encode_nibbles(&path_begin, false);
             iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded[..]).0)?;
             loop {
@@ -448,14 +448,14 @@ mod tests {
         ) -> Result<PartialState, StorageError> {
             assert!(part_id < num_parts);
             assert!(self.storage.as_caching_storage().is_some());
-            let root_node = self.retrieve_node(&state_root)?;
+            let root_node = self.retrieve_node(state_root)?;
             let total_size = root_node.memory_usage;
             let size_start = (total_size + num_parts - 1) / num_parts * part_id;
             let size_end =
                 std::cmp::min((total_size + num_parts - 1) / num_parts * (part_id + 1), total_size);
 
             let with_recording = self.recording_reads();
-            with_recording.visit_nodes_for_size_range_old(&state_root, size_start, size_end)?;
+            with_recording.visit_nodes_for_size_range_old(state_root, size_start, size_end)?;
             let recorded = with_recording.recorded_storage().unwrap();
 
             let trie_nodes = recorded.nodes;
@@ -549,9 +549,9 @@ mod tests {
         let trie_changes = gen_trie_changes(&mut rng, max_key_length, big_value_length);
         println!("Number of nodes: {}", trie_changes.len());
         let tries = create_tries();
-        let trie = tries.get_trie_for_shard(ShardUId::default());
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard());
         let state_root =
-            test_populate_trie(&tries, &Trie::empty_root(), ShardUId::default(), trie_changes);
+            test_populate_trie(&tries, &Trie::empty_root(), ShardUId::single_shard(), trie_changes);
         let memory_size = trie.retrieve_root_node(&state_root).unwrap().memory_usage;
         println!("Total memory size: {}", memory_size);
         for num_parts in [2, 3, 5, 10, 50].iter().cloned() {
@@ -616,12 +616,12 @@ mod tests {
         let mut rng = rand::thread_rng();
         for _ in 0..2000 {
             let tries = create_tries();
-            let trie = tries.get_trie_for_shard(ShardUId::default());
+            let trie = tries.get_trie_for_shard(ShardUId::single_shard());
             let trie_changes = gen_changes(&mut rng, 20);
             let state_root = test_populate_trie(
                 &tries,
                 &Trie::empty_root(),
-                ShardUId::default(),
+                ShardUId::single_shard(),
                 trie_changes.clone(),
             );
             let root_memory_usage = trie.retrieve_root_node(&state_root).unwrap().memory_usage;
@@ -675,13 +675,13 @@ mod tests {
         num_parts: u64,
         parts: &Vec<Vec<Vec<u8>>>,
     ) -> TrieChanges {
-        let trie_changes = Trie::combine_state_parts_naive(&state_root, &parts).unwrap();
+        let trie_changes = Trie::combine_state_parts_naive(state_root, parts).unwrap();
 
         let trie_changes_new = {
             let changes = (0..num_parts)
                 .map(|part_id| {
                     Trie::apply_state_part(
-                        &state_root,
+                        state_root,
                         part_id,
                         num_parts,
                         parts[part_id as usize].clone(),
@@ -700,13 +700,13 @@ mod tests {
         let mut rng = rand::thread_rng();
         for _ in 0..20 {
             let tries = create_tries();
-            let trie = tries.get_trie_for_shard(ShardUId::default());
+            let trie = tries.get_trie_for_shard(ShardUId::single_shard());
             let trie_changes = gen_changes(&mut rng, 10);
 
             let state_root = test_populate_trie(
                 &tries,
                 &Trie::empty_root(),
-                ShardUId::default(),
+                ShardUId::single_shard(),
                 trie_changes.clone(),
             );
             for _ in 0..10 {

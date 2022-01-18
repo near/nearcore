@@ -62,7 +62,7 @@ impl StateRecord {
         match column {
             col::ACCOUNT => Some(StateRecord::Account {
                 account_id: parse_account_id_from_account_key(&key).unwrap(),
-                account: Account::try_from_slice(&value).unwrap().into(),
+                account: Account::try_from_slice(&value).unwrap(),
             }),
             col::CONTRACT_DATA => {
                 let account_id = parse_account_id_from_contract_data_key(&key).unwrap();
@@ -111,8 +111,8 @@ impl Display for StateRecord {
                 f,
                 "Storage {:?},{:?}: {:?}",
                 account_id,
-                to_printable(&data_key),
-                to_printable(&value)
+                to_printable(data_key),
+                to_printable(value)
             ),
             StateRecord::Contract { account_id, code: _ } => {
                 write!(f, "Code for {:?}: ...", account_id)
@@ -125,7 +125,7 @@ impl Display for StateRecord {
                 "Received data {:?},{:?}: {:?}",
                 account_id,
                 data_id,
-                data.as_ref().map(|v| to_printable(&v))
+                data.as_ref().map(|v| to_printable(v))
             ),
             StateRecord::PostponedReceipt(receipt) => write!(f, "Postponed receipt {:?}", receipt),
             StateRecord::DelayedReceipt(receipt) => write!(f, "Delayed receipt {:?}", receipt),

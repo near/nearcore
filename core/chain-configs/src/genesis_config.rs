@@ -8,6 +8,7 @@ use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::{fmt, io};
 
+use anyhow::Context;
 use chrono::{DateTime, Utc};
 use num_rational::Rational;
 use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
@@ -15,7 +16,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Serializer;
 use sha2::digest::Digest;
 use smart_default::SmartDefault;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::genesis_validate::validate_genesis;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardConfig};
@@ -53,7 +54,7 @@ fn default_protocol_upgrade_stake_threshold() -> Rational {
 }
 
 fn default_shard_layout() -> ShardLayout {
-    ShardLayout::default()
+    ShardLayout::v0_single_shard()
 }
 
 fn default_minimum_stake_ratio() -> Rational {
@@ -71,7 +72,7 @@ fn default_num_chunk_only_producer_seats() -> u64 {
 }
 
 fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
-    return Some(ShardLayout::v1(
+    Some(ShardLayout::v1(
         vec![],
         vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
             .into_iter()
@@ -79,7 +80,7 @@ fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
             .collect(),
         Some(vec![vec![0, 1, 2, 3]]),
         1,
-    ));
+    ))
 }
 
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
@@ -162,7 +163,7 @@ pub struct GenesisConfig {
     pub minimum_stake_divisor: u64,
     /// Layout information regarding how to split accounts to shards
     #[serde(default = "default_shard_layout")]
-    #[default(ShardLayout::default())]
+    #[default(ShardLayout::v0_single_shard())]
     pub shard_layout: ShardLayout,
     #[serde(default = "default_simple_nightshade_shard_layout")]
     pub simple_nightshade_shard_layout: Option<ShardLayout>,
@@ -297,11 +298,12 @@ impl GenesisConfig {
     ///
     /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
     /// GenesisConfig structure.
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
-        let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
-        let genesis_config: GenesisConfig =
-            serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.");
-        genesis_config
+    pub fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
+        let file = File::open(path).with_context(|| "Could not open genesis config file.")?;
+        let reader = BufReader::new(file);
+        let genesis_config: GenesisConfig = serde_json::from_reader(reader)
+            .with_context(|| "Failed to deserialize the genesis records.")?;
+        Ok(genesis_config)
     }
 
     /// Writes GenesisConfig to the file.
@@ -468,39 +470,77 @@ impl GenesisJsonHasher {
     }
 }
 
+pub enum GenesisValidationMode {
+    Full,
+    UnsafeFast,
+}
+
 impl Genesis {
     pub fn new(config: GenesisConfig, records: GenesisRecords) -> Self {
-        let genesis = Self { config, records, records_file: PathBuf::new() };
-        validate_genesis(&genesis);
-        genesis
+        Self::new_validated(config, records, GenesisValidationMode::Full)
     }
 
-    pub fn new_with_path(config: GenesisConfig, records_file: PathBuf) -> Self {
-        let genesis = Self { config, records: GenesisRecords(vec![]), records_file };
-        validate_genesis(&genesis);
-        genesis
+    pub fn new_with_path<P: AsRef<Path>>(config: GenesisConfig, records_file: P) -> Self {
+        Self::new_with_path_validated(config, records_file, GenesisValidationMode::Full)
     }
 
     /// Reads Genesis from a single file.
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
+    pub fn from_file<P: AsRef<Path>>(path: P, genesis_validation: GenesisValidationMode) -> Self {
         let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
         let genesis: Genesis =
             serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.");
-        validate_genesis(&genesis);
-        genesis
+        // As serde skips the `records_file` field, we can assume that `Genesis` has `records` and
+        // doesn't have `records_file`.
+        Self::new_validated(genesis.config, genesis.records, genesis_validation)
     }
 
     /// Reads Genesis from config and records files.
-    pub fn from_files<P1, P2>(config_path: P1, records_path: P2) -> Self
+    pub fn from_files<P1, P2>(
+        config_path: P1,
+        records_path: P2,
+        genesis_validation: GenesisValidationMode,
+    ) -> Self
     where
         P1: AsRef<Path>,
         P2: AsRef<Path>,
     {
-        let config = GenesisConfig::from_file(config_path);
-        let records = GenesisRecords::from_file(records_path);
-        Self::new(config, records)
+        let config = GenesisConfig::from_file(config_path).unwrap();
+        Self::new_with_path_validated(config, records_path, genesis_validation)
     }
 
+    fn new_validated(
+        config: GenesisConfig,
+        records: GenesisRecords,
+        genesis_validation: GenesisValidationMode,
+    ) -> Self {
+        let genesis = Self { config, records, records_file: PathBuf::new() };
+        genesis.validate(genesis_validation)
+    }
+
+    fn new_with_path_validated<P: AsRef<Path>>(
+        config: GenesisConfig,
+        records_file: P,
+        genesis_validation: GenesisValidationMode,
+    ) -> Self {
+        let genesis = Self {
+            config,
+            records: GenesisRecords(vec![]),
+            records_file: records_file.as_ref().to_path_buf(),
+        };
+        genesis.validate(genesis_validation)
+    }
+
+    fn validate(self, genesis_validation: GenesisValidationMode) -> Self {
+        match genesis_validation {
+            GenesisValidationMode::Full => {
+                validate_genesis(&self);
+            }
+            GenesisValidationMode::UnsafeFast => {
+                warn!(target: "genesis", "Skipped genesis validation");
+            }
+        }
+        self
+    }
     /// Writes Genesis to the file.
     pub fn to_file<P: AsRef<Path>>(&self, path: P) {
         std::fs::write(
@@ -673,7 +713,7 @@ mod test {
             "b": "random",
             "records": []
         }"#;
-        stream_records_from_json_str(&genesis).expect("error reading empty records");
+        stream_records_from_json_str(genesis).expect("error reading empty records");
     }
 
     #[test]
@@ -683,7 +723,7 @@ mod test {
             "a": [1, 2],
             "b": "random"
         }"#;
-        stream_records_from_json_str(&genesis).unwrap();
+        stream_records_from_json_str(genesis).unwrap();
     }
 
     #[test]
@@ -715,7 +755,7 @@ mod test {
                     }
                 }]
         }"#;
-        stream_records_from_json_str(&genesis).unwrap();
+        stream_records_from_json_str(genesis).unwrap();
     }
 
     #[test]
@@ -741,7 +781,7 @@ mod test {
                 "e": []
             }
         }"#;
-        stream_records_from_json_str(&genesis).expect("error reading records with a field after");
+        stream_records_from_json_str(genesis).expect("error reading records with a field after");
     }
 
     #[test]
@@ -767,7 +807,7 @@ mod test {
                 }
             ]
         }"#;
-        stream_records_from_json_str(&genesis).expect("error reading records from genesis");
+        stream_records_from_json_str(genesis).expect("error reading records from genesis");
     }
 
     #[test]
@@ -804,6 +844,6 @@ mod test {
                 }
             ]
         }"#;
-        stream_records_from_json_str(&genesis).expect("error reading records from genesis");
+        stream_records_from_json_str(genesis).expect("error reading records from genesis");
     }
 }

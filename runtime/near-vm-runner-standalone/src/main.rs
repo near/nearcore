@@ -102,6 +102,7 @@ struct CliArgs {
     protocol_version: Option<ProtocolVersion>,
 }
 
+#[allow(unused)]
 #[derive(Debug, Clone)]
 struct StandaloneOutput {
     pub outcome: Option<VMOutcome>,
@@ -174,6 +175,13 @@ fn main() {
             state: State(results.state.fake_trie),
         }
     );
+
+    if let Some(outcome) = &outcome {
+        println!("\nLogs:");
+        for log in &outcome.logs {
+            println!("{}\n", log);
+        }
+    }
 
     match &outcome {
         Some(outcome) => {

@@ -20,45 +20,12 @@ use near_client::{
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus,
     TxStatusError, ViewClientActor,
 };
-#[cfg(feature = "test_features")]
-use near_jsonrpc_adversarial_primitives::SetAdvOptionsRequest;
-#[cfg(all(
-    feature = "test_features",
-    feature = "protocol_feature_routing_exchange_algorithm"
-))]
-use near_jsonrpc_adversarial_primitives::SetRoutingTableRequest;
-#[cfg(all(
-    feature = "test_features",
-    feature = "protocol_feature_routing_exchange_algorithm"
-))]
-use near_jsonrpc_adversarial_primitives::StartRoutingTableSyncRequest;
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
-#[cfg(feature = "test_features")]
-use near_network::routing::GetRoutingTableResult;
-#[cfg(feature = "sandbox")]
-use near_network::types::SandboxResponse;
-#[cfg(feature = "test_features")]
-use near_network::types::{GetPeerId, PeerManagerMessageRequest, SetAdvOptions};
 use near_network::types::{NetworkClientMessages, NetworkClientResponses};
-#[cfg(all(
-    feature = "test_features",
-    feature = "protocol_feature_routing_exchange_algorithm"
-))]
-use near_network::types::{SetRoutingTable, StartRoutingTableSync};
-#[cfg(feature = "test_features")]
-use near_network::{
-    PeerManagerActor, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
-};
-#[cfg(feature = "test_features")]
-use near_network_primitives::types::NetworkAdversarialMessage;
-#[cfg(feature = "sandbox")]
-use near_network_primitives::types::NetworkSandboxMessage;
-#[cfg(feature = "test_features")]
-use near_network_primitives::types::NetworkViewClientMessages;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
 use near_primitives::transaction::SignedTransaction;
@@ -233,9 +200,9 @@ struct JsonRpcHandler {
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
     #[cfg(feature = "test_features")]
-    peer_manager_addr: Addr<PeerManagerActor>,
+    peer_manager_addr: Addr<near_network::PeerManagerActor>,
     #[cfg(feature = "test_features")]
-    routing_table_addr: Addr<RoutingTableActor>,
+    routing_table_addr: Addr<near_network::RoutingTableActor>,
 }
 
 impl JsonRpcHandler {
@@ -271,15 +238,19 @@ impl JsonRpcHandler {
                 "adv_get_saved_blocks" => Some(self.adv_get_saved_blocks(params).await),
                 "adv_check_store" => Some(self.adv_check_store(params).await),
                 "adv_set_options" => {
-                    let params = parse_params::<SetAdvOptionsRequest>(params)?;
+                    let params = parse_params::<
+                        near_jsonrpc_adversarial_primitives::SetAdvOptionsRequest,
+                    >(params)?;
                     self.peer_manager_addr
-                        .send(PeerManagerMessageRequest::SetAdvOptions(SetAdvOptions {
-                            disable_edge_signature_verification: params
-                                .disable_edge_signature_verification,
-                            disable_edge_propagation: params.disable_edge_propagation,
-                            disable_edge_pruning: params.disable_edge_pruning,
-                            set_max_peers: None,
-                        }))
+                        .send(near_network::types::PeerManagerMessageRequest::SetAdvOptions(
+                            near_network::test_utils::SetAdvOptions {
+                                disable_edge_signature_verification: params
+                                    .disable_edge_signature_verification,
+                                disable_edge_propagation: params.disable_edge_propagation,
+                                disable_edge_pruning: params.disable_edge_pruning,
+                                set_max_peers: None,
+                            },
+                        ))
                         .await?;
                     Some(
                         serde_json::to_value(())
@@ -288,13 +259,16 @@ impl JsonRpcHandler {
                 }
                 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
                 "adv_set_routing_table" => {
-                    let request = SetRoutingTableRequest::parse(params)?;
+                    let request =
+                        near_jsonrpc_adversarial_primitives::SetRoutingTableRequest::parse(params)?;
                     self.peer_manager_addr
-                        .send(PeerManagerMessageRequest::SetRoutingTable(SetRoutingTable {
-                            add_edges: request.add_edges,
-                            remove_edges: request.remove_edges,
-                            prune_edges: request.prune_edges,
-                        }))
+                        .send(near_network::types::PeerManagerMessageRequest::SetRoutingTable(
+                            near_network::test_utils::SetRoutingTable {
+                                add_edges: request.add_edges,
+                                remove_edges: request.remove_edges,
+                                prune_edges: request.prune_edges,
+                            },
+                        ))
                         .await?;
                     Some(
                         serde_json::to_value(())
@@ -303,12 +277,18 @@ impl JsonRpcHandler {
                 }
                 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
                 "adv_start_routing_table_syncv2" => {
-                    let params = parse_params::<StartRoutingTableSyncRequest>(params)?;
+                    let params = parse_params::<
+                        near_jsonrpc_adversarial_primitives::StartRoutingTableSyncRequest,
+                    >(params)?;
 
                     self.peer_manager_addr
-                        .send(PeerManagerMessageRequest::StartRoutingTableSync(
-                            StartRoutingTableSync { peer_id: params.peer_id },
-                        ))
+                        .send(
+                            near_network::types::PeerManagerMessageRequest::StartRoutingTableSync(
+                                near_network::private_actix::StartRoutingTableSync {
+                                    peer_id: params.peer_id,
+                                },
+                            ),
+                        )
                         .await?;
                     Some(
                         serde_json::to_value(())
@@ -318,7 +298,9 @@ impl JsonRpcHandler {
                 "adv_get_peer_id" => {
                     let response = self
                         .peer_manager_addr
-                        .send(PeerManagerMessageRequest::GetPeerId(GetPeerId {}))
+                        .send(near_network::types::PeerManagerMessageRequest::GetPeerId(
+                            near_network::private_actix::GetPeerId {},
+                        ))
                         .await?;
                     Some(
                         serde_json::to_value(response.as_peer_id_result())
@@ -328,15 +310,15 @@ impl JsonRpcHandler {
                 "adv_get_routing_table" => {
                     let result = self
                         .routing_table_addr
-                        .send(RoutingTableMessages::RequestRoutingTable)
+                        .send(near_network::RoutingTableMessages::RequestRoutingTable)
                         .await?;
 
                     match result {
-                        RoutingTableMessagesResponse::RequestRoutingTableResponse {
+                        near_network::RoutingTableMessagesResponse::RequestRoutingTableResponse {
                             edges_info: routing_table,
                         } => {
                             let response = {
-                                GetRoutingTableResult {
+                                near_network::routing::GetRoutingTableResult {
                                     edges_info: routing_table
                                         .iter()
                                         .map(|x| x.to_simple_edge())
@@ -1100,9 +1082,11 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateError,
     > {
         self.client_addr
-            .send(NetworkClientMessages::Sandbox(NetworkSandboxMessage::SandboxPatchState(
-                patch_state_request.records,
-            )))
+            .send(NetworkClientMessages::Sandbox(
+                near_network_primitives::types::NetworkSandboxMessage::SandboxPatchState(
+                    patch_state_request.records,
+                ),
+            ))
             .await?;
 
         timeout(self.polling_config.polling_timeout, async {
@@ -1110,11 +1094,11 @@ impl JsonRpcHandler {
                 let patch_state_finished = self
                     .client_addr
                     .send(NetworkClientMessages::Sandbox(
-                        NetworkSandboxMessage::SandboxPatchStateStatus {},
+                        near_network_primitives::types::NetworkSandboxMessage::SandboxPatchStateStatus {},
                     ))
                     .await;
                 if let Ok(NetworkClientResponses::SandboxResult(
-                    SandboxResponse::SandboxPatchStateFinished(true),
+                              near_network_primitives::types::SandboxResponse::SandboxPatchStateFinished(true),
                 )) = patch_state_finished
                 {
                     break;
@@ -1135,8 +1119,10 @@ impl JsonRpcHandler {
         let height = parse_params::<u64>(params)?;
         actix::spawn(
             self.view_client_addr
-                .send(NetworkViewClientMessages::Adversarial(
-                    NetworkAdversarialMessage::AdvSetSyncInfo(height),
+                .send(near_network_primitives::types::NetworkViewClientMessages::Adversarial(
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvSetSyncInfo(
+                        height,
+                    ),
                 ))
                 .map(|_| ()),
         );
@@ -1146,15 +1132,15 @@ impl JsonRpcHandler {
     async fn adv_disable_header_sync(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr
-                .send(NetworkClientMessages::Adversarial(
-                    NetworkAdversarialMessage::AdvDisableHeaderSync,
+                .send(near_network::types::NetworkClientMessages::Adversarial(
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvDisableHeaderSync,
                 ))
                 .map(|_| ()),
         );
         actix::spawn(
             self.view_client_addr
-                .send(NetworkViewClientMessages::Adversarial(
-                    NetworkAdversarialMessage::AdvDisableHeaderSync,
+                .send(near_network_primitives::types::NetworkViewClientMessages::Adversarial(
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvDisableHeaderSync,
                 ))
                 .map(|_| ()),
         );
@@ -1165,14 +1151,14 @@ impl JsonRpcHandler {
         actix::spawn(
             self.client_addr
                 .send(NetworkClientMessages::Adversarial(
-                    NetworkAdversarialMessage::AdvDisableDoomslug,
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvDisableDoomslug,
                 ))
                 .map(|_| ()),
         );
         actix::spawn(
             self.view_client_addr
-                .send(NetworkViewClientMessages::Adversarial(
-                    NetworkAdversarialMessage::AdvDisableDoomslug,
+                .send(near_network_primitives::types::NetworkViewClientMessages::Adversarial(
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvDisableDoomslug,
                 ))
                 .map(|_| ()),
         );
@@ -1184,7 +1170,9 @@ impl JsonRpcHandler {
         actix::spawn(
             self.client_addr
                 .send(NetworkClientMessages::Adversarial(
-                    NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid),
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvProduceBlocks(
+                        num_blocks, only_valid,
+                    ),
                 ))
                 .map(|_| ()),
         );
@@ -1196,14 +1184,18 @@ impl JsonRpcHandler {
         actix::spawn(
             self.client_addr
                 .send(NetworkClientMessages::Adversarial(
-                    NetworkAdversarialMessage::AdvSwitchToHeight(height),
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvSwitchToHeight(
+                        height,
+                    ),
                 ))
                 .map(|_| ()),
         );
         actix::spawn(
             self.view_client_addr
-                .send(NetworkViewClientMessages::Adversarial(
-                    NetworkAdversarialMessage::AdvSwitchToHeight(height),
+                .send(near_network_primitives::types::NetworkViewClientMessages::Adversarial(
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvSwitchToHeight(
+                        height,
+                    ),
                 ))
                 .map(|_| ()),
         );
@@ -1213,7 +1205,9 @@ impl JsonRpcHandler {
     async fn adv_get_saved_blocks(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         match self
             .client_addr
-            .send(NetworkClientMessages::Adversarial(NetworkAdversarialMessage::AdvGetSavedBlocks))
+            .send(NetworkClientMessages::Adversarial(
+                near_network_primitives::types::NetworkAdversarialMessage::AdvGetSavedBlocks,
+            ))
             .await
         {
             Ok(result) => match result {
@@ -1228,7 +1222,7 @@ impl JsonRpcHandler {
         match self
             .client_addr
             .send(NetworkClientMessages::Adversarial(
-                NetworkAdversarialMessage::AdvCheckStorageConsistency,
+                near_network_primitives::types::NetworkAdversarialMessage::AdvCheckStorageConsistency,
             ))
             .await
         {
@@ -1307,7 +1301,7 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
     let mut cors = Cors::permissive();
     if cors_allowed_origins != ["*".to_string()] {
         for origin in cors_allowed_origins {
-            cors = cors.allowed_origin(&origin);
+            cors = cors.allowed_origin(origin);
         }
     }
     cors.allowed_methods(vec!["GET", "POST"])
@@ -1332,8 +1326,8 @@ pub fn start_http(
     genesis_config: GenesisConfig,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
-    #[cfg(feature = "test_features")] peer_manager_addr: Addr<PeerManagerActor>,
-    #[cfg(feature = "test_features")] routing_table_addr: Addr<RoutingTableActor>,
+    #[cfg(feature = "test_features")] peer_manager_addr: Addr<near_network::PeerManagerActor>,
+    #[cfg(feature = "test_features")] routing_table_addr: Addr<near_network::RoutingTableActor>,
 ) -> Vec<(&'static str, actix_web::dev::Server)> {
     let RpcConfig { addr, prometheus_addr, cors_allowed_origins, polling_config, limits_config } =
         config;

@@ -21,6 +21,9 @@ skip = [
     { name = "humantime", version = "=2.1.0" },
     { name = "textwrap", version = "=0.12.1" },
 
+    # many crates (borsh, indexmap, cached, ...) use this older version
+    { name = "hashbrown", version = "=0.9.1" },
+
     # insta uses older version of console
     { name = "console", version = "=0.14.1" },
     # near-epoch-manager fixed the rand version to ensure protocol stability
@@ -39,14 +42,20 @@ skip = [
     # `sha2` uses it
     { name = "cfg-if", version = "=1.0.0" },
 
+    # Wasmer 2.0 indirectly uses this outdated version.
+    { name = "memmap2", version = "=0.2.3" },
     # Wasmer 2.0 uses newer object
-    { name = "object", version = "=0.25.3" },
-    # Wasmer 2.0 uses both reion 2.2.0 and 3.0.0 via dependencies
+    { name = "object", version = "=0.27.1" },
+    # Wasmer 2.0 uses both region 2.2.0 and 3.0.0 via dependencies
     { name = "region", version = "=2.2.0" },
     # Wasmtime 0.17 use rely older wasmparser.
     { name = "wasmparser", version = "=0.76.0" },
     # Wasmtime 0.17 use older target-lexicon.
     { name = "target-lexicon", version = "=0.11.2" },
+    # Need this specific version of pwasm-utils for backwards-compatible
+    # stack limiting.
+    { name = "pwasm-utils", version = "=0.12.0" },
+    { name = "parity-wasm", version = "=0.41.0" },
 
     # param estimator uses newer imports, but it's not part of neard
     { name = "indicatif", version = "=0.15.0" },

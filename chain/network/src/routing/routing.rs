@@ -497,7 +497,7 @@ impl Graph {
             }
         }
 
-        self.compute_result(&mut routes, &distance)
+        self.compute_result(&routes, &distance)
     }
 
     fn compute_result(&self, routes: &[u128], distance: &[i32]) -> HashMap<PeerId, Vec<PeerId>> {
@@ -547,22 +547,22 @@ mod test {
 
         let mut graph = Graph::new(source.clone());
 
-        assert_eq!(graph.contains_edge(&source, &node0), false);
-        assert_eq!(graph.contains_edge(&source, &node1), false);
-        assert_eq!(graph.contains_edge(&node0, &node1), false);
-        assert_eq!(graph.contains_edge(&node1, &node0), false);
+        assert!(!graph.contains_edge(&source, &node0));
+        assert!(!graph.contains_edge(&source, &node1));
+        assert!(!graph.contains_edge(&node0, &node1));
+        assert!(!graph.contains_edge(&node1, &node0));
 
         graph.add_edge(&node0, &node1);
 
-        assert_eq!(graph.contains_edge(&source, &node0), false);
-        assert_eq!(graph.contains_edge(&source, &node1), false);
-        assert_eq!(graph.contains_edge(&node0, &node1), true);
-        assert_eq!(graph.contains_edge(&node1, &node0), true);
+        assert!(!graph.contains_edge(&source, &node0));
+        assert!(!graph.contains_edge(&source, &node1));
+        assert!(graph.contains_edge(&node0, &node1));
+        assert!(graph.contains_edge(&node1, &node0));
 
         graph.remove_edge(&node1, &node0);
 
-        assert_eq!(graph.contains_edge(&node0, &node1), false);
-        assert_eq!(graph.contains_edge(&node1, &node0), false);
+        assert!(!graph.contains_edge(&node0, &node1));
+        assert!(!graph.contains_edge(&node1, &node0));
 
         assert_eq!(0, graph.total_active_edges() as usize);
         assert_eq!(0, graph.compute_total_active_edges() as usize);
@@ -672,8 +672,8 @@ mod test {
 
         let mut graph = Graph::new(source.clone());
 
-        for i in 0..3 {
-            graph.add_edge(&source, &nodes[i]);
+        for node in nodes.iter().take(3) {
+            graph.add_edge(&source, node);
         }
 
         for level in 0..2 {
@@ -691,8 +691,8 @@ mod test {
             (0..3).map(|i| (nodes[i].clone(), vec![nodes[i].clone()])).collect();
         let target: Vec<_> = (0..3).map(|i| nodes[i].clone()).collect();
 
-        for i in 3..9 {
-            next_hops.push((nodes[i].clone(), target.clone()));
+        for node in nodes.iter().take(9).skip(3) {
+            next_hops.push((node.clone(), target.clone()));
         }
 
         assert!(expected_routing_tables(graph.calculate_distance(), next_hops));

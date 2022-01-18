@@ -1,18 +1,38 @@
 steps:
-  - label: "cargo test"
+  - label: "cargo test integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --locked --workspace
+      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --locked -p 'integration-tests'
 
     timeout: 60
     agents:
     - "distro=amazonlinux"
     branches: "!master"
 
-  - label: "cargo test nightly"
+  - label: "cargo test not integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features,test_features
+      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --locked --workspace -p '*' --exclude 'integration-tests*'
+
+    timeout: 60
+    agents:
+    - "distro=amazonlinux"
+    branches: "!master"
+
+  - label: "cargo test nightly integration-tests*"
+    command: |
+      source ~/.cargo/env && set -eux
+      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --features nightly_protocol,nightly_protocol_features,test_features -p 'integration-tests'
+
+    timeout: 60
+    agents:
+    - "distro=amazonlinux"
+    branches: "!master"
+
+  - label: "cargo test nightly not integration-tests*"
+    command: |
+      source ~/.cargo/env && set -eux
+      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features,test_features,rosetta_rpc -p '*' --exclude 'integration-tests*'
 
     timeout: 60
     agents:
@@ -23,6 +43,7 @@ steps:
     command: |
       source ~/.cargo/env && set -eux
       rustc --version && cargo --version
+      RUSTFLAGS='-D warnings' cargo run -p themis --release
       if [ -e deny.toml ]; then
         cargo-deny --all-features check bans
       fi
@@ -44,15 +65,10 @@ steps:
 
       python3 scripts/check_nightly.py
       python3 scripts/check_pytests.py
-      # TODO(near-ops#645): Remove pip install once yapf is bundled in the image.
-      python3 -m pip install --user yapf
-      if ! python3 -m yapf -pdr pytest scripts; then
-          set +x
-          echo 'Some of the Python files are not correctly formatted; please run'
-          echo '    python3 -m pip install -U yapf'
-          echo '    python3 -m yapf -pir pytest scripts'
-          exit 1
-      fi >&2
+      python3 scripts/check_fuzzing.py
+
+      ./scripts/formatting --check
+
       rm target/rpc_errors_schema.json
       RUSTFLAGS='-D warnings' cargo check -p near-jsonrpc --features dump_errors_schema
       if ! git --no-pager diff --no-index chain/jsonrpc/res/rpc_errors_schema.json target/rpc_errors_schema.json; then
@@ -70,7 +86,6 @@ steps:
     command: |
       source ~/.cargo/env && set -eux
       source ~/.nvm/nvm.sh
-      source ~/.yarn/yarn.sh
       rustup default nightly-2020-05-15
       rustup target add wasm32-unknown-unknown
       scripts/test_nearlib.sh

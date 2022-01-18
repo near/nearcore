@@ -1,5 +1,4 @@
 ./sandbox.txt
 ./pytest.txt
 ./expensive.txt
-./mocknet.txt
 ./fuzzing.txt

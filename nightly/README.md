@@ -5,7 +5,7 @@ request a run of the tests.  Most notably, `nightly.txt` file contains
 all the tests that NayDuck runs once a day on the head of the master
 branch of the repository.
 
-Nightly build results are available on [NayDuck](http://nayduck.near.org/).
+Nightly build results are available on [NayDuck](https://nayduck.near.org/).
 
 ## List file format
 
@@ -41,12 +41,16 @@ implicitly set.
 
 The `expensive` tests run a test binary and execute specific test in
 it.  (Test binaries are those built via `cargo test --no-run`).  While
-this can be used to run any Rust test, the intention is to run tests
-marked with `#[cfg(feature = "expensive_tests")]`.
+this can be used to run any Rust test, the intention is to run
+expensive tests only.  Those are the tests which are ignored unless
+`expensive_tests` crate feature is enabled.  Such tests should be
+marked with a `cfg_attr` macro, e.g.:
 
-When NayDuck receives a request to run an expensive test it will build
-all test binaries with the `expensive_tests` feature enabled and then
-execute the test functions.
+    #[test]
+    #[cfg_attr(not(feature = "expensive_tests"), ignore)]
+    fn test_gc_boundaries_large() {
+        /* ... */
+    }
 
 The arguments of an expensive test specify package in which the test
 is defined, test binary name and the full path to the test function.

@@ -1,48 +1,31 @@
 [package]
 name = "testlib"
 version = "0.0.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 
 [dependencies]
-actix = "=0.11.0-beta.2"
-actix-rt = "2"
-clap = "2.33"
-log = "0.4"
-rand = "0.7"
-serde_json = "1"
-futures = "0.3"
-once_cell = "1.5.2"
-lazy-static-include = "3"
 byteorder = "1.2"
-tempfile = "3"
-assert_matches = "1.3"
-num-rational = "0.3"
-hex = "0.4"
+once_cell = "1.5.2"
 
-borsh = "0.9"
-
-near-actix-test-utils = { path = "../actix-test-utils" }
-near-logger-utils = { path = "../../test-utils/logger" }
 near-chain-configs = { path = "../../core/chain-configs" }
+near-chain = { path = "../../chain/chain" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
-near-store = { path = "../../core/store" }
-near-vm-errors = { path = "../../runtime/near-vm-errors" }
-near-chain = { path = "../../chain/chain" }
-near-client = { path = "../../chain/client" }
-near-jsonrpc = { path = "../../chain/jsonrpc" }
-near-jsonrpc-primitives = { path = "../../chain/jsonrpc-primitives" }
-near-network = { path = "../../chain/network" }
-near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
 
 [features]
 default = []
 protocol_feature_alt_bn128 = [
     "near-primitives/protocol_feature_alt_bn128",
-    "near-vm-errors/protocol_feature_alt_bn128",
 ]
-protocol_feature_chunk_only_producers = ["near-client/protocol_feature_chunk_only_producers", "near-primitives/protocol_feature_chunk_only_producers"]
+protocol_feature_chunk_only_producers = [
+    "near-chain-configs/protocol_feature_chunk_only_producers",
+    "near-chain/protocol_feature_chunk_only_producers",
+    "near-primitives/protocol_feature_chunk_only_producers",
+]
 nightly_protocol_features = ["nightly_protocol", "protocol_feature_chunk_only_producers", "protocol_feature_alt_bn128"]
 nightly_protocol = []

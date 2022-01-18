@@ -1,8 +1,10 @@
 [package]
 name = "restored-receipts-verifier"
 version = "0.0.0"
-authors = ["Aleksandr Logunov <alex.logunov@near.org>"]
+authors = ["Near Inc <hello@nearprotocol.com>", "Aleksandr Logunov <alex.logunov@near.org>"]
 publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -11,8 +13,9 @@ edition = "2021"
 clap = "3.0.0-beta.1"
 serde_json = "1"
 
-near-primitives = { path = "../../core/primitives" }
-nearcore = { path = "../../nearcore" }
-near-store = { path = "../../core/store" }
 near-chain = { path = "../../chain/chain" }
+near-chain-configs = { path = "../../core/chain-configs" }
 near-jsonrpc = { path = "../../chain/jsonrpc" }
+near-primitives = { path = "../../core/primitives" }
+near-store = { path = "../../core/store" }
+nearcore = { path = "../../nearcore" }

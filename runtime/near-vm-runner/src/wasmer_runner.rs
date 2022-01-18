@@ -3,9 +3,11 @@ use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
 use crate::prepare::WASM_FEATURES;
 use crate::{cache, imports};
+use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::{config::VMConfig, types::CompiledContractCache, version::ProtocolVersion};
+use near_primitives::types::CompiledContractCache;
+use near_primitives::version::ProtocolVersion;
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
@@ -83,9 +85,8 @@ impl IntoVMError for wasmer_runtime::error::ResolveError {
 
 impl IntoVMError for wasmer_runtime::error::RuntimeError {
     fn into_vm_error(self) -> VMError {
-        use wasmer_runtime::error::InvokeError;
-        use wasmer_runtime::error::RuntimeError;
-        match &self {
+        use wasmer_runtime::error::{InvokeError, RuntimeError};
+        match self {
             RuntimeError::InvokeError(invoke_error) => match invoke_error {
                 // Indicates an exceptional circumstance such as a bug in Wasmer
                 // or a hardware failure.
@@ -188,17 +189,14 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
             RuntimeError::InstanceImage(_) => {
                 panic!("Support instance image errors properly");
             }
-            RuntimeError::User(data) => {
-                if let Some(err) = data.downcast_ref::<VMLogicError>() {
-                    err.into()
-                } else {
-                    panic!(
-                        "Bad error case! Output is non-deterministic {:?} {:?}",
-                        data.type_id(),
-                        self.to_string()
-                    );
-                }
-            }
+            RuntimeError::User(data) => match data.downcast::<VMLogicError>() {
+                Ok(err) => (*err).into(),
+                Err(data) => panic!(
+                    "Bad error case! Output is non-deterministic {:?} {:?}",
+                    data.type_id(),
+                    RuntimeError::User(data).to_string()
+                ),
+            },
         }
     }
 }
@@ -213,7 +211,7 @@ fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Resu
 
     {
         let _span = tracing::debug_span!(target: "vm", "run_method/call").entered();
-        instance.call(&method_name, &[]).map_err(|err| err.into_vm_error())?;
+        instance.call(method_name, &[]).map_err(|err| err.into_vm_error())?;
     }
 
     {
@@ -256,7 +254,7 @@ pub(crate) fn run_wasmer0_module<'a>(
         current_protocol_version,
     );
 
-    let import_object = imports::build_wasmer(memory_copy, &mut logic, current_protocol_version);
+    let import_object = imports::wasmer::build(memory_copy, &mut logic, current_protocol_version);
 
     if let Err(e) = check_method(&module, method_name) {
         return (None, Some(e));
@@ -271,7 +269,15 @@ pub(crate) fn wasmer0_vm_hash() -> u64 {
     42
 }
 
-pub(crate) struct Wasmer0VM;
+pub(crate) struct Wasmer0VM {
+    config: VMConfig,
+}
+
+impl Wasmer0VM {
+    pub(crate) fn new(config: VMConfig) -> Self {
+        Self { config }
+    }
+}
 
 impl crate::runner::VM for Wasmer0VM {
     fn run(
@@ -280,7 +286,6 @@ impl crate::runner::VM for Wasmer0VM {
         method_name: &str,
         ext: &mut dyn External,
         context: VMContext,
-        wasm_config: &VMConfig,
         fees_config: &RuntimeFeesConfig,
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
@@ -315,14 +320,14 @@ impl crate::runner::VM for Wasmer0VM {
         }
 
         // TODO: consider using get_module() here, once we'll go via deployment path.
-        let module = cache::wasmer0_cache::compile_module_cached_wasmer0(code, wasm_config, cache);
+        let module = cache::wasmer0_cache::compile_module_cached_wasmer0(code, &self.config, cache);
         let module = match into_vm_result(module) {
             Ok(x) => x,
             Err(err) => return (None, Some(err)),
         };
         let mut memory = WasmerMemory::new(
-            wasm_config.limit_config.initial_memory_pages,
-            wasm_config.limit_config.max_memory_pages,
+            self.config.limit_config.initial_memory_pages,
+            self.config.limit_config.max_memory_pages,
         )
         .expect("Cannot create memory for a contract call");
         // Note that we don't clone the actual backing memory, just increase the RC.
@@ -331,7 +336,7 @@ impl crate::runner::VM for Wasmer0VM {
         let mut logic = VMLogic::new_with_protocol_version(
             ext,
             context,
-            wasm_config,
+            &self.config,
             fees_config,
             promise_results,
             &mut memory,
@@ -349,7 +354,7 @@ impl crate::runner::VM for Wasmer0VM {
         }
 
         let import_object =
-            imports::build_wasmer(memory_copy, &mut logic, current_protocol_version);
+            imports::wasmer::build(memory_copy, &mut logic, current_protocol_version);
 
         if let Err(e) = check_method(&module, method_name) {
             return (None, Some(e));
@@ -363,12 +368,11 @@ impl crate::runner::VM for Wasmer0VM {
         &self,
         code: &[u8],
         code_hash: &near_primitives::hash::CryptoHash,
-        wasm_config: &VMConfig,
         cache: &dyn CompiledContractCache,
     ) -> Option<VMError> {
         let result = crate::cache::wasmer0_cache::compile_and_serialize_wasmer(
             code,
-            wasm_config,
+            &self.config,
             code_hash,
             cache,
         );

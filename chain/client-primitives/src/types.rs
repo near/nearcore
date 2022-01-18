@@ -153,6 +153,19 @@ impl SyncStatus {
             _ => true,
         }
     }
+
+    pub fn repr(&self) -> u8 {
+        match self {
+            // Represent NoSync as 0 because it is the state of a normal well-behaving node.
+            SyncStatus::NoSync => 0,
+            SyncStatus::AwaitingPeers => 1,
+            SyncStatus::EpochSync { epoch_ord: _ } => 2,
+            SyncStatus::HeaderSync { current_height: _, highest_height: _ } => 3,
+            SyncStatus::StateSync(_, _) => 4,
+            SyncStatus::StateSyncDone => 5,
+            SyncStatus::BodySync { current_height: _, highest_height: _ } => 6,
+        }
+    }
 }
 
 /// Actor message requesting block by id or hash.
@@ -463,8 +476,8 @@ impl From<near_chain_primitives::Error> for GetGasPriceError {
 
 #[derive(Debug)]
 pub struct NetworkInfoResponse {
-    pub active_peers: Vec<PeerInfo>,
-    pub num_active_peers: usize,
+    pub connected_peers: Vec<PeerInfo>,
+    pub num_connected_peers: usize,
     pub peer_max_count: u32,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,

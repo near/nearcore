@@ -3,35 +3,34 @@ name = "near-chain"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.56.0"
 edition = "2021"
 
 [dependencies]
 actix = "=0.11.0-beta.2"
+borsh = "0.9"
 chrono = { version = "0.4.4", features = ["serde"] }
 failure = "0.1"
 failure_derive = "0.1"
 itertools = "0.10.0"
+lru = "0.6.5"
+num-rational = "0.3"
 once_cell = "1.5.2"
 rand = "0.7"
-serde = { version = "1", features = [ "derive" ] }
-cached = "0.23"
-num-rational = "0.3"
-tracing = "0.1.13"
-thiserror = "1.0"
-strum = "0.20"
 rayon = "1.5"
+strum = "0.20"
+thiserror = "1.0"
+tracing = "0.1.13"
 
-borsh = "0.9"
-
+delay-detector = { path = "../../tools/delay_detector", optional = true}
 near-chain-configs = { path = "../../core/chain-configs" }
 near-chain-primitives = { path = "../chain-primitives" }
 near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
-near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
 near-pool = { path = "../pool" }
-
-delay-detector = { path = "../../tools/delay_detector", optional = true}
+near-primitives = { path = "../../core/primitives" }
+near-store = { path = "../../core/store" }
 
 [dev-dependencies]
 near-logger-utils = {path = "../../test-utils/logger"}
@@ -43,9 +42,9 @@ expensive_tests = []
 test_features = []
 delay_detector = ["delay-detector"]
 no_cache = ["near-store/no_cache"]
-protocol_feature_chunk_only_producers = ["near-primitives/protocol_feature_chunk_only_producers"]
+protocol_feature_chunk_only_producers = ["near-chain-configs/protocol_feature_chunk_only_producers", "near-primitives/protocol_feature_chunk_only_producers"]
 
 protocol_feature_routing_exchange_algorithm = []
 nightly_protocol_features = ["nightly_protocol", "protocol_feature_chunk_only_producers", "protocol_feature_routing_exchange_algorithm"]
-nightly_protocol = []
+nightly_protocol = ["near-store/nightly_protocol", "near-primitives/nightly_protocol"]
 sandbox = []

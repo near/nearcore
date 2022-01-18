@@ -11,6 +11,46 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use std::collections::HashMap;
 
+/// This file implements two data structure `ShardLayout` and `ShardUId`
+///
+/// `ShardLayout`
+/// A versioned struct that contains all information needed to assign accounts
+/// to shards. Because of re-sharding, the chain may use different shard layout to
+/// split shards at different times.
+/// Currently, `ShardLayout` is stored as part of `EpochConfig`, which is generated each epoch
+/// given the epoch protocol version.
+/// In mainnet/testnet, we use two shard layouts since re-sharding has only happened once.
+/// It is stored as part of genesis config, see default_simple_nightshade_shard_layout()
+/// Below is an overview for some important functionalities of ShardLayout interface.
+///
+/// `version`
+/// `ShardLayout` has a version number. The version number should increment as when sharding changes.
+/// This guarantees the version number is unique across different shard layouts, which in turn guarantees
+/// `ShardUId` is different across shards from different shard layouts, as `ShardUId` includes
+/// `version` and `shard_id`
+///
+/// `get_parent_shard_id` and `get_split_shard_ids`
+/// `ShardLayout` also includes information needed for splitting shards. In particular, it encodes
+/// which shards from the previous shard layout split to which shards in the following shard layout.
+/// If shard A in shard layout 0 splits to shard B and C in shard layout 1,
+/// we call shard A the parent shard of shard B and C.
+/// Note that a shard can only have one parent shard. For example, the following case will be prohibited,
+/// a shard C in shard layout 1 contains accounts in both shard A and B in shard layout 0.
+/// Parent/split shard information can be accessed through these two functions.
+///
+/// `account_id_to_shard_id`
+///  Maps an account to the shard that it belongs to given a shard_layout
+///
+/// `ShardUId`
+/// `ShardUId` is a unique representation for shards from different shard layouts.  
+/// Comparing to `ShardId`, which is just an ordinal number ranging from 0 to NUM_SHARDS-1,
+/// `ShardUId` provides a way to unique identify shards when shard layouts may change across epochs.
+/// This is important because we store states indexed by shards in our database, so we need a
+/// way to unique identify shard even when shards change across epochs.
+/// Another difference between `ShardUId` and `ShardId` is that `ShardUId` should only exist in
+/// a node's internal state while `ShardId` can be exposed to outside APIs and used in protocol
+/// level information (for example, `ShardChunkHeader` contains `ShardId` instead of `ShardUId`)
+
 pub type ShardVersion = u32;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -19,6 +59,11 @@ pub enum ShardLayout {
     V1(ShardLayoutV1),
 }
 
+/// A shard layout that maps accounts evenly across all shards -- by calculate the hash of account
+/// id and mod number of shards. This is added to capture the old `account_id_to_shard_id` algorithm,
+/// to keep backward compatibility for some existing tests.
+/// `parent_shards` for `ShardLayoutV1` is always `None`, meaning it can only be the first shard layout
+/// a chain uses.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ShardLayoutV0 {
     /// Map accounts evenly across all shards
@@ -57,14 +102,17 @@ pub enum ShardLayoutError {
 }
 
 impl ShardLayout {
-    pub fn default() -> Self {
+    /* Some constructors */
+    pub fn v0_single_shard() -> Self {
         Self::v0(1, 0)
     }
 
+    /// Return a V0 Shardlayout
     pub fn v0(num_shards: NumShards, version: ShardVersion) -> Self {
         Self::V0(ShardLayoutV0 { num_shards, version })
     }
 
+    /// Return a V1 Shardlayout
     pub fn v1(
         fixed_shards: Vec<AccountId>,
         boundary_accounts: Vec<AccountId>,
@@ -94,6 +142,7 @@ impl ShardLayout {
         })
     }
 
+    /// Returns a V1 ShardLayout. It is only used in tests
     pub fn v1_test() -> Self {
         ShardLayout::v1(
             vec!["test0"].into_iter().map(|s| s.parse().unwrap()).collect(),
@@ -103,12 +152,16 @@ impl ShardLayout {
         )
     }
 
+    /// Given a parent shard id, return the shard uids for the shards in the current shard layout that
+    /// are split from this parent shard. If this shard layout has no parent shard layout, return None
     pub fn get_split_shard_uids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
         self.get_split_shard_ids(parent_shard_id).map(|shards| {
-            shards.into_iter().map(|id| ShardUId::from_shard_id_and_layout(id, &self)).collect()
+            shards.into_iter().map(|id| ShardUId::from_shard_id_and_layout(id, self)).collect()
         })
     }
 
+    /// Given a parent shard id, return the shard ids for the shards in the current shard layout that
+    /// are split from this parent shard. If this shard layout has no parent shard layout, return None
     pub fn get_split_shard_ids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardId>> {
         match self {
             Self::V0(_) => None,
@@ -119,6 +172,7 @@ impl ShardLayout {
         }
     }
 
+    /// Return the parent shard id for a given shard in the shard layout
     /// Only calls this function for shard layout that has parent shard layouts
     /// Returns error if `shard_id` is an invalid shard id in the current layout
     /// Panics if `self` has no parent shard layout
@@ -154,12 +208,13 @@ impl ShardLayout {
         }
     }
 
+    /// Returns shard uids for all shards in the shard layout
     pub fn get_shard_uids(&self) -> Vec<ShardUId> {
         (0..self.num_shards()).map(|x| ShardUId::from_shard_id_and_layout(x, self)).collect()
     }
 }
 
-/// Maps account_id to shard_id given a shard_layout
+/// Maps an account to the shard that it belongs to given a shard_layout
 /// For V0, maps according to hash of account id
 /// For V1, accounts are divided to ranges, each range of account is mapped to a shard.
 /// There are also some fixed shards, each of which is mapped to an account and all sub-accounts.
@@ -167,8 +222,6 @@ impl ShardLayout {
 ///     Account "aurora" and all its sub-accounts will be mapped to shard_id 0.
 ///     For the rest of accounts, accounts <= "near" will be mapped to shard_id 1 and
 ///     accounts > "near" will be mapped shard_id 2.
-///  TODO: verify with aurora that whether the aurora shard should include all sub-accounts of
-///        "aurora" as well.
 pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardId {
     match shard_layout {
         ShardLayout::V0(ShardLayoutV0 { num_shards, .. }) => {
@@ -193,6 +246,7 @@ pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout
     }
 }
 
+/// Maps an account to the shard that it belongs to given a shard_layout
 pub fn account_id_to_shard_uid(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardUId {
     ShardUId::from_shard_id_and_layout(
         account_id_to_shard_id(account_id, shard_layout),
@@ -203,10 +257,11 @@ pub fn account_id_to_shard_uid(account_id: &AccountId, shard_layout: &ShardLayou
 fn is_top_level_account(top_account: &AccountId, account: &AccountId) -> bool {
     match account.as_ref().strip_suffix(top_account.as_ref()) {
         None => false,
-        Some(rest) => rest.is_empty() || rest.ends_with("."),
+        Some(rest) => rest.is_empty() || rest.ends_with('.'),
     }
 }
 
+/// ShardUId is an unique representation for shards from different shard layout
 #[derive(Hash, Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ShardUId {
     pub version: ShardVersion,
@@ -214,20 +269,25 @@ pub struct ShardUId {
 }
 
 impl ShardUId {
-    pub fn default() -> Self {
+    pub fn single_shard() -> Self {
         Self { version: 0, shard_id: 0 }
     }
+
+    /// Byte representation of the shard uid
     pub fn to_bytes(&self) -> [u8; 8] {
         let mut res = [0; 8];
         res[0..4].copy_from_slice(&u32::to_le_bytes(self.version));
         res[4..].copy_from_slice(&u32::to_le_bytes(self.shard_id));
         res
     }
+
+    /// Constructs a shard uid from shard id and a shard layout
     pub fn from_shard_id_and_layout(shard_id: ShardId, shard_layout: &ShardLayout) -> Self {
         assert!(shard_id < shard_layout.num_shards());
         Self { shard_id: shard_id as u32, version: shard_layout.version() }
     }
 
+    /// Returns shard id
     pub fn shard_id(&self) -> ShardId {
         ShardId::from(self.shard_id)
     }
@@ -236,6 +296,7 @@ impl ShardUId {
 impl TryFrom<&[u8]> for ShardUId {
     type Error = Box<dyn std::error::Error>;
 
+    /// Deserialize `bytes` to shard uid
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() != 8 {
             return Err("incorrect length for ShardUId".into());
@@ -245,6 +306,8 @@ impl TryFrom<&[u8]> for ShardUId {
         Ok(Self { version, shard_id })
     }
 }
+
+/// Returns the byte representation for (block, shard_uid)
 pub fn get_block_shard_uid(block_hash: &CryptoHash, shard_uid: &ShardUId) -> Vec<u8> {
     let mut res = Vec::with_capacity(40);
     res.extend_from_slice(block_hash.as_ref());
@@ -252,6 +315,7 @@ pub fn get_block_shard_uid(block_hash: &CryptoHash, shard_uid: &ShardUId) -> Vec
     res
 }
 
+/// Deserialize from a byte representation to (block, shard_uid)
 #[allow(unused)]
 pub fn get_block_shard_uid_rev(
     key: &[u8],
@@ -261,8 +325,7 @@ pub fn get_block_shard_uid_rev(
             std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid key length").into()
         );
     }
-    let block_hash_vec: Vec<u8> = key[0..32].iter().cloned().collect();
-    let block_hash = CryptoHash::try_from(block_hash_vec)?;
+    let block_hash = CryptoHash::try_from(&key[..32])?;
     let shard_id = ShardUId::try_from(&key[32..])?;
     Ok((block_hash, shard_id))
 }

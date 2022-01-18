@@ -9,15 +9,16 @@ import subprocess
 import sys
 import time
 import typing
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 import branches
 import cluster
 from configured_logger import logger
-from utils import wait_for_blocks_or_timeout, load_test_contract, get_near_tempdir
 from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_payment_tx, \
     sign_create_account_tx, sign_delete_account_tx, sign_create_account_with_full_access_key_and_balance_tx
+import utils
 
 _EXECUTABLES = None
 
@@ -67,9 +68,11 @@ def test_upgrade() -> None:
        network matches `new` nodes.
     """
     executables = get_executables()
-    node_root = get_near_tempdir('upgradable', clean=True)
+    node_root = utils.get_near_tempdir('upgradable', clean=True)
 
     # Setup local network.
+    # TODO(#4372): testnet subcommand deprecated since 1.24.  Replace with
+    # localnet after a couple of releases in 2022.
     cmd = (executables.stable.neard, "--home=%s" % node_root, "testnet", "--v",
            "4", "--prefix", "test")
     logger.info(' '.join(str(arg) for arg in cmd))
@@ -83,6 +86,7 @@ def test_upgrade() -> None:
     node_dirs = [os.path.join(node_root, 'test%d' % i) for i in range(4)]
     for i, node_dir in enumerate(node_dirs):
         cluster.apply_genesis_changes(node_dir, genesis_config_changes)
+        cluster.apply_config_changes(node_dir, {'tracked_shards': [0]})
 
     # Start 3 stable nodes and one current node.
     config = executables.stable.node_config()
@@ -107,23 +111,21 @@ def test_upgrade() -> None:
     time.sleep(2)
 
     # deploy a contract
-    status = nodes[0].get_status()
-    hash = status['sync_info']['latest_block_hash']
-    tx = sign_deploy_contract_tx(nodes[0].signer_key, load_test_contract(), 1,
-                                 base58.b58decode(hash.encode('utf8')))
+    hash = nodes[0].get_latest_block().hash_bytes
+    tx = sign_deploy_contract_tx(nodes[0].signer_key,
+                                 utils.load_test_contract(), 1, hash)
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
 
     # write some random value
     tx = sign_function_call_tx(nodes[0].signer_key,
                                nodes[0].signer_key.account_id,
-                               'write_random_value', [], 10**13, 0, 2,
-                               base58.b58decode(hash.encode('utf8')))
+                               'write_random_value', [], 10**13, 0, 2, hash)
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
 
-    wait_for_blocks_or_timeout(nodes[0], 20, 120)
+    utils.wait_for_blocks(nodes[0], count=20)
 
     # Restart stable nodes into new version.
     for i in range(3):
@@ -131,7 +133,7 @@ def test_upgrade() -> None:
         nodes[i].binary_name = config['binary_name']
         nodes[i].start(boot_node=nodes[0])
 
-    wait_for_blocks_or_timeout(nodes[3], 60, 120)
+    utils.wait_for_blocks(nodes[3], count=60)
     status0 = nodes[0].get_status()
     status3 = nodes[3].get_status()
     protocol_version = status0['protocol_version']
@@ -140,13 +142,13 @@ def test_upgrade() -> None:
         "Latest protocol version %d should match active protocol version %d" % (
         latest_protocol_version, protocol_version)
 
-    hash = status0['sync_info']['latest_block_hash']
+    hash = base58.b58decode(
+        status0['sync_info']['latest_block_hash'].encode('ascii'))
 
     # write some random value again
     tx = sign_function_call_tx(nodes[0].signer_key,
                                nodes[0].signer_key.account_id,
-                               'write_random_value', [], 10**13, 0, 4,
-                               base58.b58decode(hash.encode('utf8')))
+                               'write_random_value', [], 10**13, 0, 4, hash)
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
@@ -157,7 +159,7 @@ def test_upgrade() -> None:
                          to=hex_account_id,
                          amount=10**25,
                          nonce=5,
-                         blockHash=base58.b58decode(hash.encode('utf8')))
+                         blockHash=hash)
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     # Successfully created a new account on transfer to hex
     assert 'error' not in res, res

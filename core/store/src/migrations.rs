@@ -85,11 +85,11 @@ pub fn fill_col_outcomes_by_hash(store: &Store) {
     for outcome in outcomes {
         match block_hash_to_outcomes.entry(outcome.block_hash) {
             Entry::Occupied(mut entry) => {
-                entry.get_mut().insert(outcome.id().clone());
+                entry.get_mut().insert(*outcome.id());
             }
             Entry::Vacant(entry) => {
                 let mut hash_set = get_outcomes_by_block_hash(store, &outcome.block_hash);
-                hash_set.insert(outcome.id().clone());
+                hash_set.insert(*outcome.id());
                 entry.insert(hash_set);
             }
         };
@@ -121,6 +121,19 @@ pub fn fill_col_transaction_refcount(store: &Store) {
             .expect("BorshSerialize should not fail");
     }
     store_update.commit().expect("Failed to migrate");
+}
+
+fn recompute_block_ordinal(store: &Store) {
+    let mut store_update = BatchedStoreUpdate::new(store, 10_000_000);
+    for (_, value) in store.iter(ColBlockHeight) {
+        let block_merkle_tree =
+            store.get_ser::<PartialMerkleTree>(ColBlockMerkleTree, &value).unwrap().unwrap();
+        let block_hash = CryptoHash::try_from_slice(&value).unwrap();
+        store_update
+            .set_ser(ColBlockOrdinal, &index_to_bytes(block_merkle_tree.size()), &block_hash)
+            .unwrap();
+    }
+    store_update.finish().unwrap();
 }
 
 pub fn migrate_6_to_7(path: &Path) {
@@ -162,7 +175,7 @@ pub fn migrate_9_to_10(path: &Path, is_archival: bool) {
         let num_parity_parts = num_total_parts - num_data_parts;
         let mut rs = ReedSolomonWrapper::new(num_data_parts, num_parity_parts);
         let signer =
-            InMemoryValidatorSigner::from_seed(AccountId::test_account(), KeyType::ED25519, "test");
+            InMemoryValidatorSigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
         let mut store_update = store.store_update();
         let batch_size_limit = 10_000_000;
         let mut batch_size = 0;
@@ -398,7 +411,7 @@ pub fn migrate_13_to_14(path: &Path) {
         EncodedShardChunk::V1(chunk)
     })
     .unwrap();
-    map_col(&store, DBCol::ColChunks, |chunk: ShardChunkV1| ShardChunk::V1(chunk)).unwrap();
+    map_col(&store, DBCol::ColChunks, ShardChunk::V1).unwrap();
     map_col(&store, DBCol::ColStateHeaders, |header: ShardStateSyncResponseHeaderV1| {
         ShardStateSyncResponseHeader::V1(header)
     })
@@ -410,9 +423,12 @@ pub fn migrate_13_to_14(path: &Path) {
 /// Make execution outcome ids in `ColOutcomeIds` ordered by replaying the chunks.
 pub fn migrate_14_to_15(path: &Path) {
     let store = create_store(path);
-    let trie_store =
-        Box::new(TrieCachingStorage::new(store.clone(), TrieCache::new(), ShardUId::default()));
-    let trie = Rc::new(Trie::new(trie_store, ShardUId::default()));
+    let trie_store = Box::new(TrieCachingStorage::new(
+        store.clone(),
+        TrieCache::new(),
+        ShardUId::single_shard(),
+    ));
+    let trie = Rc::new(Trie::new(trie_store, ShardUId::single_shard()));
 
     let mut store_update = store.store_update();
     let batch_size_limit = 10_000_000;
@@ -459,8 +475,8 @@ pub fn migrate_14_to_15(path: &Path) {
                     let local_receipt_id = create_receipt_id_from_transaction(
                         protocol_version,
                         transaction,
-                        &block.header().prev_hash(),
-                        &block.header().hash(),
+                        block.header().prev_hash(),
+                        block.header().hash(),
                     );
                     if execution_outcome_ids.contains(&local_receipt_id) {
                         local_receipt_ids.push(local_receipt_id);
@@ -719,16 +735,7 @@ pub fn migrate_25_to_26(path: &Path) {
 pub fn migrate_26_to_27(path: &Path, is_archival: bool) {
     let store = create_store(path);
     if is_archival {
-        let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
-        for (_, value) in store.iter(ColBlockHeight) {
-            let block_merkle_tree =
-                store.get_ser::<PartialMerkleTree>(ColBlockMerkleTree, &value).unwrap().unwrap();
-            let block_hash = CryptoHash::try_from_slice(&value).unwrap();
-            store_update
-                .set_ser(ColBlockOrdinal, &index_to_bytes(block_merkle_tree.size()), &block_hash)
-                .unwrap();
-        }
-        store_update.finish().unwrap();
+        recompute_block_ordinal(store.as_ref());
     }
     set_store_version(&store, 27);
 }
@@ -744,10 +751,10 @@ pub fn migrate_28_to_29(path: &Path) {
 }
 
 pub fn migrate_29_to_30(path: &Path) {
-    use near_primitives::epoch_manager::block_info::{BlockInfo, BlockInfoV1};
+    use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::epoch_manager::epoch_info::EpochSummary;
     use near_primitives::epoch_manager::AGGREGATOR_KEY;
-    use near_primitives::types::chunk_extra::{ChunkExtra, ChunkExtraV1};
+    use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::validator_stake::ValidatorStakeV1;
     use near_primitives::types::{
         BlockChunkValidatorStats, EpochId, ProtocolVersion, ShardId, ValidatorId,
@@ -785,9 +792,9 @@ pub fn migrate_29_to_30(path: &Path) {
         pub last_block_hash: CryptoHash,
     }
 
-    map_col(&store, DBCol::ColChunkExtra, |extra: ChunkExtraV1| ChunkExtra::V1(extra)).unwrap();
+    map_col(&store, DBCol::ColChunkExtra, ChunkExtra::V1).unwrap();
 
-    map_col(&store, DBCol::ColBlockInfo, |info: BlockInfoV1| BlockInfo::V1(info)).unwrap();
+    map_col(&store, DBCol::ColBlockInfo, BlockInfo::V1).unwrap();
 
     map_col(&store, DBCol::ColEpochValidatorInfo, |info: OldEpochSummary| EpochSummary {
         prev_epoch_last_block_hash: info.prev_epoch_last_block_hash,

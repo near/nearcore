@@ -7,6 +7,7 @@ use clap::{App, Arg, SubCommand};
 
 use near_chain::store_validator::StoreValidator;
 use near_chain::RuntimeAdapter;
+use near_chain_configs::GenesisValidationMode;
 use near_logger_utils::init_integration_logger;
 use near_store::create_store;
 use nearcore::{get_default_home, get_store_path, load_config, TrackedConfig};
@@ -26,13 +27,13 @@ fn main() {
         .subcommand(SubCommand::with_name("validate"))
         .get_matches();
 
-    let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
-    let near_config = load_config(home_dir);
+    let home_dir = matches.value_of("home").map(Path::new).unwrap();
+    let near_config = load_config(home_dir, GenesisValidationMode::Full);
 
-    let store = create_store(&get_store_path(&home_dir));
+    let store = create_store(&get_store_path(home_dir));
 
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(nearcore::NightshadeRuntime::new(
-        &home_dir,
+        home_dir,
         store.clone(),
         &near_config.genesis,
         TrackedConfig::from_config(&near_config.client_config),
@@ -43,9 +44,9 @@ fn main() {
 
     let mut store_validator = StoreValidator::new(
         near_config.validator_signer.as_ref().map(|x| x.validator_id().clone()),
-        near_config.genesis.config.clone(),
+        near_config.genesis.config,
         runtime_adapter.clone(),
-        store.clone(),
+        store,
     );
     store_validator.validate();
 

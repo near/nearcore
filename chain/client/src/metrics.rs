@@ -1,6 +1,6 @@
 use near_metrics::{
     try_create_histogram, try_create_int_counter, try_create_int_gauge, Histogram, IntCounter,
-    IntGauge,
+    IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
 
@@ -39,6 +39,13 @@ pub static SENT_BYTES_PER_SECOND: Lazy<IntGauge> = Lazy::new(|| {
 pub static BLOCKS_PER_MINUTE: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_blocks_per_minute", "Blocks produced per minute").unwrap()
 });
+pub static CHUNKS_PER_BLOCK_MILLIS: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_chunks_per_block_millis",
+        "Average number of chunks included in blocks",
+    )
+    .unwrap()
+});
 pub static CPU_USAGE: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_cpu_usage_ratio", "Percent of CPU usage").unwrap());
 pub static MEMORY_USAGE: Lazy<IntGauge> = Lazy::new(|| {
@@ -67,4 +74,56 @@ pub static BLOCKS_AHEAD_OF_HEAD: Lazy<IntGauge> = Lazy::new(|| {
         "Height difference between the current head and the newest block or chunk received",
     )
     .unwrap()
+});
+pub static VALIDATORS_CHUNKS_PRODUCED: Lazy<IntGaugeVec> = Lazy::new(|| {
+    near_metrics::try_create_int_gauge_vec(
+        "near_validators_chunks_produced",
+        "Number of chunks produced by a validator",
+        &["account_id"],
+    )
+    .unwrap()
+});
+pub static VALIDATORS_CHUNKS_EXPECTED: Lazy<IntGaugeVec> = Lazy::new(|| {
+    near_metrics::try_create_int_gauge_vec(
+        "near_validators_chunks_expected",
+        "Number of chunks expected to be produced by a validator",
+        &["account_id"],
+    )
+    .unwrap()
+});
+pub static VALIDATORS_BLOCKS_PRODUCED: Lazy<IntGaugeVec> = Lazy::new(|| {
+    near_metrics::try_create_int_gauge_vec(
+        "near_validators_blocks_produced",
+        "Number of blocks produced by a validator",
+        &["account_id"],
+    )
+    .unwrap()
+});
+pub static VALIDATORS_BLOCKS_EXPECTED: Lazy<IntGaugeVec> = Lazy::new(|| {
+    near_metrics::try_create_int_gauge_vec(
+        "near_validators_blocks_expected",
+        "Number of blocks expected to be produced by a validator",
+        &["account_id"],
+    )
+    .unwrap()
+});
+pub static SYNC_STATUS: Lazy<IntGauge> =
+    Lazy::new(|| try_create_int_gauge("near_sync_status", "Node sync status").unwrap());
+pub static EPOCH_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_epoch_height", "Height of the epoch at the head of the blockchain")
+        .unwrap()
+});
+pub static PROTOCOL_UPGRADE_BLOCK_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_protocol_upgrade_block_height",
+        "Estimated block height of the protocol upgrade",
+    )
+    .unwrap()
+});
+pub static NODE_PROTOCOL_VERSION: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_node_protocol_version", "Max protocol version supported by the node")
+        .unwrap()
+});
+pub static NODE_DB_VERSION: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_node_db_version", "DB version used by the node").unwrap()
 });

@@ -12,6 +12,8 @@ from configured_logger import logger
 _UNAME = os.uname()[0]
 _IS_DARWIN = _UNAME == 'Darwin'
 _BASEHREF = 'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com'
+_REPO_DIR = pathlib.Path(__file__).resolve().parents[2]
+_OUT_DIR = _REPO_DIR / 'target/debug'
 
 
 def current_branch():
@@ -79,16 +81,53 @@ def escaped(branch):
 
 def _compile_current(branch: str) -> Executables:
     """Compile current branch."""
-    subprocess.check_call(['cargo', 'build', '-p', 'neard', '--bin', 'neard'])
-    subprocess.check_call(['cargo', 'build', '-p', 'near-test-contracts'])
-    subprocess.check_call(['cargo', 'build', '-p', 'state-viewer'])
+    subprocess.check_call(['cargo', 'build', '-p', 'neard', '--bin', 'neard'],
+                          cwd=_REPO_DIR)
+    subprocess.check_call(['cargo', 'build', '-p', 'near-test-contracts'],
+                          cwd=_REPO_DIR)
+    subprocess.check_call(['cargo', 'build', '-p', 'state-viewer'],
+                          cwd=_REPO_DIR)
     branch = escaped(branch)
-    build_dir = pathlib.Path('../target/debug')
-    neard = build_dir / f'neard-{branch}'
-    state_viewer = build_dir / f'state-viewer-{branch}'
-    (build_dir / 'neard').rename(neard)
-    (build_dir / 'state-viewer').rename(state_viewer)
-    return Executables(build_dir, neard, state_viewer)
+    neard = _OUT_DIR / f'neard-{branch}'
+    state_viewer = _OUT_DIR / f'state-viewer-{branch}'
+    (_OUT_DIR / 'neard').rename(neard)
+    (_OUT_DIR / 'state-viewer').rename(state_viewer)
+    return Executables(_OUT_DIR, neard, state_viewer)
+
+
+def patch_binary(binary: pathlib.Path) -> None:
+    """
+    Patch a specified external binary if doing so is necessary for the host
+    system to be able to run it.
+
+    Currently only supports NixOS.
+    """
+    # Are we running on NixOS and require patching…?
+    try:
+        with open('/etc/os-release', 'r') as f:
+            if not any(line.strip() == 'ID=nixos' for line in f):
+                return
+    except FileNotFoundError:
+        return
+    if os.path.exists('/lib'):
+        return
+    # Build an output with patchelf and interpreter in it
+    nix_expr = '''
+    with (import <nixpkgs> {});
+    symlinkJoin {
+      name = "nearcore-dependencies";
+      paths = [patchelf stdenv.cc.bintools];
+    }
+    '''
+    path = subprocess.run(('nix-build', '-E', nix_expr),
+                          capture_output=True,
+                          encoding='utf-8').stdout.strip()
+    # Set the interpreter for the binary to NixOS'.
+    patchelf = f'{path}/bin/patchelf'
+    cmd = (patchelf, '--set-interpreter', f'{path}/nix-support/dynamic-linker',
+           binary)
+    logger.debug('Patching for NixOS ' + ' '.join(cmd))
+    subprocess.check_call(cmd)
 
 
 def __download_file_if_missing(filename: pathlib.Path, url: str) -> None:
@@ -118,6 +157,7 @@ def __download_file_if_missing(filename: pathlib.Path, url: str) -> None:
             name = pathlib.Path(tmp.name)
             logger.debug('Executing ' + ' '.join(cmd))
             subprocess.check_call(cmd, stdout=tmp)
+        patch_binary(name)
         name.chmod(0o555)
         name.rename(filename)
         name = None
@@ -130,13 +170,12 @@ def __download_binary(release: str, deploy: str) -> Executables:
     """Download binary for given release and deploye."""
     logger.info(f'Getting neard and state-viewer for {release}@{_UNAME} '
                 f'(deploy={deploy})')
-    outdir = pathlib.Path('../target/debug')
-    neard = outdir / f'neard-{release}-{deploy}'
-    state_viewer = outdir / f'state-viewer-{release}-{deploy}'
+    neard = _OUT_DIR / f'neard-{release}-{deploy}'
+    state_viewer = _OUT_DIR / f'state-viewer-{release}-{deploy}'
     basehref = f'{_BASEHREF}/nearcore/{_UNAME}/{release}/{deploy}'
     __download_file_if_missing(neard, f'{basehref}/neard')
     __download_file_if_missing(state_viewer, f'{basehref}/state-viewer')
-    return Executables(outdir, neard, state_viewer)
+    return Executables(_OUT_DIR, neard, state_viewer)
 
 
 class ABExecutables(typing.NamedTuple):
@@ -167,8 +206,8 @@ def prepare_ab_test(chain_id: str = 'mainnet') -> ABExecutables:
     if is_nayduck:
         # On NayDuck the file is fetched from a builder host so there’s no need
         # to build it.
-        root = pathlib.Path('../target/debug/')
-        current = Executables(root, root / 'neard', root / 'state-viewer')
+        current = Executables(_OUT_DIR, _OUT_DIR / 'neard',
+                              _OUT_DIR / 'state-viewer')
     else:
         current = _compile_current(current_branch())
 

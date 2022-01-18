@@ -60,7 +60,7 @@ fn gen_accounts_from_alphabet(
 
 pub fn gen_account(rng: &mut impl Rng, alphabet: &[u8]) -> AccountId {
     let str_length = rng.gen_range(4, 8);
-    let s: Vec<u8> = (0..str_length).map(|_| alphabet.choose(rng).unwrap().clone()).collect();
+    let s: Vec<u8> = (0..str_length).map(|_| *alphabet.choose(rng).unwrap()).collect();
     from_utf8(&s).unwrap().parse().unwrap()
 }
 
@@ -72,7 +72,7 @@ pub fn gen_unique_accounts(rng: &mut impl Rng, max_size: usize) -> Vec<AccountId
 
 pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
     let alphabet = &b"abcdefgh"[0..rng.gen_range(4, 8)];
-    let accounts = gen_accounts_from_alphabet(rng, max_size, &alphabet);
+    let accounts = gen_accounts_from_alphabet(rng, max_size, alphabet);
     accounts
         .iter()
         .map(|account_id| Receipt {
@@ -96,7 +96,7 @@ fn gen_changes_helper(
     let size = rng.gen_range(0, max_size) + 1;
     for _ in 0..size {
         let key_length = rng.gen_range(1, max_length);
-        let key: Vec<u8> = (0..key_length).map(|_| alphabet.choose(rng).unwrap().clone()).collect();
+        let key: Vec<u8> = (0..key_length).map(|_| *alphabet.choose(rng).unwrap()).collect();
 
         let delete = rng.gen_range(0.0, 1.0) < delete_probability;
         if delete {
@@ -108,7 +108,7 @@ fn gen_changes_helper(
         } else {
             let value_length = rng.gen_range(1, max_length);
             let value: Vec<u8> =
-                (0..value_length).map(|_| alphabet.choose(rng).unwrap().clone()).collect();
+                (0..value_length).map(|_| *alphabet.choose(rng).unwrap()).collect();
             result.push((key.clone(), Some(value.clone())));
             state.insert(key, value);
         }

@@ -15,15 +15,32 @@ dump of `mainnet`, `testnet` and `betanet`. Note that `mainnet` and `testnet` st
 You can run multiple tests in parallel, use `--pattern` to disambiguate.
 
 Configure the desirable generated load with the `--max-tps` flag, or disable load altogether with `--skip-load`.
+
+Example from the recent loadtest run:
+1) terraform apply -var="chain_id=mainnet" -var="size=small" -var="override_chain_id=rc3-22" -var="neard_binary_url=https://s3.us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/1.23.0/1eaa01d6abc76757b2ef50a1a127f98576b750c4/neard" -var="upgrade_neard_binary_url=https://near-protocol-public.s3.ca-central-1.amazonaws.com/mocknet/neard.rc3-22"
+2) python3 tests/mocknet/load_test_spoon.py --chain-id=mainnet-spoon --pattern=rc3-22 --epoch-length=1000 --num-nodes=120 --max-tps=100 --script=add_and_delete --increasing-stakes=0 --progressive-upgrade --num-seats=100
+
+Things to look out for when running the test:
+1) Test init phase completes before any binary upgrades start.
+2) At the beginning of each of the first epochs some nodes get upgraded.
+3) If the protocol upgrades becomes effective at epoch T, check that binaries upgraded at epochs T-1, T-2 have started successfully.
+4) BPS and TPS need to be at some sensible values.
+5) CPU usage and RAM usage need to be reasonable as well.
+6) Ideally we should check the percentage of generated transactions that succeed, but there is no easy way to do that. Maybe replay some blocks using `neard view_state apply_range --help`.
+
+Other notes:
+1) This grafana dashboard can help: https://grafana.near.org/d/jHbiNgSnz/mocknet
+2) Logs are in /home/ubuntu/neard.log and /home/ubuntu/neard.upgrade.log
+
 """
 import argparse
 import random
 import sys
 import time
-import tempfile
 from rc import pmap
+import pathlib
 
-sys.path.append('lib')
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from helpers import load_test_spoon_helper
 from helpers import load_testing_add_and_delete_helper
@@ -84,10 +101,15 @@ if __name__ == '__main__':
     parser.add_argument('--epoch-length', type=int, required=True)
     parser.add_argument('--num-nodes', type=int, required=True)
     parser.add_argument('--max-tps', type=float, required=True)
+    parser.add_argument('--increasing-stakes', type=float, default=0.0)
+    parser.add_argument('--progressive-upgrade',
+                        default=False,
+                        action='store_true')
     parser.add_argument('--skip-load', default=False, action='store_true')
     parser.add_argument('--skip-setup', default=False, action='store_true')
     parser.add_argument('--skip-restart', default=False, action='store_true')
     parser.add_argument('--script', required=True)
+    parser.add_argument('--num-seats', type=int, required=True)
 
     args = parser.parse_args()
 
@@ -110,6 +132,13 @@ if __name__ == '__main__':
         f'Starting Load of {chain_id} test using {len(validator_nodes)} validator nodes and {len(rpc_nodes)} RPC nodes.'
     )
 
+    upgrade_schedule = mocknet.create_upgrade_schedule(rpc_nodes,
+                                                       validator_nodes,
+                                                       args.progressive_upgrade,
+                                                       args.increasing_stakes,
+                                                       args.num_seats)
+    logger.info(f'upgrade_schedule: %s' % str(upgrade_schedule))
+
     if not args.skip_setup:
         logger.info('Setting remote python environments')
         mocknet.setup_python_environments(all_nodes,
@@ -117,19 +146,23 @@ if __name__ == '__main__':
         logger.info('Setting remote python environments -- done')
 
     if not args.skip_restart:
+        logger.info(f'Restarting')
         # Make sure nodes are running by restarting them.
         mocknet.stop_nodes(all_nodes)
         time.sleep(10)
         node_pks = pmap(lambda node: mocknet.get_node_keys(node)[0],
                         validator_nodes)
-        mocknet.create_and_upload_genesis(validator_nodes,
-                                          genesis_template_filename=None,
-                                          rpc_nodes=rpc_nodes,
-                                          chain_id=chain_id,
-                                          update_genesis_on_machine=True,
-                                          epoch_length=epoch_length,
-                                          node_pks=node_pks)
-        mocknet.start_nodes(all_nodes)
+        mocknet.create_and_upload_genesis(
+            validator_nodes,
+            genesis_template_filename=None,
+            rpc_nodes=rpc_nodes,
+            chain_id=chain_id,
+            update_genesis_on_machine=True,
+            epoch_length=epoch_length,
+            node_pks=node_pks,
+            increasing_stakes=args.increasing_stakes,
+            num_seats=args.num_seats)
+        mocknet.start_nodes(all_nodes, upgrade_schedule)
         time.sleep(60)
 
     mocknet.wait_all_nodes_up(all_nodes)
@@ -161,13 +194,35 @@ if __name__ == '__main__':
                                         max_tps,
                                         get_node_key=True)
 
+        initial_epoch_height = mocknet.get_epoch_height(rpc_nodes, -1)
+        logger.info(f'initial_epoch_height: {initial_epoch_height}')
+        assert initial_epoch_height >= 0
         initial_metrics = mocknet.get_metrics(archival_node)
+        start_time = time.time()
         logger.info(
             f'Waiting for contracts to be deployed for {deploy_time} seconds.')
-        time.sleep(deploy_time)
+        prev_epoch_height = initial_epoch_height
+        EPOCH_HEIGHT_CHECK_DELAY = 30
+        while time.time() - start_time < deploy_time:
+            epoch_height = mocknet.get_epoch_height(rpc_nodes,
+                                                    prev_epoch_height)
+            if epoch_height > prev_epoch_height:
+                mocknet.upgrade_nodes(epoch_height - initial_epoch_height,
+                                      upgrade_schedule, all_nodes)
+                prev_epoch_height = epoch_height
+            time.sleep(EPOCH_HEIGHT_CHECK_DELAY)
+
         logger.info(
             f'Waiting for the loadtest to complete: {test_timeout} seconds')
-        time.sleep(test_timeout)
+        while time.time() - start_time < test_timeout:
+            epoch_height = mocknet.get_epoch_height(rpc_nodes,
+                                                    prev_epoch_height)
+            if epoch_height > prev_epoch_height:
+                mocknet.upgrade_nodes(epoch_height - initial_epoch_height,
+                                      upgrade_schedule, all_nodes)
+                prev_epoch_height = epoch_height
+            time.sleep(EPOCH_HEIGHT_CHECK_DELAY)
+
         final_metrics = mocknet.get_metrics(archival_node)
         logger.info('All transaction types results:')
         all_tx_measurement = measure_tps_bps(validator_nodes,

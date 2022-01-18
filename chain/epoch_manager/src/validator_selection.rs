@@ -118,11 +118,12 @@ pub fn proposals_to_epoch_info(
             let minimum_validators_per_shard =
                 epoch_config.validator_selection_config.minimum_validators_per_shard as usize;
             let shard_assignment =
-                assign_shards(chunk_producers, num_shards as usize, minimum_validators_per_shard)
-                    .map_err(|_| EpochError::NotEnoughValidators {
-                    num_validators: num_chunk_producers as u64,
-                    num_shards,
-                })?;
+                assign_shards(chunk_producers, num_shards, minimum_validators_per_shard).map_err(
+                    |_| EpochError::NotEnoughValidators {
+                        num_validators: num_chunk_producers as u64,
+                        num_shards,
+                    },
+                )?;
 
             let mut chunk_producers_settlement: Vec<Vec<ValidatorId>> =
                 shard_assignment.iter().map(|vs| Vec::with_capacity(vs.len())).collect();
@@ -511,8 +512,9 @@ mod tests {
 
     #[test]
     fn test_block_producer_sampling() {
+        let num_shards = 4;
         let epoch_config = create_epoch_config(
-            1,
+            num_shards,
             2,
             0,
             ValidatorSelectionConfig {
@@ -543,6 +545,16 @@ mod tests {
         let mut counts: [i32; 2] = [0, 0];
         for h in 0..100_000 {
             let bp = epoch_info.sample_block_producer(h);
+            for shard_id in 0..num_shards {
+                let cp = epoch_info.sample_chunk_producer(h, shard_id);
+                if !checked_feature!(
+                    "protocol_feature_chunk_only_producers",
+                    ChunkOnlyProducers,
+                    PROTOCOL_VERSION
+                ) {
+                    assert_eq!(bp, cp);
+                }
+            }
             counts[bp as usize] += 1;
         }
         let diff = (2 * counts[1] - counts[0]).abs();
@@ -761,7 +773,7 @@ mod tests {
         EpochConfig {
             epoch_length: 10,
             num_block_producer_seats,
-            num_block_producer_seats_per_shard: vec![0; num_shards as usize],
+            num_block_producer_seats_per_shard: vec![num_block_producer_seats; num_shards as usize],
             avg_hidden_validator_seats_per_shard: vec![0; num_shards as usize],
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
@@ -771,7 +783,7 @@ mod tests {
             minimum_stake_divisor: 0,
             protocol_upgrade_stake_threshold: 0.into(),
             protocol_upgrade_num_epochs: 0,
-            shard_layout: ShardLayout::default(),
+            shard_layout: ShardLayout::v0_single_shard(),
             validator_selection_config,
         }
     }

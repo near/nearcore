@@ -1,6 +1,7 @@
 import base64
 import json
 import requests
+import random
 import time
 
 from transaction import (
@@ -13,16 +14,35 @@ from configured_logger import logger
 
 class Account:
 
-    def __init__(self, key, init_nonce, base_block_hash, rpc_info):
+    def __init__(self,
+                 key,
+                 init_nonce,
+                 base_block_hash,
+                 rpc_info=None,
+                 rpc_infos=None):
+        """
+        `rpc_info` takes precedence over `rpc_infos` for compatibility. One of them must be set.
+        If `rpc_info` is set, only this RPC node will be contacted.
+        Otherwise if `rpc_infos` is set, an RPC node will be selected randomly
+        from that set for each transaction attempt.
+        """
         self.key = key
         self.nonce = init_nonce
         self.base_block_hash = base_block_hash
-        self.rpc_addr, self.rpc_port = rpc_info
-        assert self.rpc_addr, key.account_id
+        assert rpc_info or rpc_infos
+        if rpc_info:
+            assert not rpc_infos
+        self.rpc_infos = rpc_infos
+        assert key.account_id
         self.tx_timestamps = []
         logger.info(
-            f'Creating Account {key.account_id} {init_nonce} {rpc_info} {key.pk} {key.sk}'
+            f'Creating Account {key.account_id} {init_nonce} {self.rpc_infos[0]} {key.pk} {key.sk}'
         )
+
+    # Returns an address of a random known RPC node.
+    def get_rpc_node_address(self):
+        rpc_addr, rpc_port = random.choice(self.rpc_infos)
+        return f'http://{rpc_addr}:{rpc_port}'
 
     def json_rpc(self, method, params):
         j = {
@@ -31,9 +51,7 @@ class Account:
             'id': 'dontcare',
             'jsonrpc': '2.0'
         }
-        r = requests.post(f'http://{self.rpc_addr}:{self.rpc_port}',
-                          json=j,
-                          timeout=30)
+        r = requests.post(self.get_rpc_node_address(), json=j, timeout=30)
         return json.loads(r.content)
 
     def send_tx(self, signed_tx):
@@ -83,3 +101,12 @@ class Account:
         tx = sign_staking_tx(self.key, self.key, stake_amount, self.nonce,
                              self.base_block_hash)
         return self.send_tx(tx)
+
+    def get_amount_yoctonear(self):
+        j = self.json_rpc(
+            'query', {
+                'request_type': 'view_account',
+                'finality': 'optimistic',
+                'account_id': self.key.account_id
+            })
+        return int(j.get('result', {}).get('amount', 0))

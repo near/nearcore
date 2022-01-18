@@ -55,14 +55,14 @@ pub trait ValidatorSigner: Sync + Send {
     ) -> (near_crypto::vrf::Value, near_crypto::vrf::Proof);
 
     /// Used by test infrastructure, only implement if make sense for testing otherwise raise `unimplemented`.
-    fn write_to_file(&self, path: &Path);
+    fn write_to_file(&self, path: &Path) -> std::io::Result<()>;
 }
 
 /// Test-only signer that "signs" everything with 0s.
 /// Don't use in any production or code that requires signature verification.
 #[derive(smart_default::SmartDefault)]
 pub struct EmptyValidatorSigner {
-    #[default(AccountId::test_account())]
+    #[default("test".parse().unwrap())]
     account_id: AccountId,
 }
 
@@ -118,7 +118,7 @@ impl ValidatorSigner for EmptyValidatorSigner {
         unimplemented!()
     }
 
-    fn write_to_file(&self, _path: &Path) {
+    fn write_to_file(&self, _path: &Path) -> std::io::Result<()> {
         unimplemented!()
     }
 }
@@ -182,7 +182,7 @@ impl ValidatorSigner for InMemoryValidatorSigner {
     }
 
     fn sign_approval(&self, inner: &ApprovalInner, target_height: BlockHeight) -> Signature {
-        self.signer.sign(&Approval::get_data_for_sig(&inner, target_height))
+        self.signer.sign(&Approval::get_data_for_sig(inner, target_height))
     }
 
     fn sign_challenge(&self, challenge_body: &ChallengeBody) -> (CryptoHash, Signature) {
@@ -197,7 +197,7 @@ impl ValidatorSigner for InMemoryValidatorSigner {
         peer_id: &PeerId,
         epoch_id: &EpochId,
     ) -> Signature {
-        let hash = AnnounceAccount::build_header_hash(&account_id, &peer_id, epoch_id);
+        let hash = AnnounceAccount::build_header_hash(account_id, peer_id, epoch_id);
         self.signer.sign(hash.as_ref())
     }
 
@@ -208,7 +208,7 @@ impl ValidatorSigner for InMemoryValidatorSigner {
         self.signer.compute_vrf_with_proof(data)
     }
 
-    fn write_to_file(&self, path: &Path) {
-        self.signer.write_to_file(path);
+    fn write_to_file(&self, path: &Path) -> std::io::Result<()> {
+        self.signer.write_to_file(path)
     }
 }

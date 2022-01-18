@@ -1,21 +1,24 @@
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
+use crate::commands::*;
+use crate::epoch_info;
+use crate::rocksdb_stats::get_rocksdb_stats;
 use clap::{AppSettings, Clap};
-use once_cell::sync::Lazy;
-
+use near_chain_configs::GenesisValidationMode;
 use near_logger_utils::init_integration_logger;
+use near_primitives::account::id::AccountId;
+use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{DB_VERSION, PROTOCOL_VERSION};
 use near_store::{create_store, Store};
 use nearcore::{get_default_home, get_store_path, load_config, NearConfig};
-
-use crate::commands::*;
+use once_cell::sync::Lazy;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::sync::Arc;
 
 static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(|| get_default_home());
 
 #[derive(Clap)]
-#[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
 pub struct StateViewerCmd {
     #[clap(flatten)]
     opts: StateViewerOpts,
@@ -30,7 +33,12 @@ impl StateViewerCmd {
         println!("state_viewer: Latest Protocol: {}, DB Version: {}", PROTOCOL_VERSION, DB_VERSION);
 
         let home_dir = state_viewer_cmd.opts.home;
-        state_viewer_cmd.subcmd.run(&home_dir);
+        let genesis_validation = if state_viewer_cmd.opts.unsafe_fast_startup {
+            GenesisValidationMode::UnsafeFast
+        } else {
+            GenesisValidationMode::Full
+        };
+        state_viewer_cmd.subcmd.run(&home_dir, genesis_validation);
     }
 }
 
@@ -39,6 +47,10 @@ struct StateViewerOpts {
     /// Directory for config and data.
     #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
     home: PathBuf,
+    /// Skips consistency checks of the 'genesis.json' file upon startup.
+    /// Let's you start `neard` slightly faster.
+    #[clap(long)]
+    pub unsafe_fast_startup: bool,
 }
 
 impl StateViewerOpts {
@@ -48,6 +60,7 @@ impl StateViewerOpts {
 }
 
 #[derive(Clap)]
+#[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
 pub enum StateViewerSubCommand {
     #[clap(name = "peers")]
     Peers,
@@ -80,12 +93,24 @@ pub enum StateViewerSubCommand {
     /// Dump contract data in storage of given account to binary file.
     #[clap(name = "dump_account_storage")]
     DumpAccountStorage(DumpAccountStorageCmd),
+    /// Print `EpochInfo` of an epoch given by `--epoch_id` or by `--epoch_height`.
+    #[clap(name = "epoch_info")]
+    EpochInfo(EpochInfoCmd),
+    /// Dump stats for the RocksDB storage.
+    #[clap(name = "rocksdb_stats")]
+    RocksDBStats(RocksDBStatsCmd),
+    #[clap(name = "receipts")]
+    Receipts(ReceiptsCmd),
+    #[clap(name = "chunks")]
+    Chunks(ChunksCmd),
+    #[clap(name = "partial_chunks")]
+    PartialChunks(PartialChunksCmd),
 }
 
 impl StateViewerSubCommand {
-    pub fn run(self, home_dir: &Path) {
-        let near_config = load_config(home_dir);
-        let store = create_store(&get_store_path(&home_dir));
+    pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
+        let near_config = load_config(home_dir, genesis_validation);
+        let store = create_store(&get_store_path(home_dir));
         match self {
             StateViewerSubCommand::Peers => peers(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
@@ -98,19 +123,36 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::CheckBlock => check_block_chunk_existence(store, near_config),
             StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(home_dir),
+            StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
         }
     }
 }
 
 #[derive(Clap)]
 pub struct DumpStateCmd {
+    /// Optionally, can specify at which height to dump state.
     #[clap(long)]
     height: Option<BlockHeight>,
+    /// Dumps state records and genesis config into separate files.
+    /// Has reasonable RAM requirements.
+    /// Use for chains with large state, such as mainnet and testnet.
+    /// If false - writes all information into a single file, which is useful for smaller networks,
+    /// such as betanet.
+    #[clap(long)]
+    stream: bool,
+    /// Location of the dumped state.
+    /// This is a directory if --stream is set, and a file otherwise.
+    #[clap(long, parse(from_os_str))]
+    file: Option<PathBuf>,
 }
 
 impl DumpStateCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
-        dump_state(self.height, home_dir, near_config, store);
+        dump_state(self.height, self.stream, self.file, home_dir, near_config, store);
     }
 }
 
@@ -154,6 +196,8 @@ pub struct ApplyRangeCmd {
     verbose_output: bool,
     #[clap(long, parse(from_os_str))]
     csv_file: Option<PathBuf>,
+    #[clap(long)]
+    only_contracts: bool,
 }
 
 impl ApplyRangeCmd {
@@ -167,6 +211,7 @@ impl ApplyRangeCmd {
             home_dir,
             near_config,
             store,
+            self.only_contracts,
         );
     }
 }
@@ -238,5 +283,76 @@ impl DumpAccountStorageCmd {
             near_config,
             store,
         );
+    }
+}
+#[derive(Clap)]
+pub struct EpochInfoCmd {
+    #[clap(flatten)]
+    epoch_selection: epoch_info::EpochSelection,
+    /// Displays kickouts of the given validator and expected and missed blocks and chunks produced.
+    #[clap(long)]
+    validator_account_id: Option<String>,
+}
+
+impl EpochInfoCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
+        print_epoch_info(
+            self.epoch_selection,
+            self.validator_account_id.map(|s| AccountId::from_str(&s).unwrap()),
+            home_dir,
+            near_config,
+            store,
+        );
+    }
+}
+
+#[derive(Clap)]
+pub struct RocksDBStatsCmd {
+    /// Location of the dumped Rocks DB stats.
+    #[clap(long, parse(from_os_str))]
+    file: Option<PathBuf>,
+}
+
+impl RocksDBStatsCmd {
+    pub fn run(self, home_dir: &Path) {
+        get_rocksdb_stats(home_dir, self.file).expect("Couldn't get RocksDB stats");
+    }
+}
+
+#[derive(Clap)]
+pub struct ReceiptsCmd {
+    #[clap(long)]
+    receipt_id: String,
+}
+
+impl ReceiptsCmd {
+    pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
+        get_receipt(CryptoHash::from_str(&self.receipt_id).unwrap(), near_config, store)
+    }
+}
+
+#[derive(Clap)]
+pub struct ChunksCmd {
+    #[clap(long)]
+    chunk_hash: String,
+}
+
+impl ChunksCmd {
+    pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
+        let chunk_hash = ChunkHash::from(CryptoHash::from_str(&self.chunk_hash).unwrap());
+        get_chunk(chunk_hash, near_config, store)
+    }
+}
+#[derive(Clap)]
+pub struct PartialChunksCmd {
+    #[clap(long)]
+    partial_chunk_hash: String,
+}
+
+impl PartialChunksCmd {
+    pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
+        let partial_chunk_hash =
+            ChunkHash::from(CryptoHash::from_str(&self.partial_chunk_hash).unwrap());
+        get_partial_chunk(partial_chunk_hash, near_config, store)
     }
 }

@@ -84,7 +84,7 @@ impl<'a> TrieIterator<'a> {
             match &node.node {
                 TrieNode::Empty => break,
                 TrieNode::Leaf(leaf_key, _) => {
-                    let existing_key = NibbleSlice::from_encoded(&leaf_key).0;
+                    let existing_key = NibbleSlice::from_encoded(leaf_key).0;
                     if existing_key < key {
                         self.key_nibbles.extend(existing_key.iter());
                         *status = CrumbStatus::Exiting;
@@ -107,7 +107,7 @@ impl<'a> TrieIterator<'a> {
                     }
                 }
                 TrieNode::Extension(ext_key, child) => {
-                    let existing_key = NibbleSlice::from_encoded(&ext_key).0;
+                    let existing_key = NibbleSlice::from_encoded(ext_key).0;
                     if key.starts_with(&existing_key) {
                         key = key.mid(existing_key.len());
                         hash = *child.unwrap_hash();
@@ -156,7 +156,7 @@ impl<'a> TrieIterator<'a> {
             (CrumbStatus::Exiting, n) => {
                 match n {
                     TrieNode::Leaf(ref key, _) | TrieNode::Extension(ref key, _) => {
-                        let existing_key = NibbleSlice::from_encoded(&key).0;
+                        let existing_key = NibbleSlice::from_encoded(key).0;
                         let l = self.key_nibbles.len();
                         self.key_nibbles.truncate(l - existing_key.len());
                     }
@@ -180,13 +180,13 @@ impl<'a> TrieIterator<'a> {
                     ValueHandle::HashAndSize(_, hash) => *hash,
                     ValueHandle::InMemory(_node) => unreachable!(),
                 };
-                let key = NibbleSlice::from_encoded(&key).0;
+                let key = NibbleSlice::from_encoded(key).0;
                 self.key_nibbles.extend(key.iter());
                 Some(IterStep::Value(hash))
             }
             (CrumbStatus::At, TrieNode::Extension(key, child)) => {
                 let hash = *child.unwrap_hash();
-                let key = NibbleSlice::from_encoded(&key).0;
+                let key = NibbleSlice::from_encoded(key).0;
                 self.key_nibbles.extend(key.iter());
                 Some(IterStep::Descend(hash))
             }
@@ -229,7 +229,7 @@ impl<'a> TrieIterator<'a> {
         self.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0)?;
 
         let mut trie_items = vec![];
-        while let Some(item) = self.next() {
+        for item in self {
             let trie_item = item?;
             let key_encoded: Vec<_> = NibbleSlice::new(&trie_item.0).iter().collect();
             if &key_encoded[..] >= path_end {
@@ -378,7 +378,7 @@ mod tests {
             test_get_trie_items(&trie, &map, &state_root, &[], &[]);
             test_get_trie_items(&trie, &map, &state_root, min_key, max_key);
             for (seek_key, _) in trie_changes.iter() {
-                test_seek(&trie, &map, &state_root, &seek_key);
+                test_seek(&trie, &map, &state_root, seek_key);
                 test_get_trie_items(&trie, &map, &state_root, min_key, seek_key);
                 test_get_trie_items(&trie, &map, &state_root, seek_key, max_key);
             }
@@ -386,11 +386,11 @@ mod tests {
                 let alphabet = &b"abcdefgh"[0..rng.gen_range(2, 8)];
                 let key_length = rng.gen_range(1, 8);
                 let seek_key: Vec<u8> =
-                    (0..key_length).map(|_| alphabet.choose(&mut rng).unwrap().clone()).collect();
+                    (0..key_length).map(|_| *alphabet.choose(&mut rng).unwrap()).collect();
                 test_seek(&trie, &map, &state_root, &seek_key);
 
                 let seek_key2: Vec<u8> =
-                    (0..key_length).map(|_| alphabet.choose(&mut rng).unwrap().clone()).collect();
+                    (0..key_length).map(|_| *alphabet.choose(&mut rng).unwrap()).collect();
                 let path_begin = seek_key.clone().min(seek_key2.clone());
                 let path_end = seek_key.clone().max(seek_key2.clone());
                 test_get_trie_items(&trie, &map, &state_root, &path_begin, &path_end);
@@ -405,10 +405,10 @@ mod tests {
         path_begin: &[u8],
         path_end: &[u8],
     ) {
-        let path_begin_nibbles: Vec<_> = NibbleSlice::new(&path_begin).iter().collect();
-        let path_end_nibbles: Vec<_> = NibbleSlice::new(&path_end).iter().collect();
+        let path_begin_nibbles: Vec<_> = NibbleSlice::new(path_begin).iter().collect();
+        let path_end_nibbles: Vec<_> = NibbleSlice::new(path_end).iter().collect();
         let result1 = trie
-            .iter(&state_root)
+            .iter(state_root)
             .unwrap()
             .get_trie_items(&path_begin_nibbles, &path_end_nibbles)
             .unwrap();
@@ -420,7 +420,7 @@ mod tests {
 
         // test when path_end ends in [16]
         let result1 =
-            trie.iter(&state_root).unwrap().get_trie_items(&path_begin_nibbles, &[16u8]).unwrap();
+            trie.iter(state_root).unwrap().get_trie_items(&path_begin_nibbles, &[16u8]).unwrap();
         let result2: Vec<_> =
             map.range(path_begin.to_vec()..).map(|(k, v)| (k.clone(), v.clone())).collect();
         assert_eq!(result1, result2);
@@ -432,7 +432,7 @@ mod tests {
         state_root: &CryptoHash,
         seek_key: &[u8],
     ) {
-        let mut iterator = trie.iter(&state_root).unwrap();
+        let mut iterator = trie.iter(state_root).unwrap();
         iterator.seek(&seek_key).unwrap();
         let result1: Vec<_> = iterator.map(Result::unwrap).take(5).collect();
         let result2: Vec<_> =
@@ -445,13 +445,13 @@ mod tests {
         let mut rng = rand::thread_rng();
         for _ in 0..100 {
             let tries = create_tries();
-            let trie = tries.get_trie_for_shard(ShardUId::default());
+            let trie = tries.get_trie_for_shard(ShardUId::single_shard());
             let trie_changes = gen_changes(&mut rng, 10);
             let trie_changes = simplify_changes(&trie_changes);
             let state_root = test_populate_trie(
                 &tries,
                 &Trie::empty_root(),
-                ShardUId::default(),
+                ShardUId::single_shard(),
                 trie_changes.clone(),
             );
             let mut iterator = trie.iter(&state_root).unwrap();

@@ -1,5 +1,4 @@
 mod challenges;
-#[cfg(feature = "expensive_tests")]
 mod doomslug;
 mod gc;
 mod simple_chain;
@@ -22,6 +21,7 @@ impl Chain {
             me,
             MaybeValidated::from(block),
             Provenance::PRODUCED,
+            |_| {},
             |_| {},
             |_| {},
             |_| {},

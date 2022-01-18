@@ -3,12 +3,14 @@ members = [
     "core/chain-configs",
     "core/crypto",
     "core/account-id",
+    "core/account-id/fuzz",
     "core/primitives",
     "core/primitives-core",
     "core/store",
     "core/metrics",
     "runtime/near-vm-logic",
     "runtime/near-vm-runner",
+    "runtime/near-vm-runner/fuzz",
     "runtime/near-vm-runner-standalone",
     "runtime/runtime",
     "runtime/runtime-params-estimator",
@@ -21,6 +23,7 @@ members = [
     "chain/network",
     "chain/indexer",
     "chain/jsonrpc",
+    "chain/jsonrpc/fuzz",
     "chain/jsonrpc/client",
     "chain/jsonrpc/jsonrpc-tests",
     "chain/jsonrpc-primitives",
@@ -44,21 +47,14 @@ members = [
     "tools/delay_detector",
     "tools/storage-usage-delta-calculator",
     "tools/restored-receipts-verifier",
+    "tools/themis",
     "integration-tests",
     "utils/near-rate-limiter",
+    "utils/near-cache",
 ]
 
 [workspace.metadata.workspaces]
-version = "0.10.0"
-exclude = [
-  # v0.0.0 {
-    "neard",
-    "nearcore",
-    "integration-tests",
-    "chain/jsonrpc/jsonrpc-tests",
-    "runtime/near-test-contracts",
-  # }
-]
+version = "0.11.0"
 
 [patch.crates-io]
 

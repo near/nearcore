@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import argparse
 import json
 import os
 import subprocess
@@ -41,7 +40,7 @@ def docker_init(image, home_dir, init_flags):
 
 
 def nodocker_init(home_dir, is_release, init_flags):
-    target = './target/%s/near' % ('release' if is_release else 'debug')
+    target = './target/%s/neard' % ('release' if is_release else 'debug')
     cmd = [target]
     if home_dir:
         cmd.extend(['--home', home_dir])
@@ -49,15 +48,16 @@ def nodocker_init(home_dir, is_release, init_flags):
     subprocess.call(cmd + init_flags)
 
 
-"""Retrieve requested chain id from the flags."""
-
-
 def get_chain_id_from_flags(flags):
-    # TODO this doesn't handle the `--chain-id my-id` syntax which should also be valid
-    chain_id_flags = [flag for flag in flags if flag.startswith('--chain-id=')]
-    if len(chain_id_flags) == 1:
-        return chain_id_flags[0][len('--chain-id='):]
-    return ''
+    """Retrieve requested chain id from the flags."""
+    chain_id = None
+    flags_iter = iter(flags)
+    for flag in flags_iter:
+        if flag.startswith('--chain-id='):
+            chain_id = flag[len('--chain-id='):]
+        elif flag == '--chain-id':
+            chain_id = next(flags_iter, chain_id)
+    return chain_id
 
 
 """Compile given package using cargo"""
@@ -89,16 +89,16 @@ def check_and_setup(nodocker,
     if os.path.exists(os.path.join(home_dir, 'config.json')):
         with open(os.path.join(os.path.join(home_dir, 'genesis.json'))) as fd:
             genesis_config = json.load(fd)
-        if chain_id != '' and genesis_config['chain_id'] != chain_id:
+        if chain_id and genesis_config['chain_id'] != chain_id:
             if chain_id == 'testnet':
                 print(
-                    "Folder %s already has network configuration for %s, which is not the official TestNet.\n"
+                    "Folder %s already has network configuration for %s, which is not the official testnet.\n"
                     "Use ./scripts/start_localnet.py instead to keep running with existing configuration.\n"
                     "If you want to run a different network, either specify different --home or remove %s to start from scratch."
                     % (home_dir, genesis_config['chain_id'], home_dir))
             elif genesis_config['chain_id'] == 'testnet':
                 print(
-                    "Folder %s already has network configuration for the official TestNet.\n"
+                    "Folder %s already has network configuration for the official testnet.\n"
                     "Use ./scripts/start_testnet.py instead to keep running it.\n"
                     "If you want to run a different network, either specify different --home or remove %s to start from scratch"
                     % (home_dir, home_dir))
@@ -114,7 +114,7 @@ def check_and_setup(nodocker,
     print("Setting up network configuration.")
     if len([x for x in init_flags if x.startswith('--account-id')]) == 0:
         prompt = "Enter your account ID"
-        if chain_id != '':
+        if chain_id:
             prompt += " (leave empty if not going to be a validator): "
         else:
             prompt += ": "
@@ -230,7 +230,7 @@ def run_nodocker(home_dir, is_release, boot_nodes, telemetry_url, verbose):
     print("Starting NEAR client...")
     print(
         "Autoupdate is not supported at the moment for runs outside of docker")
-    cmd = ['./target/%s/near' % ('release' if is_release else 'debug')]
+    cmd = ['./target/%s/neard' % ('release' if is_release else 'debug')]
     cmd.extend(['--home', home_dir])
     if verbose:
         cmd += ['--verbose', '']

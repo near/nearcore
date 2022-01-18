@@ -4,9 +4,7 @@ use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
-use near_primitives::errors::{
-    ActionError, ActionErrorKind, ContractCallError, ExternalError, RuntimeError,
-};
+use near_primitives::errors::{ActionError, ActionErrorKind, ContractCallError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt};
 use near_primitives::runtime::config::AccountCreationConfig;
@@ -16,7 +14,7 @@ use near_primitives::transaction::{
     FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, EpochInfoProvider};
+use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
@@ -27,13 +25,13 @@ use near_store::{
     StorageError, TrieUpdate,
 };
 use near_vm_errors::{
-    CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMError,
+    AnyError, CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMError,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{VMContext, VMOutcome};
 
 use crate::config::{safe_add_gas, RuntimeConfig};
-use crate::ext::RuntimeExt;
+use crate::ext::{ExternalError, RuntimeExt};
 use crate::{ActionResult, ApplyState};
 use near_primitives::config::ViewConfig;
 use near_vm_runner::precompile_contract;
@@ -64,9 +62,7 @@ pub(crate) fn execute_function_call(
         Err(e) => {
             return (
                 None,
-                Some(VMError::InconsistentStateError(InconsistentStateError::StorageError(
-                    e.to_string(),
-                ))),
+                Some(VMError::ExternalError(AnyError::new(ExternalError::StorageError(e)))),
             );
         }
     };
@@ -202,15 +198,15 @@ pub(crate) fn action_function_call(
             }
             FunctionCallError::_EVMError => unreachable!(),
         },
-        Some(VMError::ExternalError(serialized_error)) => {
-            let err: ExternalError = borsh::BorshDeserialize::try_from_slice(&serialized_error)
-                .expect("External error deserialization shouldn't fail");
+        Some(VMError::ExternalError(any_err)) => {
+            let err: ExternalError =
+                any_err.downcast().expect("Downcasting AnyError should not fail");
             return match err {
                 ExternalError::StorageError(err) => Err(err.into()),
                 ExternalError::ValidatorError(err) => Err(RuntimeError::ValidatorError(err)),
             };
         }
-        Some(VMError::InconsistentStateError(err)) => {
+        Some(VMError::InconsistentStateError(err @ InconsistentStateError::IntegerOverflow)) => {
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
         }
         Some(VMError::CacheError(err)) => {
@@ -349,7 +345,7 @@ pub(crate) fn action_create_account(
     predecessor_id: &AccountId,
     result: &mut ActionResult,
 ) {
-    if AccountId::is_top_level_account_id(account_id) {
+    if account_id.is_top_level() {
         if account_id.len() < account_creation_config.min_allowed_top_level_account_length as usize
             && predecessor_id != &account_creation_config.registrar_account_id
         {
@@ -364,7 +360,7 @@ pub(crate) fn action_create_account(
         } else {
             // OK: Valid top-level Account ID
         }
-    } else if !account_id.is_sub_account_of(&predecessor_id) {
+    } else if !account_id.is_sub_account_of(predecessor_id) {
         // The sub-account can only be created by its root account. E.g. `alice.near` only by `near`
         result.result = Err(ActionErrorKind::CreateAccountNotAllowed {
             account_id: account_id.clone(),
@@ -392,13 +388,22 @@ pub(crate) fn action_implicit_account_creation_transfer(
     actor_id: &mut AccountId,
     account_id: &AccountId,
     transfer: &TransferAction,
+    block_height: BlockHeight,
+    current_protocol_version: ProtocolVersion,
 ) {
     // NOTE: The account_id is hex like, because we've checked the permissions before.
-    debug_assert!(AccountId::is_implicit(account_id.as_ref()));
+    debug_assert!(account_id.is_implicit());
 
     *actor_id = account_id.clone();
 
-    let access_key = AccessKey::full_access();
+    let mut access_key = AccessKey::full_access();
+    // Set default nonce for newly created access key to avoid transaction hash collision.
+    // See <https://github.com/near/nearcore/issues/3779>.
+    if checked_feature!("stable", AccessKeyNonceForImplicitAccounts, current_protocol_version) {
+        access_key.nonce = (block_height - 1)
+            * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+    }
+
     // 0 for ED25519
     let mut public_key_data = Vec::with_capacity(33);
     public_key_data.push(0u8);
@@ -434,7 +439,7 @@ pub(crate) fn action_deploy_contract(
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
     let prev_code_length = prev_code.map(|code| code.code().len() as u64).unwrap_or_default();
-    account.set_storage_usage(account.storage_usage().checked_sub(prev_code_length).unwrap_or(0));
+    account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_length));
     account.set_storage_usage(
         account.storage_usage().checked_add(code.code().len() as u64).ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
@@ -508,7 +513,7 @@ pub(crate) fn action_delete_key(
     delete_key: &DeleteKeyAction,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
-    let access_key = get_access_key(state_update, &account_id, &delete_key.public_key)?;
+    let access_key = get_access_key(state_update, account_id, &delete_key.public_key)?;
     if let Some(access_key) = access_key {
         let storage_usage_config = &fee_config.storage_usage_config;
         let storage_usage = if current_protocol_version >= DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION
@@ -523,7 +528,7 @@ pub(crate) fn action_delete_key(
         };
         // Remove access key
         remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
-        account.set_storage_usage(account.storage_usage().checked_sub(storage_usage).unwrap_or(0));
+        account.set_storage_usage(account.storage_usage().saturating_sub(storage_usage));
     } else {
         result.result = Err(ActionErrorKind::DeleteKeyDoesNotExist {
             public_key: delete_key.public_key.clone(),
@@ -646,7 +651,7 @@ pub(crate) fn check_account_existence(
                 .into());
             } else {
                 if is_implicit_account_creation_enabled(current_protocol_version)
-                    && AccountId::is_implicit(account_id.as_ref())
+                    && account_id.is_implicit()
                 {
                     // If the account doesn't exist and it's 64-length hex account ID, then you
                     // should only be able to create it using single transfer action.
@@ -668,7 +673,7 @@ pub(crate) fn check_account_existence(
             if account.is_none() {
                 return if is_implicit_account_creation_enabled(current_protocol_version)
                     && is_the_only_action
-                    && AccountId::is_implicit(account_id.as_ref())
+                    && account_id.is_implicit()
                     && !is_refund
                 {
                     // OK. It's implicit account creation.
@@ -846,7 +851,8 @@ mod tests {
     #[test]
     fn test_delete_account_too_large() {
         let tries = create_tries();
-        let mut state_update = tries.new_trie_update(ShardUId::default(), CryptoHash::default());
+        let mut state_update =
+            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let action_result = test_delete_large_account(
             &"alice".parse().unwrap(),
             &CryptoHash::default(),
@@ -866,7 +872,8 @@ mod tests {
 
     fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
         let tries = create_tries();
-        let mut state_update = tries.new_trie_update(ShardUId::default(), CryptoHash::default());
+        let mut state_update =
+            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let account_id = "alice".parse::<AccountId>().unwrap();
         let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
         let empty_contract = [0; 10_000].to_vec();

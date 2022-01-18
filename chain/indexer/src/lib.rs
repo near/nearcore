@@ -2,6 +2,7 @@
 
 use tokio::sync::mpsc;
 
+use anyhow::Result;
 pub use near_primitives;
 use near_primitives::types::Gas;
 pub use nearcore::{get_default_home, init_configs, NearConfig};
@@ -11,6 +12,7 @@ pub use self::streamer::{
     IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
     StreamerMessage,
 };
+use near_chain_configs::GenesisValidationMode;
 
 mod streamer;
 
@@ -95,7 +97,7 @@ impl Indexer {
         );
 
         let near_config =
-            nearcore::config::load_config_without_genesis_records(&indexer_config.home_dir);
+            nearcore::config::load_config(&indexer_config.home_dir, GenesisValidationMode::Full);
 
         assert!(
             !&near_config.client_config.tracked_shards.is_empty(),
@@ -136,7 +138,7 @@ impl Indexer {
 
 /// Function that initializes configs for the node which
 /// accepts `InitConfigWrapper` and calls original `init_configs` from `neard`
-pub fn indexer_init_configs(dir: &std::path::PathBuf, params: InitConfigArgs) {
+pub fn indexer_init_configs(dir: &std::path::PathBuf, params: InitConfigArgs) -> Result<()> {
     init_configs(
         dir,
         params.chain_id.as_deref(),

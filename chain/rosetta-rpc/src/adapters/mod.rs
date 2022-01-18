@@ -4,10 +4,10 @@ use actix::Addr;
 
 use near_chain_configs::Genesis;
 use near_client::ViewClientActor;
-use near_primitives::serialize::BaseEncode;
 
 use validated_operations::ValidatedOperation;
 
+mod transactions;
 mod validated_operations;
 
 /// NEAR Protocol defines initial state in genesis records and treats the first
@@ -21,7 +21,7 @@ async fn convert_genesis_records_to_transaction(
     genesis: Arc<Genesis>,
     view_client_addr: Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
-) -> Result<crate::models::Transaction, crate::errors::ErrorKind> {
+) -> crate::errors::Result<crate::models::Transaction> {
     let genesis_account_ids = genesis.records.as_ref().iter().filter_map(|record| {
         if let near_primitives::state_record::StateRecord::Account { account_id, .. } = record {
             Some(account_id)
@@ -94,10 +94,12 @@ async fn convert_genesis_records_to_transaction(
     }
 
     Ok(crate::models::Transaction {
-        transaction_identifier: crate::models::TransactionIdentifier {
-            hash: format!("block:{}", block.header.hash),
-        },
+        transaction_identifier: crate::models::TransactionIdentifier::block_event(
+            "block",
+            &block.header.hash,
+        ),
         operations,
+        related_transactions: Vec::new(),
         metadata: crate::models::TransactionMetadata {
             type_: crate::models::TransactionType::Block,
         },
@@ -107,7 +109,7 @@ async fn convert_genesis_records_to_transaction(
 pub(crate) async fn convert_block_to_transactions(
     view_client_addr: Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
-) -> Result<Vec<crate::models::Transaction>, crate::errors::ErrorKind> {
+) -> crate::errors::Result<Vec<crate::models::Transaction>> {
     let state_changes = view_client_addr
         .send(near_client::GetStateChangesInBlock { block_hash: block.header.hash })
         .await?
@@ -144,252 +146,23 @@ pub(crate) async fn convert_block_to_transactions(
     let runtime_config = crate::utils::query_protocol_config(block.header.hash, &view_client_addr)
         .await?
         .runtime_config;
-    let transactions = convert_block_changes_to_transactions(
+    let exec_to_rx =
+        transactions::ExecutionToReceipts::for_block(view_client_addr, block.header.hash).await?;
+    transactions::convert_block_changes_to_transactions(
         &runtime_config,
         &block.header.hash,
         accounts_changes,
         accounts_previous_state,
-    )?;
-    Ok(transactions.into_iter().map(|(_transaction_hash, transaction)| transaction).collect())
-}
-
-fn convert_block_changes_to_transactions(
-    runtime_config: &near_primitives::runtime::config::RuntimeConfig,
-    block_hash: &near_primitives::hash::CryptoHash,
-    accounts_changes: near_primitives::views::StateChangesView,
-    mut accounts_previous_state: std::collections::HashMap<
-        near_primitives::types::AccountId,
-        near_primitives::views::AccountView,
-    >,
-) -> Result<std::collections::HashMap<String, crate::models::Transaction>, crate::errors::ErrorKind>
-{
-    use near_primitives::views::StateChangeCauseView;
-
-    let mut transactions = std::collections::HashMap::<String, crate::models::Transaction>::new();
-    for account_change in accounts_changes {
-        let transaction_hash = match account_change.cause {
-            StateChangeCauseView::TransactionProcessing { tx_hash } => {
-                format!("tx:{}", tx_hash.to_base())
-            }
-            StateChangeCauseView::ActionReceiptProcessingStarted { receipt_hash }
-            | StateChangeCauseView::ActionReceiptGasReward { receipt_hash }
-            | StateChangeCauseView::ReceiptProcessing { receipt_hash }
-            | StateChangeCauseView::PostponedReceipt { receipt_hash } => {
-                format!("receipt:{}", receipt_hash.to_base())
-            }
-            StateChangeCauseView::InitialState => format!("block:{}", block_hash),
-            StateChangeCauseView::ValidatorAccountsUpdate => {
-                format!("block-validators-update:{}", block_hash)
-            }
-            StateChangeCauseView::UpdatedDelayedReceipts => {
-                format!("block-delayed-receipts:{}", block_hash)
-            }
-            StateChangeCauseView::NotWritableToDisk => {
-                return Err(crate::errors::ErrorKind::InternalInvariantError(
-                    "State Change 'NotWritableToDisk' should never be observed".to_string(),
-                ));
-            }
-            StateChangeCauseView::Migration => {
-                format!("migration:{}", block_hash)
-            }
-            StateChangeCauseView::Resharding => {
-                return Err(crate::errors::ErrorKind::InternalInvariantError(
-                    "State Change 'Resharding' should never be observed".to_string(),
-                ));
-            }
-        };
-
-        let current_transaction =
-            transactions.entry(transaction_hash.clone()).or_insert_with(move || {
-                crate::models::Transaction {
-                    transaction_identifier: crate::models::TransactionIdentifier {
-                        hash: transaction_hash,
-                    },
-                    operations: vec![],
-                    metadata: crate::models::TransactionMetadata {
-                        type_: crate::models::TransactionType::Transaction,
-                    },
-                }
-            });
-
-        let operations = &mut current_transaction.operations;
-        match account_change.value {
-            near_primitives::views::StateChangeValueView::AccountUpdate { account_id, account } => {
-                let previous_account_state = accounts_previous_state.get(&account_id);
-
-                let previous_account_balances = previous_account_state
-                    .map(|account| {
-                        crate::utils::RosettaAccountBalances::from_account(account, runtime_config)
-                    })
-                    .unwrap_or_else(crate::utils::RosettaAccountBalances::zero);
-
-                let new_account_balances =
-                    crate::utils::RosettaAccountBalances::from_account(&account, runtime_config);
-
-                if previous_account_balances.liquid != new_account_balances.liquid {
-                    operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier::new(&operations),
-                        related_operations: None,
-                        account: crate::models::AccountIdentifier {
-                            address: account_id.clone().into(),
-                            sub_account: None,
-                        },
-                        amount: Some(crate::models::Amount::from_yoctonear_diff(
-                            crate::utils::SignedDiff::cmp(
-                                previous_account_balances.liquid,
-                                new_account_balances.liquid,
-                            ),
-                        )),
-                        type_: crate::models::OperationType::Transfer,
-                        status: Some(crate::models::OperationStatusKind::Success),
-                        metadata: None,
-                    });
-                }
-
-                if previous_account_balances.liquid_for_storage
-                    != new_account_balances.liquid_for_storage
-                {
-                    operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier::new(&operations),
-                        related_operations: None,
-                        account: crate::models::AccountIdentifier {
-                            address: account_id.clone().into(),
-                            sub_account: Some(
-                                crate::models::SubAccount::LiquidBalanceForStorage.into(),
-                            ),
-                        },
-                        amount: Some(crate::models::Amount::from_yoctonear_diff(
-                            crate::utils::SignedDiff::cmp(
-                                previous_account_balances.liquid_for_storage,
-                                new_account_balances.liquid_for_storage,
-                            ),
-                        )),
-                        type_: crate::models::OperationType::Transfer,
-                        status: Some(crate::models::OperationStatusKind::Success),
-                        metadata: None,
-                    });
-                }
-
-                if previous_account_balances.locked != new_account_balances.locked {
-                    operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier::new(&operations),
-                        related_operations: None,
-                        account: crate::models::AccountIdentifier {
-                            address: account_id.clone().into(),
-                            sub_account: Some(crate::models::SubAccount::Locked.into()),
-                        },
-                        amount: Some(crate::models::Amount::from_yoctonear_diff(
-                            crate::utils::SignedDiff::cmp(
-                                previous_account_balances.locked,
-                                new_account_balances.locked,
-                            ),
-                        )),
-                        type_: crate::models::OperationType::Transfer,
-                        status: Some(crate::models::OperationStatusKind::Success),
-                        metadata: None,
-                    });
-                }
-
-                accounts_previous_state.insert(account_id, account);
-            }
-
-            near_primitives::views::StateChangeValueView::AccountDeletion { account_id } => {
-                let previous_account_state = accounts_previous_state.get(&account_id);
-
-                let previous_account_balances =
-                    if let Some(previous_account_state) = previous_account_state {
-                        crate::utils::RosettaAccountBalances::from_account(
-                            previous_account_state,
-                            runtime_config,
-                        )
-                    } else {
-                        continue;
-                    };
-                let new_account_balances = crate::utils::RosettaAccountBalances::zero();
-
-                if previous_account_balances.liquid != new_account_balances.liquid {
-                    operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier::new(&operations),
-                        related_operations: None,
-                        account: crate::models::AccountIdentifier {
-                            address: account_id.clone().into(),
-                            sub_account: None,
-                        },
-                        amount: Some(crate::models::Amount::from_yoctonear_diff(
-                            crate::utils::SignedDiff::cmp(
-                                previous_account_balances.liquid,
-                                new_account_balances.liquid,
-                            ),
-                        )),
-                        type_: crate::models::OperationType::Transfer,
-                        status: Some(crate::models::OperationStatusKind::Success),
-                        metadata: None,
-                    });
-                }
-
-                if previous_account_balances.liquid_for_storage
-                    != new_account_balances.liquid_for_storage
-                {
-                    operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier::new(&operations),
-                        related_operations: None,
-                        account: crate::models::AccountIdentifier {
-                            address: account_id.clone().into(),
-                            sub_account: Some(
-                                crate::models::SubAccount::LiquidBalanceForStorage.into(),
-                            ),
-                        },
-                        amount: Some(crate::models::Amount::from_yoctonear_diff(
-                            crate::utils::SignedDiff::cmp(
-                                previous_account_balances.liquid_for_storage,
-                                new_account_balances.liquid_for_storage,
-                            ),
-                        )),
-                        type_: crate::models::OperationType::Transfer,
-                        status: Some(crate::models::OperationStatusKind::Success),
-                        metadata: None,
-                    });
-                }
-
-                if previous_account_balances.locked != new_account_balances.locked {
-                    operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier::new(&operations),
-                        related_operations: None,
-                        account: crate::models::AccountIdentifier {
-                            address: account_id.clone().into(),
-                            sub_account: Some(crate::models::SubAccount::Locked.into()),
-                        },
-                        amount: Some(crate::models::Amount::from_yoctonear_diff(
-                            crate::utils::SignedDiff::cmp(
-                                previous_account_balances.locked,
-                                new_account_balances.locked,
-                            ),
-                        )),
-                        type_: crate::models::OperationType::Transfer,
-                        status: Some(crate::models::OperationStatusKind::Success),
-                        metadata: None,
-                    });
-                }
-
-                accounts_previous_state.remove(&account_id);
-            }
-            unexpected_value => {
-                return Err(crate::errors::ErrorKind::InternalInvariantError(format!(
-                    "queried AccountChanges, but received {:?}.",
-                    unexpected_value
-                )))
-            }
-        }
-    }
-
-    Ok(transactions)
+        exec_to_rx,
+    )
+    .map(|dict| dict.into_values().collect())
 }
 
 pub(crate) async fn collect_transactions(
     genesis: Arc<Genesis>,
     view_client_addr: Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
-) -> Result<Vec<crate::models::Transaction>, crate::errors::ErrorKind> {
+) -> crate::errors::Result<Vec<crate::models::Transaction>> {
     if block.header.prev_hash == Default::default() {
         Ok(vec![convert_genesis_records_to_transaction(genesis, view_client_addr, block).await?])
     } else {
@@ -913,10 +686,9 @@ mod tests {
     fn test_convert_block_changes_to_transactions() {
         let runtime_config = near_primitives::runtime::config::RuntimeConfig::test();
         let block_hash = near_primitives::hash::CryptoHash::default();
-        let nfvalidator1_receipt_processing_hash =
-            near_primitives::hash::CryptoHash::try_from(vec![1u8; 32]).unwrap();
+        let nfvalidator1_receipt_processing_hash = near_primitives::hash::CryptoHash([1u8; 32]);
         let nfvalidator2_action_receipt_gas_reward_hash =
-            near_primitives::hash::CryptoHash::try_from(vec![2u8; 32]).unwrap();
+            near_primitives::hash::CryptoHash([2u8; 32]);
         let accounts_changes = vec![
             near_primitives::views::StateChangeWithCauseView {
                 cause: near_primitives::views::StateChangeCauseView::ValidatorAccountsUpdate,
@@ -996,11 +768,12 @@ mod tests {
                 storage_usage: 200000,
             },
         );
-        let transactions = convert_block_changes_to_transactions(
+        let transactions = super::transactions::convert_block_changes_to_transactions(
             &runtime_config,
             &block_hash,
             accounts_changes,
             accounts_previous_state,
+            super::transactions::ExecutionToReceipts::empty(),
         )
         .unwrap();
         assert_eq!(transactions.len(), 3);

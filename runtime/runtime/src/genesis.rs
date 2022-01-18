@@ -54,7 +54,7 @@ impl<'a> StorageComputer<'a> {
             }
             StateRecord::AccessKey { account_id, public_key, access_key } => {
                 let public_key: PublicKey = public_key.clone();
-                let access_key: AccessKey = access_key.clone().into();
+                let access_key: AccessKey = access_key.clone();
                 let storage_usage = self.config.num_extra_bytes_record
                     + public_key.try_to_vec().unwrap().len() as u64
                     + access_key.try_to_vec().unwrap().len() as u64;
@@ -102,7 +102,7 @@ impl GenesisStateApplier {
 
     fn apply_batch(
         current_state_root: &mut StateRoot,
-        mut delayed_receipts_indices: &mut DelayedReceiptIndices,
+        delayed_receipts_indices: &mut DelayedReceiptIndices,
         tries: &mut ShardTries,
         shard_uid: ShardUId,
         validators: &[(AccountId, PublicKey, Balance)],
@@ -154,7 +154,7 @@ impl GenesisStateApplier {
                 StateRecord::DelayedReceipt(receipt) => {
                     Runtime::delay_receipt(
                         &mut state_update,
-                        &mut delayed_receipts_indices,
+                        delayed_receipts_indices,
                         &*receipt,
                     )
                         .unwrap();
