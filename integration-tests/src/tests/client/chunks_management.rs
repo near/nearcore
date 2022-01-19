@@ -1,5 +1,4 @@
 use near_primitives::time::Instant;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -41,13 +40,14 @@ fn chunks_produced_and_distributed_common(
     let height_to_hash = Arc::new(RwLock::new(HashMap::new()));
     let height_to_epoch = Arc::new(RwLock::new(HashMap::new()));
 
-    let check_height = move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash) {
-        Entry::Occupied(entry) => {
-            assert_eq!(*entry.get(), height);
+    let check_heights = move |prev_hash: &CryptoHash, hash: &CryptoHash, height| {
+        let mut map = heights1.write().unwrap();
+        // Note that height of the previous block is not guaranteed to be height
+        // - 1.  All we know is that it’s less than height of the current block.
+        if let Some(prev_height) = map.get(prev_hash) {
+            assert!(*prev_height < height);
         }
-        Entry::Vacant(entry) => {
-            entry.insert(height);
-        }
+        assert_eq!(*map.entry(*hash).or_insert(height), height);
     };
 
     let validators = vec![
@@ -87,10 +87,8 @@ fn chunks_produced_and_distributed_common(
                 let msg = msg.as_network_requests_ref();
                 match msg {
                     NetworkRequests::Block { block } => {
-                        check_height(*block.hash(), block.header().height());
-                        check_height(*block.header().prev_hash(), block.header().height() - 1);
-
                         let h = block.header().height();
+                        check_heights(block.header().prev_hash(), block.hash(), h);
 
                         let mut height_to_hash = height_to_hash.write().unwrap();
                         height_to_hash.insert(h, *block.hash());

@@ -16,10 +16,19 @@ _REPO_DIR = pathlib.Path(__file__).resolve().parents[2]
 _OUT_DIR = _REPO_DIR / 'target/debug'
 
 
-def current_branch():
-    return os.environ.get('BUILDKITE_BRANCH') or subprocess.check_output([
-        "git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "HEAD"
-    ]).strip().decode()
+def current_branch() -> str:
+    """Returns checked out branch name or sha if we’re on detached head."""
+    branch = os.environ.get('BUILDKITE_BRANCH')
+    if branch:
+        return branch
+    try:
+        return subprocess.check_output(
+            ('git', 'symbolic-ref', '--short', '-q', '@')).strip().decode()
+    except subprocess.CalledProcessError as ex:
+        if ex.returncode != 1:
+            raise
+        # We’re on detached HEAD
+    return subprocess.check_output(('git', 'rev-parse', '@')).strip().decode()
 
 
 def __get_latest_deploy(chain_id: str) -> typing.Tuple[str, str]:
