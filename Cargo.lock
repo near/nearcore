@@ -3310,7 +3310,6 @@ dependencies = [
  "num-rational",
  "serde",
  "serde_json",
- "strum",
  "tracing-span-tree",
 ]
 
@@ -4414,7 +4413,6 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "near-store",
- "near-test-contracts",
  "near-vm-logic",
  "near-vm-runner",
  "nearcore",
