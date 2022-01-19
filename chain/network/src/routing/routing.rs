@@ -65,7 +65,7 @@ pub struct RoutingTableView {
     /// Hash of messages that requires routing back to respective previous hop.
     pub route_back: RouteBackCache,
     /// Access to store on disk
-    store: Arc<Store>,
+    store: Store,
     /// Number of times each active connection was used to route a message.
     /// If there are several options use route with minimum nonce.
     /// New routes are added with minimum nonce.
@@ -89,7 +89,7 @@ pub enum FindRouteError {
 }
 
 impl RoutingTableView {
-    pub fn new(my_peer_id: PeerId, store: Arc<Store>) -> Self {
+    pub fn new(my_peer_id: PeerId, store: Store) -> Self {
         // Find greater nonce on disk and set `component_nonce` to this value.
 
         Self {

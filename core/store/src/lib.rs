@@ -2,7 +2,6 @@ use std::fs::File;
 use std::io::{BufReader, Read, Write};
 use std::ops::Deref;
 use std::path::Path;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::{fmt, io};
 
@@ -31,10 +30,11 @@ use crate::db::refcount::encode_value_with_rc;
 use crate::db::{
     DBOp, DBTransaction, Database, RocksDB, GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
 };
+pub use crate::trie::iterator::TrieIterator;
+pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
-    iterator::TrieIterator, split_state, update::TrieUpdate, update::TrieUpdateIterator,
-    update::TrieUpdateValuePtr, ApplyStatePartResult, KeyForStateChanges, PartialStorage,
-    ShardTries, Trie, TrieChanges, WrappedTrieChanges,
+    split_state, ApplyStatePartResult, KeyForStateChanges, PartialStorage, ShardTries, Trie,
+    TrieChanges, WrappedTrieChanges,
 };
 
 pub mod db;
@@ -44,11 +44,11 @@ mod trie;
 
 #[derive(Clone)]
 pub struct Store {
-    storage: Pin<Arc<dyn Database>>,
+    storage: Arc<dyn Database>,
 }
 
 impl Store {
-    pub fn new(storage: Pin<Arc<dyn Database>>) -> Store {
+    pub fn new(storage: Arc<dyn Database>) -> Store {
         Store { storage }
     }
 
@@ -155,14 +155,14 @@ impl Store {
 
 /// Keeps track of current changes to the database and can commit all of them to the database.
 pub struct StoreUpdate {
-    storage: Pin<Arc<dyn Database>>,
+    storage: Arc<dyn Database>,
     transaction: DBTransaction,
     /// Optionally has reference to the trie to clear cache on the commit.
     tries: Option<ShardTries>,
 }
 
 impl StoreUpdate {
-    pub fn new(storage: Pin<Arc<dyn Database>>) -> Self {
+    pub fn new(storage: Arc<dyn Database>) -> Self {
         let transaction = storage.transaction();
         StoreUpdate { storage, transaction, tries: None }
     }
@@ -295,9 +295,9 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
     Ok(None)
 }
 
-pub fn create_store(path: &Path) -> Arc<Store> {
-    let db = Arc::pin(RocksDB::new(path).expect("Failed to open the database"));
-    Arc::new(Store::new(db))
+pub fn create_store(path: &Path) -> Store {
+    let db = Arc::new(RocksDB::new(path).expect("Failed to open the database"));
+    Store::new(db)
 }
 
 /// Reads an object from Trie.
@@ -503,7 +503,7 @@ pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &V
 }
 
 pub struct StoreCompiledContractCache {
-    pub store: Arc<Store>,
+    pub store: Store,
 }
 
 /// Cache for compiled contracts code using Store for keeping data.
