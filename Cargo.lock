@@ -2995,6 +2995,7 @@ name = "near-network-primitives"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "anyhow",
  "borsh 0.9.1",
  "chrono",
  "deepsize",
@@ -3312,7 +3313,6 @@ dependencies = [
  "num-rational",
  "serde",
  "serde_json",
- "strum",
  "tracing-span-tree",
 ]
 
@@ -4416,7 +4416,6 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "near-store",
- "near-test-contracts",
  "near-vm-logic",
  "near-vm-runner",
  "nearcore",

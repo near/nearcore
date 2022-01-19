@@ -98,7 +98,7 @@ impl BorshDeserialize for Handshake {
 
         if PEER_MIN_ALLOWED_PROTOCOL_VERSION <= version && version <= PROTOCOL_VERSION {
             // If we support this version, then try to deserialize with custom deserializer
-            HandshakeAutoDes::deserialize(buf).map(Into::into)
+            <HandshakeAutoDes as BorshDeserialize>::deserialize(buf).map(Into::into)
         } else {
             Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
