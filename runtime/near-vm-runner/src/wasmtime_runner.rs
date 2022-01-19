@@ -11,63 +11,17 @@ use near_vm_errors::{
     CompilationError, FunctionCallError, MethodResolveError, VMError, VMLogicError, WasmTrap,
 };
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, MemoryLike, VMContext, VMLogic, VMLogicPlusMemory, VMOutcome};
-use std::ffi::c_void;
+use near_vm_logic::{External, VMContext, VMLogic, VMOutcome};
 use std::str;
 use wasmtime::ExternType::Func;
-use wasmtime::{Engine, Limits, Linker, Memory, MemoryType, Module, Store, TrapCode};
+use wasmtime::{Engine, Linker, Memory, Module, Store, TrapCode};
 
-pub struct WasmtimeMemory(Memory);
+pub(crate) struct VMCtx<'a> {
+    pub(crate) logic: VMLogic<'a>,
 
-impl WasmtimeMemory {
-    pub fn new(
-        store: &Store,
-        initial_memory_bytes: u32,
-        max_memory_bytes: u32,
-    ) -> Result<Self, VMError> {
-        Ok(WasmtimeMemory(Memory::new(
-            store,
-            MemoryType::new(Limits::new(initial_memory_bytes, Some(max_memory_bytes))),
-        )))
-    }
-
-    pub fn clone(&self) -> Memory {
-        self.0.clone()
-    }
-}
-
-impl MemoryLike for WasmtimeMemory {
-    fn fits_memory(&self, offset: u64, len: u64) -> bool {
-        match offset.checked_add(len) {
-            None => false,
-            Some(end) => self.0.data_size() as u64 >= end,
-        }
-    }
-
-    fn read_memory(&self, offset: u64, buffer: &mut [u8]) {
-        let offset = offset as usize;
-        // data_unchecked() is unsafe.
-        unsafe {
-            for i in 0..buffer.len() {
-                buffer[i] = self.0.data_unchecked()[i + offset];
-            }
-        }
-    }
-
-    fn read_memory_u8(&self, offset: u64) -> u8 {
-        // data_unchecked() is unsafe.
-        unsafe { self.0.data_unchecked()[offset as usize] }
-    }
-
-    fn write_memory(&mut self, offset: u64, buffer: &[u8]) {
-        // data_unchecked_mut() is unsafe.
-        unsafe {
-            let offset = offset as usize;
-            for i in 0..buffer.len() {
-                self.0.data_unchecked_mut()[i + offset] = buffer[i];
-            }
-        }
-    }
+    // This must be an Option due to a circular dependency at creation time otherwise: the Store<VMCtx<'a>> needs a
+    // VMCtx to be built, but the Memory can only be built once the Store has been built.
+    pub(crate) mem: Option<Memory>,
 }
 
 fn trap_to_error(trap: &wasmtime::Trap) -> VMError {
@@ -137,14 +91,8 @@ impl IntoVMError for wasmtime::Trap {
     }
 }
 
-#[cfg(not(feature = "lightbeam"))]
 pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
     Engine::new(config).unwrap()
-}
-
-#[cfg(feature = "lightbeam")]
-pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
-    Engine::new(config.strategy(wasmtime::Strategy::Lightbeam).unwrap()).unwrap()
 }
 
 pub(super) fn default_config() -> wasmtime::Config {
@@ -195,13 +143,6 @@ impl crate::runner::VM for WasmtimeVM {
         .entered();
         let mut config = default_config();
         let engine = get_engine(&mut config);
-        let store = Store::new(&engine);
-        let mut memory = WasmtimeMemory::new(
-            &store,
-            self.config.limit_config.initial_memory_pages,
-            self.config.limit_config.max_memory_pages,
-        )
-        .unwrap();
         let prepared_code = match prepare::prepare_contract(code.code(), &self.config) {
             Ok(code) => code,
             Err(err) => return (None, Some(VMError::from(err))),
@@ -210,9 +151,7 @@ impl crate::runner::VM for WasmtimeVM {
             Ok(module) => module,
             Err(err) => return (None, Some(err.into_vm_error())),
         };
-        // Note that we don't clone the actual backing memory, just increase the RC.
-        let memory_copy = memory.clone();
-        let mut linker = Linker::new(&store);
+
         let mut logic = VMLogic::new_with_protocol_version(
             ext,
             context,
@@ -232,18 +171,20 @@ impl crate::runner::VM for WasmtimeVM {
             );
         }
 
-        // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
-        // lifetimes of the logic instance and pass raw pointers here.
-        let mut logic_plus_memory = VMLogicPlusMemory { logic, mem: &mut memory };
-        let raw_logic_plus_memory = &mut logic_plus_memory as *mut _ as *mut c_void;
-        unsafe {
-            imports::wasmtime::link(
-                &mut linker,
-                memory_copy,
-                raw_logic_plus_memory,
-                current_protocol_version,
-            );
-        }
+        let ctx = VMCtx { logic, mem: None };
+        let mut store = Store::new(&engine, ctx);
+        let memory = Memory::new(
+            &mut store,
+            wasmtime::MemoryType::new(
+                self.config.limit_config.initial_memory_pages,
+                Some(self.config.limit_config.max_memory_pages),
+            ),
+        )
+        .unwrap();
+        store.data_mut().mem = Some(memory);
+        let mut linker = Linker::new(&engine);
+
+        imports::wasmtime::link(&mut linker, memory, current_protocol_version);
         if method_name.is_empty() {
             return (
                 None,
@@ -284,17 +225,17 @@ impl crate::runner::VM for WasmtimeVM {
                 )
             }
         }
-        match linker.instantiate(&module) {
-            Ok(instance) => match instance.get_func(method_name) {
-                Some(func) => match func.typed::<(), ()>() {
-                    Ok(run) => match run.call(()) {
-                        Ok(_) => (Some(logic_plus_memory.logic.outcome()), None),
+        match linker.instantiate(&mut store, &module) {
+            Ok(instance) => match instance.get_func(&mut store, method_name) {
+                Some(func) => match func.typed::<(), (), _>(&store) {
+                    Ok(run) => match run.call(&mut store, ()) {
+                        Ok(_) => (Some(store.into_data().logic.outcome()), None),
                         Err(err) => {
-                            (Some(logic_plus_memory.logic.outcome()), Some(err.into_vm_error()))
+                            (Some(store.into_data().logic.outcome()), Some(err.into_vm_error()))
                         }
                     },
                     Err(err) => {
-                        (Some(logic_plus_memory.logic.outcome()), Some(err.into_vm_error()))
+                        (Some(store.into_data().logic.outcome()), Some(err.into_vm_error()))
                     }
                 },
                 None => (
@@ -304,7 +245,7 @@ impl crate::runner::VM for WasmtimeVM {
                     ))),
                 ),
             },
-            Err(err) => (Some(logic_plus_memory.logic.outcome()), Some(err.into_vm_error())),
+            Err(err) => (Some(store.into_data().logic.outcome()), Some(err.into_vm_error())),
         }
     }
 

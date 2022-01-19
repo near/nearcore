@@ -429,40 +429,19 @@ pub(crate) mod wasmer2 {
 #[cfg(feature = "wasmtime_vm")]
 pub(crate) mod wasmtime {
     use super::str_eq;
-    use near_vm_logic::{ProtocolVersion, VMLogicError, VMLogicPlusMemory};
-    use std::cell::{RefCell, UnsafeCell};
-    use std::ffi::c_void;
+    use crate::wasmtime_runner::VMCtx;
+    use near_vm_logic::{ProtocolVersion, VMLogicError};
+    use std::cell::RefCell;
 
     thread_local! {
-        static CALLER_CONTEXT: UnsafeCell<*mut c_void> = UnsafeCell::new(0 as *mut c_void);
         static EMBEDDER_ERROR: RefCell<Option<VMLogicError>> = RefCell::new(None);
     }
 
-    // Wasm has only i32/i64 types, so Wasmtime 0.17 only accepts
-    // external functions taking i32/i64 type.
-    // Remove, once using version with https://github.com/bytecodealliance/wasmtime/issues/1829
-    // fixed. It doesn't affect correctness, as bit patterns are the same.
-    #[cfg(feature = "wasmtime_vm")]
-    macro_rules! rust2wasm {
-        (u64) => {
-            i64
-        };
-        (u32) => {
-            i32
-        };
-        ( () ) => {
-            ()
-        };
-    }
-
-    pub(crate) unsafe fn link(
-        linker: &mut wasmtime::Linker,
+    pub(crate) fn link<'a>(
+        linker: &mut wasmtime::Linker<VMCtx<'a>>,
         memory: wasmtime::Memory,
-        raw_logic_plus_memory: *mut c_void,
         protocol_version: ProtocolVersion,
     ) {
-        CALLER_CONTEXT
-            .with(|caller_context| unsafe { *caller_context.get() = raw_logic_plus_memory });
         linker.define("env", "memory", memory).expect("cannot define memory");
 
         macro_rules! add_import {
@@ -470,21 +449,17 @@ pub(crate) mod wasmtime {
               $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
             ) => {
                 #[allow(unused_parens)]
-                fn $func( $( $arg_name: rust2wasm!($arg_type) ),* ) -> Result<($( rust2wasm!($returns)),*), wasmtime::Trap> {
+                fn $func<'b>(mut ctx: wasmtime::Caller<'_, VMCtx<'b>>, $( $arg_name: $arg_type ),* ) -> Result<($( $returns),*), wasmtime::Trap> {
                     const IS_GAS: bool = str_eq(stringify!($func), "gas");
                     let _span = if IS_GAS {
                         None
                     } else {
                         Some(tracing::trace_span!(target: "host-function", stringify!($func)).entered())
                     };
-                    let data = CALLER_CONTEXT.with(|caller_context| {
-                        unsafe {
-                            *caller_context.get()
-                        }
-                    });
-                    let ctx: &mut VMLogicPlusMemory<'_> = unsafe { &mut *(data as *mut VMLogicPlusMemory<'_>) };
-                    match ctx.logic.$func(ctx.mem, $( $arg_name as $arg_type, )* ) {
-                        Ok(result) => Ok(result as ($( rust2wasm!($returns) ),* ) ),
+                    let mem = ctx.data().mem.unwrap();
+                    let (mut mem, ctx) = mem.data_and_store_mut(&mut ctx);
+                    match ctx.logic.$func(&mut mem, $( $arg_name as $arg_type, )* ) {
+                        Ok(result) => Ok(result as ($( $returns ),* ) ),
                         Err(err) => {
                             // Wasmtime doesn't have proper mechanism for wrapping custom errors
                             // into traps. So, just store error into TLS and use special exit code here.
@@ -496,7 +471,7 @@ pub(crate) mod wasmtime {
                     }
                 }
 
-                linker.func("env", stringify!($func), $func).expect("cannot link external");
+                linker.func_wrap("env", stringify!($func), $func).expect("cannot link external");
             };
         }
         for_each_available_import!(protocol_version, add_import);

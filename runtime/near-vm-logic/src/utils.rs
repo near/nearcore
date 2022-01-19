@@ -1,5 +1,7 @@
 use near_vm_errors::{HostError, VMLogicError};
 
+use crate::MemoryLike;
+
 type Result<T> = ::std::result::Result<T, VMLogicError>;
 
 /// Uses `,` separator to split `method_names` into a vector of method names.
@@ -21,6 +23,27 @@ pub(crate) fn split_method_names(method_names: &[u8]) -> Result<Vec<Vec<u8>>> {
                 },
             )
             .collect::<Result<Vec<_>>>()
+    }
+}
+
+impl<'a> MemoryLike for &'a mut [u8] {
+    fn fits_memory(&self, offset: u64, len: u64) -> bool {
+        // We know self is allocated, so its size must be below 2^64
+        offset.saturating_add(len) <= self.len() as u64
+    }
+
+    fn read_memory(&self, offset: u64, buffer: &mut [u8]) {
+        let offset = offset as usize;
+        buffer.copy_from_slice(&self[offset..offset + buffer.len()]);
+    }
+
+    fn read_memory_u8(&self, offset: u64) -> u8 {
+        self[offset as usize]
+    }
+
+    fn write_memory(&mut self, offset: u64, buffer: &[u8]) {
+        let offset = offset as usize;
+        self[offset..offset + buffer.len()].copy_from_slice(buffer);
     }
 }
 
