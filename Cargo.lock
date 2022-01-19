@@ -5,11 +5,11 @@ version = 3
 [[package]]
 name = "actix"
 version = "0.11.0-beta.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8eb78f9871feb3519e06b947c2becbf2cc7f67ce786e510e6bd3f9a27da3dbf1"
+source = "git+https://github.com/pmnoxx/actix-patched?rev=5e170d58e82ac01981c628fd74da1415a88c5275#5e170d58e82ac01981c628fd74da1415a88c5275"
 dependencies = [
  "actix-rt",
  "actix_derive",
+ "backtrace",
  "bitflags",
  "bytes",
  "crossbeam-channel",

@@ -8,7 +8,7 @@ rust-version = "1.56.0"
 publish = false
 
 [dependencies]
-actix = "=0.11.0-beta.2"
+actix = { git = "https://github.com/pmnoxx/actix-patched", rev = "5e170d58e82ac01981c628fd74da1415a88c5275" }
 bitflags = "1.2"
 bytes = "1"
 bytesize = "1.1"

@@ -13,7 +13,7 @@ cargo-fuzz = true
 
 [dependencies]
 awc = "3.0.0-beta.5"
-actix = "=0.11.0-beta.2"
+actix = { git = "https://github.com/pmnoxx/actix-patched", rev = "5e170d58e82ac01981c628fd74da1415a88c5275" }
 actix_derive = "=0.6.0-beta.1" # Pinned dependency in addition to actix dependecy (remove this line once the pinning is not needed)
 arbitrary = { version = "1", features = ["derive"] }
 base64 = "0.13"

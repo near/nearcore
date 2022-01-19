@@ -14,7 +14,7 @@ name = "neard"
 
 [dependencies]
 clap = "=3.0.0-beta.2"
-actix = "=0.11.0-beta.2"
+actix = { git = "https://github.com/pmnoxx/actix-patched", rev = "5e170d58e82ac01981c628fd74da1415a88c5275" }
 tracing = "0.1.13"
 git-version = "0.3.1"
 tracing-subscriber = "0.2.4"
