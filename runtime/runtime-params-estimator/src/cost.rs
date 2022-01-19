@@ -51,25 +51,45 @@ pub enum Cost {
     EcrecoverBase,
     LogBase,
     LogByte,
+    /// Estimates `ExtCost::storage_write_base` which is charged once per call to `write_storage`.
     StorageWriteBase,
+    /// Estimates `ExtCost::storage_write_key_byte` which is charged for each byte in keys of `write_storage` calls.
     StorageWriteKeyByte,
+    /// Estimates `ExtCost::storage_write_value_byte` which is charged for each byte in values of `write_storage` calls.
     StorageWriteValueByte,
+    /// Estimates `ExtCosts::storage_write_evicted_byte` which is charged for each byte in a value that is overwritten in `write_storage` calls.
     StorageWriteEvictedByte,
+    /// Estimates `ExtCost::storage_read_base` which is charged once per call to `read_storage`.
     StorageReadBase,
+    /// Estimates `ExtCost::storage_read_key_byte` which is charged for each byte in keys of `read_storage` calls.
     StorageReadKeyByte,
+    /// Estimates `ExtCost::storage_read_value_byte` which is charged for each byte in values of `read_storage` calls.
     StorageReadValueByte,
+    /// Estimates `ExtCost::storage_remove_base` which is charged once per call to `storage_remove`.
     StorageRemoveBase,
+    /// Estimates `ExtCost::storage_remove_key_byte` which is charged for each byte in keys of `storage_remove` calls.
     StorageRemoveKeyByte,
+    /// Estimates `ExtCost::storage_remove_value_byte` which is charged for each byte in values of `storage_remove` calls.
     StorageRemoveRetValueByte,
+    /// Estimates `ExtCost::storage_has_key_base` which is charged once per call to `storage_has_key`.
     StorageHasKeyBase,
+    /// Estimates `ExtCost::storage_has_key_byte` which is charged for each byte in calls to `storage_has_key`.
     StorageHasKeyByte,
+    /// DEPRECATED: Was charged in `storage_iter_prefix`
     StorageIterCreatePrefixBase,
+    /// DEPRECATED: Was charged in `storage_iter_prefix`
     StorageIterCreatePrefixByte,
+    /// DEPRECATED: Was charged in `storage_iter_range`
     StorageIterCreateRangeBase,
+    /// DEPRECATED: Was charged in `storage_iter_range`
     StorageIterCreateFromByte,
+    /// DEPRECATED: Was charged in `storage_iter_range`
     StorageIterCreateToByte,
+    /// DEPRECATED: Was charged in `storage_iter_next`
     StorageIterNextBase,
+    /// DEPRECATED: Was charged in `storage_iter_next`
     StorageIterNextKeyByte,
+    /// DEPRECATED: Was charged in `storage_iter_next`
     StorageIterNextValueByte,
     TouchingTrieNode,
     PromiseAndBase,
@@ -91,7 +111,13 @@ pub enum Cost {
     ContractCompileBytes, // TODO: Needs estimation function
     GasMeteringBase,
     GasMeteringOp,
+    /// Cost of inserting a new value directly into a RocksDB instance.
+    /// In default settings, this is an alternative estimation for `StorageWriteValueByte`, measured in a more controlled setup.
+    /// Using the extra flags prefixed with `rdb-`, this can be used to measure the impact of various RocksDB settings on insertions.
     RocksDbInsertValueByte,
+    /// Cost of reading values directly from a RocksDB instance.
+    /// In default settings, this is an alternative estimation for `StorageReadValueByte`, measured in a more controlled setup.
+    /// Using the extra flags prefixed with `rdb-`, this can be used to measure the impact of various RocksDB settings on read performance.
     RocksDbReadValueByte,
     IoReadByte,
     IoWriteByte,
