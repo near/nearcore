@@ -33,7 +33,6 @@ near-vm-runner = {path = "../../runtime/near-vm-runner" }
 node-runtime = { path = "../../runtime/runtime" }
 near-store = { path = "../../core/store" }
 near-primitives = { path = "../../core/primitives" }
-near-test-contracts = { path = "../../runtime/near-test-contracts" }
 
 nearcore = { path = "../../nearcore" }
 rocksdb = "0.16.0"
