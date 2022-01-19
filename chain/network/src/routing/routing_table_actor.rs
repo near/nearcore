@@ -1,4 +1,3 @@
-use crate::network_protocol::{Edge, EdgeState};
 use crate::private_actix::{StopMsg, ValidateEdgeList};
 use crate::routing::edge_validator_actor::EdgeValidatorActor;
 use crate::routing::graph::Graph;
@@ -9,6 +8,7 @@ use actix::{
     Actor, ActorFuture, Addr, Context, ContextFutureSpawner, Handler, Message, Running,
     SyncArbiter, System, WrapFuture,
 };
+use near_network_primitives::types::{Edge, EdgeState};
 use near_performance_metrics_macros::perf;
 use near_primitives::borsh::BorshSerialize;
 use near_primitives::network::PeerId;
@@ -25,9 +25,9 @@ use tracing::{debug, trace, warn};
 #[derive(Debug, Eq, PartialEq)]
 pub enum Prune {
     /// Prune once per hour - default.
-    PruneOncePerHour,
+    OncePerHour,
     /// Prune right now - for testing purposes.
-    PruneNow,
+    Now,
     /// Don't prune at all - this happens in case we are in the middle of adding new edges.
     Disable,
 }
@@ -67,7 +67,7 @@ pub struct RoutingTableActor {
     /// ColComponentEdges     -> Mapping from `component_nonce` to list of edges
     /// ColPeerComponent      -> Mapping from `peer_id` to last component nonce if there
     ///                          exists one it belongs to.
-    store: Arc<Store>,
+    store: Store,
     /// First component nonce id that hasn't been used. Used for creating new components.
     pub next_available_component_nonce: u64,
     /// True if edges were changed and we need routing table recalculation.
@@ -82,7 +82,7 @@ pub struct RoutingTableActor {
 }
 
 impl RoutingTableActor {
-    pub fn new(my_peer_id: PeerId, store: Arc<Store>) -> Self {
+    pub fn new(my_peer_id: PeerId, store: Store) -> Self {
         let component_nonce = store
             .get_ser::<u64>(ColLastComponentNonce, &[])
             .unwrap_or(None)
@@ -176,6 +176,33 @@ impl RoutingTableActor {
     }
 
     /// If peer_id is not in memory check if it is on disk in bring it back on memory.
+    ///
+    /// Note: here an advanced example, which shows what's happening.
+    /// Let's say we have a full graph fully connected with nodes `A, B, C, D`.
+    /// Step 1 ) `A`, `B` get removed.
+    /// We store edges belonging to `A` and `B`: `<A,B>, <A,C>, <A, D>, <B, C>, <B, D>`
+    /// into component 1 let's call it `C_1`.
+    /// And mapping from `A` to `C_1`, and from `B` to `C_1`
+    ///
+    /// Note that `C`, `D` is still active.
+    ///
+    /// Step 2) 'C' gets removed.
+    /// We stored edges <C, D> into component 2 `C_2`.
+    /// And a mapping from `C` to `C_2`.
+    ///
+    /// Note that `D` is still active.
+    ///
+    /// Step 3) An active edge gets added from `D` to `A`.
+    /// We will load `C_1` and try to re-add all edges belonging to `C_1`.
+    /// We will add `<A,B>, <A,C>, <A, D>, <B, C>, <B, D>`
+    ///
+    /// Important note: `C_1` also contains an edge from `A` to `C`, though `C` was removed in `C_2`.
+    /// - 1) We will not load edges belonging to `C_2`, even though we are adding an edges from `A` to deleted `C`.
+    /// - 2) We will not delete mapping from `C` to `C_2`, because `C` doesn't belong to `C_1`.
+    /// - 3) Later, `C` will be deleted, because we will figure out it's not reachable.
+    /// New component `C_3` will be created.
+    /// And mapping from `C` to `C_2` will be overridden by mapping from `C` to `C_3`.
+    /// And therefore `C_2` component will become unreachable.
     fn fetch_edges_for_peer_from_disk(&mut self, other_peer_id: &PeerId) {
         if other_peer_id == self.my_peer_id()
             || self.peer_last_time_reachable.contains_key(other_peer_id)
@@ -266,7 +293,7 @@ impl RoutingTableActor {
         let _d = delay_detector::DelayDetector::new("pruning edges".into());
 
         let edges_to_remove = self.prune_unreachable_edges_and_save_to_db(
-            prune == Prune::PruneNow,
+            prune == Prune::Now,
             prune_edges_not_reachable_for,
         );
         self.remove_edges(&edges_to_remove);
@@ -419,53 +446,42 @@ impl RoutingTableActor {
                     act.peers_to_ban.push(peer_id);
                 }
             })
-            .map(|_, _, _| ())
             .spawn(ctx);
 
         true
     }
 }
 
-// Messages for RoutingTableActor
+/// Messages for `RoutingTableActor`
 #[derive(Debug)]
 pub enum RoutingTableMessages {
-    // Add verified edges to routing table actor and update stats.
-    // Each edge contains signature of both peers.
-    // We say that the edge is "verified" if and only if we checked that the `signature0` and
-    // `signature1` is valid.
-    AddVerifiedEdges {
-        edges: Vec<Edge>,
-    },
-    // Remove edges for unit tests
+    /// Add verified edges to routing table actor and update stats.
+    /// Each edge contains signature of both peers.
+    /// We say that the edge is "verified" if and only if we checked that the `signature0` and
+    /// `signature1` is valid.
+    AddVerifiedEdges { edges: Vec<Edge> },
+    /// Remove edges for unit tests
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     AdvRemoveEdges(Vec<Edge>),
-    // Get RoutingTable for debugging purposes.
+    /// Get `RoutingTable` for debugging purposes.
     RequestRoutingTable,
-    // Add Peer and generate IbfSet.
+    /// Add `PeerId` and generate `IbfSet`.
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     AddPeerIfMissing(PeerId, Option<u64>),
-    // Remove Peer from IbfSet
+    /// Remove `PeerId` from `IbfSet`
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RemovePeer(PeerId),
-    // Do new routing table exchange algorithm.
+    /// Do new routing table exchange algorithm.
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    ProcessIbfMessage {
-        peer_id: PeerId,
-        ibf_msg: crate::types::RoutingVersion2,
-    },
-    // Start new routing table sync.
+    ProcessIbfMessage { peer_id: PeerId, ibf_msg: crate::types::RoutingVersion2 },
+    /// Start new routing table sync.
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    StartRoutingTableSync {
-        seed: u64,
-    },
-    // Request routing table update and maybe prune edges.
-    RoutingTableUpdate {
-        prune: Prune,
-        prune_edges_not_reachable_for: Duration,
-    },
-    // Gets list of edges to validate from another peer.
-    // Those edges will be filtered, by removing exising edges, and then
-    // those edges will be sent to `EdgeValidatorActor`.
+    StartRoutingTableSync { seed: u64 },
+    /// Request routing table update and maybe prune edges.
+    RoutingTableUpdate { prune: Prune, prune_edges_not_reachable_for: Duration },
+    /// Gets list of edges to validate from another peer.
+    /// Those edges will be filtered, by removing existing edges, and then
+    /// those edges will be sent to `EdgeValidatorActor`.
     ValidateEdgeList(ValidateEdgeList),
 }
 
@@ -493,7 +509,7 @@ pub enum RoutingTableMessagesResponse {
     RoutingTableUpdateResponse {
         /// PeerManager maintains list of local edges. We will notify `PeerManager`
         /// to remove those edges.
-        local_edges_to_remove: Vec<Edge>,
+        local_edges_to_remove: Vec<PeerId>,
         /// Active PeerId that are part of the shortest path to each PeerId.
         peer_forwarding: Arc<HashMap<PeerId, Vec<PeerId>>>,
         /// List of peers to ban for sending invalid edges.
@@ -506,11 +522,11 @@ impl RoutingTableActor {
     pub fn exchange_routing_tables_using_ibf(
         &self,
         peer_id: &PeerId,
-        ibf_set: &crate::routing::IbfSet<crate::routing::SimpleEdge>,
+        ibf_set: &crate::routing::IbfSet<near_network_primitives::types::SimpleEdge>,
         ibf_level: crate::routing::ibf_peer_set::ValidIBFLevel,
         ibf_vec: &[crate::routing::ibf::IbfBox],
         seed: u64,
-    ) -> (Vec<crate::routing::SimpleEdge>, Vec<u64>, u64) {
+    ) -> (Vec<near_network_primitives::types::SimpleEdge>, Vec<u64>, u64) {
         let ibf = ibf_set.get_ibf(ibf_level);
 
         let mut new_ibf = crate::routing::ibf::Ibf::from_vec(ibf_vec, seed ^ (ibf_level.0 as u64));
@@ -546,24 +562,23 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                 mut prune,
                 prune_edges_not_reachable_for,
             } => {
-                if prune == Prune::PruneOncePerHour && self.edge_validator_requests_in_progress != 0
-                {
+                if prune == Prune::OncePerHour && self.edge_validator_requests_in_progress != 0 {
                     prune = Prune::Disable;
                 }
 
-                let mut edges_removed =
-                    if self.needs_routing_table_recalculation || prune == Prune::PruneNow {
-                        self.needs_routing_table_recalculation = false;
-                        self.recalculate_routing_table();
-                        self.prune_edges(prune, prune_edges_not_reachable_for)
-                    } else {
-                        Vec::new()
-                    };
-                // Only keep local edges
-                edges_removed.retain(|p| p.contains_peer(self.my_peer_id()));
-
+                let edges_removed = if self.needs_routing_table_recalculation || prune == Prune::Now
+                {
+                    self.needs_routing_table_recalculation = false;
+                    self.recalculate_routing_table();
+                    self.prune_edges(prune, prune_edges_not_reachable_for)
+                } else {
+                    Vec::new()
+                };
                 RoutingTableMessagesResponse::RoutingTableUpdateResponse {
-                    local_edges_to_remove: edges_removed,
+                    local_edges_to_remove: (edges_removed.iter())
+                        .filter_map(|e| e.other(self.my_peer_id()))
+                        .cloned()
+                        .collect(),
                     peer_forwarding: self.peer_forwarding.clone(),
                     peers_to_ban: std::mem::take(&mut self.peers_to_ban),
                 }
@@ -756,6 +771,6 @@ impl Handler<ActixMessageWrapper<RoutingTableMessages>> for RoutingTableActor {
     }
 }
 
-pub fn start_routing_table_actor(peer_id: PeerId, store: Arc<Store>) -> Addr<RoutingTableActor> {
+pub fn start_routing_table_actor(peer_id: PeerId, store: Store) -> Addr<RoutingTableActor> {
     RoutingTableActor::new(peer_id, store).start()
 }
