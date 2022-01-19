@@ -447,7 +447,8 @@ def create_and_upload_genesis(validator_nodes,
                               epoch_length=None,
                               node_pks=None,
                               increasing_stakes=0.0,
-                              num_seats=100):
+                              num_seats=100,
+                              sharding=True):
     logger.info(
         f'create_and_upload_genesis: validator_nodes: {validator_nodes}')
     assert chain_id
@@ -472,7 +473,8 @@ def create_and_upload_genesis(validator_nodes,
                                 epoch_length=epoch_length,
                                 node_pks=node_pks,
                                 increasing_stakes=increasing_stakes,
-                                num_seats=num_seats)
+                                num_seats=num_seats,
+                                sharding=sharding)
             # Save time and bandwidth by uploading a compressed file, which is 2% the size of the genesis file.
             compress_and_upload(validator_nodes + rpc_nodes,
                                 mocknet_genesis_filename,
@@ -510,14 +512,14 @@ def create_genesis_file(validator_node_names,
                         epoch_length=None,
                         node_pks=None,
                         increasing_stakes=0.0,
-                        num_seats=None):
+                        num_seats=None,
+                        sharding=True):
     logger.info(
         f'create_genesis_file: validator_node_names: {validator_node_names}')
     logger.info(f'create_genesis_file: rpc_node_names: {rpc_node_names}')
     with open(genesis_template_filename) as f:
         genesis_config = json.load(f)
 
-    TOTAL_SUPPLY = (10**9) * ONE_NEAR
     VALIDATOR_BALANCE = (10**2) * ONE_NEAR
     RPC_BALANCE = (10**1) * ONE_NEAR
     TREASURY_ACCOUNT = 'test.near'
@@ -723,6 +725,23 @@ def create_genesis_file(validator_node_names,
     # Protocol upgrades require downtime, therefore make it harder to kickout validators.
     # The default value of this parameter is 90.
     genesis_config['block_producer_kickout_threshold'] = 10
+
+    if sharding:
+        genesis_config['shard_layout'] = {'V0': {'num_shards': 1, 'version': 0}}
+        genesis_config['simple_nightshade_shard_layout'] = {
+            'V1': {
+                'boundary_accounts': [
+                    'aurora', 'aurora-0', 'kkuuue2akv_1630967379.near'
+                ],
+                'fixed_shards': [],
+                'shards_split_map': [[0, 1, 2, 3]],
+                'to_parent_shard_map': [0, 0, 0, 0],
+                'version': 1
+            }
+        }
+    else:
+        genesis_config['shard_layout'] = {}
+        genesis_config['simple_nightshade_shard_layout'] = {}
 
     # The json object gets truncated if I don't close and reopen the file.
     with open(mocknet_genesis_filename, 'w') as f:
