@@ -71,7 +71,7 @@ fn dont_load_on_build() {
     assert!(vec![announce0, announce1].iter().all(|announce| { accounts.contains(announce) }));
     assert_eq!(routing_table.get_announce_accounts().len(), 2);
 
-    let mut routing_table1 = RoutingTableView::new(store);
+    let routing_table1 = RoutingTableView::new(store);
     assert!(routing_table1.get_announce_accounts().is_empty());
 }
 
