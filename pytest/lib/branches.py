@@ -76,11 +76,13 @@ def _compile_binary(branch: str) -> Executables:
     prev_branch = current_branch()
     stash_output = subprocess.check_output(['git', 'stash'])
     subprocess.check_output(['git', 'checkout', str(branch)])
-    subprocess.check_output(['git', 'pull', 'origin', str(branch)])
-    result = _compile_current(branch)
-    subprocess.check_output(['git', 'checkout', prev_branch])
-    if stash_output != b"No local changes to save\n":
-        subprocess.check_output(['git', 'stash', 'pop'])
+    try:
+        subprocess.check_output(['git', 'pull', 'origin', str(branch)])
+        result = _compile_current(branch)
+    finally:
+        subprocess.check_output(['git', 'checkout', prev_branch])
+        if stash_output != b"No local changes to save\n":
+            subprocess.check_output(['git', 'stash', 'pop'])
     return result
 
 
