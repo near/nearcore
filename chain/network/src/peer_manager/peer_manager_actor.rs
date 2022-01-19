@@ -954,13 +954,6 @@ impl PeerManagerActor {
             .collect::<Vec<_>>()
     }
 
-    /// Returns bytes sent/received across all peers.
-    fn get_total_bytes_per_sec(&self) -> (u64, u64) {
-        let sent_bps = self.connected_peers.values().map(|x| x.sent_bytes_per_sec).sum();
-        let received_bps = self.connected_peers.values().map(|x| x.received_bytes_per_sec).sum();
-        (sent_bps, received_bps)
-    }
-
     /// Get a random peer we are not connected to from the known list.
     fn sample_random_peer(&self, ignore_fn: impl Fn(&KnownPeerState) -> bool) -> Option<PeerInfo> {
         self.peer_store.unconnected_peer(ignore_fn)
@@ -1515,7 +1508,6 @@ impl PeerManagerActor {
     }
 
     pub(crate) fn get_network_info(&mut self) -> NetworkInfo {
-        let (sent_bytes_per_sec, received_bytes_per_sec) = self.get_total_bytes_per_sec();
         NetworkInfo {
             connected_peers: self
                 .connected_peers
@@ -1525,8 +1517,10 @@ impl PeerManagerActor {
             num_connected_peers: self.connected_peers.len(),
             peer_max_count: self.config.max_num_peers,
             highest_height_peers: self.highest_height_peers(),
-            sent_bytes_per_sec,
-            received_bytes_per_sec,
+            sent_bytes_per_sec: self.connected_peers.values().map(|x| x.sent_bytes_per_sec).sum(),
+            received_bytes_per_sec: (self.connected_peers.values())
+                .map(|x| x.received_bytes_per_sec)
+                .sum(),
             known_producers: self
                 .routing_table_view
                 .get_announce_accounts()
