@@ -265,7 +265,7 @@ impl Actor for PeerManagerActor {
             (MONITOR_PEERS_INITIAL_DURATION, max_interval),
         );
 
-        // Periodically starts active peer stats querying.
+        // Periodically starts connected peer stats querying.
         self.monitor_peer_stats_trigger(ctx, self.config.peer_stats_period);
 
         // Periodically reads valid edges from `EdgesVerifierActor` and broadcast.
@@ -282,8 +282,8 @@ impl Actor for PeerManagerActor {
     fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
         let msg = SendMessage { message: PeerMessage::Disconnect };
 
-        for (_, active_peer) in self.connected_peers.iter() {
-            active_peer.addr.do_send(msg.clone());
+        for connected_peer in self.connected_peers.values() {
+            connected_peer.addr.do_send(msg.clone());
         }
 
         actix::spawn(self.routing_table_addr.send(StopMsg {}));
@@ -421,10 +421,10 @@ impl PeerManagerActor {
         let mut total_bandwidth_used_by_all_peers: usize = 0;
         let mut total_msg_received_count: usize = 0;
         let mut max_max_record_num_messages_in_progress: usize = 0;
-        for (peer_id, active_peer) in self.connected_peers.iter_mut() {
-            let bandwidth_used = active_peer.throttle_controller.consume_bandwidth_used();
-            let msg_received_count = active_peer.throttle_controller.consume_msg_seen();
-            let max_record = active_peer.throttle_controller.consume_max_messages_in_progress();
+        for (peer_id, connected_peer) in self.connected_peers.iter_mut() {
+            let bandwidth_used = connected_peer.throttle_controller.consume_bandwidth_used();
+            let msg_received_count = connected_peer.throttle_controller.consume_msg_seen();
+            let max_record = connected_peer.throttle_controller.consume_max_messages_in_progress();
 
             if bandwidth_used > REPORT_BANDWIDTH_THRESHOLD_BYTES
                 || total_msg_received_count > REPORT_BANDWIDTH_THRESHOLD_COUNT
@@ -714,8 +714,8 @@ impl PeerManagerActor {
 
             // Ask for peers list on connection.
             let _ = addr.do_send(SendMessage { message: PeerMessage::PeersRequest });
-            if let Some(active_peer) = act.connected_peers.get_mut(&target_peer_id) {
-                active_peer.last_time_peer_requested = Clock::instant();
+            if let Some(connected_peer) = act.connected_peers.get_mut(&target_peer_id) {
+                connected_peer.last_time_peer_requested = Clock::instant();
             }
 
             if peer_type == PeerType::Outbound {
@@ -733,10 +733,10 @@ impl PeerManagerActor {
         });
     }
 
-    /// Remove peer from active set.
+    /// Remove peer from connected set.
     /// Check it match peer_type to avoid removing a peer that both started connection to each other.
     /// If peer_type is None, remove anyway disregarding who started the connection.
-    fn remove_active_peer(&mut self, peer_id: &PeerId, peer_type: Option<PeerType>) {
+    fn remove_connected_peer(&mut self, peer_id: &PeerId, peer_type: Option<PeerType>) {
         if let Some(peer_type) = peer_type {
             if let Some(peer) = self.connected_peers.get(peer_id) {
                 if peer.peer_type != peer_type {
@@ -788,7 +788,7 @@ impl PeerManagerActor {
         }
 
         if remove_from_peer_store {
-            self.remove_active_peer(&peer_id, Some(peer_type));
+            self.remove_connected_peer(&peer_id, Some(peer_type));
             if let Err(err) = self.peer_store.peer_disconnected(&peer_id) {
                 error!(target: "network", ?err, "Failed to save peer data");
             };
@@ -797,16 +797,16 @@ impl PeerManagerActor {
 
     /// Add peer to ban list.
     /// This function should only be called after Peer instance is stopped.
-    /// Note: Use `try_ban_peer` if there might be a Peer instance still active.
+    /// Note: Use `try_ban_peer` if there might be a Peer instance still connected.
     fn ban_peer(&mut self, peer_id: &PeerId, ban_reason: ReasonForBan) {
         warn!(target: "network", ?peer_id, ?ban_reason, "Banning peer");
-        self.remove_active_peer(peer_id, None);
+        self.remove_connected_peer(peer_id, None);
         if let Err(err) = self.peer_store.peer_ban(peer_id, ban_reason) {
             error!(target: "network", ?err, "Failed to save peer data");
         };
     }
 
-    /// Ban peer. Stop peer instance if it is still active,
+    /// Ban peer. Stop peer instance if it is still connected,
     /// and then mark peer as banned in the peer store.
     pub(crate) fn try_ban_peer(&mut self, peer_id: &PeerId, ban_reason: ReasonForBan) {
         if let Some(peer) = self.connected_peers.get(peer_id) {
@@ -934,32 +934,28 @@ impl PeerManagerActor {
         // Find all peers whose height is within `highest_peer_horizon` from max height peer(s).
         self.connected_peers
             .values()
-            .filter(|active_peer| {
-                active_peer
-                    .full_peer_info
-                    .chain_info
-                    .height
-                    .saturating_add(self.config.highest_peer_horizon)
+            .filter(|cp| {
+                cp.full_peer_info.chain_info.height.saturating_add(self.config.highest_peer_horizon)
                     >= max_height
             })
-            .map(|active_peer| active_peer.full_peer_info.clone())
+            .map(|cp| cp.full_peer_info.clone())
             .collect::<Vec<_>>()
     }
 
     /// Query current peers for more peers.
-    fn query_active_peers_for_more_peers(&mut self) {
+    fn query_connected_peers_for_more_peers(&mut self) {
         let mut requests = futures::stream::FuturesUnordered::new();
         let msg = SendMessage { message: PeerMessage::PeersRequest };
-        for (_, active_peer) in self.connected_peers.iter_mut() {
-            if active_peer.last_time_peer_requested.elapsed() > REQUEST_PEERS_INTERVAL {
-                active_peer.last_time_peer_requested = Clock::instant();
-                requests.push(active_peer.addr.send(msg.clone()));
+        for connected_peer in self.connected_peers.values_mut() {
+            if connected_peer.last_time_peer_requested.elapsed() > REQUEST_PEERS_INTERVAL {
+                connected_peer.last_time_peer_requested = Clock::instant();
+                requests.push(connected_peer.addr.send(msg.clone()));
             }
         }
         actix::spawn(async move {
             while let Some(response) = requests.next().await {
                 if let Err(e) = response {
-                    debug!(target: "network", ?e, "Failed sending broadcast message(query_active_peers)");
+                    debug!(target: "network", ?e, "Failed sending broadcast message(query_connected_peers)");
                 }
             }
         });
@@ -998,7 +994,7 @@ impl PeerManagerActor {
             move |act, _ctx| {
                 let other = edge.other(&act.my_peer_id).unwrap();
                 if !act.connected_peers.contains_key(other) {
-                    // Peer is still not active after waiting a timeout.
+                    // Peer is still not connected after waiting a timeout.
                     let new_edge = edge.remove_edge(act.my_peer_id.clone(), &act.config.secret_key);
                     Self::broadcast_message(
                         &act.connected_peers,
@@ -1065,9 +1061,9 @@ impl PeerManagerActor {
 
     /// Periodically query peer actors for latest weight and traffic info.
     fn monitor_peer_stats_trigger(&mut self, ctx: &mut Context<Self>, interval: Duration) {
-        for (peer_id, active_peer) in self.connected_peers.iter() {
+        for (peer_id, connected_peer) in self.connected_peers.iter() {
             let peer_id1 = peer_id.clone();
-            active_peer
+            connected_peer
                 .addr
                 .send(QueryPeerStats {})
                 .into_actor(self)
@@ -1080,13 +1076,13 @@ impl PeerManagerActor {
                             // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
                             //  network traffic that flags honest peers.
                             // Send ban signal to peer instance. It should send ban signal back and stop the instance.
-                            // if let Some(active_peer) = act.connected_peers.get(&peer_id1) {
-                            //     active_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
+                            // if let Some(connected_peer) = act.connected_peers.get(&peer_id1) {
+                            //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
                             // }
-                        } else if let Some(active_peer) = act.connected_peers.get_mut(&peer_id1) {
-                            active_peer.full_peer_info.chain_info = res.chain_info;
-                            active_peer.sent_bytes_per_sec = res.sent_bytes_per_sec;
-                            active_peer.received_bytes_per_sec = res.received_bytes_per_sec;
+                        } else if let Some(connected_peer) = act.connected_peers.get_mut(&peer_id1) {
+                            connected_peer.full_peer_info.chain_info = res.chain_info;
+                            connected_peer.sent_bytes_per_sec = res.sent_bytes_per_sec;
+                            connected_peer.received_bytes_per_sec = res.received_bytes_per_sec;
                         }
                     });
                 })
@@ -1118,7 +1114,7 @@ impl PeerManagerActor {
         let mut safe_set = HashSet::new();
 
         if (self.connected_peers.values())
-            .filter(|active_peer| active_peer.peer_type == PeerType::Outbound)
+            .filter(|connected_peer| connected_peer.peer_type == PeerType::Outbound)
             .count()
             + self.outgoing_peers.len()
             <= self.config.minimum_outbound_peers as usize
@@ -1178,9 +1174,9 @@ impl PeerManagerActor {
         });
 
         if let Some(peer_id) = candidates.choose(&mut rand::thread_rng()) {
-            if let Some(active_peer) = self.connected_peers.get(peer_id) {
+            if let Some(connected_peer) = self.connected_peers.get(peer_id) {
                 debug!(target: "network", ?peer_id, "Stop active connection");
-                active_peer.addr.do_send(PeerManagerRequest::UnregisterPeer);
+                connected_peer.addr.do_send(PeerManagerRequest::UnregisterPeer);
             }
         }
     }
@@ -1243,7 +1239,7 @@ impl PeerManagerActor {
                     peer_info,
                 }));
             } else {
-                self.query_active_peers_for_more_peers();
+                self.query_connected_peers_for_more_peers();
             }
         }
 
@@ -1662,11 +1658,12 @@ impl PeerManagerActor {
                         }
                     } else {
                         let mut matching_peers = vec![];
-                        for (peer_id, active_peer) in self.connected_peers.iter() {
-                            if (active_peer.full_peer_info.chain_info.archival
+                        for (peer_id, connected_peer) in self.connected_peers.iter() {
+                            if (connected_peer.full_peer_info.chain_info.archival
                                 || !target.only_archival)
-                                && active_peer.full_peer_info.chain_info.height >= target.min_height
-                                && active_peer
+                                && connected_peer.full_peer_info.chain_info.height
+                                    >= target.min_height
+                                && connected_peer
                                     .full_peer_info
                                     .chain_info
                                     .tracked_shards
@@ -1904,8 +1901,8 @@ impl PeerManagerActor {
         ctx: &mut Context<Self>,
         throttle_controller: Option<ThrottleController>,
     ) {
-        if let Some(active_peer) = self.connected_peers.get(&msg.peer_id) {
-            let addr = active_peer.addr.clone();
+        if let Some(connected_peer) = self.connected_peers.get(&msg.peer_id) {
+            let addr = connected_peer.addr.clone();
             Self::initialize_routing_table_exchange(
                 msg.peer_id,
                 PeerType::Inbound,
@@ -2074,7 +2071,7 @@ impl PeerManagerActor {
         if msg.peer_type == PeerType::Inbound && !self.is_inbound_allowed() {
             // TODO(1896): Gracefully drop inbound connection for other peer.
             debug!(target: "network",
-                active_peers = self.connected_peers.len(), outgoing_peers = self.outgoing_peers.len(),
+                connected_peers = self.connected_peers.len(), outgoing_peers = self.outgoing_peers.len(),
                 max_num_peers = self.config.max_num_peers,
                 "Inbound connection dropped (network at max capacity)."
             );
@@ -2289,8 +2286,8 @@ impl PeerManagerActor {
                 PeerResponse::NoResponse
             }
             PeerRequest::ReceivedMessage(peer_id, last_time_received_message) => {
-                if let Some(active_peer) = self.connected_peers.get_mut(&peer_id) {
-                    active_peer.last_time_received_message = last_time_received_message;
+                if let Some(connected_peer) = self.connected_peers.get_mut(&peer_id) {
+                    connected_peer.last_time_received_message = last_time_received_message;
                 }
                 PeerResponse::NoResponse
             }
