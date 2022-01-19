@@ -1041,7 +1041,7 @@ impl Handler<QueryPeerStats> for PeerActor {
     type Result = PeerStatsResult;
 
     #[perf]
-    fn handle(&mut self, msg: QueryPeerStats, _: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, _msg: QueryPeerStats, _: &mut Self::Context) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = delay_detector::DelayDetector::new("query peer stats".into());
         PeerStatsResult {

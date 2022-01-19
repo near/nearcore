@@ -41,8 +41,7 @@ impl Default for SealsManagerTestFixture {
         let store = near_store::test_utils::create_test_store();
         // 12 validators, 3 shards => 4 validators per shard
         let validators = make_validators(12);
-        let mock_runtime =
-            KeyValueRuntime::new_with_validators(Arc::clone(&store), validators, 1, 3, 5);
+        let mock_runtime = KeyValueRuntime::new_with_validators(store.clone(), validators, 1, 3, 5);
 
         let mock_parent_hash = CryptoHash::default();
         let mock_height: BlockHeight = 1;
@@ -91,7 +90,7 @@ impl Default for SealsManagerTestFixture {
 }
 
 impl SealsManagerTestFixture {
-    fn store_block_header(store: Arc<Store>, header: BlockHeader) {
+    fn store_block_header(store: Store, header: BlockHeader) {
         let mut chain_store = ChainStore::new(store, header.height());
         let mut update = chain_store.store_update();
         update.save_block_header(header).unwrap();
@@ -150,7 +149,7 @@ impl Default for ChunkForwardingTestFixture {
         // 12 validators, 3 shards => 4 validators per shard
         let validators = make_validators(12);
         let mock_runtime = Arc::new(KeyValueRuntime::new_with_validators(
-            Arc::clone(&store),
+            store.clone(),
             validators.clone(),
             1,
             3,
