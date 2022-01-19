@@ -319,7 +319,7 @@ pub mod test_features {
     //    Arc<AtomicUsize> - shared pointer for counting the number of received
     //                       `NetworkViewClientMessages::AnnounceAccount` messages
     pub fn make_peer_manager(
-        store: Arc<Store>,
+        store: Store,
         mut config: NetworkConfig,
         boot_nodes: Vec<(&str, u16)>,
         peer_max_count: u32,

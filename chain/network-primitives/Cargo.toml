@@ -11,6 +11,7 @@ license = "MIT OR Apache-2.0"
 publish = true
 
 [dependencies]
+anyhow = "1.0.51"
 actix = "=0.11.0-beta.2"
 borsh = "0.9"
 chrono = { version = "0.4.4", features = ["serde"] }
