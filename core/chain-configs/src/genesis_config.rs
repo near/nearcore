@@ -16,7 +16,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Serializer;
 use sha2::digest::Digest;
 use smart_default::SmartDefault;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::genesis_validate::validate_genesis;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardConfig};
@@ -470,39 +470,77 @@ impl GenesisJsonHasher {
     }
 }
 
+pub enum GenesisValidationMode {
+    Full,
+    UnsafeFast,
+}
+
 impl Genesis {
     pub fn new(config: GenesisConfig, records: GenesisRecords) -> Self {
-        let genesis = Self { config, records, records_file: PathBuf::new() };
-        validate_genesis(&genesis);
-        genesis
+        Self::new_validated(config, records, GenesisValidationMode::Full)
     }
 
-    pub fn new_with_path(config: GenesisConfig, records_file: PathBuf) -> Self {
-        let genesis = Self { config, records: GenesisRecords(vec![]), records_file };
-        validate_genesis(&genesis);
-        genesis
+    pub fn new_with_path<P: AsRef<Path>>(config: GenesisConfig, records_file: P) -> Self {
+        Self::new_with_path_validated(config, records_file, GenesisValidationMode::Full)
     }
 
     /// Reads Genesis from a single file.
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
+    pub fn from_file<P: AsRef<Path>>(path: P, genesis_validation: GenesisValidationMode) -> Self {
         let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
         let genesis: Genesis =
             serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.");
-        validate_genesis(&genesis);
-        genesis
+        // As serde skips the `records_file` field, we can assume that `Genesis` has `records` and
+        // doesn't have `records_file`.
+        Self::new_validated(genesis.config, genesis.records, genesis_validation)
     }
 
     /// Reads Genesis from config and records files.
-    pub fn from_files<P1, P2>(config_path: P1, records_path: P2) -> Self
+    pub fn from_files<P1, P2>(
+        config_path: P1,
+        records_path: P2,
+        genesis_validation: GenesisValidationMode,
+    ) -> Self
     where
         P1: AsRef<Path>,
         P2: AsRef<Path>,
     {
         let config = GenesisConfig::from_file(config_path).unwrap();
-        let records = GenesisRecords::from_file(records_path);
-        Self::new(config, records)
+        Self::new_with_path_validated(config, records_path, genesis_validation)
     }
 
+    fn new_validated(
+        config: GenesisConfig,
+        records: GenesisRecords,
+        genesis_validation: GenesisValidationMode,
+    ) -> Self {
+        let genesis = Self { config, records, records_file: PathBuf::new() };
+        genesis.validate(genesis_validation)
+    }
+
+    fn new_with_path_validated<P: AsRef<Path>>(
+        config: GenesisConfig,
+        records_file: P,
+        genesis_validation: GenesisValidationMode,
+    ) -> Self {
+        let genesis = Self {
+            config,
+            records: GenesisRecords(vec![]),
+            records_file: records_file.as_ref().to_path_buf(),
+        };
+        genesis.validate(genesis_validation)
+    }
+
+    fn validate(self, genesis_validation: GenesisValidationMode) -> Self {
+        match genesis_validation {
+            GenesisValidationMode::Full => {
+                validate_genesis(&self);
+            }
+            GenesisValidationMode::UnsafeFast => {
+                warn!(target: "genesis", "Skipped genesis validation");
+            }
+        }
+        self
+    }
     /// Writes Genesis to the file.
     pub fn to_file<P: AsRef<Path>>(&self, path: P) {
         std::fs::write(

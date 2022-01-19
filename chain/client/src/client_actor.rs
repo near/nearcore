@@ -2,7 +2,7 @@
 
 use crate::client::Client;
 use crate::info::{get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper};
-use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
+use crate::sync::{StateSync, StateSyncResult};
 #[cfg(feature = "test_features")]
 use crate::AdversarialControls;
 use crate::StatusResponse;
@@ -61,7 +61,8 @@ use near_store::db::DBCol::ColStateParts;
 #[cfg(feature = "test_features")]
 use near_store::ColBlock;
 use near_telemetry::TelemetryActor;
-use rand::Rng;
+use rand::seq::SliceRandom;
+use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::thread;
@@ -335,7 +336,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             self.client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
                             genesis,
                             self.client.runtime_adapter.clone(),
-                            self.client.chain.store().owned_store(),
+                            self.client.chain.store().store().clone(),
                         );
                         store_validator.set_timeout(timeout);
                         store_validator.validate();
@@ -690,7 +691,7 @@ impl Handler<GetNetworkInfo> for ClientActor {
     type Result = Result<NetworkInfoResponse, String>;
 
     #[perf]
-    fn handle(&mut self, msg: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, _msg: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("client get network info".into());
         self.check_triggers(ctx);
@@ -1127,7 +1128,7 @@ impl ClientActor {
         let mut is_syncing = self.client.sync_status.is_syncing();
 
         let full_peer_info = if let Some(full_peer_info) =
-            highest_height_peer(&self.network_info.highest_height_peers)
+            self.network_info.highest_height_peers.choose(&mut thread_rng())
         {
             full_peer_info
         } else {
@@ -1391,16 +1392,15 @@ impl ClientActor {
                         self.client.sync_status = SyncStatus::StateSync(sync_hash, new_shard_sync);
                         if fetch_block {
                             if let Some(peer_info) =
-                                highest_height_peer(&self.network_info.highest_height_peers)
+                                self.network_info.highest_height_peers.choose(&mut thread_rng())
                             {
+                                let id = peer_info.peer_info.id.clone();
+
                                 if let Ok(header) = self.client.chain.get_block_header(&sync_hash) {
                                     for hash in
                                         vec![*header.prev_hash(), *header.hash()].into_iter()
                                     {
-                                        self.request_block_by_hash(
-                                            hash,
-                                            peer_info.peer_info.id.clone(),
-                                        );
+                                        self.request_block_by_hash(hash, id.clone());
                                     }
                                 }
                             }
@@ -1502,6 +1502,15 @@ impl ClientActor {
                     &act.network_info,
                     validator_info,
                     validator_epoch_stats,
+                    act.client
+                        .runtime_adapter
+                        .get_epoch_height_from_prev_block(&head.prev_block_hash)
+                        .unwrap_or(0),
+                    act.client
+                        .runtime_adapter
+                        .get_protocol_upgrade_block_height(head.last_block_hash)
+                        .unwrap_or(None)
+                        .unwrap_or(0),
                 );
 
                 act.log_summary(ctx);

@@ -22,7 +22,6 @@ KEY_TARGET_ENV_VAR = 'NEAR_PYTEST_KEY_TARGET'
 # NODE_SSH_KEY_PATH = '~/.ssh/near_ops'
 NODE_SSH_KEY_PATH = None
 NODE_USERNAME = 'ubuntu'
-NUM_SHARDS = 1
 NUM_ACCOUNTS = 26 * 2
 PROJECT = 'near-mocknet'
 PUBLIC_KEY = 'ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN'
@@ -185,8 +184,7 @@ def start_load_test_helpers(nodes,
                             rpc_nodes,
                             num_nodes,
                             max_tps,
-                            get_node_key=False,
-                            progressive_upgrade=False):
+                            get_node_key=False):
     account = get_validator_account(nodes[0])
     pmap(
         lambda node: start_load_test_helper(node,
@@ -714,18 +712,17 @@ def create_genesis_file(validator_node_names,
         total_supply += int(account.get('amount', 0))
     genesis_config['total_supply'] = str(total_supply)
     # Testing simple nightshade.
-    genesis_config['protocol_version'] = 48
+    genesis_config['protocol_version'] = 49
     genesis_config['epoch_length'] = int(epoch_length)
     genesis_config['num_block_producer_seats'] = int(num_seats)
+    # Mainnet genesis disables protocol rewards, override to a value used today on mainnet.
+    genesis_config['protocol_reward_rate'] = [1, 10]
     # Loadtest helper signs all transactions using the same block.
     # Extend validity period to allow the same hash to be used for the whole duration of the test.
     genesis_config['transaction_validity_period'] = 10**9
     # Protocol upgrades require downtime, therefore make it harder to kickout validators.
     # The default value of this parameter is 90.
     genesis_config['block_producer_kickout_threshold'] = 10
-
-    #genesis_config.pop('simple_nightshade_shard_layout', None)
-    #genesis_config.pop('shard_layout', None)
 
     # The json object gets truncated if I don't close and reopen the file.
     with open(mocknet_genesis_filename, 'w') as f:
@@ -781,16 +778,18 @@ def update_config_file(all_nodes, tmp_dir):
                                          switch_user='ubuntu'), all_nodes)
 
 
-def start_nodes(nodes, upgrade_schedule):
-    pmap(lambda node: start_node(node, upgrade_schedule), nodes)
+def start_nodes(nodes, upgrade_schedule=None):
+    pmap(lambda node: start_node(node, upgrade_schedule=upgrade_schedule),
+         nodes)
 
 
 def stop_nodes(nodes):
     pmap(stop_node, nodes)
 
 
-def neard_start_script(node, upgrade_schedule, epoch_height):
-    if upgrade_schedule.get(node.instance_name, 0) <= epoch_height:
+def neard_start_script(node, upgrade_schedule=None, epoch_height=None):
+    if upgrade_schedule and upgrade_schedule.get(node.instance_name,
+                                                 0) <= epoch_height:
         neard_binary = '/home/ubuntu/neard.upgrade'
     else:
         neard_binary = '/home/ubuntu/neard'
@@ -803,7 +802,7 @@ def neard_start_script(node, upgrade_schedule, epoch_height):
     '''.format(neard_binary=shlex.quote(neard_binary))
 
 
-def start_node(node, upgrade_schedule):
+def start_node(node, upgrade_schedule=None):
     m = node.machine
     logger.info(f'Starting node {m.name}')
     attempt = 0
@@ -814,8 +813,10 @@ def start_node(node, upgrade_schedule):
             success = True
             break
         start_process = m.run('sudo -u ubuntu -i',
-                              input=neard_start_script(node, upgrade_schedule,
-                                                       0))
+                              input=neard_start_script(
+                                  node,
+                                  upgrade_schedule=upgrade_schedule,
+                                  epoch_height=0))
         if start_process.returncode == 0:
             success = True
             break
@@ -833,8 +834,7 @@ def reset_data(node, retries=0):
         m = node.machine
         stop_node(node)
         logger.info(f'Clearing data directory of node {m.name}')
-        start_process = m.run('bash',
-                              input='/home/ubuntu/neard unsafe_reset_data')
+        start_process = m.run('bash', input='rm -r /home/ubuntu/.near')
         assert start_process.returncode == 0, m.name + '\n' + start_process.stderr
     except:
         if retries < 3:
@@ -951,21 +951,24 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
                 else:
                     prev_stake = prev_stake + STAKE_STEP
                     staked = prev_stake * ONE_NEAR
-                stakes.append((staked, node))
+                stakes.append((staked, node.instance_name))
                 print(f'{node_account_name(node.instance_name)} {staked}')
 
         else:
-            staked = MIN_STAKE
+            for node in validator_nodes:
+                stakes.append((MIN_STAKE, node.instance_name))
         logger.info(f'create_upgrade_schedule {stakes}')
 
         # Compute seat assignments.
         seats = compute_seats(stakes, num_block_producer_seats)
 
         seats_upgraded = 0
-        for seat, stake, node in seats:
-            if (seats_upgraded + seat) * 5 > 4 * num_block_producer_seats:
+        for seat, stake, instance_name in seats:
+            # As the protocol upgrade takes place after 80% of the nodes are
+            # upgraded, stop a bit earlier to start in a non-upgraded state.
+            if (seats_upgraded + seat) * 100 > 75 * num_block_producer_seats:
                 break
-            schedule[node.instance_name] = 0
+            schedule[instance_name] = 0
             seats_upgraded += seat
 
         # Upgrade the remaining validators during 4 epochs.
@@ -1065,7 +1068,7 @@ def upgrade_node(node):
             success = True
             break
         logger.warn(
-            f'Failed to upgrade neard, returncode: {start_process.returncode}\n{node.instance_name}\n{start_process.stderr}'
+            f'Failed to upgrade neard, return code: {start_process.returncode}\n{node.instance_name}\n{start_process.stderr}'
         )
         attempt += 1
         time.sleep(1)

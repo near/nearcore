@@ -16,7 +16,7 @@ use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::errors::InvalidTxError;
+use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
@@ -30,8 +30,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, NumShards,
-    ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
+    AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Gas, Nonce, NumBlocks,
+    NumShards, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
@@ -68,7 +68,7 @@ struct KVState {
 
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {
-    store: Arc<Store>,
+    store: Store,
     tries: ShardTries,
     validators: Vec<Vec<ValidatorStake>>,
     validator_groups: u64,
@@ -111,12 +111,12 @@ fn create_receipt_nonce(
 }
 
 impl KeyValueRuntime {
-    pub fn new(store: Arc<Store>, epoch_length: u64) -> Self {
+    pub fn new(store: Store, epoch_length: u64) -> Self {
         Self::new_with_validators(store, vec![vec!["test".parse().unwrap()]], 1, 1, epoch_length)
     }
 
     pub fn new_with_validators(
-        store: Arc<Store>,
+        store: Store,
         validators: Vec<Vec<AccountId>>,
         validator_groups: u64,
         num_shards: NumShards,
@@ -133,7 +133,7 @@ impl KeyValueRuntime {
     }
 
     pub fn new_with_validators_and_no_gc(
-        store: Arc<Store>,
+        store: Store,
         validators: Vec<Vec<AccountId>>,
         validator_groups: u64,
         num_shards: NumShards,
@@ -300,11 +300,11 @@ impl KeyValueRuntime {
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
-    fn genesis_state(&self) -> (Arc<Store>, Vec<StateRoot>) {
+    fn genesis_state(&self) -> (Store, Vec<StateRoot>) {
         (self.store.clone(), ((0..self.num_shards).map(|_| StateRoot::default()).collect()))
     }
 
-    fn get_store(&self) -> Arc<Store> {
+    fn get_store(&self) -> Store {
         self.store.clone()
     }
 
@@ -1204,6 +1204,20 @@ impl RuntimeAdapter for KeyValueRuntime {
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         Ok(HashMap::new())
     }
+
+    fn get_protocol_upgrade_block_height(
+        &self,
+        _block_hash: CryptoHash,
+    ) -> Result<Option<BlockHeight>, EpochError> {
+        Ok(None)
+    }
+
+    fn get_epoch_height_from_prev_block(
+        &self,
+        _prev_block_hash: &CryptoHash,
+    ) -> Result<EpochHeight, Error> {
+        Ok(0)
+    }
 }
 
 pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
@@ -1300,7 +1314,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         head.last_block_hash
     );
     let mut headers = vec![];
-    for (key, _) in chain_store.owned_store().iter(ColBlockHeader) {
+    for (key, _) in chain_store.store().clone().iter(ColBlockHeader) {
         let header = chain_store
             .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
             .unwrap()

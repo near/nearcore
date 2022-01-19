@@ -61,13 +61,12 @@ pub fn test_read_write() {
         let fees = RuntimeFeesConfig::test();
 
         let promise_results = vec![];
-        let runtime = vm_kind.runtime().expect("runtime has not been compiled");
+        let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
         let result = runtime.run(
             &code,
             "write_key_value",
             &mut fake_external,
             context,
-            &config,
             &fees,
             &promise_results,
             LATEST_PROTOCOL_VERSION,
@@ -81,7 +80,6 @@ pub fn test_read_write() {
             "read_value",
             &mut fake_external,
             context,
-            &config,
             &fees,
             &promise_results,
             LATEST_PROTOCOL_VERSION,
@@ -102,13 +100,12 @@ pub fn test_stablized_host_function() {
         let fees = RuntimeFeesConfig::test();
 
         let promise_results = vec![];
-        let runtime = vm_kind.runtime().expect("runtime has not been compiled");
+        let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
         let result = runtime.run(
             &code,
             "do_ripemd",
             &mut fake_external,
             context.clone(),
-            &config,
             &fees,
             &promise_results,
             LATEST_PROTOCOL_VERSION,
@@ -121,7 +118,6 @@ pub fn test_stablized_host_function() {
             "do_ripemd",
             &mut fake_external,
             context,
-            &config,
             &fees,
             &promise_results,
             ProtocolFeature::MathExtension.protocol_version() - 1,
@@ -175,14 +171,13 @@ fn run_test_ext(
     let config = VMConfig::test();
     let fees = RuntimeFeesConfig::test();
     let context = create_context(input.to_vec());
-    let runtime = vm_kind.runtime().expect("runtime has not been compiled");
+    let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
 
     let (outcome, err) = runtime.run(
         &code,
         method,
         &mut fake_external,
         context,
-        &config,
         &fees,
         &[],
         LATEST_PROTOCOL_VERSION,
@@ -309,7 +304,7 @@ pub fn test_out_of_memory() {
         let context = create_context(Vec::new());
         let config = VMConfig::free();
         let fees = RuntimeFeesConfig::free();
-        let runtime = vm_kind.runtime().expect("runtime has not been compiled");
+        let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
 
         let promise_results = vec![];
         let result = runtime.run(
@@ -317,7 +312,6 @@ pub fn test_out_of_memory() {
             "out_of_memory",
             &mut fake_external,
             context,
-            &config,
             &fees,
             &promise_results,
             LATEST_PROTOCOL_VERSION,

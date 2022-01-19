@@ -13,7 +13,7 @@ use near_vm_runner::VMError;
 
 libfuzzer_sys::fuzz_target!(|module: ArbitraryModule| {
     let code = ContractCode::new(module.0.to_bytes(), None);
-    let (_outcome, _err) = run_fuzz(&code, VMKind::Wasmer0);
+    let (_outcome, _err) = run_fuzz(&code, VMKind::for_protocol_version(PROTOCOL_VERSION));
 });
 
 fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> (Option<VMOutcome>, Option<VMError>) {
@@ -26,12 +26,11 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> (Option<VMOutcome>, Option<
     let promise_results = vec![];
 
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
-    vm_kind.runtime().unwrap().run(
+    vm_kind.runtime(config).unwrap().run(
         code,
         &method_name,
         &mut fake_external,
         context,
-        &config,
         &fees,
         &promise_results,
         PROTOCOL_VERSION,
