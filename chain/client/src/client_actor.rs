@@ -336,7 +336,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             self.client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
                             genesis,
                             self.client.runtime_adapter.clone(),
-                            self.client.chain.store().owned_store(),
+                            self.client.chain.store().store().clone(),
                         );
                         store_validator.set_timeout(timeout);
                         store_validator.validate();
@@ -691,7 +691,7 @@ impl Handler<GetNetworkInfo> for ClientActor {
     type Result = Result<NetworkInfoResponse, String>;
 
     #[perf]
-    fn handle(&mut self, msg: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, _msg: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("client get network info".into());
         self.check_triggers(ctx);

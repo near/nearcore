@@ -276,7 +276,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
     }
 }
 
-pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Arc<Store> {
+pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Store {
     let path = get_store_path(home_dir);
     let store_exists = store_path_exists(&path);
     if store_exists {
@@ -301,7 +301,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> Result<NearNode
 
     let runtime = Arc::new(NightshadeRuntime::with_config(
         home_dir,
-        Arc::clone(&store),
+        store.clone(),
         &config,
         config.client_config.trie_viewer_state_size_limit,
         config.client_config.max_gas_burnt_view,
