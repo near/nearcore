@@ -181,7 +181,7 @@ impl PeerActor {
                 let bytes_len = bytes.len();
                 if !self.framed.write(bytes) {
                     #[cfg(feature = "performance_stats")]
-                    let tid = near_rust_allocator_proxy::allocator::get_tid();
+                    let tid = near_rust_allocator_proxy::get_tid();
                     #[cfg(not(feature = "performance_stats"))]
                     let tid = 0;
                     error!(
