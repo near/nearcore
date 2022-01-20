@@ -2,6 +2,7 @@ use bn::arith::U256;
 use bn::{pairing_batch, AffineG1, AffineG2, Fq, Fq2, Fr, Group, GroupError, Gt, G1, G2};
 use borsh::{BorshDeserialize, BorshSerialize};
 use std::io::{self, Error, ErrorKind, Write};
+use near_vm_errors::VMLogicError;
 
 use crate::HostError;
 
@@ -207,6 +208,7 @@ impl BorshDeserialize for WrapG2 {
 
 /// Computes multiexp on alt_bn128 curve using Pippenger's algorithm
 /// \sum_i mul_i g_{1 i} should be equal result.
+/// Allows at max 5000 items
 ///
 /// # Arguments
 ///
@@ -244,6 +246,11 @@ pub fn alt_bn128_g1_multiexp(data: &[u8]) -> crate::logic::Result<Vec<u8>> {
         .into_iter()
         .map(|e| (e.0 .0, e.1 .0))
         .collect::<Vec<_>>();
+    // Upper bounded by 2^9 buckets
+    // Reference: https://github.com/zeropoolnetwork/bn/blob/b25e138cd5a7d98ad16c091c20b4fa273ca1f993/src/groups/mod.rs#L71
+    if items.len() > 5000 {
+        return Err(VMLogicError::HostError(HostError::AltBn128MaxNumberOfItemsExceeded));
+    }
     let result = WrapG1(G1::multiexp(&items))
         .try_to_vec()
         .map_err(|e| HostError::AltBn128SerializationError { msg: format!("{}", e) })?;
