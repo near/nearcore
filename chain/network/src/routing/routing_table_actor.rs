@@ -309,9 +309,8 @@ impl RoutingTableActor {
         // Save nodes on disk and remove from memory only if elapsed time from oldest peer
         // is greater than `SAVE_PEERS_MAX_TIME`
         if !(force_pruning
-            || self.peer_last_time_reachable.values().min().map_or(false, |oldest_time| {
-                now.saturating_duration_since(*oldest_time) >= SAVE_PEERS_MAX_TIME
-            }))
+            || (self.peer_last_time_reachable.values())
+                .any(|last_time| now.saturating_duration_since(*last_time) >= SAVE_PEERS_MAX_TIME))
         {
             return Vec::new();
         }
