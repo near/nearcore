@@ -307,15 +307,16 @@ impl RoutingTableActor {
         let now = Instant::now();
         // Save nodes on disk and remove from memory only if elapsed time from oldest peer
         // is greater than `SAVE_PEERS_MAX_TIME`
-        if !(force_pruning
+        let do_pruning = force_pruning
             || (self.peer_last_time_reachable.values())
-                .any(|&last_time| now.saturating_duration_since(last_time) >= SAVE_PEERS_MAX_TIME))
-        {
+                .any(|&last_time| now.saturating_duration_since(last_time) >= SAVE_PEERS_MAX_TIME);
+        if !do_pruning {
             return Vec::new();
         }
 
         // We compute routing graph every one second; we mark every node that was reachable during that time.
         // All nodes not reachable for at last 1 hour(SAVE_PEERS_AFTER_TIME) will be moved to disk.
+        // TODO - use drain_filter once it becomes stable - #59618
         let peers_to_remove = (self.peer_last_time_reachable.iter())
             .filter(|(_, &last_time)| {
                 now.saturating_duration_since(last_time) >= prune_edges_not_reachable_for
@@ -325,12 +326,7 @@ impl RoutingTableActor {
 
         debug!(target: "network", "try_save_edges: We are going to remove {} peers", peers_to_remove.len());
 
-        let current_component_nonce = self.next_available_component_nonce;
-        self.next_available_component_nonce += 1;
-
         let mut update = self.store.store_update();
-        // Stores next available nonce.
-        let _ = update.set_ser(ColLastComponentNonce, &[], &self.next_available_component_nonce);
 
         // Sets mapping from `peer_id` to `component nonce` in DB. This is later used to find
         // component that the edge belonged to.
@@ -338,26 +334,29 @@ impl RoutingTableActor {
             let _ = update.set_ser(
                 ColPeerComponent,
                 peer_id.try_to_vec().unwrap().as_ref(),
-                &current_component_nonce,
+                &self.next_available_component_nonce,
             );
 
             self.peer_last_time_reachable.remove(peer_id);
         }
 
-        let component_nonce = index_to_bytes(current_component_nonce);
-        let edges_to_remove = self
-            .edges_info
-            .iter()
-            .filter_map(|(key, edge)| {
-                if peers_to_remove.contains(&key.0) || peers_to_remove.contains(&key.1) {
-                    Some(edge.clone())
-                } else {
-                    None
-                }
+        // TODO - use drain_filter once it becomes stable - #59618
+        let edges_to_remove = (self.edges_info.values())
+            .filter(|edge| {
+                peers_to_remove.contains(&edge.key().0) || peers_to_remove.contains(&edge.key().1)
             })
+            .cloned()
             .collect();
 
-        let _ = update.set_ser(ColComponentEdges, component_nonce.as_ref(), &edges_to_remove);
+        let _ = update.set_ser(
+            ColComponentEdges,
+            &index_to_bytes(self.next_available_component_nonce),
+            &edges_to_remove,
+        );
+
+        self.next_available_component_nonce += 1;
+        // Stores next available nonce.
+        let _ = update.set_ser(ColLastComponentNonce, &[], &self.next_available_component_nonce);
 
         if let Err(e) = update.commit() {
             warn!(target: "network", "Error storing network component to store. {:?}", e);
