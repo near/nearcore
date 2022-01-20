@@ -30,21 +30,21 @@
 //!   * Some costs are measured more directly. For example, to measure cost of
 //!     wasm opcode we call vm_runner directly, bypassing the rest of runtime
 //!     machinery.
-//!   * Some RocksDB related estimations avoid nearcore entirely and run on 
-//!     completely independent database instances. This DB is controlled by the 
+//!   * Some RocksDB related estimations avoid nearcore entirely and run on
+//!     completely independent database instances. This DB is controlled by the
 //!     `rdb-` prefixed flags which are combined in `RocksDBTestConfig`.
 //!
 //! Some costs depend on each other. As we want to allow estimating a subset of
 //! costs and don't want to just run everything in order (as that would be to
 //! slow), we have a very simple manual caching infrastructure in place.
-//! 
+//!
 //! Notes on code architecture:
-//! 
+//!
 //! To keep estimations comprehensible, each estimation has a simple function
-//! here in the top-level module. Calls to code in submodules should have a 
-//! descriptive function names so that it is obvious what it does without 
+//! here in the top-level module. Calls to code in submodules should have a
+//! descriptive function names so that it is obvious what it does without
 //! digging deeper.
-//! 
+//!
 
 mod cost;
 mod cost_table;
