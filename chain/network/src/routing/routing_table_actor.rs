@@ -310,7 +310,7 @@ impl RoutingTableActor {
         // is greater than `SAVE_PEERS_MAX_TIME`
         if !(force_pruning
             || (self.peer_last_time_reachable.values())
-                .any(|last_time| now.saturating_duration_since(*last_time) >= SAVE_PEERS_MAX_TIME))
+                .any(|&last_time| now.saturating_duration_since(last_time) >= SAVE_PEERS_MAX_TIME))
         {
             return Vec::new();
         }
@@ -318,8 +318,8 @@ impl RoutingTableActor {
         // We compute routing graph every one second; we mark every node that was reachable during that time.
         // All nodes not reachable for at last 1 hour(SAVE_PEERS_AFTER_TIME) will be moved to disk.
         let peers_to_remove = (self.peer_last_time_reachable.iter())
-            .filter(|(_, last_time)| {
-                now.saturating_duration_since(**last_time) >= prune_edges_not_reachable_for
+            .filter(|(_, &last_time)| {
+                now.saturating_duration_since(last_time) >= prune_edges_not_reachable_for
             })
             .map(|(peer_id, _)| peer_id.clone())
             .collect::<HashSet<_>>();
