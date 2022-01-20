@@ -306,28 +306,25 @@ impl RoutingTableActor {
         prune_edges_not_reachable_for: Duration,
     ) -> Vec<Edge> {
         let now = Instant::now();
-        let mut oldest_time = now;
+        // Save nodes on disk and remove from memory only if elapsed time from oldest peer
+        // is greater than `SAVE_PEERS_MAX_TIME`
+        if !(force_pruning
+            || self.peer_last_time_reachable.values().min().map_or(false, |oldest_time| {
+                now.saturating_duration_since(*oldest_time) >= SAVE_PEERS_MAX_TIME
+            }))
+        {
+            return Vec::new();
+        }
 
         // We compute routing graph every one second; we mark every node that was reachable during that time.
         // All nodes not reachable for at last 1 hour(SAVE_PEERS_AFTER_TIME) will be moved to disk.
-        let peers_to_remove = self
-            .peer_last_time_reachable
-            .iter()
-            .filter_map(|(peer_id, last_time)| {
-                oldest_time = std::cmp::min(oldest_time, *last_time);
-                if now.saturating_duration_since(*last_time) >= prune_edges_not_reachable_for {
-                    Some(peer_id.clone())
-                } else {
-                    None
-                }
+        let peers_to_remove = (self.peer_last_time_reachable.iter())
+            .filter(|(_, last_time)| {
+                now.saturating_duration_since(**last_time) >= prune_edges_not_reachable_for
             })
+            .map(|(peer_id, _)| peer_id.clone())
             .collect::<HashSet<_>>();
 
-        // Save nodes on disk and remove from memory only if elapsed time from oldest peer
-        // is greater than `SAVE_PEERS_MAX_TIME`
-        if !force_pruning && now.saturating_duration_since(oldest_time) < SAVE_PEERS_MAX_TIME {
-            return Vec::new();
-        }
         debug!(target: "network", "try_save_edges: We are going to remove {} peers", peers_to_remove.len());
 
         let current_component_nonce = self.next_available_component_nonce;
