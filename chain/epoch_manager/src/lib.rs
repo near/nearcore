@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
 
 use cached::{Cached, SizedCache};
 use log::{debug, warn};
@@ -51,7 +50,7 @@ const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
 /// Tracks epoch information across different forks, such as validators.
 /// Note: that even after garbage collection, the data about genesis epoch should be in the store.
 pub struct EpochManager {
-    store: Arc<Store>,
+    store: Store,
     /// Current epoch config.
     config: AllEpochConfig,
     reward_calculator: RewardCalculator,
@@ -76,7 +75,7 @@ pub struct EpochManager {
 
 impl EpochManager {
     pub fn new_from_genesis_config(
-        store: Arc<Store>,
+        store: Store,
         genesis_config: &GenesisConfig,
     ) -> Result<Self, EpochError> {
         let reward_calculator = RewardCalculator::new(genesis_config);
@@ -91,7 +90,7 @@ impl EpochManager {
     }
 
     pub fn new(
-        store: Arc<Store>,
+        store: Store,
         config: AllEpochConfig,
         genesis_protocol_version: ProtocolVersion,
         reward_calculator: RewardCalculator,
