@@ -12,7 +12,7 @@ RPC_PORT = '3030'
 def get_status():
     r = requests.get(f'http://{LOCAL_ADDR}:{RPC_PORT}/status', timeout=10)
     r.raise_for_status()
-    return json.loads(r.content)
+    return r.json()
 
 
 def json_rpc(method, params):
@@ -42,20 +42,18 @@ def get_latest_block_hash():
 
 def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps_per_node,
                   node_account, test_accounts):
-    start_time = time.time()
+    start_time = time.monotonic()
     send_txns(node_account, test_accounts, max_tps_per_node)
-    duration = time.time() - start_time
+    duration = time.monotonic() - start_time
     total_tx_sent += len(test_accounts)
-    elapsed_time += duration
 
-    excess_transactions = total_tx_sent - (max_tps_per_node * elapsed_time)
+    excess_transactions = total_tx_sent - (max_tps_per_node * (elapsed_time + duration))
     if excess_transactions > 0:
         delay = excess_transactions / max_tps_per_node
-        elapsed_time += delay
         logger.info(f'Sleeping for {delay} seconds to throttle transactions')
         time.sleep(delay)
 
-    return total_tx_sent, elapsed_time
+    return total_tx_sent
 
 
 def retry_and_ignore_errors(f):
@@ -64,7 +62,6 @@ def retry_and_ignore_errors(f):
             return f()
         except Exception as e:
             time.sleep(0.1 * 2**attempt)
-            continue
     return None
 
 
@@ -72,8 +69,8 @@ def wait_at_least_one_block():
     status = get_status()
     start_height = status['sync_info']['latest_block_height']
     timeout_sec = 5
-    started = time.time()
-    while time.time() - started < timeout_sec:
+    started = time.monotonic()
+    while time.monotonic() - started < timeout_sec:
         status = get_status()
         height = status['sync_info']['latest_block_height']
         if height > start_height:

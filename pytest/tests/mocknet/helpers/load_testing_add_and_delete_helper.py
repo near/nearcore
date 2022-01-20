@@ -156,7 +156,7 @@ def initialize_skyward_contract(node_account_id, pk, sk):
 
     time.sleep(2)
     # Needs to be [7,30] days in the future.
-    sale_start_timestamp = round(time.time() + 8 * 24 * 60 * 60)
+    sale_start_timestamp = round(time.monotonic() + 8 * 24 * 60 * 60)
     s = f'{{"sale": {{"title":"sale","out_tokens":[{{"token_account_id":"{mocknet.TOKEN1_ACCOUNT}","balance":"500000000000000000000000000000"}}], "in_token_account_id": "{mocknet.TOKEN2_ACCOUNT}", "start_time": "{str(sale_start_timestamp)}000000000", "duration": "3600000000000"}} }}'
     logger.info(
         f'Calling function "sale_create" with arguments {s} on account {get_account1_account().key.account_id} for account {mocknet.SKYWARD_ACCOUNT}'
@@ -214,10 +214,10 @@ def get_test_accounts_from_args(argv):
     global special_accounts
     special_accounts = [account.Account(key, mocknet_helpers.get_nonce_for_pk(key.account_id, key.pk), base_block_hash, rpc_infos=rpc_infos) for key in special_account_keys]
 
-    start_time = time.time()
+    start_time = time.monotonic()
     if node_account_id == leader_account_id:
         initialize_skyward_contract(node_account_id, pk, sk)
-        elapsed = time.time() - start_time
+        elapsed = time.monotonic() - start_time
         if elapsed < SKYWARD_INIT_TIME:
             logger.info(f'Leader sleeps for {SKYWARD_INIT_TIME-elapsed}sec')
             time.sleep(SKYWARD_INIT_TIME - elapsed)
@@ -273,13 +273,13 @@ def main(argv):
     delay = CONTRACT_DEPLOY_TIME / mocknet.NUM_ACCOUNTS
     logger.info(f'Start deploying, delay between deployments: {delay}')
 
-    start_time = time.time()
+    start_time = time.monotonic()
     assert delay >= 1
     for i, account in enumerate(test_accounts):
         logger.info(f'Deploying contract for account {i}')
         mocknet_helpers.retry_and_ignore_errors(lambda: account.send_deploy_contract_tx(mocknet.WASM_FILENAME))
         init_token2_account(account, i)
-        time.sleep(max(1.0, start_time + (i + 1) * delay - time.time()))
+        time.sleep(max(1.0, start_time + (i + 1) * delay - time.monotonic()))
     logger.info('Done deploying')
 
     # begin with only transfers for TPS measurement
@@ -288,13 +288,14 @@ def main(argv):
         f'Start the test, expected TPS {max_tps_per_node} over the next {TEST_TIMEOUT} seconds'
     )
     last_staking = 0
-    start_time = time.time()
-    while time.time() - start_time < TEST_TIMEOUT:
+    start_time = time.monotonic()
+    while time.monotonic() - start_time < TEST_TIMEOUT:
         # Repeat the staking transactions in case the validator selection algorithm changes.
         staked_time = mocknet.stake_available_amount(node_account, last_staking)
         if staked_time is not None:
             last_staking = staked_time
-        (total_tx_sent, elapsed_time) = mocknet_helpers.throttle_txns(
+        elapsed_time = time.monotonic() - start_time
+        total_tx_sent = mocknet_helpers.throttle_txns(
             send_skyward_transactions, total_tx_sent, elapsed_time,
             2 * max_tps_per_node, node_account, test_accounts)
     logger.info('Stop the test')
