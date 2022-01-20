@@ -47,7 +47,8 @@ def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps_per_node,
     duration = time.monotonic() - start_time
     total_tx_sent += len(test_accounts)
 
-    excess_transactions = total_tx_sent - (max_tps_per_node * (elapsed_time + duration))
+    excess_transactions = total_tx_sent - (max_tps_per_node *
+                                           (elapsed_time + duration))
     if excess_transactions > 0:
         delay = excess_transactions / max_tps_per_node
         logger.info(f'Sleeping for {delay} seconds to throttle transactions')

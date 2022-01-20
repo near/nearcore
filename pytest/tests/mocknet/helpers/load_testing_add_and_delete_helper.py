@@ -41,14 +41,20 @@ def function_call(account, i, node_account):
         logger.info(
             f'Calling function "withdraw_token" with arguments {s} on account {i}'
         )
-        tx_res = mocknet_helpers.retry_and_ignore_errors(lambda:account.send_call_contract_raw_tx(mocknet.SKYWARD_ACCOUNT, 'withdraw_token', bytes(s, encoding='utf-8'), 0))
+        tx_res = mocknet_helpers.retry_and_ignore_errors(
+            lambda: account.send_call_contract_raw_tx(
+                mocknet.SKYWARD_ACCOUNT, 'withdraw_token',
+                bytes(s, encoding='utf-8'), 0))
         logger.info(f'Account {account.key.account_id} withdraw_token {tx_res}')
     else:
         s = '{"sale_id": 0, "amount": "1"}'
         logger.info(
             f'Calling function "sale_deposit_in_token" with arguments {s} on account {i}'
         )
-        tx_res = mocknet_helpers.retry_and_ignore_errors(lambda:account.send_call_contract_raw_tx(mocknet.SKYWARD_ACCOUNT, 'sale_deposit_in_token', bytes(s, encoding='utf-8'), 1))
+        tx_res = mocknet_helpers.retry_and_ignore_errors(
+            lambda: account.send_call_contract_raw_tx(
+                mocknet.SKYWARD_ACCOUNT, 'sale_deposit_in_token',
+                bytes(s, encoding='utf-8'), 1))
         logger.info(
             f'Account {account.key.account_id} sale_deposit_in_token {tx_res}')
 
@@ -190,11 +196,12 @@ def get_test_accounts_from_args(argv):
     base_block_hash = mocknet_helpers.get_latest_block_hash()
 
     rpc_infos = [(rpc_addr, mocknet_helpers.RPC_PORT) for rpc_addr in rpc_nodes]
-    node_account = account.Account(
-        node_account_key,
-        mocknet_helpers.get_nonce_for_pk(node_account_key.account_id,
-                                         node_account_key.pk), base_block_hash,
-        rpc_infos=rpc_infos)
+    node_account = account.Account(node_account_key,
+                                   mocknet_helpers.get_nonce_for_pk(
+                                       node_account_key.account_id,
+                                       node_account_key.pk),
+                                   base_block_hash,
+                                   rpc_infos=rpc_infos)
     accounts = [
         account.Account(key,
                         mocknet_helpers.get_nonce_for_pk(
@@ -212,7 +219,13 @@ def get_test_accounts_from_args(argv):
         key.Key(mocknet.TOKEN2_OWNER_ACCOUNT, upk, usk),
     ]
     global special_accounts
-    special_accounts = [account.Account(key, mocknet_helpers.get_nonce_for_pk(key.account_id, key.pk), base_block_hash, rpc_infos=rpc_infos) for key in special_account_keys]
+    special_accounts = [
+        account.Account(key,
+                        mocknet_helpers.get_nonce_for_pk(
+                            key.account_id, key.pk),
+                        base_block_hash,
+                        rpc_infos=rpc_infos) for key in special_account_keys
+    ]
 
     start_time = time.monotonic()
     if node_account_id == leader_account_id:
@@ -230,13 +243,20 @@ def get_test_accounts_from_args(argv):
 
 def init_token2_account(account, i):
     s = f'{{"account_id": "{account.key.account_id}"}}'
-    tx_res = mocknet_helpers.retry_and_ignore_errors(lambda:account.send_call_contract_raw_tx(mocknet.TOKEN2_ACCOUNT, 'storage_deposit', bytes(s, encoding='utf-8'), 1250000000000000000000) ) # 0.00125 * 1e24)
+    tx_res = mocknet_helpers.retry_and_ignore_errors(
+        lambda: account.send_call_contract_raw_tx(
+            mocknet.TOKEN2_ACCOUNT, 'storage_deposit', bytes(s,
+                                                             encoding='utf-8'),
+            1250000000000000000000))  # 0.00125 * 1e24)
     logger.info(f'Account {account.key.account_id} storage_deposit {tx_res}')
 
     s = f'{{"token_account_id": "{mocknet.TOKEN2_ACCOUNT}"}}'
     logger.info(
         f'Calling function "register_token" with arguments {s} on account {i}')
-    tx_res = mocknet_helpers.retry_and_ignore_errors(lambda:account.send_call_contract_raw_tx(mocknet.SKYWARD_ACCOUNT, 'register_token', bytes(s, encoding='utf-8'), 0.01 * 1e24))
+    tx_res = mocknet_helpers.retry_and_ignore_errors(
+        lambda: account.
+        send_call_contract_raw_tx(mocknet.SKYWARD_ACCOUNT, 'register_token',
+                                  bytes(s, encoding='utf-8'), 0.01 * 1e24))
     logger.info(
         f'Account {account.key.account_id} register_token token2 {tx_res}')
 
@@ -277,7 +297,8 @@ def main(argv):
     assert delay >= 1
     for i, account in enumerate(test_accounts):
         logger.info(f'Deploying contract for account {i}')
-        mocknet_helpers.retry_and_ignore_errors(lambda: account.send_deploy_contract_tx(mocknet.WASM_FILENAME))
+        mocknet_helpers.retry_and_ignore_errors(
+            lambda: account.send_deploy_contract_tx(mocknet.WASM_FILENAME))
         init_token2_account(account, i)
         time.sleep(max(1.0, start_time + (i + 1) * delay - time.monotonic()))
     logger.info('Done deploying')
