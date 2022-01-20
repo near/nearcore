@@ -1,8 +1,8 @@
 use bn::arith::U256;
 use bn::{pairing_batch, AffineG1, AffineG2, Fq, Fq2, Fr, Group, GroupError, Gt, G1, G2};
 use borsh::{BorshDeserialize, BorshSerialize};
-use std::io::{self, Error, ErrorKind, Write};
 use near_vm_errors::VMLogicError;
+use std::io::{self, Error, ErrorKind, Write};
 
 use crate::HostError;
 
