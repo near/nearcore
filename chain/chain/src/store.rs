@@ -2013,8 +2013,9 @@ impl<'a> ChainStoreUpdate<'a> {
             }
 
             // 4. Delete chunks_tail-related data
-            self.gc_col(ColChunkHashesByHeight, &index_to_bytes(height).to_vec());
-            self.gc_col(ColHeaderHashesByHeight, &index_to_bytes(height).to_vec());
+            let key = &index_to_bytes(height).to_vec();
+            self.gc_col(ColChunkHashesByHeight, key);
+            self.gc_col(ColHeaderHashesByHeight, key);
         }
         self.update_chunk_tail(min_chunk_height);
         Ok(())
@@ -2220,19 +2221,17 @@ impl<'a> ChainStoreUpdate<'a> {
         if hashes.is_empty() {
             epoch_to_hashes.remove(epoch_id);
         }
-        let key = index_to_bytes(height);
+        let key = index_to_bytes(height).to_vec();
         if epoch_to_hashes.is_empty() {
             store_update.delete(ColBlockPerHeight, &key);
-            self.chain_store.block_hash_per_height.pop(&key.to_vec());
+            self.chain_store.block_hash_per_height.pop(&key);
         } else {
             store_update.set_ser(ColBlockPerHeight, &key, &epoch_to_hashes)?;
-            self.chain_store
-                .block_hash_per_height
-                .put(index_to_bytes(height).to_vec(), epoch_to_hashes);
+            self.chain_store.block_hash_per_height.put(key.clone(), epoch_to_hashes);
         }
         self.inc_gc(ColBlockPerHeight);
         if self.is_height_processed(height)? {
-            self.gc_col(ColProcessedBlockHeights, &key.to_vec());
+            self.gc_col(ColProcessedBlockHeights, &key);
         }
         self.merge(store_update);
         Ok(())
