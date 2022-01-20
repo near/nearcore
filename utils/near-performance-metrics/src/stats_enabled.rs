@@ -1,3 +1,4 @@
+use actix::address::channel::decode_state;
 use actix::Actor;
 use bytesize::ByteSize;
 use futures;
@@ -8,11 +9,11 @@ use near_rust_allocator_proxy::allocator::{
     thread_memory_count, thread_memory_usage, total_memory_usage,
 };
 use once_cell::sync::Lazy;
-use std::cmp::{max, min};
+use std::cmp::{max, min, Ordering};
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 use std::sync::atomic::AtomicUsize;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{atomic, Arc, Mutex, Weak};
 use std::task::Poll;
 use std::time::{Duration, Instant};
 use strum::AsStaticRef;
@@ -423,7 +424,7 @@ where
 }
 
 trait ABC {
-    fn print(&self) {}
+    fn print(&self);
 }
 
 struct DEC<T: Actor> {
@@ -435,7 +436,12 @@ impl<T: Actor> ABC for DEC<T> {
     fn print(&self) {
         if Arc::strong_count(&self.weak) > 1 {
             let ptr = Arc::downgrade(&self.weak).as_ptr() as u64;
-            info!("{}:{} = buffer = {:?}", self.name, ptr, self.weak.buffer)
+            let state = self.weak.state.load(atomic::Ordering::Relaxed);
+            let state = decode_state(state);
+            info!(
+                "{}:{}: max_messages={:?} is_open={} num_messages={}",
+                self.name, ptr, self.weak.buffer, state.is_open, state.num_messages
+            );
         }
     }
 }
