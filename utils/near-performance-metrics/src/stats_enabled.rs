@@ -1,3 +1,4 @@
+use actix::Actor;
 use bytesize::ByteSize;
 use futures;
 use futures::task::Context;
@@ -11,7 +12,7 @@ use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 use std::sync::atomic::AtomicUsize;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::task::Poll;
 use std::time::{Duration, Instant};
 use strum::AsStaticRef;
@@ -421,12 +422,46 @@ where
     }
 }
 
+trait ABC {
+    fn print(&self) {}
+}
+
+struct DEC<T: Actor> {
+    weak: Arc<actix::address::channel::Inner<T>>,
+    name: &'static str,
+}
+
+impl<T: Actor> ABC for DEC<T> {
+    fn print(&self) {
+        if Arc::strong_count(&self.weak) > 1 {
+            let ptr = Arc::downgrade(&self.weak).as_ptr() as u64;
+            info!("{}:{} = buffer = {:?}", self.name, ptr, self.weak.buffer)
+        }
+    }
+}
+
+static DB: Lazy<Mutex<HashMap<(u64, &'static str), Box<dyn ABC + Send>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+//Arc<actix::address::channel::Inner<dyn Actor + 'static>>>>,
+
+pub fn register<A: actix::Actor>(weak: Arc<actix::address::channel::Inner<A>>, name: &'static str) {
+    let ptr = Arc::downgrade(&weak).as_ptr() as u64;
+    DB.lock().unwrap().insert((ptr, name), Box::new(DEC { weak, name }));
+}
+
 pub fn print_performance_stats(sleep_time: Duration) {
     STATS.lock().unwrap().print_stats(sleep_time);
     info!("Futures waiting for completion");
     for entry in REF_COUNTER.lock().unwrap().iter() {
         if *entry.1 > 0 {
             info!("    future {}:{} {}", (entry.0).0, (entry.0).1, entry.1);
+        }
+    }
+
+    for x in DB.lock().as_deref().iter() {
+        for y in x.iter() {
+            y.1.print();
         }
     }
 }

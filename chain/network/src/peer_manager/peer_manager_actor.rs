@@ -34,6 +34,7 @@ use near_network_primitives::types::{
 };
 use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
 use near_performance_metrics::framed_write::FramedWrite;
+use near_performance_metrics::stats;
 use near_performance_metrics_macros::perf;
 use near_primitives::checked_feature;
 use near_primitives::hash::CryptoHash;
@@ -51,6 +52,7 @@ use rand::thread_rng;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
+use std::ops::Deref;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -276,6 +278,8 @@ impl Actor for PeerManagerActor {
 
         // Periodically prints bandwidth stats for each peer.
         self.report_bandwidth_stats_trigger(ctx, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
+
+        self.trigger_manage_actix(ctx, Duration::from_secs(1));
     }
 
     /// Try to gracefully disconnect from connected peers.
@@ -1089,6 +1093,29 @@ impl PeerManagerActor {
                 .spawn(ctx);
         }
 
+        near_performance_metrics::actix::run_later(ctx, interval, move |act, ctx| {
+            act.monitor_peer_stats_trigger(ctx, interval);
+        });
+    }
+
+    fn trigger_manage_actix(&mut self, ctx: &mut Context<Self>, interval: Duration) {
+        #[cfg(feature = "performance_stats")]
+        {
+            near_performance_metrics::stats::register(
+                Arc::clone(&ctx.address().tx.inner),
+                "peer_manager_actor",
+            );
+            near_performance_metrics::stats::register(
+                Arc::clone(&self.routing_table_addr.tx.inner),
+                "routing_table_actor",
+            );
+            for c in &self.connected_peers {
+                near_performance_metrics::stats::register(
+                    Arc::clone(&c.1.addr.tx.inner),
+                    "peer_actor",
+                );
+            }
+        }
         near_performance_metrics::actix::run_later(ctx, interval, move |act, ctx| {
             act.monitor_peer_stats_trigger(ctx, interval);
         });
