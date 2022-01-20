@@ -115,12 +115,6 @@ def random_transaction(account, i, node_account, max_tps_per_node):
         function_call_set_delete_state(account, i, node_account)
     elif choice == 2:
         function_call_ft_transfer_call(account, i, node_account)
-    for t in range(QUERIES_PER_TX):
-        mocknet_helpers.wait_at_least_one_block()
-        logger.info(
-            f'Account {account.key.account_id} balance after {t} blocks: {mocknet_helpers.retry_and_ignore_errors(lambda:account.get_amount_yoctonear())}'
-        )
-        break
 
 
 def send_random_transactions(node_account, test_accounts, max_tps_per_node):
@@ -227,7 +221,7 @@ def main(argv):
     logger.info(f'Start deploying, delay between deployments: {delay}')
 
     time.sleep(random.random() * delay)
-    start_time = time.time()
+    start_time = time.monotonic()
     assert delay >= 1
     init_ft(node_account)
     for i, account in enumerate(test_accounts):
@@ -238,7 +232,7 @@ def main(argv):
         logger.info(
             f'Account {account.key.account_id} balance after initialization: {mocknet_helpers.retry_and_ignore_errors(lambda:account.get_amount_yoctonear())}'
         )
-        time.sleep(max(1.0, start_time + (i + 1) * delay - time.time()))
+        time.sleep(max(1.0, start_time + (i + 1) * delay - time.monotonic()))
 
     logger.info('Done deploying')
 
@@ -251,20 +245,18 @@ def main(argv):
         f'Start the test, expected TPS {max_tps_per_node} over the next {TEST_TIMEOUT} seconds'
     )
     last_staking = 0
-    start_time = time.time()
-    while time.time() - start_time < TEST_TIMEOUT:
+    start_time = time.monotonic()
+    while time.monotonic() - start_time < TEST_TIMEOUT:
         # Repeat the staking transactions in case the validator selection algorithm changes.
         staked_time = mocknet.stake_available_amount(node_account, last_staking)
         if staked_time is not None:
             last_staking = staked_time
-        (total_tx_sent, elapsed_time) = mocknet_helpers.throttle_txns(
+
+        elapsed_time = time.monotonic() - start_time
+        total_tx_sent = mocknet_helpers.throttle_txns(
             send_random_transactions, total_tx_sent, elapsed_time,
             max_tps_per_node, node_account, test_accounts)
     logger.info('Stop the test')
 
     write_tx_events(test_accounts, f'{mocknet.TX_OUT_FILE}.0')
     logger.info('Wrote tx events')
-
-
-if __name__ == '__main__':
-    main(sys.argv)
