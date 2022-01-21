@@ -47,7 +47,7 @@ impl From<RpcSandboxPatchStateError> for crate::errors::RpcError {
 
 #[derive(Deserialize, Serialize)]
 pub struct RpcSandboxFastForwardRequest {
-    pub height: BlockHeightDelta,
+    pub delta_height: BlockHeightDelta,
 }
 
 impl RpcSandboxFastForwardRequest {
