@@ -20,6 +20,8 @@ use near_chain::chain::{
     BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
 };
 use near_chain::test_utils::format_hash;
+#[cfg(feature = "sandbox")]
+use near_chain::types::LatestKnown;
 use near_chain::types::{AcceptedBlock, ValidatorInfoIdentifier};
 #[cfg(feature = "test_features")]
 use near_chain::StoreValidator;
@@ -51,8 +53,12 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::StatePartKey;
 use near_primitives::time::{Clock, Utc};
+#[cfg(feature = "sandbox")]
+use near_primitives::types::BlockHeightDelta;
 use near_primitives::types::BlockHeight;
 use near_primitives::unwrap_or_return;
+#[cfg(feature = "sandbox")]
+use near_primitives::utils::to_timestamp;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -102,6 +108,9 @@ pub struct ClientActor {
     block_catch_up_scheduler: Box<dyn Fn(BlockCatchUpRequest)>,
     state_split_scheduler: Box<dyn Fn(StateSplitRequest)>,
     state_parts_client_arbiter: Arbiter,
+
+    #[cfg(feature = "sandbox")]
+    fastforward_delta: Option<BlockHeightDelta>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -196,6 +205,9 @@ impl ClientActor {
                 sync_jobs_actor_addr,
             ),
             state_parts_client_arbiter: state_parts_arbiter,
+
+            #[cfg(feature = "sandbox")]
+            fastforward_delta: None,
         })
     }
 }
@@ -363,6 +375,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 !self.client.chain.patch_state_in_progress(),
                             ),
                         )
+                    }
+                    NetworkSandboxMessage::SandboxFastForward(delta_height) => {
+                        self.fastforward_delta = Some(delta_height);
+                        NetworkClientResponses::NoResponse
                     }
                 };
             }
@@ -776,6 +792,23 @@ impl ClientActor {
 
         let head = self.client.chain.head()?;
         let latest_known = self.client.chain.mut_store().get_latest_known()?;
+
+        #[cfg(feature = "sandbox")]
+        let latest_known = if let Some(delta_height) = self.fastforward_delta.take() {
+            println!("handle_block_production: [client_actor] {}", latest_known.height);
+            let new_latest_known = LatestKnown {
+                height: latest_known.height + delta_height,
+                seen: to_timestamp(Clock::utc()),
+            };
+
+            self.client.chain.mut_store().save_latest_known(new_latest_known.clone())?;
+            self.client.sandbox_update_tip(new_latest_known.height)?;
+            println!("Advancing: {}, Doomslug: {}", new_latest_known.height, self.client.doomslug.get_largest_height_crossing_threshold());
+            new_latest_known
+        } else {
+            latest_known
+        };
+
         assert!(
             head.height <= latest_known.height,
             "Latest known height is invalid {} vs {}",

@@ -29,6 +29,9 @@ use std::time::Duration;
 use strum::AsStaticStr;
 use tokio::net::TcpStream;
 
+#[cfg(feature = "sandbox")]
+use near_primitives::types::BlockHeightDelta;
+
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
     PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
@@ -308,6 +311,7 @@ pub enum NetworkAdversarialMessage {
 pub enum NetworkSandboxMessage {
     SandboxPatchState(Vec<near_primitives::state_record::StateRecord>),
     SandboxPatchStateStatus,
+    SandboxFastForward(BlockHeightDelta),
 }
 
 #[cfg(feature = "sandbox")]
