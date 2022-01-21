@@ -887,7 +887,7 @@ impl ShardsManager {
         for (chunk_hash, chunk_request) in requests {
             let fetch_from_archival = self.runtime_adapter
                 .chunk_needs_to_be_fetched_from_archival(&chunk_request.ancestor_hash, &header_head.last_block_hash).unwrap_or_else(|err| {
-                assert!(false);
+                debug_assert!(false);
                 error!(target: "chunks", "Error during re-requesting partial encoded chunk. Cannot determine whether to request from an archival node, defaulting to not: {}", err);
                 false
             });
@@ -908,7 +908,7 @@ impl ShardsManager {
             ) {
                 Ok(()) => {}
                 Err(err) => {
-                    assert!(false);
+                    debug_assert!(false);
                     error!(target: "chunks", "Error during requesting partial encoded chunk: {}", err);
                 }
             }
