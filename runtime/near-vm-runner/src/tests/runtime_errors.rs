@@ -625,7 +625,7 @@ fn test_bad_import_3() {
     with_vm_variants(|vm_kind: VMKind| {
         let msg = match vm_kind {
             VMKind::Wasmer0 => "link error: Incorrect import type, namespace: env, name: input, expected type: global, found type: function",
-            VMKind::Wasmtime => "\"incompatible import type for `env::input` specified\\ndesired signature was: Global(GlobalType { content: I32, mutability: Const })\\nsignatures available:\\n\\n  * Func(FuncType { sig: WasmFuncType { params: [I64], returns: [] } })\\n\"",
+            VMKind::Wasmtime => "\"expected global, but found func\"",
             VMKind::Wasmer2 => "Error while importing \"env\".\"input\": incompatible import type. Expected Global(GlobalType { ty: I32, mutability: Const }) but received Function(FunctionType { params: [I64], results: [] })",
         }.to_string();
         gas_and_error_match(
