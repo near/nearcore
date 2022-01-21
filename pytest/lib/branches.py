@@ -23,7 +23,7 @@ def current_branch() -> str:
         return branch
     try:
         return subprocess.check_output(
-            ('git', 'symbolic-ref', '--short', '-q', '@')).strip().decode()
+            ('git', 'symbolic-ref', '--short', '-q', 'HEAD')).strip().decode()
     except subprocess.CalledProcessError as ex:
         if ex.returncode != 1:
             raise
