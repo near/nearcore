@@ -81,6 +81,7 @@ def main(argv):
     mocknet.update_config_file(config_filename_in, config_filename_out,
                                node_pks, all_node_pks, node_ips)
 
+    logger.info(f'done_filename: {done_filename}')
     pathlib.Path(done_filename).write_text('DONE')
 
 
