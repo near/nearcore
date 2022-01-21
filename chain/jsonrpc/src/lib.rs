@@ -1131,9 +1131,11 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError,
     > {
         self.client_addr
-            .send(NetworkClientMessages::Sandbox(near_network_primitives::types::NetworkSandboxMessage::SandboxFastForward(
-                fast_forward_request.delta_height,
-            )))
+            .send(NetworkClientMessages::Sandbox(
+                near_network_primitives::types::NetworkSandboxMessage::SandboxFastForward(
+                    fast_forward_request.delta_height,
+                ),
+            ))
             .await?;
         Ok(near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardResponse {})
     }

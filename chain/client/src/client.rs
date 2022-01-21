@@ -957,12 +957,7 @@ impl Client {
         } else {
             self.chain.get_block_header(&last_final_hash)?.height()
         };
-        self.doomslug.set_tip(
-            Clock::instant(),
-            tip.last_block_hash,
-            height,
-            last_final_height,
-        );
+        self.doomslug.set_tip(Clock::instant(), tip.last_block_hash, height, last_final_height);
 
         Ok(())
     }

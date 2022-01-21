@@ -53,9 +53,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::StatePartKey;
 use near_primitives::time::{Clock, Utc};
+use near_primitives::types::BlockHeight;
 #[cfg(feature = "sandbox")]
 use near_primitives::types::BlockHeightDelta;
-use near_primitives::types::BlockHeight;
 use near_primitives::unwrap_or_return;
 #[cfg(feature = "sandbox")]
 use near_primitives::utils::to_timestamp;
