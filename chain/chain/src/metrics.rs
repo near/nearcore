@@ -15,6 +15,13 @@ pub static BLOCK_PROCESSED_SUCCESSFULLY_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static BLOCK_SUCCESSFUL_PROCESSING_TIME: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram(
+        "near_block_successful_processing_time",
+        "Time taken to successfully process blocks",
+    )
+    .unwrap()
+});
 pub static BLOCK_PROCESSING_TIME: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram("near_block_processing_time", "Time taken to process blocks").unwrap()
 });
