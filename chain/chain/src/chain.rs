@@ -905,7 +905,7 @@ impl Chain {
     {
         let block_hash = *block.hash();
         let timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
-        let instant = Instant::now();
+        let success_timer = metrics::BLOCK_SUCCESSFUL_PROCESSING_TIME.start_timer();
         // We measure time once, because the histogram measures time of all block processing
         // attempts, and filtering needs to be done manually.
         let res = self.process_block_single(
@@ -920,7 +920,7 @@ impl Chain {
         timer.observe_duration();
         if res.is_ok() {
             metrics::BLOCK_PROCESSED_SUCCESSFULLY_TOTAL.inc();
-            metrics::BLOCK_SUCCESSFUL_PROCESSING_TIME.observe(instant.elapsed().as_secs_f64());
+            success_timer.stop_and_record();
 
             if let Some(new_res) = self.check_orphans(
                 me,
@@ -932,6 +932,8 @@ impl Chain {
             ) {
                 return Ok(Some(new_res));
             }
+        } else {
+            success_timer.stop_and_discard();
         }
         res
     }
@@ -1580,9 +1582,7 @@ impl Chain {
                 for orphan in orphans.into_iter() {
                     let block_hash = orphan.hash();
                     let timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
-                    // We measure time once, because the histogram measures time of all block
-                    // processing attempts, and filtering needs to be done manually.
-                    let instant = Instant::now();
+                    let success_timer = metrics::BLOCK_SUCCESSFUL_PROCESSING_TIME.start_timer();
                     let res = self.process_block_single(
                         me,
                         orphan.block,
@@ -1596,12 +1596,12 @@ impl Chain {
                     match res {
                         Ok(maybe_tip) => {
                             metrics::BLOCK_PROCESSED_SUCCESSFULLY_TOTAL.inc();
-                            metrics::BLOCK_SUCCESSFUL_PROCESSING_TIME
-                                .observe(instant.elapsed().as_secs_f64());
+                            success_timer.stop_and_record();
                             maybe_new_head = maybe_tip;
                             queue.push(block_hash);
                         }
                         Err(_) => {
+                            success_timer.stop_and_discard();
                             debug!(target: "chain", "Orphan declined");
                         }
                     }
