@@ -795,7 +795,6 @@ impl ClientActor {
 
         #[cfg(feature = "sandbox")]
         let latest_known = if let Some(delta_height) = self.fastforward_delta.take() {
-            println!("handle_block_production: [client_actor] {}", latest_known.height);
             let new_latest_known = LatestKnown {
                 height: latest_known.height + delta_height,
                 seen: to_timestamp(Clock::utc()),
@@ -803,7 +802,6 @@ impl ClientActor {
 
             self.client.chain.mut_store().save_latest_known(new_latest_known.clone())?;
             self.client.sandbox_update_tip(new_latest_known.height)?;
-            println!("Advancing: {}, Doomslug: {}", new_latest_known.height, self.client.doomslug.get_largest_height_crossing_threshold());
             new_latest_known
         } else {
             latest_known
