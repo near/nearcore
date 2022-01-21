@@ -859,9 +859,9 @@ def start_genesis_updater_script(
         ]
     ])
     return '''
-        cd {shlex.quote(dir)}
+        cd {dir}
         {cmd} 1> genesis_updater.out 2> genesis_updater.err < /dev/null &
-        '''.format(dir=PYTHON_DIR, cmd=cmd)
+        '''.format(dir=shlex.quote(PYTHON_DIR), cmd=cmd)
 
 
 def start_genesis_updater(node, script, genesis_filename_in,
