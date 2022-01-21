@@ -460,9 +460,9 @@ def create_and_upload_genesis(validator_nodes,
         rpc_node_names = [node.instance_name for node in rpc_nodes]
         assert '-spoon' in chain_id, f'Expecting chain_id like "testnet-spoon" or "mainnet-spoon", got {chain_id}'
         chain_id_in = chain_id.split('-spoon')[0]
-        genesis_filename_in = f'/home/ubuntu/.near/{chain_id_in}/genesis.json'
-        records_filename_in = f'/home/ubuntu/.near/{chain_id_in}/records.json'
-        config_filename_in = f'/home/ubuntu/.near/{chain_id_in}/config.json'
+        genesis_filename_in = f'/home/ubuntu/.near/{chain_id_in}-genesis/genesis.json'
+        records_filename_in = f'/home/ubuntu/.near/{chain_id_in}-genesis/records.json'
+        config_filename_in = f'/home/ubuntu/.near/{chain_id_in}-genesis/config.json'
         stamp = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
         done_filename = f'/home/ubuntu/genesis_update_done_{stamp}.txt'
         pmap(
