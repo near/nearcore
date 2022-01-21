@@ -108,8 +108,12 @@ impl<'a> ContractModule<'a> {
         if config.regular_op_cost == 0 {
             return Ok(Self { module, config });
         }
+        let mem_grow_cost = config
+            .grow_mem_cost
+            .checked_mul(config.regular_op_cost)
+            .ok_or(PrepareError::GasInstrumentation)?;
         let gas_rules = pwasm_utils::rules::Set::new(config.regular_op_cost, Default::default())
-            .with_grow_cost(config.grow_mem_cost);
+            .with_grow_cost(mem_grow_cost);
         let module = pwasm_utils::inject_gas_counter(module, &gas_rules, "env")
             .map_err(|_| PrepareError::GasInstrumentation)?;
         Ok(Self { module, config })
@@ -276,9 +280,13 @@ mod pwasm_12 {
             if config.regular_op_cost == 0 {
                 return Ok(Self { module, config });
             }
+            let mem_grow_cost = config
+                .grow_mem_cost
+                .checked_mul(config.regular_op_cost)
+                .ok_or(PrepareError::GasInstrumentation)?;
             let gas_rules =
                 pwasm_utils::rules::Set::new(config.regular_op_cost, Default::default())
-                    .with_grow_cost(config.grow_mem_cost);
+                    .with_grow_cost(mem_grow_cost);
             let module = pwasm_utils::inject_gas_counter(module, &gas_rules)
                 .map_err(|_| PrepareError::GasInstrumentation)?;
             Ok(Self { module, config })
