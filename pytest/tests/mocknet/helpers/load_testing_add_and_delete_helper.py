@@ -135,7 +135,7 @@ def initialize_skyward_contract(node_account_id, pk, sk):
     s = f'{{"token_account_ids": ["{mocknet.TOKEN1_ACCOUNT}","' + mocknet.TOKEN2_ACCOUNT + '"]}}'
     tx_res = get_account1_account().send_call_contract_raw_tx(
         mocknet.SKYWARD_ACCOUNT, 'register_tokens', bytes(s, encoding='utf-8'),
-        0.1 * 1e24)
+        100000000000000000000000)  # int(0.1 * 1e24))
     logger.info(f'account1 register_tokens {tx_res}')
 
     s = f'{{"account_id": "{mocknet.SKYWARD_ACCOUNT}"}}'
@@ -169,7 +169,7 @@ def initialize_skyward_contract(node_account_id, pk, sk):
     )
     tx_res = get_account1_account().send_call_contract_raw_tx(
         mocknet.SKYWARD_ACCOUNT, 'sale_create', bytes(s, encoding='utf-8'),
-        100 * 1e24)
+        100000000000000000000000000)  # 100 * 1e24
     logger.info(f'account1 sale_create {tx_res}')
     mocknet_helpers.wait_at_least_one_block()
 
