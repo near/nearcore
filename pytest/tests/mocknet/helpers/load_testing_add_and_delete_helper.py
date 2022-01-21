@@ -113,8 +113,8 @@ def initialize_skyward_contract(node_account_id, pk, sk):
         '/home/ubuntu/fungible_token.wasm')
     logger.info(f'token2 deployment {tx_res}')
 
-    time.sleep(2)
-    s = f'{{"skyward_token_id": "{mocknet.SKYWARD_TOKEN_ACCOUNT}", "skyward_vesting_schedule":[{"start_timestamp":0,"end_timestamp":1999999999,"amount":"99999999999"}], "listing_fee_near": "10000000000000000000000000", "w_near_token_id":"{mocknet.MASTER_ACCOUNT}"}}'
+    mocknet_helpers.wait_at_least_one_block()
+    s = f'{{"skyward_token_id": "{mocknet.SKYWARD_TOKEN_ACCOUNT}", "skyward_vesting_schedule":[{{"start_timestamp":0,"end_timestamp":1999999999,"amount":"99999999999"}}], "listing_fee_near": "10000000000000000000000000", "w_near_token_id":"{mocknet.MASTER_ACCOUNT}"}}'
     tx_res = get_skyward_account().send_call_contract_tx(
         'new', bytes(s, encoding='utf-8'))
     logger.info(f'skyward new {tx_res}')
@@ -131,7 +131,7 @@ def initialize_skyward_contract(node_account_id, pk, sk):
         0)
     logger.info(f'token2 new_default_meta {tx_res}')
 
-    time.sleep(2)
+    mocknet_helpers.wait_at_least_one_block()
     s = f'{{"token_account_ids": ["{mocknet.TOKEN1_ACCOUNT}","' + mocknet.TOKEN2_ACCOUNT + '"]}}'
     tx_res = get_account1_account().send_call_contract_raw_tx(
         mocknet.SKYWARD_ACCOUNT, 'register_tokens', bytes(s, encoding='utf-8'),
@@ -150,7 +150,7 @@ def initialize_skyward_contract(node_account_id, pk, sk):
         1250000000000000000000)  # 0.00125 * 1e24)
     logger.info(f'account1 storage_deposit skyward token2 {tx_res}')
 
-    time.sleep(2)
+    mocknet_helpers.wait_at_least_one_block()
     s = f'{{"receiver_id": "{mocknet.SKYWARD_ACCOUNT}", "amount": "1000000000000000000000000000000", "memo": "Yolo for sale", "msg": "\\"AccountDeposit\\""}}'
     logger.info(
         f'Calling function "ft_transfer_call" with arguments {s} on account {get_account1_account().key.account_id} contract {mocknet.TOKEN1_ACCOUNT} deposit 1'
@@ -160,7 +160,7 @@ def initialize_skyward_contract(node_account_id, pk, sk):
         1)
     logger.info(f'account1 ft_transfer_call to skyward token1 {tx_res}')
 
-    time.sleep(2)
+    mocknet_helpers.wait_at_least_one_block()
     # Needs to be [7,30] days in the future.
     sale_start_timestamp = round(time.monotonic() + 8 * 24 * 60 * 60)
     s = f'{{"sale": {{"title":"sale","out_tokens":[{{"token_account_id":"{mocknet.TOKEN1_ACCOUNT}","balance":"500000000000000000000000000000"}}], "in_token_account_id": "{mocknet.TOKEN2_ACCOUNT}", "start_time": "{str(sale_start_timestamp)}000000000", "duration": "3600000000000"}} }}'
@@ -171,7 +171,7 @@ def initialize_skyward_contract(node_account_id, pk, sk):
         mocknet.SKYWARD_ACCOUNT, 'sale_create', bytes(s, encoding='utf-8'),
         100 * 1e24)
     logger.info(f'account1 sale_create {tx_res}')
-    time.sleep(2)
+    mocknet_helpers.wait_at_least_one_block()
 
 
 def get_test_accounts_from_args(argv):
