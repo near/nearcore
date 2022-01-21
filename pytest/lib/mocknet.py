@@ -440,10 +440,9 @@ def compress_and_upload(nodes, src_filename, dst_filename):
 # We assume that the nodes already have the .near directory with the files
 # node_key.json, validator_key.json and config.json.
 def create_and_upload_genesis(validator_nodes,
+                              chain_id,
                               rpc_nodes=None,
-                              chain_id=None,
-                              update_genesis_on_machine=False,
-                              epoch_length=None,
+                              epoch_length=20000,
                               node_pks=None,
                               increasing_stakes=0.0,
                               num_seats=100,
@@ -453,21 +452,19 @@ def create_and_upload_genesis(validator_nodes,
     logger.info(
         f'create_and_upload_genesis: validator_nodes: {validator_nodes}')
     assert chain_id
-    if not epoch_length:
-        epoch_length = 20000
     logger.info('Uploading genesis and config files')
     with tempfile.TemporaryDirectory() as tmp_dir:
-        assert update_genesis_on_machine
         logger.info(
             'Assuming that genesis_updater.py is available on the instances.')
         validator_node_names = [node.instance_name for node in validator_nodes]
         rpc_node_names = [node.instance_name for node in rpc_nodes]
         assert '-spoon' in chain_id, f'Expecting chain_id like "testnet-spoon" or "mainnet-spoon", got {chain_id}'
         chain_id_in = chain_id.split('-spoon')[0]
-        genesis_filename_in = f'/home/ubuntu/.near/${chain_id_in}/genesis.json'
-        records_filename_in = f'/home/ubuntu/.near/${chain_id_in}/records.json'
-        config_filename_in = f'/home/ubuntu/.near/${chain_id_in}/config.json'
-        done_filename = f'/home/ubuntu/genesis_update_done_{int(time.time())}.txt'
+        genesis_filename_in = f'/home/ubuntu/.near/{chain_id_in}/genesis.json'
+        records_filename_in = f'/home/ubuntu/.near/{chain_id_in}/records.json'
+        config_filename_in = f'/home/ubuntu/.near/{chain_id_in}/config.json'
+        stamp = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
+        done_filename = f'/home/ubuntu/genesis_update_done_{stamp}.txt'
         pmap(
             lambda node: start_genesis_updater(
                 node, 'genesis_updater.py', genesis_filename_in,
@@ -849,29 +846,22 @@ def start_genesis_updater_script(
         records_filename_out, config_filename_in, config_filename_out, chain_id,
         validator_nodes, rpc_nodes, done_filename, epoch_length, node_pks,
         increasing_stakes, num_seats, sharding, all_node_pks, node_ips):
+    cmd = ' '.join([
+        shlex.quote(str(arg)) for arg in [
+            'nohup', './venv/bin/python', script, genesis_filename_in,
+            genesis_filename_out, records_filename_in, records_filename_out,
+            config_filename_in, config_filename_out, chain_id, ','.join(
+                validator_nodes), ','.join(rpc_nodes), done_filename,
+            str(epoch_length), ','.join(node_pks),
+            str(increasing_stakes),
+            str(num_seats),
+            str(sharding), ','.join(all_node_pks), ','.join(node_ips)
+        ]
+    ])
     return '''
-        cd {dir}
-        rm -f {done_filename}
-        nohup ./venv/bin/python {script} {genesis_filename_in} {genesis_filename_out} {records_filename_in} {records_filename_out} {config_filename_in} {config_filename_out} {chain_id} {validator_nodes} {rpc_nodes} {done_filename} {epoch_length} {node_pks} {increasing_stakes} {num_seats} {sharding} {all_node_pks} {node_ips} 1> genesis_updater.out 2> genesis_updater.err < /dev/null &
-    '''.format(dir=shlex.quote(PYTHON_DIR),
-               script=shlex.quote(script),
-               genesis_filename_in=shlex.quote(genesis_filename_in),
-               genesis_filename_out=shlex.quote(genesis_filename_out),
-               records_filename_in=shlex.quote(records_filename_in),
-               records_filename_out=shlex.quote(records_filename_out),
-               config_filename_in=shlex.quote(config_filename_in),
-               config_filename_out=shlex.quote(config_filename_out),
-               chain_id=shlex.quote(chain_id),
-               validator_nodes=shlex.quote(','.join(validator_nodes)),
-               rpc_nodes=shlex.quote(','.join(rpc_nodes)),
-               done_filename=shlex.quote(done_filename),
-               epoch_length=shlex.quote(str(epoch_length)),
-               node_pks=shlex.quote(','.join(node_pks)),
-               increasing_stakes=shlex.quote(str(increasing_stakes)),
-               num_seats=shlex.quote(str(num_seats)),
-               sharding=shlex.quote(str(sharding)),
-               all_node_pks=shlex.quote(','.join(all_node_pks)),
-               node_ips=shlex.quote(','.join(node_ips)))
+        cd {shlex.quote(dir)}
+        {cmd} 1> genesis_updater.out 2> genesis_updater.err < /dev/null &
+        '''.format(dir=PYTHON_DIR, cmd=cmd)
 
 
 def start_genesis_updater(node, script, genesis_filename_in,

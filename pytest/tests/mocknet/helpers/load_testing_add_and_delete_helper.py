@@ -241,6 +241,8 @@ def get_test_accounts_from_args(argv):
     return node_account, accounts, max_tps_per_node
 
 
+# This function initializes an account to be used with TOKEN2. Initialization may fail, but this is fine as long as
+# most initializations succeed.
 def init_token2_account(account, i):
     s = f'{{"account_id": "{account.key.account_id}"}}'
     tx_res = mocknet_helpers.retry_and_ignore_errors(
@@ -268,18 +270,13 @@ def init_token2_account(account, i):
     s = f'{{"receiver_id": "{account.key.account_id}", "amount": "1000000000000000000"}}'
     logger.info(
         f'Calling function "ft_transfer" with arguments {s} on account {i}')
-    while True:
-        try:
-            tx_res = get_token2_owner_account().send_call_contract_raw_tx(
-                mocknet.TOKEN2_ACCOUNT, 'ft_transfer', bytes(s,
-                                                             encoding='utf-8'),
-                1)
-            logger.info(
-                f'{get_token2_owner_account().key.account_id} ft_transfer to {account.key.account_id} {tx_res}'
-            )
-            break
-        except Exception as e:
-            logger.error(f'Cannot init token2 account')
+    tx_res = mocknet_helpers.retry_and_ignore_errors(
+        get_token2_owner_account().send_call_contract_raw_tx(
+            mocknet.TOKEN2_ACCOUNT, 'ft_transfer', bytes(s, encoding='utf-8'),
+            1))
+    logger.info(
+        f'{get_token2_owner_account().key.account_id} ft_transfer to {account.key.account_id} {tx_res}'
+    )
 
 
 def main(argv):
@@ -297,6 +294,7 @@ def main(argv):
     assert delay >= 1
     for i, account in enumerate(test_accounts):
         logger.info(f'Deploying contract for account {i}')
+        # Given that large mocknet tests deploy thousands of contracts, some errors are inevitable, ignore them.
         mocknet_helpers.retry_and_ignore_errors(
             lambda: account.send_deploy_contract_tx(mocknet.WASM_FILENAME))
         init_token2_account(account, i)

@@ -158,10 +158,8 @@ if __name__ == '__main__':
         node_ips = [node.machine.ip for node in all_nodes]
         mocknet.create_and_upload_genesis(
             validator_nodes,
-            genesis_template_filename=None,
+            chain_id,
             rpc_nodes=rpc_nodes,
-            chain_id=chain_id,
-            update_genesis_on_machine=True,
             epoch_length=epoch_length,
             node_pks=node_pks,
             increasing_stakes=args.increasing_stakes,
