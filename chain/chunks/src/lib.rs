@@ -739,6 +739,11 @@ impl ShardsManager {
 
     /// send partial chunk requests for one chunk
     /// `chunk_header`: the chunk being requested
+    /// `ancestor_hash`: hash of an ancestor block of the requested chunk.
+    ///                  It must satisfy
+    ///                  1) it is from the same epoch than `epoch_id`
+    ///                  2) it is processed
+    ///                  If the above conditions are not met, the request will be dropped
     /// `header_head`: header head of the current chain. If it is None, the request will be only
     ///                added to he request pool, but not sent.
     /// `should_wait_for_chunk_forwarding`: whether chunks will be forwarded to this node
@@ -882,6 +887,7 @@ impl ShardsManager {
         for (chunk_hash, chunk_request) in requests {
             let fetch_from_archival = self.runtime_adapter
                 .chunk_needs_to_be_fetched_from_archival(&chunk_request.ancestor_hash, &header_head.last_block_hash).unwrap_or_else(|err| {
+                assert!(false);
                 error!(target: "chunks", "Error during re-requesting partial encoded chunk. Cannot determine whether to request from an archival node, defaulting to not: {}", err);
                 false
             });
@@ -902,6 +908,7 @@ impl ShardsManager {
             ) {
                 Ok(()) => {}
                 Err(err) => {
+                    assert!(false);
                     error!(target: "chunks", "Error during requesting partial encoded chunk: {}", err);
                 }
             }
@@ -1403,7 +1410,7 @@ impl ShardsManager {
             if !self.encoded_chunks.height_within_horizon(header.height_created()) {
                 return Err(Error::ChainError(ErrorKind::InvalidChunkHeight.into()));
             }
-            // We shouldn't process unrequested chunk if we have seen one with same (height_created + shard_id)
+            // We shouldn't process unrequested chunk if we have seen one with same (height_created + shard_id) but different chunk_hash
             if let Ok(hash) = chain_store
                 .get_any_chunk_hash_by_height_shard(header.height_created(), header.shard_id())
             {
@@ -1411,7 +1418,6 @@ impl ShardsManager {
                     warn!(target: "client", "Rejecting unrequested chunk {:?}, height {}, shard_id {}, because of having {:?}", chunk_hash, header.height_created(), header.shard_id(), hash);
                     return Err(Error::DuplicateChunkHeight.into());
                 }
-                return Ok(ProcessPartialEncodedChunkResult::Known);
             }
         }
 
@@ -1477,9 +1483,6 @@ impl ShardsManager {
                 parts: forwarded_parts.into_iter().map(|(_, part)| part).collect(),
                 receipts: Vec::new(),
             };
-            // Make sure we mark this chunk as being requested so that it is handled
-            // properly in the next call. Note no requests are actually sent at this point.
-            self.request_chunk_single_mark_only(header);
             // Call process_partial_encoded_chunk recursively, "simulating" as that forwarded
             // part is just received from the network
             return self.process_partial_encoded_chunk(
@@ -2423,10 +2426,13 @@ mod test {
     }
 
     #[test]
+    // Test that when a validator receives a chunk before the chunk header, it should store
+    // the forward and use it when it receives the header
     fn test_receive_forward_before_header() {
-        // When a node receives a chunk forward before the chunk header, it should store
-        // the forward and use it when it receives the header
-        let mut fixture = ChunkForwardingTestFixture::default();
+        // Here we test the case when the chunk is received, its previous block is not processed yet
+        // We want to verify that the chunk forward can be stored and wait to be processed in this
+        // case too
+        let mut fixture = ChunkForwardingTestFixture::new(true);
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
@@ -2443,27 +2449,38 @@ mod test {
             &fixture.mock_chunk_header,
             most_parts,
         );
+        // The validator receives the chunk forward
         shards_manager.insert_forwarded_chunk(forward);
         let partial_encoded_chunk = PartialEncodedChunkV2 {
             header: fixture.mock_chunk_header.clone(),
             parts: other_parts,
             receipts: Vec::new(),
         };
+        // The validator receives a chunk header with the rest of the parts it needed
         let result = shards_manager
             .process_partial_encoded_chunk(
                 MaybeValidated::from(&partial_encoded_chunk),
-                None,
+                Some(&fixture.mock_chain_head),
                 &mut fixture.chain_store,
                 &mut fixture.rs,
             )
             .unwrap();
 
         match result {
-            ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts => (),
-            other_result => panic!("Expected HaveAllPartsAndReceipts, but got {:?}", other_result),
+            ProcessPartialEncodedChunkResult::NeedBlock => (),
+            other_result => panic!("Expected NeedBlock, but got {:?}", other_result),
         }
+        // Now try to request for this chunk, first explicitly, and then through resend_chunk_requests.
         // No requests should have been sent since all the required parts were contained in the
         // forwarded parts.
+        shards_manager.request_chunks_for_orphan(
+            vec![fixture.mock_chunk_header.clone()],
+            &EpochId::default(),
+            CryptoHash::default(),
+            &fixture.mock_chain_head,
+        );
+        std::thread::sleep(Duration::from_millis(2 * CHUNK_REQUEST_RETRY_MS));
+        shards_manager.resend_chunk_requests(&fixture.mock_chain_head);
         assert!(fixture
             .mock_network
             .requests

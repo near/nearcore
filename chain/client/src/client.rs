@@ -22,7 +22,8 @@ use near_chain::{
 use near_chain_configs::ClientConfig;
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
 use near_network::types::{
-    FullPeerInfo, NetworkClientResponses, NetworkRequests, PeerManagerAdapter,
+    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
+    PeerManagerAdapter,
 };
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
@@ -1788,5 +1789,26 @@ impl Client {
                 Instant::now(),
             );
         }
+    }
+}
+
+struct TestEnv {
+    client: Client,
+    requests: Vec<Vec<NetworkRequests>>,
+    responses: Vec<Vec<NetworkClientMessages>>,
+}
+
+impl TestEnv {
+    /// send the next network request whose target is `target_id`
+    /// make the mock env process the request and insert the response to `responses` if there is any
+    fn handle_request(&mut self, target_id: u64, callback: fn(&NetworkRequest) -> ()) {}
+
+    fn handle_response(&mut self, target_id: u64) {}
+
+    /// Produce the block at height i
+    fn mock_produce_block()
+
+    fn mock_produce_chunk()
+
     }
 }

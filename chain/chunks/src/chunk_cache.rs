@@ -260,7 +260,7 @@ impl EncodedChunksCache {
         }
     }
 
-    /// Returns all chunk headers to be included in the next block after `prev_block_hash`
+    /// Returns all chunk hprocess_state_updateeaders to be included in the next block after `prev_block_hash`
     /// Also removes these chunk headers from the map
     pub fn get_chunk_headers_for_block(
         &mut self,
