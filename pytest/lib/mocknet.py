@@ -852,10 +852,8 @@ def start_genesis_updater_script(
             genesis_filename_out, records_filename_in, records_filename_out,
             config_filename_in, config_filename_out, chain_id, ','.join(
                 validator_nodes), ','.join(rpc_nodes), done_filename,
-            str(epoch_length), ','.join(node_pks),
-            str(increasing_stakes),
-            str(num_seats),
-            str(sharding), ','.join(all_node_pks), ','.join(node_ips)
+            epoch_length, ','.join(node_pks), increasing_stakes, num_seats,
+            sharding, ','.join(all_node_pks), ','.join(node_ips)
         ]
     ])
     return '''
