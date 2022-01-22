@@ -20,8 +20,6 @@ use near_chain::chain::{
     BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
 };
 use near_chain::test_utils::format_hash;
-#[cfg(feature = "sandbox")]
-use near_chain::types::LatestKnown;
 use near_chain::types::{AcceptedBlock, ValidatorInfoIdentifier};
 #[cfg(feature = "test_features")]
 use near_chain::StoreValidator;
@@ -54,11 +52,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::StatePartKey;
 use near_primitives::time::{Clock, Utc};
 use near_primitives::types::BlockHeight;
-#[cfg(feature = "sandbox")]
-use near_primitives::types::BlockHeightDelta;
 use near_primitives::unwrap_or_return;
-#[cfg(feature = "sandbox")]
-use near_primitives::utils::to_timestamp;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -110,7 +104,7 @@ pub struct ClientActor {
     state_parts_client_arbiter: Arbiter,
 
     #[cfg(feature = "sandbox")]
-    fastforward_delta: Option<BlockHeightDelta>,
+    fastforward_delta: Option<near_primitives::types::BlockHeightDelta>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -795,9 +789,9 @@ impl ClientActor {
 
         #[cfg(feature = "sandbox")]
         let latest_known = if let Some(delta_height) = self.fastforward_delta.take() {
-            let new_latest_known = LatestKnown {
+            let new_latest_known = near_chain::types::LatestKnown {
                 height: latest_known.height + delta_height,
-                seen: to_timestamp(Clock::utc()),
+                seen: near_primitives::utils::to_timestamp(Clock::utc()),
             };
 
             self.client.chain.mut_store().save_latest_known(new_latest_known.clone())?;
