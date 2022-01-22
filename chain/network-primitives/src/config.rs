@@ -1,4 +1,5 @@
 use crate::network_protocol::PeerInfo;
+use crate::types::ROUTED_MESSAGE_TTL;
 use near_crypto::{KeyType, PublicKey, SecretKey};
 use near_primitives::types::AccountId;
 use std::collections::{HashMap, HashSet};
@@ -81,7 +82,7 @@ impl NetworkConfig {
             handshake_timeout: Duration::from_secs(60),
             reconnect_delay: Duration::from_secs(60),
             bootstrap_peers_period: Duration::from_millis(100),
-            max_num_peers: 10,
+            max_num_peers: 40,
             minimum_outbound_peers: 5,
             ideal_connections_lo: 30,
             ideal_connections_hi: 35,
@@ -103,26 +104,28 @@ impl NetworkConfig {
         }
     }
 
-    pub fn verify(&self) {
-        if self.ideal_connections_lo + 1 >= self.ideal_connections_hi {
-            tracing::error!(target: "network",
-            "Invalid ideal_connections values. lo({}) > hi({}).",
-            self.ideal_connections_lo, self.ideal_connections_hi);
+    pub fn verify(&self) -> Result<(), anyhow::Error> {
+        if !(self.ideal_connections_lo <= self.ideal_connections_hi) {
+            anyhow::bail!(
+                "Invalid ideal_connections values. lo({}) > hi({}).",
+                self.ideal_connections_lo,
+                self.ideal_connections_hi
+            );
         }
 
-        if self.ideal_connections_hi >= self.max_num_peers {
-            tracing::error!(target: "network",
+        if !(self.ideal_connections_hi < self.max_num_peers) {
+            anyhow::bail!(
                 "max_num_peers({}) is below ideal_connections_hi({}) which may lead to connection saturation and declining new connections.",
                 self.max_num_peers, self.ideal_connections_hi
             );
         }
 
         if self.outbound_disabled {
-            tracing::warn!(target: "network", "Outbound connections are disabled.");
+            anyhow::bail!("Outbound connections are disabled.");
         }
 
-        if self.safe_set_size <= self.minimum_outbound_peers {
-            tracing::error!(target: "network",
+        if !(self.safe_set_size > self.minimum_outbound_peers) {
+            anyhow::bail!(
                 "safe_set_size({}) must be larger than minimum_outbound_peers({}).",
                 self.safe_set_size,
                 self.minimum_outbound_peers
@@ -130,12 +133,12 @@ impl NetworkConfig {
         }
 
         if UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE * 2 > self.peer_recent_time_window {
-            tracing::error!(
-                target: "network",
+            anyhow::bail!(
                 "Very short peer_recent_time_window({}). it should be at least twice update_interval_last_time_received_message({}).",
                 self.peer_recent_time_window.as_secs(), UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE.as_secs()
             );
         }
+        Ok(())
     }
 }
 
@@ -144,11 +147,6 @@ pub enum BlockedPorts {
     All,
     Some(HashSet<u16>),
 }
-
-/// Number of hops a message is allowed to travel before being dropped.
-/// This is used to avoid infinite loop because of inconsistent view of the network
-/// by different nodes.
-pub const ROUTED_MESSAGE_TTL: u8 = 100;
 
 /// converts list of addresses represented by strings to <IpAddr, BlockedPorts> HashMap
 ///
@@ -196,16 +194,6 @@ pub enum PatternAddr {
     IpPort(SocketAddr),
 }
 
-impl PatternAddr {
-    #[allow(unused)]
-    pub fn contains(&self, addr: &SocketAddr) -> bool {
-        match self {
-            PatternAddr::Ip(pattern) => &addr.ip() == pattern,
-            PatternAddr::IpPort(pattern) => addr == pattern,
-        }
-    }
-}
-
 impl FromStr for PatternAddr {
     type Err = AddrParseError;
 
@@ -222,3 +210,34 @@ impl FromStr for PatternAddr {
 /// but wait some "small" timeout between updates to avoid a lot of messages between
 /// Peer and PeerManager.
 pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: Duration = Duration::from_secs(60);
+
+#[cfg(test)]
+mod test {
+    use crate::types::{NetworkConfig, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE};
+
+    #[test]
+    fn test_network_config() {
+        let nc = NetworkConfig::from_seed("123", 213);
+        assert!(nc.verify().is_ok());
+
+        let mut nc = NetworkConfig::from_seed("123", 213);
+        nc.ideal_connections_lo = nc.ideal_connections_hi + 1;
+        let res = nc.verify();
+        assert!(res.is_err(), "{:?}", res);
+
+        let mut nc = NetworkConfig::from_seed("123", 213);
+        nc.ideal_connections_hi = nc.max_num_peers;
+        let res = nc.verify();
+        assert!(res.is_err(), "{:?}", res);
+
+        let mut nc = NetworkConfig::from_seed("123", 213);
+        nc.safe_set_size = nc.minimum_outbound_peers;
+        let res = nc.verify();
+        assert!(res.is_err(), "{:?}", res);
+
+        let mut nc = NetworkConfig::from_seed("123", 213);
+        nc.peer_recent_time_window = UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
+        let res = nc.verify();
+        assert!(res.is_err(), "{:?}", res);
+    }
+}

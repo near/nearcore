@@ -16,48 +16,16 @@ from rc import pmap
 
 # Don't use the pathlib magic because this file runs on a remote machine.
 sys.path.append('lib')
+import mocknet_helpers
 import account
 import key
 import mocknet
 from configured_logger import logger
 
-LOCAL_ADDR = '127.0.0.1'
-RPC_PORT = '3030'
 # We need to slowly deploy contracts, otherwise we stall out the nodes
 CONTRACT_DEPLOY_TIME = 12 * mocknet.NUM_ACCOUNTS
 TEST_TIMEOUT = 12 * 60 * 60
 SKYWARD_INIT_TIME = 120
-
-
-def get_status():
-    r = requests.get(f'http://{LOCAL_ADDR}:{RPC_PORT}/status', timeout=10)
-    r.raise_for_status()
-    return json.loads(r.content)
-
-
-def json_rpc(method, params):
-    j = {'method': method, 'params': params, 'id': 'dontcare', 'jsonrpc': '2.0'}
-    r = requests.post(f'http://{LOCAL_ADDR}:{RPC_PORT}', json=j, timeout=10)
-    return r.json()
-
-
-def get_nonce_for_pk(account_id, pk, finality='optimistic'):
-    access_keys = json_rpc(
-        'query', {
-            'request_type': 'view_access_key_list',
-            'account_id': account_id,
-            'finality': finality
-        })
-    logger.info(f'get_nonce_for_pk {account_id}')
-    assert access_keys['result']['keys'], account_id
-    for k in access_keys['result']['keys']:
-        if k['public_key'] == pk:
-            return k['access_key']['nonce']
-
-
-def get_latest_block_hash():
-    last_block_hash = get_status()['sync_info']['latest_block_hash']
-    return base58.b58decode(last_block_hash.encode('utf-8'))
 
 
 def send_transfer(account, i, node_account):
@@ -101,24 +69,6 @@ def send_skyward_transactions(node_account, test_accounts, max_tps_per_node):
         lambda index_and_account: skyward_transaction(index_and_account[
             1], index_and_account[0], node_account, max_tps_per_node),
         enumerate(test_accounts))
-
-
-def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps_per_node,
-                  node_account, test_accounts):
-    start_time = time.time()
-    send_txns(node_account, test_accounts, max_tps_per_node)
-    duration = time.time() - start_time
-    total_tx_sent += len(test_accounts)
-    elapsed_time += duration
-
-    excess_transactions = total_tx_sent - (max_tps_per_node * elapsed_time)
-    if excess_transactions > 0:
-        delay = excess_transactions / max_tps_per_node
-        elapsed_time += delay
-        logger.info(f'Sleeping for {delay} seconds to throttle transactions')
-        time.sleep(delay)
-
-    return (total_tx_sent, elapsed_time)
 
 
 def write_tx_events(accounts_and_indices, filename):
@@ -212,7 +162,7 @@ def initialize_skyward_contract(node_account_id, pk, sk):
 
     time.sleep(2)
     # Needs to be [7,30] days in the future.
-    sale_start_timestamp = round(time.time() + 8 * 24 * 60 * 60)
+    sale_start_timestamp = round(time.monotonic() + 8 * 24 * 60 * 60)
     s = f'{{"sale": {{"title":"sale","out_tokens":[{{"token_account_id":"{mocknet.TOKEN1_ACCOUNT}","balance":"500000000000000000000000000000"}}], "in_token_account_id": "{mocknet.TOKEN2_ACCOUNT}", "start_time": "{str(sale_start_timestamp)}000000000", "duration": "3600000000000"}} }}'
     logger.info(
         f'Calling function "sale_create" with arguments {s} on account {get_account1_account().key.account_id} for account {mocknet.SKYWARD_ACCOUNT}'
@@ -243,15 +193,17 @@ def get_test_accounts_from_args(argv):
         for i in range(mocknet.NUM_ACCOUNTS)
     ]
 
-    base_block_hash = get_latest_block_hash()
+    base_block_hash = mocknet_helpers.get_latest_block_hash()
 
     node_account = account.Account(
         node_account_key,
-        get_nonce_for_pk(node_account_key.account_id, node_account_key.pk),
-        base_block_hash, (rpc_nodes[0], RPC_PORT))
+        mocknet_helpers.get_nonce_for_pk(node_account_key.account_id,
+                                         node_account_key.pk), base_block_hash,
+        (rpc_nodes[0], mocknet_helpers.RPC_PORT))
     accounts = [
-        account.Account(key, get_nonce_for_pk(key.account_id, key.pk),
-                        base_block_hash, (rpc_node, RPC_PORT))
+        account.Account(
+            key, mocknet_helpers.get_nonce_for_pk(key.account_id, key.pk),
+            base_block_hash, (rpc_node, mocknet_helpers.RPC_PORT))
         for key, rpc_node in zip(test_account_keys, itertools.cycle(rpc_nodes))
     ]
     max_tps_per_node = max_tps / num_nodes
@@ -265,16 +217,17 @@ def get_test_accounts_from_args(argv):
     ]
     global special_accounts
     special_accounts = [
-        account.Account(key, get_nonce_for_pk(key.account_id,
-                                              key.pk), base_block_hash,
-                        (rpc_node, RPC_PORT)) for key, rpc_node in zip(
-                            special_account_keys, itertools.cycle(rpc_nodes))
+        account.Account(
+            key, mocknet_helpers.get_nonce_for_pk(key.account_id,
+                                                  key.pk), base_block_hash,
+            (rpc_node, mocknet_helpers.RPC_PORT)) for key, rpc_node in zip(
+                special_account_keys, itertools.cycle(rpc_nodes))
     ]
 
-    start_time = time.time()
+    start_time = time.monotonic()
     if node_account_id == leader_account_id:
         initialize_skyward_contract(node_account_id, pk, sk)
-        elapsed = time.time() - start_time
+        elapsed = time.monotonic() - start_time
         if elapsed < SKYWARD_INIT_TIME:
             logger.info(f'Leader sleeps for {SKYWARD_INIT_TIME-elapsed}sec')
             time.sleep(SKYWARD_INIT_TIME - elapsed)
@@ -305,7 +258,7 @@ def init_token2_account(account, i):
     # The next transaction depends on the previous transaction succeeded.
     # Sleeping for 1 second is the poor man's solution for waiting for that transaction to succeed.
     # This works because the contracts are being deployed slow enough to keep block production above 1 bps.
-    wait_at_least_one_block()
+    mocknet_helpers.wait_at_least_one_block()
 
     s = f'{{"receiver_id": "{account.key.account_id}", "amount": "1000000000000000000"}}'
     logger.info(
@@ -324,19 +277,6 @@ def init_token2_account(account, i):
             logger.error(f'Cannot init token2 account')
 
 
-def wait_at_least_one_block():
-    status = get_status()
-    start_height = status['sync_info']['latest_block_height']
-    timeout_sec = 5
-    started = time.time()
-    while time.time() - started < timeout_sec:
-        status = get_status()
-        height = status['sync_info']['latest_block_height']
-        if height > start_height:
-            break
-        time.sleep(1.0)
-
-
 def main(argv):
     logger.info(argv)
     (node_account, test_accounts,
@@ -348,13 +288,13 @@ def main(argv):
     delay = CONTRACT_DEPLOY_TIME / mocknet.NUM_ACCOUNTS
     logger.info(f'Start deploying, delay between deployments: {delay}')
 
-    start_time = time.time()
+    start_time = time.monotonic()
     assert delay >= 1
     for i, account in enumerate(test_accounts):
         logger.info(f'Deploying contract for account {i}')
         account.send_deploy_contract_tx(mocknet.WASM_FILENAME)
         init_token2_account(account, i)
-        time.sleep(max(1.0, start_time + (i + 1) * delay - time.time()))
+        time.sleep(max(1.0, start_time + (i + 1) * delay - time.monotonic()))
     logger.info('Done deploying')
 
     # begin with only transfers for TPS measurement
@@ -363,16 +303,16 @@ def main(argv):
         f'Start the test, expected TPS {max_tps_per_node} over the next {TEST_TIMEOUT} seconds'
     )
     last_staking = 0
-    start_time = time.time()
-    while time.time() - start_time < TEST_TIMEOUT:
+    start_time = time.monotonic()
+    while time.monotonic() - start_time < TEST_TIMEOUT:
         # Repeat the staking transactions in case the validator selection algorithm changes.
         staked_time = mocknet.stake_available_amount(node_account, last_staking)
         if staked_time is not None:
             last_staking = staked_time
-        (total_tx_sent,
-         elapsed_time) = throttle_txns(send_skyward_transactions, total_tx_sent,
-                                       elapsed_time, 2 * max_tps_per_node,
-                                       node_account, test_accounts)
+        elapsed_time = time.monotonic() - start_time
+        total_tx_sent = mocknet_helpers.throttle_txns(
+            send_skyward_transactions, total_tx_sent, elapsed_time,
+            2 * max_tps_per_node, node_account, test_accounts)
     logger.info('Stop the test')
 
     write_tx_events(test_accounts, f'{mocknet.TX_OUT_FILE}.0')

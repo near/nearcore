@@ -16,10 +16,19 @@ _REPO_DIR = pathlib.Path(__file__).resolve().parents[2]
 _OUT_DIR = _REPO_DIR / 'target/debug'
 
 
-def current_branch():
-    return os.environ.get('BUILDKITE_BRANCH') or subprocess.check_output([
-        "git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "HEAD"
-    ]).strip().decode()
+def current_branch() -> str:
+    """Returns checked out branch name or sha if we’re on detached head."""
+    branch = os.environ.get('BUILDKITE_BRANCH')
+    if branch:
+        return branch
+    try:
+        return subprocess.check_output(
+            ('git', 'symbolic-ref', '--short', '-q', '@')).strip().decode()
+    except subprocess.CalledProcessError as ex:
+        if ex.returncode != 1:
+            raise
+        # We’re on detached HEAD
+    return subprocess.check_output(('git', 'rev-parse', '@')).strip().decode()
 
 
 def __get_latest_deploy(chain_id: str) -> typing.Tuple[str, str]:
@@ -66,12 +75,16 @@ def _compile_binary(branch: str) -> Executables:
     # TODO: download pre-compiled binary from github for beta/stable?
     prev_branch = current_branch()
     stash_output = subprocess.check_output(['git', 'stash'])
-    subprocess.check_output(['git', 'checkout', str(branch)])
-    subprocess.check_output(['git', 'pull', 'origin', str(branch)])
-    result = _compile_current(branch)
-    subprocess.check_output(['git', 'checkout', prev_branch])
-    if stash_output != b"No local changes to save\n":
-        subprocess.check_output(['git', 'stash', 'pop'])
+    try:
+        subprocess.check_output(['git', 'checkout', str(branch)])
+        try:
+            subprocess.check_output(['git', 'pull', 'origin', str(branch)])
+            result = _compile_current(branch)
+        finally:
+            subprocess.check_output(['git', 'checkout', prev_branch])
+    finally:
+        if stash_output != b"No local changes to save\n":
+            subprocess.check_output(['git', 'stash', 'pop'])
     return result
 
 
