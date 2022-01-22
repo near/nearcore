@@ -62,44 +62,52 @@ class Account:
         self.tx_timestamps.append(time.time())
         self.nonce += 1
 
-    def send_transfer_tx(self, dest_account_id):
+    def send_transfer_tx(self, dest_account_id, base_block_hash=None):
         self.prep_tx()
         transfer_amount = 100
         tx = sign_payment_tx(self.key, dest_account_id, transfer_amount,
-                             self.nonce, self.base_block_hash)
+                             self.nonce, base_block_hash or
+                             self.base_block_hash)
         return self.send_tx(tx)
 
-    def send_deploy_contract_tx(self, wasm_filename):
+    def send_deploy_contract_tx(self, wasm_filename, base_block_hash=None):
         wasm_binary = load_binary_file(wasm_filename)
         self.prep_tx()
         tx = sign_deploy_contract_tx(self.key, wasm_binary, self.nonce,
-                                     self.base_block_hash)
+                                     base_block_hash or self.base_block_hash)
         return self.send_tx(tx)
 
-    def send_call_contract_tx(self, method_name, args):
-        return self.send_call_contract_raw_tx(self.key.account_id, method_name,
-                                              args, 0)
+    def send_call_contract_tx(self, method_name, args, base_block_hash=None):
+        return self.send_call_contract_raw_tx(self.key.account_id,
+                                              method_name,
+                                              args,
+                                              0,
+                                              base_block_hash=base_block_hash)
 
-    def send_call_contract_raw_tx(self, contract_id, method_name, args,
-                                  deposit):
+    def send_call_contract_raw_tx(self,
+                                  contract_id,
+                                  method_name,
+                                  args,
+                                  deposit,
+                                  base_block_hash=None):
         self.prep_tx()
-        tx = sign_function_call_tx(self.key, self.key.account_id, method_name,
-                                   args, 3 * 10**14, deposit, self.nonce,
-                                   self.base_block_hash)
+        tx = sign_function_call_tx(self.key, contract_id, method_name, args,
+                                   3 * 10**14, deposit, self.nonce,
+                                   base_block_hash or self.base_block_hash)
         return self.send_tx(tx)
 
-    def send_create_account_tx(self, new_account_id):
+    def send_create_account_tx(self, new_account_id, base_block_hash=None):
         self.prep_tx()
         new_key = Key(new_account_id, self.key.pk, self.key.sk)
         tx = sign_create_account_with_full_access_key_and_balance_tx(
             self.key, new_account_id, new_key, 100, self.nonce,
-            self.base_block_hash)
+            base_block_hash or self.base_block_hash)
         return self.send_tx(tx)
 
-    def send_stake_tx(self, stake_amount):
+    def send_stake_tx(self, stake_amount, base_block_hash=None):
         self.prep_tx()
         tx = sign_staking_tx(self.key, self.key, stake_amount, self.nonce,
-                             self.base_block_hash)
+                             base_block_hash or self.base_block_hash)
         return self.send_tx(tx)
 
     def get_amount_yoctonear(self):
