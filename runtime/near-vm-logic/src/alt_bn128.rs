@@ -325,8 +325,6 @@ pub fn alt_bn128_g1_sum(data: &[u8]) -> crate::logic::Result<Vec<u8>> {
 /// is not in the field or data are wrong serialized, for example,
 /// `data.len()%std::mem::sizeof::<(G1,G2)>()!=0`, the function returns `AltBn128DeserializationError`.
 ///
-/// If `borsh::BorshSerialize` returns error during serialization, the function
-/// returns `AltBn128SerializationError`.///
 /// # Example
 /// ```
 /// # use near_vm_logic::alt_bn128::alt_bn128_pairing_check;
