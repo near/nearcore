@@ -306,7 +306,7 @@ pub fn alt_bn128_g1_sum(data: &[u8]) -> crate::logic::Result<Vec<u8>> {
 }
 
 /// Computes pairing check on alt_bn128 curve.
-/// \sum_i e(g_{1 i}, g_{2 i}) should be equal zero (in additive notation), e(g1, g2) is Ate pairing
+/// \sum_i e(g_{1 i}, g_{2 i}) should be equal to one (in additive notation), e(g1, g2) is Ate pairing
 ///
 /// # Arguments
 ///
