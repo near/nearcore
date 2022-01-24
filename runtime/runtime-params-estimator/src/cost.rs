@@ -52,61 +52,91 @@ pub enum Cost {
     LogBase,
     LogByte,
 
-    // `storage_write` records a single key-value pair, initially in the prospective changes in-memory hash map, and then once a full block has been processed, in the on-disk trie.
-    // If there was already a value stored, it overwritten and the old value is returned to the caller.
-    /// Estimates `ExtCost::storage_write_base` which is charged once per call to `storage_write`.
+    // `storage_write` records a single key-value pair, initially in the
+    // prospective changes in-memory hash map, and then once a full block has
+    // been processed, in the on-disk trie. If there was already a value
+    // stored, it is overwritten and the old value is returned to the caller.
+    /// Estimates `ExtCost::storage_write_base` which is charged once per call
+    /// to `storage_write`.
     ///
-    /// Estimation: Contract call that writes N small values and divide the cost by N.
+    /// Estimation: Contract call that writes N small values and divide the
+    /// cost by N.
     StorageWriteBase,
-    /// Estimates `ExtCost::storage_write_key_byte` which is charged for each byte in keys of `storage_write` calls.
+    /// Estimates `ExtCost::storage_write_key_byte` which is charged for each
+    /// byte in keys of `storage_write` calls.
     ///
-    /// Estimation: Contract call that writes N small values with a big key (10kiB) and divide the cost by total number of key bytes.
+    /// Estimation: Contract call that writes N small values with a big key
+    /// (10kiB) and divide the cost by total number of key bytes.
     StorageWriteKeyByte,
-    /// Estimates `ExtCost::storage_write_value_byte` which is charged for each byte in values of `storage_write` calls.
+    /// Estimates `ExtCost::storage_write_value_byte` which is charged for each
+    /// byte in values of `storage_write` calls.
     ///
-    /// Estimation: Contract call that writes N big values (10kiB) and divide the cost by total number of value bytes.
+    /// Estimation: Contract call that writes N big values (10kiB) and divide
+    /// the cost by total number of value bytes.
     StorageWriteValueByte,
-    /// Estimates `ExtCosts::storage_write_evicted_byte` which is charged for each byte in a value that is overwritten in `storage_write` calls.
+    /// Estimates `ExtCosts::storage_write_evicted_byte` which is charged for
+    /// each byte in a value that is overwritten in `storage_write` calls.
     ///
-    /// Estimation: Contract call that writes N values to keys that already contain big values (10kiB).
+    /// Estimation: Contract call that writes N values to keys that already
+    /// contain big values (10kiB).
     StorageWriteEvictedByte,
 
-    // `read_storage` reads a single value from either prospective changes if present or from the on-disk trie otherwise.
-    /// Estimates `ExtCost::storage_read_base` which is charged once per call to `storage_read`.
+    // `read_storage` reads a single value from either prospective changes if
+    // present or from the on-disk trie otherwise.
+    /// Estimates `ExtCost::storage_read_base` which is charged once per call
+    /// to `storage_read`.
     ///
-    /// Estimation: Contract call that reads N small values and divide the cost by N.
+    /// Estimation: Contract call that reads N small values and divide the cost
+    /// by N.
     StorageReadBase,
-    /// Estimates `ExtCost::storage_read_key_byte` which is charged for each byte in keys of `storage_read` calls.
+    /// Estimates `ExtCost::storage_read_key_byte` which is charged for each
+    /// byte in keys of `storage_read` calls.
     ///
-    /// Estimation: Contract call that reads N small values with a big key (10kiB) and divide the cost by total number of key bytes.
+    /// Estimation: Contract call that reads N small values with a big key
+    /// (10kiB) and divide the cost by total number of key bytes.
     StorageReadKeyByte,
-    /// Estimates `ExtCost::storage_read_value_byte` which is charged for each byte in values of `storage_read` calls.
+    /// Estimates `ExtCost::storage_read_value_byte` which is charged for each
+    /// byte in values of `storage_read` calls.
     ///
-    /// Estimation: Contract call that reads N big values (10kiB) and divide the cost by total number of value bytes.
+    /// Estimation: Contract call that reads N big values (10kiB) and divide
+    /// the cost by total number of value bytes.
     StorageReadValueByte,
 
-    // `storage_remove` adds a deletion transaction to the prospective changes, which is applied at the end of the block.
-    /// Estimates `ExtCost::storage_remove_base` which is charged once per call to `storage_remove`.
+    // `storage_remove` adds a deletion transaction to the prospective changes,
+    // which is applied at the end of the block.
+    /// Estimates `ExtCost::storage_remove_base` which is charged once per call
+    /// to `storage_remove`.
     ///
-    /// Estimation: Contract call that removes N small values and divide the cost by N.
+    /// Estimation: Contract call that removes N small values and divide the
+    /// cost by N.
     StorageRemoveBase,
-    /// Estimates `ExtCost::storage_remove_key_byte` which is charged for each byte in keys of `storage_remove` calls.
+    /// Estimates `ExtCost::storage_remove_key_byte` which is charged for each
+    /// byte in keys of `storage_remove` calls.
     ///
-    /// Estimation: Contract call that removes N small values with a big key (10kiB) and divide the cost by total number of key bytes.
+    /// Estimation: Contract call that removes N small values with a big key
+    /// (10kiB) and divide the cost by total number of key bytes.
     StorageRemoveKeyByte,
-    /// Estimates `ExtCost::storage_remove_value_byte` which is charged for each byte in values of `storage_remove` calls.
+    /// Estimates `ExtCost::storage_remove_value_byte` which is charged for
+    /// each byte in values of `storage_remove` calls.
     ///
-    /// Estimation: Contract call that removes N big values (10kiB) and divide the cost by total number of value bytes.
+    /// Estimation: Contract call that removes N big values (10kiB) and divide
+    /// the cost by total number of value bytes.
     StorageRemoveRetValueByte,
 
-    // `storage_has_key` checks if the key currently has an associated value. First, checked in the prospective changes, if nothing found, also in on-disk trie.
-    /// Estimates `ExtCost::storage_has_key_base` which is charged once per call to `storage_has_key`.
+    // `storage_has_key` checks if the key currently has an associated value.
+    // First, checked in the prospective changes, if nothing found, also in
+    // on-disk trie.
+    /// Estimates `ExtCost::storage_has_key_base` which is charged once per
+    /// call to `storage_has_key`.
     ///
-    /// Estimation: Contract call that removes N small values with small keys and divide the cost by N.
+    /// Estimation: Contract call that removes N small values with small keys
+    /// and divide the cost by N.
     StorageHasKeyBase,
-    /// Estimates `ExtCost::storage_has_key_byte` which is charged for each byte in calls to `storage_has_key`.
+    /// Estimates `ExtCost::storage_has_key_byte` which is charged for each
+    /// byte in calls to `storage_has_key`.
     ///
-    /// Estimation: Contract call that removes N small values with big keys (10kiB) and divide the cost by total key bytes.
+    /// Estimation: Contract call that removes N small values with big keys
+    /// (10kiB) and divide the cost by total key bytes.
     StorageHasKeyByte,
 
     /// DEPRECATED: Was charged in `storage_iter_prefix`
@@ -146,12 +176,16 @@ pub enum Cost {
     GasMeteringBase,
     GasMeteringOp,
     /// Cost of inserting a new value directly into a RocksDB instance.
-    /// In default settings, this is an alternative estimation for `StorageWriteValueByte`, measured in a more controlled setup.
-    /// Using the extra flags prefixed with `rdb-`, this can be used to measure the impact of various RocksDB settings on insertions.
+    /// In default settings, this is an alternative estimation for
+    /// `StorageWriteValueByte`, measured in a more controlled setup.
+    /// Using the extra flags prefixed with `rdb-`, this can be used to measure
+    /// the impact of various RocksDB settings on insertions.
     RocksDbInsertValueByte,
     /// Cost of reading values directly from a RocksDB instance.
-    /// In default settings, this is an alternative estimation for `StorageReadValueByte`, measured in a more controlled setup.
-    /// Using the extra flags prefixed with `rdb-`, this can be used to measure the impact of various RocksDB settings on read performance.
+    /// In default settings, this is an alternative estimation for
+    /// `StorageReadValueByte`, measured in a more controlled setup.
+    /// Using the extra flags prefixed with `rdb-`, this can be used to measure
+    /// the impact of various RocksDB settings on read performance.
     RocksDbReadValueByte,
     IoReadByte,
     IoWriteByte,
