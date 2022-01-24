@@ -1,6 +1,8 @@
 #![doc = include_str!("../README.md")]
 
+use arbitrary::Arbitrary;
 use once_cell::sync::OnceCell;
+use rand::{Fill, SeedableRng};
 use std::path::Path;
 
 /// Trivial contact with a do-nothing main function.
@@ -121,4 +123,27 @@ pub fn large_contract(functions: u32, locals: u32) -> Vec<u8> {
     module.section(&code_section);
 
     module.finish()
+}
+
+/// Generate an arbitrary valid contract.
+pub fn arbitrary_contract(seed: u64) -> Vec<u8> {
+    let mut rng = rand::rngs::SmallRng::seed_from_u64(seed);
+    let mut buffer = vec![0u8; 10240];
+    buffer.try_fill(&mut rng).expect("fill buffer with random data");
+    let mut arbitrary = arbitrary::Unstructured::new(&buffer);
+    let mut config = wasm_smith::SwarmConfig::arbitrary(&mut arbitrary).expect("make swarm config");
+    config.max_memories = 1;
+    config.max_tables = 1;
+    config.bulk_memory_enabled = false;
+    config.reference_types_enabled = false;
+    config.memory64_enabled = false;
+    config.simd_enabled = false;
+    config.multi_value_enabled = false;
+    config.relaxed_simd_enabled = false;
+    config.exceptions_enabled = false;
+    config.saturating_float_to_int_enabled = false;
+    config.sign_extension_enabled = false;
+    config.available_imports = Some(rs_contract().to_vec());
+    let module = wasm_smith::Module::new(config, &mut arbitrary).expect("generate module");
+    module.to_bytes()
 }
