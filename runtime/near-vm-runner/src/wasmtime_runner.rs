@@ -48,8 +48,10 @@ impl MemoryLike for WasmtimeMemory {
     fn read_memory(&self, offset: u64, buffer: &mut [u8]) {
         CALLER.with(|caller| {
             let offset = offset as usize;
+            let mut caller = caller.borrow_mut();
+            let caller = caller.as_mut().unwrap();
             for i in 0..buffer.len() {
-                buffer[i] = self.0.data(caller.borrow_mut().as_mut().unwrap())[i + offset];
+                buffer[i] = self.0.data(&mut *caller)[i + offset];
             }
         })
     }
@@ -61,8 +63,10 @@ impl MemoryLike for WasmtimeMemory {
     fn write_memory(&mut self, offset: u64, buffer: &[u8]) {
         CALLER.with(|caller| {
             let offset = offset as usize;
+            let mut caller = caller.borrow_mut();
+            let caller = caller.as_mut().unwrap();
             for i in 0..buffer.len() {
-                self.0.data_mut(caller.borrow_mut().as_mut().unwrap())[i + offset] = buffer[i];
+                self.0.data_mut(&mut *caller)[i + offset] = buffer[i];
             }
         })
     }
