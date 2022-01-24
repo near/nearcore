@@ -108,6 +108,7 @@ if __name__ == '__main__':
     parser.add_argument('--skip-load', default=False, action='store_true')
     parser.add_argument('--skip-setup', default=False, action='store_true')
     parser.add_argument('--skip-restart', default=False, action='store_true')
+    parser.add_argument('--no-sharding', default=False, action='store_true')
     parser.add_argument('--script', required=True)
     parser.add_argument('--num-seats', type=int, required=True)
 
@@ -152,16 +153,20 @@ if __name__ == '__main__':
         time.sleep(10)
         node_pks = pmap(lambda node: mocknet.get_node_keys(node)[0],
                         validator_nodes)
+        all_node_pks = pmap(lambda node: mocknet.get_node_keys(node)[0],
+                            all_nodes)
+        node_ips = [node.machine.ip for node in all_nodes]
         mocknet.create_and_upload_genesis(
             validator_nodes,
-            genesis_template_filename=None,
+            chain_id,
             rpc_nodes=rpc_nodes,
-            chain_id=chain_id,
-            update_genesis_on_machine=True,
             epoch_length=epoch_length,
             node_pks=node_pks,
             increasing_stakes=args.increasing_stakes,
-            num_seats=args.num_seats)
+            num_seats=args.num_seats,
+            sharding=not args.no_sharding,
+            all_node_pks=all_node_pks,
+            node_ips=node_ips)
         mocknet.start_nodes(all_nodes, upgrade_schedule)
         time.sleep(60)
 
