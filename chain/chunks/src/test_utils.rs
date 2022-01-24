@@ -3,7 +3,7 @@ use std::sync::Arc;
 use near_primitives::time::Clock;
 
 use near_chain::test_utils::KeyValueRuntime;
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::ChainStore;
 use near_crypto::KeyType;
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -141,11 +141,18 @@ pub struct ChunkForwardingTestFixture {
     pub mock_shard_tracker: AccountId,
     pub mock_chunk_header: ShardChunkHeader,
     pub mock_chunk_parts: Vec<PartialEncodedChunkPart>,
+    pub mock_chain_head: Tip,
     pub rs: ReedSolomonWrapper,
 }
 
 impl Default for ChunkForwardingTestFixture {
     fn default() -> Self {
+        Self::new(false)
+    }
+}
+
+impl ChunkForwardingTestFixture {
+    pub fn new(orphan_chunk: bool) -> Self {
         let store = near_store::test_utils::create_test_store();
         // 12 validators, 3 shards => 4 validators per shard
         let validators = make_validators(12);
@@ -161,10 +168,12 @@ impl Default for ChunkForwardingTestFixture {
         let data_parts = mock_runtime.num_data_parts();
         let parity_parts = mock_runtime.num_total_parts() - data_parts;
         let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
-        let mock_parent_hash = CryptoHash::default();
-        let mock_height: BlockHeight = 1;
+        let mock_ancestor_hash = CryptoHash::default();
+        // generate a random block hash for the block at height 1
+        let (mock_parent_hash, mock_height) =
+            if orphan_chunk { (CryptoHash::hash_bytes(&[]), 2) } else { (mock_ancestor_hash, 1) };
         let mock_shard_id: ShardId = 0;
-        let mock_epoch_id = mock_runtime.get_epoch_id_from_prev_block(&mock_parent_hash).unwrap();
+        let mock_epoch_id = mock_runtime.get_epoch_id_from_prev_block(&mock_ancestor_hash).unwrap();
         let mock_chunk_producer =
             mock_runtime.get_chunk_producer(&mock_epoch_id, mock_height, mock_shard_id).unwrap();
         let signer = InMemoryValidatorSigner::from_seed(
@@ -181,12 +190,12 @@ impl Default for ChunkForwardingTestFixture {
                 } else {
                     let tracks_shard = mock_runtime.cares_about_shard(
                         Some(*v),
-                        &mock_parent_hash,
+                        &mock_ancestor_hash,
                         mock_shard_id,
                         false,
                     ) || mock_runtime.will_care_about_shard(
                         Some(*v),
-                        &mock_parent_hash,
+                        &mock_ancestor_hash,
                         mock_shard_id,
                         false,
                     );
@@ -239,7 +248,8 @@ impl Default for ChunkForwardingTestFixture {
             .iter()
             .copied()
             .filter(|p| {
-                mock_runtime.get_part_owner(&mock_parent_hash, *p).unwrap() == mock_chunk_part_owner
+                mock_runtime.get_part_owner(&mock_ancestor_hash, *p).unwrap()
+                    == mock_chunk_part_owner
             })
             .collect();
         let encoded_chunk =
@@ -255,12 +265,17 @@ impl Default for ChunkForwardingTestFixture {
             mock_shard_tracker,
             mock_chunk_header: encoded_chunk.cloned_header(),
             mock_chunk_parts: encoded_chunk.parts().clone(),
+            mock_chain_head: Tip {
+                height: 0,
+                last_block_hash: CryptoHash::default(),
+                prev_block_hash: CryptoHash::default(),
+                epoch_id: EpochId::default(),
+                next_epoch_id: EpochId::default(),
+            },
             rs,
         }
     }
-}
 
-impl ChunkForwardingTestFixture {
     pub fn make_partial_encoded_chunk(&self, part_ords: &[u64]) -> PartialEncodedChunkV2 {
         let parts = part_ords
             .iter()
