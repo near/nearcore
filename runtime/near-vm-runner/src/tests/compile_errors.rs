@@ -235,3 +235,37 @@ fn test_limit_locals() {
         );
     })
 }
+
+#[test]
+fn regression_gpr_exhaustion() {
+    let wasm = wat::parse_str(
+        r#"
+        (module
+          (type (;0;) (func (param f64) (result i32)))
+          (type (;1;) (func (param f64 f64 f64 f64 f64 f64)))
+          (func (;0;) (type 0) (param f64) (result i32)
+            local.get 0
+            local.get 0
+            local.get 0
+            local.get 0
+            f64.const 0
+            f64.const 0
+            f64.const 0
+            f64.const 0
+            f64.const 0
+            f64.const 0
+            f64.const 0
+            i32.const 0
+            call_indirect (type 0)
+            call_indirect (type 1)
+            drop
+            drop
+            drop
+            drop
+            i32.const 0)
+          (table (;0;) 1 1 funcref))
+    "#,
+    )
+    .unwrap();
+    let _ = make_simple_contract_call_vm(&wasm, "main", VMKind::Wasmer2);
+}
