@@ -2,7 +2,6 @@
 use std::cmp;
 use std::collections::HashMap;
 use std::io;
-use std::marker::PhantomPinned;
 use std::sync::RwLock;
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -446,8 +445,6 @@ pub struct RocksDB {
     check_free_space_counter: std::sync::atomic::AtomicU16,
     check_free_space_interval: u16,
     free_space_threshold: bytesize::ByteSize,
-
-    _pin: PhantomPinned,
 }
 
 // DB was already Send+Sync. cf and read_options are const pointers using only functions in
@@ -535,7 +532,6 @@ impl RocksDBOptions {
         Ok(RocksDB {
             db,
             cfs,
-            _pin: PhantomPinned,
             check_free_space_interval: self.check_free_space_interval,
             check_free_space_counter: std::sync::atomic::AtomicU16::new(0),
             free_space_threshold: self.free_space_threshold,
@@ -575,7 +571,6 @@ impl RocksDBOptions {
         Ok(RocksDB {
             db,
             cfs,
-            _pin: PhantomPinned,
             check_free_space_interval: self.check_free_space_interval,
             check_free_space_counter: std::sync::atomic::AtomicU16::new(0),
             free_space_threshold: self.free_space_threshold,

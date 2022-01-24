@@ -6,13 +6,12 @@ use std::path::{Path, PathBuf};
 use near_primitives::types::StateRoot;
 use near_store::db::DBCol::ColState;
 use near_store::{create_store, Store};
-use std::sync::Arc;
 
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 
 pub struct StateDump {
-    pub store: Arc<Store>,
+    pub store: Store,
     pub roots: Vec<StateRoot>,
 }
 
