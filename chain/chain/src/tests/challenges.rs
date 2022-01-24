@@ -85,7 +85,7 @@ fn test_no_challenge_on_same_header() {
     assert_eq!(tip.unwrap().height, 1);
     if let Err(e) = chain.process_block_header(block.header(), |_| panic!("Unexpected Challenge")) {
         match e.kind() {
-            ErrorKind::Unfit(_) => {}
+            ErrorKind::BlockKnown(_) => {}
             _ => panic!("Wrong error kind {}", e),
         }
     } else {

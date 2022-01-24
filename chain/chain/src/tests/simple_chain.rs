@@ -125,7 +125,7 @@ fn build_chain_with_orhpans() {
     assert_eq!(res.unwrap().unwrap().height, 10);
     assert_eq!(
         chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err().kind(),
-        ErrorKind::Unfit(BlockKnownError::KnownInStore)
+        ErrorKind::BlockKnown(BlockKnownError::KnownInStore)
     );
 }
 

@@ -1416,10 +1416,10 @@ impl Chain {
                         // Or someone is attacking with invalid chain.
                         debug!(target: "chain", "Received block {}/{} ignored, as epoch {:?} is unknown", block_height, block.hash(), epoch_id);
                     }
-                    ErrorKind::Unfit(ref block_known_error) => {
+                    ErrorKind::BlockKnown(ref block_known_error) => {
                         debug!(
                             target: "chain",
-                            "Block {} at {} is unfit at this time: {:?}",
+                            "Block {} at {} is known at this time: {:?}",
                             block.hash(),
                             block_height,
                             block_known_error);
@@ -3238,7 +3238,7 @@ impl<'a> ChainUpdate<'a> {
     {
         debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.height());
 
-        self.check_known(header.hash())?.map_err(|e| Error::from(ErrorKind::Unfit(e)))?;
+        self.check_known(header.hash())?.map_err(|e| Error::from(ErrorKind::BlockKnown(e)))?;
         self.validate_header(header, &Provenance::NONE, on_challenge)?;
         Ok(())
     }
@@ -4046,7 +4046,8 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // Check if we have already processed this block previously.
-        self.check_known(block.header().hash())?.map_err(|e| Error::from(ErrorKind::Unfit(e)))?;
+        self.check_known(block.header().hash())?
+            .map_err(|e| Error::from(ErrorKind::BlockKnown(e)))?;
 
         // Delay hitting the db for current chain head until we know this block is not already known.
         let head = self.chain_store_update.head()?;

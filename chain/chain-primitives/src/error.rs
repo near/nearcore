@@ -72,7 +72,7 @@ pub struct Error {
 pub enum ErrorKind {
     /// The block is already known
     #[fail(display = "Block is known: {:?}", _0)]
-    Unfit(BlockKnownError),
+    BlockKnown(BlockKnownError),
     /// Orphan block.
     #[fail(display = "Orphan")]
     Orphan,
@@ -266,7 +266,7 @@ impl Error {
 
     pub fn is_bad_data(&self) -> bool {
         match self.kind() {
-            ErrorKind::Unfit(_)
+            ErrorKind::BlockKnown(_)
             | ErrorKind::Orphan
             | ErrorKind::ChunkMissing(_)
             | ErrorKind::ChunksMissing(_)
