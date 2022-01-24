@@ -458,7 +458,7 @@ where
                     inner.callback.drained(n, len, capacity);
                     // Fix memory leak see (#6173)
                     if inner.buffer.is_empty() && inner.buffer.capacity() > 0 {
-                        std::mem::take(&mut inner.buffer);
+                        inner.buffer = BytesMut::new()
                     }
                 }
                 Poll::Ready(Err(ref e)) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -558,7 +558,7 @@ where
                     inner.callback.drained(n, len, capacity);
                     // Fix memory leak see (#6173)
                     if inner.buffer.is_empty() && inner.buffer.capacity() > 0 {
-                        std::mem::take(&mut inner.buffer);
+                        inner.buffer = BytesMut::new()
                     }
                 }
                 Poll::Ready(Err(ref e)) if e.kind() == io::ErrorKind::WouldBlock => {
