@@ -212,7 +212,6 @@ use std::{io, task};
 use actix::{Actor, ActorContext, ActorFuture, AsyncContext, Running, SpawnHandle};
 use bitflags::bitflags;
 use bytes::BytesMut;
-use bytesize::MIB;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio_util::codec::Encoder;
 

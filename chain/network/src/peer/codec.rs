@@ -77,27 +77,27 @@ impl Decoder for Codec {
     type Item = Result<Vec<u8>, ReasonForBan>;
     type Error = Error;
 
-    fn decode(&mut self, buffer: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if buffer.len() < 4 {
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        if buf.len() < 4 {
             // not enough bytes to start decoding
             return Ok(None);
         }
 
-        let len = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
+        let len = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
         if len > NETWORK_MESSAGE_MAX_SIZE_BYTES {
             // If this point is reached, abusive peer is banned.
             return Ok(Some(Err(ReasonForBan::Abusive)));
         }
 
-        if buffer.len() < 4 + len as usize {
+        if buf.len() < 4 + len as usize {
             // not enough bytes, keep waiting
             Ok(None)
         } else {
-            let res = Some(Ok(buffer[4..4 + len as usize].to_vec()));
-            buffer.advance(4 + len as usize);
+            let res = Some(Ok(buf[4..4 + len as usize].to_vec()));
+            buf.advance(4 + len as usize);
             // Fix memory leak see (#TODO)
-            if buffer.is_empty() && buffer.capacity() > 0 {
-                std::mem::take(buffer);
+            if buf.is_empty() && buf.capacity() > 0 {
+                *buf = BytesMut::new();
             }
             Ok(res)
         }
