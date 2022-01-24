@@ -392,7 +392,7 @@ impl PartialEncodedChunkForwardMsg {
     }
 
     pub fn is_valid_hash(&self) -> bool {
-        let correct_hash = combine_hash(self.inner_header_hash, self.merkle_root);
+        let correct_hash = combine_hash(&self.inner_header_hash, &self.merkle_root);
         ChunkHash(correct_hash) == self.chunk_hash
     }
 }
