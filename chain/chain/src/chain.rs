@@ -904,8 +904,7 @@ impl Chain {
         F3: Copy + FnMut(ChallengeBody),
     {
         let block_hash = *block.hash();
-        let timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
-        let success_timer = metrics::BLOCK_PROCESSING_SUCCESSFULLY_TIME.start_timer();
+        let success_timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
         let res = self.process_block_single(
             me,
             block,
@@ -915,9 +914,8 @@ impl Chain {
             block_orphaned_with_missing_chunks,
             on_challenge,
         );
-        timer.observe_duration();
         if res.is_ok() {
-            metrics::BLOCK_PROCESSED_SUCCESSFULLY_TOTAL.inc();
+            metrics::BLOCK_PROCESSED_TOTAL.inc();
             success_timer.stop_and_record();
 
             if let Some(new_res) = self.check_orphans(
@@ -1238,7 +1236,7 @@ impl Chain {
         F2: Copy + FnMut(OrphanMissingChunks),
         F3: FnMut(ChallengeBody),
     {
-        metrics::BLOCK_PROCESSED_TOTAL.inc();
+        metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
         metrics::NUM_ORPHANS.set(self.orphans.len() as i64);
 
         let prev_head = self.store.head()?;
@@ -1579,8 +1577,7 @@ impl Chain {
                 debug!(target: "chain", "Check orphans: found {} orphans", orphans.len());
                 for orphan in orphans.into_iter() {
                     let block_hash = orphan.hash();
-                    let timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
-                    let success_timer = metrics::BLOCK_PROCESSING_SUCCESSFULLY_TIME.start_timer();
+                    let success_timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
                     let res = self.process_block_single(
                         me,
                         orphan.block,
@@ -1590,10 +1587,9 @@ impl Chain {
                         orphan_misses_chunks,
                         on_challenge,
                     );
-                    timer.observe_duration();
                     match res {
                         Ok(maybe_tip) => {
-                            metrics::BLOCK_PROCESSED_SUCCESSFULLY_TOTAL.inc();
+                            metrics::BLOCK_PROCESSED_TOTAL.inc();
                             success_timer.stop_and_record();
                             maybe_new_head = maybe_tip;
                             queue.push(block_hash);
