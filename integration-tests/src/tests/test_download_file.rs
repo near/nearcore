@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tokio::sync::Barrier;
 
 #[tokio::test]
+#[ignore]
 async fn test_file_download() {
     let port = portpicker::pick_unused_port().expect("No ports free");
 
