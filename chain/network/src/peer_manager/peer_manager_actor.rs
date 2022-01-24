@@ -286,7 +286,7 @@ impl Actor for PeerManagerActor {
             connected_peer.addr.do_send(msg.clone());
         }
 
-        actix::spawn(self.routing_table_addr.send(StopMsg {}));
+        self.routing_table_addr.do_send(StopMsg {});
 
         Running::Stop
     }
@@ -573,7 +573,7 @@ impl PeerManagerActor {
                 ))
                 .then(move |response| match response.map(|r| r.into_inner()) {
                     Ok(RoutingTableMessagesResponse::StartRoutingTableSyncResponse(response)) => {
-                        let _ = addr.do_send(SendMessage {
+                        addr.do_send(SendMessage {
                             message: crate::types::PeerMessage::RoutingTableSyncV2(response),
                         });
                         future::ready(())
@@ -705,7 +705,7 @@ impl PeerManagerActor {
             // Start syncing network point of view. Wait until both parties are connected before start
             // sending messages.
             let known_accounts = act.routing_table_view.get_announce_accounts();
-            let _ = addr.do_send(SendMessage {
+            addr.do_send(SendMessage {
                 message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(
                     known_edges,
                     known_accounts,
@@ -713,7 +713,7 @@ impl PeerManagerActor {
             });
 
             // Ask for peers list on connection.
-            let _ = addr.do_send(SendMessage { message: PeerMessage::PeersRequest });
+            addr.do_send(SendMessage { message: PeerMessage::PeersRequest });
             if let Some(connected_peer) = act.connected_peers.get_mut(&target_peer_id) {
                 connected_peer.last_time_peer_requested = Clock::instant();
             }
@@ -751,9 +751,7 @@ impl PeerManagerActor {
         self.connected_peers.remove(peer_id);
 
         #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-        actix::spawn(
-            self.routing_table_addr.send(RoutingTableMessages::RemovePeer(peer_id.clone())),
-        );
+        self.routing_table_addr.do_send(RoutingTableMessages::RemovePeer(peer_id.clone()));
 
         if let Some(edge) = self.routing_table_view.get_local_edge(peer_id) {
             if edge.edge_type() == EdgeState::Active {
@@ -810,7 +808,7 @@ impl PeerManagerActor {
     /// and then mark peer as banned in the peer store.
     pub(crate) fn try_ban_peer(&mut self, peer_id: &PeerId, ban_reason: ReasonForBan) {
         if let Some(peer) = self.connected_peers.get(peer_id) {
-            let _ = peer.addr.do_send(PeerManagerRequest::BanPeer(ban_reason));
+            peer.addr.do_send(PeerManagerRequest::BanPeer(ban_reason));
         } else {
             warn!(target: "network", ?ban_reason, ?peer_id, "Try to ban a disconnected peer for");
             // Call `ban_peer` in peer manager to trigger action that persists information
@@ -1336,7 +1334,7 @@ impl PeerManagerActor {
         if let Some(connected_peer) = connected_peers.get(&peer_id) {
             let msg_kind = message.msg_variant().to_string();
             trace!(target: "network", ?msg_kind, "Send message");
-            actix::spawn(connected_peer.addr.send(SendMessage { message }));
+            connected_peer.addr.do_send(SendMessage { message });
             true
         } else {
             debug!(target: "network",
@@ -2321,7 +2319,7 @@ impl PeerManagerActor {
                             ibf_msg: response_ibf_msg,
                         }) => {
                             if let Some(response_ibf_msg) = response_ibf_msg {
-                                let _ = addr.do_send(SendMessage {
+                                addr.do_send(SendMessage {
                                     message: PeerMessage::RoutingTableSyncV2(
                                         crate::network_protocol::RoutingSyncV2::Version2(
                                             response_ibf_msg,
