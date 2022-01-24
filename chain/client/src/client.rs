@@ -5,7 +5,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
-use cached::{Cached, SizedCache};
 use log::{debug, error, info, warn};
 use near_primitives::time::Clock;
 
@@ -79,7 +78,8 @@ pub struct Client {
     /// Signer for block producer (if present).
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
     /// Approvals for which we do not have the block yet
-    pub pending_approvals: SizedCache<ApprovalInner, HashMap<AccountId, (Approval, ApprovalType)>>,
+    pub pending_approvals:
+        lru::LruCache<ApprovalInner, HashMap<AccountId, (Approval, ApprovalType)>>,
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync and blocks catch up
     pub catchup_state_syncs:
@@ -97,7 +97,7 @@ pub struct Client {
     /// A ReedSolomon instance to reconstruct shard.
     pub rs: ReedSolomonWrapper,
     /// Blocks that have been re-broadcast recently. They should not be broadcast again.
-    rebroadcasted_blocks: SizedCache<CryptoHash, ()>,
+    rebroadcasted_blocks: lru::LruCache<CryptoHash, ()>,
     /// Last time the head was updated, or our head was rebroadcasted. Used to re-broadcast the head
     /// again to prevent network from stalling if a large percentage of the network missed a block
     last_time_head_progress_made: Instant,
@@ -180,7 +180,7 @@ impl Client {
             shards_mgr,
             network_adapter,
             validator_signer,
-            pending_approvals: SizedCache::with_size(num_block_producer_seats),
+            pending_approvals: lru::LruCache::new(num_block_producer_seats),
             catchup_state_syncs: HashMap::new(),
             epoch_sync,
             header_sync,
@@ -188,7 +188,7 @@ impl Client {
             state_sync,
             challenges: Default::default(),
             rs: ReedSolomonWrapper::new(data_parts, parity_parts),
-            rebroadcasted_blocks: SizedCache::with_size(NUM_REBROADCAST_BLOCKS),
+            rebroadcasted_blocks: lru::LruCache::new(NUM_REBROADCAST_BLOCKS),
             last_time_head_progress_made: Clock::instant(),
             chunks_delay_tracker: Default::default(),
         })
@@ -787,11 +787,11 @@ impl Client {
     }
 
     pub fn rebroadcast_block(&mut self, block: &Block) {
-        if self.rebroadcasted_blocks.cache_get(block.hash()).is_none() {
+        if self.rebroadcasted_blocks.get(block.hash()).is_none() {
             self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Block { block: block.clone() },
             ));
-            self.rebroadcasted_blocks.cache_set(*block.hash(), ());
+            self.rebroadcasted_blocks.put(*block.hash(), ());
         }
     }
 
@@ -1006,11 +1006,11 @@ impl Client {
         if provenance == Provenance::NONE {
             let endorsements = self
                 .pending_approvals
-                .cache_remove(&ApprovalInner::Endorsement(block_hash))
+                .pop(&ApprovalInner::Endorsement(block_hash))
                 .unwrap_or_default();
             let skips = self
                 .pending_approvals
-                .cache_remove(&ApprovalInner::Skip(block.header().height()))
+                .pop(&ApprovalInner::Skip(block.header().height()))
                 .unwrap_or_default();
 
             for (_account_id, (approval, approval_type)) in
@@ -1282,12 +1282,10 @@ impl Client {
                     return;
                 }
             }
-            let mut entry = self
-                .pending_approvals
-                .cache_remove(&approval.inner)
-                .unwrap_or_else(|| HashMap::new());
+            let mut entry =
+                self.pending_approvals.pop(&approval.inner).unwrap_or_else(|| HashMap::new());
             entry.insert(approval.account_id.clone(), (approval.clone(), approval_type));
-            self.pending_approvals.cache_set(approval.inner.clone(), entry);
+            self.pending_approvals.put(approval.inner.clone(), entry);
         }
     }
 
