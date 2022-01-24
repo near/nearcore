@@ -336,7 +336,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             self.client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
                             genesis,
                             self.client.runtime_adapter.clone(),
-                            self.client.chain.store().owned_store(),
+                            self.client.chain.store().store().clone(),
                         );
                         store_validator.set_timeout(timeout);
                         store_validator.validate();
@@ -670,7 +670,7 @@ impl Handler<Status> for ClientActor {
             protocol_version,
             latest_protocol_version: PROTOCOL_VERSION,
             chain_id: self.client.config.chain_id.clone(),
-            rpc_addr: self.client.config.rpc_addr.as_ref().map(|addr| addr.clone()),
+            rpc_addr: self.client.config.rpc_addr.clone(),
             validators,
             sync_info: StatusSyncInfo {
                 latest_block_hash: head.last_block_hash.into(),
@@ -691,19 +691,15 @@ impl Handler<GetNetworkInfo> for ClientActor {
     type Result = Result<NetworkInfoResponse, String>;
 
     #[perf]
-    fn handle(&mut self, msg: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, _msg: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("client get network info".into());
         self.check_triggers(ctx);
 
         Ok(NetworkInfoResponse {
-            connected_peers: self
-                .network_info
-                .connected_peers
-                .clone()
-                .into_iter()
-                .map(|a| a.peer_info)
-                .collect::<Vec<_>>(),
+            connected_peers: (self.network_info.connected_peers.iter())
+                .map(|fpi| fpi.peer_info.clone())
+                .collect(),
             num_connected_peers: self.network_info.num_connected_peers,
             peer_max_count: self.network_info.peer_max_count,
             sent_bytes_per_sec: self.network_info.sent_bytes_per_sec,

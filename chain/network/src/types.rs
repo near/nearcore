@@ -73,8 +73,8 @@ pub struct PeersResponse {
     pub(crate) peers: Vec<PeerInfo>,
 }
 
-/// List of all messages, which PeerManagerActor accepts through Actix. There is also another list
-/// which contains reply for each message to PeerManager.
+/// List of all messages, which `PeerManagerActor` accepts through `Actix`. There is also another list
+/// which contains reply for each message to `PeerManager`.
 /// There is 1 to 1 mapping between an entry in `PeerManagerMessageRequest` and `PeerManagerMessageResponse`.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug)]
@@ -123,7 +123,7 @@ impl Message for PeerManagerMessageRequest {
     type Result = PeerManagerMessageResponse;
 }
 
-/// List of all replies to messages to PeerManager. See `PeerManagerMessageRequest` for more details.
+/// List of all replies to messages to `PeerManager`. See `PeerManagerMessageRequest` for more details.
 #[derive(MessageResponse, Debug)]
 pub enum PeerManagerMessageResponse {
     RoutedMessageFrom(bool),
@@ -474,7 +474,7 @@ where
 }
 
 /// Adapter to break dependency of sub-components on the network requests.
-/// For tests use MockNetworkAdapter that accumulates the requests to network.
+/// For tests use `MockNetworkAdapter` that accumulates the requests to network.
 pub trait PeerManagerAdapter: Sync + Send {
     fn send(
         &self,
