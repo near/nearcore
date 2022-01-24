@@ -905,9 +905,7 @@ impl Chain {
     {
         let block_hash = *block.hash();
         let timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
-        let success_timer = metrics::BLOCK_SUCCESSFUL_PROCESSING_TIME.start_timer();
-        // We measure time once, because the histogram measures time of all block processing
-        // attempts, and filtering needs to be done manually.
+        let success_timer = metrics::BLOCK_PROCESSING_SUCCESSFULLY_TIME.start_timer();
         let res = self.process_block_single(
             me,
             block,
@@ -1582,7 +1580,7 @@ impl Chain {
                 for orphan in orphans.into_iter() {
                     let block_hash = orphan.hash();
                     let timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
-                    let success_timer = metrics::BLOCK_SUCCESSFUL_PROCESSING_TIME.start_timer();
+                    let success_timer = metrics::BLOCK_PROCESSING_SUCCESSFULLY_TIME.start_timer();
                     let res = self.process_block_single(
                         me,
                         orphan.block,
