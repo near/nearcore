@@ -1,4 +1,4 @@
-use std::fmt::{self, Display};
+use std::fmt::{self, Display, Formatter};
 use std::io;
 
 use chrono::DateTime;
@@ -70,9 +70,9 @@ pub struct Error {
 
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum ErrorKind {
-    /// The block doesn't fit anywhere in our chain.
-    #[fail(display = "Block is unfit: {}", _0)]
-    Unfit(String),
+    /// The block is already known
+    #[fail(display = "Block is known: {:?}", _0)]
+    Unfit(BlockKnownError),
     /// Orphan block.
     #[fail(display = "Orphan")]
     Orphan,
@@ -386,5 +386,27 @@ impl From<BlockValidityError> for Error {
 impl From<StorageError> for Error {
     fn from(error: StorageError) -> Self {
         ErrorKind::StorageError(error).into()
+    }
+}
+
+#[derive(Clone, Eq, PartialEq, Debug, Fail)]
+pub enum BlockKnownError {
+    KnownInHeader,
+    KnownInHead,
+    KnownInOrphan,
+    KnownInMissingChunks,
+    KnownInStore,
+}
+
+impl Display for BlockKnownError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let output = match self {
+            BlockKnownError::KnownInHeader => "already known in header",
+            BlockKnownError::KnownInHead => "already known in head",
+            BlockKnownError::KnownInOrphan => "already known in orphan",
+            BlockKnownError::KnownInMissingChunks => "already known in missing chunks",
+            BlockKnownError::KnownInStore => "already known in store",
+        };
+        Display::fmt(&output, f)
     }
 }

@@ -27,7 +27,7 @@ use near_primitives::types::{
 use near_primitives::utils::to_timestamp;
 
 use cached::{Cached, SizedCache};
-use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
+use near_chain::chain::{ApplyStatePartsRequest, ChainAccess, StateSplitRequest};
 use near_client_primitives::types::{
     DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus,
 };
@@ -473,7 +473,7 @@ impl BlockSync {
             return Ok(true);
         }
 
-        // reference_hash is the last block on the canonical chain that we know the full block
+        // reference_hash is the last block on the canonical chain that is in store (processed)
         let reference_hash = {
             let reference_hash = match &self.last_request {
                 Some(request) if chain.is_chunk_orphan(&request.hash) => request.hash,
@@ -533,10 +533,11 @@ impl BlockSync {
                     _ => return Err(e),
                 },
             }
-            if !chain.block_exists(&next_hash)? {
+            if let Ok(()) = chain.check_known(&next_hash)? {
                 let next_height = chain.get_block_header(&next_hash)?.height();
                 let request =
                     BlockSyncRequest { height: next_height, hash: next_hash, when: Clock::utc() };
+                debug!(target:"sync", "add block {:?}", next_hash);
                 requests.push(request);
             }
         }
@@ -1579,6 +1580,14 @@ mod test {
         requested_block_hashes
     }
 
+    fn check_hashes_from_network_adapter(
+        network_adapter: Arc<MockPeerManagerAdapter>,
+        expected_hashes: Vec<CryptoHash>,
+    ) {
+        let collected_hashes = collect_hashes_from_network_adapter(network_adapter);
+        assert_eq!(collected_hashes, expected_hashes.into_iter().collect());
+    }
+
     fn create_peer_infos(num_peers: usize) -> Vec<FullPeerInfo> {
         (0..num_peers)
             .map(|_| FullPeerInfo {
@@ -1617,44 +1626,44 @@ mod test {
                 block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
             assert!(!is_state_sync);
 
-            let requested_block_hashes =
-                collect_hashes_from_network_adapter(network_adapter.clone());
-            let expected_requested_blocks = vec![
-                blocks[i * MAX_BLOCK_REQUESTS].clone(),
-                blocks[i * MAX_BLOCK_REQUESTS + 1].clone(),
-                blocks[i * MAX_BLOCK_REQUESTS + 2].clone(),
-            ];
-            assert_eq!(
-                requested_block_hashes,
-                expected_requested_blocks.iter().map(|x| *x.hash()).collect::<HashSet<_>>()
+            let expected_blocks: Vec<_> = (i * MAX_BLOCK_REQUESTS..(i + 1) * MAX_BLOCK_REQUESTS)
+                .map(|h| blocks[h].clone())
+                .collect();
+            check_hashes_from_network_adapter(
+                network_adapter.clone(),
+                expected_blocks.iter().map(|b| *b.hash()).collect(),
             );
 
-            for block in expected_requested_blocks {
+            for block in expected_blocks {
                 env.process_block(1, block, Provenance::NONE);
             }
         }
 
         // Now test when the node receives the block out of order
+        // fetch the next three blocks
         let is_state_sync = block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);
-        let _res = env.clients[1].process_block(
-            MaybeValidated::from(blocks[3 * MAX_BLOCK_REQUESTS + 2].clone()),
+        check_hashes_from_network_adapter(
+            network_adapter.clone(),
+            (3 * MAX_BLOCK_REQUESTS..4 * MAX_BLOCK_REQUESTS).map(|h| *blocks[h].hash()).collect(),
+        );
+        // assumes that we only get block[4*MAX_BLOCK_REQUESTS-1]
+        let _ = env.clients[1].process_block(
+            MaybeValidated::from(blocks[4 * MAX_BLOCK_REQUESTS - 1].clone()),
             Provenance::NONE,
         );
+        // the next block sync should not request block[4*MAX_BLOCK_REQUESTS-1] again
         let is_state_sync = block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);
-        let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter.clone());
-        let expected_requested_blocks = vec![
-            blocks[3 * MAX_BLOCK_REQUESTS].clone(),
-            blocks[3 * MAX_BLOCK_REQUESTS + 1].clone(),
-        ];
-        assert_eq!(
-            requested_block_hashes,
-            expected_requested_blocks.iter().map(|x| *x.hash()).collect::<HashSet<_>>()
+        check_hashes_from_network_adapter(
+            network_adapter.clone(),
+            (3 * MAX_BLOCK_REQUESTS..4 * MAX_BLOCK_REQUESTS - 1)
+                .map(|h| *blocks[h].hash())
+                .collect(),
         );
 
         // Receive all blocks. Should not request more.
-        for i in 4 * MAX_BLOCK_REQUESTS..5 * MAX_BLOCK_REQUESTS {
+        for i in 3 * MAX_BLOCK_REQUESTS..5 * MAX_BLOCK_REQUESTS {
             env.process_block(1, blocks[i].clone(), Provenance::NONE);
         }
         block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
@@ -1694,7 +1703,7 @@ mod test {
         let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter);
         assert_eq!(
             requested_block_hashes,
-            blocks.iter().take(1).map(|b| *b.hash()).collect::<HashSet<_>>()
+            blocks.iter().take(MAX_BLOCK_REQUESTS).map(|b| *b.hash()).collect::<HashSet<_>>()
         );
     }
 }
