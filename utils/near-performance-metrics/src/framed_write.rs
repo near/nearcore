@@ -456,7 +456,7 @@ where
                     let len = inner.buffer.len();
                     let capacity = inner.buffer.capacity();
                     inner.callback.drained(n, len, capacity);
-                    // Fix memory leak see (#TODO)
+                    // Fix memory leak see (#6173)
                     if inner.buffer.is_empty() && inner.buffer.capacity() > 0 {
                         std::mem::take(&mut inner.buffer);
                     }
@@ -556,7 +556,7 @@ where
                     let len = inner.buffer.len();
                     let capacity = inner.buffer.capacity();
                     inner.callback.drained(n, len, capacity);
-                    // Fix memory leak see (#TODO)
+                    // Fix memory leak see (#6173)
                     if inner.buffer.is_empty() && inner.buffer.capacity() > 0 {
                         std::mem::take(&mut inner.buffer);
                     }
