@@ -33,8 +33,6 @@ near-state-viewer = { path = "../test-utils/state-viewer", package = "state-view
 
 [build-dependencies]
 anyhow = "1.0.51"
-near-primitives = { path = "../core/primitives" }
-serde_json = "1"
 
 [features]
 default = ["json_rpc", "jemalloc"]

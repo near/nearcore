@@ -1,6 +1,6 @@
 mod cli;
 
-use std::env;
+use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
 
 use self::cli::NeardCmd;
 #[cfg(feature = "memory_stats")]
@@ -10,8 +10,22 @@ use once_cell::sync::Lazy;
 use std::path::PathBuf;
 use std::time::Duration;
 
-// Defines NEARD_VERSION and NEARD_VERSION_STRING variables.
-include!(concat!(env!("OUT_DIR"), "/version.rs"));
+static NEARD_VERSION: &'static str = env!("NEARD_VERSION");
+static NEARD_BUILD: &'static str = env!("NEARD_BUILD");
+
+static NEARD_VERSION_STRING: Lazy<String> = Lazy::new(|| {
+    format!(
+        "(release {}) (build {}) (protocol {}) (db {})",
+        NEARD_VERSION, NEARD_BUILD, PROTOCOL_VERSION, DB_VERSION
+    )
+});
+
+fn neard_version() -> Version {
+    Version {
+        version: NEARD_VERSION.to_string(),
+        build: NEARD_BUILD.to_string(),
+    }
+}
 
 static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(get_default_home);
 

@@ -3241,7 +3241,6 @@ dependencies = [
  "nearcore",
  "once_cell",
  "openssl-probe",
- "serde_json",
  "shell-escape",
  "state-viewer",
  "tikv-jemallocator",
