@@ -160,162 +160,23 @@ pub(crate) fn convert_block_changes_to_transactions(
         match account_change.value {
             near_primitives::views::StateChangeValueView::AccountUpdate { account_id, account } => {
                 let previous_account_state = accounts_previous_state.get(&account_id);
-
-                let previous_account_balances = previous_account_state
-                    .map(|account| {
-                        crate::utils::RosettaAccountBalances::from_account(account, runtime_config)
-                    })
-                    .unwrap_or_else(crate::utils::RosettaAccountBalances::zero);
-
-                let new_account_balances =
-                    crate::utils::RosettaAccountBalances::from_account(&account, runtime_config);
-
-                if previous_account_balances.liquid != new_account_balances.liquid {
-                    operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier::new(operations),
-                        related_operations: None,
-                        account: crate::models::AccountIdentifier {
-                            address: account_id.clone().into(),
-                            sub_account: None,
-                        },
-                        amount: Some(crate::models::Amount::from_yoctonear_diff(
-                            crate::utils::SignedDiff::cmp(
-                                previous_account_balances.liquid,
-                                new_account_balances.liquid,
-                            ),
-                        )),
-                        type_: crate::models::OperationType::Transfer,
-                        status: Some(crate::models::OperationStatusKind::Success),
-                        metadata: None,
-                    });
-                }
-
-                if previous_account_balances.liquid_for_storage
-                    != new_account_balances.liquid_for_storage
-                {
-                    operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier::new(operations),
-                        related_operations: None,
-                        account: crate::models::AccountIdentifier {
-                            address: account_id.clone().into(),
-                            sub_account: Some(
-                                crate::models::SubAccount::LiquidBalanceForStorage.into(),
-                            ),
-                        },
-                        amount: Some(crate::models::Amount::from_yoctonear_diff(
-                            crate::utils::SignedDiff::cmp(
-                                previous_account_balances.liquid_for_storage,
-                                new_account_balances.liquid_for_storage,
-                            ),
-                        )),
-                        type_: crate::models::OperationType::Transfer,
-                        status: Some(crate::models::OperationStatusKind::Success),
-                        metadata: None,
-                    });
-                }
-
-                if previous_account_balances.locked != new_account_balances.locked {
-                    operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier::new(operations),
-                        related_operations: None,
-                        account: crate::models::AccountIdentifier {
-                            address: account_id.clone().into(),
-                            sub_account: Some(crate::models::SubAccount::Locked.into()),
-                        },
-                        amount: Some(crate::models::Amount::from_yoctonear_diff(
-                            crate::utils::SignedDiff::cmp(
-                                previous_account_balances.locked,
-                                new_account_balances.locked,
-                            ),
-                        )),
-                        type_: crate::models::OperationType::Transfer,
-                        status: Some(crate::models::OperationStatusKind::Success),
-                        metadata: None,
-                    });
-                }
-
+                convert_account_update_to_operations(
+                    runtime_config,
+                    operations,
+                    &account_id,
+                    previous_account_state,
+                    &account,
+                );
                 accounts_previous_state.insert(account_id, account);
             }
-
             near_primitives::views::StateChangeValueView::AccountDeletion { account_id } => {
-                let previous_account_state = accounts_previous_state.get(&account_id);
-
-                let previous_account_balances =
-                    if let Some(previous_account_state) = previous_account_state {
-                        crate::utils::RosettaAccountBalances::from_account(
-                            previous_account_state,
-                            runtime_config,
-                        )
-                    } else {
-                        continue;
-                    };
-                let new_account_balances = crate::utils::RosettaAccountBalances::zero();
-
-                if previous_account_balances.liquid != new_account_balances.liquid {
-                    operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier::new(operations),
-                        related_operations: None,
-                        account: crate::models::AccountIdentifier {
-                            address: account_id.clone().into(),
-                            sub_account: None,
-                        },
-                        amount: Some(crate::models::Amount::from_yoctonear_diff(
-                            crate::utils::SignedDiff::cmp(
-                                previous_account_balances.liquid,
-                                new_account_balances.liquid,
-                            ),
-                        )),
-                        type_: crate::models::OperationType::Transfer,
-                        status: Some(crate::models::OperationStatusKind::Success),
-                        metadata: None,
-                    });
-                }
-
-                if previous_account_balances.liquid_for_storage
-                    != new_account_balances.liquid_for_storage
-                {
-                    operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier::new(operations),
-                        related_operations: None,
-                        account: crate::models::AccountIdentifier {
-                            address: account_id.clone().into(),
-                            sub_account: Some(
-                                crate::models::SubAccount::LiquidBalanceForStorage.into(),
-                            ),
-                        },
-                        amount: Some(crate::models::Amount::from_yoctonear_diff(
-                            crate::utils::SignedDiff::cmp(
-                                previous_account_balances.liquid_for_storage,
-                                new_account_balances.liquid_for_storage,
-                            ),
-                        )),
-                        type_: crate::models::OperationType::Transfer,
-                        status: Some(crate::models::OperationStatusKind::Success),
-                        metadata: None,
-                    });
-                }
-
-                if previous_account_balances.locked != new_account_balances.locked {
-                    operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier::new(operations),
-                        related_operations: None,
-                        account: crate::models::AccountIdentifier {
-                            address: account_id.clone().into(),
-                            sub_account: Some(crate::models::SubAccount::Locked.into()),
-                        },
-                        amount: Some(crate::models::Amount::from_yoctonear_diff(
-                            crate::utils::SignedDiff::cmp(
-                                previous_account_balances.locked,
-                                new_account_balances.locked,
-                            ),
-                        )),
-                        type_: crate::models::OperationType::Transfer,
-                        status: Some(crate::models::OperationStatusKind::Success),
-                        metadata: None,
-                    });
-                }
-
-                accounts_previous_state.remove(&account_id);
+                let previous_account_state = accounts_previous_state.remove(&account_id);
+                convert_account_delete_to_operations(
+                    runtime_config,
+                    operations,
+                    &account_id,
+                    previous_account_state,
+                );
             }
             unexpected_value => {
                 return Err(crate::errors::ErrorKind::InternalInvariantError(format!(
@@ -327,4 +188,153 @@ pub(crate) fn convert_block_changes_to_transactions(
     }
 
     Ok(transactions.map)
+}
+
+fn convert_account_update_to_operations(
+    runtime_config: &near_primitives::runtime::config::RuntimeConfig,
+    operations: &mut Vec<crate::models::Operation>,
+    account_id: &near_primitives::types::AccountId,
+    previous_account_state: Option<&near_primitives::views::AccountView>,
+    account: &near_primitives::views::AccountView,
+) {
+    let previous_account_balances = previous_account_state
+        .map(|account| crate::utils::RosettaAccountBalances::from_account(account, runtime_config))
+        .unwrap_or_else(crate::utils::RosettaAccountBalances::zero);
+
+    let new_account_balances =
+        crate::utils::RosettaAccountBalances::from_account(account, runtime_config);
+
+    if previous_account_balances.liquid != new_account_balances.liquid {
+        operations.push(crate::models::Operation {
+            operation_identifier: crate::models::OperationIdentifier::new(operations),
+            related_operations: None,
+            account: crate::models::AccountIdentifier {
+                address: account_id.clone().into(),
+                sub_account: None,
+            },
+            amount: Some(crate::models::Amount::from_yoctonear_diff(
+                crate::utils::SignedDiff::cmp(
+                    previous_account_balances.liquid,
+                    new_account_balances.liquid,
+                ),
+            )),
+            type_: crate::models::OperationType::Transfer,
+            status: Some(crate::models::OperationStatusKind::Success),
+            metadata: None,
+        });
+    }
+
+    if previous_account_balances.liquid_for_storage != new_account_balances.liquid_for_storage {
+        operations.push(crate::models::Operation {
+            operation_identifier: crate::models::OperationIdentifier::new(operations),
+            related_operations: None,
+            account: crate::models::AccountIdentifier {
+                address: account_id.clone().into(),
+                sub_account: Some(crate::models::SubAccount::LiquidBalanceForStorage.into()),
+            },
+            amount: Some(crate::models::Amount::from_yoctonear_diff(
+                crate::utils::SignedDiff::cmp(
+                    previous_account_balances.liquid_for_storage,
+                    new_account_balances.liquid_for_storage,
+                ),
+            )),
+            type_: crate::models::OperationType::Transfer,
+            status: Some(crate::models::OperationStatusKind::Success),
+            metadata: None,
+        });
+    }
+
+    if previous_account_balances.locked != new_account_balances.locked {
+        operations.push(crate::models::Operation {
+            operation_identifier: crate::models::OperationIdentifier::new(operations),
+            related_operations: None,
+            account: crate::models::AccountIdentifier {
+                address: account_id.clone().into(),
+                sub_account: Some(crate::models::SubAccount::Locked.into()),
+            },
+            amount: Some(crate::models::Amount::from_yoctonear_diff(
+                crate::utils::SignedDiff::cmp(
+                    previous_account_balances.locked,
+                    new_account_balances.locked,
+                ),
+            )),
+            type_: crate::models::OperationType::Transfer,
+            status: Some(crate::models::OperationStatusKind::Success),
+            metadata: None,
+        });
+    }
+}
+
+fn convert_account_delete_to_operations(
+    runtime_config: &near_primitives::runtime::config::RuntimeConfig,
+    operations: &mut Vec<crate::models::Operation>,
+    account_id: &near_primitives::types::AccountId,
+    previous_account_state: Option<near_primitives::views::AccountView>,
+) {
+    let previous_account_balances = if let Some(previous_account_state) = previous_account_state {
+        crate::utils::RosettaAccountBalances::from_account(previous_account_state, runtime_config)
+    } else {
+        return;
+    };
+    let new_account_balances = crate::utils::RosettaAccountBalances::zero();
+
+    if previous_account_balances.liquid != new_account_balances.liquid {
+        operations.push(crate::models::Operation {
+            operation_identifier: crate::models::OperationIdentifier::new(operations),
+            related_operations: None,
+            account: crate::models::AccountIdentifier {
+                address: account_id.clone().into(),
+                sub_account: None,
+            },
+            amount: Some(crate::models::Amount::from_yoctonear_diff(
+                crate::utils::SignedDiff::cmp(
+                    previous_account_balances.liquid,
+                    new_account_balances.liquid,
+                ),
+            )),
+            type_: crate::models::OperationType::Transfer,
+            status: Some(crate::models::OperationStatusKind::Success),
+            metadata: None,
+        });
+    }
+
+    if previous_account_balances.liquid_for_storage != new_account_balances.liquid_for_storage {
+        operations.push(crate::models::Operation {
+            operation_identifier: crate::models::OperationIdentifier::new(operations),
+            related_operations: None,
+            account: crate::models::AccountIdentifier {
+                address: account_id.clone().into(),
+                sub_account: Some(crate::models::SubAccount::LiquidBalanceForStorage.into()),
+            },
+            amount: Some(crate::models::Amount::from_yoctonear_diff(
+                crate::utils::SignedDiff::cmp(
+                    previous_account_balances.liquid_for_storage,
+                    new_account_balances.liquid_for_storage,
+                ),
+            )),
+            type_: crate::models::OperationType::Transfer,
+            status: Some(crate::models::OperationStatusKind::Success),
+            metadata: None,
+        });
+    }
+
+    if previous_account_balances.locked != new_account_balances.locked {
+        operations.push(crate::models::Operation {
+            operation_identifier: crate::models::OperationIdentifier::new(operations),
+            related_operations: None,
+            account: crate::models::AccountIdentifier {
+                address: account_id.clone().into(),
+                sub_account: Some(crate::models::SubAccount::Locked.into()),
+            },
+            amount: Some(crate::models::Amount::from_yoctonear_diff(
+                crate::utils::SignedDiff::cmp(
+                    previous_account_balances.locked,
+                    new_account_balances.locked,
+                ),
+            )),
+            type_: crate::models::OperationType::Transfer,
+            status: Some(crate::models::OperationStatusKind::Success),
+            metadata: None,
+        });
+    }
 }
