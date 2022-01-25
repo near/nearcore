@@ -1,4 +1,5 @@
 use crate::routing::route_back_cache::RouteBackCache;
+use itertools::Itertools;
 use lru::LruCache;
 use near_network_primitives::types::{Edge, PeerIdOrHash, Ping, Pong};
 use near_primitives::hash::CryptoHash;
@@ -85,31 +86,32 @@ impl RoutingTableView {
     /// Find peer that is connected to `source` and belong to the shortest path
     /// from `source` to `peer_id`.
     pub fn find_route_from_peer_id(&mut self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
-        if let Some(routes) = self.peer_forwarding.get(peer_id).cloned() {
-            if routes.is_empty() {
-                return Err(FindRouteError::Disconnected);
+        if let Some(routes) = self.peer_forwarding.get(peer_id) {
+            match (routes.iter())
+                .map(|peer_id| {
+                    (self.route_nonce.get(peer_id).cloned().unwrap_or_default(), peer_id)
+                })
+                .minmax()
+                .into_option()
+            {
+                None => Err(FindRouteError::Disconnected),
+                // Neighbor with minimum and maximum nonce respectively.
+                Some(((min_v, next_hop), (max_v, _))) => {
+                    // Strategy similar to Round Robin. Select node with least nonce and send it. Increase its
+                    // nonce by one. Additionally if the difference between the highest nonce and the lowest
+                    // nonce is greater than some threshold increase the lowest nonce to be at least
+                    // max nonce - threshold.
+                    self.route_nonce.put(
+                        next_hop.clone(),
+                        std::cmp::max(
+                            min_v + 1,
+                            max_v.saturating_sub(ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED),
+                        ),
+                    );
+
+                    Ok(next_hop.clone())
+                }
             }
-
-            // Strategy similar to Round Robin. Select node with least nonce and send it. Increase its
-            // nonce by one. Additionally if the difference between the highest nonce and the lowest
-            // nonce is greater than some threshold increase the lowest nonce to be at least
-            // max nonce - threshold.
-            let nonce_peer = routes
-                .iter()
-                .map(|peer_id| (self.route_nonce.get(peer_id).cloned().unwrap_or(0), peer_id))
-                .collect::<Vec<_>>();
-
-            // Neighbor with minimum and maximum nonce respectively.
-            let (mut min_v, next_hop) = nonce_peer.iter().min().cloned().unwrap();
-            let (max_v, _) = nonce_peer.into_iter().max().unwrap();
-
-            min_v = std::cmp::max(
-                min_v,
-                max_v.saturating_sub(ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED),
-            );
-            self.route_nonce.put(next_hop.clone(), min_v + 1);
-
-            Ok(next_hop.clone())
         } else {
             Err(FindRouteError::PeerNotFound)
         }
@@ -169,7 +171,7 @@ impl RoutingTableView {
         self.route_back.remove(&hash)
     }
 
-    pub fn compare_route_back(&mut self, hash: CryptoHash, peer_id: &PeerId) -> bool {
+    pub fn compare_route_back(&self, hash: CryptoHash, peer_id: &PeerId) -> bool {
         self.route_back.get(&hash).map_or(false, |value| value == peer_id)
     }
 
@@ -228,7 +230,7 @@ impl RoutingTableView {
         (self.ping_info.iter(), self.pong_info.iter())
     }
 
-    pub fn info(&mut self) -> RoutingTableInfo {
+    pub fn info(&self) -> RoutingTableInfo {
         let account_peers = self
             .get_announce_accounts()
             .into_iter()
@@ -240,17 +242,17 @@ impl RoutingTableView {
     /// Public interface for `account_peers`
     ///
     /// Get keys currently on cache.
-    pub fn get_accounts_keys(&mut self) -> Vec<AccountId> {
+    pub fn get_accounts_keys(&self) -> Vec<AccountId> {
         self.account_peers.iter().map(|(k, _v)| (k.clone())).collect()
     }
 
     /// Get announce accounts on cache.
-    pub fn get_announce_accounts(&mut self) -> Vec<AnnounceAccount> {
+    pub fn get_announce_accounts(&self) -> Vec<AnnounceAccount> {
         self.account_peers.iter().map(|(_k, v)| v).cloned().collect()
     }
 
     /// Get number of accounts
-    pub fn get_announce_accounts_size(&mut self) -> usize {
+    pub fn get_announce_accounts_size(&self) -> usize {
         self.account_peers.len()
     }
 
