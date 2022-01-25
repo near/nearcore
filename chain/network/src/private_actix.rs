@@ -2,8 +2,7 @@
 /// They are not meant to be used outside.
 use crate::network_protocol::PeerMessage;
 use crate::peer::peer_actor::PeerActor;
-use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, Addr, Message};
+use actix::{Addr, Message};
 use conqueue::QueueSender;
 use near_network_primitives::types::{
     Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerType, SimpleEdge,
@@ -54,7 +53,7 @@ impl Message for RegisterPeer {
     type Result = RegisterPeerResponse;
 }
 
-#[derive(MessageResponse, Debug)]
+#[derive(actix::MessageResponse, Debug)]
 pub enum RegisterPeerResponse {
     Accept(Option<PartialEdgeInfo>),
     InvalidNonce(Box<Edge>),
@@ -80,21 +79,9 @@ impl Message for PeersRequest {
     type Result = PeerRequestResult;
 }
 
-#[derive(Debug)]
+#[derive(Debug, actix::MessageResponse)]
 pub struct PeerRequestResult {
     pub peers: Vec<PeerInfo>,
-}
-
-impl<A, M> MessageResponse<A, M> for PeerRequestResult
-where
-    A: Actor,
-    M: Message<Result = PeerRequestResult>,
-{
-    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-        if let Some(tx) = tx {
-            tx.send(self)
-        }
-    }
 }
 
 #[derive(Message)]
@@ -130,7 +117,7 @@ pub struct SendMessage {
 }
 
 #[cfg(feature = "test_features")]
-#[derive(MessageResponse, Debug, serde::Serialize)]
+#[derive(actix::MessageResponse, Debug, serde::Serialize)]
 pub struct GetPeerIdResult {
     pub(crate) peer_id: PeerId,
 }
@@ -167,7 +154,7 @@ impl Message for ValidateEdgeList {
     type Result = bool;
 }
 
-#[derive(MessageResponse, Debug)]
+#[derive(actix::MessageResponse, Debug)]
 #[cfg_attr(feature = "test_features", derive(serde::Serialize))]
 pub struct GetRoutingTableResult {
     pub edges_info: Vec<SimpleEdge>,
