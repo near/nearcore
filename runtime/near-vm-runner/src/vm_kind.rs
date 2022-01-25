@@ -19,6 +19,7 @@ pub enum VMKind {
 }
 
 impl VMKind {
+    #[cfg(not(target_arch = "aarch64"))]
     pub fn for_protocol_version(protocol_version: ProtocolVersion) -> VMKind {
         if cfg!(feature = "force_wasmer0") {
             return VMKind::Wasmer0;
@@ -35,5 +36,15 @@ impl VMKind {
         } else {
             VMKind::Wasmer0
         }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    pub fn for_protocol_version(_protocol_version: ProtocolVersion) -> VMKind {
+        // Only wasmtime supports aarch64 systems
+
+        #[cfg(any(feature = "force_wasmer0", feature = "force_wasmer2"))]
+        compile_error!("Wasmer does not support aarch64, but a force_wasmer* feature was passed to near-vm-runner");
+
+        VMKind::Wasmtime
     }
 }
