@@ -90,6 +90,10 @@ impl Decoder for Codec {
         } else {
             let res = Some(Ok(buf[4..4 + len as usize].to_vec()));
             buf.advance(4 + len as usize);
+            // Fix memory leak see (#6173)
+            if buf.is_empty() && buf.capacity() > 0 {
+                *buf = BytesMut::new();
+            }
             Ok(res)
         }
     }
