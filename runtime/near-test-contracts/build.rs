@@ -29,12 +29,13 @@ fn try_main() -> Result<(), Error> {
 }
 
 fn build_contract(dir: &str, args: &[&str], output: &str) -> Result<(), Error> {
-    let mut cmd = cargo_build_cmd();
+    let target_dir = out_dir();
+
+    let mut cmd = cargo_build_cmd(&target_dir);
     cmd.args(args);
     cmd.current_dir(dir);
     check_status(cmd)?;
 
-    let target_dir = shared_target_dir().unwrap_or_else(|| format!("./{}/target", dir).into());
     let src =
         target_dir.join(format!("wasm32-unknown-unknown/release/{}.wasm", dir.replace('-', "_")));
     fs::copy(&src, format!("./res/{}.wasm", output))
@@ -44,14 +45,11 @@ fn build_contract(dir: &str, args: &[&str], output: &str) -> Result<(), Error> {
     Ok(())
 }
 
-fn cargo_build_cmd() -> Command {
+fn cargo_build_cmd(target_dir: &Path) -> Command {
     let mut res = Command::new("cargo");
     res.env("RUSTFLAGS", "-C link-arg=-s");
     res.env_remove("CARGO_ENCODED_RUSTFLAGS");
-    if let Some(target_dir) = shared_target_dir() {
-        res.env("CARGO_TARGET_DIR", target_dir);
-    }
-
+    res.env("CARGO_TARGET_DIR", target_dir);
     res.args(&["build", "--target=wasm32-unknown-unknown", "--release"]);
     res
 }
@@ -66,13 +64,6 @@ fn check_status(mut cmd: Command) -> Result<(), Error> {
     Ok(())
 }
 
-fn shared_target_dir() -> Option<PathBuf> {
-    let target_dir = env::var("CARGO_TARGET_DIR").ok()?;
-    // Avoid sharing the same target directory with the patent Cargo
-    // invocation, to avoid deadlock on the target dir.
-    //
-    // That is, this logic is needed for the case like the following:
-    //
-    //    CARGO_TARGET_DIR=/tmp cargo build -p near-test-contracts --release
-    Some(Path::new(&target_dir).join("near-test-contracts"))
+fn out_dir() -> PathBuf {
+    env::var("OUT_DIR").unwrap().into()
 }
