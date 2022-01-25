@@ -291,7 +291,7 @@ impl RunCmd {
         check_release_build(&near_config.client_config.chain_id);
 
         // Set current version in client config.
-        near_config.client_config.version = super::neard_version();
+        near_config.client_config.version = crate::neard_version();
         // Override some parameters from command line.
         if let Some(produce_empty_blocks) = self.produce_empty_blocks {
             near_config.client_config.produce_empty_blocks = produce_empty_blocks;
