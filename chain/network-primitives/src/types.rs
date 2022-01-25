@@ -368,7 +368,7 @@ pub struct PeerStatsResult {
     /// Returns if this peer is abusive and should be banned.
     pub is_abusive: bool,
     /// Counts of incoming/outgoing messages from given peer.
-    pub message_counts: (u64, u64),
+    pub message_counts: (usize, usize),
 }
 
 #[cfg(test)]
