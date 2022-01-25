@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::{env, fs, io, process};
 
+type Error = Box<dyn std::error::Error>;
+
 fn main() {
     if let Err(err) = try_main() {
         eprintln!("{}", err);
@@ -10,7 +12,7 @@ fn main() {
     }
 }
 
-fn try_main() -> io::Result<()> {
+fn try_main() -> Result<(), Error> {
     build_contract("./test-contract-rs", &[], "test_contract_rs")?;
     build_contract(
         "./test-contract-rs",
@@ -26,18 +28,17 @@ fn try_main() -> io::Result<()> {
     Ok(())
 }
 
-fn build_contract(dir: &str, args: &[&str], output: &str) -> io::Result<()> {
+fn build_contract(dir: &str, args: &[&str], output: &str) -> Result<(), Error> {
     let mut cmd = cargo_build_cmd();
     cmd.args(args);
     cmd.current_dir(dir);
     check_status(cmd)?;
 
-    let target_dir =
-        Path::new(dir).join(shared_target_dir().unwrap_or(Path::new("target").to_path_buf()));
-    fs::copy(
-        target_dir.join(format!("wasm32-unknown-unknown/release/{}.wasm", dir.replace('-', "_"))),
-        format!("./res/{}.wasm", output),
-    )?;
+    let target_dir = shared_target_dir().unwrap_or_else(|| format!("./{}/target", dir).into());
+    let src =
+        target_dir.join(format!("wasm32-unknown-unknown/release/{}.wasm", dir.replace('-', "_")));
+    fs::copy(&src, format!("./res/{}.wasm", output))
+        .map_err(|err| format!("failed to copy `{}`: {}", src.display(), err))?;
     println!("cargo:rerun-if-changed=./{}/src/lib.rs", dir);
     println!("cargo:rerun-if-changed=./{}/Cargo.toml", dir);
     Ok(())
@@ -55,15 +56,12 @@ fn cargo_build_cmd() -> Command {
     res
 }
 
-fn check_status(mut cmd: Command) -> io::Result<()> {
+fn check_status(mut cmd: Command) -> Result<(), Error> {
     let status = cmd.status().map_err(|err| {
         io::Error::new(io::ErrorKind::Other, format!("command `{:?}` failed to run: {}", cmd, err))
     })?;
     if !status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("command `{:?}` exited with non-zero status: {:?}", cmd, status),
-        ));
+        return Err(format!("command `{:?}` exited with non-zero status: {:?}", cmd, status).into());
     }
     Ok(())
 }
