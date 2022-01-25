@@ -260,3 +260,7 @@ def main(argv):
 
     write_tx_events(test_accounts, f'{mocknet.TX_OUT_FILE}.0')
     logger.info('Wrote tx events')
+
+
+if __name__ == '__main__':
+    main(sys.argv)

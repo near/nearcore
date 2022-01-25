@@ -231,7 +231,7 @@ impl Wasmer2Config {
 //  major version << 6
 //  minor version
 const WASMER2_CONFIG: Wasmer2Config = Wasmer2Config {
-    seed: (1 << 10) | (5 << 6) | 0,
+    seed: (1 << 10) | (6 << 6) | 0,
     engine: WasmerEngine::Universal,
     compiler: WasmerCompiler::Singlepass,
 };
@@ -373,7 +373,7 @@ impl Wasmer2VM {
                         // expected layout. `gas` remains dereferenceable throughout this function
                         // by the virtue of it being contained within `import` which lives for the
                         // entirety of this function.
-                        InstanceConfig::new_with_counter(gas),
+                        InstanceConfig::default().with_counter(gas),
                     )
                     .map_err(|err| translate_instantiation_error(err, import.vmlogic))?;
                 // SAFETY: being called immediately after instantiation.
