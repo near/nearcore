@@ -468,7 +468,7 @@ pub(crate) mod wasmtime {
                         }
                     });
                     unsafe {
-                        // transmute the lifetime of caller so it's possible to put it in a thread-local
+                        // Transmute the lifetime of caller so it's possible to put it in a thread-local.
                         crate::wasmtime_runner::CALLER.with(|runner_caller| *runner_caller.borrow_mut() = std::mem::transmute(caller));
                     }
                     let logic: &mut VMLogic<'_> = unsafe { &mut *(data as *mut VMLogic<'_>) };
