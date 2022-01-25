@@ -38,7 +38,7 @@ threadpool = "1.8.1"
 pwasm-utils_12 = { package = "pwasm-utils", version = "0.12" }
 parity-wasm_41 = { package = "parity-wasm", version = "0.41" }
 
-[target.'cfg(not(target = "aarch64"))'.dependencies]
+[target.'cfg(not(target_arch = "aarch64"))'.dependencies]
 wasmer-runtime = { version = "0.18.0", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near", optional = true }
 wasmer-runtime-core = { version = "0.18.2", package = "wasmer-runtime-core-near", optional = true}
 

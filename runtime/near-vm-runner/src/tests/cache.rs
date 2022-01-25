@@ -1,4 +1,6 @@
-//! Tests that `CompiledContractCache` is working correctly.
+//! Tests that `CompiledContractCache` is working correctly. Currently testing only wasmer code, so disabled on aarch64
+#![cfg(not(target_arch = "aarch64"))]
+
 use super::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
 use crate::internal::VMKind;
 use crate::wasmer2_runner::Wasmer2VM;
