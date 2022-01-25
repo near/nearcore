@@ -53,8 +53,8 @@ fn try_main() -> Result<()> {
     let version = env("CARGO_PKG_VERSION")?;
     let version = version.to_str().unwrap();
     let version = match version {
-        "0.0.0" => "trunk".to_string(),
-        version => version.to_string(),
+        "0.0.0" => "trunk",
+        version => version,
     };
     println!("cargo:rustc-env=NEARD_VERSION={}", version);
 
