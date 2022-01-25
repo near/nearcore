@@ -373,7 +373,7 @@ impl Wasmer2VM {
                         // expected layout. `gas` remains dereferenceable throughout this function
                         // by the virtue of it being contained within `import` which lives for the
                         // entirety of this function.
-                        InstanceConfig::new_with_counter(gas),
+                        InstanceConfig::default().with_counter(gas),
                     )
                     .map_err(|err| translate_instantiation_error(err, import.vmlogic))?;
                 // SAFETY: being called immediately after instantiation.
