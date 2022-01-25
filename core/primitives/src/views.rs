@@ -326,6 +326,8 @@ pub struct ValidatorInfo {
 pub struct StatusResponse {
     /// Binary version.
     pub version: Version,
+    /// Version of rustc used to build the binary.
+    pub rustc_version: std::borrow::Cow<'static, str>,
     /// Unique chain id.
     pub chain_id: String,
     /// Currently active protocol version.

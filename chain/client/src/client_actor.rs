@@ -604,6 +604,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
     }
 }
 
+static RUSTC_VERSION: once_cell::sync::Lazy<&'static str> = once_cell::sync::Lazy::new(|| {
+    Box::leak(rustc_version_runtime::version().to_string().into_boxed_str())
+});
+
 impl Handler<Status> for ClientActor {
     type Result = Result<StatusResponse, StatusError>;
 
@@ -667,6 +671,7 @@ impl Handler<Status> for ClientActor {
         }
         Ok(StatusResponse {
             version: self.client.config.version.clone(),
+            rustc_version: std::borrow::Cow::Borrowed(*RUSTC_VERSION),
             protocol_version,
             latest_protocol_version: PROTOCOL_VERSION,
             chain_id: self.client.config.chain_id.clone(),

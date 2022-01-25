@@ -25,6 +25,8 @@ borsh = "0.9"
 reed-solomon-erasure = "4"
 num-rational = "0.3"
 thiserror = "1.0"
+semver = "0.9"
+rustc_version_runtime = "0.2"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
