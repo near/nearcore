@@ -58,6 +58,7 @@ pub fn proposals_to_epoch_info(
             validator_reward,
             minted_amount,
             next_version,
+            last_epoch_version,
         );
     } else {
         return old_validator_selection::proposals_to_epoch_info(

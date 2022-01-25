@@ -129,7 +129,7 @@ def patch_binary(binary: pathlib.Path) -> None:
     with (import <nixpkgs> {});
     symlinkJoin {
       name = "nearcore-dependencies";
-      paths = [patchelf stdenv.cc.bintools];
+      paths = [patchelf stdenv.cc.bintools gcc.cc.lib];
     }
     '''
     path = subprocess.run(('nix-build', '-E', nix_expr),
@@ -137,9 +137,13 @@ def patch_binary(binary: pathlib.Path) -> None:
                           encoding='utf-8').stdout.strip()
     # Set the interpreter for the binary to NixOS'.
     patchelf = f'{path}/bin/patchelf'
-    cmd = (patchelf, '--set-interpreter', f'{path}/nix-support/dynamic-linker',
-           binary)
-    logger.debug('Patching for NixOS ' + ' '.join(cmd))
+    linker = (pathlib.Path(path) / "nix-support" /
+              "dynamic-linker").read_text().strip()
+    cmd = (patchelf, '--set-interpreter', linker, binary)
+    logger.debug('Patching NixOS interpreter {}'.format(cmd))
+    subprocess.check_call(cmd)
+    cmd = (patchelf, '--set-rpath', '$ORIGIN:{}/lib'.format(path), binary)
+    logger.debug('Patching DSO rpath {}'.format(cmd))
     subprocess.check_call(cmd)
 
 
@@ -230,6 +234,8 @@ def prepare_ab_test(chain_id: str = 'mainnet') -> ABExecutables:
     except Exception as e:
         if is_nayduck:
             logger.exception('RC binary should be downloaded for NayDuck.', e)
+        else:
+            logger.exception(e)
         stable = _compile_binary(release)
 
     return ABExecutables(stable=stable,
