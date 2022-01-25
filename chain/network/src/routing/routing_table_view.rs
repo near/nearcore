@@ -171,7 +171,7 @@ impl RoutingTableView {
         self.route_back.remove(&hash)
     }
 
-    pub fn compare_route_back(&mut self, hash: CryptoHash, peer_id: &PeerId) -> bool {
+    pub fn compare_route_back(&self, hash: CryptoHash, peer_id: &PeerId) -> bool {
         self.route_back.get(&hash).map_or(false, |value| value == peer_id)
     }
 
@@ -230,7 +230,7 @@ impl RoutingTableView {
         (self.ping_info.iter(), self.pong_info.iter())
     }
 
-    pub fn info(&mut self) -> RoutingTableInfo {
+    pub fn info(&self) -> RoutingTableInfo {
         let account_peers = self
             .get_announce_accounts()
             .into_iter()
@@ -242,17 +242,17 @@ impl RoutingTableView {
     /// Public interface for `account_peers`
     ///
     /// Get keys currently on cache.
-    pub fn get_accounts_keys(&mut self) -> Vec<AccountId> {
+    pub fn get_accounts_keys(&self) -> Vec<AccountId> {
         self.account_peers.iter().map(|(k, _v)| (k.clone())).collect()
     }
 
     /// Get announce accounts on cache.
-    pub fn get_announce_accounts(&mut self) -> Vec<AnnounceAccount> {
+    pub fn get_announce_accounts(&self) -> Vec<AnnounceAccount> {
         self.account_peers.iter().map(|(_k, v)| v).cloned().collect()
     }
 
     /// Get number of accounts
-    pub fn get_announce_accounts_size(&mut self) -> usize {
+    pub fn get_announce_accounts_size(&self) -> usize {
         self.account_peers.len()
     }
 
