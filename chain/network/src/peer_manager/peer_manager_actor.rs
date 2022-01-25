@@ -676,7 +676,7 @@ impl PeerManagerActor {
             addr.do_send(SendMessage {
                 message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(
                     known_edges,
-                    known_accounts,
+                    known_accounts.cloned().collect(),
                 )),
             });
 
@@ -1029,28 +1029,28 @@ impl PeerManagerActor {
     fn monitor_peer_stats_trigger(&mut self, ctx: &mut Context<Self>, interval: Duration) {
         for (peer_id, connected_peer) in self.connected_peers.iter() {
             let peer_id1 = peer_id.clone();
-            connected_peer
-                .addr
-                .send(QueryPeerStats {})
-                .into_actor(self)
-                .map(|result, _, _| result.map_err(|err|
-                    error!(target: "network", ?err, "Failed sending message(monitor_peer_stats)")))
+            (connected_peer.addr.send(QueryPeerStats {}).into_actor(self))
                 .map(move |res, act, _| {
-                    let _ignore = res.map(|res| {
-                        if res.is_abusive {
-                            trace!(target: "network", ?peer_id1, sent = res.message_counts.0, recv = res.message_counts.1, "Banning peer for abuse");
-                            // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
-                            //  network traffic that flags honest peers.
-                            // Send ban signal to peer instance. It should send ban signal back and stop the instance.
-                            // if let Some(connected_peer) = act.connected_peers.get(&peer_id1) {
-                            //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
-                            // }
-                        } else if let Some(connected_peer) = act.connected_peers.get_mut(&peer_id1) {
-                            connected_peer.full_peer_info.chain_info = res.chain_info;
-                            connected_peer.sent_bytes_per_sec = res.sent_bytes_per_sec;
-                            connected_peer.received_bytes_per_sec = res.received_bytes_per_sec;
+                    match res {
+                        Ok(res) => {
+                            if res.is_abusive {
+                                trace!(target: "network", ?peer_id1, sent = res.message_counts.0, recv = res.message_counts.1, "Banning peer for abuse");
+                                // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
+                                //  network traffic that flags honest peers.
+                                // Send ban signal to peer instance. It should send ban signal back and stop the instance.
+                                // if let Some(connected_peer) = act.connected_peers.get(&peer_id1) {
+                                //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
+                                // }
+                            } else if let Some(connected_peer) = act.connected_peers.get_mut(&peer_id1) {
+                                connected_peer.full_peer_info.chain_info = res.chain_info;
+                                connected_peer.sent_bytes_per_sec = res.sent_bytes_per_sec;
+                                connected_peer.received_bytes_per_sec = res.received_bytes_per_sec;
+                            }
                         }
-                    });
+                        Err(err) => {
+                            error!(target: "network", ?err, "Failed sending message(monitor_peer_stats)")
+                        }
+                    };
                 })
                 .spawn(ctx);
         }
@@ -1393,7 +1393,7 @@ impl PeerManagerActor {
                        reason = ?find_route_error,
                        ?msg,"Drop message",
                 );
-                trace!(target: "network", known_peers = ?self.routing_table_view.get_accounts_keys());
+                trace!(target: "network", known_peers = ?self.routing_table_view.get_accounts_keys().collect::<Vec<_>>(), "Known peers");
                 return false;
             }
         };
@@ -1471,7 +1471,6 @@ impl PeerManagerActor {
             known_producers: self
                 .routing_table_view
                 .get_announce_accounts()
-                .iter()
                 .map(|announce_account| KnownProducer {
                     account_id: announce_account.account_id.clone(),
                     peer_id: announce_account.peer_id.clone(),
