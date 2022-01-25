@@ -42,7 +42,7 @@ pub struct TransferStats {
 pub struct MinuteStats {
     /// Bytes per minute.
     pub bytes_per_min: u64,
-    /// Bytes per minute.
+    /// Messages per minute.
     pub count_per_min: usize,
 }
 
