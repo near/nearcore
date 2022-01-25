@@ -2013,8 +2013,9 @@ impl<'a> ChainStoreUpdate<'a> {
             }
 
             // 4. Delete chunks_tail-related data
-            self.gc_col(ColChunkHashesByHeight, &index_to_bytes(height));
-            self.gc_col(ColHeaderHashesByHeight, &index_to_bytes(height));
+            let key = &index_to_bytes(height).to_vec();
+            self.gc_col(ColChunkHashesByHeight, key);
+            self.gc_col(ColHeaderHashesByHeight, key);
         }
         self.update_chunk_tail(min_chunk_height);
         Ok(())
@@ -2220,13 +2221,13 @@ impl<'a> ChainStoreUpdate<'a> {
         if hashes.is_empty() {
             epoch_to_hashes.remove(epoch_id);
         }
-        let key = index_to_bytes(height);
+        let key = index_to_bytes(height).to_vec();
         if epoch_to_hashes.is_empty() {
             store_update.delete(ColBlockPerHeight, &key);
             self.chain_store.block_hash_per_height.pop(&key);
         } else {
             store_update.set_ser(ColBlockPerHeight, &key, &epoch_to_hashes)?;
-            self.chain_store.block_hash_per_height.put(index_to_bytes(height), epoch_to_hashes);
+            self.chain_store.block_hash_per_height.put(key.clone(), epoch_to_hashes);
         }
         self.inc_gc(ColBlockPerHeight);
         if self.is_height_processed(height)? {
@@ -2814,7 +2815,9 @@ impl<'a> ChainStoreUpdate<'a> {
             self.chain_store.partial_chunks.put(hash.into(), partial_chunk);
         }
         for (height, epoch_id_to_hash) in block_hash_per_height {
-            self.chain_store.block_hash_per_height.put(index_to_bytes(height), epoch_id_to_hash);
+            self.chain_store
+                .block_hash_per_height
+                .put(index_to_bytes(height).to_vec(), epoch_id_to_hash);
         }
         for ((height, shard_id), chunk_hash) in chunk_hash_per_height_shard {
             let key = get_height_shard_id(height, shard_id);
@@ -2823,9 +2826,9 @@ impl<'a> ChainStoreUpdate<'a> {
         for (height, block_hash) in height_to_hashes {
             let bytes = index_to_bytes(height);
             if let Some(hash) = block_hash {
-                self.chain_store.height.put(bytes, hash);
+                self.chain_store.height.put(bytes.to_vec(), hash);
             } else {
-                self.chain_store.height.pop(&bytes);
+                self.chain_store.height.pop(&bytes.to_vec());
             }
         }
         for (account_id, approval) in last_approvals_per_account {
@@ -2867,10 +2870,12 @@ impl<'a> ChainStoreUpdate<'a> {
             self.chain_store.block_merkle_tree.put(block_hash.into(), merkle_tree);
         }
         for (block_ordinal, block_hash) in block_ordinal_to_hash {
-            self.chain_store.block_ordinal_to_hash.put(index_to_bytes(block_ordinal), block_hash);
+            self.chain_store
+                .block_ordinal_to_hash
+                .put(index_to_bytes(block_ordinal).to_vec(), block_hash);
         }
         for block_height in processed_block_heights {
-            self.chain_store.processed_block_heights.put(index_to_bytes(block_height), ());
+            self.chain_store.processed_block_heights.put(index_to_bytes(block_height).to_vec(), ());
         }
         self.chain_store.head = self.head;
         self.chain_store.tail = self.tail;
@@ -3167,9 +3172,9 @@ mod tests {
             .insert(*block1.header().hash(), block1.clone());
         store_update.commit().unwrap();
 
-        let block_hash = chain.mut_store().height.get(&index_to_bytes(1)).cloned();
+        let block_hash = chain.mut_store().height.get(&index_to_bytes(1).to_vec()).cloned();
         let epoch_id_to_hash =
-            chain.mut_store().block_hash_per_height.get(&index_to_bytes(1)).cloned();
+            chain.mut_store().block_hash_per_height.get(&index_to_bytes(1).to_vec()).cloned();
 
         let mut store_update = chain.mut_store().store_update();
         store_update.chain_store_cache_update.height_to_hashes.insert(1, Some(hash(&[2])));
@@ -3179,9 +3184,9 @@ mod tests {
             .insert(*block2.header().hash(), block2.clone());
         store_update.commit().unwrap();
 
-        let block_hash1 = chain.mut_store().height.get(&index_to_bytes(1)).cloned();
+        let block_hash1 = chain.mut_store().height.get(&index_to_bytes(1).to_vec()).cloned();
         let epoch_id_to_hash1 =
-            chain.mut_store().block_hash_per_height.get(&index_to_bytes(1)).cloned();
+            chain.mut_store().block_hash_per_height.get(&index_to_bytes(1).to_vec()).cloned();
 
         assert_ne!(block_hash, block_hash1);
         assert_ne!(epoch_id_to_hash, epoch_id_to_hash1);
