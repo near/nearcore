@@ -6,13 +6,13 @@ pub struct ReceiptReference {
     pub receipt_id: near_primitives::hash::CryptoHash,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct RpcReceiptRequest {
     #[serde(flatten)]
     pub receipt_reference: ReceiptReference,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct RpcReceiptResponse {
     #[serde(flatten)]
     pub receipt_view: near_primitives::views::ReceiptView,
