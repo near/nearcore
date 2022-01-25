@@ -33,3 +33,4 @@
 
 /docs/ @bowenwang1996 @matklad @mm-near
 /pytest/ @mm-near @mina86
+/pytest/tests/sanity/rosetta.py @mm-near @mina86 @frol
