@@ -3,7 +3,6 @@ use crate::routing::edge_validator_actor::EdgeValidatorActor;
 use crate::routing::graph::Graph;
 use crate::routing::routing_table_view::SAVE_PEERS_MAX_TIME;
 use crate::stats::metrics;
-use actix::dev::MessageResponse;
 use actix::{
     Actor, ActorFuture, Addr, Context, ContextFutureSpawner, Handler, Message, Running,
     SyncArbiter, System, WrapFuture,
@@ -485,7 +484,7 @@ impl Message for RoutingTableMessages {
     type Result = RoutingTableMessagesResponse;
 }
 
-#[derive(MessageResponse, Debug)]
+#[derive(actix::MessageResponse, Debug)]
 pub enum RoutingTableMessagesResponse {
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     AddPeerResponse {
