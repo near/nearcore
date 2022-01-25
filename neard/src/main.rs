@@ -21,10 +21,7 @@ static NEARD_VERSION_STRING: Lazy<String> = Lazy::new(|| {
 });
 
 fn neard_version() -> Version {
-    Version {
-        version: NEARD_VERSION.to_string(),
-        build: NEARD_BUILD.to_string(),
-    }
+    Version { version: NEARD_VERSION.to_string(), build: NEARD_BUILD.to_string() }
 }
 
 static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(get_default_home);
