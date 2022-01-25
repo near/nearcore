@@ -17,7 +17,7 @@ More specifically, the neard binary can do the following:
 There are three major components of nearcore:
 
 - Network. We implement a peer-to-peer network that powers communications between blockchain nodes.
-This includes initiating connections with other nodes, maintain a view of the entire network, routing messages to the right nodes, etc.
+This includes initiating connections with other nodes, maintaining a view of the entire network, routing messages to the right nodes, etc.
 Network is a somewhat standalone module, though it uses information about validators to propagate and validate certain messages.
 - Chain. Chain is responsible for building and maintaining the blockchain data structure.
 This includes block and chunk production and processing, consensus, and validator selection.
