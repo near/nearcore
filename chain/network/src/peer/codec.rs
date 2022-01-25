@@ -78,19 +78,20 @@ impl Decoder for Codec {
     type Error = Error;
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if buf.len() < 4 {
+        let len_buf = match buf.get(..4).and_then(|s| <[u8; 4]>::try_from(s).ok()) {
             // not enough bytes to start decoding
-            return Ok(None);
-        }
+            None => return Ok(None),
+            Some(res) => res,
+        };
 
-        let len = u32::from_le_bytes(buf[..4].try_into().unwrap()) as usize;
+        let len = u32::from_le_bytes(len_buf) as usize;
         if len > NETWORK_MESSAGE_MAX_SIZE_BYTES {
             // If this point is reached, abusive peer is banned.
             return Ok(Some(Err(ReasonForBan::Abusive)));
         }
 
-        if 4 + len <= buf.len() {
-            let res = Some(Ok(buf[4..4 + len].to_vec()));
+        if let Some(data_buf) = buf.get(4..4 + len) {
+            let res = Some(Ok(data_buf.to_vec()));
             buf.advance(4 + len);
             if buf.is_empty() && buf.capacity() > 0 {
                 *buf = BytesMut::new();
