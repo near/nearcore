@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use actix::Addr;
 use actix_cors::Cors;
@@ -219,11 +219,36 @@ impl JsonRpcHandler {
     }
 
     async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
-        metrics::HTTP_RPC_REQUEST_COUNT.with_label_values(&[request.method.as_ref()]).inc();
-        let _rpc_processing_time = metrics::RPC_PROCESSING_TIME
-            .with_label_values(&[request.method.as_ref()])
-            .start_timer();
+        let timer = Instant::now();
 
+        let request_method = request.method.clone();
+        let response = self.process_request_internal(request).await;
+
+        let request_method = if let Err(err) = &response {
+            if err.code == -32_601 {
+                "UNSUPPORTED_METHOD"
+            } else {
+                &request_method
+            }
+        } else {
+            &request_method
+        };
+
+        metrics::HTTP_RPC_REQUEST_COUNT.with_label_values(&[request_method]).inc();
+        let _rpc_processing_time = metrics::RPC_PROCESSING_TIME
+            .with_label_values(&[request_method])
+            .observe(timer.elapsed().as_secs_f64());
+
+        if let Err(err) = &response {
+            metrics::RPC_ERROR_COUNT
+                .with_label_values(&[request_method, &err.code.to_string()])
+                .inc();
+        }
+
+        response
+    }
+
+    async fn process_request_internal(&self, request: Request) -> Result<Value, RpcError> {
         #[cfg(feature = "test_features")]
         {
             let params = request.params.clone();
@@ -534,12 +559,6 @@ impl JsonRpcHandler {
             }
             _ => Err(RpcError::method_not_found(request.method.clone())),
         };
-
-        if let Err(err) = &response {
-            metrics::RPC_ERROR_COUNT
-                .with_label_values(&[request.method.as_ref(), &err.code.to_string()])
-                .inc();
-        }
 
         response
     }
