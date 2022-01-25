@@ -32,12 +32,16 @@ fn get_git_version() -> Result<String> {
         let path = git_dir.join(subpath).canonicalize()?;
         println!("cargo:rerun-if-changed={}", path.display());
     }
-    match command("git", &["describe", "--always", "--dirty=-modified"]) {
-        Ok(out) => Ok(std::str::from_utf8(&out)?.trim().into()),
+    let out = command("git", &["describe", "--always", "--dirty=-modified"]);
+    match out.as_ref().map(|ver| String::from_utf8_lossy(&ver)) {
+        Ok(std::borrow::Cow::Borrowed(version)) =>
+            Ok(version.trim().to_string()),
+        Ok(std::borrow::Cow::Owned(version)) =>
+            Err(anyhow!("git: invalid output: {}", version)),
         Err(msg) => {
             println!("cargo:warning=unable to determine git version");
             println!("cargo:warning={}", msg);
-            Ok("unknown".into())
+            Ok("unknown".to_string())
         }
     }
 }
@@ -51,10 +55,11 @@ fn main() {
 
 fn try_main() -> Result<()> {
     let version = env("CARGO_PKG_VERSION")?;
-    let version = version.to_str().unwrap();
-    let version = match version {
-        "0.0.0" => "trunk",
-        version => version,
+    let version = match version.to_string_lossy() {
+        std::borrow::Cow::Borrowed("0.0.0") => "trunk",
+        std::borrow::Cow::Borrowed(version) => version,
+        std::borrow::Cow::Owned(version) =>
+            anyhow::bail!("invalid ‘CARGO_PKG_VERSION’: {}", version)
     };
     println!("cargo:rustc-env=NEARD_VERSION={}", version);
 
