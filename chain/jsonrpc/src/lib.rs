@@ -235,7 +235,7 @@ impl JsonRpcHandler {
         };
 
         metrics::HTTP_RPC_REQUEST_COUNT.with_label_values(&[request_method]).inc();
-        let _rpc_processing_time = metrics::RPC_PROCESSING_TIME
+        metrics::RPC_PROCESSING_TIME
             .with_label_values(&[request_method])
             .observe(timer.elapsed().as_secs_f64());
 
