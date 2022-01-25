@@ -13,7 +13,7 @@ const DEFAULT_REMOVE_BATCH_SIZE: usize = 100;
 
 /// Cache to store route back messages.
 ///
-/// The interface of the cache is similar to a regular HashMap:
+/// The interface of the cache is similar to a regular `HashMap`:
 /// elements can be inserted, fetched and removed.
 ///
 /// Motivation behind the following (complex) design:
@@ -37,7 +37,7 @@ const DEFAULT_REMOVE_BATCH_SIZE: usize = 100;
 /// 2. For every peer store how many message should be routed to it.
 ///
 /// First are removed messages that have been in the cache more time than
-/// EVICTED_TIMEOUT. If no message was removed, it is removed the oldest
+/// `EVICTED_TIMEOUT`. If no message was removed, it is removed the oldest
 /// message from the peer with more messages in the cache.
 ///
 /// Rationale:
@@ -45,7 +45,7 @@ const DEFAULT_REMOVE_BATCH_SIZE: usize = 100;
 /// - Old entries in the cache will be eventually removed (no memory leak).
 /// - If the cache is not at full capacity, all new records will be stored.
 /// - If a peer try to abuse the system, it will be able to allocate at most
-///     $capacity / number_of_active_connections$ entries.
+///     `capacity / number_of_active_connections` entries.
 pub struct RouteBackCache {
     /// Maximum number of records allowed in the cache.
     capacity: usize,

@@ -33,7 +33,7 @@ pub(crate) enum EpochSelection {
 pub(crate) fn print_epoch_info(
     epoch_selection: EpochSelection,
     validator_account_id: Option<AccountId>,
-    store: Arc<Store>,
+    store: Store,
     chain_store: &mut ChainStore,
     epoch_manager: &mut EpochManager,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -105,7 +105,7 @@ fn get_block_height_range(
 // Converts a bunch of optional filtering options into a vector of EpochIds.
 fn get_epoch_ids(
     epoch_selection: EpochSelection,
-    store: Arc<Store>,
+    store: Store,
     chain_store: &mut ChainStore,
     epoch_manager: &mut EpochManager,
 ) -> Vec<EpochId> {
@@ -149,7 +149,7 @@ fn get_epoch_ids(
 
 // Iterates over the ColEpochInfo column, ignores AGGREGATOR_KEY and returns deserialized EpochId
 // for EpochInfos that satisfy the given predicate.
-fn iterate_and_filter(store: Arc<Store>, predicate: impl Fn(EpochInfo) -> bool) -> Vec<EpochId> {
+fn iterate_and_filter(store: Store, predicate: impl Fn(EpochInfo) -> bool) -> Vec<EpochId> {
     store
         .iter(DBCol::ColEpochInfo)
         .filter_map(|(key, value)| {

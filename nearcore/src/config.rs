@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
 use hyper::body::HttpBody;
+use indicatif::{ProgressBar, ProgressStyle};
 use near_primitives::time::Clock;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
@@ -833,8 +834,11 @@ pub fn init_configs(
         let genesis = GenesisConfig::from_file(&file_path).with_context(move || {
             anyhow!("Failed to read genesis config {}/{}", dir.display(), config.genesis_file)
         })?;
-        bail!("Config is already downloaded: {} with chain-id = {}. Use 'cargo run -p neard -- unsafe_reset_all' to clear the folder.",
-                file_path.display(), genesis.chain_id);
+        bail!(
+            "Config is already downloaded to ‘{}’ with chain-id ‘{}’.",
+            file_path.display(),
+            genesis.chain_id
+        );
     }
 
     let mut config = Config::default();
@@ -1162,54 +1166,71 @@ async fn download_file_impl(
     let https_connector = hyper_tls::HttpsConnector::new();
     let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
     let mut resp = client.get(uri).await.map_err(FileDownloadError::HttpError)?;
+    let bar = if let Some(file_size) = resp.size_hint().upper() {
+        let bar = ProgressBar::new(file_size);
+        bar.set_style(
+            ProgressStyle::default_bar().template(
+                "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} [{bytes_per_sec}] ({eta})"
+            ).progress_chars("#>-")
+        );
+        bar
+    } else {
+        let bar = ProgressBar::new_spinner();
+        bar.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} [{elapsed_precise}] {bytes} [{bytes_per_sec}]"),
+        );
+        bar
+    };
     while let Some(next_chunk_result) = resp.data().await {
         let next_chunk = next_chunk_result.map_err(FileDownloadError::HttpError)?;
         file.write_all(next_chunk.as_ref())
             .await
             .map_err(|e| FileDownloadError::WriteError(path.to_path_buf(), e))?;
+        bar.inc(next_chunk.len() as u64);
     }
+    bar.finish();
     Ok(())
 }
 
 /// Downloads a resource at given `url` and saves it to `path`.  On success, if
 /// file at `path` exists it will be overwritten.  On failure, file at `path` is
 /// left unchanged (if it exists).
-pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
+pub async fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     let uri = url.parse()?;
 
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(
-        async move {
-            let (tmp_file, tmp_path) = {
-                let tmp_dir = path.parent().unwrap_or(Path::new("."));
-                tempfile::NamedTempFile::new_in(tmp_dir)
-                    .map_err(FileDownloadError::OpenError)?
-                    .into_parts()
-            };
+    let (tmp_file, tmp_path) = {
+        let tmp_dir = path.parent().unwrap_or(Path::new("."));
+        tempfile::NamedTempFile::new_in(tmp_dir).map_err(FileDownloadError::OpenError)?.into_parts()
+    };
 
-            let result =
-                match download_file_impl(uri, &tmp_path, tokio::fs::File::from_std(tmp_file)).await
-                {
-                    Err(err) => Err((tmp_path, err)),
-                    Ok(()) => tmp_path.persist(path).map_err(|e| {
-                        let from = e.path.to_path_buf();
-                        let to = path.to_path_buf();
-                        (e.path, FileDownloadError::RenameError(from, to, e.error))
-                    }),
-                };
+    let result = match download_file_impl(uri, &tmp_path, tokio::fs::File::from_std(tmp_file)).await
+    {
+        Err(err) => Err((tmp_path, err)),
+        Ok(()) => tmp_path.persist(path).map_err(|e| {
+            let from = e.path.to_path_buf();
+            let to = path.to_path_buf();
+            (e.path, FileDownloadError::RenameError(from, to, e.error))
+        }),
+    };
 
-            result.map_err(|(tmp_path, err)| match tmp_path.close() {
-                Ok(()) => err,
-                Err(close_err) => {
-                    FileDownloadError::RemoveTemporaryFileError(close_err, Box::new(err))
-                }
-            })
-        },
-    )
+    result.map_err(|(tmp_path, err)| match tmp_path.close() {
+        Ok(()) => err,
+        Err(close_err) => FileDownloadError::RemoveTemporaryFileError(close_err, Box::new(err)),
+    })
+}
+
+fn run_download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async { download_file(url, path).await })
 }
 
 pub fn download_genesis(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     info!(target: "near", "Downloading genesis file from: {} ...", url);
-    let result = download_file(url, path);
+    let result = run_download_file(url, path);
     if result.is_ok() {
         info!(target: "near", "Saved the genesis file to: {} ...", path.display());
     }
@@ -1218,7 +1239,7 @@ pub fn download_genesis(url: &str, path: &Path) -> Result<(), FileDownloadError>
 
 pub fn download_config(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     info!(target: "near", "Downloading config file from: {} ...", url);
-    let result = download_file(url, path);
+    let result = run_download_file(url, path);
     if result.is_ok() {
         info!(target: "near", "Saved the config file to: {} ...", path.display());
     }

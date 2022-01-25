@@ -6,14 +6,13 @@ use near_primitives::network::PeerId;
 use near_primitives::time::Utc;
 use near_primitives::utils::to_timestamp;
 use near_store::{ColPeers, Store};
-use rand::seq::SliceRandom;
+use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::collections::hash_map::{Entry, Iter};
 use std::collections::HashMap;
 use std::error::Error;
 use std::net::SocketAddr;
 use std::ops::Not;
-use std::sync::Arc;
 use tracing::{debug, error};
 
 /// Level of trust we have about a new (PeerId, Addr) pair.
@@ -44,7 +43,7 @@ impl VerifiedPeer {
 
 /// Known peers store, maintaining cache of known peers and connection to storage to save/load them.
 pub struct PeerStore {
-    store: Arc<Store>,
+    store: Store,
     peer_states: HashMap<PeerId, KnownPeerState>,
     // This is a reverse index, from physical address to peer_id
     // It can happens that some peers don't have known address, so
@@ -54,7 +53,7 @@ pub struct PeerStore {
 
 impl PeerStore {
     pub(crate) fn new(
-        store: Arc<Store>,
+        store: Store,
         boot_nodes: &[PeerInfo],
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let mut peer_states = HashMap::default();
@@ -158,7 +157,7 @@ impl PeerStore {
     }
 
     fn save_to_db(
-        store: &Arc<Store>,
+        store: &Store,
         peer_id: &[u8],
         peer_state: &KnownPeerState,
     ) -> Result<(), Box<dyn Error>> {
@@ -184,13 +183,12 @@ impl PeerStore {
     where
         F: FnMut(&&KnownPeerState) -> bool,
     {
-        let peers: Vec<_> =
-            self.peer_states.values().filter(filter).map(|p| &p.peer_info).collect();
-        if count >= peers.len() {
-            peers.iter().cloned().cloned().collect()
-        } else {
-            peers.choose_multiple(&mut thread_rng(), count).cloned().cloned().collect()
-        }
+        (self.peer_states.values())
+            .filter(filter)
+            .choose_multiple(&mut thread_rng(), count)
+            .into_iter()
+            .map(|kps| kps.peer_info.clone())
+            .collect()
     }
 
     /// Return unconnected or peers with unknown status that we can try to connect to.
@@ -367,7 +365,7 @@ impl PeerStore {
 }
 
 /// Public method used to iterate through all peers stored in the database.
-pub fn iter_peers_from_store<F>(store: Arc<Store>, f: F)
+pub fn iter_peers_from_store<F>(store: Store, f: F)
 where
     F: Fn((&PeerId, &KnownPeerState)),
 {
