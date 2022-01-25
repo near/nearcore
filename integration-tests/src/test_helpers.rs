@@ -1,5 +1,5 @@
 use crate::node::Node;
-use cached::once_cell::sync::Lazy;
+use once_cell::sync::Lazy;
 use std::process::Output;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
