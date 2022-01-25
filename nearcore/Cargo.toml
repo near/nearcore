@@ -8,6 +8,7 @@ rust-version = "1.56.0"
 edition = "2021"
 
 [dependencies]
+anyhow = "1.0.51"
 awc = "3.0.0-beta.5"
 actix = "=0.11.0-beta.2" # Pinned the version to avoid compilation errors
 actix_derive = "=0.6.0-beta.1" # Pinned dependency in addition to actix dependecy (remove this line once the pinning is not needed)
@@ -33,7 +34,6 @@ num-rational = { version = "0.3", features = ["serde"] }
 near-rust-allocator-proxy = { version = "0.3.0", optional = true }
 lazy-static-include = "3"
 tempfile = "3"
-anyhow = "1.0.51"
 indicatif = "0.15.0"
 
 near-crypto = { path = "../core/crypto" }
@@ -80,7 +80,8 @@ protocol_feature_alt_bn128 = ["near-primitives/protocol_feature_alt_bn128", "nod
 protocol_feature_chunk_only_producers = ["near-chain-configs/protocol_feature_chunk_only_producers", "near-epoch-manager/protocol_feature_chunk_only_producers", "near-chain/protocol_feature_chunk_only_producers", "near-client/protocol_feature_chunk_only_producers", "node-runtime/protocol_feature_chunk_only_producers", "near-rosetta-rpc/protocol_feature_chunk_only_producers", "near-primitives/protocol_feature_chunk_only_producers"]
 protocol_feature_routing_exchange_algorithm = ["near-primitives/protocol_feature_routing_exchange_algorithm", "near-chain/protocol_feature_routing_exchange_algorithm", "near-network/protocol_feature_routing_exchange_algorithm", "near-client/protocol_feature_routing_exchange_algorithm", "near-jsonrpc/protocol_feature_routing_exchange_algorithm"]
 protocol_feature_access_key_nonce_for_implicit_accounts = ["near-primitives/protocol_feature_access_key_nonce_for_implicit_accounts", "node-runtime/protocol_feature_access_key_nonce_for_implicit_accounts"]
-nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_alt_bn128", "protocol_feature_chunk_only_producers", "protocol_feature_routing_exchange_algorithm", "protocol_feature_access_key_nonce_for_implicit_accounts"]
+protocol_feature_fix_staking_threshold = ["near-primitives/protocol_feature_fix_staking_threshold", "near-epoch-manager/protocol_feature_fix_staking_threshold"]
+nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_alt_bn128", "protocol_feature_chunk_only_producers", "protocol_feature_routing_exchange_algorithm", "protocol_feature_access_key_nonce_for_implicit_accounts", "protocol_feature_fix_staking_threshold"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
 
 # Force usage of a specific wasm vm irrespective of protocol version.

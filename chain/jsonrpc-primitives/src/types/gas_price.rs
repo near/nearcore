@@ -3,13 +3,13 @@ use near_primitives::types::MaybeBlockId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct RpcGasPriceRequest {
     #[serde(flatten)]
     pub block_id: MaybeBlockId,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct RpcGasPriceResponse {
     #[serde(flatten)]
     pub gas_price_view: near_primitives::views::GasPriceView,

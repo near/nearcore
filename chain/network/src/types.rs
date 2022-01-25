@@ -8,8 +8,7 @@ use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, Unregister,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
-use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, MailboxError, Message};
+use actix::{MailboxError, Message};
 use futures::future::BoxFuture;
 use near_network_primitives::types::{
     AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, Edge, InboundTcpConnect,
@@ -59,7 +58,7 @@ impl Message for PeerRequest {
     type Result = PeerResponse;
 }
 
-#[derive(MessageResponse, Debug)]
+#[derive(actix::MessageResponse, Debug)]
 pub enum PeerResponse {
     NoResponse,
     UpdatedEdge(PartialEdgeInfo),
@@ -73,8 +72,8 @@ pub struct PeersResponse {
     pub(crate) peers: Vec<PeerInfo>,
 }
 
-/// List of all messages, which PeerManagerActor accepts through Actix. There is also another list
-/// which contains reply for each message to PeerManager.
+/// List of all messages, which `PeerManagerActor` accepts through `Actix`. There is also another list
+/// which contains reply for each message to `PeerManager`.
 /// There is 1 to 1 mapping between an entry in `PeerManagerMessageRequest` and `PeerManagerMessageResponse`.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug)]
@@ -123,8 +122,8 @@ impl Message for PeerManagerMessageRequest {
     type Result = PeerManagerMessageResponse;
 }
 
-/// List of all replies to messages to PeerManager. See `PeerManagerMessageRequest` for more details.
-#[derive(MessageResponse, Debug)]
+/// List of all replies to messages to `PeerManager`. See `PeerManagerMessageRequest` for more details.
+#[derive(actix::MessageResponse, Debug)]
 pub enum PeerManagerMessageResponse {
     RoutedMessageFrom(bool),
     NetworkResponses(NetworkResponses),
@@ -333,7 +332,7 @@ pub struct FullPeerInfo {
     pub partial_edge_info: PartialEdgeInfo,
 }
 
-#[derive(Debug)]
+#[derive(Debug, actix::MessageResponse)]
 pub struct NetworkInfo {
     pub connected_peers: Vec<FullPeerInfo>,
     pub num_connected_peers: usize,
@@ -346,19 +345,7 @@ pub struct NetworkInfo {
     pub peer_counter: usize,
 }
 
-impl<A, M> MessageResponse<A, M> for NetworkInfo
-where
-    A: Actor,
-    M: Message<Result = NetworkInfo>,
-{
-    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-        if let Some(tx) = tx {
-            tx.send(self)
-        }
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, actix::MessageResponse)]
 pub enum NetworkResponses {
     NoResponse,
     RoutingTableInfo(RoutingTableInfo),
@@ -366,18 +353,6 @@ pub enum NetworkResponses {
     BanPeer(ReasonForBan),
     EdgeUpdate(Box<Edge>),
     RouteNotFound,
-}
-
-impl<A, M> MessageResponse<A, M> for NetworkResponses
-where
-    A: Actor,
-    M: Message<Result = NetworkResponses>,
-{
-    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-        if let Some(tx) = tx {
-            tx.send(self)
-        }
-    }
 }
 
 impl Message for NetworkRequests {
@@ -435,7 +410,7 @@ impl Message for NetworkClientMessages {
 }
 
 // TODO(#1313): Use Box
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, actix::MessageResponse)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientResponses {
     /// Adv controls.
@@ -461,20 +436,8 @@ pub enum NetworkClientResponses {
     Ban { ban_reason: ReasonForBan },
 }
 
-impl<A, M> MessageResponse<A, M> for NetworkClientResponses
-where
-    A: Actor,
-    M: Message<Result = NetworkClientResponses>,
-{
-    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-        if let Some(tx) = tx {
-            tx.send(self)
-        }
-    }
-}
-
 /// Adapter to break dependency of sub-components on the network requests.
-/// For tests use MockNetworkAdapter that accumulates the requests to network.
+/// For tests use `MockNetworkAdapter` that accumulates the requests to network.
 pub trait PeerManagerAdapter: Sync + Send {
     fn send(
         &self,

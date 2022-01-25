@@ -77,7 +77,7 @@ fn init_test_staking(
         .map(|(i, config)| {
             let genesis_hash = genesis_hash(&config.genesis);
             let nearcore::NearNode { client, view_client, .. } =
-                start_with_config(paths[i], config.clone());
+                start_with_config(paths[i], config.clone()).expect("start_with_config");
             let account_id = format!("near.{}", i).parse::<AccountId>().unwrap();
             let signer = Arc::new(InMemorySigner::from_seed(
                 account_id.clone(),

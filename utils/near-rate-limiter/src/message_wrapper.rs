@@ -1,5 +1,4 @@
 use crate::{ThrottleController, ThrottleToken};
-use actix::dev::MessageResponse;
 use actix::Message;
 
 // Wrapper around Actix messages, used to track size of all messages sent to PeerManager.
@@ -36,7 +35,7 @@ impl<T: Message> Message for ActixMessageWrapper<T> {
     type Result = ActixMessageResponse<T::Result>;
 }
 
-#[derive(MessageResponse)]
+#[derive(actix::MessageResponse)]
 pub struct ActixMessageResponse<T> {
     msg: T,
     /// Ignore the warning, this code is used. We decrease counters `throttle_controller` when

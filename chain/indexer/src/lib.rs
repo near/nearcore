@@ -1,8 +1,8 @@
 #![doc = include_str!("../README.md")]
 
+use anyhow::Context;
 use tokio::sync::mpsc;
 
-use anyhow::Result;
 pub use near_primitives;
 use near_primitives::types::Gas;
 pub use nearcore::{get_default_home, init_configs, NearConfig};
@@ -89,7 +89,7 @@ pub struct Indexer {
 
 impl Indexer {
     /// Initialize Indexer by configuring `nearcore`
-    pub fn new(indexer_config: IndexerConfig) -> Self {
+    pub fn new(indexer_config: IndexerConfig) -> Result<Self, anyhow::Error> {
         tracing::info!(
             target: INDEXER,
             "Load config from {}...",
@@ -107,8 +107,9 @@ impl Indexer {
             indexer_config.home_dir.join("config.json").display()
         );
         let nearcore::NearNode { client, view_client, .. } =
-            nearcore::start_with_config(&indexer_config.home_dir, near_config.clone());
-        Self { view_client, client, near_config, indexer_config }
+            nearcore::start_with_config(&indexer_config.home_dir, near_config.clone())
+                .with_context(|| "start_with_config")?;
+        Ok(Self { view_client, client, near_config, indexer_config })
     }
 
     /// Boots up `near_indexer::streamer`, so it monitors the new blocks with chunks, transactions, receipts, and execution outcomes inside. The returned stream handler should be drained and handled on the user side.
@@ -138,7 +139,10 @@ impl Indexer {
 
 /// Function that initializes configs for the node which
 /// accepts `InitConfigWrapper` and calls original `init_configs` from `neard`
-pub fn indexer_init_configs(dir: &std::path::PathBuf, params: InitConfigArgs) -> Result<()> {
+pub fn indexer_init_configs(
+    dir: &std::path::PathBuf,
+    params: InitConfigArgs,
+) -> Result<(), anyhow::Error> {
     init_configs(
         dir,
         params.chain_id.as_deref(),
