@@ -145,7 +145,7 @@ while True:
     assert time.time(
     ) - started < TIMEOUT, "Waiting for node 4 to connect to two peers"
     tracker4.reset()
-    if tracker4.count("Consolidated connection with FullPeerInfo") == 2:
+    if tracker4.count("Consolidated connection full_peer_info") == 2:
         break
     time.sleep(0.1)
 

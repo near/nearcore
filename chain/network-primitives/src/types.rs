@@ -12,7 +12,7 @@ use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
-use near_crypto::{SecretKey, Signature};
+use near_crypto::SecretKey;
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -38,6 +38,8 @@ pub use crate::network_protocol::{
 
 pub use crate::config::{blacklist_from_iter, BlockedPorts, NetworkConfig};
 
+pub use crate::network_protocol::edge::{Edge, EdgeState, PartialEdgeInfo, SimpleEdge};
+
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network
 /// by different nodes.
@@ -57,16 +59,6 @@ pub enum PeerType {
     Inbound,
     /// Outbound session
     Outbound,
-}
-
-/// Account route description
-/// Unused?
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct AnnounceAccountRoute {
-    pub peer_id: PeerId,
-    pub hash: CryptoHash,
-    pub signature: Signature,
 }
 
 // Don't need Borsh ?
@@ -168,7 +160,8 @@ impl KnownPeerStatus {
 pub struct KnownPeerState {
     pub peer_info: PeerInfo,
     pub status: KnownPeerStatus,
-    pub first_seen: u64,
+    /// Unused
+    first_seen: u64,
     pub last_seen: u64,
 }
 
@@ -180,10 +173,6 @@ impl KnownPeerState {
             first_seen: to_timestamp(Clock::utc()),
             last_seen: to_timestamp(Clock::utc()),
         }
-    }
-
-    pub fn first_seen(&self) -> DateTime<Utc> {
-        from_timestamp(self.first_seen)
     }
 
     pub fn last_seen(&self) -> DateTime<Utc> {
@@ -220,16 +209,6 @@ impl InboundTcpConnect {
 pub struct OutboundTcpConnect {
     /// Peer information of the outbound connection
     pub peer_info: PeerInfo,
-}
-
-/// Unregister message from Peer to PeerManager.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct Unregister {
-    pub peer_id: PeerId,
-    pub peer_type: PeerType,
-    pub remove_from_peer_store: bool,
 }
 
 /// Ban reason.
@@ -269,11 +248,6 @@ pub enum PeerManagerRequest {
     BanPeer(ReasonForBan),
     UnregisterPeer,
 }
-
-/// Messages from Peer to PeerManager
-#[derive(Message, Debug)]
-#[rtype(result = "()")]
-pub enum PeerRequest {}
 
 #[derive(Debug, Clone)]
 pub struct KnownProducer {
@@ -463,7 +437,6 @@ mod tests {
     fn test_struct_size() {
         assert_size!(PeerInfo);
         assert_size!(PeerChainInfoV2);
-        assert_size!(AnnounceAccountRoute);
         assert_size!(AnnounceAccount);
         assert_size!(Ping);
         assert_size!(Pong);
@@ -473,7 +446,6 @@ mod tests {
         assert_size!(KnownPeerState);
         assert_size!(InboundTcpConnect);
         assert_size!(OutboundTcpConnect);
-        assert_size!(Unregister);
         assert_size!(Ban);
         assert_size!(StateResponseInfoV1);
         assert_size!(QueryPeerStats);

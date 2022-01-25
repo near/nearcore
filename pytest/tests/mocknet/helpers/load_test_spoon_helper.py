@@ -5,71 +5,38 @@ This file is uploaded to each mocknet node and run there.
 """
 
 import json
-import itertools
 import random
 import sys
 import time
-import pathlib
 
 import base58
 import requests
 from rc import pmap
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
+# Don't use the pathlib magic because this file runs on a remote machine.
+sys.path.append('lib')
+import mocknet_helpers
 import account
 import key
 import mocknet
 from configured_logger import logger
 
-LOCAL_ADDR = '127.0.0.1'
-RPC_PORT = '3030'
 # We need to slowly deploy contracts, otherwise we stall out the nodes
 CONTRACT_DEPLOY_TIME = 10 * mocknet.NUM_ACCOUNTS
-TEST_TIMEOUT = 24 * 60 * 60
+TEST_TIMEOUT = 12 * 60 * 60
 
 
-def get_status():
-    r = requests.get(f'http://{LOCAL_ADDR}:{RPC_PORT}/status', timeout=10)
-    r.raise_for_status()
-    return json.loads(r.content)
-
-
-def json_rpc(method, params):
-    j = {'method': method, 'params': params, 'id': 'dontcare', 'jsonrpc': '2.0'}
-    r = requests.post(f'http://{LOCAL_ADDR}:{RPC_PORT}', json=j, timeout=10)
-    return r.json()
-
-
-def get_nonce_for_pk(account_id, pk, finality='optimistic'):
-    access_keys = json_rpc(
-        'query', {
-            "request_type": "view_access_key_list",
-            "account_id": account_id,
-            "finality": finality
-        })
-    logger.info(f'get_nonce_for_pk {account_id}')
-    assert access_keys['result']['keys'], account_id
-    for k in access_keys['result']['keys']:
-        if k['public_key'] == pk:
-            return k['access_key']['nonce']
-
-
-def get_latest_block_hash():
-    last_block_hash = get_status()['sync_info']['latest_block_hash']
-    return base58.b58decode(last_block_hash.encode('utf-8'))
-
-
-def send_transfer(account, i, node_account):
+def send_transfer(account, node_account):
     next_id = random.randrange(mocknet.NUM_ACCOUNTS)
     dest_account_id = mocknet.load_testing_account_id(
         node_account.key.account_id, next_id)
-    account.send_transfer_tx(dest_account_id)
+    mocknet_helpers.retry_and_ignore_errors(
+        lambda: account.send_transfer_tx(dest_account_id))
 
 
 def function_call_set_delete_state(account, i, node_account):
     assert i < len(function_call_state)
 
-    action = None
     if not function_call_state[i]:
         action = "add"
     elif len(function_call_state[i]) >= 100:
@@ -86,8 +53,9 @@ def function_call_set_delete_state(account, i, node_account):
         logger.info(
             f'Calling function "set_state" of account {next_account_id} with arguments {s} from account {account.key.account_id}'
         )
-        tx_res = account.send_call_contract_raw_tx(next_account_id, 'set_state',
-                                                   s.encode('utf-8'), 0)
+        tx_res = mocknet_helpers.retry_and_ignore_errors(
+            lambda: account.send_call_contract_raw_tx(
+                next_account_id, 'set_state', s.encode('utf-8'), 0))
         logger.info(
             f'{account.key.account_id} set_state on {next_account_id} {tx_res}')
         function_call_state[i].append((next_id, next_val))
@@ -101,9 +69,9 @@ def function_call_set_delete_state(account, i, node_account):
         logger.info(
             f'Calling function "delete_state" of account {next_account_id} with arguments {s} from account {account.key.account_id}'
         )
-        tx_res = account.send_call_contract_raw_tx(next_account_id,
-                                                   'delete_state',
-                                                   s.encode('utf-8'), 0)
+        tx_res = mocknet_helpers.retry_and_ignore_errors(
+            lambda: account.send_call_contract_raw_tx(
+                next_account_id, 'delete_state', s.encode('utf-8'), 0))
         logger.info(
             f'{account.key.account_id} delete_state on {next_account_id} {tx_res}'
         )
@@ -127,11 +95,14 @@ def function_call_ft_transfer_call(account, i, node_account):
     logger.info(
         f'Calling function "ft_transfer_call" with arguments {s} on account {account.key.account_id} contract {dest_account_id}'
     )
-    tx_res = account.send_call_contract_raw_tx(dest_account_id,
-                                               'ft_transfer_call',
-                                               s.encode('utf-8'), 1)
+    tx_res = mocknet_helpers.retry_and_ignore_errors(
+        lambda: account.send_call_contract_raw_tx(
+            dest_account_id, 'ft_transfer_call', s.encode('utf-8'), 1))
     logger.info(
         f'{account.key.account_id} ft_transfer to {dest_account_id} {tx_res}')
+
+
+QUERIES_PER_TX = 5
 
 
 def random_transaction(account, i, node_account, max_tps_per_node):
@@ -139,7 +110,7 @@ def random_transaction(account, i, node_account, max_tps_per_node):
     choice = random.randint(0, 2)
     if choice == 0:
         logger.info(f'Account {i} transfers')
-        send_transfer(account, i, node_account)
+        send_transfer(account, node_account)
     elif choice == 1:
         function_call_set_delete_state(account, i, node_account)
     elif choice == 2:
@@ -151,24 +122,6 @@ def send_random_transactions(node_account, test_accounts, max_tps_per_node):
         lambda index_and_account: random_transaction(index_and_account[
             1], index_and_account[0], node_account, max_tps_per_node),
         enumerate(test_accounts))
-
-
-def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps_per_node,
-                  node_account, test_accounts):
-    start_time = time.time()
-    send_txns(node_account, test_accounts, max_tps_per_node)
-    duration = time.time() - start_time
-    total_tx_sent += len(test_accounts)
-    elapsed_time += duration
-
-    excess_transactions = total_tx_sent - (max_tps_per_node * elapsed_time)
-    if excess_transactions > 0:
-        delay = excess_transactions / max_tps_per_node
-        elapsed_time += delay
-        logger.info(f'Sleeping for {delay} seconds to throttle transactions')
-        time.sleep(delay)
-
-    return (total_tx_sent, elapsed_time)
 
 
 def write_tx_events(accounts_and_indices, filename):
@@ -197,16 +150,21 @@ def get_test_accounts_from_args(argv):
         for i in range(mocknet.NUM_ACCOUNTS)
     ]
 
-    base_block_hash = get_latest_block_hash()
+    base_block_hash = mocknet_helpers.get_latest_block_hash()
 
-    node_account = account.Account(
-        node_account_key,
-        get_nonce_for_pk(node_account_key.account_id, node_account_key.pk),
-        base_block_hash, (rpc_nodes[0], RPC_PORT))
+    rpc_infos = [(rpc_addr, mocknet_helpers.RPC_PORT) for rpc_addr in rpc_nodes]
+    node_account = account.Account(node_account_key,
+                                   mocknet_helpers.get_nonce_for_pk(
+                                       node_account_key.account_id,
+                                       node_account_key.pk),
+                                   base_block_hash,
+                                   rpc_infos=rpc_infos)
     accounts = [
-        account.Account(key, get_nonce_for_pk(key.account_id, key.pk),
-                        base_block_hash, (rpc_node, RPC_PORT))
-        for key, rpc_node in zip(test_account_keys, itertools.cycle(rpc_nodes))
+        account.Account(key,
+                        mocknet_helpers.get_nonce_for_pk(
+                            key.account_id, key.pk),
+                        base_block_hash,
+                        rpc_infos=rpc_infos) for key in test_account_keys
     ]
     max_tps_per_node = max_tps / num_nodes
     return node_account, accounts, max_tps_per_node
@@ -216,49 +174,39 @@ def init_ft(node_account):
     tx_res = node_account.send_deploy_contract_tx(
         '/home/ubuntu/fungible_token.wasm')
     logger.info(f'ft deployment {tx_res}')
-    wait_at_least_one_block()
+    mocknet_helpers.wait_at_least_one_block()
 
     s = f'{{"owner_id": "{node_account.key.account_id}", "total_supply": "{10**33}"}}'
-    tx_res = node_account.send_call_contract_raw_tx(node_account.key.account_id,
-                                                    'new_default_meta',
-                                                    s.encode('utf-8'), 0)
+    tx_res = mocknet_helpers.retry_and_ignore_errors(
+        lambda: node_account.send_call_contract_raw_tx(
+            node_account.key.account_id, 'new_default_meta', s.encode('utf-8'),
+            0))
     logger.info(f'ft new_default_meta {tx_res}')
 
 
-def init_ft_account(node_account, account, i):
+def init_ft_account(node_account, account):
     s = f'{{"account_id": "{account.key.account_id}"}}'
-    tx_res = account.send_call_contract_raw_tx(node_account.key.account_id,
-                                               'storage_deposit',
-                                               s.encode('utf-8'), 10**24 // 800)
+    tx_res = mocknet_helpers.retry_and_ignore_errors(
+        lambda: account.send_call_contract_raw_tx(
+            node_account.key.account_id, 'storage_deposit', s.encode('utf-8'),
+            (10**24) // 800))
     logger.info(f'Account {account.key.account_id} storage_deposit {tx_res}')
 
     # The next transaction depends on the previous transaction succeeded.
     # Sleeping for 1 second is the poor man's solution for waiting for that transaction to succeed.
     # This works because the contracts are being deployed slow enough to keep block production above 1 bps.
-    wait_at_least_one_block()
+    mocknet_helpers.wait_at_least_one_block()
 
     s = f'{{"receiver_id": "{account.key.account_id}", "amount": "{10**18}"}}'
     logger.info(
-        f'Calling function "ft_transfer" with arguments {s} on account {i}')
-    tx_res = node_account.send_call_contract_raw_tx(node_account.key.account_id,
-                                                    'ft_transfer',
-                                                    s.encode('utf-8'), 1)
+        f'Calling function "ft_transfer" with arguments {s} on account {account.key.account_id}'
+    )
+    tx_res = mocknet_helpers.retry_and_ignore_errors(
+        lambda: node_account.send_call_contract_raw_tx(
+            node_account.key.account_id, 'ft_transfer', s.encode('utf-8'), 1))
     logger.info(
         f'{node_account.key.account_id} ft_transfer to {account.key.account_id} {tx_res}'
     )
-
-
-def wait_at_least_one_block():
-    status = get_status()
-    start_height = status['sync_info']['latest_block_height']
-    timeout_sec = 5
-    started = time.time()
-    while time.time() - started < timeout_sec:
-        status = get_status()
-        height = status['sync_info']['latest_block_height']
-        if height > start_height:
-            break
-        time.sleep(1.0)
 
 
 def main(argv):
@@ -273,14 +221,18 @@ def main(argv):
     logger.info(f'Start deploying, delay between deployments: {delay}')
 
     time.sleep(random.random() * delay)
-    start_time = time.time()
+    start_time = time.monotonic()
     assert delay >= 1
     init_ft(node_account)
     for i, account in enumerate(test_accounts):
-        logger.info(f'Deploying contract for account {i}')
-        account.send_deploy_contract_tx(mocknet.WASM_FILENAME)
-        init_ft_account(node_account, account, i)
-        time.sleep(max(1.0, start_time + (i + 1) * delay - time.time()))
+        logger.info(f'Deploying contract for account {account.key.account_id}')
+        mocknet_helpers.retry_and_ignore_errors(
+            lambda: account.send_deploy_contract_tx(mocknet.WASM_FILENAME))
+        init_ft_account(node_account, account)
+        logger.info(
+            f'Account {account.key.account_id} balance after initialization: {mocknet_helpers.retry_and_ignore_errors(lambda:account.get_amount_yoctonear())}'
+        )
+        time.sleep(max(1.0, start_time + (i + 1) * delay - time.monotonic()))
 
     logger.info('Done deploying')
 
@@ -292,18 +244,18 @@ def main(argv):
     logger.info(
         f'Start the test, expected TPS {max_tps_per_node} over the next {TEST_TIMEOUT} seconds'
     )
-    start_time = time.time()
     last_staking = 0
-    start_time = time.time()
-    while time.time() - start_time < TEST_TIMEOUT:
+    start_time = time.monotonic()
+    while time.monotonic() - start_time < TEST_TIMEOUT:
         # Repeat the staking transactions in case the validator selection algorithm changes.
         staked_time = mocknet.stake_available_amount(node_account, last_staking)
         if staked_time is not None:
             last_staking = staked_time
-        (total_tx_sent,
-         elapsed_time) = throttle_txns(send_random_transactions, total_tx_sent,
-                                       elapsed_time, max_tps_per_node,
-                                       node_account, test_accounts)
+
+        elapsed_time = time.monotonic() - start_time
+        total_tx_sent = mocknet_helpers.throttle_txns(
+            send_random_transactions, total_tx_sent, elapsed_time,
+            max_tps_per_node, node_account, test_accounts)
     logger.info('Stop the test')
 
     write_tx_events(test_accounts, f'{mocknet.TX_OUT_FILE}.0')

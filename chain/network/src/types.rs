@@ -1,7 +1,6 @@
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    Edge, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, RoutingTableUpdate,
-    SimpleEdge,
+    Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
 };
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 pub use crate::network_protocol::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
@@ -13,10 +12,10 @@ use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, MailboxError, Message};
 use futures::future::BoxFuture;
 use near_network_primitives::types::{
-    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, InboundTcpConnect, KnownProducer,
-    OutboundTcpConnect, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, Ping, Pong, ReasonForBan,
-    RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, Edge, InboundTcpConnect,
+    KnownProducer, OutboundTcpConnect, PartialEdgeInfo, PartialEncodedChunkForwardMsg,
+    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, Ping,
+    Pong, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
 };
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
@@ -74,8 +73,8 @@ pub struct PeersResponse {
     pub(crate) peers: Vec<PeerInfo>,
 }
 
-/// List of all messages, which PeerManagerActor accepts through Actix. There is also another list
-/// which contains reply for each message to PeerManager.
+/// List of all messages, which `PeerManagerActor` accepts through `Actix`. There is also another list
+/// which contains reply for each message to `PeerManager`.
 /// There is 1 to 1 mapping between an entry in `PeerManagerMessageRequest` and `PeerManagerMessageResponse`.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug)]
@@ -124,7 +123,7 @@ impl Message for PeerManagerMessageRequest {
     type Result = PeerManagerMessageResponse;
 }
 
-/// List of all replies to messages to PeerManager. See `PeerManagerMessageRequest` for more details.
+/// List of all replies to messages to `PeerManager`. See `PeerManagerMessageRequest` for more details.
 #[derive(MessageResponse, Debug)]
 pub enum PeerManagerMessageResponse {
     RoutedMessageFrom(bool),
@@ -475,7 +474,7 @@ where
 }
 
 /// Adapter to break dependency of sub-components on the network requests.
-/// For tests use MockNetworkAdapter that accumulates the requests to network.
+/// For tests use `MockNetworkAdapter` that accumulates the requests to network.
 pub trait PeerManagerAdapter: Sync + Send {
     fn send(
         &self,

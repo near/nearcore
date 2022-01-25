@@ -18,7 +18,6 @@ from configured_logger import logger
 import utils
 
 TIMEOUT = 150
-BLOCKS = 50
 EPOCH_LENGTH = 10
 
 
@@ -52,7 +51,9 @@ nodes = start_cluster(
 # Remote:
 # NEAR_PYTEST_CONFIG=remote.json python tests/sanity/block_production.py
 
-started = time.time()
+# Wait until at least one block is generated since otherwise we will get
+# UnknownEpoch errors inside of restaked binary when asking for validators info.
+utils.wait_for_blocks(nodes[1], target=1, timeout=TIMEOUT, poll_interval=0.1)
 
 restaked_pid = start_restaked(nodes[0].node_dir, nodes[1].rpc_port, {})
 nodes[0].kill()
