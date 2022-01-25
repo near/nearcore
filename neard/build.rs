@@ -34,10 +34,8 @@ fn get_git_version() -> Result<String> {
     }
     let out = command("git", &["describe", "--always", "--dirty=-modified"]);
     match out.as_ref().map(|ver| String::from_utf8_lossy(&ver)) {
-        Ok(std::borrow::Cow::Borrowed(version)) =>
-            Ok(version.trim().to_string()),
-        Ok(std::borrow::Cow::Owned(version)) =>
-            Err(anyhow!("git: invalid output: {}", version)),
+        Ok(std::borrow::Cow::Borrowed(version)) => Ok(version.trim().to_string()),
+        Ok(std::borrow::Cow::Owned(version)) => Err(anyhow!("git: invalid output: {}", version)),
         Err(msg) => {
             println!("cargo:warning=unable to determine git version");
             println!("cargo:warning={}", msg);
@@ -58,8 +56,9 @@ fn try_main() -> Result<()> {
     let version = match version.to_string_lossy() {
         std::borrow::Cow::Borrowed("0.0.0") => "trunk",
         std::borrow::Cow::Borrowed(version) => version,
-        std::borrow::Cow::Owned(version) =>
+        std::borrow::Cow::Owned(version) => {
             anyhow::bail!("invalid ‘CARGO_PKG_VERSION’: {}", version)
+        }
     };
     println!("cargo:rustc-env=NEARD_VERSION={}", version);
 
