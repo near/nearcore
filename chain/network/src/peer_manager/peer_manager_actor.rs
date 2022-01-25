@@ -676,7 +676,7 @@ impl PeerManagerActor {
             addr.do_send(SendMessage {
                 message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(
                     known_edges,
-                    known_accounts,
+                    known_accounts.cloned().collect(),
                 )),
             });
 
@@ -1393,7 +1393,7 @@ impl PeerManagerActor {
                        reason = ?find_route_error,
                        ?msg,"Drop message",
                 );
-                trace!(target: "network", known_peers = ?self.routing_table_view.get_accounts_keys());
+                trace!(target: "network", known_peers = ?self.routing_table_view.get_accounts_keys().collect::<Vec<_>>(), "Known peers");
                 return false;
             }
         };
@@ -1471,7 +1471,6 @@ impl PeerManagerActor {
             known_producers: self
                 .routing_table_view
                 .get_announce_accounts()
-                .iter()
                 .map(|announce_account| KnownProducer {
                     account_id: announce_account.account_id.clone(),
                     peer_id: announce_account.peer_id.clone(),

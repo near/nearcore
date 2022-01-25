@@ -79,7 +79,7 @@ impl RoutingTableView {
         self.local_edges_info.get(other_peer).map_or(0, |x| x.nonce()) < nonce
     }
 
-    pub fn reachable_peers(&self) -> impl Iterator<Item = &PeerId> {
+    pub fn reachable_peers(&self) -> impl Iterator<Item = &PeerId> + ExactSizeIterator {
         self.peer_forwarding.keys()
     }
 
@@ -224,8 +224,8 @@ impl RoutingTableView {
     pub fn fetch_ping_pong(
         &self,
     ) -> (
-        impl Iterator<Item = (&usize, &(Ping, usize))>,
-        impl Iterator<Item = (&usize, &(Pong, usize))>,
+        impl Iterator<Item = (&usize, &(Ping, usize))> + ExactSizeIterator,
+        impl Iterator<Item = (&usize, &(Pong, usize))> + ExactSizeIterator,
     ) {
         (self.ping_info.iter(), self.pong_info.iter())
     }
@@ -233,8 +233,9 @@ impl RoutingTableView {
     pub fn info(&self) -> RoutingTableInfo {
         let account_peers = self
             .get_announce_accounts()
-            .into_iter()
-            .map(|announce_account| (announce_account.account_id, announce_account.peer_id))
+            .map(|announce_account| {
+                (announce_account.account_id.clone(), announce_account.peer_id.clone())
+            })
             .collect();
         RoutingTableInfo { account_peers, peer_forwarding: self.peer_forwarding.clone() }
     }
@@ -242,13 +243,15 @@ impl RoutingTableView {
     /// Public interface for `account_peers`
     ///
     /// Get keys currently on cache.
-    pub fn get_accounts_keys(&self) -> Vec<AccountId> {
-        self.account_peers.iter().map(|(k, _v)| (k.clone())).collect()
+    pub fn get_accounts_keys(&self) -> impl Iterator<Item = &AccountId> + ExactSizeIterator {
+        self.account_peers.iter().map(|(k, _v)| (k))
     }
 
     /// Get announce accounts on cache.
-    pub fn get_announce_accounts(&self) -> Vec<AnnounceAccount> {
-        self.account_peers.iter().map(|(_k, v)| v).cloned().collect()
+    pub fn get_announce_accounts(
+        &self,
+    ) -> impl Iterator<Item = &AnnounceAccount> + ExactSizeIterator {
+        self.account_peers.iter().map(|(_k, v)| v)
     }
 
     /// Get number of accounts
