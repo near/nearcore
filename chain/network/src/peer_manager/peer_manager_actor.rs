@@ -209,6 +209,9 @@ impl Actor for PeerManagerActor {
                                 ),
                             );
                             debug!(target: "network", from = ?client_addr, "got new connection");
+                        } else {
+                            info!(at = ?server_addr, "Stopping listening");
+                            break;
                         }
                     },
                     Err(e) => {
