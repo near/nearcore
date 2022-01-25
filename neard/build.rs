@@ -9,6 +9,9 @@
 use anyhow::{anyhow, Result};
 
 /// Returns value of given environment variable or error if missing.
+///
+/// This also outputs necessary ‘cargo:rerun-if-env-changed’ tag to make sure
+/// build script is rerun if the environment variable changes.
 fn env(key: &str) -> Result<std::ffi::OsString> {
     println!("cargo:rerun-if-env-changed={}", key);
     std::env::var_os(key).ok_or_else(|| anyhow!("missing ‘{}’ environment variable", key))
@@ -76,6 +79,9 @@ fn try_main() -> Result<()> {
     println!("cargo:rustc-env=NEARD_VERSION={}", version);
 
     println!("cargo:rustc-env=NEARD_BUILD={}", get_git_version()?);
+
+    println!("cargo:rerun-if-env-changed=RUSTC");
+    println!("cargo:rustc-env=NEARD_RUSTC_VERSION={}", rustc_version::version()?);
 
     Ok(())
 }
