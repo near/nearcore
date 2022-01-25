@@ -680,15 +680,10 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             self.routed_message_cache.put(key, now);
         }
         if let PeerMessage::Routed(routed) = &peer_msg {
-            match routed.as_ref() {
-                RoutedMessage { body: RoutedMessageBody::ForwardTx(_), .. } => {
-                    self.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
-                }
-                _ => {
-                    self.txns_since_last_block.store(0, Ordering::Release);
-                }
+            if let RoutedMessage { body: RoutedMessageBody::ForwardTx(_), .. } = routed.as_ref() {
+                self.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
             }
-        } else {
+        } else if let PeerMessage::Block(_) = &peer_msg {
             self.txns_since_last_block.store(0, Ordering::Release);
         }
 
