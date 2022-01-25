@@ -232,9 +232,9 @@ impl BanPeerSignal {
 impl Handler<BanPeerSignal> for PeerManagerActor {
     type Result = ();
 
-    fn handle(&mut self, msg: BanPeerSignal, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: BanPeerSignal, ctx: &mut Self::Context) -> Self::Result {
         debug!(target: "network", "Ban peer: {:?}", msg.peer_id);
-        self.try_ban_peer(&msg.peer_id, msg.ban_reason);
+        self.try_ban_peer(&msg.peer_id, msg.ban_reason, ctx);
     }
 }
 

@@ -307,7 +307,7 @@ impl PeerManagerActor {
         self.routing_table_addr
             .send(RoutingTableMessages::RoutingTableUpdate { prune, prune_edges_not_reachable_for })
             .into_actor(self)
-            .map(|response, act, _ctx| match response {
+            .map(|response, act, ctx| match response {
                 Ok(RoutingTableMessagesResponse::RoutingTableUpdateResponse {
                     local_edges_to_remove,
                     peer_forwarding,
@@ -316,7 +316,7 @@ impl PeerManagerActor {
                     act.routing_table_view.remove_local_edges(local_edges_to_remove.iter());
                     act.routing_table_view.peer_forwarding = peer_forwarding;
                     for peer in peers_to_ban {
-                        act.ban_peer(&peer, ReasonForBan::InvalidEdge);
+                        act.ban_peer(&peer, ReasonForBan::InvalidEdge, ctx);
                     }
                 }
                 _ => error!(target: "network", "expected RoutingTableUpdateResponse"),
@@ -609,6 +609,7 @@ impl PeerManagerActor {
         );
 
         self.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
+        self.update_routing_table_and_prune_edges(ctx, Prune::Disable, DELETE_PEERS_AFTER_TIME);
 
         checked_feature!(
             "protocol_feature_routing_exchange_algorithm",
@@ -704,7 +705,12 @@ impl PeerManagerActor {
     /// Remove peer from connected set.
     /// Check it match peer_type to avoid removing a peer that both started connection to each other.
     /// If peer_type is None, remove anyway disregarding who started the connection.
-    fn remove_connected_peer(&mut self, peer_id: &PeerId, peer_type: Option<PeerType>) {
+    fn remove_connected_peer(
+        &mut self,
+        peer_id: &PeerId,
+        peer_type: Option<PeerType>,
+        ctx: &mut Context<Self>,
+    ) {
         if let Some(peer_type) = peer_type {
             if let Some(peer) = self.connected_peers.get(peer_id) {
                 if peer.peer_type != peer_type {
@@ -726,6 +732,11 @@ impl PeerManagerActor {
                 let edge_update =
                     edge.remove_edge(self.my_peer_id.clone(), &self.config.secret_key);
                 self.add_verified_edges_to_routing_table(vec![edge_update.clone()]);
+                self.update_routing_table_and_prune_edges(
+                    ctx,
+                    Prune::Disable,
+                    DELETE_PEERS_AFTER_TIME,
+                );
                 Self::broadcast_message(
                     &self.connected_peers,
                     SendMessage {
@@ -745,6 +756,7 @@ impl PeerManagerActor {
         peer_id: PeerId,
         peer_type: PeerType,
         remove_from_peer_store: bool,
+        ctx: &mut Context<Self>,
     ) {
         debug!(target: "network", ?peer_id, ?peer_type, "Unregister peer");
         // If this is an unconsolidated peer because failed / connected inbound, just delete it.
@@ -754,7 +766,7 @@ impl PeerManagerActor {
         }
 
         if remove_from_peer_store {
-            self.remove_connected_peer(&peer_id, Some(peer_type));
+            self.remove_connected_peer(&peer_id, Some(peer_type), ctx);
             if let Err(err) = self.peer_store.peer_disconnected(&peer_id) {
                 error!(target: "network", ?err, "Failed to save peer data");
             };
@@ -764,9 +776,9 @@ impl PeerManagerActor {
     /// Add peer to ban list.
     /// This function should only be called after Peer instance is stopped.
     /// Note: Use `try_ban_peer` if there might be a Peer instance still connected.
-    fn ban_peer(&mut self, peer_id: &PeerId, ban_reason: ReasonForBan) {
+    fn ban_peer(&mut self, peer_id: &PeerId, ban_reason: ReasonForBan, ctx: &mut Context<Self>) {
         warn!(target: "network", ?peer_id, ?ban_reason, "Banning peer");
-        self.remove_connected_peer(peer_id, None);
+        self.remove_connected_peer(peer_id, None, ctx);
         if let Err(err) = self.peer_store.peer_ban(peer_id, ban_reason) {
             error!(target: "network", ?err, "Failed to save peer data");
         };
@@ -774,14 +786,19 @@ impl PeerManagerActor {
 
     /// Ban peer. Stop peer instance if it is still connected,
     /// and then mark peer as banned in the peer store.
-    pub(crate) fn try_ban_peer(&mut self, peer_id: &PeerId, ban_reason: ReasonForBan) {
+    pub(crate) fn try_ban_peer(
+        &mut self,
+        peer_id: &PeerId,
+        ban_reason: ReasonForBan,
+        ctx: &mut Context<Self>,
+    ) {
         if let Some(peer) = self.connected_peers.get(peer_id) {
             peer.addr.do_send(PeerManagerRequest::BanPeer(ban_reason));
         } else {
             warn!(target: "network", ?ban_reason, ?peer_id, "Try to ban a disconnected peer for");
             // Call `ban_peer` in peer manager to trigger action that persists information
             // of ban in disk.
-            self.ban_peer(peer_id, ban_reason);
+            self.ban_peer(peer_id, ban_reason, ctx);
         }
     }
 
@@ -1599,7 +1616,7 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
-                self.try_ban_peer(&peer_id, ban_reason);
+                self.try_ban_peer(&peer_id, ban_reason, ctx);
                 NetworkResponses::NoResponse
             }
             NetworkRequests::AnnounceAccount(announce_account) => {
@@ -1756,10 +1773,10 @@ impl PeerManagerActor {
                 self.view_client_addr
                     .send(NetworkViewClientMessages::AnnounceAccount(accounts))
                     .into_actor(self)
-                    .then(move |response, act, _ctx| {
+                    .then(move |response, act, ctx| {
                         match response {
                             Ok(NetworkViewClientResponses::Ban { ban_reason }) => {
-                                act.try_ban_peer(&peer_id_clone, ban_reason);
+                                act.try_ban_peer(&peer_id_clone, ban_reason, ctx);
                             }
                             Ok(NetworkViewClientResponses::AnnounceAccount(accounts)) => {
                                 act.broadcast_accounts(accounts);
@@ -1811,6 +1828,11 @@ impl PeerManagerActor {
                     );
 
                     self.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
+                    self.update_routing_table_and_prune_edges(
+                        ctx,
+                        Prune::Disable,
+                        DELETE_PEERS_AFTER_TIME,
+                    );
                     NetworkResponses::EdgeUpdate(Box::new(new_edge))
                 } else {
                     NetworkResponses::BanPeer(ReasonForBan::InvalidEdge)
@@ -1835,6 +1857,11 @@ impl PeerManagerActor {
                             }
                         }
                         self.add_verified_edges_to_routing_table(vec![edge.clone()]);
+                        self.update_routing_table_and_prune_edges(
+                            ctx,
+                            Prune::Disable,
+                            DELETE_PEERS_AFTER_TIME,
+                        );
                         NetworkResponses::NoResponse
                     } else {
                         NetworkResponses::BanPeer(ReasonForBan::InvalidEdge)
@@ -1907,6 +1934,7 @@ impl PeerManagerActor {
         if let Some(add_edges) = msg.add_edges {
             debug!(target: "network", len = add_edges.len(), "test_features add_edges");
             self.add_verified_edges_to_routing_table(add_edges);
+            self.update_routing_table_and_prune_edges(ctx, Prune::Disable, DELETE_PEERS_AFTER_TIME);
         }
         if let Some(remove_edges) = msg.remove_edges {
             debug!(target: "network", len = remove_edges.len(), "test_features remove_edges");
@@ -2090,17 +2118,17 @@ impl PeerManagerActor {
     }
 
     #[perf]
-    fn handle_msg_unregister(&mut self, msg: Unregister) {
+    fn handle_msg_unregister(&mut self, msg: Unregister, ctx: &mut Context<Self>) {
         #[cfg(feature = "delay_detector")]
         let _d = delay_detector::DelayDetector::new("unregister".into());
-        self.unregister_peer(msg.peer_id, msg.peer_type, msg.remove_from_peer_store);
+        self.unregister_peer(msg.peer_id, msg.peer_type, msg.remove_from_peer_store, ctx);
     }
 
     #[perf]
-    fn handle_msg_ban(&mut self, msg: Ban) {
+    fn handle_msg_ban(&mut self, msg: Ban, ctx: &mut Context<Self>) {
         #[cfg(feature = "delay_detector")]
         let _d = delay_detector::DelayDetector::new("ban".into());
-        self.ban_peer(&msg.peer_id, msg.ban_reason);
+        self.ban_peer(&msg.peer_id, msg.ban_reason, ctx);
     }
 
     #[perf]
@@ -2171,11 +2199,11 @@ impl PeerManagerActor {
                 PeerManagerMessageResponse::InboundTcpConnect(())
             }
             PeerManagerMessageRequest::Unregister(msg) => {
-                self.handle_msg_unregister(msg);
+                self.handle_msg_unregister(msg, ctx);
                 PeerManagerMessageResponse::Unregister(())
             }
             PeerManagerMessageRequest::Ban(msg) => {
-                self.handle_msg_ban(msg);
+                self.handle_msg_ban(msg, ctx);
                 PeerManagerMessageResponse::Ban(())
             }
             #[cfg(feature = "test_features")]
