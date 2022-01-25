@@ -371,7 +371,7 @@ impl RoutingTableActor {
     }
 
     /// Get edges stored in DB under `ColPeerComponent` column at `peer_id` key.
-    fn component_nonce_from_peer(&mut self, peer_id: &PeerId) -> Result<u64, ()> {
+    fn component_nonce_from_peer(&self, peer_id: &PeerId) -> Result<u64, ()> {
         match self.store.get_ser::<u64>(ColPeerComponent, peer_id.try_to_vec().unwrap().as_ref()) {
             Ok(Some(nonce)) => Ok(nonce),
             _ => Err(()),
@@ -380,7 +380,7 @@ impl RoutingTableActor {
 
     /// Get all edges that were stored at a given "row" (a.k.a. component_nonce) in the store (and also remove them).
     fn get_and_remove_component_edges(
-        &mut self,
+        &self,
         component_nonce: u64,
         update: &mut StoreUpdate,
     ) -> Result<Vec<Edge>, ()> {
