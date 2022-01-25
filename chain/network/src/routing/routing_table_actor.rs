@@ -306,28 +306,24 @@ impl RoutingTableActor {
         prune_edges_not_reachable_for: Duration,
     ) -> Vec<Edge> {
         let now = Instant::now();
-        let mut oldest_time = now;
+        // Save nodes on disk and remove from memory only if elapsed time from oldest peer
+        // is greater than `SAVE_PEERS_MAX_TIME`
+        if !(force_pruning
+            || (self.peer_last_time_reachable.values())
+                .any(|&last_time| now.saturating_duration_since(last_time) >= SAVE_PEERS_MAX_TIME))
+        {
+            return Vec::new();
+        }
 
         // We compute routing graph every one second; we mark every node that was reachable during that time.
         // All nodes not reachable for at last 1 hour(SAVE_PEERS_AFTER_TIME) will be moved to disk.
-        let peers_to_remove = self
-            .peer_last_time_reachable
-            .iter()
-            .filter_map(|(peer_id, last_time)| {
-                oldest_time = std::cmp::min(oldest_time, *last_time);
-                if now.saturating_duration_since(*last_time) >= prune_edges_not_reachable_for {
-                    Some(peer_id.clone())
-                } else {
-                    None
-                }
+        let peers_to_remove = (self.peer_last_time_reachable.iter())
+            .filter(|(_, &last_time)| {
+                now.saturating_duration_since(last_time) >= prune_edges_not_reachable_for
             })
+            .map(|(peer_id, _)| peer_id.clone())
             .collect::<HashSet<_>>();
 
-        // Save nodes on disk and remove from memory only if elapsed time from oldest peer
-        // is greater than `SAVE_PEERS_MAX_TIME`
-        if !force_pruning && now.saturating_duration_since(oldest_time) < SAVE_PEERS_MAX_TIME {
-            return Vec::new();
-        }
         debug!(target: "network", "try_save_edges: We are going to remove {} peers", peers_to_remove.len());
 
         let current_component_nonce = self.next_available_component_nonce;
@@ -376,7 +372,7 @@ impl RoutingTableActor {
     }
 
     /// Get edges stored in DB under `ColPeerComponent` column at `peer_id` key.
-    fn component_nonce_from_peer(&mut self, peer_id: &PeerId) -> Result<u64, ()> {
+    fn component_nonce_from_peer(&self, peer_id: &PeerId) -> Result<u64, ()> {
         match self.store.get_ser::<u64>(ColPeerComponent, peer_id.try_to_vec().unwrap().as_ref()) {
             Ok(Some(nonce)) => Ok(nonce),
             _ => Err(()),
@@ -385,7 +381,7 @@ impl RoutingTableActor {
 
     /// Get all edges that were stored at a given "row" (a.k.a. component_nonce) in the store (and also remove them).
     fn get_and_remove_component_edges(
-        &mut self,
+        &self,
         component_nonce: u64,
         update: &mut StoreUpdate,
     ) -> Result<Vec<Edge>, ()> {

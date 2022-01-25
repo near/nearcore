@@ -2,7 +2,6 @@ use std::cmp::max;
 use std::convert::AsRef;
 use std::fmt;
 
-use byteorder::{LittleEndian, WriteBytesExt};
 use chrono;
 use chrono::{DateTime, NaiveDateTime};
 use rand::distributions::Alphanumeric;
@@ -334,10 +333,8 @@ fn create_nonce_with_nonce(base: &CryptoHash, salt: u64) -> CryptoHash {
     hash(&nonce)
 }
 
-pub fn index_to_bytes(index: u64) -> Vec<u8> {
-    let mut bytes = vec![];
-    bytes.write_u64::<LittleEndian>(index).expect("writing to bytes failed");
-    bytes
+pub fn index_to_bytes(index: u64) -> [u8; 8] {
+    index.to_le_bytes()
 }
 
 /// A wrapper around Option<T> that provides native Display trait.
