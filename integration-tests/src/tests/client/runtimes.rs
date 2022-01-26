@@ -5,11 +5,9 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use cached::Cached;
-
 use near_chain::{ChainGenesis, RuntimeAdapter};
 use near_chain_configs::Genesis;
-use near_chunks::test_utils::ChunkForwardingTestFixture;
+use near_chunks::test_utils::ChunkTestFixture;
 use near_chunks::ProcessPartialEncodedChunkResult;
 use near_client::test_utils::TestEnv;
 use near_crypto::KeyType;
@@ -53,8 +51,7 @@ fn test_pending_approvals() {
     let approval = Approval::new(parent_hash, 0, 1, &signer);
     let peer_id = PeerId::random();
     env.clients[0].collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id.clone()));
-    let approvals =
-        env.clients[0].pending_approvals.cache_remove(&ApprovalInner::Endorsement(parent_hash));
+    let approvals = env.clients[0].pending_approvals.pop(&ApprovalInner::Endorsement(parent_hash));
     let expected =
         vec![("test0".parse().unwrap(), (approval, ApprovalType::PeerApproval(peer_id)))]
             .into_iter()
@@ -76,14 +73,14 @@ fn test_invalid_approvals() {
     let approval = Approval::new(parent_hash, 1, 3, &signer);
     let peer_id = PeerId::random();
     env.clients[0].collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id.clone()));
-    assert_eq!(env.clients[0].pending_approvals.cache_size(), 0);
+    assert_eq!(env.clients[0].pending_approvals.len(), 0);
     // Approval with invalid signature. Should be dropped
     let signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "random");
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     let approval = Approval::new(genesis_hash, 0, 1, &signer);
     env.clients[0].collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id));
-    assert_eq!(env.clients[0].pending_approvals.cache_size(), 0);
+    assert_eq!(env.clients[0].pending_approvals.len(), 0);
 }
 
 #[test]
@@ -121,7 +118,7 @@ fn test_process_partial_encoded_chunk_with_missing_block() {
     let mut env =
         TestEnv::builder(ChainGenesis::test()).runtime_adapters(create_runtimes(1)).build();
     let client = &mut env.clients[0];
-    let chunk_producer = ChunkForwardingTestFixture::default();
+    let chunk_producer = ChunkTestFixture::default();
     let mut mock_chunk = chunk_producer.make_partial_encoded_chunk(&[0]);
     // change the prev_block to some unknown block
     match &mut mock_chunk.header {

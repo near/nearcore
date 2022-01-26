@@ -26,7 +26,6 @@ use near_primitives::types::{
 };
 use near_primitives::utils::to_timestamp;
 
-use cached::{Cached, SizedCache};
 use near_chain::chain::{ApplyStatePartsRequest, ChainAccess, StateSplitRequest};
 use near_client_primitives::types::{
     DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus,
@@ -626,7 +625,7 @@ pub struct StateSync {
 
     last_part_id_requested: HashMap<(AccountOrPeerIdOrHash, ShardId), PendingRequestStatus>,
     /// Map from which part we requested to whom.
-    requested_target: SizedCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
+    requested_target: lru::LruCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
 
     timeout: Duration,
 
@@ -644,7 +643,7 @@ impl StateSync {
             state_sync_time: Default::default(),
             last_time_block_requested: None,
             last_part_id_requested: Default::default(),
-            requested_target: SizedCache::with_size(MAX_PENDING_PART as usize),
+            requested_target: lru::LruCache::new(MAX_PENDING_PART as usize),
             timeout: Duration::from_std(timeout).unwrap(),
             state_parts_apply_results: HashMap::new(),
             split_state_roots: HashMap::new(),
@@ -988,7 +987,7 @@ impl StateSync {
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) {
-        self.requested_target.cache_set((part_id, sync_hash), target.clone());
+        self.requested_target.put((part_id, sync_hash), target.clone());
 
         let timeout = self.timeout;
         self.last_part_id_requested
@@ -1006,7 +1005,7 @@ impl StateSync {
         sync_hash: CryptoHash,
     ) {
         let key = (part_id, sync_hash);
-        if let Some(target) = self.requested_target.cache_get(&key) {
+        if let Some(target) = self.requested_target.get(&key) {
             if self.last_part_id_requested.get_mut(&(target.clone(), shard_id)).map_or(
                 false,
                 |request| {

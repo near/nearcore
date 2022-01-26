@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
@@ -257,11 +256,11 @@ where
 /// Additionally handles validators.
 pub trait RuntimeAdapter: Send + Sync {
     /// Get store and genesis state roots
-    fn genesis_state(&self) -> (Arc<Store>, Vec<StateRoot>);
+    fn genesis_state(&self) -> (Store, Vec<StateRoot>);
 
     fn get_tries(&self) -> ShardTries;
 
-    fn get_store(&self) -> Arc<Store>;
+    fn get_store(&self) -> Store;
 
     /// Returns trie. Since shard layout may change from epoch to epoch, `shard_id` itself is
     /// not enough to identify the trie. `prev_hash` is used to identify the epoch the given

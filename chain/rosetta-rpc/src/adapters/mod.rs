@@ -29,7 +29,11 @@ async fn convert_genesis_records_to_transaction(
             None
         }
     });
-    let genesis_accounts = crate::utils::query_accounts(
+    // Collect genesis accounts into a BTreeMap rather than a HashMap so that
+    // the order of accounts is deterministic.  This is needed because we need
+    // operations to be created in deterministic order (so that their indexes
+    // stay the same).
+    let genesis_accounts: std::collections::BTreeMap<_, _> = crate::utils::query_accounts(
         &near_primitives::types::BlockId::Hash(block.header.hash).into(),
         genesis_account_ids,
         &view_client_addr,

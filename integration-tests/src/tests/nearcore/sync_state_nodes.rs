@@ -29,7 +29,7 @@ fn sync_state_nodes() {
         run_actix(async move {
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
             let nearcore::NearNode { view_client: view_client1, .. } =
-                start_with_config(dir1.path(), near1);
+                start_with_config(dir1.path(), near1).expect("start_with_config");
 
             let view_client2_holder = Arc::new(RwLock::new(None));
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
@@ -66,7 +66,8 @@ fn sync_state_nodes() {
                                             view_client: view_client2,
                                             arbiters,
                                             ..
-                                        } = start_with_config(dir2.path(), near2);
+                                        } = start_with_config(dir2.path(), near2)
+                                            .expect("start_with_config");
                                         *view_client2_holder2 = Some(view_client2);
                                         *arbiters_holder2 = arbiters;
                                     }
@@ -157,13 +158,13 @@ fn sync_state_nodes_multishard() {
 
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
             let nearcore::NearNode { view_client: view_client1, .. } =
-                start_with_config(dir1.path(), near1);
+                start_with_config(dir1.path(), near1).expect("start_with_config");
 
             let dir3 = tempfile::Builder::new().prefix("sync_nodes_3").tempdir().unwrap();
-            start_with_config(dir3.path(), near3);
+            start_with_config(dir3.path(), near3).expect("start_with_config");
 
             let dir4 = tempfile::Builder::new().prefix("sync_nodes_4").tempdir().unwrap();
-            start_with_config(dir4.path(), near4);
+            start_with_config(dir4.path(), near4).expect("start_with_config");
 
             let view_client2_holder = Arc::new(RwLock::new(None));
             let arbiter_holder = Arc::new(RwLock::new(vec![]));
@@ -206,7 +207,8 @@ fn sync_state_nodes_multishard() {
                                             view_client: view_client2,
                                             arbiters,
                                             ..
-                                        } = start_with_config(dir2.path(), near2);
+                                        } = start_with_config(dir2.path(), near2)
+                                            .expect("start_with_config");
                                         *view_client2_holder2 = Some(view_client2);
                                         *arbiter_holder2 = arbiters;
                                     }
@@ -281,7 +283,7 @@ fn sync_empty_state() {
 
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
             let nearcore::NearNode { view_client: view_client1, .. } =
-                start_with_config(dir1.path(), near1);
+                start_with_config(dir1.path(), near1).expect("start_with_config");
             let dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
 
             let view_client2_holder = Arc::new(RwLock::new(None));
@@ -325,7 +327,8 @@ fn sync_empty_state() {
                                             view_client: view_client2,
                                             arbiters,
                                             ..
-                                        } = start_with_config(dir2.path(), near2);
+                                        } = start_with_config(dir2.path(), near2)
+                                            .expect("start_with_config");
                                         *view_client2_holder2 = Some(view_client2);
                                         *arbiters_holder2 = arbiters;
                                     }

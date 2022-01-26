@@ -1,5 +1,19 @@
+import typing
+
+import base58
+
+
 class Signature:
-    pass
+    _KEY_TYPES = {
+        'ed25519': 0,
+        'secp256k1': 1,
+    }
+
+    def __init__(self, signature: typing.Optional[str] = None) -> None:
+        if signature:
+            keyType, data = signature.split(':')
+            self.keyType = self._KEY_TYPES[keyType]
+            self.data = base58.b58decode(data)
 
 
 class PublicKey:

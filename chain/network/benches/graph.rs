@@ -1,9 +1,8 @@
 #[macro_use]
-extern crate bencher;
+extern crate criterion;
 
-use bencher::Bencher;
+use criterion::{black_box, Criterion};
 use near_network::routing::graph::Graph;
-
 use near_network::test_utils::random_peer_id;
 
 fn build_graph(depth: usize, size: usize) -> Graph {
@@ -27,36 +26,44 @@ fn build_graph(depth: usize, size: usize) -> Graph {
     graph
 }
 
-fn calculate_distance_3_3(bench: &mut Bencher) {
+fn calculate_distance_3_3(c: &mut Criterion) {
     let graph = build_graph(3, 3);
-    bench.iter(|| {
-        let _ = graph.calculate_distance();
+    c.bench_function("calculate_distance_3_3", |bench| {
+        bench.iter(|| {
+            black_box(graph.calculate_distance());
+        })
     });
 }
 
-fn calculate_distance_10_10(bench: &mut Bencher) {
+fn calculate_distance_10_10(c: &mut Criterion) {
     let graph = build_graph(10, 10);
-    bench.iter(|| {
-        let _ = graph.calculate_distance();
+    c.bench_function("calculate_distance_10_10", |bench| {
+        bench.iter(|| {
+            black_box(graph.calculate_distance());
+        })
     });
 }
 
-fn calculate_distance_10_100(bench: &mut Bencher) {
-    let graph = build_graph(10, 100);
-    bench.iter(|| {
-        let _ = graph.calculate_distance();
+fn calculate_distance_10_100(c: &mut Criterion) {
+    c.bench_function("calculate_distance_10_100", |bench| {
+        let graph = build_graph(10, 100);
+        bench.iter(|| {
+            black_box(graph.calculate_distance());
+        })
     });
 }
 
 #[allow(dead_code)]
-fn calculate_distance_100_100(bench: &mut Bencher) {
+fn calculate_distance_100_100(c: &mut Criterion) {
     let graph = build_graph(100, 100);
-    bench.iter(|| {
-        let _ = graph.calculate_distance();
+    c.bench_function("calculate_distance_100_100", |bench| {
+        bench.iter(|| {
+            black_box(graph.calculate_distance());
+        })
     });
 }
 
-benchmark_group!(
+criterion_group!(
     benches,
     calculate_distance_3_3,
     calculate_distance_10_10,
@@ -64,9 +71,9 @@ benchmark_group!(
     calculate_distance_10_100
 );
 
-benchmark_main!(benches);
+criterion_main!(benches);
 
 // running 3 tests
-// test calculate_distance_10_10  ... bench:      14,508 ns/iter (+/- 133)
-// test calculate_distance_10_100 ... bench:     877,288 ns/iter (+/- 28,752)
-// test calculate_distance_3_3    ... bench:         629 ns/iter (+/- 6)
+// calculate_distance_3_3    time:   [566.42 ns 571.50 ns 578.62 ns]
+// calculate_distance_10_10  time:   [10.631 us 10.651 us 10.679 us]
+// calculate_distance_10_100 time:   [607.36 us 610.44 us 613.75 us]
