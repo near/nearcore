@@ -72,13 +72,8 @@ fn main() {
     let config = Config::from_file(&home_dir.join(CONFIG_FILENAME)).expect("can't load config");
 
     let key_path = home_dir.join(&config.validator_key_file);
-    let key_file = match KeyFile::from_file(&key_path) {
-        Ok(f) => f,
-        Err(e) => {
-            error!("Failed to open key file at {:?}: {:#}", &key_path, e);
-            return;
-        }
-    };
+    let key_file = KeyFile::from_file(&key_path)
+        .unwrap_or_else(|e| panic!("Failed to open key file at {:?}: {:#}", &key_path, e));
     // Support configuring if there is another key.
     let signer = InMemorySigner::from_file(&key_path).unwrap_or_else(|e| {
         panic!("Failed to initialize signer from key file at {:?}: {:#}", key_path, e)
