@@ -8,7 +8,7 @@ rust-version = "1.56.0"
 publish = false
 
 [dependencies]
-lru = "0.6.5"
+lru = "0.7.2"
 
 [dev-dependencies]
 bencher = "0.1.5"
