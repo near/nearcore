@@ -2821,7 +2821,6 @@ dependencies = [
  "serde",
  "strum",
  "tokio",
- "tracing",
 ]
 
 [[package]]
