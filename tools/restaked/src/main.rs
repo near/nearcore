@@ -80,13 +80,9 @@ fn main() {
         }
     };
     // Support configuring if there is another key.
-    let signer = match InMemorySigner::from_file(&key_path) {
-        Ok(s) => s,
-        Err(e) => {
-            error!("Failed to initialize signer from key file at {:?}: {:#}", key_path, e);
-            return;
-        }
-    };
+    let signer = InMemorySigner::from_file(&key_path).unwrap_or_else(|e| {
+        panic!("Failed to initialize signer from key file at {:?}: {:#}", key_path, e)
+    });
     let account_id = signer.account_id.clone();
     let mut last_stake_amount = stake_amount;
 
