@@ -18,7 +18,8 @@ use std::sync::{Arc, Mutex};
 /// Actor message which asks `PeerManagerActor` to register peer.
 /// Returns `RegisterPeerResult` with `Accepted` if connection should be kept
 /// or a reject response otherwise.
-#[derive(Clone, Debug)]
+#[derive(actix::Message, Clone, Debug)]
+#[rtype(result = "RegisterPeerResponse")]
 pub struct RegisterPeer {
     pub(crate) actor: Addr<PeerActor>,
     pub(crate) peer_info: PeerInfo,
@@ -49,10 +50,6 @@ impl deepsize::DeepSizeOf for RegisterPeer {
     }
 }
 
-impl Message for RegisterPeer {
-    type Result = RegisterPeerResponse;
-}
-
 #[derive(actix::MessageResponse, Debug)]
 pub enum RegisterPeerResponse {
     Accept(Option<PartialEdgeInfo>),
@@ -72,12 +69,9 @@ pub struct Unregister {
 
 /// Requesting peers from peer manager to communicate to a peer.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Clone, Debug)]
+#[derive(actix::Message, Clone, Debug)]
+#[rtype(result = "PeerRequestResult")]
 pub struct PeersRequest {}
-
-impl Message for PeersRequest {
-    type Result = PeerRequestResult;
-}
 
 #[derive(Debug, actix::MessageResponse)]
 pub struct PeerRequestResult {
@@ -89,26 +83,18 @@ pub struct PeerRequestResult {
 pub(crate) struct StopMsg {}
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Clone, Debug)]
+#[derive(actix::Message, Clone, Debug)]
 #[cfg(feature = "test_features")]
+#[rtype(result = "()")]
 pub struct StartRoutingTableSync {
     pub peer_id: PeerId,
 }
 
 #[cfg(feature = "test_features")]
-impl Message for StartRoutingTableSync {
-    type Result = ();
-}
-
-#[cfg(feature = "test_features")]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Clone, Debug)]
+#[derive(actix::Message, Clone, Debug)]
+#[rtype(result = "GetPeerIdResult")]
 pub struct GetPeerId {}
-
-#[cfg(feature = "test_features")]
-impl Message for GetPeerId {
-    type Result = GetPeerIdResult;
-}
 
 #[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
@@ -130,6 +116,8 @@ impl Debug for ValidateEdgeList {
 
 /// List of `Edges`, which we received from `source_peer_id` gor purpose of validation.
 /// Those are list of edges received through `NetworkRequests::Sync` or `NetworkRequests::IbfMessage`.
+#[derive(actix::Message)]
+#[rtype(result = "bool")]
 pub struct ValidateEdgeList {
     /// The list of edges is provided by `source_peer_id`, that peer will be banned
     ///if any of these edges are invalid.
@@ -148,10 +136,6 @@ pub struct ValidateEdgeList {
     #[cfg(feature = "test_features")]
     /// Feature to disable edge validation for purpose of testing.
     pub(crate) adv_disable_edge_signature_verification: bool,
-}
-
-impl Message for ValidateEdgeList {
-    type Result = bool;
 }
 
 #[derive(actix::MessageResponse, Debug)]
