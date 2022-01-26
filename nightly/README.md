@@ -80,7 +80,7 @@ optional `s`, `m` or `h` suffix.  If no suffix is given, `s` is
 assumed.  The default timeout is three minutes.  For example, the
 following increases timeout for a test to four minutes:
 
-    pytest --timeout=4m sanity/restaked.py
+    pytest --timeout=4m sanity/validator_switch.py
 
 `--release` makes the build use a release profile rather than a dev
 profile.  In other words, all `cargo` invocations are passed
