@@ -153,6 +153,10 @@ pub enum HandshakeFailureReason {
     GenesisMismatch(GenesisId),
     InvalidTarget,
 }
+const _: () = assert!(
+    std::mem::size_of::<HandshakeFailureReason>() <= 64,
+    "HandshakeFailureReason > 64 bytes"
+);
 
 impl fmt::Display for HandshakeFailureReason {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -198,7 +202,7 @@ pub enum PeerMessage {
     Block(Block),
 
     Transaction(SignedTransaction),
-    Routed(RoutedMessage),
+    Routed(Box<RoutedMessage>),
 
     /// Gracefully disconnect from other peer.
     Disconnect,
@@ -212,6 +216,7 @@ pub enum PeerMessage {
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingTableSyncV2(RoutingSyncV2),
 }
+const _: () = assert!(std::mem::size_of::<PeerMessage>() <= 1144, "PeerMessage > 1144 bytes");
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -219,6 +224,8 @@ pub enum PeerMessage {
 pub enum RoutingSyncV2 {
     Version2(RoutingVersion2),
 }
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+const _: () = assert!(std::mem::size_of::<RoutingSyncV2>() <= 80, "RoutingSyncV2 > 80 bytes");
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
