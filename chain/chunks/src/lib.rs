@@ -1392,9 +1392,10 @@ impl ShardsManager {
         chain_store: &mut ChainStore,
         rs: &mut ReedSolomonWrapper,
     ) -> Result<ProcessPartialEncodedChunkResult, Error> {
-        debug!(target: "chunks", "process partial encoded chunk {:?}, me: {:?}", partial_encoded_chunk.header.chunk_hash(), self.me);
         let header = &partial_encoded_chunk.header;
         let chunk_hash = header.chunk_hash();
+        debug!(target: "chunks", "process partial encoded chunk {:?} height {} shard {}, me: {:?}",
+               chunk_hash, header.height_created(), header.shard_id(), self.me);
         // Verify the partial encoded chunk is valid and worth processing
         // 1.a Leave if we received known chunk
         if let Some(entry) = self.encoded_chunks.get(&chunk_hash) {
@@ -1428,8 +1429,8 @@ impl ShardsManager {
                 // validate_chunk_header returns DBNotFoundError if the previous block is not ready
                 // in this case, we return NeedBlock instead of error
                 ErrorKind::DBNotFoundErr(_) => {
-                    debug!(target:"client", "Dropping partial encoded chunk {:?} because we don't have enough information to validate it",
-                           header.chunk_hash());
+                    debug!(target:"client", "Dropping partial encoded chunk {:?} height {}, shard_id {} because we don't have enough information to validate it",
+                           header.chunk_hash(), header.height_created(), header.shard_id());
                     return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
                 }
                 _ => return Err(chain_error.into()),
@@ -1474,7 +1475,6 @@ impl ShardsManager {
 
         // Merge parts and receipts included in the partial encoded chunk into chunk cache
         self.encoded_chunks.merge_in_partial_encoded_chunk(partial_encoded_chunk);
-        debug!(target:"client", "merged {:?}", self.encoded_chunks.get(&header.chunk_hash()).unwrap().parts);
 
         // 3. Process the forwarded parts in chunk_forwards_cache
         if let Some(forwarded_parts) = self.chunk_forwards_cache.pop(&chunk_hash) {
@@ -2296,7 +2296,7 @@ mod test {
 
     #[test]
     fn test_resend_chunk_requests() {
-        // Test that resending chunk requests won't request for parts the node already receives
+        // Test that resending chunk requests won't request for parts the node already received
         let mut fixture = ChunkTestFixture::new(true);
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_shard_tracker.clone()),
@@ -2358,6 +2358,37 @@ mod test {
 
         let requested_parts = collect_request_parts(&mut fixture);
         assert_eq!(requested_parts, (2..fixture.mock_chunk_parts.len() as u64).collect());
+
+        // immediately resend chunk requests
+        // this should not send any new requests because it doesn't pass the time check
+        shards_manager.resend_chunk_requests(&fixture.mock_chain_head);
+        let requested_parts = collect_request_parts(&mut fixture);
+        assert_eq!(requested_parts, HashSet::new());
+    }
+
+    #[test]
+    fn test_invalid_chunk() {
+        // Test that process_partial_encoded_chunk will reject invalid chunk
+        let mut fixture = ChunkTestFixture::default();
+        let mut shards_manager = ShardsManager::new(
+            Some(fixture.mock_shard_tracker.clone()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+            TEST_SEED,
+        );
+
+        // part id > num parts
+        let mut partial_encoded_chunk = fixture.make_partial_encoded_chunk(&[0]);
+        partial_encoded_chunk.parts[0].part_ord = fixture.mock_chunk_parts.len() as u64;
+        let result = shards_manager.process_partial_encoded_chunk(
+            MaybeValidated::from(&partial_encoded_chunk),
+            Some(&fixture.mock_chain_head),
+            &mut fixture.chain_store,
+            &mut fixture.rs,
+        );
+        assert_matches!(result, Err(Error::InvalidChunkPartId));
+
+        // TODO: add more test cases
     }
 
     #[test]
