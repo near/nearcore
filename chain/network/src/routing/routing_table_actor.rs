@@ -4,8 +4,8 @@ use crate::routing::graph::Graph;
 use crate::routing::routing_table_view::SAVE_PEERS_MAX_TIME;
 use crate::stats::metrics;
 use actix::{
-    Actor, ActorFuture, Addr, Context, ContextFutureSpawner, Handler, Message, Running,
-    SyncArbiter, System, WrapFuture,
+    Actor, ActorFuture, Addr, Context, ContextFutureSpawner, Handler, Running, SyncArbiter, System,
+    WrapFuture,
 };
 use near_network_primitives::types::{Edge, EdgeState};
 use near_performance_metrics_macros::perf;
@@ -447,7 +447,8 @@ impl RoutingTableActor {
 }
 
 /// Messages for `RoutingTableActor`
-#[derive(Debug)]
+#[derive(actix::Message, Debug)]
+#[rtype(result = "RoutingTableMessagesResponse")]
 pub enum RoutingTableMessages {
     /// Add verified edges to routing table actor and update stats.
     /// Each edge contains signature of both peers.
@@ -477,10 +478,6 @@ pub enum RoutingTableMessages {
     /// Those edges will be filtered, by removing existing edges, and then
     /// those edges will be sent to `EdgeValidatorActor`.
     ValidateEdgeList(ValidateEdgeList),
-}
-
-impl Message for RoutingTableMessages {
-    type Result = RoutingTableMessagesResponse;
 }
 
 #[derive(actix::MessageResponse, Debug)]
