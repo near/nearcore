@@ -501,7 +501,7 @@ impl PeerManagerActor {
         peer_type: PeerType,
         addr: Addr<PeerActor>,
         ctx: &mut Context<Self>,
-        throttle_controller: ThrottleController,
+        throttle_controller: Option<ThrottleController>,
     ) {
         let throttle_controller_clone = throttle_controller.clone();
         near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act, ctx| {
@@ -509,16 +509,13 @@ impl PeerManagerActor {
                 act.routing_table_addr
                     .send(ActixMessageWrapper::new_without_size(
                         RoutingTableMessages::AddPeerIfMissing(peer_id, None),
-                        Some(throttle_controller),
+                        throttle_controller,
                     ))
                     .into_actor(act)
                     .map(move |response, act, _ctx| match response.map(|x| x.into_inner()) {
-                        Ok(RoutingTableMessagesResponse::AddPeerResponse { seed }) => act
-                            .start_routing_table_syncv2(
-                                addr,
-                                seed,
-                                Some(throttle_controller_clone),
-                            ),
+                        Ok(RoutingTableMessagesResponse::AddPeerResponse { seed }) => {
+                            act.start_routing_table_syncv2(addr, seed, throttle_controller_clone)
+                        }
                         _ => error!(target: "network", "expected AddIbfSetResponse"),
                     })
                     .spawn(ctx);
@@ -620,7 +617,7 @@ impl PeerManagerActor {
                     peer_type,
                     addr.clone(),
                     ctx,
-                    throttle_controller,
+                    Some(throttle_controller),
                 );
                 Self::send_sync(peer_type, addr, ctx, target_peer_id, new_edge, Vec::new());
             },
@@ -1873,7 +1870,7 @@ impl PeerManagerActor {
                 PeerType::Inbound,
                 addr,
                 ctx,
-                throttle_controller.unwrap(),
+                throttle_controller,
             );
         }
     }
