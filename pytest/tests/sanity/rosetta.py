@@ -293,8 +293,29 @@ class RosettaRPC:
             }, **kw)
 
     def get_block(self, *, block_id: BlockIdentifier) -> JsonDict:
-        res = self.rpc('/block', block_identifier=block_identifier(block_id))
-        return res['block']
+
+        def fetch(block_id: BlockIdentifier) -> JsonDict:
+            block_id = block_identifier(block_id)
+            return self.rpc('/block', block_identifier=block_id)['block']
+
+        block = fetch(block_id)
+        if not block:
+            return block
+
+        # Verify that fetching block by index and hash produce the same result
+        # as well as getting individual transactions produce the same object as
+        # the one returned when fetching transactions individually.
+        #
+        # TODO(mpn): The order of operations is currently nondeterministic for
+        # non-genesis block.  Perform check only on genesis block for now.
+        if block['block_identifier']['index'] == 0:
+            assert block == fetch(block['block_identifier']['index'])
+            assert block == fetch(block['block_identifier']['hash'])
+            for tx in block['transactions']:
+                assert tx == self.get_transaction(
+                    block_id=block_id, tx_id=tx['transaction_identifier'])
+
+        return block
 
     def get_transaction(self, *, block_id: BlockIdentifier,
                         tx_id: TxIdentifier) -> JsonDict:
