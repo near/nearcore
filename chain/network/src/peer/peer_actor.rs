@@ -58,23 +58,23 @@ const MAX_PEER_MSG_PER_MIN: usize = usize::MAX;
 /// dispatching transactions when we should be focusing on consensus-related messages.
 const MAX_TRANSACTIONS_PER_BLOCK_MESSAGE: usize = 1000;
 /// Limit cache size of 1000 messages
-pub const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
+const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
-pub const DROP_DUPLICATED_MESSAGES_PERIOD: Duration = Duration::from_millis(50);
+const DROP_DUPLICATED_MESSAGES_PERIOD: Duration = Duration::from_millis(50);
 
-pub struct PeerActor {
+pub(crate) struct PeerActor {
     /// This node's id and address (either listening or socket address).
-    pub my_node_info: PeerInfo,
+    my_node_info: PeerInfo,
     /// Peer address from connection.
-    pub peer_addr: SocketAddr,
+    peer_addr: SocketAddr,
     /// Peer id and info. Present if outbound or ready.
-    pub peer_info: DisplayOption<PeerInfo>,
+    peer_info: DisplayOption<PeerInfo>,
     /// Peer type.
-    pub peer_type: PeerType,
+    peer_type: PeerType,
     /// Peer status.
-    pub peer_status: PeerStatus,
+    peer_status: PeerStatus,
     /// Protocol version to communicate with this peer.
-    pub protocol_version: ProtocolVersion,
+    protocol_version: ProtocolVersion,
     /// Framed wrapper to send messages through the TCP connection.
     framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
     /// Handshake timeout.
@@ -116,7 +116,7 @@ impl Debug for PeerActor {
 
 impl PeerActor {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub(crate) fn new(
         my_node_info: PeerInfo,
         peer_addr: SocketAddr,
         peer_info: Option<PeerInfo>,
@@ -187,7 +187,7 @@ impl PeerActor {
         };
     }
 
-    fn fetch_client_chain_info(&mut self, ctx: &mut Context<PeerActor>) {
+    fn fetch_client_chain_info(&self, ctx: &mut Context<PeerActor>) {
         ctx.wait(
             self.view_client_addr
                 .send(NetworkViewClientMessages::GetChainInfo)
@@ -206,7 +206,7 @@ impl PeerActor {
         );
     }
 
-    fn send_handshake(&mut self, ctx: &mut Context<PeerActor>) {
+    fn send_handshake(&self, ctx: &mut Context<PeerActor>) {
         if self.other_peer_id().is_none() {
             error!(target: "network", "Sending handshake to an unknown peer");
             return;
@@ -276,7 +276,7 @@ impl PeerActor {
         }
     }
 
-    fn receive_view_client_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
+    fn receive_view_client_message(&self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
         let mut msg_hash = None;
         let view_client_message = match msg {
             PeerMessage::Routed(message) => {
@@ -1077,7 +1077,7 @@ impl Handler<PeerManagerRequest> for PeerActor {
 
 /// Peer status.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum PeerStatus {
+enum PeerStatus {
     /// Waiting for handshake.
     Connecting,
     /// Ready to go.
