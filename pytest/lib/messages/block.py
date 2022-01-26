@@ -322,7 +322,7 @@ block_schema = [
                     'kind': 'option',
                     'type': Signature
                 }]],
-                ['latest_protocol_verstion', 'u32'],
+                ['latest_protocol_version', 'u32'],
             ]
         }
     ],
@@ -348,7 +348,7 @@ block_schema = [
                     'kind': 'option',
                     'type': Signature
                 }]],
-                ['latest_protocol_verstion', 'u32'],
+                ['latest_protocol_version', 'u32'],
             ]
         }
     ],
@@ -380,7 +380,7 @@ block_schema = [
                     'kind': 'option',
                     'type': Signature
                 }]],
-                ['latest_protocol_verstion', 'u32'],
+                ['latest_protocol_version', 'u32'],
             ]
         }
     ],
