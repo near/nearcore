@@ -218,8 +218,8 @@ impl JsonRpcHandler {
         }
     }
 
-    // `process_request` increments affected metrics but all the request
-    // processing is done by `process_request_internal`.
+    // `process_request` increments affected metrics but the request processing is done by
+    // `process_request_internal`.
     async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
         let timer = Instant::now();
 
@@ -250,7 +250,7 @@ impl JsonRpcHandler {
         response
     }
 
-    // Actually processes the request but doesn't update any metrics.
+    // Processes the request but doesn't update any metrics.
     async fn process_request_internal(&self, request: Request) -> Result<Value, RpcError> {
         #[cfg(feature = "test_features")]
         {
