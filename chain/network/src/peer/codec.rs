@@ -131,6 +131,34 @@ mod test {
     }
 
     #[test]
+    fn test_decode_too_short() {
+        let mut buffer = BytesMut::new();
+        buffer.put_u8(4u8);
+        buffer.put_u8(0u8);
+        buffer.put_u8(0u8);
+        let mut codec = Codec::default();
+        // length is too short
+        match codec.decode(&mut buffer) {
+            Ok(None) => {}
+            _ => {
+                panic!("expected Ok(None)")
+            }
+        }
+
+        buffer.put_u8(0u8);
+        buffer.put_u8(0u8);
+        buffer.put_u8(0u8);
+        buffer.put_u8(0u8);
+        // Length 4 + body of length 3 should also to decode
+        match codec.decode(&mut buffer) {
+            Ok(None) => {}
+            _ => {
+                panic!("expected Ok(None)")
+            }
+        }
+    }
+
+    #[test]
     fn test_peer_message_handshake() {
         let peer_info = PeerInfo::random();
         let fake_handshake = Handshake {
