@@ -39,7 +39,6 @@ near-stable-hasher = { path = "../../utils/near-stable-hasher", optional = true 
 near-store = { path = "../../core/store" }
 
 [dev-dependencies]
-cast = "0.2.5"
 criterion = { version = "0.3.5", default_features = false, features = ["html_reports", "cargo_bench_support"] }
 tempfile = "3"
 

@@ -2839,7 +2839,6 @@ dependencies = [
  "borsh",
  "bytes",
  "bytesize",
- "cast",
  "conqueue",
  "criterion",
  "deepsize",
