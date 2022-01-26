@@ -77,6 +77,7 @@ async fn build_streamer_message(
         as near_primitives::types::NumShards;
 
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
+
     let mut indexer_shards = (0..num_shards)
         .map(|shard_id| IndexerShard { shard_id, chunk: None, receipt_execution_outcomes: vec![] })
         .collect::<Vec<_>>();

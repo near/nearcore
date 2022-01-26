@@ -917,7 +917,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::blocks::RpcBlockError,
     > {
         let block_view =
-            self.view_client_addr.send(GetBlock(request_data.block_reference.into())).await??;
+            self.view_client_addr.send(GetBlock(request_data.block_reference)).await??;
         Ok(near_jsonrpc_primitives::types::blocks::RpcBlockResponse { block_view })
     }
 
