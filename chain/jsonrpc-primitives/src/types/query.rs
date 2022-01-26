@@ -4,7 +4,7 @@ use serde_json::Value;
 /// Max size of the query path (soft-deprecated)
 const QUERY_DATA_MAX_SIZE: usize = 10 * 1024;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct RpcQueryRequest {
     #[serde(flatten)]
     pub block_reference: near_primitives::types::BlockReference,
@@ -63,7 +63,7 @@ pub enum RpcQueryError {
     InternalError { error_message: String },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct RpcQueryResponse {
     #[serde(flatten)]
     pub kind: QueryResponseKind,

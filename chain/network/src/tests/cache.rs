@@ -32,10 +32,10 @@ fn announcement_same_epoch() {
     routing_table.add_account(announce0.clone());
     assert!(routing_table.contains_account(&announce0));
     assert!(routing_table.contains_account(&announce1));
-    assert_eq!(routing_table.get_announce_accounts().len(), 1);
+    assert_eq!(routing_table.get_announce_accounts().count(), 1);
     assert_eq!(routing_table.account_owner(&announce0.account_id).unwrap(), peer_id0);
     routing_table.add_account(announce1.clone());
-    assert_eq!(routing_table.get_announce_accounts().len(), 1);
+    assert_eq!(routing_table.get_announce_accounts().count(), 1);
     assert_eq!(routing_table.account_owner(&announce1.account_id).unwrap(), peer_id1);
 }
 
@@ -67,12 +67,12 @@ fn dont_load_on_build() {
 
     routing_table.add_account(announce0.clone());
     routing_table.add_account(announce1.clone());
-    let accounts = routing_table.get_announce_accounts();
-    assert!(vec![announce0, announce1].iter().all(|announce| { accounts.contains(announce) }));
-    assert_eq!(routing_table.get_announce_accounts().len(), 2);
+    let accounts: Vec<&AnnounceAccount> = routing_table.get_announce_accounts().collect();
+    assert!(vec![announce0, announce1].iter().all(|announce| { accounts.contains(&announce) }));
+    assert_eq!(accounts.len(), 2);
 
-    let mut routing_table1 = RoutingTableView::new(store);
-    assert!(routing_table1.get_announce_accounts().is_empty());
+    let routing_table1 = RoutingTableView::new(store);
+    assert_eq!(routing_table1.get_announce_accounts().count(), 0);
 }
 
 #[test]
@@ -94,11 +94,11 @@ fn load_from_disk() {
 
     // Announcement is added to cache of the first routing table and to disk
     routing_table.add_account(announce0.clone());
-    assert_eq!(routing_table.get_announce_accounts().len(), 1);
+    assert_eq!(routing_table.get_announce_accounts().count(), 1);
     // Cache of second routing table is empty
-    assert_eq!(routing_table1.get_announce_accounts().len(), 0);
+    assert_eq!(routing_table1.get_announce_accounts().count(), 0);
     // Try to find this peer and load it from disk
     assert_eq!(routing_table1.account_owner(&announce0.account_id).unwrap(), peer_id0);
     // Cache of second routing table should contain account loaded from disk
-    assert_eq!(routing_table1.get_announce_accounts().len(), 1);
+    assert_eq!(routing_table1.get_announce_accounts().count(), 1);
 }
