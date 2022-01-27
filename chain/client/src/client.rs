@@ -103,6 +103,9 @@ pub struct Client {
     last_time_head_progress_made: Instant,
     /// Keeps track of when the latest blocks and chunks were received.
     chunks_delay_tracker: ChunksDelayTracker,
+    /// Fast Forward accrued delta height used to calculate fast forwarded timestamps for each block.
+    #[cfg(feature = "sandbox")]
+    fastforward_accrued_delta: near_primitives::types::BlockHeightDelta,
 }
 
 impl Client {
@@ -191,6 +194,8 @@ impl Client {
             rebroadcasted_blocks: SizedCache::with_size(NUM_REBROADCAST_BLOCKS),
             last_time_head_progress_made: Clock::instant(),
             chunks_delay_tracker: Default::default(),
+            #[cfg(feature = "sandbox")]
+            fastforward_accrued_delta: 0,
         })
     }
 
@@ -494,7 +499,8 @@ impl Client {
         let next_epoch_protocol_version =
             self.runtime_adapter.get_epoch_protocol_version(&next_epoch_id)?;
 
-        let block = Block::produce(
+        #[allow(unused_mut)] // unused if not in sandbox
+        let mut block = Block::produce(
             this_epoch_protocol_version,
             next_epoch_protocol_version,
             prev_header,
@@ -515,6 +521,23 @@ impl Client {
             next_bp_hash,
             block_merkle_root,
         );
+
+        // If sandbox is enabled, add the fast-forwarded block timestamp to the produced block:
+        #[cfg(feature = "sandbox")]
+        {
+            let header = match block {
+                Block::BlockV1(ref mut block) => &mut block.header,
+                Block::BlockV2(ref mut block) => &mut block.header,
+            };
+            let mut inner_lite = match header {
+                BlockHeader::BlockHeaderV1(ref mut header) => &mut header.inner_lite,
+                BlockHeader::BlockHeaderV2(ref mut header) => &mut header.inner_lite,
+                BlockHeader::BlockHeaderV3(ref mut header) => &mut header.inner_lite,
+            };
+
+            // Add in the accrued delta timestamp:
+            inner_lite.timestamp += self.sandbox_delta_time();
+        }
 
         // Update latest known even before returning block out, to prevent race conditions.
         self.chain.mut_store().save_latest_known(LatestKnown {
@@ -960,6 +983,13 @@ impl Client {
         self.doomslug.set_tip(Clock::instant(), tip.last_block_hash, height, last_final_height);
 
         Ok(())
+    }
+
+    /// Gets the advanced timestamp delta in nanoseconds for sandbox once it has been fast-forwarded
+    #[cfg(feature = "sandbox")]
+    pub fn sandbox_delta_time(&self) -> u64 {
+        let avg_block_prod_time = (self.config.min_block_production_delay.as_nanos() + self.config.max_block_production_delay.as_nanos()) / 2;
+        (self.fastforward_accrued_delta as u128 * avg_block_prod_time) as u64
     }
 
     pub fn send_approval(

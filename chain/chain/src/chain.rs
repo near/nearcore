@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 
 use borsh::BorshSerialize;
-use chrono::Duration;
 use itertools::Itertools;
 use near_primitives::time::Clock;
 use rand::rngs::StdRng;
@@ -86,6 +85,7 @@ const NUM_ORPHAN_ANCESTORS_CHECK: u64 = 5;
 const MAX_ORPHAN_MISSING_CHUNKS: usize = 100;
 
 /// Refuse blocks more than this many block intervals in the future (as in bitcoin).
+#[allow(dead_code)] // dead_code if in sandbox
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 
 /// Over this block height delta in advance if we are not chunk producer - route tx to upcoming validators.
@@ -4219,8 +4219,10 @@ impl<'a> ChainUpdate<'a> {
     where
         F: FnMut(ChallengeBody),
     {
-        // Refuse blocks from the too distant future.
-        if header.timestamp() > Clock::utc() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
+        // Refuse blocks from the too distant future. Only exception to this is while we're within
+        // sandbox, we're allowed to jump to the future via fast forwarding.
+        #[cfg(not(feature = "sandbox"))]
+        if header.timestamp() > Clock::utc() + chrono::Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
             return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp()).into());
         }
 
