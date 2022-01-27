@@ -276,7 +276,7 @@ fn main() -> Result<()> {
             };
             let system = actix::System::new();
             system.block_on(async move {
-                let indexer = near_indexer::Indexer::new(indexer_config);
+                let indexer = near_indexer::Indexer::new(indexer_config).expect("Indexer::new()");
                 let stream = indexer.streamer();
                 actix::spawn(listen_blocks(stream));
             });

@@ -167,7 +167,8 @@ tx = sign_staking_tx(node2.signer_key, node2.validator_key,
                      base58.b58decode(hash_.encode('utf8')))
 boot_node.send_tx(tx)
 
-assert (get_validators() == set(["test0", "test2", "test3"])), get_validators()
+validators = get_validators()
+assert validators == set(["test0", "test2", "test3"]), validators
 
 while True:
     if time.time() - started > TIMEOUT:

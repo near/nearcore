@@ -3,7 +3,6 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{Cursor, Read, Write};
-use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -479,7 +478,7 @@ impl Trie {
         let storage =
             self.storage.as_caching_storage().expect("Storage should be TrieCachingStorage");
         let storage = TrieRecordingStorage {
-            store: Arc::clone(&storage.store),
+            store: storage.store.clone(),
             shard_uid: storage.shard_uid,
             recorded: RefCell::new(Default::default()),
         };
