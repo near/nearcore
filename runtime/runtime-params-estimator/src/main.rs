@@ -69,7 +69,7 @@ struct CliArgs {
     #[clap(long)]
     full: bool,
     /// Print extra debug information
-    #[clap(long, multiple(true), possible_values=&["io", "rocksdb"])]
+    #[clap(long, multiple(true), possible_values=&["io", "rocksdb", "least-squares"])]
     debug: Vec<String>,
     /// Extra configuration parameters for RocksDB specific estimations
     #[clap(flatten)]
@@ -210,6 +210,7 @@ fn main() -> anyhow::Result<()> {
         vm_kind,
         costs_to_measure,
         rocksdb_test_config,
+        debug_least_squares: debug_options.contains(&"least-squares"),
     };
     let cost_table = runtime_params_estimator::run(config);
 
