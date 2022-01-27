@@ -105,6 +105,9 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = T>>(
                 let (least_validator_count, shard_stake, shard_id) =
                     shard_index.pop().expect("shard_index should never be empty");
                 if least_validator_count >= min_validators_per_shard {
+                    // All remaining shards have min_validators_per_shard chunk
+                    // producers assigned to them.  Don’t assign current cp to
+                    // any shard and move to next cp.
                     buffer.push((least_validator_count, shard_stake, shard_id));
                     break;
                 } else if result[usize::try_from(shard_id).unwrap()].contains(&cp) {
@@ -114,6 +117,9 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = T>>(
                     // issue we should switch to a hash set.
                     buffer.push((least_validator_count, shard_stake, shard_id))
                 } else {
+                    // `cp` is not yet assigned to the shard and the shard still
+                    // needs more validators.  Assign `cp` to it and move to
+                    // next cp.
                     buffer.push((
                         least_validator_count + 1,
                         shard_stake + cp.get_stake(),
