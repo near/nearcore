@@ -172,9 +172,9 @@ impl TrieUpdate {
         self.root
     }
 
-    pub fn update_active_worker(&mut self, active_worker: Option<ActiveWorker>) {
+    pub fn update_active_worker(&self, active_worker: Option<ActiveWorker>) {
         // TODO: assert caching storage?
-        if let Some(&mut storage) = self.trie.storage.as_caching_storage() {
+        if let Some(storage) = self.trie.storage.as_caching_storage() {
             storage.cache.update_active_worker(active_worker);
         }
     }

@@ -72,7 +72,7 @@ impl TrieCache {
             if let Some(ActiveWorker { block_hash, .. }) = self.active_worker {
                 if let Some(recorded_block_hash) = self.block_touches.get(&hash) {
                     // if active block hash matches recorded block hash, we can't evict the element
-                    if block_hash == recorded_block_hash {
+                    if block_hash == *recorded_block_hash {
                         self.inner.put(hash, value);
                     }
                 }
