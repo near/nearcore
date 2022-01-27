@@ -157,6 +157,10 @@ impl<'a> RuntimeExt<'a> {
     pub fn protocol_version(&self) -> ProtocolVersion {
         self.current_protocol_version
     }
+
+    pub fn clear_active_worker(&self) {
+        self.trie_update.update_active_worker(None);
+    }
 }
 
 fn wrap_storage_error(error: StorageError) -> VMLogicError {
