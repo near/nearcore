@@ -121,7 +121,7 @@ impl SyncTrieCache {
     pub fn chargeable_get(&self, hash: &CryptoHash) -> (Option<Vec<u8>>, bool) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
         let (value, is_charge) = guard.chargeable_get(hash);
-        (value.map(Clone::clone()), is_charge)
+        (value.map(Clone::clone), is_charge)
     }
 
     // TODO: Can we remove some key in the middle of the block, which breaks node touch charge logic?
