@@ -31,10 +31,10 @@ impl TrieCache {
         // eviction?
     }
 
-    fn pop(&mut self, hash: &CryptoHash) {
-        self.inner.pop(hash);
+    fn pop(&mut self, hash: &CryptoHash) -> Option<Vec<u8>> {
         // eviction?
         self.key_touch_records.remove(hash);
+        self.inner.pop(hash)
     }
 }
 
