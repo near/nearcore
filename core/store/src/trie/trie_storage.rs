@@ -17,23 +17,73 @@ use std::io::ErrorKind;
 pub struct SyncTrieCache(Arc<Mutex<TrieCache>>);
 
 // Maps account (contract) id to the last block hash for which some key was touched
-struct KeyTouchRecord(HashMap<AccountId, CryptoHash>);
+pub struct KeyTouchRecords(HashMap<AccountId, CryptoHash>);
+
+// Active trie worker - pair (block_hash, account (contract) id)
+pub struct ActiveWorker {
+    pub block_hash: CryptoHash,
+    pub account_id: AccountId,
+}
 
 struct TrieCache {
     inner: LruCache<CryptoHash, Vec<u8>>,
-    active_block_hash: Option<CryptoHash>,
-    key_touch_records: HashMap<CryptoHash, KeyTouchRecord>,
+    cap: usize,
+    active_worker: Option<ActiveWorker>,
+    // Key hash -> Last recorded block hash
+    block_touches: HashMap<CryptoHash, CryptoHash>,
+    // Key hash -> Vector of accounts which took this key
+    account_touches: HashMap<CryptoHash, HashSet<AccountId>>,
 }
 
 impl TrieCache {
+    pub fn get(&mut self, hash: &CryptoHash) -> Option<&Vec<u8>> {
+        self.inner.get(hash)
+    }
+
+    pub fn chargeable_get(&mut self, hash: &CryptoHash) -> (Option<&Vec<u8>>, bool) {
+        match self.inner.get(hash) {
+            Some(value) => {
+                // value was already moved to head in LRU
+                let mut need_charge = false;
+                if let Some(ActiveWorker { block_hash, account_id }) = &self.active_worker {
+                    if let Some(recorded_block_hash) = self.block_touches.get(hash) {
+                        if block_hash != recorded_block_hash {
+                            self.block_touches.insert(hash.clone(), block_hash.clone());
+                            self.account_touches.insert(hash.clone(), Default::default());
+                        }
+                        if let Some(accounts) = self.account_touches.get_mut(hash) {
+                            need_charge = accounts.contains(account_id);
+                            accounts.insert(account_id.clone());
+                        }
+                    }
+                }
+                (Some(value), need_charge)
+            }
+            None => (None, false),
+        }
+    }
+
     fn put(&mut self, hash: CryptoHash, value: Vec<u8>) {
         self.inner.put(hash, value);
-        // eviction?
+        // Eviction
+        while self.inner.len() > self.cap {
+            // If number of touched nodes among all contracts in chunk is < 2 * cap, we do it no more than 1 time per entry
+            let Some((hash, value)) = self.inner.pop_lru();
+            if let Some(ActiveWorker { block_hash, .. }) = self.active_worker {
+                if let Some(recorded_block_hash) = self.block_touches.get(&hash) {
+                    // if active block hash matches recorded block hash, we can't evict the element
+                    if block_hash == recorded_block_hash {
+                        self.inner.put(hash, value);
+                    }
+                }
+            }
+        }
     }
 
     fn pop(&mut self, hash: &CryptoHash) -> Option<Vec<u8>> {
         // eviction?
-        self.key_touch_records.remove(hash);
+        self.block_touches.clear();
+        self.account_touches.clear();
         self.inner.pop(hash)
     }
 }
@@ -43,16 +93,29 @@ impl SyncTrieCache {
         // Self(Arc::new(Mutex::new(LruCache::new(TRIE_MAX_CACHE_SIZE))))
         Self(Arc::new(Mutex::new(TrieCache {
             inner: LruCache::unbounded(),
-            active_block_hash: None,
-            key_touch_records: Default::default(),
+            cap: TRIE_MAX_CACHE_SIZE,
+            active_worker: None,
+            block_touches: Default::default(),
+            account_touches: Default::default(),
         })))
     }
 
     pub fn clear(&self) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
         guard.inner.clear();
-        guard.active_block_hash = None;
-        guard.key_touch_records.clear();
+        guard.active_worker = None;
+        guard.block_touches.clear();
+        guard.account_touches.clear();
+    }
+
+    pub fn update_active_worker(&self, active_worker: Option<ActiveWorker>) {
+        let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
+        guard.active_worker = active_worker;
+    }
+
+    pub fn chargeable_get(&self, hash: &CryptoHash) -> (Option<&Vec<u8>>, bool) {
+        let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
+        guard.chargeable_get(hash)
     }
 
     // TODO: Can we remove some key in the middle of the block, which breaks node touch charge logic?
@@ -61,6 +124,7 @@ impl SyncTrieCache {
         for (hash, opt_value_rc) in ops {
             if let Some(value_rc) = opt_value_rc {
                 if let (Some(value), _rc) = decode_value_with_rc(&value_rc) {
+                    // TODO: put TRIE_LIMIT_CACHED_VALUE_SIZE to runtime config
                     if value.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
                         guard.put(hash, value.to_vec());
                     }

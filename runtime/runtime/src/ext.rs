@@ -17,7 +17,7 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider};
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
-use near_store::{get_code, TrieUpdate, TrieUpdateValuePtr};
+use near_store::{get_code, ActiveWorker, TrieUpdate, TrieUpdateValuePtr};
 use near_vm_errors::{AnyError, HostError, VMLogicError};
 use near_vm_logic::{External, ValuePtr};
 
@@ -79,6 +79,10 @@ impl<'a> RuntimeExt<'a> {
         epoch_info_provider: &'a dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
     ) -> Self {
+        trie_update.update_active_worker(Some(ActiveWorker {
+            block_hash: last_block_hash.clone(),
+            account_id: account_id.clone(),
+        }));
         RuntimeExt {
             trie_update,
             account_id,
@@ -388,5 +392,11 @@ impl<'a> External for RuntimeExt<'a> {
         self.epoch_info_provider
             .validator_total_stake(self.epoch_id, self.prev_block_hash)
             .map_err(|e| ExternalError::ValidatorError(e).into())
+    }
+}
+
+impl Drop for RuntimeExt {
+    fn drop(&mut self) {
+        self.trie_update.update_active_worker(None);
     }
 }

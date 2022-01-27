@@ -10,6 +10,8 @@ use crate::trie::TrieChanges;
 use crate::StorageError;
 
 use super::{Trie, TrieIterator};
+use crate::trie::trie_storage::ActiveWorker;
+use near_primitives::account::id::AccountId;
 use near_primitives::trie_key::TrieKey;
 use std::rc::Rc;
 
@@ -168,6 +170,13 @@ impl TrieUpdate {
 
     pub fn get_root(&self) -> CryptoHash {
         self.root
+    }
+
+    pub fn update_active_worker(&mut self, active_worker: Option<ActiveWorker>) {
+        // TODO: assert caching storage?
+        if let Some(&mut storage) = self.trie.storage.as_caching_storage() {
+            storage.cache.update_active_worker(active_worker);
+        }
     }
 }
 
