@@ -187,7 +187,7 @@ impl PeerActor {
         };
     }
 
-    fn fetch_client_chain_info(&mut self, ctx: &mut Context<PeerActor>) {
+    fn fetch_client_chain_info(&self, ctx: &mut Context<PeerActor>) {
         ctx.wait(
             self.view_client_addr
                 .send(NetworkViewClientMessages::GetChainInfo)
@@ -206,7 +206,7 @@ impl PeerActor {
         );
     }
 
-    fn send_handshake(&mut self, ctx: &mut Context<PeerActor>) {
+    fn send_handshake(&self, ctx: &mut Context<PeerActor>) {
         if self.other_peer_id().is_none() {
             error!(target: "network", "Sending handshake to an unknown peer");
             return;
@@ -276,7 +276,7 @@ impl PeerActor {
         }
     }
 
-    fn receive_view_client_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
+    fn receive_view_client_message(&self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
         let mut msg_hash = None;
         let view_client_message = match msg {
             PeerMessage::Routed(message) => {
