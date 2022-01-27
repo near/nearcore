@@ -48,6 +48,7 @@ impl TrieCache {
                 if let Some(ActiveWorker { block_hash, account_id }) = &self.active_worker {
                     if let Some(recorded_block_hash) = self.block_touches.get(hash) {
                         if block_hash != recorded_block_hash {
+                            // New block occurred; need to refresh all touches within a block
                             self.block_touches.insert(hash.clone(), block_hash.clone());
                             self.account_touches.insert(hash.clone(), Default::default());
                         }
@@ -117,10 +118,10 @@ impl SyncTrieCache {
         guard.active_worker = active_worker;
     }
 
-    pub fn chargeable_get(&self, hash: &CryptoHash) -> (Option<&Vec<u8>>, bool) {
+    pub fn chargeable_get(&self, hash: &CryptoHash) -> (Option<Vec<u8>>, bool) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
         let (value, is_charge) = guard.chargeable_get(hash);
-        (value, is_charge)
+        (value.map(Clone::clone()), is_charge)
     }
 
     // TODO: Can we remove some key in the middle of the block, which breaks node touch charge logic?

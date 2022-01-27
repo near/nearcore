@@ -620,7 +620,7 @@ impl Trie {
                 if need_charge {
                     self.counter.increment();
                 }
-                return Ok(value.clone());
+                return Ok(value);
             }
         }
 
