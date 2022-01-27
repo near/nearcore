@@ -68,6 +68,10 @@ pub struct Client {
     #[cfg(feature = "test_features")]
     pub adv_produce_blocks_only_valid: bool,
 
+    /// Fast Forward accrued delta height used to calculate fast forwarded timestamps for each block.
+    #[cfg(feature = "sandbox")]
+    pub(crate) fastforward_accrued_delta: near_primitives::types::BlockHeightDelta,
+
     pub config: ClientConfig,
     pub sync_status: SyncStatus,
     pub chain: Chain,
@@ -103,9 +107,6 @@ pub struct Client {
     last_time_head_progress_made: Instant,
     /// Keeps track of when the latest blocks and chunks were received.
     chunks_delay_tracker: ChunksDelayTracker,
-    /// Fast Forward accrued delta height used to calculate fast forwarded timestamps for each block.
-    #[cfg(feature = "sandbox")]
-    fastforward_accrued_delta: near_primitives::types::BlockHeightDelta,
 }
 
 impl Client {
