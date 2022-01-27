@@ -25,7 +25,7 @@ pub struct ThreadNode {
 
 fn start_thread(config: NearConfig, path: PathBuf) -> ShutdownableThread {
     ShutdownableThread::start("test", move || {
-        start_with_config(&path, config);
+        start_with_config(&path, config).expect("start_with_config");
     })
 }
 

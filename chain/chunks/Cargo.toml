@@ -14,7 +14,7 @@ rand = "0.7"
 chrono = "0.4.6"
 log = "0.4"
 borsh = "0.9"
-cached = "0.23"
+lru = "0.7.2"
 reed-solomon-erasure = "4"
 
 near-crypto = { path = "../../core/crypto" }
@@ -28,6 +28,7 @@ near-network-primitives = { path = "../network-primitives" }
 
 [dev-dependencies]
 near-logger-utils = { path = "../../test-utils/logger" }
+assert_matches = "1.5.0"
 
 [features]
 byzantine_asserts = ["near-chain/byzantine_asserts"]

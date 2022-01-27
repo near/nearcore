@@ -17,7 +17,6 @@ fn try_main() -> io::Result<()> {
         &["--features", "nightly_protocol_features"],
         "nightly_test_contract_rs",
     )?;
-    build_contract("./tiny-contract-rs", &[], "tiny_contract_rs")?;
     build_contract("./contract-for-fuzzing-rs", &[], "contract_for_fuzzing_rs")?;
     build_contract(
         "./test-contract-rs",
@@ -33,7 +32,8 @@ fn build_contract(dir: &str, args: &[&str], output: &str) -> io::Result<()> {
     cmd.current_dir(dir);
     check_status(cmd)?;
 
-    let target_dir = shared_target_dir().unwrap_or_else(|| format!("./{}/target", dir).into());
+    let target_dir =
+        Path::new(dir).join(shared_target_dir().unwrap_or(Path::new("target").to_path_buf()));
     fs::copy(
         target_dir.join(format!("wasm32-unknown-unknown/release/{}.wasm", dir.replace('-', "_"))),
         format!("./res/{}.wasm", output),

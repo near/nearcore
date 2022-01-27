@@ -6,9 +6,9 @@ use clap::{App, AppSettings, Arg, SubCommand};
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use nearcore::get_default_home;
 
-fn generate_key_to_file(account_id: &str, key: SecretKey, path: PathBuf) {
+fn generate_key_to_file(account_id: &str, key: SecretKey, path: &PathBuf) -> std::io::Result<()> {
     let signer = InMemorySigner::from_secret_key(account_id.parse().unwrap(), key);
-    signer.write_to_file(path.as_path());
+    signer.write_to_file(path.as_path())
 }
 
 fn main() {
@@ -72,7 +72,10 @@ fn main() {
                     let key_file_name = format!("signer{}_key.json", i);
                     let mut path = home_dir.to_path_buf();
                     path.push(&key_file_name);
-                    generate_key_to_file(account_id, key.clone(), path);
+                    if let Err(e) = generate_key_to_file(account_id, key.clone(), &path) {
+                        eprintln!("Error writing key to {}: {}", path.display(), e);
+                        return;
+                    }
                 }
 
                 pks.push(key.public_key());
@@ -89,7 +92,10 @@ fn main() {
                     account_id.expect("Account id must be specified if --generate-config is used");
                 let mut path = home_dir.to_path_buf();
                 path.push(nearcore::config::VALIDATOR_KEY_FILE);
-                generate_key_to_file(account_id, key, path);
+                if let Err(e) = generate_key_to_file(account_id, key, &path) {
+                    eprintln!("Error writing key to {}: {}", path.display(), e);
+                    return;
+                }
             }
         }
         ("node-key", Some(_args)) => {
@@ -98,7 +104,10 @@ fn main() {
             if generate_config {
                 let mut path = home_dir.to_path_buf();
                 path.push(nearcore::config::NODE_KEY_FILE);
-                generate_key_to_file("node", key, path);
+                if let Err(e) = generate_key_to_file("node", key, &path) {
+                    eprintln!("Error writing key to {}: {}", path.display(), e);
+                    return;
+                }
             }
         }
         (_, _) => unreachable!(),

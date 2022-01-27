@@ -5,6 +5,7 @@ use std::sync::Arc;
 use actix::{Actor, Addr, Arbiter};
 use actix_rt::ArbiterHandle;
 use actix_web;
+use anyhow::Context;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::allocator::reset_memory_usage_max;
 use tracing::{error, info, trace};
@@ -15,26 +16,24 @@ use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 
 use near_network::routing::start_routing_table_actor;
-use near_network::types::NetworkRecipient;
+use near_network::test_utils::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_primitives::network::PeerId;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
-use near_store::migrations::migrate_29_to_30;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
-    migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_21_to_22,
-    migrate_25_to_26, migrate_28_to_29, migrate_6_to_7, migrate_7_to_8, migrate_8_to_9,
-    migrate_9_to_10, set_store_version,
+    migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_20_to_21,
+    migrate_21_to_22, migrate_25_to_26, migrate_26_to_27, migrate_28_to_29, migrate_29_to_30,
+    migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
 };
-use near_store::migrations::{migrate_20_to_21, migrate_26_to_27};
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
 
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
 use crate::migrations::{
     migrate_12_to_13, migrate_18_to_19, migrate_19_to_20, migrate_22_to_23, migrate_23_to_24,
-    migrate_24_to_25,
+    migrate_24_to_25, migrate_30_to_31,
 };
 pub use crate::runtime::NightshadeRuntime;
 pub use crate::shard_tracker::TrackedConfig;
@@ -256,6 +255,11 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         info!(target: "near", "Migrate DB from version 29 to 30");
         migrate_29_to_30(path);
     }
+    if db_version <= 30 {
+        // version 30 => 31: recompute block ordinal due to a bug fixed in #5761
+        info!(target: "near", "Migrate DB from version 30 to 31");
+        migrate_30_to_31(path, &near_config);
+    }
 
     #[cfg(feature = "nightly_protocol")]
     {
@@ -272,7 +276,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
     }
 }
 
-pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Arc<Store> {
+pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Store {
     let path = get_store_path(home_dir);
     let store_exists = store_path_exists(&path);
     if store_exists {
@@ -292,12 +296,12 @@ pub struct NearNode {
     pub rpc_servers: Vec<(&'static str, actix_web::dev::Server)>,
 }
 
-pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
+pub fn start_with_config(home_dir: &Path, config: NearConfig) -> Result<NearNode, anyhow::Error> {
     let store = init_and_migrate_store(home_dir, &config);
 
     let runtime = Arc::new(NightshadeRuntime::with_config(
         home_dir,
-        Arc::clone(&store),
+        store.clone(),
         &config,
         config.client_config.trie_viewer_state_size_limit,
         config.client_config.max_gas_burnt_view,
@@ -337,7 +341,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     let arbiter = Arbiter::new();
     let client_actor1 = client_actor.clone().recipient();
     let view_client1 = view_client.clone().recipient();
-    config.network_config.verify();
+    config.network_config.verify().with_context(|| "start_with_config")?;
     let network_config = config.network_config;
     let routing_table_addr =
         start_routing_table_actor(PeerId::new(network_config.public_key.clone()), store.clone());
@@ -391,10 +395,10 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     #[cfg(feature = "performance_stats")]
     reset_memory_usage_max();
 
-    NearNode {
+    Ok(NearNode {
         client: client_actor,
         view_client,
         rpc_servers,
         arbiters: vec![client_arbiter_handle, arbiter.handle()],
-    }
+    })
 }

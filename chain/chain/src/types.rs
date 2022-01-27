@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
@@ -16,7 +15,7 @@ use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::errors::InvalidTxError;
+use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -25,8 +24,8 @@ pub use near_primitives::state_part::PartId;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
+    AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, Gas,
+    MerkleHash, NumBlocks, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
@@ -258,11 +257,11 @@ where
 /// Additionally handles validators.
 pub trait RuntimeAdapter: Send + Sync {
     /// Get store and genesis state roots
-    fn genesis_state(&self) -> (Arc<Store>, Vec<StateRoot>);
+    fn genesis_state(&self) -> (Store, Vec<StateRoot>);
 
     fn get_tries(&self) -> ShardTries;
 
-    fn get_store(&self) -> Arc<Store>;
+    fn get_store(&self) -> Store;
 
     /// Returns trie. Since shard layout may change from epoch to epoch, `shard_id` itself is
     /// not enough to identify the trie. `prev_hash` is used to identify the epoch the given
@@ -516,6 +515,12 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Get epoch id given hash of previous block.
     fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error>;
+
+    /// Get epoch height given hash of previous block.
+    fn get_epoch_height_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<EpochHeight, Error>;
 
     /// Get next epoch id given hash of previous block.
     fn get_next_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash)
@@ -787,6 +792,11 @@ pub trait RuntimeAdapter: Send + Sync {
             })
             .collect()
     }
+
+    fn get_protocol_upgrade_block_height(
+        &self,
+        block_hash: CryptoHash,
+    ) -> Result<Option<BlockHeight>, EpochError>;
 }
 
 /// The last known / checked height and time when we have processed it.

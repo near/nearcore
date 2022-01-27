@@ -68,9 +68,19 @@ You can join all the active networks:
 
 Check the `nearup` repository for [more details](https://github.com/near/nearup) how to run with or without docker.
 
-To learn how to become validator, checkout [documentation](https://docs.nearprotocol.com/docs/validator/staking-overview).
+To learn how to become validator, checkout [documentation](https://docs.near.org/docs/develop/node/validator/staking-and-delegation).
 
 ## Contributing
 
 The workflow and details of setup to contribute are described in [CONTRIBUTING.md](CONTRIBUTING.md), and security policy is described in [SECURITY.md](SECURITY.md).
 To propose new protocol changes or standards use [Specification & Standards repository](https://github.com/nearprotocol/NEPs).
+
+## Getting in Touch
+
+We use Zulip for semi-synchronous technical discussion, feel free to chime in:
+
+https://near.zulipchat.com/
+
+For non-technical discussion and overall direction of the project, see our Discourse forum:
+
+https://gov.near.org

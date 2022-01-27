@@ -20,7 +20,7 @@ pub trait Signer: Sync + Send {
     fn compute_vrf_with_proof(&self, _data: &[u8]) -> (crate::vrf::Value, crate::vrf::Proof);
 
     /// Used by test infrastructure, only implement if make sense for testing otherwise raise `unimplemented`.
-    fn write_to_file(&self, _path: &Path) {
+    fn write_to_file(&self, _path: &Path) -> std::io::Result<()> {
         unimplemented!();
     }
 }
@@ -79,8 +79,8 @@ impl Signer for InMemorySigner {
         secret_key.compute_vrf_with_proof(&data)
     }
 
-    fn write_to_file(&self, path: &Path) {
-        KeyFile::from(self).write_to_file(path);
+    fn write_to_file(&self, path: &Path) -> std::io::Result<()> {
+        KeyFile::from(self).write_to_file(path)
     }
 }
 

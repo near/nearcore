@@ -78,14 +78,16 @@ pub const MAX_ORPHAN_SIZE: usize = 1024;
 const MAX_ORPHAN_AGE_SECS: u64 = 300;
 
 // Number of orphan ancestors should be checked to request chunks
-const NUM_ORPHAN_ANCESTORS_CHECK: u64 = 5;
+// Orphans for which we will request for missing chunks must satisfy,
+// its NUM_ORPHAN_ANCESTORS_CHECK'th ancestor has been accepted
+pub const NUM_ORPHAN_ANCESTORS_CHECK: u64 = 2;
 
 // Maximum number of orphans that we can request missing chunks
 // Note that if there are no forks, the maximum number of orphans we would
 // request missing chunks will not exceed NUM_ORPHAN_ANCESTORS_CHECK,
 // this number only adds another restriction when there are multiple forks.
 // It should almost never be hit
-const MAX_ORPHAN_MISSING_CHUNKS: usize = 100;
+const MAX_ORPHAN_MISSING_CHUNKS: usize = 5;
 
 /// Refuse blocks more than this many block intervals in the future (as in bitcoin).
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
@@ -1636,7 +1638,7 @@ impl Chain {
     ) -> Result<ShardStateSyncResponseHeader, Error> {
         // Check cache
         let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
-        if let Ok(Some(header)) = self.store.owned_store().get_ser(ColStateHeaders, &key) {
+        if let Ok(Some(header)) = self.store.store().get_ser(ColStateHeaders, &key) {
             return Ok(header);
         }
 
@@ -1807,7 +1809,7 @@ impl Chain {
         };
 
         // Saving the header data
-        let mut store_update = self.store.owned_store().store_update();
+        let mut store_update = self.store.store().store_update();
         store_update.set_ser(ColStateHeaders, &key, &shard_state_header)?;
         store_update.commit()?;
 
@@ -1822,7 +1824,7 @@ impl Chain {
     ) -> Result<Vec<u8>, Error> {
         // Check cache
         let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-        if let Ok(Some(state_part)) = self.store.owned_store().get(ColStateParts, &key) {
+        if let Ok(Some(state_part)) = self.store.store().get(ColStateParts, &key) {
             return Ok(state_part);
         }
 
@@ -1869,7 +1871,7 @@ impl Chain {
         self.get_state_response_header(shard_id, sync_hash)?;
 
         // Saving the part data
-        let mut store_update = self.store.owned_store().store_update();
+        let mut store_update = self.store.store().store_update();
         store_update.set(ColStateParts, &key, &state_part);
         store_update.commit()?;
 
@@ -2042,7 +2044,7 @@ impl Chain {
         }
 
         // Saving the header data.
-        let mut store_update = self.store.owned_store().store_update();
+        let mut store_update = self.store.store().store_update();
         let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
         store_update.set_ser(ColStateHeaders, &key, &shard_state_header)?;
         store_update.commit()?;
@@ -2077,8 +2079,9 @@ impl Chain {
         }
 
         // Saving the part data.
-        let mut store_update = self.store.owned_store().store_update();
-        let key = StatePartKey(sync_hash, shard_id, part_id.idx).try_to_vec()?;
+
+        let mut store_update = self.store.store().store_update();
+        let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
         store_update.set(ColStateParts, &key, data);
         store_update.commit()?;
         Ok(())
@@ -4403,6 +4406,7 @@ impl<'a> ChainUpdate<'a> {
             let tip = Tip::from_header(header);
             self.chain_store_update.save_header_head_if_not_challenged(&tip)?;
             debug!(target: "chain", "Header head updated to {} at {}", tip.last_block_hash, tip.height);
+            metrics::HEADER_HEAD_HEIGHT.set(tip.height as i64);
 
             Ok(Some(tip))
         } else {

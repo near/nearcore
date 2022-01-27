@@ -96,7 +96,6 @@ fn test_keyvalue_runtime_balances() {
     });
 }
 
-#[cfg(feature = "expensive_tests")]
 fn send_tx(
     num_validators: usize,
     connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
@@ -155,7 +154,6 @@ fn send_tx(
     );
 }
 
-#[cfg(feature = "expensive_tests")]
 fn test_cross_shard_tx_callback(
     res: Result<Result<QueryResponse, crate::QueryError>, MailboxError>,
     account_id: AccountId,
@@ -373,7 +371,6 @@ fn test_cross_shard_tx_callback(
     }
 }
 
-#[cfg(feature = "expensive_tests")]
 fn test_cross_shard_tx_common(
     num_iters: usize,
     rotate_validators: bool,
@@ -510,44 +507,44 @@ fn test_cross_shard_tx_common(
     });
 }
 
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_cross_shard_tx() {
     test_cross_shard_tx_common(64, false, false, false, 70, Some(2.3), None);
 }
 
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_cross_shard_tx_doomslug() {
     test_cross_shard_tx_common(64, false, false, true, 200, None, Some(1.5));
 }
 
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_cross_shard_tx_drop_chunks() {
     test_cross_shard_tx_common(64, false, true, false, 250, None, None);
 }
 
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_cross_shard_tx_8_iterations() {
     test_cross_shard_tx_common(8, false, false, false, 200, Some(2.4), None);
 }
 
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_cross_shard_tx_8_iterations_drop_chunks() {
     test_cross_shard_tx_common(8, false, true, false, 200, Some(2.4), None);
 }
 
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_cross_shard_tx_with_validator_rotation_1() {
     test_cross_shard_tx_common(8, true, false, false, 220, Some(2.4), None);
 }
 
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_cross_shard_tx_with_validator_rotation_2() {
     test_cross_shard_tx_common(24, true, false, false, 400, Some(2.4), None);
 }

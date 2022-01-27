@@ -2,7 +2,6 @@
 extern crate bencher;
 
 use bencher::{black_box, Bencher};
-use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::errors::StorageError;
 use near_store::db::DBCol::ColBlockMerkleTree;
 use near_store::{create_store, DBCol, Store};
@@ -38,7 +37,7 @@ fn benchmark_write_then_read_successful(
 }
 
 /// Create `Store` in a random folder.
-fn create_store_in_random_folder() -> Arc<Store> {
+fn create_store_in_random_folder() -> Store {
     let tmp_dir = tempfile::Builder::new().prefix("_test_clear_column").tempdir().unwrap();
     let store = create_store(tmp_dir.path());
     store
@@ -57,7 +56,7 @@ fn generate_keys(count: usize, key_size: usize) -> Vec<Vec<u8>> {
 
 /// Read from DB value for given `kyes` in random order for `col`.
 /// Works only for column configured without reference counting, that is `.is_rc() == false`.
-fn read_from_db(store: &Arc<Store>, keys: &Vec<Vec<u8>>, col: DBCol) -> usize {
+fn read_from_db(store: &Store, keys: &Vec<Vec<u8>>, col: DBCol) -> usize {
     let mut read = 0;
     for _k in 0..keys.len() {
         let r = rand::random::<u32>() % (keys.len() as u32);
@@ -76,7 +75,7 @@ fn read_from_db(store: &Arc<Store>, keys: &Vec<Vec<u8>>, col: DBCol) -> usize {
 /// Write random value of size between `0` and `max_value_size` to given `keys` at specific column
 /// `col.`
 /// Works only for column configured without reference counting, that is `.is_rc() == false`.
-fn write_to_db(store: &Arc<Store>, keys: &[Vec<u8>], max_value_size: usize, col: DBCol) {
+fn write_to_db(store: &Store, keys: &[Vec<u8>], max_value_size: usize, col: DBCol) {
     let mut store_update = store.store_update();
     for key in keys.iter() {
         let x: usize = rand::random::<usize>() % max_value_size;
