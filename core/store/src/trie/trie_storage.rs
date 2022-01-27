@@ -9,21 +9,53 @@ use crate::trie::POISONED_LOCK_ERR;
 use crate::{ColState, StorageError, Store};
 use lru::LruCache;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::types::AccountId;
 use std::cell::RefCell;
 use std::io::ErrorKind;
 
 #[derive(Clone)]
-pub struct TrieCache(Arc<Mutex<LruCache<CryptoHash, Vec<u8>>>>);
+pub struct SyncTrieCache(Arc<Mutex<TrieCache>>);
+
+// Maps account (contract) id to the last block hash for which some key was touched
+struct KeyTouchRecord(HashMap<AccountId, CryptoHash>);
+
+struct TrieCache {
+    inner: LruCache<CryptoHash, Vec<u8>>,
+    active_block_hash: Option<CryptoHash>,
+    key_touch_records: HashMap<CryptoHash, KeyTouchRecord>,
+}
 
 impl TrieCache {
+    fn put(&mut self, hash: CryptoHash, value: Vec<u8>) {
+        self.inner.put(hash, value);
+        // eviction?
+    }
+
+    fn pop(&mut self, hash: &CryptoHash) {
+        self.inner.pop(hash);
+        // eviction?
+        self.key_touch_records.remove(hash);
+    }
+}
+
+impl SyncTrieCache {
     pub fn new() -> Self {
-        Self(Arc::new(Mutex::new(LruCache::new(TRIE_MAX_CACHE_SIZE))))
+        // Self(Arc::new(Mutex::new(LruCache::new(TRIE_MAX_CACHE_SIZE))))
+        Self(Arc::new(Mutex::new(TrieCache {
+            inner: LruCache::unbounded(),
+            active_block_hash: None,
+            key_touch_records: Default::default(),
+        })))
     }
 
     pub fn clear(&self) {
-        self.0.lock().expect(POISONED_LOCK_ERR).clear()
+        let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
+        guard.inner.clear();
+        guard.active_block_hash = None;
+        guard.key_touch_records.clear();
     }
 
+    // TODO: Can we remove some key in the middle of the block, which breaks node touch charge logic?
     pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<&Vec<u8>>)>) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
         for (hash, opt_value_rc) in ops {
@@ -133,12 +165,12 @@ const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 4000;
 
 pub struct TrieCachingStorage {
     pub(crate) store: Store,
-    pub(crate) cache: TrieCache,
+    pub(crate) cache: SyncTrieCache,
     pub(crate) shard_uid: ShardUId,
 }
 
 impl TrieCachingStorage {
-    pub fn new(store: Store, cache: TrieCache, shard_uid: ShardUId) -> TrieCachingStorage {
+    pub fn new(store: Store, cache: SyncTrieCache, shard_uid: ShardUId) -> TrieCachingStorage {
         TrieCachingStorage { store, cache, shard_uid }
     }
 
