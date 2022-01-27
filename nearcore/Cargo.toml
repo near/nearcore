@@ -88,4 +88,4 @@ force_wasmer2 = ["near-vm-runner/force_wasmer2"]
 force_wasmer0 = ["near-vm-runner/force_wasmer0"]
 force_wasmtime = ["near-vm-runner/force_wasmtime"]
 
-sandbox = ["near-client/sandbox", "node-runtime/sandbox", "near-jsonrpc/sandbox"]
+sandbox = ["near-client/sandbox", "node-runtime/sandbox", "near-jsonrpc/sandbox", "near-epoch-manager/sandbox"]
