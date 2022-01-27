@@ -16,9 +16,6 @@ use std::io::ErrorKind;
 #[derive(Clone)]
 pub struct SyncTrieCache(Arc<Mutex<TrieCache>>);
 
-// Maps account (contract) id to the last block hash for which some key was touched
-pub struct KeyTouchRecords(HashMap<AccountId, CryptoHash>);
-
 // Active trie worker - pair (block_hash, account (contract) id)
 pub struct ActiveWorker {
     pub block_hash: CryptoHash,
@@ -36,10 +33,6 @@ struct TrieCache {
 }
 
 impl TrieCache {
-    pub fn get(&mut self, hash: &CryptoHash) -> Option<&Vec<u8>> {
-        self.inner.get(hash)
-    }
-
     pub fn chargeable_get(&mut self, hash: &CryptoHash) -> (Option<&Vec<u8>>, bool) {
         match self.inner.get(hash) {
             Some(value) => {

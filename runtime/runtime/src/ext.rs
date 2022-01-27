@@ -395,7 +395,7 @@ impl<'a> External for RuntimeExt<'a> {
     }
 }
 
-impl Drop for RuntimeExt {
+impl Drop for RuntimeExt<'a> {
     fn drop(&mut self) {
         self.trie_update.update_active_worker(None);
     }
