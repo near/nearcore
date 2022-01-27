@@ -68,14 +68,18 @@ impl TrieCache {
         // Eviction
         while self.inner.len() > self.cap {
             // If number of touched nodes among all contracts in chunk is < 2 * cap, we do it no more than 1 time per entry
-            let Some((hash, value)) = self.inner.pop_lru();
-            if let Some(ActiveWorker { block_hash, .. }) = self.active_worker {
-                if let Some(recorded_block_hash) = self.block_touches.get(&hash) {
-                    // if active block hash matches recorded block hash, we can't evict the element
-                    if block_hash == *recorded_block_hash {
-                        self.inner.put(hash, value);
+            match self.inner.pop_lru() {
+                Some((hash, value)) => {
+                    if let Some(ActiveWorker { block_hash, .. }) = self.active_worker {
+                        if let Some(recorded_block_hash) = self.block_touches.get(&hash) {
+                            // if active block hash matches recorded block hash, we can't evict the element
+                            if block_hash == *recorded_block_hash {
+                                self.inner.put(hash, value);
+                            }
+                        }
                     }
                 }
+                None => unreachable!(""),
             }
         }
     }
@@ -115,7 +119,8 @@ impl SyncTrieCache {
 
     pub fn chargeable_get(&self, hash: &CryptoHash) -> (Option<&Vec<u8>>, bool) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
-        guard.chargeable_get(hash)
+        let (value, is_charge) = guard.chargeable_get(hash);
+        (value, is_charge)
     }
 
     // TODO: Can we remove some key in the middle of the block, which breaks node touch charge logic?
