@@ -17,7 +17,7 @@ tempfile = "3"
 rand = "0.7.3"
 rand_xorshift = "0.2"
 serde_json = "1"
-clap = { version = "3.0.0-rc.7", features = ["derive"] }
+clap = { version = "3.0.12", features = ["derive"] }
 borsh = "0.9"
 num-rational = "0.3"
 anyhow = "1"
