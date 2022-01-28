@@ -15,7 +15,9 @@ fi
 
 GIT_HASH=`git rev-parse HEAD`
 
-COMMON_ARGS="--vm-kind wasmer2 --home ${ESTIMATOR_NEAR_HOME} --accounts-num 1000000 --iters 1 --warmup-iters 1"
+COMMON_ARGS="--vm-kind wasmer2 --iters 1 --warmup-iters 1"
+# This has problems in qemu, leading to OOM
+USE_LARGE_STATE="--accounts-num 1000000 --home ${ESTIMATOR_NEAR_HOME}"
 
 # Run icount measurments inside docker container. Output will be in stdout.
 cargo run --release -p runtime-params-estimator --features required -- \
@@ -25,6 +27,6 @@ cargo run --release -p runtime-params-estimator --features required -- \
     
 # Run time measurements normally (outside docker). Output is in stderr.
 cargo run --release -p runtime-params-estimator --features required -- \
-    ${COMMON_ARGS} \
+    ${COMMON_ARGS} ${USE_LARGE_STATE} \
     --metric time \
     2> >(tee /dev/stderr | while read LINE; do echo $LINE | tr -d _ | awk -v git_hash="${GIT_HASH}" -f insert_time.awk | sqlite3 ${SQLI_DB}; done);
