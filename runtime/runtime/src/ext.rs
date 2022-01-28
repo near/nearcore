@@ -79,10 +79,7 @@ impl<'a> RuntimeExt<'a> {
         epoch_info_provider: &'a dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
     ) -> Self {
-        trie_update.update_active_worker(Some(ActiveWorker {
-            block_hash: last_block_hash.clone(),
-            account_id: account_id.clone(),
-        }));
+        trie_update.update_active_account_id(Some(account_id.clone()));
         RuntimeExt {
             trie_update,
             account_id,
@@ -158,8 +155,8 @@ impl<'a> RuntimeExt<'a> {
         self.current_protocol_version
     }
 
-    pub fn clear_active_worker(&self) {
-        self.trie_update.update_active_worker(None);
+    pub fn update_active_account_id(&self, account_id: Option<AccountId>) {
+        self.trie_update.update_active_account_id(account_id);
     }
 }
 

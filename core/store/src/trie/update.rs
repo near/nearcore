@@ -11,6 +11,7 @@ use crate::StorageError;
 
 use super::{Trie, TrieIterator};
 use crate::trie::trie_storage::ActiveWorker;
+use near_primitives::account::id::AccountId;
 use near_primitives::trie_key::TrieKey;
 use std::rc::Rc;
 
@@ -171,10 +172,10 @@ impl TrieUpdate {
         self.root
     }
 
-    pub fn update_active_worker(&self, active_worker: Option<ActiveWorker>) {
+    pub fn update_active_account_id(&self, account_id: Option<AccountId>) {
         // TODO: assert caching storage?
         if let Some(storage) = self.trie.storage.as_caching_storage() {
-            storage.cache.update_active_worker(active_worker);
+            storage.cache.update_active_account_id(account_id);
         }
     }
 }

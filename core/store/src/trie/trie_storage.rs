@@ -17,17 +17,16 @@ use std::io::ErrorKind;
 pub struct SyncTrieCache(Arc<Mutex<TrieCache>>);
 
 // Active trie worker - pair (block_hash, account (contract) id)
-pub struct ActiveWorker {
-    pub block_hash: CryptoHash,
-    pub account_id: AccountId,
-}
+// pub struct ActiveWorker {
+//     pub block_hash: CryptoHash,
+//     pub account_id: AccountId,
+// }
 
 struct TrieCache {
     lru: LruCache<CryptoHash, Vec<u8>>,
     fixed: HashMap<CryptoHash, Vec<u8>>,
     active_block_hash: Option<CryptoHash>,
     active_account_id: Option<AccountId>,
-    // active_worker: Option<ActiveWorker>,
     // Key hash -> Last recorded block hash
     block_touches: HashMap<CryptoHash, CryptoHash>,
     // Key hash -> Vector of accounts which took this key
@@ -128,15 +127,9 @@ impl SyncTrieCache {
         guard.account_touches.clear();
     }
 
-    pub fn update_active_worker(&self, active_worker: Option<ActiveWorker>) {
+    pub fn update_active_account_id(&self, account_id: Option<AccountId>) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
-        guard.active_worker = active_worker;
-    }
-
-    pub fn chargeable_get(&self, hash: &CryptoHash) -> (Option<Vec<u8>>, bool) {
-        let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
-        let (value, is_charge) = guard.chargeable_get(hash);
-        (value.map(Clone::clone), is_charge)
+        guard.active_account_id = account_id;
     }
 
     // TODO: Can we remove some key in the middle of the block, which breaks node touch charge logic?
@@ -303,6 +296,11 @@ impl TrieCachingStorage {
                 Err(StorageError::StorageInconsistentState("Trie node missing".to_string()))
             }
         }
+    }
+
+    pub fn update_active_block_hash(&self, hash: &CryptoHash) {
+        let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
+        guard.active_block_hash = Some(hash.clone());
     }
 }
 

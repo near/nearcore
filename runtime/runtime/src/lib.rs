@@ -1186,7 +1186,9 @@ impl Runtime {
         let trie = Rc::new(trie);
         let initial_state = TrieUpdate::new(trie.clone(), root);
         let mut state_update = TrieUpdate::new(trie.clone(), root);
-
+        if let Some(storage) = trie.storage.as_caching_storage() {
+            storage.update_active_block_hash(&apply_state.block_hash);
+        }
         let mut stats = ApplyStats::default();
 
         if let Some(validator_accounts_update) = validator_accounts_update {

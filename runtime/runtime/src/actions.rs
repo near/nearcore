@@ -159,7 +159,7 @@ pub(crate) fn action_function_call(
         is_last_action,
         None,
     );
-    runtime_ext.clear_active_worker();
+    runtime_ext.update_active_account_id(None);
     let execution_succeeded = match err {
         Some(VMError::FunctionCallError(err)) => match err {
             FunctionCallError::Nondeterministic(msg) => {
