@@ -34,12 +34,7 @@ struct TrieCache {
 }
 
 impl TrieCache {
-    pub fn get(&mut self, hash: &CryptoHash) -> Option<&Vec<u8>> {
-        match self.fixed.get(hash) {
-            Some(value) => Some(value),
-            None => self.lru.get(hash),
-        }
-    }
+    pub fn get(&mut self, hash: &CryptoHash) -> Option<&Vec<u8>> {}
 
     pub fn chargeable_get(&mut self, hash: &CryptoHash) -> (Option<&Vec<u8>>, bool) {
         if let Some((block_hash, account_id)) = self.active_worker() {
@@ -54,7 +49,13 @@ impl TrieCache {
                 return (Some(value), true);
             }
         }
-        (self.get(hash), true)
+        (
+            match self.fixed.get(hash) {
+                Some(value) => Some(value),
+                None => self.lru.get(hash),
+            },
+            true,
+        )
     }
 
     fn active_worker(&self) -> Option<(CryptoHash, AccountId)> {
@@ -307,7 +308,7 @@ impl TrieCachingStorage {
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
-        self.chargeable_retrieve_raw_bytes(hash).map(|(val, need_charge)| val)
+        self.chargeable_retrieve_raw_bytes(hash).map(|(val, _)| val)
     }
 
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
