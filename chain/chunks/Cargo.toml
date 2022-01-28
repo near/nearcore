@@ -28,6 +28,7 @@ near-network-primitives = { path = "../network-primitives" }
 
 [dev-dependencies]
 near-logger-utils = { path = "../../test-utils/logger" }
+assert_matches = "1.5.0"
 
 [features]
 byzantine_asserts = ["near-chain/byzantine_asserts"]
