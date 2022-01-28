@@ -184,10 +184,6 @@ fn test_fast_forward() {
             }),
         );
 
-        // // Fast forward by 10,000 blocks:
-        // client.do_send(NetworkClientMessages::Sandbox(NetworkSandboxMessage::SandboxFastForward(
-        //     10000,
-        // )));
         near_network::test_utils::wait_or_panic(5000);
     });
 }

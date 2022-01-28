@@ -414,7 +414,8 @@ impl EpochManager {
         let next_next_epoch_config = self.config.for_protocol_version(next_version);
         #[cfg(feature = "sandbox")]
         {
-            *next_epoch_info.epoch_height_mut() = block_info.height() / next_next_epoch_config.epoch_length;
+            *next_epoch_info.epoch_height_mut() =
+                block_info.height() / next_next_epoch_config.epoch_length;
         }
 
         let next_next_epoch_info = match proposals_to_epoch_info(

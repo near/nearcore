@@ -4222,7 +4222,8 @@ impl<'a> ChainUpdate<'a> {
         // Refuse blocks from the too distant future. Only exception to this is while we're within
         // sandbox, we're allowed to jump to the future via fast forwarding.
         #[cfg(not(feature = "sandbox"))]
-        if header.timestamp() > Clock::utc() + chrono::Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
+        if header.timestamp() > Clock::utc() + chrono::Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE)
+        {
             return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp()).into());
         }
 

@@ -990,8 +990,13 @@ impl Client {
 
     /// Gets the advanced timestamp delta in nanoseconds for sandbox once it has been fast-forwarded
     #[cfg(feature = "sandbox")]
-    pub fn sandbox_delta_time(&self, delta_height: near_primitives::types::BlockHeightDelta) -> u64 {
-        let avg_block_prod_time = (self.config.min_block_production_delay.as_nanos() + self.config.max_block_production_delay.as_nanos()) / 2;
+    pub fn sandbox_delta_time(
+        &self,
+        delta_height: near_primitives::types::BlockHeightDelta,
+    ) -> u64 {
+        let avg_block_prod_time = (self.config.min_block_production_delay.as_nanos()
+            + self.config.max_block_production_delay.as_nanos())
+            / 2;
         (delta_height as u128 * avg_block_prod_time) as u64
     }
 
