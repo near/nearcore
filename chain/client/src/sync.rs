@@ -41,7 +41,7 @@ pub const MAX_BLOCK_HEADERS: u64 = 512;
 pub const MAX_BLOCK_HEADER_HASHES: usize = 20;
 
 /// Maximum number of block requested at once in BlockSync
-const MAX_BLOCK_REQUESTS: usize = 3;
+const MAX_BLOCK_REQUESTS: usize = 5;
 
 const BLOCK_REQUEST_TIMEOUT: i64 = 2;
 
@@ -393,10 +393,6 @@ fn get_locator_heights(height: u64) -> Vec<u64> {
 
 #[derive(Clone)]
 pub struct BlockSyncRequest {
-    // height of the requested block
-    height: BlockHeight,
-    // hash of the requested block
-    hash: CryptoHash,
     // head of the chain at the time of the request
     head: CryptoHash,
     // when the block was requested
@@ -479,6 +475,11 @@ impl BlockSync {
         }
 
         let chain_head = chain.head()?;
+        // update last request now because we want to update it whether or not the rest of the logic
+        // succeeds
+        self.last_request =
+            Some(BlockSyncRequest { head: chain_head.last_block_hash, when: Clock::utc() });
+
         // reference_hash is the last block on the canonical chain that is in store (processed)
         let reference_hash = {
             let reference_hash = chain_head.last_block_hash;
@@ -539,17 +540,8 @@ impl BlockSync {
             }
             if let Ok(()) = check_known(chain, &next_hash)? {
                 let next_height = chain.get_block_header(&next_hash)?.height();
-                let request = BlockSyncRequest {
-                    height: next_height,
-                    hash: next_hash,
-                    when: Clock::utc(),
-                    head: chain_head.last_block_hash,
-                };
-                requests.push(request);
+                requests.push((next_height, next_hash));
             }
-        }
-        if requests.is_empty() {
-            return Ok(false);
         }
 
         let header_head = chain.header_head()?;
@@ -557,7 +549,8 @@ impl BlockSync {
         let gc_stop_height = chain.runtime_adapter.get_gc_stop_height(&header_head.last_block_hash);
 
         for request in requests {
-            let request_from_archival = self.archive && request.height < gc_stop_height;
+            let (height, hash) = request;
+            let request_from_archival = self.archive && height < gc_stop_height;
             let peer = if request_from_archival {
                 let archival_peer_iter =
                     highest_height_peers.iter().filter(|p| p.chain_info.archival);
@@ -569,17 +562,13 @@ impl BlockSync {
 
             if let Some(peer) = peer {
                 debug!(target: "sync", "Block sync: {}/{} requesting block {} at height {} from {} (out of {} peers)",
-                       chain_head.height, header_head.height, request.hash, request.height, peer.peer_info.id, highest_height_peers.len());
+                       chain_head.height, header_head.height, hash, height, peer.peer_info.id, highest_height_peers.len());
                 self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::BlockRequest {
-                        hash: request.hash,
-                        peer_id: peer.peer_info.id.clone(),
-                    },
+                    NetworkRequests::BlockRequest { hash, peer_id: peer.peer_info.id.clone() },
                 ));
-                self.last_request = Some(request);
             } else {
                 warn!(target: "sync", "Block sync: {}/{} No available {}peers to request block {} from",
-                      chain_head.height, header_head.height, if request_from_archival { "archival " } else { "" }, request.hash);
+                      chain_head.height, header_head.height, if request_from_archival { "archival " } else { "" }, hash);
             }
         }
 
