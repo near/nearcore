@@ -23,9 +23,11 @@ pub struct ActiveWorker {
 }
 
 struct TrieCache {
-    inner: LruCache<CryptoHash, Vec<u8>>,
-    cap: usize,
-    active_worker: Option<ActiveWorker>,
+    lru: LruCache<CryptoHash, Vec<u8>>,
+    fixed: HashMap<CryptoHash, Vec<u8>>,
+    active_block_hash: Option<CryptoHash>,
+    active_account_id: Option<AccountId>,
+    // active_worker: Option<ActiveWorker>,
     // Key hash -> Last recorded block hash
     block_touches: HashMap<CryptoHash, CryptoHash>,
     // Key hash -> Vector of accounts which took this key
@@ -33,56 +35,74 @@ struct TrieCache {
 }
 
 impl TrieCache {
+    pub fn get(&mut self, hash: &CryptoHash) -> Option<&Vec<u8>> {
+        match self.fixed.get(hash) {
+            Some(value) => Some(value),
+            None => self.lru.get(hash),
+        }
+    }
+
     pub fn chargeable_get(&mut self, hash: &CryptoHash) -> (Option<&Vec<u8>>, bool) {
-        match self.inner.get(hash) {
-            Some(value) => {
-                // value was already moved to head in LRU
-                let mut need_charge = false;
-                if let Some(ActiveWorker { block_hash, account_id }) = &self.active_worker {
-                    if let Some(recorded_block_hash) = self.block_touches.get(hash) {
-                        if block_hash != recorded_block_hash {
-                            // New block occurred; need to refresh all touches within a block
-                            self.block_touches.insert(hash.clone(), block_hash.clone());
-                            self.account_touches.insert(hash.clone(), Default::default());
-                        }
-                        if let Some(accounts) = self.account_touches.get_mut(hash) {
-                            need_charge = accounts.contains(account_id);
-                            accounts.insert(account_id.clone());
-                        }
+        if let Some((block_hash, account_id)) = self.active_worker() {
+            if let Some(value) = self.fixed.get(&hash) {
+                let mut need_charge = true;
+                if let Some(recorded_block_hash) = self.block_touches.get(hash) {
+                    if block_hash != recorded_block_hash {
+                        // New block occurred; need to refresh all touches within a block
+                        self.block_touches.insert(hash.clone(), block_hash.clone());
+                        self.account_touches.insert(hash.clone(), Default::default());
+                    }
+                    if let Some(accounts) = self.account_touches.get_mut(hash) {
+                        need_charge = accounts.contains(&account_id);
+                        accounts.insert(account_id.clone());
                     }
                 }
                 (Some(value), need_charge)
             }
-            None => (None, false),
         }
+        (self.get(hash), true)
+    }
+
+    fn active_worker(&self) -> Option<(CryptoHash, AccountId)> {
+        if let Some(block_hash) = &self.active_block_hash {
+            if let Some(account_id) = &self.active_account_id {
+                return Some((block_hash.clone(), account_id.clone()));
+            }
+        }
+        None
     }
 
     fn put(&mut self, hash: CryptoHash, value: Vec<u8>) {
-        self.inner.put(hash, value);
-        // Eviction
-        while self.inner.len() > self.cap {
-            // If number of touched nodes among all contracts in chunk is < 2 * cap, we do it no more than 1 time per entry
-            match self.inner.pop_lru() {
-                Some((hash, value)) => {
-                    if let Some(ActiveWorker { block_hash, .. }) = self.active_worker {
-                        if let Some(recorded_block_hash) = self.block_touches.get(&hash) {
-                            // if active block hash matches recorded block hash, we can't evict the element
-                            if block_hash == *recorded_block_hash {
-                                self.inner.put(hash, value);
-                            }
-                        }
-                    }
-                }
-                None => unreachable!(""),
+        if let Some((active_block_hash, active_account_id)) = self.active_worker() {
+            self.lru.pop(&hash);
+            self.fixed.insert(hash, value);
+            self.block_touches.insert(hash.clone(), active_block_hash);
+            self.account_touches.entry(hash.clone()).or_default().insert(active_account_id);
+        } else {
+            if self.fixed.contains_key(&hash) {
+                self.fixed.insert(hash, value);
+            } else {
+                self.lru.put(hash, value);
             }
         }
     }
 
     fn pop(&mut self, hash: &CryptoHash) -> Option<Vec<u8>> {
         // eviction?
-        self.block_touches.clear();
-        self.account_touches.clear();
-        self.inner.pop(hash)
+        self.block_touches.remove(hash);
+        self.account_touches.remove(hash);
+        match self.fixed.remove(hash) {
+            Some(value) => Some(value),
+            None => self.lru.pop(hash),
+        }
+    }
+
+    fn flush_fixed(&mut self) {
+        for (hash, value) in self.fixed.drain() {
+            self.block_touches.remove(&hash);
+            self.account_touches.remove(&hash);
+            self.lru.put(hash, value)
+        }
     }
 }
 
@@ -90,9 +110,10 @@ impl SyncTrieCache {
     pub fn new() -> Self {
         // Self(Arc::new(Mutex::new(LruCache::new(TRIE_MAX_CACHE_SIZE))))
         Self(Arc::new(Mutex::new(TrieCache {
-            inner: LruCache::unbounded(),
-            cap: TRIE_MAX_CACHE_SIZE,
-            active_worker: None,
+            lru: Default::default(),
+            fixed: Default::default(),
+            active_block_hash: None,
+            active_account_id: None,
             block_touches: Default::default(),
             account_touches: Default::default(),
         })))
@@ -101,7 +122,8 @@ impl SyncTrieCache {
     pub fn clear(&self) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
         guard.inner.clear();
-        guard.active_worker = None;
+        guard.active_block_hash = None;
+        guard.active_account_id = None;
         guard.block_touches.clear();
         guard.account_touches.clear();
     }
