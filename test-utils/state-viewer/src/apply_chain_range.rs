@@ -240,6 +240,7 @@ pub fn apply_chain_range(
                     .unwrap()
             };
 
+            eprintln!("{:?}", apply_result.outcomes);
             let (outcome_root, _) =
                 ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
             let chunk_extra = ChunkExtra::new(
