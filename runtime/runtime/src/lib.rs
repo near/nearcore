@@ -1371,6 +1371,9 @@ impl Runtime {
             self.apply_state_patches(&mut state_update, patch);
         }
 
+        if let Some(storage) = trie.storage.as_caching_storage() {
+            storage.flush_fixed_cache();
+        }
         let (trie_changes, state_changes) = state_update.finalize()?;
 
         // Dedup proposals from the same account.

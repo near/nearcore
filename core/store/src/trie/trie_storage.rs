@@ -44,19 +44,14 @@ impl TrieCache {
     pub fn chargeable_get(&mut self, hash: &CryptoHash) -> (Option<&Vec<u8>>, bool) {
         if let Some((block_hash, account_id)) = self.active_worker() {
             if let Some(value) = self.fixed.get(&hash) {
-                let mut need_charge = true;
                 if let Some(recorded_block_hash) = self.block_touches.get(hash) {
-                    if block_hash != recorded_block_hash {
-                        // New block occurred; need to refresh all touches within a block
-                        self.block_touches.insert(hash.clone(), block_hash.clone());
-                        self.account_touches.insert(hash.clone(), Default::default());
-                    }
-                    if let Some(accounts) = self.account_touches.get_mut(hash) {
-                        need_charge = !accounts.contains(&account_id);
-                        accounts.insert(account_id.clone());
+                    if block_hash == *recorded_block_hash {
+                        if let Some(accounts) = self.account_touches.get(hash) {
+                            return (Some(value), !accounts.contains(&account_id));
+                        }
                     }
                 }
-                (Some(value), need_charge)
+                return (Some(value), true);
             }
         }
         (self.get(hash), true)
@@ -100,7 +95,7 @@ impl TrieCache {
         for (hash, value) in self.fixed.drain() {
             self.block_touches.remove(&hash);
             self.account_touches.remove(&hash);
-            self.lru.put(hash, value)
+            self.lru.put(hash, value);
         }
     }
 }
@@ -109,7 +104,7 @@ impl SyncTrieCache {
     pub fn new() -> Self {
         // Self(Arc::new(Mutex::new(LruCache::new(TRIE_MAX_CACHE_SIZE))))
         Self(Arc::new(Mutex::new(TrieCache {
-            lru: Default::default(),
+            lru: LruCache::new(TRIE_MAX_CACHE_SIZE),
             fixed: Default::default(),
             active_block_hash: None,
             active_account_id: None,
@@ -120,7 +115,8 @@ impl SyncTrieCache {
 
     pub fn clear(&self) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
-        guard.inner.clear();
+        guard.lru.clear();
+        guard.fixed.clear();
         guard.active_block_hash = None;
         guard.active_account_id = None;
         guard.block_touches.clear();
@@ -278,7 +274,7 @@ impl TrieCachingStorage {
         hash: &CryptoHash,
     ) -> Result<(Vec<u8>, bool), StorageError> {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
-        if let Some((val, need_charge)) = guard.chargeable_get(hash) {
+        if let (Some(val), need_charge) = guard.chargeable_get(hash) {
             Ok((val.clone(), need_charge))
         } else {
             let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
@@ -301,6 +297,11 @@ impl TrieCachingStorage {
     pub fn update_active_block_hash(&self, hash: &CryptoHash) {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
         guard.active_block_hash = Some(hash.clone());
+    }
+
+    pub fn flush_fixed_cache(&self) {
+        let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
+        guard.flush_fixed();
     }
 }
 

@@ -17,7 +17,6 @@ use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
-pub use crate::trie::trie_storage::ActiveWorker;
 pub(crate) use crate::trie::trie_storage::{SyncTrieCache, TrieCachingStorage};
 use crate::trie::trie_storage::{
     TouchedNodesCounter, TrieMemoryPartialStorage, TrieRecordingStorage, TrieStorage,
@@ -614,12 +613,12 @@ impl Trie {
 
     pub(crate) fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
         if let Some(storage) = self.storage.as_caching_storage() {
-            storage.chargeable_retrieve_raw_bytes(hash).map(|(value, need_charge)| {
+            return storage.chargeable_retrieve_raw_bytes(hash).map(|(value, need_charge)| {
                 if need_charge {
                     self.counter.increment();
                 }
                 value
-            })?
+            });
         }
 
         self.counter.increment();

@@ -17,7 +17,7 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider};
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
-use near_store::{get_code, ActiveWorker, TrieUpdate, TrieUpdateValuePtr};
+use near_store::{get_code, TrieUpdate, TrieUpdateValuePtr};
 use near_vm_errors::{AnyError, HostError, VMLogicError};
 use near_vm_logic::{External, ValuePtr};
 
