@@ -34,8 +34,6 @@ struct TrieCache {
 }
 
 impl TrieCache {
-    pub fn get(&mut self, hash: &CryptoHash) -> Option<&Vec<u8>> {}
-
     pub fn chargeable_get(&mut self, hash: &CryptoHash) -> (Option<&Vec<u8>>, bool) {
         if let Some((block_hash, account_id)) = self.active_worker() {
             if let Some(value) = self.fixed.get(&hash) {
