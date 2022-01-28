@@ -81,7 +81,6 @@ impl TrieCache {
     }
 
     fn pop(&mut self, hash: &CryptoHash) -> Option<Vec<u8>> {
-        // eviction?
         self.block_touches.remove(hash);
         self.account_touches.remove(hash);
         match self.fixed.remove(hash) {
