@@ -1,4 +1,4 @@
-use near_chain::{near_chain_primitives, ChainStoreAccess, Error};
+use near_chain::{check_known, near_chain_primitives, ChainStoreAccess, Error};
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::ops::Add;
@@ -26,7 +26,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::to_timestamp;
 
-use near_chain::chain::{ApplyStatePartsRequest, ChainAccess, StateSplitRequest};
+use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
 use near_client_primitives::types::{
     DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus,
 };
@@ -391,9 +391,15 @@ fn get_locator_heights(height: u64) -> Vec<u64> {
     heights
 }
 
+#[derive(Clone)]
 pub struct BlockSyncRequest {
+    // height of the requested block
     height: BlockHeight,
+    // hash of the requested block
     hash: CryptoHash,
+    // head of the chain at the time of the request
+    head: CryptoHash,
+    // when the block was requested
     when: DateTime<Utc>,
 }
 
@@ -472,14 +478,13 @@ impl BlockSync {
             return Ok(true);
         }
 
+        let chain_head = chain.head()?;
         // reference_hash is the last block on the canonical chain that is in store (processed)
         let reference_hash = {
-            let reference_hash = match &self.last_request {
-                Some(request) if chain.is_chunk_orphan(&request.hash) => request.hash,
-                _ => chain.head()?.last_block_hash,
-            };
+            let reference_hash = chain_head.last_block_hash;
 
-            // Find the most recent block we know on the canonical chain.
+            // The current chain head may not be on the canonical chain.
+            // Now we find the most recent block we know on the canonical chain.
             // In practice the forks from the last final block are very short, so it is
             // acceptable to perform this on each request
             let header = chain.get_block_header(&reference_hash)?;
@@ -497,7 +502,7 @@ impl BlockSync {
                 candidate = (prev_header.height(), *prev_header.hash(), *prev_header.prev_hash());
             }
 
-            // Then go forward for as long as we known the next block
+            // Then go forward for as long as we know the next block
             let mut ret_hash = candidate.1;
             loop {
                 match chain.mut_store().get_next_block_hash(&ret_hash) {
@@ -532,11 +537,14 @@ impl BlockSync {
                     _ => return Err(e),
                 },
             }
-            if let Ok(()) = chain.check_known(&next_hash)? {
+            if let Ok(()) = check_known(chain, &next_hash)? {
                 let next_height = chain.get_block_header(&next_hash)?.height();
-                let request =
-                    BlockSyncRequest { height: next_height, hash: next_hash, when: Clock::utc() };
-                debug!(target:"sync", "add block {:?}", next_hash);
+                let request = BlockSyncRequest {
+                    height: next_height,
+                    hash: next_hash,
+                    when: Clock::utc(),
+                    head: chain_head.last_block_hash,
+                };
                 requests.push(request);
             }
         }
@@ -544,12 +552,11 @@ impl BlockSync {
             return Ok(false);
         }
 
-        let head = chain.head()?;
         let header_head = chain.header_head()?;
 
         let gc_stop_height = chain.runtime_adapter.get_gc_stop_height(&header_head.last_block_hash);
 
-        for request in requests.iter() {
+        for request in requests {
             let request_from_archival = self.archive && request.height < gc_stop_height;
             let peer = if request_from_archival {
                 let archival_peer_iter =
@@ -561,32 +568,31 @@ impl BlockSync {
             };
 
             if let Some(peer) = peer {
-                debug!(target: "sync", "Block sync: {}/{} requesting block {} from {} (out of {} peers)",
-                       head.height, header_head.height, request.hash, peer.peer_info.id, highest_height_peers.len());
+                debug!(target: "sync", "Block sync: {}/{} requesting block {} at height {} from {} (out of {} peers)",
+                       chain_head.height, header_head.height, request.hash, request.height, peer.peer_info.id, highest_height_peers.len());
                 self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::BlockRequest {
                         hash: request.hash,
                         peer_id: peer.peer_info.id.clone(),
                     },
                 ));
+                self.last_request = Some(request);
             } else {
                 warn!(target: "sync", "Block sync: {}/{} No available {}peers to request block {} from",
-                      head.height, header_head.height, if request_from_archival { "archival " } else { "" }, request.hash);
+                      chain_head.height, header_head.height, if request_from_archival { "archival " } else { "" }, request.hash);
             }
         }
-
-        // we know that requests is non-empty
-        self.last_request = Some(requests.pop().unwrap());
 
         Ok(false)
     }
 
     /// Check if we should run block body sync and ask for more full blocks.
+    /// Block sync is due either if the chain head has changed since the last request
+    /// or if time since the last request is > BLOCK_REQUEST_TIMEOUT
     fn block_sync_due(&mut self, chain: &Chain) -> Result<bool, near_chain::Error> {
         match &self.last_request {
             None => Ok(true),
-            Some(request) => Ok(chain.head()?.height >= request.height
-                || chain.is_chunk_orphan(&request.hash)
+            Some(request) => Ok(chain.head()?.last_block_hash != request.head
                 || Clock::utc() - request.when > Duration::seconds(BLOCK_REQUEST_TIMEOUT)),
         }
     }
@@ -1625,9 +1631,8 @@ mod test {
                 block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
             assert!(!is_state_sync);
 
-            let expected_blocks: Vec<_> = (i * MAX_BLOCK_REQUESTS..(i + 1) * MAX_BLOCK_REQUESTS)
-                .map(|h| blocks[h].clone())
-                .collect();
+            let expected_blocks: Vec<_> =
+                blocks[i * MAX_BLOCK_REQUESTS..(i + 1) * MAX_BLOCK_REQUESTS].to_vec();
             check_hashes_from_network_adapter(
                 network_adapter.clone(),
                 expected_blocks.iter().map(|b| *b.hash()).collect(),

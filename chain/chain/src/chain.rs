@@ -332,60 +332,62 @@ pub trait ChainAccess {
     fn orphans(&self) -> &OrphanBlockPool;
     fn blocks_with_missing_chunks(&self) -> &MissingChunksPool<Orphan>;
     fn chain_store(&self) -> &dyn ChainStoreAccess;
+}
 
-    /// Check if block header is known
-    /// Returns Err(Error) if any error occurs when checking store
-    ///         Ok(Err(BlockKnownError)) if the block header is known
-    ///         Ok(Ok()) otherwise
-    fn check_header_known(
-        &mut self,
-        header: &BlockHeader,
-    ) -> Result<Result<(), BlockKnownError>, Error> {
-        let header_head = self.chain_store().header_head()?;
-        if header.hash() == &header_head.last_block_hash
-            || header.hash() == &header_head.prev_block_hash
-        {
-            return Ok(Err(BlockKnownError::KnownInHeader));
-        }
-        self.check_known_store(header.hash())
+/// Check if block header is known
+/// Returns Err(Error) if any error occurs when checking store
+///         Ok(Err(BlockKnownError)) if the block header is known
+///         Ok(Ok()) otherwise
+pub fn check_header_known(
+    chain: &dyn ChainAccess,
+    header: &BlockHeader,
+) -> Result<Result<(), BlockKnownError>, Error> {
+    let header_head = chain.chain_store().header_head()?;
+    if header.hash() == &header_head.last_block_hash
+        || header.hash() == &header_head.prev_block_hash
+    {
+        return Ok(Err(BlockKnownError::KnownInHeader));
     }
+    check_known_store(chain, header.hash())
+}
 
-    /// Check if this block is in the store already.
-    /// Returns Err(Error) if any error occurs when checking store
-    ///         Ok(Err(BlockKnownError)) if the block is in the store
-    ///         Ok(Ok()) otherwise
-    fn check_known_store(
-        &self,
-        block_hash: &CryptoHash,
-    ) -> Result<Result<(), BlockKnownError>, Error> {
-        match self.chain_store().block_exists(block_hash)? {
-            true => Ok(Err(BlockKnownError::KnownInStore)),
-            false => {
-                // Not yet processed this block, we can proceed.
-                Ok(Ok(()))
-            }
-        }
+/// Check if this block is in the store already.
+/// Returns Err(Error) if any error occurs when checking store
+///         Ok(Err(BlockKnownError)) if the block is in the store
+///         Ok(Ok()) otherwise
+fn check_known_store(
+    chain: &dyn ChainAccess,
+    block_hash: &CryptoHash,
+) -> Result<Result<(), BlockKnownError>, Error> {
+    if chain.chain_store().block_exists(block_hash)? {
+        Ok(Err(BlockKnownError::KnownInStore))
+    } else {
+        // Not yet processed this block, we can proceed.
+        Ok(Ok(()))
     }
+}
 
-    /// Check if block is known: head, orphan or in store.
-    /// Returns Err(Error) if any error occurs when checking store
-    ///         Ok(Err(BlockKnownError)) if the block is known
-    ///         Ok(Ok()) otherwise
-    fn check_known(&self, block_hash: &CryptoHash) -> Result<Result<(), BlockKnownError>, Error> {
-        let head = self.chain_store().head()?;
-        // Quick in-memory check for fast-reject any block handled recently.
-        if block_hash == &head.last_block_hash || block_hash == &head.prev_block_hash {
-            return Ok(Err(BlockKnownError::KnownInHead));
-        }
-        // Check if this block is in the set of known orphans.
-        if self.orphans().contains(block_hash) {
-            return Ok(Err(BlockKnownError::KnownInOrphan));
-        }
-        if self.blocks_with_missing_chunks().contains(block_hash) {
-            return Ok(Err(BlockKnownError::KnownInMissingChunks));
-        }
-        self.check_known_store(block_hash)
+/// Check if block is known: head, orphan or in store.
+/// Returns Err(Error) if any error occurs when checking store
+///         Ok(Err(BlockKnownError)) if the block is known
+///         Ok(Ok()) otherwise
+pub fn check_known(
+    chain: &dyn ChainAccess,
+    block_hash: &CryptoHash,
+) -> Result<Result<(), BlockKnownError>, Error> {
+    let head = chain.chain_store().head()?;
+    // Quick in-memory check for fast-reject any block handled recently.
+    if block_hash == &head.last_block_hash || block_hash == &head.prev_block_hash {
+        return Ok(Err(BlockKnownError::KnownInHead));
     }
+    // Check if this block is in the set of known orphans.
+    if chain.orphans().contains(block_hash) {
+        return Ok(Err(BlockKnownError::KnownInOrphan));
+    }
+    if chain.blocks_with_missing_chunks().contains(block_hash) {
+        return Ok(Err(BlockKnownError::KnownInMissingChunks));
+    }
+    check_known_store(chain, block_hash)
 }
 
 /// Facade to the blockchain block processing and storage.
@@ -1059,7 +1061,7 @@ impl Chain {
             for header in headers.iter() {
                 let mut chain_update = self.chain_update();
 
-                match chain_update.check_header_known(header)? {
+                match check_header_known(&chain_update, header)? {
                     Ok(_) => {}
                     Err(_) => continue,
                 }
@@ -3240,7 +3242,7 @@ impl<'a> ChainUpdate<'a> {
     {
         debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.height());
 
-        self.check_known(header.hash())?.map_err(|e| Error::from(ErrorKind::BlockKnown(e)))?;
+        check_known(self, header.hash())?.map_err(|e| Error::from(ErrorKind::BlockKnown(e)))?;
         self.validate_header(header, &Provenance::NONE, on_challenge)?;
         Ok(())
     }
@@ -4048,7 +4050,7 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // Check if we have already processed this block previously.
-        self.check_known(block.header().hash())?
+        check_known(self, block.header().hash())?
             .map_err(|e| Error::from(ErrorKind::BlockKnown(e)))?;
 
         // Delay hitting the db for current chain head until we know this block is not already known.

@@ -1,4 +1,4 @@
-use std::fmt::{self, Display, Formatter};
+use std::fmt::{self, Display};
 use std::io;
 
 use chrono::DateTime;
@@ -398,8 +398,8 @@ pub enum BlockKnownError {
     KnownInStore,
 }
 
-impl Display for BlockKnownError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl fmt::Display for BlockKnownError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let output = match self {
             BlockKnownError::KnownInHeader => "already known in header",
             BlockKnownError::KnownInHead => "already known in head",
@@ -407,6 +407,6 @@ impl Display for BlockKnownError {
             BlockKnownError::KnownInMissingChunks => "already known in missing chunks",
             BlockKnownError::KnownInStore => "already known in store",
         };
-        Display::fmt(&output, f)
+        fmt::Display::fmt(&output, f)
     }
 }
