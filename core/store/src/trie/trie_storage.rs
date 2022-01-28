@@ -53,7 +53,7 @@ impl TrieCache {
                         self.account_touches.insert(hash.clone(), Default::default());
                     }
                     if let Some(accounts) = self.account_touches.get_mut(hash) {
-                        need_charge = accounts.contains(&account_id);
+                        need_charge = !accounts.contains(&account_id);
                         accounts.insert(account_id.clone());
                     }
                 }
@@ -279,13 +279,14 @@ impl TrieCachingStorage {
         key[8..].copy_from_slice(hash.as_ref());
         key
     }
-}
 
-impl TrieStorage for TrieCachingStorage {
-    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
+    pub(crate) fn chargeable_retrieve_raw_bytes(
+        &self,
+        hash: &CryptoHash,
+    ) -> Result<(Vec<u8>, bool), StorageError> {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
-        if let Some(val) = guard.pop(hash) {
-            Ok(val.clone())
+        if let Some((val, need_charge)) = guard.chargeable_get(hash) {
+            Ok((val.clone(), need_charge))
         } else {
             let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
             let val = self
@@ -296,12 +297,18 @@ impl TrieStorage for TrieCachingStorage {
                 if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
                     guard.put(*hash, val.clone());
                 }
-                Ok(val)
+                Ok((val, true))
             } else {
                 // not StorageError::TrieNodeMissing because it's only for TrieMemoryPartialStorage
                 Err(StorageError::StorageInconsistentState("Trie node missing".to_string()))
             }
         }
+    }
+}
+
+impl TrieStorage for TrieCachingStorage {
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
+        self.chargeable_retrieve_raw_bytes(hash).map(|(val, need_charge)| val)
     }
 
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {

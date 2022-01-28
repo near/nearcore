@@ -614,14 +614,12 @@ impl Trie {
 
     pub(crate) fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
         if let Some(storage) = self.storage.as_caching_storage() {
-            let (value, need_charge) = storage.cache.chargeable_get(hash);
-            if let Some(value) = value {
-                // we took value from LRU cache and potentially avoided charging
+            storage.chargeable_retrieve_raw_bytes(hash).map(|(value, need_charge)| {
                 if need_charge {
                     self.counter.increment();
                 }
-                return Ok(value);
-            }
+                value
+            })?
         }
 
         self.counter.increment();
