@@ -66,7 +66,7 @@ pub(crate) struct InitConfigArgs {
 
 pub(crate) fn init_logging() {
     let env_filter = EnvFilter::new(
-        "nearcore=info,indexer-example=info,tokio_reactor=info,near=info,stats=info,telemetry=info,indexer_example=info,indexer=info,near-performance-metrics=info",
+        "nearcore=info,indexer_example=info,tokio_reactor=info,near=info,stats=info,telemetry=info,indexer=info,near-performance-metrics=info",
     );
     tracing_subscriber::fmt::Subscriber::builder()
         .with_env_filter(env_filter)
