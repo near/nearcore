@@ -3696,6 +3696,12 @@ mod access_key_nonce_range_tests {
     fn test_request_chunks_for_orphan() {
         init_test_logger();
 
+        // Skip the test if NUM_ORPHAN_ANCESTORS_CHECK is 1, which effectively disables
+        // fetching chunks for orphan
+        if NUM_ORPHAN_ANCESTORS_CHECK == 1 {
+            return;
+        }
+
         let num_clients = 2;
         let num_validators = 1;
         let epoch_length = 10;
