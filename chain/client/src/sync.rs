@@ -1673,7 +1673,7 @@ mod test {
         chain_genesis.epoch_length = 5;
         let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
         let mut blocks = vec![];
-        for i in 1..31 {
+        for i in 1..41 {
             let block = env.clients[0].produce_block(i).unwrap().unwrap();
             blocks.push(block.clone());
             env.process_block(0, block, Provenance::PRODUCED);
