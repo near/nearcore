@@ -70,7 +70,7 @@ pub struct Client {
 
     /// Fast Forward accrued delta height used to calculate fast forwarded timestamps for each block.
     #[cfg(feature = "sandbox")]
-    pub(crate) fastforward_accrued_delta: near_primitives::types::BlockHeightDelta,
+    pub(crate) pending_timestamp_fastforward: Option<near_primitives::types::BlockHeightDelta>,
 
     pub config: ClientConfig,
     pub sync_status: SyncStatus,
@@ -176,6 +176,8 @@ impl Client {
             adv_produce_blocks: false,
             #[cfg(feature = "test_features")]
             adv_produce_blocks_only_valid: false,
+            #[cfg(feature = "sandbox")]
+            pending_timestamp_fastforward: None,
             config,
             sync_status,
             chain,
@@ -195,8 +197,6 @@ impl Client {
             rebroadcasted_blocks: SizedCache::with_size(NUM_REBROADCAST_BLOCKS),
             last_time_head_progress_made: Clock::instant(),
             chunks_delay_tracker: Default::default(),
-            #[cfg(feature = "sandbox")]
-            fastforward_accrued_delta: 0,
         })
     }
 
@@ -523,9 +523,11 @@ impl Client {
             block_merkle_root,
         );
 
-        // If sandbox is enabled, add the fast-forwarded block timestamp to the produced block:
+        // If sandbox is enabled, add the fast-forwarded block timestamp to the produced block
+        // This only needs to happen once per pending fast forward due to internally using
+        // the previous block timestamp in the next block produced
         #[cfg(feature = "sandbox")]
-        {
+        if let Some(delta_height) = self.pending_timestamp_fastforward.take() {
             let header = match block {
                 Block::BlockV1(ref mut block) => &mut block.header,
                 Block::BlockV2(ref mut block) => &mut block.header,
@@ -537,7 +539,7 @@ impl Client {
             };
 
             // Add in the accrued delta timestamp:
-            inner_lite.timestamp += self.sandbox_delta_time();
+            inner_lite.timestamp += self.sandbox_delta_time(delta_height);
         }
 
         // Update latest known even before returning block out, to prevent race conditions.
@@ -988,9 +990,9 @@ impl Client {
 
     /// Gets the advanced timestamp delta in nanoseconds for sandbox once it has been fast-forwarded
     #[cfg(feature = "sandbox")]
-    pub fn sandbox_delta_time(&self) -> u64 {
+    pub fn sandbox_delta_time(&self, delta_height: near_primitives::types::BlockHeightDelta) -> u64 {
         let avg_block_prod_time = (self.config.min_block_production_delay.as_nanos() + self.config.max_block_production_delay.as_nanos()) / 2;
-        (self.fastforward_accrued_delta as u128 * avg_block_prod_time) as u64
+        (delta_height as u128 * avg_block_prod_time) as u64
     }
 
     pub fn send_approval(
