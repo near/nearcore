@@ -37,5 +37,6 @@ testlib = { path = "../../test-utils/testlib" }
 
 [features]
 sandbox = ["node-runtime/sandbox", "near-chain/sandbox", "near-network/sandbox", "near-client/sandbox"]
+protocol_feature_chunk_nodes_cache = ["near-store/protocol_feature_chunk_nodes_cache"]
 nightly_protocol_features = ["nearcore/nightly_protocol_features"]
 nightly_protocol = ["nearcore/nightly_protocol"]
