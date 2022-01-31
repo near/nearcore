@@ -7,7 +7,7 @@ use actix_rt::ArbiterHandle;
 use actix_web;
 use anyhow::Context;
 #[cfg(feature = "performance_stats")]
-use near_rust_allocator_proxy::allocator::reset_memory_usage_max;
+use near_rust_allocator_proxy::reset_memory_usage_max;
 use tracing::{error, info, trace};
 
 use near_chain::ChainGenesis;

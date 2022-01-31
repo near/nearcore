@@ -21,10 +21,8 @@ use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, WrapFuture,
 };
-use futures::task::Poll;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use futures::FutureExt;
-use futures::{future, Stream, StreamExt};
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Ban, BlockedPorts, Edge, InboundTcpConnect, KnownPeerStatus,
     KnownProducer, NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
@@ -51,11 +49,11 @@ use rand::thread_rng;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::net::{TcpListener, TcpStream};
+use tokio_stream::StreamExt;
 use tracing::{debug, error, info, trace, warn};
 
 /// How often to request peers from active peers.
@@ -151,22 +149,6 @@ impl AdvHelper {
     }
 }
 
-// TODO Incoming needs someone to own TcpListener, temporary workaround until there is a better way
-pub struct IncomingCrutch {
-    listener: tokio_stream::wrappers::TcpListenerStream,
-}
-
-impl Stream for IncomingCrutch {
-    type Item = std::io::Result<TcpStream>;
-
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        Stream::poll_next(std::pin::Pin::new(&mut self.listener), cx)
-    }
-}
-
 /// Actor that manages peers connections.
 pub struct PeerManagerActor {
     /// Networking configuration.
@@ -202,9 +184,7 @@ pub struct PeerManagerActor {
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
     /// messages sincce last block.
     txns_since_last_block: Arc<AtomicUsize>,
-    /// Number of incoming connections, that were not established yet; used for rate limiting.
-    pending_incoming_connections_counter: Arc<AtomicUsize>,
-    /// Number of connected peers, used for rate limiting.
+    /// Number of active peers, used for rate limiting.
     peer_counter: Arc<AtomicUsize>,
     /// Used for testing, for disabling features.
     adv_helper: AdvHelper,
@@ -216,40 +196,29 @@ impl Actor for PeerManagerActor {
     fn started(&mut self, ctx: &mut Self::Context) {
         // Start server if address provided.
         if let Some(server_addr) = self.config.addr {
-            // TODO: for now crashes if server didn't start.
+            debug!(target: "network", at = ?server_addr, "starting public server");
+            let peer_manager_addr = ctx.address();
 
-            TcpListener::bind(server_addr).into_actor(self).then(
-                move |listener, act, ctx| {
-                    let listener = listener.unwrap_or_else(|_| panic!("Failed to PeerManagerActor at {}", server_addr));
-                    let incoming = IncomingCrutch {
-                        listener: tokio_stream::wrappers::TcpListenerStream::new(listener),
-                    };
-                    info!(target: "stats", peer_id = ?act.my_peer_id, addr = ?server_addr, "Server listening at");
-                    let pending_incoming_connections_counter =
-                        act.pending_incoming_connections_counter.clone();
-                    let peer_counter = act.peer_counter.clone();
-                    let max_num_peers: usize = act.config.max_num_peers as usize;
-
-                    ctx.add_message_stream(incoming.filter_map(move |conn| {
-                        if let Ok(conn) = conn {
-                            if pending_incoming_connections_counter.load(Ordering::SeqCst)
-                                + peer_counter.load(Ordering::SeqCst)
-                                < max_num_peers + LIMIT_PENDING_PEERS
-                            {
-                                pending_incoming_connections_counter.fetch_add(1, Ordering::SeqCst);
-                                return future::ready(Some(
-                                    PeerManagerMessageRequest::InboundTcpConnect(
-                                        InboundTcpConnect::new(conn),
-                                    ),
-                                ));
-                            }
+            actix::spawn(async move {
+                match TcpListener::bind(server_addr).await {
+                    Ok(listener) => loop {
+                        if let Ok((conn, client_addr)) = listener.accept().await {
+                            peer_manager_addr.do_send(
+                                PeerManagerMessageRequest::InboundTcpConnect(
+                                    InboundTcpConnect::new(conn),
+                                ),
+                            );
+                            debug!(target: "network", from = ?client_addr, "got new connection");
                         }
-
-                        future::ready(None)
-                    }));
-                    actix::fut::ready(())
-                },
-            ).spawn(ctx);
+                    },
+                    Err(e) => {
+                        panic!(
+                            "failed to start listening on server_addr={:?} e={:?}",
+                            server_addr, e
+                        );
+                    }
+                };
+            });
         }
 
         // Periodically push network information to client.
@@ -324,7 +293,6 @@ impl PeerManagerActor {
             network_metrics: NetworkMetrics::new(),
             routing_table_addr,
             txns_since_last_block,
-            pending_incoming_connections_counter: Arc::new(AtomicUsize::new(0)),
             peer_counter: Arc::new(AtomicUsize::new(0)),
             adv_helper: AdvHelper::default(),
         })
@@ -533,7 +501,7 @@ impl PeerManagerActor {
         peer_type: PeerType,
         addr: Addr<PeerActor>,
         ctx: &mut Context<Self>,
-        throttle_controller: ThrottleController,
+        throttle_controller: Option<ThrottleController>,
     ) {
         let throttle_controller_clone = throttle_controller.clone();
         near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act, ctx| {
@@ -541,16 +509,13 @@ impl PeerManagerActor {
                 act.routing_table_addr
                     .send(ActixMessageWrapper::new_without_size(
                         RoutingTableMessages::AddPeerIfMissing(peer_id, None),
-                        Some(throttle_controller),
+                        throttle_controller,
                     ))
                     .into_actor(act)
                     .map(move |response, act, _ctx| match response.map(|x| x.into_inner()) {
-                        Ok(RoutingTableMessagesResponse::AddPeerResponse { seed }) => act
-                            .start_routing_table_syncv2(
-                                addr,
-                                seed,
-                                Some(throttle_controller_clone),
-                            ),
+                        Ok(RoutingTableMessagesResponse::AddPeerResponse { seed }) => {
+                            act.start_routing_table_syncv2(addr, seed, throttle_controller_clone)
+                        }
                         _ => error!(target: "network", "expected AddIbfSetResponse"),
                     })
                     .spawn(ctx);
@@ -576,11 +541,11 @@ impl PeerManagerActor {
                         addr.do_send(SendMessage {
                             message: crate::types::PeerMessage::RoutingTableSyncV2(response),
                         });
-                        future::ready(())
+                        futures::future::ready(())
                     }
                     _ => {
                         error!(target: "network", "expected StartRoutingTableSyncResponse");
-                        future::ready(())
+                        futures::future::ready(())
                     }
                 }),
         );
@@ -652,7 +617,7 @@ impl PeerManagerActor {
                     peer_type,
                     addr.clone(),
                     ctx,
-                    throttle_controller,
+                    Some(throttle_controller),
                 );
                 Self::send_sync(peer_type, addr, ctx, target_peer_id, new_edge, Vec::new());
             },
@@ -708,7 +673,7 @@ impl PeerManagerActor {
             addr.do_send(SendMessage {
                 message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(
                     known_edges,
-                    known_accounts,
+                    known_accounts.cloned().collect(),
                 )),
             });
 
@@ -869,10 +834,10 @@ impl PeerManagerActor {
             PeerActor::add_stream(
                 ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone())
                     .take_while(|x| match x {
-                        Ok(_) => future::ready(true),
+                        Ok(_) => true,
                         Err(e) => {
                             warn!(target: "network", ?e, "Peer stream error");
-                            future::ready(false)
+                            false
                         }
                     })
                     .map(Result::unwrap),
@@ -1061,28 +1026,28 @@ impl PeerManagerActor {
     fn monitor_peer_stats_trigger(&mut self, ctx: &mut Context<Self>, interval: Duration) {
         for (peer_id, connected_peer) in self.connected_peers.iter() {
             let peer_id1 = peer_id.clone();
-            connected_peer
-                .addr
-                .send(QueryPeerStats {})
-                .into_actor(self)
-                .map(|result, _, _| result.map_err(|err|
-                    error!(target: "network", ?err, "Failed sending message(monitor_peer_stats)")))
+            (connected_peer.addr.send(QueryPeerStats {}).into_actor(self))
                 .map(move |res, act, _| {
-                    let _ignore = res.map(|res| {
-                        if res.is_abusive {
-                            trace!(target: "network", ?peer_id1, sent = res.message_counts.0, recv = res.message_counts.1, "Banning peer for abuse");
-                            // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
-                            //  network traffic that flags honest peers.
-                            // Send ban signal to peer instance. It should send ban signal back and stop the instance.
-                            // if let Some(connected_peer) = act.connected_peers.get(&peer_id1) {
-                            //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
-                            // }
-                        } else if let Some(connected_peer) = act.connected_peers.get_mut(&peer_id1) {
-                            connected_peer.full_peer_info.chain_info = res.chain_info;
-                            connected_peer.sent_bytes_per_sec = res.sent_bytes_per_sec;
-                            connected_peer.received_bytes_per_sec = res.received_bytes_per_sec;
+                    match res {
+                        Ok(res) => {
+                            if res.is_abusive {
+                                trace!(target: "network", ?peer_id1, sent = res.message_counts.0, recv = res.message_counts.1, "Banning peer for abuse");
+                                // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
+                                //  network traffic that flags honest peers.
+                                // Send ban signal to peer instance. It should send ban signal back and stop the instance.
+                                // if let Some(connected_peer) = act.connected_peers.get(&peer_id1) {
+                                //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
+                                // }
+                            } else if let Some(connected_peer) = act.connected_peers.get_mut(&peer_id1) {
+                                connected_peer.full_peer_info.chain_info = res.chain_info;
+                                connected_peer.sent_bytes_per_sec = res.sent_bytes_per_sec;
+                                connected_peer.received_bytes_per_sec = res.received_bytes_per_sec;
+                            }
                         }
-                    });
+                        Err(err) => {
+                            error!(target: "network", ?err, "Failed sending message(monitor_peer_stats)")
+                        }
+                    };
                 })
                 .spawn(ctx);
         }
@@ -1365,7 +1330,7 @@ impl PeerManagerActor {
 
     /// Route signed message to target peer.
     /// Return whether the message is sent or not.
-    fn send_signed_message_to_peer(&mut self, msg: RoutedMessage) -> bool {
+    fn send_signed_message_to_peer(&mut self, msg: Box<RoutedMessage>) -> bool {
         // Check if the message is for myself and don't try to send it in that case.
         if let PeerIdOrHash::PeerId(target) = &msg.target {
             if target == &self.my_peer_id {
@@ -1425,7 +1390,7 @@ impl PeerManagerActor {
                        reason = ?find_route_error,
                        ?msg,"Drop message",
                 );
-                trace!(target: "network", known_peers = ?self.routing_table_view.get_accounts_keys());
+                trace!(target: "network", known_peers = ?self.routing_table_view.get_accounts_keys().collect::<Vec<_>>(), "Known peers");
                 return false;
             }
         };
@@ -1434,7 +1399,7 @@ impl PeerManagerActor {
         self.send_message_to_peer(msg)
     }
 
-    fn sign_routed_message(&self, msg: RawRoutedMessage, my_peer_id: PeerId) -> RoutedMessage {
+    fn sign_routed_message(&self, msg: RawRoutedMessage, my_peer_id: PeerId) -> Box<RoutedMessage> {
         msg.sign(my_peer_id, &self.config.secret_key, self.config.routed_message_ttl)
     }
 
@@ -1503,7 +1468,6 @@ impl PeerManagerActor {
             known_producers: self
                 .routing_table_view
                 .get_announce_accounts()
-                .iter()
                 .map(|announce_account| KnownProducer {
                     account_id: announce_account.account_id.clone(),
                     peer_id: announce_account.peer_id.clone(),
@@ -1906,7 +1870,7 @@ impl PeerManagerActor {
                 PeerType::Inbound,
                 addr,
                 ctx,
-                throttle_controller.unwrap(),
+                throttle_controller,
             );
         }
     }
@@ -1963,7 +1927,6 @@ impl PeerManagerActor {
             // TODO(1896): Gracefully drop inbound connection for other peer.
             debug!(target: "network", "Inbound connection dropped (network at max capacity).");
         }
-        self.pending_incoming_connections_counter.fetch_sub(1, Ordering::SeqCst);
     }
 
     #[cfg(feature = "test_features")]
@@ -2196,7 +2159,11 @@ impl PeerManagerActor {
                 PeerManagerMessageResponse::OutboundTcpConnect(())
             }
             PeerManagerMessageRequest::InboundTcpConnect(msg) => {
-                self.handle_msg_inbound_tcp_connect(msg, ctx);
+                if self.peer_counter.load(Ordering::SeqCst)
+                    < self.config.max_num_peers as usize + LIMIT_PENDING_PEERS
+                {
+                    self.handle_msg_inbound_tcp_connect(msg, ctx);
+                }
                 PeerManagerMessageResponse::InboundTcpConnect(())
             }
             PeerManagerMessageRequest::Unregister(msg) => {
@@ -2330,7 +2297,7 @@ impl PeerManagerActor {
                         }
                         _ => error!(target: "network", "expected ProcessIbfMessageResponse"),
                     }
-                    future::ready(())
+                    futures::future::ready(())
                 }),
         );
     }

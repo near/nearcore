@@ -1,12 +1,12 @@
 # CODEOWNERS: https://help.github.com/articles/about-codeowners/
 
 /chain/ @bowenwang1996 @mzhangmzz @mm-near
-/chain/client/src/view_client.rs @khorolets @chefsale
-/chain/client-primitives/ @khorolets @chefsale
+/chain/client/src/view_client.rs @khorolets @rtsai123
+/chain/client-primitives/ @khorolets @rtsai123
 /chain/network/ @mm-near @bowenwang1996 @pmnoxx
 /chain/network-primitives/ @mm-near @pmnoxx
-/chain/jsonrpc/ @khorolets @chefsale
-/chain/jsonrpc-primitives/ @khorolets @miraclx @chefsale
+/chain/jsonrpc/ @khorolets @rtsai123
+/chain/jsonrpc-primitives/ @khorolets @miraclx @rtsai123
 /chain/indexer/ @khorolets
 /chain/rosetta-rpc/ @frol @mina86
 /utils @pmnoxx @mm-near
@@ -28,8 +28,9 @@
 /test-utils/state-viewer @nikurt
 /test-utils/runtime-tester @posvyatokum @matklad
 
-/.buildkite/ @chefsale @mhalambek
-/scripts/ @chefsale @mhalambek @mina86 @nikurt
+/.buildkite/ @rtsai123 @mhalambek
+/scripts/ @rtsai123 @mhalambek @mina86 @nikurt
 
 /docs/ @bowenwang1996 @matklad @mm-near
 /pytest/ @mm-near @mina86
+/pytest/tests/sanity/rosetta.py @mm-near @mina86 @frol
