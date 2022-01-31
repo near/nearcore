@@ -648,12 +648,17 @@ impl Trie {
         mut key: NibbleSlice<'_>,
     ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
         let mut hash = *root;
+        let result = key.until_offset(true);
+        tracing::debug!(target: "trie", "key in lookup: {:?}", key = result);
 
         loop {
             if hash == Trie::empty_root() {
                 return Ok(None);
             }
             let bytes = self.retrieve_raw_bytes(&hash)?;
+            let result = key.until_offset(false);
+            tracing::debug!(target: "trie", "key in lookup: {:?}", key = result);
+
             let node = RawTrieNodeWithSize::decode(&bytes).map_err(|_| {
                 StorageError::StorageInconsistentState("RawTrieNode decode failed".to_string())
             })?;

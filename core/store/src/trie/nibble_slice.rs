@@ -44,7 +44,7 @@ use std::fmt;
 /// ```
 #[derive(Copy, Clone, Eq, Ord)]
 pub struct NibbleSlice<'a> {
-    data: &'a [u8],
+    pub data: &'a [u8],
     offset: usize,
 }
 
@@ -71,6 +71,13 @@ impl<'a> NibbleSlice<'a> {
     /// Create a new nibble slice with the given byte-slice.
     pub fn new(data: &'a [u8]) -> Self {
         NibbleSlice::new_offset(data, 0)
+    }
+
+    pub(crate) fn until_offset(&self, full: bool) -> (Vec<u8>, Option<u8>) {
+        let offset = if full { self.data.len() * 2 } else { self.offset };
+        let result = self.data[..offset / 2].to_vec();
+        let rest = if offset % 2 == 1 { Some(self.data[offset / 2] >> 4) } else { None };
+        (result, rest)
     }
 
     /// Create a new nibble slice with the given byte-slice with a nibble offset.
