@@ -651,8 +651,8 @@ impl Trie {
         mut key: NibbleSlice<'_>,
     ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
         let mut hash = *root;
-        let result = key.until_offset(true);
-        tracing::debug!(target: "trie", key = ?result, hash = %hash, "key in lookup");
+        // let result = key.until_offset(true);
+        // tracing::debug!(target: "trie", key = ?result, hash = %hash, "key in lookup");
 
         loop {
             if hash == Trie::empty_root() {
@@ -710,13 +710,20 @@ impl Trie {
         root: &CryptoHash,
         key: &[u8],
     ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
-        let key = NibbleSlice::new(key);
+        let key = NibbleSlice::new(key.clone());
         self.lookup(root, key)
+        // let key = NibbleSlice::new(key);
+        // self.lookup(root, key)
     }
 
     pub fn get(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
         match self.get_ref(root, key)? {
-            Some((_length, hash)) => self.retrieve_raw_bytes(&hash).map(Some),
+            Some((_length, hash)) => {
+                let key_nibbles = NibbleSlice::new(key.clone());
+                let result = key_nibbles.until_offset(true);
+                tracing::debug!(target: "trie", key = ?result, hash = %hash, "key in lookup");
+                self.retrieve_raw_bytes(&hash).map(Some)
+            },
             None => Ok(None),
         }
     }
