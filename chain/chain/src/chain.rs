@@ -1216,6 +1216,8 @@ impl Chain {
         Ok(())
     }
 
+    // Processes a single block, increments the metric for the number of blocks processing and also
+    // for the number of blocks processed successfully (returns OK).
     fn process_block_single<F, F1, F2, F3>(
         &mut self,
         me: &Option<AccountId>,
@@ -1255,6 +1257,8 @@ impl Chain {
         res
     }
 
+    // Block processing. Unlike process_block_single() this function doesn't update metrics for
+    // successful blocks processing.
     fn process_block_single_impl<F, F1, F2, F3>(
         &mut self,
         me: &Option<AccountId>,
