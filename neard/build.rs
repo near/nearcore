@@ -1,3 +1,11 @@
+//! Generates neard version information and stores it in environment variables.
+//!
+//! The build script sets `NEARD_VERSION` and `NEARD_BUILD` to be neard version
+//! and build respectively.  Version is the official semver such as 1.24.1 if
+//! the executable is built from a release branch or `trunk` if it’s built from
+//! master.  Build is a `git describe` of the commit the binary was built at
+//! (for official releases it should be the same as version).
+
 use anyhow::{anyhow, Result};
 
 /// Returns value of given environment variable or error if missing.
@@ -26,6 +34,11 @@ fn command(prog: &str, args: &[&str]) -> Result<Vec<u8>> {
 
 /// Returns version read from git repository or ‘unknown’ if could not be
 /// determined.
+///
+/// Uses `git describe --always --dirty=-modified` to get the version.  For
+/// builds on release tags this will return that tag.  In other cases the
+/// version will describe the commit by including its hash.  If the working
+/// directory isn’t clean, the version will include `-modified` suffix.
 fn get_git_version() -> Result<String> {
     let git_dir = std::path::Path::new(&env("CARGO_MANIFEST_DIR")?).join("../.git");
     for subpath in ["HEAD", "logs/HEAD", "index"] {
