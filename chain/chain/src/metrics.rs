@@ -4,19 +4,20 @@ use near_metrics::{
 };
 use once_cell::sync::Lazy;
 
+pub static BLOCK_PROCESSING_ATTEMPTS_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
+    try_create_int_counter(
+        "near_block_processing_attempts_total",
+        "Total number of block processing attempts. The most common reason for aborting block processing is missing chunks",
+    )
+    .unwrap()
+});
 pub static BLOCK_PROCESSED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter("near_block_processed_total", "Total number of blocks processed")
         .unwrap()
 });
-pub static BLOCK_PROCESSED_SUCCESSFULLY_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
-    try_create_int_counter(
-        "near_block_processed_successfully_total",
-        "Total number of blocks processed successfully",
-    )
-    .unwrap()
-});
 pub static BLOCK_PROCESSING_TIME: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram("near_block_processing_time", "Time taken to process blocks").unwrap()
+    try_create_histogram("near_block_processing_time", "Time taken to process blocks successfully. Measures only the time taken by the successful attempts of block processing")
+        .unwrap()
 });
 pub static BLOCK_HEIGHT_HEAD: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_block_height_head", "Height of the current head of the blockchain")
