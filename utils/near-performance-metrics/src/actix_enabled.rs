@@ -1,6 +1,6 @@
 use crate::stats_enabled::{get_thread_stats_logger, MyFuture, REF_COUNTER, SLOW_CALL_THRESHOLD};
 use log::warn;
-use near_rust_allocator_proxy::allocator::get_tid;
+use near_rust_allocator_proxy::get_tid;
 use std::panic::Location;
 use std::time::{Duration, Instant};
 

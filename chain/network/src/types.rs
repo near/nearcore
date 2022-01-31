@@ -32,7 +32,8 @@ use std::fmt::Debug;
 use strum::AsStaticStr;
 
 /// Message from peer to peer manager
-#[derive(strum::AsRefStr, Clone, Debug)]
+#[derive(actix::Message, strum::AsRefStr, Clone, Debug)]
+#[rtype(result = "PeerResponse")]
 pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
     RouteBack(Box<RoutedMessageBody>, CryptoHash),
@@ -54,10 +55,6 @@ impl deepsize::DeepSizeOf for PeerRequest {
     }
 }
 
-impl Message for PeerRequest {
-    type Result = PeerResponse;
-}
-
 #[derive(actix::MessageResponse, Debug)]
 pub enum PeerResponse {
     NoResponse,
@@ -76,7 +73,8 @@ pub struct PeersResponse {
 /// which contains reply for each message to `PeerManager`.
 /// There is 1 to 1 mapping between an entry in `PeerManagerMessageRequest` and `PeerManagerMessageResponse`.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Debug)]
+#[derive(actix::Message, Debug)]
+#[rtype(result = "PeerManagerMessageResponse")]
 pub enum PeerManagerMessageRequest {
     RoutedMessageFrom(RoutedMessageFrom),
     NetworkRequests(NetworkRequests),
@@ -116,10 +114,6 @@ impl PeerManagerMessageRequest {
             panic!("expected PeerMessageRequest::NetworkRequests(");
         }
     }
-}
-
-impl Message for PeerManagerMessageRequest {
-    type Result = PeerManagerMessageResponse;
 }
 
 /// List of all replies to messages to `PeerManager`. See `PeerManagerMessageRequest` for more details.
@@ -206,8 +200,9 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
 
 // TODO(#1313): Use Box
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
+#[derive(actix::Message, Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
+#[rtype(result = "NetworkResponses")]
 pub enum NetworkRequests {
     /// Sends block, either when block was just produced or when requested.
     Block {
@@ -355,13 +350,10 @@ pub enum NetworkResponses {
     RouteNotFound,
 }
 
-impl Message for NetworkRequests {
-    type Result = NetworkResponses;
-}
-
-#[derive(Debug, strum::AsRefStr, AsStaticStr)]
+#[derive(actix::Message, Debug, strum::AsRefStr, AsStaticStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
+#[rtype(result = "NetworkClientResponses")]
 pub enum NetworkClientMessages {
     #[cfg(feature = "test_features")]
     Adversarial(near_network_primitives::types::NetworkAdversarialMessage),
@@ -403,10 +395,6 @@ pub enum NetworkClientMessages {
     Challenge(Challenge),
 
     NetworkInfo(NetworkInfo),
-}
-
-impl Message for NetworkClientMessages {
-    type Result = NetworkClientResponses;
 }
 
 // TODO(#1313): Use Box

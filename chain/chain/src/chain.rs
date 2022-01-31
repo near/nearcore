@@ -76,14 +76,16 @@ pub const MAX_ORPHAN_SIZE: usize = 1024;
 const MAX_ORPHAN_AGE_SECS: u64 = 300;
 
 // Number of orphan ancestors should be checked to request chunks
-const NUM_ORPHAN_ANCESTORS_CHECK: u64 = 5;
+// Orphans for which we will request for missing chunks must satisfy,
+// its NUM_ORPHAN_ANCESTORS_CHECK'th ancestor has been accepted
+pub const NUM_ORPHAN_ANCESTORS_CHECK: u64 = 1;
 
 // Maximum number of orphans that we can request missing chunks
 // Note that if there are no forks, the maximum number of orphans we would
 // request missing chunks will not exceed NUM_ORPHAN_ANCESTORS_CHECK,
 // this number only adds another restriction when there are multiple forks.
 // It should almost never be hit
-const MAX_ORPHAN_MISSING_CHUNKS: usize = 100;
+const MAX_ORPHAN_MISSING_CHUNKS: usize = 5;
 
 /// Refuse blocks more than this many block intervals in the future (as in bitcoin).
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
@@ -904,7 +906,6 @@ impl Chain {
         F3: Copy + FnMut(ChallengeBody),
     {
         let block_hash = *block.hash();
-        let timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
         let res = self.process_block_single(
             me,
             block,
@@ -914,10 +915,7 @@ impl Chain {
             block_orphaned_with_missing_chunks,
             on_challenge,
         );
-        timer.observe_duration();
         if res.is_ok() {
-            metrics::BLOCK_PROCESSED_SUCCESSFULLY_TOTAL.inc();
-
             if let Some(new_res) = self.check_orphans(
                 me,
                 block_hash,
@@ -1218,7 +1216,50 @@ impl Chain {
         Ok(())
     }
 
+    // Processes a single block, increments the metric for the number of blocks processing and also
+    // for the number of blocks processed successfully (returns OK).
     fn process_block_single<F, F1, F2, F3>(
+        &mut self,
+        me: &Option<AccountId>,
+        block: MaybeValidated<Block>,
+        provenance: Provenance,
+        block_accepted: F,
+        block_misses_chunks: F1,
+        orphan_misses_chunks: F2,
+        on_challenge: F3,
+    ) -> Result<Option<Tip>, Error>
+    where
+        F: FnMut(AcceptedBlock),
+        F1: Copy + FnMut(BlockMissingChunks),
+        F2: Copy + FnMut(OrphanMissingChunks),
+        F3: FnMut(ChallengeBody),
+    {
+        metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
+        metrics::NUM_ORPHANS.set(self.orphans.len() as i64);
+        let success_timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
+
+        let res = self.process_block_single_impl(
+            me,
+            block,
+            provenance,
+            block_accepted,
+            block_misses_chunks,
+            orphan_misses_chunks,
+            on_challenge,
+        );
+
+        if res.is_ok() {
+            metrics::BLOCK_PROCESSED_TOTAL.inc();
+            success_timer.stop_and_record();
+        } else {
+            success_timer.stop_and_discard();
+        }
+        res
+    }
+
+    // Block processing. Unlike process_block_single() this function doesn't update metrics for
+    // successful blocks processing.
+    fn process_block_single_impl<F, F1, F2, F3>(
         &mut self,
         me: &Option<AccountId>,
         block: MaybeValidated<Block>,
@@ -1234,9 +1275,6 @@ impl Chain {
         F2: Copy + FnMut(OrphanMissingChunks),
         F3: FnMut(ChallengeBody),
     {
-        metrics::BLOCK_PROCESSED_TOTAL.inc();
-        metrics::NUM_ORPHANS.set(self.orphans.len() as i64);
-
         let prev_head = self.store.head()?;
         let mut chain_update = self.chain_update();
         let maybe_new_head = chain_update.process_block(me, &block, &provenance, on_challenge);
@@ -1575,7 +1613,6 @@ impl Chain {
                 debug!(target: "chain", "Check orphans: found {} orphans", orphans.len());
                 for orphan in orphans.into_iter() {
                     let block_hash = orphan.hash();
-                    let timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
                     let res = self.process_block_single(
                         me,
                         orphan.block,
@@ -1585,10 +1622,8 @@ impl Chain {
                         orphan_misses_chunks,
                         on_challenge,
                     );
-                    timer.observe_duration();
                     match res {
                         Ok(maybe_tip) => {
-                            metrics::BLOCK_PROCESSED_SUCCESSFULLY_TOTAL.inc();
                             maybe_new_head = maybe_tip;
                             queue.push(block_hash);
                         }
