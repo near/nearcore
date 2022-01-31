@@ -282,8 +282,8 @@ def poll_blocks(node: cluster.LocalNode,
             the iteration.
     """
     end = time.time() + timeout
-    start_height = None
-    blocks_count = 0
+    start_height = -1
+    count = 0
     previous = -1
 
     while time.time() < end:
@@ -293,10 +293,11 @@ def poll_blocks(node: cluster.LocalNode,
             previous = latest.height
             if start_height == -1:
                 start_height = latest.height
+            count += 1
         time.sleep(poll_interval)
 
     msg = 'Timed out polling blocks from a node\n'
-    if blocks_count:
+    if count > 0:
         msg += (f'First block: {start_height}; last block: {previous}\n'
                 f'Total blocks returned: {count}')
     else:
