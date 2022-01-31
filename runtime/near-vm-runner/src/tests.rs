@@ -24,13 +24,13 @@ const PREDECESSOR_ACCOUNT_ID: &str = "carol";
 const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;
 
 fn with_vm_variants(runner: fn(VMKind) -> ()) {
-    #[cfg(all(feature = "wasmer0_vm", not(target_arch = "aarch64")))]
+    #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
     runner(VMKind::Wasmer0);
 
     #[cfg(feature = "wasmtime_vm")]
     runner(VMKind::Wasmtime);
 
-    #[cfg(all(feature = "wasmer2_vm", not(target_arch = "aarch64")))]
+    #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
     runner(VMKind::Wasmer2);
 }
 
