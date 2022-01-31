@@ -37,11 +37,13 @@ pub enum Cost {
     DataReceiptCreationBase,
     DataReceiptCreationPerByte,
     ActionCreateAccount,
-    // Deploying a new contract on the blockchain triggers a compilation process
-    // and the compiled code is stored in the DB. The costs charged for such a
-    // contract deployment action is `ActionDeployContractBase` + `N` *
-    // `ActionDeployContractPerByte`, where `N` is the number of bytes in the
-    // WASM code.
+    // Deploying a new contract for an account on the blockchain stores the WASM
+    // code in the trie. Additionally, it also triggers a compilation of the
+    // code to check that it is valid WASM. The compiled code is then stored in
+    // the database, in a separate column family for cached contract code. The
+    // costs charged for such a contract deployment action is
+    // `ActionDeployContractBase` + `N` * `ActionDeployContractPerByte`, where
+    // `N` is the number of bytes in the WASM code.
     /// Estimates `action_creation_config.deploy_contract_cost`, which is
     /// charged once per contract deployment
     ///

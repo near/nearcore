@@ -1024,15 +1024,8 @@ fn apply_block_cost(ctx: &mut EstimatorContext) -> GasCost {
 
     let mut testbed = ctx.testbed();
 
-    let blocks = {
-        let n_blocks = testbed.config.warmup_iters_per_block + testbed.config.iter_per_block;
-        let mut blocks = Vec::with_capacity(n_blocks);
-        for _ in 0..n_blocks {
-            let block = Vec::new();
-            blocks.push(block)
-        }
-        blocks
-    };
+    let n_blocks = testbed.config.warmup_iters_per_block + testbed.config.iter_per_block;
+    let blocks = vec![vec![]; n_blocks];
 
     let measurements = testbed.measure_blocks(blocks);
     let measurements =
