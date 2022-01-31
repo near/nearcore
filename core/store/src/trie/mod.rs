@@ -618,7 +618,7 @@ impl Trie {
                 if need_charge {
                     self.counter.increment();
                 } else {
-                    tracing::debug!(target: "trie", "saved on hash", hash = %hash);
+                    tracing::debug!(target: "trie", hash = %hash, "saved on hash");
                 }
                 value
             });
@@ -652,7 +652,7 @@ impl Trie {
     ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
         let mut hash = *root;
         let result = key.until_offset(true);
-        tracing::debug!(target: "trie", "key in lookup", key = ?result, hash = %hash);
+        tracing::debug!(target: "trie", key = ?result, hash = %hash, "key in lookup");
 
         loop {
             if hash == Trie::empty_root() {
@@ -660,7 +660,7 @@ impl Trie {
             }
             let bytes = self.retrieve_raw_bytes(&hash)?;
             let result = key.until_offset(false);
-            tracing::debug!(target: "trie", "key in lookup", key = ?result, hash = %hash);
+            tracing::debug!(target: "trie", key = ?result, hash = %hash, "key in lookup");
 
             let node = RawTrieNodeWithSize::decode(&bytes).map_err(|_| {
                 StorageError::StorageInconsistentState("RawTrieNode decode failed".to_string())
