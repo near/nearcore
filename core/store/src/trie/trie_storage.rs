@@ -77,7 +77,7 @@ impl TrieCache {
 
             let accounts = self.account_touches.entry(hash.clone()).or_default();
             if let Some(recorded_block_hash) = self.block_touches.get(&hash) {
-                if active_block_hash != recorded_block_hash {
+                if active_block_hash != *recorded_block_hash {
                     accounts.clear();
                 }
             }
