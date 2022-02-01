@@ -64,7 +64,7 @@ pub trait TrieStorage {
 /// Records every value read by retrieve_raw_bytes.
 /// Used for obtaining state parts (and challenges in the future).
 pub struct TrieRecordingStorage {
-    pub(crate) store: Arc<Store>,
+    pub(crate) store: Store,
     pub(crate) shard_uid: ShardUId,
     pub(crate) recorded: RefCell<HashMap<CryptoHash, Vec<u8>>>,
 }
@@ -132,13 +132,13 @@ const TRIE_MAX_CACHE_SIZE: usize = 1;
 const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 4000;
 
 pub struct TrieCachingStorage {
-    pub(crate) store: Arc<Store>,
+    pub(crate) store: Store,
     pub(crate) cache: TrieCache,
     pub(crate) shard_uid: ShardUId,
 }
 
 impl TrieCachingStorage {
-    pub fn new(store: Arc<Store>, cache: TrieCache, shard_uid: ShardUId) -> TrieCachingStorage {
+    pub fn new(store: Store, cache: TrieCache, shard_uid: ShardUId) -> TrieCachingStorage {
         TrieCachingStorage { store, cache, shard_uid }
     }
 
@@ -167,7 +167,7 @@ impl TrieCachingStorage {
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
-        if let Some(val) = guard.pop(hash) {
+        if let Some(val) = guard.get(hash) {
             Ok(val.clone())
         } else {
             let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);

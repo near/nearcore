@@ -10,14 +10,13 @@ use bytes::{Buf, BufMut, BytesMut};
 use bytesize::{GIB, MIB};
 use near_network_primitives::types::ReasonForBan;
 use near_performance_metrics::framed_write::EncoderCallBack;
-use near_rust_allocator_proxy::allocator::get_tid;
 use std::io::{Error, ErrorKind};
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::error;
 
 /// Maximum size of network message in encoded format.
-/// The size of message is stored as `u32`, so the limit has type `u32`
-const NETWORK_MESSAGE_MAX_SIZE_BYTES: u32 = 512 * MIB as u32;
+/// We encode length as `u32`, and therefore maximum size can't be larger than `u32::MAX`.
+const NETWORK_MESSAGE_MAX_SIZE_BYTES: usize = 512 * MIB as usize;
 /// Maximum capacity of write buffer in bytes.
 const MAX_WRITE_BUFFER_CAPACITY_BYTES: usize = GIB as usize;
 
@@ -39,7 +38,7 @@ impl Encoder<Vec<u8>> for Codec {
     type Error = Error;
 
     fn encode(&mut self, item: Vec<u8>, buf: &mut BytesMut) -> Result<(), Error> {
-        if item.len() > NETWORK_MESSAGE_MAX_SIZE_BYTES as usize {
+        if item.len() > NETWORK_MESSAGE_MAX_SIZE_BYTES {
             Err(Error::new(ErrorKind::InvalidInput, "Input is too long"))
         } else {
             #[cfg(feature = "performance_stats")]
@@ -54,7 +53,13 @@ impl Encoder<Vec<u8>> for Codec {
             if buf.capacity() >= MAX_WRITE_BUFFER_CAPACITY_BYTES
                 && item.len() + 4 + buf.len() > buf.capacity()
             {
-                error!(target: "network", "{} throwing away message, because buffer is full item.len(): {} buf.capacity: {}", get_tid(), item.len(), buf.capacity());
+                #[cfg(feature = "performance_stats")]
+                let tid = near_rust_allocator_proxy::get_tid();
+                #[cfg(not(feature = "performance_stats"))]
+                let tid = 0;
+                error!(target: "network", "{} throwing away message, because buffer is full item.len(): {} buf.capacity: {}", 
+                    tid,
+                    item.len(), buf.capacity());
 
                 metrics::DROPPED_MESSAGES_COUNT.inc_by(1);
                 return Err(Error::new(ErrorKind::Other, "Buf max capacity exceeded"));
@@ -78,19 +83,22 @@ impl Decoder for Codec {
             return Ok(None);
         }
 
-        let len = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
+        let len = u32::from_le_bytes(buf[..4].try_into().unwrap()) as usize;
         if len > NETWORK_MESSAGE_MAX_SIZE_BYTES {
             // If this point is reached, abusive peer is banned.
             return Ok(Some(Err(ReasonForBan::Abusive)));
         }
 
-        if buf.len() < 4 + len as usize {
+        if 4 + len <= buf.len() {
+            let res = Some(Ok(buf[4..4 + len].to_vec()));
+            buf.advance(4 + len);
+            if buf.is_empty() && buf.capacity() > 0 {
+                *buf = BytesMut::new();
+            }
+            Ok(res)
+        } else {
             // not enough bytes, keep waiting
             Ok(None)
-        } else {
-            let res = Some(Ok(buf[4..4 + len as usize].to_vec()));
-            buf.advance(4 + len as usize);
-            Ok(res)
         }
     }
 }
@@ -98,13 +106,13 @@ impl Decoder for Codec {
 #[cfg(test)]
 mod test {
     use crate::peer::codec::{Codec, NETWORK_MESSAGE_MAX_SIZE_BYTES};
-    use crate::routing::network_protocol::PartialEdgeInfo;
     use crate::types::{Handshake, PeerMessage, RoutingTableUpdate};
     use borsh::{BorshDeserialize, BorshSerialize};
     use bytes::{BufMut, BytesMut};
     use near_crypto::{KeyType, SecretKey};
     use near_network_primitives::types::{
-        PeerChainInfoV2, PeerIdOrHash, PeerInfo, ReasonForBan, RoutedMessage, RoutedMessageBody,
+        PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, ReasonForBan, RoutedMessage,
+        RoutedMessageBody,
     };
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::CryptoHash;
@@ -172,18 +180,21 @@ mod test {
         let hash = CryptoHash::default();
         let signature = sk.sign(hash.as_ref());
 
-        let msg = PeerMessage::Routed(RoutedMessage {
-            target: PeerIdOrHash::PeerId(PeerId::new(sk.public_key())),
-            author: PeerId::new(sk.public_key()),
-            signature: signature.clone(),
-            ttl: 100,
-            body: RoutedMessageBody::BlockApproval(Approval {
-                account_id: "test2".parse().unwrap(),
-                inner: ApprovalInner::Endorsement(CryptoHash::default()),
-                target_height: 1,
-                signature,
-            }),
-        });
+        let msg = PeerMessage::Routed(
+            RoutedMessage {
+                target: PeerIdOrHash::PeerId(PeerId::new(sk.public_key())),
+                author: PeerId::new(sk.public_key()),
+                signature: signature.clone(),
+                ttl: 100,
+                body: RoutedMessageBody::BlockApproval(Approval {
+                    account_id: "test2".parse().unwrap(),
+                    inner: ApprovalInner::Endorsement(CryptoHash::default()),
+                    target_height: 1,
+                    signature,
+                }),
+            }
+            .into(),
+        );
         test_codec(msg);
     }
 
@@ -201,7 +212,7 @@ mod test {
         let mut codec = Codec::default();
         let mut buffer = BytesMut::new();
         buffer.reserve(4);
-        buffer.put_u32_le(NETWORK_MESSAGE_MAX_SIZE_BYTES + 1);
+        buffer.put_u32_le(NETWORK_MESSAGE_MAX_SIZE_BYTES as u32 + 1);
         assert_eq!(codec.decode(&mut buffer).unwrap(), Some(Err(ReasonForBan::Abusive)));
     }
 
@@ -210,7 +221,7 @@ mod test {
         let mut codec = Codec::default();
         let mut buffer = BytesMut::new();
         buffer.reserve(4);
-        buffer.put_u32_le(NETWORK_MESSAGE_MAX_SIZE_BYTES);
+        buffer.put_u32_le(NETWORK_MESSAGE_MAX_SIZE_BYTES as u32);
         assert_ne!(codec.decode(&mut buffer).unwrap(), Some(Err(ReasonForBan::Abusive)));
     }
 }

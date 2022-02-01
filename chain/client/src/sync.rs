@@ -26,7 +26,6 @@ use near_primitives::types::{
 };
 use near_primitives::utils::to_timestamp;
 
-use cached::{Cached, SizedCache};
 use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
 use near_client_primitives::types::{
     DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus,
@@ -50,18 +49,6 @@ pub const MAX_STATE_PART_REQUEST: u64 = 16;
 pub const MAX_PENDING_PART: u64 = MAX_STATE_PART_REQUEST * 10000;
 
 pub const NS_PER_SECOND: u128 = 1_000_000_000;
-
-/// Get random peer from the hightest height peers.
-pub fn highest_height_peer(highest_height_peers: &Vec<FullPeerInfo>) -> Option<FullPeerInfo> {
-    if highest_height_peers.len() == 0 {
-        return None;
-    }
-
-    match highest_height_peers.iter().choose(&mut thread_rng()) {
-        None => highest_height_peers.choose(&mut thread_rng()).cloned(),
-        Some(peer) => Some(peer.clone()),
-    }
-}
 
 /// Helper to keep track of the Epoch Sync
 // TODO #3488
@@ -201,7 +188,7 @@ impl HeaderSync {
             *sync_status =
                 SyncStatus::HeaderSync { current_height: header_head.height, highest_height };
             self.syncing_peer = None;
-            if let Some(peer) = highest_height_peer(highest_height_peers) {
+            if let Some(peer) = highest_height_peers.choose(&mut thread_rng()).cloned() {
                 if peer.chain_info.height > header_head.height {
                     self.syncing_peer = self.request_headers(chain, peer);
                 }
@@ -617,7 +604,7 @@ pub struct StateSync {
 
     last_part_id_requested: HashMap<(AccountOrPeerIdOrHash, ShardId), PendingRequestStatus>,
     /// Map from which part we requested to whom.
-    requested_target: SizedCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
+    requested_target: lru::LruCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
 
     timeout: Duration,
 
@@ -635,7 +622,7 @@ impl StateSync {
             state_sync_time: Default::default(),
             last_time_block_requested: None,
             last_part_id_requested: Default::default(),
-            requested_target: SizedCache::with_size(MAX_PENDING_PART as usize),
+            requested_target: lru::LruCache::new(MAX_PENDING_PART as usize),
             timeout: Duration::from_std(timeout).unwrap(),
             state_parts_apply_results: HashMap::new(),
             split_state_roots: HashMap::new(),
@@ -979,7 +966,7 @@ impl StateSync {
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) {
-        self.requested_target.cache_set((part_id, sync_hash), target.clone());
+        self.requested_target.put((part_id, sync_hash), target.clone());
 
         let timeout = self.timeout;
         self.last_part_id_requested
@@ -997,7 +984,7 @@ impl StateSync {
         sync_hash: CryptoHash,
     ) {
         let key = (part_id, sync_hash);
-        if let Some(target) = self.requested_target.cache_get(&key) {
+        if let Some(target) = self.requested_target.get(&key) {
             if self.last_part_id_requested.get_mut(&(target.clone(), shard_id)).map_or(
                 false,
                 |request| {
@@ -1293,8 +1280,7 @@ mod test {
 
     use super::*;
     use crate::test_utils::TestEnv;
-    use near_network::types::PartialEdgeInfo;
-    use near_network_primitives::types::PeerInfo;
+    use near_network_primitives::types::{PartialEdgeInfo, PeerInfo};
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -1341,10 +1327,10 @@ mod test {
                     &None,
                     block.into(),
                     Provenance::PRODUCED,
-                    |_| {},
-                    |_| {},
-                    |_| {},
-                    |_| {},
+                    &mut |_| {},
+                    &mut |_| {},
+                    &mut |_| {},
+                    &mut |_| {},
                 )
                 .unwrap();
         }
@@ -1357,10 +1343,10 @@ mod test {
                     &None,
                     block.into(),
                     Provenance::PRODUCED,
-                    |_| {},
-                    |_| {},
-                    |_| {},
-                    |_| {},
+                    &mut |_| {},
+                    &mut |_| {},
+                    &mut |_| {},
+                    &mut |_| {},
                 )
                 .unwrap();
         }
@@ -1601,7 +1587,7 @@ mod test {
         }
         let block_headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
         let peer_infos = create_peer_infos(2);
-        env.clients[1].chain.sync_block_headers(block_headers, |_| unreachable!()).unwrap();
+        env.clients[1].chain.sync_block_headers(block_headers, &mut |_| unreachable!()).unwrap();
 
         for block in blocks.iter().take(5) {
             let is_state_sync =
@@ -1643,7 +1629,7 @@ mod test {
         }
         let block_headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
         let peer_infos = create_peer_infos(2);
-        env.clients[1].chain.sync_block_headers(block_headers, |_| unreachable!()).unwrap();
+        env.clients[1].chain.sync_block_headers(block_headers, &mut |_| unreachable!()).unwrap();
         let is_state_sync = block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);
         let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter.clone());

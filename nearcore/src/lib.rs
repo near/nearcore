@@ -5,8 +5,9 @@ use std::sync::Arc;
 use actix::{Actor, Addr, Arbiter};
 use actix_rt::ArbiterHandle;
 use actix_web;
+use anyhow::Context;
 #[cfg(feature = "performance_stats")]
-use near_rust_allocator_proxy::allocator::reset_memory_usage_max;
+use near_rust_allocator_proxy::reset_memory_usage_max;
 use tracing::{error, info, trace};
 
 use near_chain::ChainGenesis;
@@ -275,7 +276,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
     }
 }
 
-pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Arc<Store> {
+pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Store {
     let path = get_store_path(home_dir);
     let store_exists = store_path_exists(&path);
     if store_exists {
@@ -295,12 +296,12 @@ pub struct NearNode {
     pub rpc_servers: Vec<(&'static str, actix_web::dev::Server)>,
 }
 
-pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
+pub fn start_with_config(home_dir: &Path, config: NearConfig) -> Result<NearNode, anyhow::Error> {
     let store = init_and_migrate_store(home_dir, &config);
 
     let runtime = Arc::new(NightshadeRuntime::with_config(
         home_dir,
-        Arc::clone(&store),
+        store.clone(),
         &config,
         config.client_config.trie_viewer_state_size_limit,
         config.client_config.max_gas_burnt_view,
@@ -340,7 +341,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     let arbiter = Arbiter::new();
     let client_actor1 = client_actor.clone().recipient();
     let view_client1 = view_client.clone().recipient();
-    config.network_config.verify();
+    config.network_config.verify().with_context(|| "start_with_config")?;
     let network_config = config.network_config;
     let routing_table_addr =
         start_routing_table_actor(PeerId::new(network_config.public_key.clone()), store.clone());
@@ -394,10 +395,10 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     #[cfg(feature = "performance_stats")]
     reset_memory_usage_max();
 
-    NearNode {
+    Ok(NearNode {
         client: client_actor,
         view_client,
         rpc_servers,
         arbiters: vec![client_arbiter_handle, arbiter.handle()],
-    }
+    })
 }

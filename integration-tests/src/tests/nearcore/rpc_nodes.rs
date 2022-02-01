@@ -27,6 +27,7 @@ use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView};
 use crate::tests::nearcore::node_cluster::NodeCluster;
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_get_validator_info_rpc() {
     init_integration_logger();
 
@@ -213,16 +214,19 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_get_execution_outcome_tx_success() {
     test_get_execution_outcome(true);
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_get_execution_outcome_tx_failure() {
     test_get_execution_outcome(false);
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_protocol_config_rpc() {
     init_integration_logger();
 
@@ -262,6 +266,7 @@ fn test_protocol_config_rpc() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_query_rpc_account_view_must_succeed() {
     init_integration_logger();
 
@@ -300,6 +305,7 @@ fn test_query_rpc_account_view_must_succeed() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
     init_integration_logger();
 
@@ -339,6 +345,7 @@ fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_tx_not_enough_balance_must_return_error() {
     init_integration_logger();
 
@@ -401,6 +408,7 @@ fn test_tx_not_enough_balance_must_return_error() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_send_tx_sync_returns_transaction_hash() {
     init_integration_logger();
 
@@ -449,6 +457,7 @@ fn test_send_tx_sync_returns_transaction_hash() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_send_tx_sync_to_lightclient_must_be_routed() {
     init_integration_logger();
 
@@ -507,6 +516,7 @@ fn test_send_tx_sync_to_lightclient_must_be_routed() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_check_unknown_tx_must_return_error() {
     init_integration_logger();
 
@@ -565,6 +575,7 @@ fn test_check_unknown_tx_must_return_error() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_check_tx_on_lightclient_must_return_does_not_track_shard() {
     init_integration_logger();
 
@@ -618,6 +629,7 @@ fn test_check_tx_on_lightclient_must_return_does_not_track_shard() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_validators_by_epoch_id_current_epoch_not_fails() {
     init_integration_logger();
 

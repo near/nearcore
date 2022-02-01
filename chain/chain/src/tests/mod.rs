@@ -21,10 +21,10 @@ impl Chain {
             me,
             MaybeValidated::from(block),
             Provenance::PRODUCED,
-            |_| {},
-            |_| {},
-            |_| {},
-            |_| {},
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| {},
         )
     }
 }
