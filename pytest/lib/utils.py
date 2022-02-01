@@ -252,6 +252,72 @@ def compute_merkle_root_from_path(path, leaf_hash):
     return res
 
 
+def poll_epochs(node: cluster.LocalNode,
+                *,
+                epoch_length,
+                num_blocks_per_year: int = 31536000,
+                timeout: float = 300) -> typing.Iterable[int]:
+    """Polls a node about the latest epoch and yields it when it changes.
+
+    The function continues yielding epoch heights indefinitely (so long as the node
+    continues reporting them) until timeout is reached or the caller stops
+    reading yielded values.  Reaching the timeout is considered to be a failure
+    condition and thus it results in an `AssertionError`.  The expected usage is
+    that caller reads epoch heights until some condition is met at which point it stops
+    iterating over the generator.
+
+    Args:
+        node: Node to query about its latest epoch.
+        timeout: Total timeout from the first status request sent to the node.
+        epoch_length: epoch_length genesis config value
+        num_blocks_per_year: num_blocks_per_year genesis config value
+    Yields:
+        An int for each new epoch height reported. Note that there
+        is no guarantee that there will be no skipped epochs.
+    Raises:
+        AssertionError: If more than `timeout` seconds passes from the start of
+            the iteration, or the response from the node is not as expected.
+    """
+    end = time.time() + timeout
+    start_height = -1
+    epoch_start = -1
+    count = 0
+    previous = -1
+
+    while time.time() < end:
+        response = node.get_validators()
+        assert 'error' not in response, response
+
+        latest = response['result']
+        height = latest['epoch_height']
+        assert isinstance(height, int) and height >= 1, height
+
+        if start_height == -1:
+            start_height = height
+
+        if previous != height:
+            yield height
+
+            count += 1
+            previous = height
+            epoch_start = latest['epoch_start_height']
+            assert isinstance(epoch_start,
+                              int) and epoch_start >= 1, epoch_start
+
+        blocks_left = epoch_start + epoch_length - node.get_latest_block(
+        ).height
+        seconds_left = blocks_left / (num_blocks_per_year / 31536000)
+        time.sleep(max(seconds_left, 2))
+
+    msg = 'Timed out polling epochs from a node\n'
+    if count:
+        msg += (f'First epoch: {start_height}; last epoch: {previous}\n'
+                f'Total epochs returned: {count}')
+    else:
+        msg += 'No epochs were returned'
+    raise AssertionError(msg)
+
+
 def poll_blocks(node: cluster.LocalNode,
                 *,
                 timeout: float = 120,
