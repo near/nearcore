@@ -1190,8 +1190,8 @@ enum AutoXzState {
 static XZ_HEADER_MAGIC: [u8; 6] = [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
 
 impl<'a> AutoXzDecoder<'a> {
-    fn new(path: &'a std::path::Path, file: std::fs::File) -> Self {
-        Self { path, file: tokio::fs::File::from_std(file), state: AutoXzState::Probing(0) }
+    fn new(path: &'a std::path::Path, file: tokio::fs::File) -> Self {
+        Self { path, file: file, state: AutoXzState::Probing(0) }
     }
 
     /// Writes data from the chunk to the output file automatically
@@ -1391,7 +1391,7 @@ fn test_auto_xz_decode_corrupted() {
 async fn download_file_impl(
     uri: hyper::Uri,
     path: &std::path::Path,
-    file: std::fs::File,
+    file: tokio::fs::File,
 ) -> anyhow::Result<(), FileDownloadError> {
     let mut out = AutoXzDecoder::new(path, file);
     let https_connector = hyper_tls::HttpsConnector::new();
@@ -1426,35 +1426,41 @@ async fn download_file_impl(
 /// Downloads a resource at given `url` and saves it to `path`.  On success, if
 /// file at `path` exists it will be overwritten.  On failure, file at `path` is
 /// left unchanged (if it exists).
-pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
+pub async fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     let uri = url.parse()?;
-    let (tmp_file, tmp_path) =
-        tempfile::NamedTempFile::new_in(path.parent().unwrap_or(Path::new(".")))
-            .map_err(FileDownloadError::OpenError)?
-            .into_parts();
-    let (result, tmp_path) =
-        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(
-            async move {
-                let result = download_file_impl(uri, &tmp_path, tmp_file).await;
-                (result, tmp_path)
-            },
-        );
-    let result = match result {
+
+    let (tmp_file, tmp_path) = {
+        let tmp_dir = path.parent().unwrap_or(Path::new("."));
+        tempfile::NamedTempFile::new_in(tmp_dir).map_err(FileDownloadError::OpenError)?.into_parts()
+    };
+
+    let result = match download_file_impl(uri, &tmp_path, tokio::fs::File::from_std(tmp_file)).await
+    {
         Err(err) => Err((tmp_path, err)),
         Ok(()) => tmp_path.persist(path).map_err(|e| {
             let from = e.path.to_path_buf();
-            (e.path, FileDownloadError::RenameError(from, path.to_path_buf(), e.error))
+            let to = path.to_path_buf();
+            (e.path, FileDownloadError::RenameError(from, to, e.error))
         }),
     };
+
     result.map_err(|(tmp_path, err)| match tmp_path.close() {
         Ok(()) => err,
         Err(close_err) => FileDownloadError::RemoveTemporaryFileError(close_err, Box::new(err)),
     })
 }
 
+fn run_download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async { download_file(url, path).await })
+}
+
 pub fn download_genesis(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     info!(target: "near", "Downloading genesis file from: {} ...", url);
-    let result = download_file(url, path);
+    let result = run_download_file(url, path);
     if result.is_ok() {
         info!(target: "near", "Saved the genesis file to: {} ...", path.display());
     }
@@ -1463,7 +1469,7 @@ pub fn download_genesis(url: &str, path: &Path) -> Result<(), FileDownloadError>
 
 pub fn download_config(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     info!(target: "near", "Downloading config file from: {} ...", url);
-    let result = download_file(url, path);
+    let result = run_download_file(url, path);
     if result.is_ok() {
         info!(target: "near", "Saved the config file to: {} ...", path.display());
     }

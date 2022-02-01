@@ -108,7 +108,7 @@ impl ShardChunkHeaderV2 {
         let inner_bytes = inner.try_to_vec().expect("Failed to serialize");
         let inner_hash = hash(&inner_bytes);
 
-        ChunkHash(combine_hash(inner_hash, inner.encoded_merkle_root))
+        ChunkHash(combine_hash(&inner_hash, &inner.encoded_merkle_root))
     }
 
     pub fn new(
@@ -173,7 +173,7 @@ impl ShardChunkHeaderV3 {
         let inner_bytes = inner.try_to_vec().expect("Failed to serialize");
         let inner_hash = hash(&inner_bytes);
 
-        ChunkHash(combine_hash(inner_hash, *inner.encoded_merkle_root()))
+        ChunkHash(combine_hash(&inner_hash, inner.encoded_merkle_root()))
     }
 
     pub fn new(

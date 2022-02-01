@@ -186,7 +186,7 @@ impl Ibf {
     }
 
     /// For given hash, generate list of indexes, where given element should be inserted.
-    fn generate_idx(&mut self, elem_hash: u64) -> [usize; NUM_HASHES] {
+    fn generate_idx(&self, elem_hash: u64) -> [usize; NUM_HASHES] {
         let mask = (1 << self.k) - 1;
         let pos0 = elem_hash & mask;
         let mut pos1 = (elem_hash >> self.k) & mask;
