@@ -71,6 +71,8 @@ struct CliArgs {
     /// Print extra debug information
     #[clap(long, multiple(true), possible_values=&["io", "rocksdb", "least-squares"])]
     debug: Vec<String>,
+    #[clap(long)]
+    tracing_span_tree: bool,
     /// Extra configuration parameters for RocksDB specific estimations
     #[clap(flatten)]
     db_test_config: RocksDBTestConfig,
@@ -179,6 +181,10 @@ fn main() -> anyhow::Result<()> {
         println!("\nOutput saved to:\n\n    {}", output_path.display());
 
         return Ok(());
+    }
+
+    if cli_args.tracing_span_tree {
+        tracing_span_tree::span_tree().enable();
     }
 
     let warmup_iters_per_block = cli_args.warmup_iters;
