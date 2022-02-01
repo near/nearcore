@@ -58,3 +58,6 @@ sandbox = ["nearcore/sandbox"]
 force_wasmer2 = ["nearcore/force_wasmer2"]
 force_wasmer0 = ["nearcore/force_wasmer0"]
 force_wasmtime = ["nearcore/force_wasmtime"]
+
+[package.metadata.workspaces]
+independent = true
