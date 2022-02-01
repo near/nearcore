@@ -63,7 +63,7 @@ impl TrieCache {
                     self.lru.pop(hash);
                     self.fixed.insert(hash.clone(), value.clone())
                     // return & to the same value?
-                }
+                };
                 (Some(value), true)
             }
             CachePosition::Fixed(value) => {
@@ -81,7 +81,6 @@ impl TrieCache {
                 };
                 (Some(value), need_charge)
             }
-            None => (None, true)
         }
     }
 
