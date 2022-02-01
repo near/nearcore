@@ -301,9 +301,11 @@ def poll_epochs(node: cluster.LocalNode,
             count += 1
             previous = height
             epoch_start = latest['epoch_start_height']
-            assert isinstance(epoch_start, int) and epoch_start >= 1, epoch_start
+            assert isinstance(epoch_start,
+                              int) and epoch_start >= 1, epoch_start
 
-        blocks_left = epoch_start + epoch_length - node.get_latest_block().height
+        blocks_left = epoch_start + epoch_length - node.get_latest_block(
+        ).height
         seconds_left = blocks_left / (num_blocks_per_year / 31536000)
         time.sleep(max(seconds_left, 2))
 

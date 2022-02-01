@@ -24,8 +24,8 @@ config = load_config()
 # give more stake to the bootnode so that it can produce the blocks alone
 near_root, node_dirs = init_cluster(
     4, 1, 4, config,
-    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", EPOCH_LENGTH],
-     ["block_producer_kickout_threshold", 20],
+    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
+     ["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 20],
      ["chunk_producer_kickout_threshold", 20]], {
          0: {
              "view_client_throttle_period": {
@@ -201,7 +201,9 @@ for height, hash_ in utils.poll_blocks(observer,
         break
 
 start_epoch = -1
-for epoch_height in utils.poll_epochs(observer, epoch_length=EPOCH_LENGTH, timeout=TIMEOUT):
+for epoch_height in utils.poll_epochs(observer,
+                                      epoch_length=EPOCH_LENGTH,
+                                      timeout=TIMEOUT):
     if start_epoch == -1:
         start_epoch = epoch_height
     if epoch_height >= start_epoch + 3:
