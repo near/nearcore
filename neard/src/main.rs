@@ -6,8 +6,6 @@ use self::cli::NeardCmd;
 use clap::crate_version;
 use git_version::git_version;
 use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
-#[cfg(feature = "memory_stats")]
-use near_rust_allocator_proxy::allocator::MyAllocator;
 use nearcore::get_default_home;
 use once_cell::sync::Lazy;
 use std::path::PathBuf;
@@ -34,14 +32,16 @@ static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(get_default_home);
 
 #[cfg(feature = "memory_stats")]
 #[global_allocator]
-static ALLOC: MyAllocator<tikv_jemallocator::Jemalloc> =
-    MyAllocator::new(tikv_jemallocator::Jemalloc);
+static ALLOC: near_rust_allocator_proxy::ProxyAllocator<tikv_jemallocator::Jemalloc> =
+    near_rust_allocator_proxy::ProxyAllocator::new(tikv_jemallocator::Jemalloc);
 
 #[cfg(all(not(feature = "memory_stats"), feature = "jemalloc"))]
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn main() {
+    #[cfg(feature = "memory_stats")]
+    ALLOC.set_report_usage_interval(512 << 20).enable_stack_trace(true);
     // We use it to automatically search the for root certificates to perform HTTPS calls
     // (sending telemetry and downloading genesis)
     openssl_probe::init_ssl_cert_env_vars();
