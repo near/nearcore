@@ -128,6 +128,9 @@ pub enum ProtocolFeature {
     /// Make block producers produce chunks for the same block they would later produce to avoid
     /// network delays
     SynchronizeBlockChunkProduction,
+    /// Change the algorithm to count WASM stack usage to avoid undercounting in
+    /// some cases.
+    CorrectStackLimit,
     /// Add `AccessKey` nonce range for implicit accounts, as in `AccessKeyNonceRange` feature.
     AccessKeyNonceForImplicitAccounts,
 
@@ -138,6 +141,11 @@ pub enum ProtocolFeature {
     ChunkOnlyProducers,
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingExchangeAlgorithm,
+    /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
+    /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
+    /// alpha is min stake ratio
+    #[cfg(feature = "protocol_feature_fix_staking_threshold")]
+    FixStakingThreshold,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -154,7 +162,7 @@ const MAIN_NET_PROTOCOL_VERSION: ProtocolVersion = 51;
 pub const PROTOCOL_VERSION: ProtocolVersion = MAIN_NET_PROTOCOL_VERSION;
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 125;
+pub const PROTOCOL_VERSION: ProtocolVersion = 126;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -181,7 +189,8 @@ impl ProtocolFeature {
             | ProtocolFeature::LimitContractFunctionsNumber
             | ProtocolFeature::BlockHeaderV3
             | ProtocolFeature::AliasValidatorSelectionAlgorithm => 49,
-            ProtocolFeature::SynchronizeBlockChunkProduction => 50,
+            ProtocolFeature::SynchronizeBlockChunkProduction
+            | ProtocolFeature::CorrectStackLimit => 50,
             ProtocolFeature::AccessKeyNonceForImplicitAccounts => 51,
 
             // Nightly features
@@ -191,6 +200,8 @@ impl ProtocolFeature {
             ProtocolFeature::ChunkOnlyProducers => 124,
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
+            #[cfg(feature = "protocol_feature_fix_staking_threshold")]
+            ProtocolFeature::FixStakingThreshold => 126,
         }
     }
 }

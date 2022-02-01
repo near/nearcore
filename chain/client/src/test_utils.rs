@@ -23,9 +23,10 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::test_utils::{MockPeerManagerAdapter, NetworkRecipient};
 use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
-    PartialEdgeInfo, PeerManagerAdapter,
+    PeerManagerAdapter,
 };
 use near_network::PeerManagerActor;
+use near_network_primitives::types::PartialEdgeInfo;
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
@@ -1092,7 +1093,7 @@ pub fn setup_client_with_runtime(
 }
 
 pub fn setup_client(
-    store: Arc<Store>,
+    store: Store,
     validators: Vec<Vec<AccountId>>,
     validator_groups: u64,
     num_shards: NumShards,
@@ -1513,7 +1514,7 @@ impl TestEnv {
     /// this `TestEnv` was created with custom runtime adapters that
     /// customisation will be lost.
     pub fn restart(&mut self, idx: usize) {
-        let store = self.clients[idx].chain.store().owned_store();
+        let store = self.clients[idx].chain.store().store().clone();
         let account_id = self.get_client_id(idx).clone();
         let rng_seed = match self.seeds.get(&account_id) {
             Some(seed) => *seed,

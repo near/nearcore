@@ -133,7 +133,7 @@ pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
     runtime_config_store: RuntimeConfigStore,
 
-    store: Arc<Store>,
+    store: Store,
     tries: ShardTries,
     trie_viewer: TrieViewer,
     pub runtime: Runtime,
@@ -146,7 +146,7 @@ pub struct NightshadeRuntime {
 impl NightshadeRuntime {
     pub fn with_config(
         home_dir: &Path,
-        store: Arc<Store>,
+        store: Store,
         config: &NearConfig,
         trie_viewer_state_size_limit: Option<u64>,
         max_gas_burnt_view: Option<Gas>,
@@ -164,7 +164,7 @@ impl NightshadeRuntime {
 
     pub fn new(
         home_dir: &Path,
-        store: Arc<Store>,
+        store: Store,
         genesis: &Genesis,
         tracked_config: TrackedConfig,
         trie_viewer_state_size_limit: Option<u64>,
@@ -214,7 +214,7 @@ impl NightshadeRuntime {
 
     pub fn test_with_runtime_config_store(
         home_dir: &Path,
-        store: Arc<Store>,
+        store: Store,
         genesis: &Genesis,
         tracked_config: TrackedConfig,
         runtime_config_store: RuntimeConfigStore,
@@ -222,7 +222,7 @@ impl NightshadeRuntime {
         Self::new(home_dir, store, genesis, tracked_config, None, None, Some(runtime_config_store))
     }
 
-    pub fn test(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
+    pub fn test(home_dir: &Path, store: Store, genesis: &Genesis) -> Self {
         Self::test_with_runtime_config_store(
             home_dir,
             store,
@@ -230,15 +230,6 @@ impl NightshadeRuntime {
             TrackedConfig::new_empty(),
             RuntimeConfigStore::test(),
         )
-    }
-
-    fn get_epoch_height_from_prev_block(
-        &self,
-        prev_block_hash: &CryptoHash,
-    ) -> Result<EpochHeight, Error> {
-        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
-        epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height()).map_err(Error::from)
     }
 
     pub fn get_epoch_id(&self, hash: &CryptoHash) -> Result<EpochId, Error> {
@@ -263,7 +254,7 @@ impl NightshadeRuntime {
         }
     }
 
-    fn genesis_state_from_dump(store: Arc<Store>, home_dir: &Path) -> Vec<StateRoot> {
+    fn genesis_state_from_dump(store: Store, home_dir: &Path) -> Vec<StateRoot> {
         error!(target: "near", "Loading genesis from a state dump file. Do not use this outside of genesis-tools");
         let mut state_file = home_dir.to_path_buf();
         state_file.push(STATE_DUMP_FILE);
@@ -276,7 +267,7 @@ impl NightshadeRuntime {
         state_roots
     }
 
-    fn genesis_state_from_records(store: Arc<Store>, genesis: &Genesis) -> Vec<StateRoot> {
+    fn genesis_state_from_records(store: Store, genesis: &Genesis) -> Vec<StateRoot> {
         if !genesis.records.as_ref().is_empty() {
             info!(target: "runtime", "Genesis state has {} records, computing state roots", genesis.records.0.len());
         } else {
@@ -339,7 +330,7 @@ impl NightshadeRuntime {
     /// After that: return genesis state roots. The state is not guaranteed to be in storage, as
     /// GC and state sync are allowed to delete it.
     pub fn initialize_genesis_state_if_needed(
-        store: Arc<Store>,
+        store: Store,
         home_dir: &Path,
         genesis: &Genesis,
     ) -> Vec<StateRoot> {
@@ -362,7 +353,7 @@ impl NightshadeRuntime {
     }
 
     pub fn initialize_genesis_state(
-        store: Arc<Store>,
+        store: Store,
         home_dir: &Path,
         genesis: &Genesis,
     ) -> Vec<StateRoot> {
@@ -668,11 +659,11 @@ pub fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &Shard
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
-    fn genesis_state(&self) -> (Arc<Store>, Vec<StateRoot>) {
+    fn genesis_state(&self) -> (Store, Vec<StateRoot>) {
         (self.store.clone(), self.genesis_state_roots.clone())
     }
 
-    fn get_store(&self) -> Arc<Store> {
+    fn get_store(&self) -> Store {
         self.store.clone()
     }
 
@@ -1834,6 +1825,23 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
+    }
+
+    fn get_epoch_height_from_prev_block(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<EpochHeight, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+        epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height()).map_err(Error::from)
+    }
+
+    fn get_protocol_upgrade_block_height(
+        &self,
+        block_hash: CryptoHash,
+    ) -> Result<Option<BlockHeight>, EpochError> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        epoch_manager.get_protocol_upgrade_block_height(block_hash)
     }
 }
 
@@ -3185,7 +3193,7 @@ mod test {
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
             .collect();
-        let fishermen_stake = 3200 * crate::NEAR_BASE + 1;
+        let fishermen_stake = 3300 * crate::NEAR_BASE + 1;
 
         let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
         let staking_transaction1 = stake(1, &signers[1], &block_producers[1], fishermen_stake);
@@ -3262,7 +3270,7 @@ mod test {
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
             .collect();
-        let fishermen_stake = 3200 * crate::NEAR_BASE + 1;
+        let fishermen_stake = 3300 * crate::NEAR_BASE + 1;
 
         let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
         env.step_default(vec![staking_transaction]);

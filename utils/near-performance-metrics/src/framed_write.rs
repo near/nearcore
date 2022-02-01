@@ -456,6 +456,10 @@ where
                     let len = inner.buffer.len();
                     let capacity = inner.buffer.capacity();
                     inner.callback.drained(n, len, capacity);
+                    // Fix memory leak see (#6173)
+                    if inner.buffer.is_empty() && inner.buffer.capacity() > 0 {
+                        inner.buffer = BytesMut::new()
+                    }
                 }
                 Poll::Ready(Err(ref e)) if e.kind() == io::ErrorKind::WouldBlock => {
                     if inner.buffer.len() > inner.high {
@@ -552,6 +556,10 @@ where
                     let len = inner.buffer.len();
                     let capacity = inner.buffer.capacity();
                     inner.callback.drained(n, len, capacity);
+                    // Fix memory leak see (#6173)
+                    if inner.buffer.is_empty() && inner.buffer.capacity() > 0 {
+                        inner.buffer = BytesMut::new()
+                    }
                 }
                 Poll::Ready(Err(ref e)) if e.kind() == io::ErrorKind::WouldBlock => {
                     return if inner.buffer.len() < inner.low {

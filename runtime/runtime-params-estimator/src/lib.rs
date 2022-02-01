@@ -30,10 +30,21 @@
 //!   * Some costs are measured more directly. For example, to measure cost of
 //!     wasm opcode we call vm_runner directly, bypassing the rest of runtime
 //!     machinery.
+//!   * Some RocksDB related estimations avoid nearcore entirely and run on
+//!     completely independent database instances. This DB is controlled by the
+//!     `rdb-` prefixed flags which are combined in `RocksDBTestConfig`.
 //!
 //! Some costs depend on each other. As we want to allow estimating a subset of
 //! costs and don't want to just run everything in order (as that would be to
 //! slow), we have a very simple manual caching infrastructure in place.
+//!
+//! Notes on code architecture:
+//!
+//! To keep estimations comprehensible, each estimation has a simple function
+//! here in the top-level module. Calls to code in submodules should have a
+//! descriptive function names so that it is obvious what it does without
+//! digging deeper.
+//!
 
 mod cost;
 mod cost_table;
@@ -41,6 +52,7 @@ mod costs_to_runtime_config;
 mod estimator_context;
 mod gas_cost;
 mod qemu;
+mod rocksdb;
 mod transaction_builder;
 
 pub(crate) mod estimator_params;
@@ -82,6 +94,7 @@ use crate::config::Config;
 use crate::cost_table::format_gas;
 use crate::estimator_context::{EstimatorContext, Testbed};
 use crate::gas_cost::GasCost;
+use crate::rocksdb::{rocks_db_inserts_cost, rocks_db_read_cost};
 use crate::transaction_builder::TransactionBuilder;
 use crate::vm_estimator::create_context;
 
@@ -89,6 +102,7 @@ pub use crate::cost::Cost;
 pub use crate::cost_table::CostTable;
 pub use crate::costs_to_runtime_config::costs_to_runtime_config;
 pub use crate::qemu::QemuCommandBuilder;
+pub use crate::rocksdb::RocksDBTestConfig;
 
 static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ActionReceiptCreation, action_receipt_creation),
@@ -156,6 +170,8 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::TouchingTrieNode, touching_trie_node),
     (Cost::GasMeteringBase, gas_metering_base),
     (Cost::GasMeteringOp, gas_metering_op),
+    (Cost::RocksDbInsertValueByte, rocks_db_insert_value_byte),
+    (Cost::RocksDbReadValueByte, rocks_db_read_value_byte),
     (Cost::CpuBenchmarkSha256, cpu_benchmark_sha256),
     (Cost::OneCPUInstruction, one_cpu_instruction),
     (Cost::OneNanosecond, one_nanosecond),
@@ -612,12 +628,11 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
 
     let mut run = || {
         let context = create_context(vec![]);
-        let (outcome, err) = vm_kind.runtime().unwrap().run(
+        let (outcome, err) = vm_kind.runtime(config.clone()).unwrap().run(
             &code,
             "cpu_ram_soak_test",
             &mut fake_external,
             context,
-            &config,
             &fees,
             &promise_results,
             PROTOCOL_VERSION,
@@ -934,6 +949,18 @@ fn gas_metering_base(ctx: &mut EstimatorContext) -> GasCost {
 
 fn gas_metering_op(ctx: &mut EstimatorContext) -> GasCost {
     gas_metering(ctx).1
+}
+
+fn rocks_db_insert_value_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let total_bytes = ctx.config.rocksdb_test_config.op_count as u64
+        * ctx.config.rocksdb_test_config.value_size as u64;
+    rocks_db_inserts_cost(&ctx.config) / total_bytes
+}
+
+fn rocks_db_read_value_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let total_bytes = ctx.config.rocksdb_test_config.op_count as u64
+        * ctx.config.rocksdb_test_config.value_size as u64;
+    rocks_db_read_cost(&ctx.config) / total_bytes
 }
 
 fn gas_metering(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {
