@@ -694,7 +694,6 @@ enum ChunkGrievingPhases {
 
 // TODO(#3180): seals are disabled in single shard setting
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 #[ignore]
 fn test_chunk_grieving() {
     let validator_groups = 1;

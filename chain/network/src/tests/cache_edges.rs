@@ -1,4 +1,3 @@
-use crate::network_protocol::{Edge, EdgeState};
 use crate::routing::routing_table_actor::Prune;
 use crate::routing::routing_table_view::{DELETE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME};
 use crate::test_utils::random_peer_id;
@@ -6,12 +5,12 @@ use crate::RoutingTableActor;
 use actix::System;
 use borsh::de::BorshDeserialize;
 use near_crypto::Signature;
+use near_network_primitives::types::{Edge, EdgeState};
 use near_primitives::network::PeerId;
 use near_primitives::time::Clock;
 use near_store::test_utils::create_test_store;
 use near_store::{ColComponentEdges, ColPeerComponent, Store};
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::time::Instant;
 
 type SimpleEdgeDescription = (usize, usize, bool);
@@ -28,7 +27,7 @@ impl EdgeDescription {
 
 struct RoutingTableTest {
     routing_table: RoutingTableActor,
-    store: Arc<Store>,
+    store: Store,
     peers: Vec<PeerId>,
     rev_peers: HashMap<PeerId, usize>,
     times: Vec<Instant>,

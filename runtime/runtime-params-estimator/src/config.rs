@@ -1,6 +1,8 @@
 use near_vm_runner::internal::VMKind;
 use std::path::PathBuf;
 
+use crate::rocksdb::RocksDBTestConfig;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GasMetric {
     // If we measure gas in number of executed instructions, must run under simulator.
@@ -28,4 +30,8 @@ pub struct Config {
     pub vm_kind: VMKind,
     /// When non-none, only the specified costs will be measured.
     pub costs_to_measure: Option<Vec<String>>,
+    /// Configuration specific to raw RocksDB tests. Does NOT affect normal tests that use RocksDB through the nearcore interface.
+    pub rocksdb_test_config: RocksDBTestConfig,
+    /// Print extra details on least-squares computation
+    pub debug_least_squares: bool,
 }

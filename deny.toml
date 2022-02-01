@@ -21,9 +21,6 @@ skip = [
     { name = "humantime", version = "=2.1.0" },
     { name = "textwrap", version = "=0.12.1" },
 
-    # many crates (borsh, indexmap, cached, ...) use this older version
-    { name = "hashbrown", version = "=0.9.1" },
-
     # insta uses older version of console
     { name = "console", version = "=0.14.1" },
     # near-epoch-manager fixed the rand version to ensure protocol stability
@@ -48,10 +45,8 @@ skip = [
     { name = "object", version = "=0.27.1" },
     # Wasmer 2.0 uses both region 2.2.0 and 3.0.0 via dependencies
     { name = "region", version = "=2.2.0" },
-    # Wasmtime 0.17 use rely older wasmparser.
-    { name = "wasmparser", version = "=0.76.0" },
-    # Wasmtime 0.17 use older target-lexicon.
-    { name = "target-lexicon", version = "=0.11.2" },
+    # Wasmtime 0.33 use relies on a newer wasmparser, the main version stays the one in production.
+    { name = "wasmparser", version = "=0.81.0" },
     # Need this specific version of pwasm-utils for backwards-compatible
     # stack limiting.
     { name = "pwasm-utils", version = "=0.12.0" },
@@ -61,9 +56,6 @@ skip = [
     { name = "indicatif", version = "=0.15.0" },
     { name = "rand_xorshift", version = "=0.2.0" },
     { name = "wasmparser", version = "=0.59.0" },
-
-    # wasmtime and actix-http
-    { name = "gimli", version = "=0.23.0" },
 
     # wasmer and wasmtime
     { name = "target-lexicon", version = "=0.10.0" },
@@ -95,15 +87,6 @@ skip = [
     # criterion and criterion-plot use conflicting versions
     { name = "semver-parser", version = "=0.7.0" },
     { name = "semver", version = "=0.9.0" },
-
-    # hashbrown uses an older version
-    { name = "ahash", version = "=0.4.7" },
-
-    # zeropool-bn optionally uses the older borsh 0.8.2
-    { name = "borsh", version = "=0.8.2" },
-    { name = "borsh-derive", version = "=0.8.2" },
-    { name = "borsh-derive-internal", version = "=0.8.2" },
-    { name = "borsh-schema-derive-internal", version = "=0.8.2" },
 
     # wasmer-runtime-core-near and parity-secp256k1 use an older version
     { name = "arrayvec", version = "=0.5.2" },

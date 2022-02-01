@@ -29,7 +29,11 @@ async fn convert_genesis_records_to_transaction(
             None
         }
     });
-    let genesis_accounts = crate::utils::query_accounts(
+    // Collect genesis accounts into a BTreeMap rather than a HashMap so that
+    // the order of accounts is deterministic.  This is needed because we need
+    // operations to be created in deterministic order (so that their indexes
+    // stay the same).
+    let genesis_accounts: std::collections::BTreeMap<_, _> = crate::utils::query_accounts(
         &near_primitives::types::BlockId::Hash(block.header.hash).into(),
         genesis_account_ids,
         &view_client_addr,
@@ -99,6 +103,7 @@ async fn convert_genesis_records_to_transaction(
             &block.header.hash,
         ),
         operations,
+        related_transactions: Vec::new(),
         metadata: crate::models::TransactionMetadata {
             type_: crate::models::TransactionType::Block,
         },
@@ -145,13 +150,16 @@ pub(crate) async fn convert_block_to_transactions(
     let runtime_config = crate::utils::query_protocol_config(block.header.hash, &view_client_addr)
         .await?
         .runtime_config;
-    let transactions = transactions::convert_block_changes_to_transactions(
+    let exec_to_rx =
+        transactions::ExecutionToReceipts::for_block(view_client_addr, block.header.hash).await?;
+    transactions::convert_block_changes_to_transactions(
         &runtime_config,
         &block.header.hash,
         accounts_changes,
         accounts_previous_state,
-    )?;
-    Ok(transactions.into_iter().map(|(_transaction_hash, transaction)| transaction).collect())
+        exec_to_rx,
+    )
+    .map(|dict| dict.into_values().collect())
 }
 
 pub(crate) async fn collect_transactions(
@@ -769,6 +777,7 @@ mod tests {
             &block_hash,
             accounts_changes,
             accounts_previous_state,
+            super::transactions::ExecutionToReceipts::empty(),
         )
         .unwrap();
         assert_eq!(transactions.len(), 3);

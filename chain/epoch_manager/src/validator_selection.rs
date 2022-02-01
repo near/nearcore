@@ -24,6 +24,7 @@ pub fn proposals_to_epoch_info(
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
     next_version: ProtocolVersion,
+    last_version: ProtocolVersion,
 ) -> Result<EpochInfo, EpochError> {
     debug_assert!(
         proposals.iter().map(|stake| stake.account_id()).collect::<HashSet<_>>().len()
@@ -49,8 +50,12 @@ pub fn proposals_to_epoch_info(
     );
     let mut block_producer_proposals =
         order_proposals(proposals.values().filter(|p| !p.is_chunk_only()).cloned());
-    let (block_producers, bp_stake_threshold) =
-        select_block_producers(&mut block_producer_proposals, max_bp_selected, min_stake_ratio);
+    let (block_producers, bp_stake_threshold) = select_block_producers(
+        &mut block_producer_proposals,
+        max_bp_selected,
+        min_stake_ratio,
+        last_version,
+    );
     let (chunk_producer_proposals, chunk_producers, cp_stake_threshold) = checked_feature!(
         "protocol_feature_chunk_only_producers",
         ChunkOnlyProducers,
@@ -65,6 +70,7 @@ pub fn proposals_to_epoch_info(
                 max_cp_selected,
                 min_stake_ratio,
                 num_shards,
+                last_version,
             );
             (chunk_producer_proposals, chunk_producers, cp_stake_treshold)
         },
@@ -278,8 +284,9 @@ fn select_block_producers(
     block_producer_proposals: &mut BinaryHeap<OrderedValidatorStake>,
     max_num_selected: usize,
     min_stake_ratio: Ratio<u128>,
+    protocol_version: ProtocolVersion,
 ) -> (Vec<ValidatorStake>, Balance) {
-    select_validators(block_producer_proposals, max_num_selected, min_stake_ratio)
+    select_validators(block_producer_proposals, max_num_selected, min_stake_ratio, protocol_version)
 }
 
 #[cfg(feature = "protocol_feature_chunk_only_producers")]
@@ -288,11 +295,13 @@ fn select_chunk_producers(
     max_num_selected: usize,
     min_stake_ratio: Ratio<u128>,
     num_shards: u64,
+    protocol_version: ProtocolVersion,
 ) -> (Vec<ValidatorStake>, Balance) {
     select_validators(
         all_proposals,
         max_num_selected,
         min_stake_ratio * Ratio::new(1, num_shards as u128),
+        protocol_version,
     )
 }
 
@@ -304,6 +313,7 @@ fn select_validators(
     proposals: &mut BinaryHeap<OrderedValidatorStake>,
     max_number_selected: usize,
     min_stake_ratio: Ratio<u128>,
+    protocol_version: ProtocolVersion,
 ) -> (Vec<ValidatorStake>, Balance) {
     let mut total_stake = 0;
     let n = cmp::min(max_number_selected, proposals.len());
@@ -330,7 +340,18 @@ fn select_validators(
         // the stake ratio condition prevented all slots from being filled,
         // or there were fewer proposals than available slots,
         // so the threshold stake is whatever amount pass the stake ratio condition
-        let threshold = (min_stake_ratio * Ratio::new(total_stake, 1)).ceil().to_integer();
+        let threshold = if checked_feature!(
+            "protocol_feature_fix_staking_threshold",
+            FixStakingThreshold,
+            protocol_version
+        ) {
+            (min_stake_ratio * Ratio::from_integer(total_stake)
+                / (Ratio::from_integer(1u128) - min_stake_ratio))
+                .ceil()
+                .to_integer()
+        } else {
+            (min_stake_ratio * Ratio::new(total_stake, 1)).ceil().to_integer()
+        };
         (validators, threshold)
     }
 }
@@ -384,6 +405,7 @@ mod tests {
             Default::default(),
             Default::default(),
             0,
+            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
         )
         .unwrap();
@@ -457,6 +479,7 @@ mod tests {
             Default::default(),
             Default::default(),
             0,
+            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
         )
         .unwrap();
@@ -538,6 +561,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
         )
         .unwrap();
 
@@ -590,6 +614,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
         )
         .unwrap();
 
@@ -616,6 +641,7 @@ mod tests {
             Default::default(),
             Default::default(),
             0,
+            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
         )
         .unwrap();
@@ -674,6 +700,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
         )
         .unwrap();
 
@@ -684,14 +711,67 @@ mod tests {
         // too low stakes are kicked out
         let kickout = epoch_info.validator_kickout();
         assert_eq!(kickout.len(), 2);
+        #[cfg(feature = "protocol_feature_fix_staking_threshold")]
+        let expected_threshold = 334;
+        #[cfg(not(feature = "protocol_feature_fix_staking_threshold"))]
+        let expected_threshold = 300;
         assert_eq!(
             kickout.get("test5").unwrap(),
-            &ValidatorKickoutReason::NotEnoughStake { stake: 100, threshold: 300 },
+            &ValidatorKickoutReason::NotEnoughStake { stake: 100, threshold: expected_threshold },
         );
         assert_eq!(
             kickout.get("test6").unwrap(),
-            &ValidatorKickoutReason::NotEnoughStake { stake: 50, threshold: 300 },
+            &ValidatorKickoutReason::NotEnoughStake { stake: 50, threshold: expected_threshold },
         );
+
+        let bp_threshold = epoch_info.seat_price();
+        let num_validators = epoch_info.validators_iter().len();
+        let proposals = create_proposals(&[
+            ("test1", 1000),
+            ("test2", 1000),
+            ("test3", 1000), // the total up to this point is 3000
+            ("test4", 200),  // 200 is < 1/10 of 3000, so not validator, but can be fisherman
+            ("test5", 100),  // 100 is even too small to be a fisherman, cannot get any role
+            ("test6", 50),
+            ("test7", bp_threshold),
+        ]);
+        let epoch_info = proposals_to_epoch_info(
+            &epoch_config,
+            [0; 32],
+            &epoch_info,
+            proposals,
+            Default::default(),
+            Default::default(),
+            0,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+        )
+        .unwrap();
+        #[cfg(feature = "protocol_feature_fix_staking_threshold")]
+        assert_eq!(num_validators + 1, epoch_info.validators_iter().len());
+
+        let proposals = create_proposals(&[
+            ("test1", 1000),
+            ("test2", 1000),
+            ("test3", 1000), // the total up to this point is 3000
+            ("test4", 200),  // 200 is < 1/10 of 3000, so not validator, but can be fisherman
+            ("test5", 100),  // 100 is even too small to be a fisherman, cannot get any role
+            ("test6", 50),
+            ("test7", bp_threshold - 1),
+        ]);
+        let epoch_info = proposals_to_epoch_info(
+            &epoch_config,
+            [0; 32],
+            &epoch_info,
+            proposals,
+            Default::default(),
+            Default::default(),
+            0,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+        )
+        .unwrap();
+        assert_eq!(num_validators, epoch_info.validators_iter().len());
     }
 
     #[test]
@@ -715,6 +795,7 @@ mod tests {
             kick_out,
             Default::default(),
             0,
+            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
         )
         .unwrap();
@@ -744,6 +825,7 @@ mod tests {
             Default::default(),
             rewards_map,
             0,
+            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
         )
         .unwrap();
