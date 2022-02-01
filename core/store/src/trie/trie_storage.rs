@@ -61,7 +61,7 @@ impl TrieCache {
                     self.block_touches.insert(hash.clone(), block_hash);
                     accounts.insert(account_id);
                     self.lru.pop(hash);
-                    self.fixed.insert(hash.clone(), value.clone())
+                    self.fixed.insert(hash.clone(), value.clone());
                     // return & to the same value?
                 };
                 (Some(value), true)
