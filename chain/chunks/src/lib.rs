@@ -1392,9 +1392,10 @@ impl ShardsManager {
         chain_store: &mut ChainStore,
         rs: &mut ReedSolomonWrapper,
     ) -> Result<ProcessPartialEncodedChunkResult, Error> {
-        debug!(target: "chunks", "process partial encoded chunk {:?}, me: {:?}", partial_encoded_chunk.header.chunk_hash(), self.me);
         let header = &partial_encoded_chunk.header;
         let chunk_hash = header.chunk_hash();
+        debug!(target: "chunks", "process partial encoded chunk {:?} height {} shard {}, me: {:?}",
+               chunk_hash, header.height_created(), header.shard_id(), self.me);
         // Verify the partial encoded chunk is valid and worth processing
         // 1.a Leave if we received known chunk
         if let Some(entry) = self.encoded_chunks.get(&chunk_hash) {
@@ -1428,7 +1429,9 @@ impl ShardsManager {
                 // validate_chunk_header returns DBNotFoundError if the previous block is not ready
                 // in this case, we return NeedBlock instead of error
                 ErrorKind::DBNotFoundErr(_) => {
-                    return Ok(ProcessPartialEncodedChunkResult::NeedBlock)
+                    debug!(target:"client", "Dropping partial encoded chunk {:?} height {}, shard_id {} because we don't have enough information to validate it",
+                           header.chunk_hash(), header.height_created(), header.shard_id());
+                    return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
                 }
                 _ => return Err(chain_error.into()),
             },
@@ -2042,6 +2045,7 @@ impl ShardsManager {
 #[cfg(test)]
 mod test {
 
+    use assert_matches::assert_matches;
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -2291,10 +2295,107 @@ mod test {
     }*/
 
     #[test]
+    fn test_resend_chunk_requests() {
+        // Test that resending chunk requests won't request for parts the node already received
+        let mut fixture = ChunkTestFixture::new(true);
+        let mut shards_manager = ShardsManager::new(
+            Some(fixture.mock_shard_tracker.clone()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+            TEST_SEED,
+        );
+        // process chunk part 0
+        let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&[0]);
+        let result = shards_manager
+            .process_partial_encoded_chunk(
+                MaybeValidated::from(&partial_encoded_chunk),
+                Some(&fixture.mock_chain_head),
+                &mut fixture.chain_store,
+                &mut fixture.rs,
+            )
+            .unwrap();
+        assert_matches!(result, ProcessPartialEncodedChunkResult::NeedBlock);
+
+        // should not request part 0
+        shards_manager.request_chunk_single(
+            &fixture.mock_chunk_header,
+            CryptoHash::default(),
+            Some(&fixture.mock_chain_head),
+            false,
+        );
+        let collect_request_parts = |fixture: &mut ChunkTestFixture| -> HashSet<u64> {
+            let mut parts = HashSet::new();
+            while let Some(r) = fixture.mock_network.pop() {
+                match r.as_network_requests_ref() {
+                    NetworkRequests::PartialEncodedChunkRequest { target: _, request } => {
+                        for part_ord in &request.part_ords {
+                            parts.insert(*part_ord);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            parts
+        };
+        let requested_parts = collect_request_parts(&mut fixture);
+        assert_eq!(requested_parts, (1..fixture.mock_chunk_parts.len() as u64).collect());
+
+        // process chunk part 1
+        let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&[1]);
+        let result = shards_manager
+            .process_partial_encoded_chunk(
+                MaybeValidated::from(&partial_encoded_chunk),
+                Some(&fixture.mock_chain_head),
+                &mut fixture.chain_store,
+                &mut fixture.rs,
+            )
+            .unwrap();
+        assert_matches!(result, ProcessPartialEncodedChunkResult::NeedBlock);
+
+        // resend request and check chunk part 0 and 1 are not requested again
+        std::thread::sleep(Duration::from_millis(2 * CHUNK_REQUEST_RETRY_MS));
+        shards_manager.resend_chunk_requests(&fixture.mock_chain_head);
+
+        let requested_parts = collect_request_parts(&mut fixture);
+        assert_eq!(requested_parts, (2..fixture.mock_chunk_parts.len() as u64).collect());
+
+        // immediately resend chunk requests
+        // this should not send any new requests because it doesn't pass the time check
+        shards_manager.resend_chunk_requests(&fixture.mock_chain_head);
+        let requested_parts = collect_request_parts(&mut fixture);
+        assert_eq!(requested_parts, HashSet::new());
+    }
+
+    #[test]
+    fn test_invalid_chunk() {
+        // Test that process_partial_encoded_chunk will reject invalid chunk
+        let mut fixture = ChunkTestFixture::default();
+        let mut shards_manager = ShardsManager::new(
+            Some(fixture.mock_shard_tracker.clone()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+            TEST_SEED,
+        );
+
+        // part id > num parts
+        let mut partial_encoded_chunk = fixture.make_partial_encoded_chunk(&[0]);
+        partial_encoded_chunk.parts[0].part_ord = fixture.mock_chunk_parts.len() as u64;
+        let result = shards_manager.process_partial_encoded_chunk(
+            MaybeValidated::from(&partial_encoded_chunk),
+            Some(&fixture.mock_chain_head),
+            &mut fixture.chain_store,
+            &mut fixture.rs,
+        );
+        assert_matches!(result, Err(Error::InvalidChunkPartId));
+
+        // TODO: add more test cases
+    }
+
+    #[test]
     fn test_chunk_forwarding() {
         // When ShardsManager receives parts it owns, it should forward them to the shard trackers
         // and not request any parts (yet).
-        let mut fixture = ChunkForwardingTestFixture::default();
+        let mut fixture = ChunkTestFixture::default();
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_chunk_part_owner.clone()),
             fixture.mock_runtime.clone(),
@@ -2317,7 +2418,7 @@ mod test {
 
             _ => panic!("Expected to need more parts!"),
         }
-        let count_forwards_and_requests = |fixture: &ChunkForwardingTestFixture| -> (usize, usize) {
+        let count_forwards_and_requests = |fixture: &ChunkTestFixture| -> (usize, usize) {
             let mut forwards_count = 0;
             let mut requests_count = 0;
             fixture.mock_network.requests.read().unwrap().iter().for_each(|r| {
@@ -2356,7 +2457,7 @@ mod test {
     // will wait for chunks being forwarded
     fn test_chunk_forward_non_validator() {
         // When a non validator node requests chunks, the request should be send immediately
-        let fixture = ChunkForwardingTestFixture::default();
+        let fixture = ChunkTestFixture::default();
         let test_seed = [4; 32];
         let mut shards_manager = ShardsManager::new(
             None,
@@ -2431,7 +2532,7 @@ mod test {
         // Here we test the case when the chunk is received, its previous block is not processed yet
         // We want to verify that the chunk forward can be stored and wait to be processed in this
         // case too
-        let mut fixture = ChunkForwardingTestFixture::new(true);
+        let mut fixture = ChunkTestFixture::new(true);
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),

@@ -131,7 +131,7 @@ impl SealsManagerTestFixture {
     }
 }
 
-pub struct ChunkForwardingTestFixture {
+pub struct ChunkTestFixture {
     pub mock_runtime: Arc<KeyValueRuntime>,
     pub mock_network: Arc<MockPeerManagerAdapter>,
     pub chain_store: ChainStore,
@@ -144,13 +144,13 @@ pub struct ChunkForwardingTestFixture {
     pub rs: ReedSolomonWrapper,
 }
 
-impl Default for ChunkForwardingTestFixture {
+impl Default for ChunkTestFixture {
     fn default() -> Self {
         Self::new(false)
     }
 }
 
-impl ChunkForwardingTestFixture {
+impl ChunkTestFixture {
     pub fn new(orphan_chunk: bool) -> Self {
         let store = near_store::test_utils::create_test_store();
         // 12 validators, 3 shards => 4 validators per shard
@@ -255,7 +255,7 @@ impl ChunkForwardingTestFixture {
             mock_chunk.create_partial_encoded_chunk(all_part_ords, Vec::new(), &mock_merkles);
         let chain_store = ChainStore::new(store, 0);
 
-        ChunkForwardingTestFixture {
+        ChunkTestFixture {
             mock_runtime,
             mock_network,
             chain_store,
