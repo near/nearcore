@@ -33,27 +33,56 @@ struct TrieCache {
     account_touches: HashMap<CryptoHash, HashSet<AccountId>>,
 }
 
+enum CachePosition {
+    None,
+    Lru(Vec<u8>),
+    Fixed(Vec<u8>),
+}
+
 impl TrieCache {
-    pub fn chargeable_get(&mut self, hash: &CryptoHash) -> (Option<&Vec<u8>>, bool) {
-        if let Some((block_hash, account_id)) = self.active_worker() {
-            if let Some(value) = self.fixed.get(&hash) {
-                if let Some(recorded_block_hash) = self.block_touches.get(hash) {
-                    if block_hash == *recorded_block_hash {
-                        if let Some(accounts) = self.account_touches.get(hash) {
-                            return (Some(value), !accounts.contains(&account_id));
-                        }
-                    }
-                }
-                return (Some(value), true);
+    fn get_cache_position(&mut self, hash: &CryptoHash) -> CachePosition {
+        match self.fixed.get(hash) {
+            Some(value) => CachePosition::Fixed(value.clone()),
+            None => match self.lru.get(hash) {
+                Some(value) => CachePosition::Lru(value.clone()),
+                None => CachePosition::None
             }
         }
-        (
-            match self.fixed.get(hash) {
-                Some(value) => Some(value),
-                None => self.lru.get(hash),
-            },
-            true,
-        )
+    }
+
+    // (Option<&Vec<u8>>, bool)
+    pub fn chargeable_get(&mut self, hash: &CryptoHash) -> (Option<Vec<u8>>, bool) {
+        match self.get_cache_position(hash) {
+            CachePosition::None => (None, true),
+            CachePosition::Lru(value) => {
+                if let Some((block_hash, account_id)) = self.active_worker() {
+                    let accounts = self.account_touches.entry(hash.clone()).or_default();
+                    accounts.clear();
+                    self.block_touches.insert(hash.clone(), block_hash);
+                    accounts.insert(account_id);
+                    self.lru.pop(hash);
+                    self.fixed.insert(hash.clone(), value.clone())
+                    // return & to the same value?
+                }
+                (Some(value), true)
+            }
+            CachePosition::Fixed(value) => {
+                let need_charge = if let Some((block_hash, account_id)) = self.active_worker() {
+                    let recorded_block_hash = self.block_touches.get(hash).expect("If position is fixed then some block must be touched");
+                    let accounts = self.account_touches.get_mut(hash).expect("If position is fixed then some account must be touched");
+                    if block_hash != *recorded_block_hash {
+                        accounts.clear();
+                    }
+                    let need_charge = !accounts.contains(&account_id);
+                    accounts.insert(account_id.clone());
+                    need_charge
+                } else {
+                    true
+                };
+                (Some(value), need_charge)
+            }
+            None => (None, true)
+        }
     }
 
     fn active_worker(&self) -> Option<(CryptoHash, AccountId)> {
@@ -282,9 +311,6 @@ impl TrieCachingStorage {
     ) -> Result<(Vec<u8>, bool), StorageError> {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
         if let (Some(val), need_charge) = guard.chargeable_get(hash) {
-            if need_charge {
-                guard.put(*hash, val.clone());
-            }
             Ok((val.clone(), need_charge))
         } else {
             let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
