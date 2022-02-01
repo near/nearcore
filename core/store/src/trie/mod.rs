@@ -601,6 +601,7 @@ impl Trie {
         if *hash == Trie::empty_root() {
             return Ok(TrieNodeWithSize::empty());
         }
+        tracing::debug!(target: "trie", hash = %hash, "key in retrieve_node");
         let bytes = self.retrieve_raw_bytes(hash)?;
         match RawTrieNodeWithSize::decode(&bytes) {
             Ok(value) => Ok(TrieNodeWithSize::from_raw(value)),
@@ -632,6 +633,7 @@ impl Trie {
         if *root == Trie::empty_root() {
             return Ok(StateRootNode::empty());
         }
+        tracing::debug!(target: "trie", hash = %root, "key in retrieve_root_node");
         let data = self.retrieve_raw_bytes(root)?;
         match RawTrieNodeWithSize::decode(&data) {
             Ok(value) => {
@@ -658,9 +660,9 @@ impl Trie {
             if hash == Trie::empty_root() {
                 return Ok(None);
             }
-            let bytes = self.retrieve_raw_bytes(&hash)?;
             let result = key.until_offset(false);
             tracing::debug!(target: "trie", key = ?result, hash = %hash, "key in lookup");
+            let bytes = self.retrieve_raw_bytes(&hash)?;
 
             let node = RawTrieNodeWithSize::decode(&bytes).map_err(|_| {
                 StorageError::StorageInconsistentState("RawTrieNode decode failed".to_string())
@@ -710,7 +712,8 @@ impl Trie {
         root: &CryptoHash,
         key: &[u8],
     ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
-        let key = NibbleSlice::new(key.clone());
+        let key_vec = key.to_vec().clone();
+        let key = NibbleSlice::new(&key_vec);
         self.lookup(root, key)
         // let key = NibbleSlice::new(key);
         // self.lookup(root, key)
@@ -719,7 +722,7 @@ impl Trie {
     pub fn get(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
         match self.get_ref(root, key)? {
             Some((_length, hash)) => {
-                let key_nibbles = NibbleSlice::new(key.clone());
+                let key_nibbles = NibbleSlice::new(key);
                 let result = key_nibbles.until_offset(true);
                 tracing::debug!(target: "trie", key = ?result, hash = %hash, "key in lookup");
                 self.retrieve_raw_bytes(&hash).map(Some)
