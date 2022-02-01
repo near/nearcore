@@ -618,6 +618,7 @@ impl Trie {
             return storage.chargeable_retrieve_raw_bytes(hash).map(|(value, need_charge)| {
                 if need_charge {
                     self.counter.increment();
+                    tracing::debug!(target: "trie", hash = %hash, "incremented on hash");
                 } else {
                     tracing::debug!(target: "trie", hash = %hash, "saved on hash");
                 }
@@ -626,7 +627,9 @@ impl Trie {
         }
 
         self.counter.increment();
-        self.storage.retrieve_raw_bytes(hash)
+        let value = self.storage.retrieve_raw_bytes(hash);
+        tracing::debug!(target: "trie", hash = %hash, "incremented on hash");
+        value
     }
 
     pub fn retrieve_root_node(&self, root: &StateRoot) -> Result<StateRootNode, StorageError> {
