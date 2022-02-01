@@ -1316,7 +1316,7 @@ impl<'a> AutoXzDecoder<'a> {
 #[cfg(test)]
 fn auto_xz_test_write_file(buffer: &[u8], chunk_size: usize) -> Result<Vec<u8>, FileDownloadError> {
     let (file, path) = tempfile::NamedTempFile::new().unwrap().into_parts();
-    let mut out = AutoXzDecoder::new(&path, file);
+    let mut out = AutoXzDecoder::new(&path, tokio::fs::File::from_std(file));
     tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(
         async move {
             for chunk in buffer.chunks(chunk_size) {
