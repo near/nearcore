@@ -3,10 +3,9 @@ use crate::routing::edge_validator_actor::EdgeValidatorActor;
 use crate::routing::graph::Graph;
 use crate::routing::routing_table_view::SAVE_PEERS_MAX_TIME;
 use crate::stats::metrics;
-use actix::dev::MessageResponse;
 use actix::{
-    Actor, ActorFuture, Addr, Context, ContextFutureSpawner, Handler, Message, Running,
-    SyncArbiter, System, WrapFuture,
+    Actor, ActorFuture, Addr, Context, ContextFutureSpawner, Handler, Running, SyncArbiter, System,
+    WrapFuture,
 };
 use near_network_primitives::types::{Edge, EdgeState};
 use near_performance_metrics_macros::perf;
@@ -306,36 +305,28 @@ impl RoutingTableActor {
         prune_edges_not_reachable_for: Duration,
     ) -> Vec<Edge> {
         let now = Instant::now();
-        let mut oldest_time = now;
+        // Save nodes on disk and remove from memory only if elapsed time from oldest peer
+        // is greater than `SAVE_PEERS_MAX_TIME`
+        let do_pruning = force_pruning
+            || (self.peer_last_time_reachable.values())
+                .any(|&last_time| now.saturating_duration_since(last_time) >= SAVE_PEERS_MAX_TIME);
+        if !do_pruning {
+            return Vec::new();
+        }
 
         // We compute routing graph every one second; we mark every node that was reachable during that time.
         // All nodes not reachable for at last 1 hour(SAVE_PEERS_AFTER_TIME) will be moved to disk.
-        let peers_to_remove = self
-            .peer_last_time_reachable
-            .iter()
-            .filter_map(|(peer_id, last_time)| {
-                oldest_time = std::cmp::min(oldest_time, *last_time);
-                if now.saturating_duration_since(*last_time) >= prune_edges_not_reachable_for {
-                    Some(peer_id.clone())
-                } else {
-                    None
-                }
+        // TODO - use drain_filter once it becomes stable - #59618
+        let peers_to_remove = (self.peer_last_time_reachable.iter())
+            .filter(|(_, &last_time)| {
+                now.saturating_duration_since(last_time) >= prune_edges_not_reachable_for
             })
+            .map(|(peer_id, _)| peer_id.clone())
             .collect::<HashSet<_>>();
 
-        // Save nodes on disk and remove from memory only if elapsed time from oldest peer
-        // is greater than `SAVE_PEERS_MAX_TIME`
-        if !force_pruning && now.saturating_duration_since(oldest_time) < SAVE_PEERS_MAX_TIME {
-            return Vec::new();
-        }
         debug!(target: "network", "try_save_edges: We are going to remove {} peers", peers_to_remove.len());
 
-        let current_component_nonce = self.next_available_component_nonce;
-        self.next_available_component_nonce += 1;
-
         let mut update = self.store.store_update();
-        // Stores next available nonce.
-        let _ = update.set_ser(ColLastComponentNonce, &[], &self.next_available_component_nonce);
 
         // Sets mapping from `peer_id` to `component nonce` in DB. This is later used to find
         // component that the edge belonged to.
@@ -343,26 +334,29 @@ impl RoutingTableActor {
             let _ = update.set_ser(
                 ColPeerComponent,
                 peer_id.try_to_vec().unwrap().as_ref(),
-                &current_component_nonce,
+                &self.next_available_component_nonce,
             );
 
             self.peer_last_time_reachable.remove(peer_id);
         }
 
-        let component_nonce = index_to_bytes(current_component_nonce);
-        let edges_to_remove = self
-            .edges_info
-            .iter()
-            .filter_map(|(key, edge)| {
-                if peers_to_remove.contains(&key.0) || peers_to_remove.contains(&key.1) {
-                    Some(edge.clone())
-                } else {
-                    None
-                }
+        // TODO - use drain_filter once it becomes stable - #59618
+        let edges_to_remove = (self.edges_info.values())
+            .filter(|edge| {
+                peers_to_remove.contains(&edge.key().0) || peers_to_remove.contains(&edge.key().1)
             })
+            .cloned()
             .collect();
 
-        let _ = update.set_ser(ColComponentEdges, component_nonce.as_ref(), &edges_to_remove);
+        let _ = update.set_ser(
+            ColComponentEdges,
+            &index_to_bytes(self.next_available_component_nonce),
+            &edges_to_remove,
+        );
+
+        self.next_available_component_nonce += 1;
+        // Stores next available nonce.
+        let _ = update.set_ser(ColLastComponentNonce, &[], &self.next_available_component_nonce);
 
         if let Err(e) = update.commit() {
             warn!(target: "network", "Error storing network component to store. {:?}", e);
@@ -376,7 +370,7 @@ impl RoutingTableActor {
     }
 
     /// Get edges stored in DB under `ColPeerComponent` column at `peer_id` key.
-    fn component_nonce_from_peer(&mut self, peer_id: &PeerId) -> Result<u64, ()> {
+    fn component_nonce_from_peer(&self, peer_id: &PeerId) -> Result<u64, ()> {
         match self.store.get_ser::<u64>(ColPeerComponent, peer_id.try_to_vec().unwrap().as_ref()) {
             Ok(Some(nonce)) => Ok(nonce),
             _ => Err(()),
@@ -385,7 +379,7 @@ impl RoutingTableActor {
 
     /// Get all edges that were stored at a given "row" (a.k.a. component_nonce) in the store (and also remove them).
     fn get_and_remove_component_edges(
-        &mut self,
+        &self,
         component_nonce: u64,
         update: &mut StoreUpdate,
     ) -> Result<Vec<Edge>, ()> {
@@ -453,7 +447,8 @@ impl RoutingTableActor {
 }
 
 /// Messages for `RoutingTableActor`
-#[derive(Debug)]
+#[derive(actix::Message, Debug)]
+#[rtype(result = "RoutingTableMessagesResponse")]
 pub enum RoutingTableMessages {
     /// Add verified edges to routing table actor and update stats.
     /// Each edge contains signature of both peers.
@@ -485,11 +480,7 @@ pub enum RoutingTableMessages {
     ValidateEdgeList(ValidateEdgeList),
 }
 
-impl Message for RoutingTableMessages {
-    type Result = RoutingTableMessagesResponse;
-}
-
-#[derive(MessageResponse, Debug)]
+#[derive(actix::MessageResponse, Debug)]
 pub enum RoutingTableMessagesResponse {
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     AddPeerResponse {
