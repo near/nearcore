@@ -189,7 +189,8 @@ mod tests {
     /// shards will have one validator but shard 1 will have less total stake so
     /// the code will assign validator 81 to it.  In the last step, shard 0 will
     /// have only one validator so the code will try to assign validator 100 to
-    /// it.  However, that validator is already assigned to that shard.
+    /// it.  However, that validator is already assigned to that shard so the
+    /// algorithm will need to discard it and try another one.
     #[test]
     fn test_duplicate_validator() {
         test_distribution_common(&EXPONENTIAL_STAKES[..3], 2, 11);
