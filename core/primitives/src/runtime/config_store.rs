@@ -20,6 +20,8 @@ static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (48, include_config!("48.json")),
     (49, include_config!("49.json")),
     (50, include_config!("50.json")),
+    // max_gas_burnt increased to 300
+    (52, include_config!("52.json")),
 ];
 
 pub static INITIAL_TESTNET_CONFIG: &[u8] = include_config!("29_testnet.json");
