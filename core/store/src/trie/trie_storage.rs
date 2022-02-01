@@ -66,11 +66,23 @@ impl TrieCache {
     }
 
     fn put(&mut self, hash: CryptoHash, value: Vec<u8>) {
+        // TODO: put TRIE_LIMIT_CACHED_VALUE_SIZE to runtime config
+        if value.len() >= TRIE_LIMIT_CACHED_VALUE_SIZE {
+            return;
+        }
+
         if let Some((active_block_hash, active_account_id)) = self.active_worker() {
             self.lru.pop(&hash);
             self.fixed.insert(hash, value);
+
+            let accounts = self.account_touches.entry(hash.clone()).or_default();
+            if let Some(recorded_block_hash) = self.block_touches.get(&hash) {
+                if active_block_hash != recorded_block_hash {
+                    accounts.clear();
+                }
+            }
             self.block_touches.insert(hash.clone(), active_block_hash);
-            self.account_touches.entry(hash.clone()).or_default().insert(active_account_id);
+            accounts.insert(active_account_id);
         } else {
             if self.fixed.contains_key(&hash) {
                 self.fixed.insert(hash, value);
@@ -132,10 +144,7 @@ impl SyncTrieCache {
         for (hash, opt_value_rc) in ops {
             if let Some(value_rc) = opt_value_rc {
                 if let (Some(value), _rc) = decode_value_with_rc(&value_rc) {
-                    // TODO: put TRIE_LIMIT_CACHED_VALUE_SIZE to runtime config
-                    if value.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
-                        guard.put(hash, value.to_vec());
-                    }
+                    guard.put(hash, value.to_vec());
                 } else {
                     guard.pop(&hash);
                 }
@@ -273,6 +282,9 @@ impl TrieCachingStorage {
     ) -> Result<(Vec<u8>, bool), StorageError> {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
         if let (Some(val), need_charge) = guard.chargeable_get(hash) {
+            if need_charge {
+                guard.put(*hash, val.clone());
+            }
             Ok((val.clone(), need_charge))
         } else {
             let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
@@ -281,9 +293,7 @@ impl TrieCachingStorage {
                 .get(ColState, key.as_ref())
                 .map_err(|_| StorageError::StorageInternalError)?;
             if let Some(val) = val {
-                if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
-                    guard.put(*hash, val.clone());
-                }
+                guard.put(*hash, val.clone());
                 Ok((val, true))
             } else {
                 // not StorageError::TrieNodeMissing because it's only for TrieMemoryPartialStorage
