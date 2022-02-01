@@ -3,8 +3,6 @@
 use crate::client::Client;
 use crate::info::{get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper};
 use crate::sync::{StateSync, StateSyncResult};
-#[cfg(feature = "test_features")]
-use crate::AdversarialControls;
 use crate::StatusResponse;
 use actix::dev::SendError;
 use actix::dev::ToEnvelope;
@@ -12,8 +10,6 @@ use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
 use chrono::DateTime;
-#[cfg(feature = "delay_detector")]
-use delay_detector::DelayDetector;
 use log::{debug, error, info, trace, warn};
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
@@ -21,15 +17,11 @@ use near_chain::chain::{
 };
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, ValidatorInfoIdentifier};
-#[cfg(feature = "test_features")]
-use near_chain::StoreValidator;
 use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, ChainGenesis, ChainStoreAccess,
     Provenance, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
-#[cfg(feature = "test_features")]
-use near_chain_configs::GenesisConfig;
 use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
     StatusError, StatusSyncInfo, SyncStatus,
@@ -38,10 +30,6 @@ use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
 };
-#[cfg(feature = "test_features")]
-use near_network_primitives::types::NetworkAdversarialMessage;
-#[cfg(feature = "sandbox")]
-use near_network_primitives::types::NetworkSandboxMessage;
 use near_network_primitives::types::ReasonForBan;
 use near_performance_metrics;
 use near_performance_metrics_macros::{perf, perf_with_debug};
@@ -58,13 +46,11 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::ValidatorInfo;
 use near_store::db::DBCol::ColStateParts;
-#[cfg(feature = "test_features")]
-use near_store::ColBlock;
 use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -79,7 +65,7 @@ const HEAD_STALL_MULTIPLIER: u32 = 4;
 pub struct ClientActor {
     /// Adversarial controls
     #[cfg(feature = "test_features")]
-    pub adv: Arc<RwLock<AdversarialControls>>,
+    pub adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
 
     client: Client,
     network_adapter: Arc<dyn PeerManagerAdapter>,
@@ -136,7 +122,7 @@ impl ClientActor {
         enable_doomslug: bool,
         rng_seed: RngSeed,
         ctx: &Context<ClientActor>,
-        #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,
+        #[cfg(feature = "test_features")] adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
@@ -250,26 +236,28 @@ impl Handler<NetworkClientMessages> for ClientActor {
     #[perf_with_debug]
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new(format!("NetworkClientMessage {}", msg.as_ref()).into());
+        let _d = delay_detector::DelayDetector::new(
+            format!("NetworkClientMessage {}", msg.as_ref()).into(),
+        );
         self.check_triggers(ctx);
 
         match msg {
             #[cfg(feature = "test_features")]
             NetworkClientMessages::Adversarial(adversarial_msg) => {
                 return match adversarial_msg {
-                    NetworkAdversarialMessage::AdvDisableDoomslug => {
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvDisableDoomslug => {
                         info!(target: "adversary", "Turning Doomslug off");
                         self.adv.write().unwrap().adv_disable_doomslug = true;
                         self.client.doomslug.adv_disable();
                         self.client.chain.adv_disable_doomslug();
                         NetworkClientResponses::NoResponse
                     }
-                    NetworkAdversarialMessage::AdvDisableHeaderSync => {
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvDisableHeaderSync => {
                         info!(target: "adversary", "Blocking header sync");
                         self.adv.write().unwrap().adv_disable_header_sync = true;
                         NetworkClientResponses::NoResponse
                     }
-                    NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid) => {
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid) => {
                         info!(target: "adversary", "Producing {} blocks", num_blocks);
                         self.client.adv_produce_blocks = true;
                         self.client.adv_produce_blocks_only_valid = only_valid;
@@ -307,7 +295,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         }
                         NetworkClientResponses::NoResponse
                     }
-                    NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
                         info!(target: "adversary", "Switching to height {:?}", height);
                         let mut chain_store_update = self.client.chain.mut_store().store_update();
                         chain_store_update.save_largest_target_height(height);
@@ -317,22 +305,22 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         chain_store_update.commit().expect("adv method should not fail");
                         NetworkClientResponses::NoResponse
                     }
-                    NetworkAdversarialMessage::AdvGetSavedBlocks => {
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvGetSavedBlocks => {
                         info!(target: "adversary", "Requested number of saved blocks");
                         let store = self.client.chain.store().store();
                         let mut num_blocks = 0;
-                        for _ in store.iter(ColBlock) {
+                        for _ in store.iter(near_store::db::DBCol::ColBlock) {
                             num_blocks += 1;
                         }
                         NetworkClientResponses::AdvResult(num_blocks)
                     }
-                    NetworkAdversarialMessage::AdvCheckStorageConsistency => {
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvCheckStorageConsistency => {
                         // timeout is set to 1.5 seconds to give some room as we wait in Nightly for 2 seconds
                         let timeout = 1500;
                         info!(target: "adversary", "Check Storage Consistency, timeout set to {:?} milliseconds", timeout);
-                        let mut genesis = GenesisConfig::default();
+                        let mut genesis = near_chain_configs::GenesisConfig::default();
                         genesis.genesis_height = self.client.chain.store().get_genesis_height();
-                        let mut store_validator = StoreValidator::new(
+                        let mut store_validator = near_chain::store_validator::StoreValidator::new(
                             self.client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
                             genesis,
                             self.client.runtime_adapter.clone(),
@@ -353,11 +341,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
             #[cfg(feature = "sandbox")]
             NetworkClientMessages::Sandbox(sandbox_msg) => {
                 return match sandbox_msg {
-                    NetworkSandboxMessage::SandboxPatchState(state) => {
+                    near_network_primitives::types::NetworkSandboxMessage::SandboxPatchState(state) => {
                         self.client.chain.patch_state(state);
                         NetworkClientResponses::NoResponse
                     }
-                    NetworkSandboxMessage::SandboxPatchStateStatus => {
+                    near_network_primitives::types::NetworkSandboxMessage::SandboxPatchStateStatus => {
                         NetworkClientResponses::SandboxResult(
                             near_network_primitives::types::SandboxResponse::SandboxPatchStateFinished(
                                 !self.client.chain.patch_state_in_progress(),
@@ -610,7 +598,7 @@ impl Handler<Status> for ClientActor {
     #[perf]
     fn handle(&mut self, msg: Status, ctx: &mut Context<Self>) -> Self::Result {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("client status".to_string().into());
+        let _d = delay_detector::DelayDetector::new("client status".to_string().into());
         self.check_triggers(ctx);
 
         let head = self.client.chain.head()?;
@@ -693,7 +681,7 @@ impl Handler<GetNetworkInfo> for ClientActor {
     #[perf]
     fn handle(&mut self, _msg: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("client get network info".into());
+        let _d = delay_detector::DelayDetector::new("client get network info".into());
         self.check_triggers(ctx);
 
         Ok(NetworkInfoResponse {
@@ -829,7 +817,7 @@ impl ClientActor {
         // scheduled with run_later will be delayed.
 
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("client triggers".into());
+        let _d = delay_detector::DelayDetector::new("client triggers".into());
 
         let mut delay = Duration::from_secs(1);
         let now = Utc::now();
@@ -994,7 +982,7 @@ impl ClientActor {
             block.mark_as_valid();
         } else {
             let chain = &mut self.client.chain;
-            let res = chain.process_block_header(block.header(), |_| {});
+            let res = chain.process_block_header(block.header(), &mut |_| {});
             let res = res.and_then(|_| chain.validate_block(&block));
             match res {
                 Ok(_) => {
@@ -1227,7 +1215,7 @@ impl ClientActor {
     /// Schedules itself again if it was not ran as response to state parts job result
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("client catchup".into());
+        let _d = delay_detector::DelayDetector::new("client catchup".into());
         match self.client.run_catchup(
             &self.network_info.highest_height_peers,
             &self.state_parts_task_scheduler,
@@ -1276,7 +1264,7 @@ impl ClientActor {
     /// finishing state part job
     fn sync(&mut self, ctx: &mut Context<ClientActor>) {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("client sync".into());
+        let _d = delay_detector::DelayDetector::new("client sync".into());
         // Macro to schedule to call this function later if error occurred.
         macro_rules! unwrap_or_run_later (($obj: expr) => (match $obj {
             Ok(v) => v,
@@ -1405,31 +1393,27 @@ impl ClientActor {
                     StateSyncResult::Completed => {
                         info!(target: "sync", "State sync: all shards are done");
 
-                        let accepted_blocks = Arc::new(RwLock::new(vec![]));
-                        let orphans_missing_chunks = Arc::new(RwLock::new(vec![]));
-                        let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
-                        let challenges = Arc::new(RwLock::new(vec![]));
+                        let mut accepted_blocks = vec![];
+                        let mut orphans_missing_chunks = vec![];
+                        let mut blocks_missing_chunks = vec![];
+                        let mut challenges = vec![];
 
                         unwrap_or_run_later!(self.client.chain.reset_heads_post_state_sync(
                             &me,
                             sync_hash,
-                            |accepted_block| {
-                                accepted_blocks.write().unwrap().push(accepted_block);
+                            &mut |accepted_block| {
+                                accepted_blocks.push(accepted_block);
                             },
-                            |missing_chunks| {
-                                blocks_missing_chunks.write().unwrap().push(missing_chunks)
+                            &mut |missing_chunks| { blocks_missing_chunks.push(missing_chunks) },
+                            &mut |orphan_missing_chunks| {
+                                orphans_missing_chunks.push(orphan_missing_chunks);
                             },
-                            |orphan_missing_chunks| {
-                                orphans_missing_chunks.write().unwrap().push(orphan_missing_chunks);
-                            },
-                            |challenge| challenges.write().unwrap().push(challenge)
+                            &mut |challenge| challenges.push(challenge)
                         ));
 
                         self.client.send_challenges(challenges);
 
-                        self.process_accepted_blocks(
-                            accepted_blocks.write().unwrap().drain(..).collect(),
-                        );
+                        self.process_accepted_blocks(accepted_blocks);
 
                         self.client
                             .request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
@@ -1453,7 +1437,7 @@ impl ClientActor {
             self.client.config.log_summary_period,
             move |act, ctx| {
                 #[cfg(feature = "delay_detector")]
-                let _d = DelayDetector::new("client log summary".into());
+                let _d = delay_detector::DelayDetector::new("client log summary".into());
                 let is_syncing = act.client.sync_status.is_syncing();
                 let head = unwrap_or_return!(act.client.chain.head(), act.log_summary(ctx));
                 let validator_info = if !is_syncing {
@@ -1664,7 +1648,7 @@ pub fn start_client(
     network_adapter: Arc<dyn PeerManagerAdapter>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
-    #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,
+    #[cfg(feature = "test_features")] adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter_handle = Arbiter::current();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {

@@ -21,9 +21,6 @@ skip = [
     { name = "humantime", version = "=2.1.0" },
     { name = "textwrap", version = "=0.12.1" },
 
-    # many crates (borsh, indexmap, cached, ...) use this older version
-    { name = "hashbrown", version = "=0.9.1" },
-
     # insta uses older version of console
     { name = "console", version = "=0.14.1" },
     # near-epoch-manager fixed the rand version to ensure protocol stability
@@ -90,15 +87,6 @@ skip = [
     # criterion and criterion-plot use conflicting versions
     { name = "semver-parser", version = "=0.7.0" },
     { name = "semver", version = "=0.9.0" },
-
-    # hashbrown uses an older version
-    { name = "ahash", version = "=0.4.7" },
-
-    # zeropool-bn optionally uses the older borsh 0.8.2
-    { name = "borsh", version = "=0.8.2" },
-    { name = "borsh-derive", version = "=0.8.2" },
-    { name = "borsh-derive-internal", version = "=0.8.2" },
-    { name = "borsh-schema-derive-internal", version = "=0.8.2" },
 
     # wasmer-runtime-core-near and parity-secp256k1 use an older version
     { name = "arrayvec", version = "=0.5.2" },

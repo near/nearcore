@@ -164,7 +164,6 @@ mod test {
     }
 
     #[test]
-    #[cfg_attr(not(feature = "expensive_tests"), ignore)]
     #[ignore]
     fn test_highload() {
         // Run 4 nodes with 20 input tps and check the output tps to be 20.
