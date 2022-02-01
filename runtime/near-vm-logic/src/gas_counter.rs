@@ -194,10 +194,10 @@ impl GasCounter {
 
     /// A helper function to pay a multiple of a cost.
     pub fn pay_per(&mut self, cost: ExtCosts, num: u64) -> Result<()> {
-        match cost {
-            ExtCosts::touching_trie_node => tracing::debug!(target: "trie", paid = num),
-            _ => {},
-        };
+        // match cost {
+        //     ExtCosts::touching_trie_node => tracing::debug!(target: "trie", paid = num),
+        //     _ => {},
+        // };
         let use_gas = num
             .checked_mul(cost.value(&self.ext_costs_config))
             .ok_or(HostError::IntegerOverflow)?;
