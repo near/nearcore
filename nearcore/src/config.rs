@@ -1,26 +1,29 @@
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::{anyhow, bail, Context};
 use hyper::body::HttpBody;
+use indicatif::{ProgressBar, ProgressStyle};
 use near_primitives::time::Clock;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
-use tracing::info;
+use tracing::{error, info};
 
 use near_chain_configs::{
-    get_initial_supply, ClientConfig, Genesis, GenesisConfig, LogSummaryStyle,
+    get_initial_supply, ClientConfig, Genesis, GenesisConfig, GenesisValidationMode,
+    LogSummaryStyle,
 };
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
+use near_network_primitives::types::blacklist_from_iter;
 use near_network_primitives::types::{NetworkConfig, ROUTED_MESSAGE_TTL};
-use near_network_primitives::utils::blacklist_from_iter;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -463,23 +466,21 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn from_file(path: &Path) -> Self {
-        let mut file = File::open(path)
-            .unwrap_or_else(|_| panic!("Could not open config file: `{}`", path.display()));
-        let mut content = String::new();
-        file.read_to_string(&mut content).expect("Could not read from config file.");
-        serde_json::from_str::<Config>(&content).expect("Deserializing config failed")
+    pub fn from_file(path: &Path) -> anyhow::Result<Self> {
+        let s = std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read config from {}", path.display()))?;
+        let config = serde_json::from_str(&s)
+            .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
+        Ok(config)
     }
 
-    pub fn write_to_file(&self, path: &Path) {
-        let mut file = File::create(path).expect("Failed to create / write a config file.");
-        let str = serde_json::to_string_pretty(self).expect("Error serializing the config.");
-        if let Err(err) = file.write_all(str.as_bytes()) {
-            panic!("Failed to write a config file {}", err);
-        }
+    pub fn write_to_file(&self, path: &Path) -> std::io::Result<()> {
+        let mut file = File::create(path)?;
+        let str = serde_json::to_string_pretty(self)?;
+        file.write_all(str.as_bytes())
     }
 
-    pub fn rpc_addr(&self) -> Option<&String> {
+    pub fn rpc_addr(&self) -> Option<&str> {
         #[cfg(feature = "json_rpc")]
         if let Some(rpc) = &self.rpc {
             return Some(&rpc.addr);
@@ -621,7 +622,7 @@ impl NearConfig {
             client_config: ClientConfig {
                 version: Default::default(),
                 chain_id: genesis.config.chain_id.clone(),
-                rpc_addr: config.rpc_addr().map(|addr| addr.clone()),
+                rpc_addr: config.rpc_addr().map(|addr| addr.to_owned()),
                 block_production_tracking_delay: config.consensus.block_production_tracking_delay,
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
@@ -717,7 +718,7 @@ impl NearConfig {
         }
     }
 
-    pub fn rpc_addr(&self) -> Option<&String> {
+    pub fn rpc_addr(&self) -> Option<&str> {
         #[cfg(feature = "json_rpc")]
         if let Some(rpc) = &self.rpc_config {
             return Some(&rpc.addr);
@@ -732,17 +733,21 @@ impl NearConfig {
     pub fn save_to_dir(&self, dir: &Path) {
         fs::create_dir_all(dir).expect("Failed to create directory");
 
-        self.config.write_to_file(&dir.join(CONFIG_FILENAME));
+        self.config.write_to_file(&dir.join(CONFIG_FILENAME)).expect("Error writing config");
 
         if let Some(validator_signer) = &self.validator_signer {
-            validator_signer.write_to_file(&dir.join(&self.config.validator_key_file));
+            validator_signer
+                .write_to_file(&dir.join(&self.config.validator_key_file))
+                .expect("Error writing validator key file");
         }
 
         let network_signer = InMemorySigner::from_secret_key(
             "node".parse().unwrap(),
             self.network_config.secret_key.clone(),
         );
-        network_signer.write_to_file(&dir.join(&self.config.node_key_file));
+        network_signer
+            .write_to_file(&dir.join(&self.config.node_key_file))
+            .expect("Error writing key file");
 
         self.genesis.to_file(&dir.join(&self.config.genesis_file));
     }
@@ -787,18 +792,123 @@ fn add_account_with_key(
     });
 }
 
-/// Generate a validator key and save it to the file path.
-fn generate_validator_key(account_id: AccountId, path: &Path) {
-    let signer = InMemoryValidatorSigner::from_random(account_id.clone(), KeyType::ED25519);
-    info!(target: "near", "Use key {} for {} to stake.", signer.public_key(), account_id);
-    signer.write_to_file(path);
+/// Generates or loads a signer key from given file.
+///
+/// If the file already exists, loads the file (panicking if the file is
+/// invalid), checks that account id in the file matches `account_id` if it’s
+/// given and returns the key.  `test_seed` is ignored in this case.
+///
+/// If the file does not exist and `account_id` is not `None`, generates a new
+/// key, saves it in the file and returns it.  If `test_seed` is not `None`, the
+/// key generation algorithm is seeded with given string making it fully
+/// deterministic.
+fn generate_or_load_key(
+    home_dir: &Path,
+    filename: &str,
+    account_id: Option<AccountId>,
+    test_seed: Option<&str>,
+) -> anyhow::Result<Option<InMemorySigner>> {
+    let path = home_dir.join(filename);
+    if path.exists() {
+        // Panics if the key is invalid.
+        let signer = InMemorySigner::from_file(&path);
+        if let Some(account_id) = account_id {
+            if account_id != signer.account_id {
+                return Err(anyhow!(
+                    "‘{}’ contains key for {} but expecting key for {}",
+                    path.display(),
+                    signer.account_id,
+                    account_id
+                ));
+            }
+        }
+        info!(target: "near", "Reusing key {} for {}", signer.public_key(), signer.account_id);
+        Ok(Some(signer))
+    } else if let Some(account_id) = account_id {
+        let signer = if let Some(seed) = test_seed {
+            InMemorySigner::from_seed(account_id, KeyType::ED25519, seed)
+        } else {
+            InMemorySigner::from_random(account_id, KeyType::ED25519)
+        };
+        info!(target: "near", "Using key {} for {}", signer.public_key(), signer.account_id);
+        signer
+            .write_to_file(&path)
+            .with_context(|| anyhow!("Failed saving key to ‘{}’", path.display()))?;
+        Ok(Some(signer))
+    } else {
+        Ok(None)
+    }
+}
+
+#[test]
+fn test_generate_or_load_key() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home_dir = tmp.path();
+
+    let gen = move |filename: &str, account: &str, seed: &str| {
+        generate_or_load_key(
+            home_dir,
+            filename,
+            if account.is_empty() { None } else { Some(account.parse().unwrap()) },
+            if seed.is_empty() { None } else { Some(seed) },
+        )
+    };
+
+    let test_ok = |filename: &str, account: &str, seed: &str| {
+        let result = gen(filename, account, seed);
+        let key = result.unwrap().unwrap();
+        assert!(home_dir.join("key").exists());
+        if !account.is_empty() {
+            assert_eq!(account, key.account_id.as_str());
+        }
+        key
+    };
+
+    let test_err = |filename: &str, account: &str, seed: &str| {
+        let result = gen(filename, account, seed);
+        assert!(result.is_err());
+    };
+
+    // account_id == None → do nothing, return None
+    assert!(generate_or_load_key(home_dir, "key", None, None).unwrap().is_none());
+    assert!(!home_dir.join("key").exists());
+
+    // account_id == Some, file doesn’t exist → create new key
+    let key = test_ok("key", "fred", "");
+
+    // file exists → load key, compare account if given
+    assert!(key == test_ok("key", "", ""));
+    assert!(key == test_ok("key", "fred", ""));
+    test_err("key", "barney", "");
+
+    // test_seed == Some → the same key is generated
+    let k1 = test_ok("k1", "fred", "foo");
+    let k2 = test_ok("k2", "barney", "foo");
+    let k3 = test_ok("k3", "fred", "bar");
+
+    assert!(k1.public_key == k2.public_key && k1.secret_key == k2.secret_key);
+    assert!(k1 != k3);
+}
+
+#[test]
+#[should_panic(expected = "Failed to deserialize")]
+fn test_generate_or_load_key_panic() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home_dir = tmp.path();
+
+    {
+        let mut file = std::fs::File::create(&home_dir.join("key")).unwrap();
+        writeln!(file, "not JSON").unwrap();
+    }
+
+    let _ = generate_or_load_key(home_dir, "key", Some("fred".parse().unwrap()), None);
 }
 
 pub fn mainnet_genesis() -> Genesis {
     lazy_static_include::lazy_static_include_bytes! {
         MAINNET_GENESIS_JSON => "res/mainnet_genesis.json",
     };
-    serde_json::from_slice(*MAINNET_GENESIS_JSON).expect("Failed to deserialize MainNet genesis")
+    serde_json::from_slice(*MAINNET_GENESIS_JSON).expect("Failed to deserialize mainnet genesis")
 }
 
 /// Initializes genesis and client configs and stores in the given folder
@@ -816,13 +926,22 @@ pub fn init_configs(
     download_config_url: Option<&str>,
     boot_nodes: Option<&str>,
     max_gas_burnt_view: Option<Gas>,
-) {
-    fs::create_dir_all(dir).expect("Failed to create directory");
+) -> anyhow::Result<()> {
+    fs::create_dir_all(dir).with_context(|| anyhow!("Failed to create directory {:?}", dir))?;
+
     // Check if config already exists in home dir.
     if dir.join(CONFIG_FILENAME).exists() {
-        let config = Config::from_file(&dir.join(CONFIG_FILENAME));
-        let genesis_config = GenesisConfig::from_file(&dir.join(config.genesis_file));
-        panic!("Found existing config in {} with chain-id = {}. Use unsafe_reset_all to clear the folder.", dir.display(), genesis_config.chain_id);
+        let config = Config::from_file(&dir.join(CONFIG_FILENAME))
+            .with_context(|| anyhow!("Failed to read config {}", dir.display()))?;
+        let file_path = dir.join(&config.genesis_file);
+        let genesis = GenesisConfig::from_file(&file_path).with_context(move || {
+            anyhow!("Failed to read genesis config {}/{}", dir.display(), config.genesis_file)
+        })?;
+        bail!(
+            "Config is already downloaded to ‘{}’ with chain-id ‘{}’.",
+            file_path.display(),
+            genesis.chain_id
+        );
     }
 
     let mut config = Config::default();
@@ -831,12 +950,14 @@ pub fn init_configs(
         .unwrap_or_else(random_chain_id);
 
     if let Some(url) = download_config_url {
-        download_config(&url.to_string(), &dir.join(CONFIG_FILENAME));
-        config = Config::from_file(&dir.join(CONFIG_FILENAME));
+        download_config(&url.to_string(), &dir.join(CONFIG_FILENAME))
+            .context(format!("Failed to download the config file from {}", url))?;
+        config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     } else if should_download_config {
         let url = get_config_url(&chain_id);
-        download_config(&url, &dir.join(CONFIG_FILENAME));
-        config = Config::from_file(&dir.join(CONFIG_FILENAME));
+        download_config(&url, &dir.join(CONFIG_FILENAME))
+            .context(format!("Failed to download the config file from {}", url))?;
+        config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     }
 
     if let Some(nodes) = boot_nodes {
@@ -850,54 +971,59 @@ pub fn init_configs(
     match chain_id.as_ref() {
         "mainnet" => {
             if test_seed.is_some() {
-                panic!("Test seed is not supported for MainNet");
+                bail!("Test seed is not supported for MainNet");
             }
             config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
-            config.write_to_file(&dir.join(CONFIG_FILENAME));
+            config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
+                format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
+            })?;
 
             let genesis = mainnet_genesis();
-            if let Some(account_id) = account_id {
-                generate_validator_key(account_id, &dir.join(config.validator_key_file));
-            }
 
-            let network_signer =
-                InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519);
-            network_signer.write_to_file(&dir.join(config.node_key_file));
+            generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
+            generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
 
             genesis.to_file(&dir.join(config.genesis_file));
-            info!(target: "near", "Generated MainNet genesis file in {}", dir.display());
+            info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
         }
         "testnet" | "betanet" => {
             if test_seed.is_some() {
-                panic!("Test seed is not supported for official TestNet");
+                bail!("Test seed is not supported for official testnet");
             }
             config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.replace("{}", &chain_id));
-            config.write_to_file(&dir.join(CONFIG_FILENAME));
+            config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
+                format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
+            })?;
 
-            if let Some(account_id) = account_id {
-                generate_validator_key(account_id, &dir.join(config.validator_key_file));
-            }
-
-            let network_signer =
-                InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519);
-            network_signer.write_to_file(&dir.join(config.node_key_file));
+            generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
+            generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
 
             // download genesis from s3
             let genesis_path = dir.join("genesis.json");
             let mut genesis_path_str =
-                genesis_path.to_str().expect("Genesis path must be initialized");
+                genesis_path.to_str().with_context(|| "Genesis path must be initialized")?;
 
             if let Some(url) = download_genesis_url {
-                download_genesis(&url.to_string(), &genesis_path);
+                download_genesis(&url.to_string(), &genesis_path)
+                    .context(format!("Failed to download the genesis file from {}", url))?;
             } else if should_download_genesis {
                 let url = get_genesis_url(&chain_id);
-                download_genesis(&url, &genesis_path);
+                download_genesis(&url, &genesis_path)
+                    .context(format!("Failed to download the genesis file from {}", url))?;
             } else {
-                genesis_path_str =
-                    genesis.unwrap_or_else(|| panic!("Genesis file is required for {}.", &chain_id))
+                genesis_path_str = match genesis {
+                    Some(g) => g,
+                    None => {
+                        bail!(
+                            "Genesis file is required for {}.\
+                             Use <--genesis|--download-genesis>",
+                            &chain_id
+                        );
+                    }
+                };
             }
 
-            let mut genesis = Genesis::from_file(&genesis_path_str);
+            let mut genesis = Genesis::from_file(&genesis_path_str, GenesisValidationMode::Full);
             genesis.config.chain_id = chain_id.clone();
 
             genesis.to_file(&dir.join(config.genesis_file));
@@ -912,24 +1038,20 @@ pub fn init_configs(
                 config.consensus.max_block_production_delay =
                     Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
             }
-            config.write_to_file(&dir.join(CONFIG_FILENAME));
+            config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
+                format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
+            })?;
 
             let account_id = account_id.unwrap_or_else(|| "test.near".parse().unwrap());
+            let signer =
+                generate_or_load_key(dir, &config.validator_key_file, Some(account_id), test_seed)?
+                    .unwrap();
+            generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
 
-            let signer = if let Some(test_seed) = test_seed {
-                InMemoryValidatorSigner::from_seed(account_id.clone(), KeyType::ED25519, test_seed)
-            } else {
-                InMemoryValidatorSigner::from_random(account_id.clone(), KeyType::ED25519)
-            };
-            signer.write_to_file(&dir.join(config.validator_key_file));
-
-            let network_signer =
-                InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519);
-            network_signer.write_to_file(&dir.join(config.node_key_file));
             let mut records = vec![];
             add_account_with_key(
                 &mut records,
-                account_id.clone(),
+                signer.account_id.clone(),
                 &signer.public_key(),
                 TESTING_INIT_BALANCE,
                 TESTING_INIT_STAKE,
@@ -959,7 +1081,7 @@ pub fn init_configs(
                 online_max_threshold: Rational::new(99, 100),
                 online_min_threshold: Rational::new(BLOCK_PRODUCER_KICKOUT_THRESHOLD as isize, 100),
                 validators: vec![AccountInfo {
-                    account_id: account_id.clone(),
+                    account_id: signer.account_id.clone(),
                     public_key: signer.public_key(),
                     amount: TESTING_INIT_STAKE,
                 }],
@@ -968,7 +1090,7 @@ pub fn init_configs(
                 max_inflation_rate: MAX_INFLATION_RATE,
                 total_supply: get_initial_supply(&records),
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
-                protocol_treasury_account: account_id,
+                protocol_treasury_account: signer.account_id.clone(),
                 fishermen_threshold: FISHERMEN_THRESHOLD,
                 min_gas_price: MIN_GAS_PRICE,
                 ..Default::default()
@@ -978,6 +1100,7 @@ pub fn init_configs(
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
         }
     }
+    Ok(())
 }
 
 pub fn create_testnet_configs_from_seeds(
@@ -1069,23 +1192,27 @@ pub fn init_testnet_configs(
         let node_dir = dir.join(format!("{}{}", prefix, i));
         fs::create_dir_all(node_dir.clone()).expect("Failed to create directory");
 
-        validator_signers[i].write_to_file(&node_dir.join(&configs[i].validator_key_file));
-        network_signers[i].write_to_file(&node_dir.join(&configs[i].node_key_file));
+        validator_signers[i]
+            .write_to_file(&node_dir.join(&configs[i].validator_key_file))
+            .expect("Error writing validator key file");
+        network_signers[i]
+            .write_to_file(&node_dir.join(&configs[i].node_key_file))
+            .expect("Error writing key file");
 
         genesis.to_file(&node_dir.join(&configs[i].genesis_file));
-        configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME));
+        configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME)).expect("Error writing config");
         info!(target: "near", "Generated node key, validator key, genesis file in {}", node_dir.display());
     }
 }
 
-pub fn get_genesis_url(chain_id: &String) -> String {
+pub fn get_genesis_url(chain_id: &str) -> String {
     format!(
         "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/genesis.json",
         chain_id,
     )
 }
 
-pub fn get_config_url(chain_id: &String) -> String {
+pub fn get_config_url(chain_id: &str) -> String {
     format!(
         "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/config.json",
         chain_id,
@@ -1094,59 +1221,306 @@ pub fn get_config_url(chain_id: &String) -> String {
 
 #[derive(thiserror::Error, Debug)]
 pub enum FileDownloadError {
-    #[error("Failed to download the file: {0}")]
-    HttpError(#[from] hyper::Error),
-    #[error("Failed to open file: {0}")]
-    OpenError(std::io::Error),
-    #[error("Failed to write to file: {0}")]
-    WriteError(std::io::Error),
-    #[error("Failed to rename file: {0}")]
-    RenameError(std::io::Error),
-    #[error("Invalid URI: {0}")]
+    #[error("{0}")]
+    HttpError(hyper::Error),
+    #[error("Failed to open temporary file")]
+    OpenError(#[source] std::io::Error),
+    #[error("Failed to write to temporary file at {0:?}")]
+    WriteError(PathBuf, #[source] std::io::Error),
+    #[error("Failed to decompress XZ stream: {0}")]
+    XzDecodeError(#[from] xz2::stream::Error),
+    #[error("Failed to decompress XZ stream: internal error: unexpected status {0:?}")]
+    XzStatusError(String),
+    #[error("Failed to rename temporary file {0:?} to {1:?}")]
+    RenameError(PathBuf, PathBuf, #[source] std::io::Error),
+    #[error("Invalid URI")]
     UriError(#[from] hyper::http::uri::InvalidUri),
-    #[error("Failed to remove the temporary file after failure: {0}, {1}")]
-    RemoveTemporaryFileError(std::io::Error, Box<FileDownloadError>),
+    #[error("Failed to remove temporary file: {0}. Download previously failed")]
+    RemoveTemporaryFileError(std::io::Error, #[source] Box<FileDownloadError>),
+}
+
+/// Object which allows transparent XZ decoding when saving data to a file.
+/// It automatically detects whether the data being read is compressed by
+/// looking at the magic at the beginning of the file.
+struct AutoXzDecoder<'a> {
+    path: &'a std::path::Path,
+    file: tokio::fs::File,
+    state: AutoXzState,
+}
+
+/// State in which of the AutoXzDecoder
+enum AutoXzState {
+    /// Given number of bytes have been read so far and all of them match bytes
+    /// in [`XZ_HEADER_MAGIC`].  The object starts in `Probing(0)` state and the
+    /// number never reaches the length of the [`XZ_HEADER_MAGIC`] buffer.
+    Probing(usize),
+
+    /// The header did not match XZ stream header and thus the data is passed
+    /// through.
+    PlainText,
+
+    /// The header did match XZ stream header and thus the data is being
+    /// decompressed.
+    Compressed(xz2::stream::Stream, Box<[u8]>),
+}
+
+/// Header that every XZ streams starts with.  See
+/// <https://tukaani.org/xz/xz-file-format-1.0.4.txt> § 2.1.1.1.
+static XZ_HEADER_MAGIC: [u8; 6] = [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
+
+impl<'a> AutoXzDecoder<'a> {
+    fn new(path: &'a std::path::Path, file: tokio::fs::File) -> Self {
+        Self { path, file: file, state: AutoXzState::Probing(0) }
+    }
+
+    /// Writes data from the chunk to the output file automatically
+    /// decompressing it if the stream is XZ-compressed.  Note that once all the
+    /// data has been written [`finish`] function must be called to flush
+    /// internal buffers.
+    async fn write_all(&mut self, chunk: &[u8]) -> Result<(), FileDownloadError> {
+        if let Some(len) = self.probe(chunk) {
+            if len != 0 {
+                self.write_all_impl(&XZ_HEADER_MAGIC[..len]).await?;
+            }
+            self.write_all_impl(&chunk).await?;
+        }
+        Ok(())
+    }
+
+    /// Flushes all internal buffers and closes the output file.
+    async fn finish(mut self) -> Result<(), FileDownloadError> {
+        match self.state {
+            AutoXzState::Probing(pos) => self.write_all_raw(&XZ_HEADER_MAGIC[..pos]).await?,
+            AutoXzState::PlainText => (),
+            AutoXzState::Compressed(ref mut stream, ref mut buffer) => {
+                Self::decompress(self.path, &mut self.file, stream, buffer, b"").await?
+            }
+        }
+        self.file
+            .flush()
+            .await
+            .map_err(|e| FileDownloadError::WriteError(self.path.to_path_buf(), e))
+    }
+
+    /// If object is still in `Probing` state, read more data from the input to
+    /// determine whether it’s XZ stream or not.  Updates `state` accordingly.
+    /// If probing succeeded, returns number of bytes from XZ header magic that
+    /// need to be processed before `chunk` is processed.  If the entire data
+    /// from `chunk` has been processed and it should be discarded by the
+    /// caller, returns `None`.
+    fn probe(&mut self, chunk: &[u8]) -> Option<usize> {
+        if chunk.is_empty() {
+            None
+        } else if let AutoXzState::Probing(pos) = self.state {
+            let len = std::cmp::min(XZ_HEADER_MAGIC.len() - pos, chunk.len());
+            if XZ_HEADER_MAGIC[pos..(pos + len)] != chunk[..len] {
+                self.state = AutoXzState::PlainText;
+                Some(pos)
+            } else if pos + len == XZ_HEADER_MAGIC.len() {
+                let stream = xz2::stream::Stream::new_stream_decoder(u64::max_value(), 0).unwrap();
+                // TODO(mina86): Once ‘new_uninit’ feature gets stabilised
+                // replaced buffer initialisation by:
+                //     let buffer = Box::new_uninit_slice(64 << 10);
+                //     let buffer = unsafe { buffer.assume_init() };
+                let buffer = vec![0u8; 64 << 10].into_boxed_slice();
+                self.state = AutoXzState::Compressed(stream, buffer);
+                Some(pos)
+            } else {
+                self.state = AutoXzState::Probing(pos + len);
+                None
+            }
+        } else {
+            Some(0)
+        }
+    }
+
+    /// Writes data to the output file.  Panics if the object is still in
+    /// probing stage.
+    async fn write_all_impl(&mut self, chunk: &[u8]) -> Result<(), FileDownloadError> {
+        match self.state {
+            AutoXzState::Probing(_) => unreachable!(),
+            AutoXzState::PlainText => self.write_all_raw(chunk).await,
+            AutoXzState::Compressed(ref mut stream, ref mut buffer) => {
+                Self::decompress(self.path, &mut self.file, stream, buffer, chunk).await
+            }
+        }
+    }
+
+    /// Writes data to output file directly.
+    async fn write_all_raw(&mut self, chunk: &[u8]) -> Result<(), FileDownloadError> {
+        self.file
+            .write_all(chunk)
+            .await
+            .map_err(|e| FileDownloadError::WriteError(self.path.to_path_buf(), e))
+    }
+
+    /// Internal implementation for [`write_all`] and [`finish`] methods used
+    /// when performing decompression.  Calling it with an empty `chunk`
+    /// indicates the end of the compressed data.
+    async fn decompress(
+        path: &std::path::Path,
+        file: &mut tokio::fs::File,
+        stream: &mut xz2::stream::Stream,
+        buffer: &mut [u8],
+        mut chunk: &[u8],
+    ) -> Result<(), FileDownloadError> {
+        let action =
+            if chunk.is_empty() { xz2::stream::Action::Finish } else { xz2::stream::Action::Run };
+        loop {
+            let total_in = stream.total_in();
+            let total_out = stream.total_out();
+            let status = stream.process(chunk, buffer, action)?;
+            match status {
+                xz2::stream::Status::Ok => (),
+                xz2::stream::Status::StreamEnd => (),
+                status => {
+                    let status = format!("{:?}", status);
+                    error!(target: "near", "Got unexpected status ‘{}’ when decompressing downloaded file.", status);
+                    return Err(FileDownloadError::XzStatusError(status));
+                }
+            };
+            let read = (stream.total_in() - total_in).try_into().unwrap();
+            chunk = &chunk[read..];
+            let out = (stream.total_out() - total_out).try_into().unwrap();
+            file.write_all(&buffer[..out])
+                .await
+                .map_err(|e| FileDownloadError::WriteError(path.to_path_buf(), e))?;
+            if chunk.is_empty() {
+                break Ok(());
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+fn auto_xz_test_write_file(buffer: &[u8], chunk_size: usize) -> Result<Vec<u8>, FileDownloadError> {
+    let (file, path) = tempfile::NamedTempFile::new().unwrap().into_parts();
+    let mut out = AutoXzDecoder::new(&path, tokio::fs::File::from_std(file));
+    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(
+        async move {
+            for chunk in buffer.chunks(chunk_size) {
+                out.write_all(chunk).await?;
+            }
+            out.finish().await
+        },
+    )?;
+    Ok(std::fs::read(path).unwrap())
+}
+
+/// Tests writing plain text of varying lengths through [`AutoXzDecoder`].
+/// Includes test cases where prefix of a XZ header is present at the beginning
+/// of the stream being written.  That tests the object not being fooled by
+/// partial prefix.
+#[test]
+fn test_auto_xz_decode_plain() {
+    let mut data: [u8; 38] = *b"A quick brow fox jumps over a lazy dog";
+    // On first iteration we’re testing just a plain text data.  On subsequent
+    // iterations, we’re testing uncompressed data whose first few bytes match
+    // the XZ header.
+    for (pos, &ch) in XZ_HEADER_MAGIC.iter().enumerate() {
+        for len in [0, 1, 2, 3, 4, 5, 6, 10, 20, data.len()] {
+            let buffer = &data[0..len];
+            for chunk_size in 1..11 {
+                let got = auto_xz_test_write_file(&buffer, chunk_size).unwrap();
+                assert_eq!(got, buffer, "pos={}, len={}, chunk_size={}", pos, len, chunk_size);
+            }
+        }
+        data[pos] = ch;
+    }
+}
+
+/// Tests writing XZ stream through [`AutoXzDecoder`].  The stream should be
+/// properly decompressed.
+#[test]
+fn test_auto_xz_decode_compressed() {
+    let buffer = b"\xfd\x37\x7a\x58\x5a\x00\x00\x04\xe6\xd6\xb4\x46\
+                   \x02\x00\x21\x01\x1c\x00\x00\x00\x10\xcf\x58\xcc\
+                   \x01\x00\x19\x5a\x61\xc5\xbc\xc3\xb3\xc5\x82\xc4\
+                   \x87\x20\x67\xc4\x99\xc5\x9b\x6c\xc4\x85\x20\x6a\
+                   \x61\xc5\xba\xc5\x84\x00\x00\x00\x89\x4e\xdf\x72\
+                   \x66\xbe\xa9\x51\x00\x01\x32\x1a\x20\x18\x94\x30\
+                   \x1f\xb6\xf3\x7d\x01\x00\x00\x00\x00\x04\x59\x5a";
+    for chunk_size in 1..11 {
+        let got = auto_xz_test_write_file(buffer, chunk_size).unwrap();
+        assert_eq!(got, "Zażółć gęślą jaźń".as_bytes());
+    }
+}
+
+/// Tests [`AutoXzDecoder`]’s handling of corrupt XZ streams.  The data being
+/// processed starts with a proper XZ header but what follows is an invalid XZ
+/// data.  This should result in [`FileDownloadError::XzDecodeError`].
+#[test]
+fn test_auto_xz_decode_corrupted() {
+    let buffer = b"\xfd\x37\x7a\x58\x5a\x00A quick brown fox";
+    for chunk_size in 1..11 {
+        let got = auto_xz_test_write_file(buffer, chunk_size);
+        assert!(
+            matches!(got, Err(FileDownloadError::XzDecodeError(xz2::stream::Error::Data))),
+            "got {:?}",
+            got
+        );
+    }
 }
 
 /// Downloads resource at given `uri` and saves it to `file`.  On failure,
 /// `file` may be left in inconsistent state (i.e. may contain partial data).
+///
+/// If the downloaded file is an XZ stream (i.e. starts with the XZ 6-byte magic
+/// number), transparently decompresses the file as it’s being downloaded.
 async fn download_file_impl(
     uri: hyper::Uri,
-    mut file: tokio::fs::File,
-) -> Result<(), FileDownloadError> {
+    path: &std::path::Path,
+    file: tokio::fs::File,
+) -> anyhow::Result<(), FileDownloadError> {
+    let mut out = AutoXzDecoder::new(path, file);
     let https_connector = hyper_tls::HttpsConnector::new();
     let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
-    let mut resp = client.get(uri).await?;
+    let mut resp = client.get(uri).await.map_err(FileDownloadError::HttpError)?;
+    let bar = if let Some(file_size) = resp.size_hint().upper() {
+        let bar = ProgressBar::new(file_size);
+        bar.set_style(
+            ProgressStyle::default_bar().template(
+                "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} [{bytes_per_sec}] ({eta})"
+            ).progress_chars("#>-")
+        );
+        bar
+    } else {
+        let bar = ProgressBar::new_spinner();
+        bar.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} [{elapsed_precise}] {bytes} [{bytes_per_sec}]"),
+        );
+        bar
+    };
     while let Some(next_chunk_result) = resp.data().await {
-        let next_chunk = next_chunk_result?;
-        file.write_all(next_chunk.as_ref()).await.map_err(FileDownloadError::WriteError)?;
+        let next_chunk = next_chunk_result.map_err(FileDownloadError::HttpError)?;
+        out.write_all(next_chunk.as_ref()).await?;
+        bar.inc(next_chunk.len() as u64);
     }
+    out.finish().await?;
+    bar.finish();
     Ok(())
 }
 
 /// Downloads a resource at given `url` and saves it to `path`.  On success, if
 /// file at `path` exists it will be overwritten.  On failure, file at `path` is
 /// left unchanged (if it exists).
-pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
+pub async fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     let uri = url.parse()?;
+
     let (tmp_file, tmp_path) = {
         let tmp_dir = path.parent().unwrap_or(Path::new("."));
         tempfile::NamedTempFile::new_in(tmp_dir).map_err(FileDownloadError::OpenError)?.into_parts()
     };
 
-    let result =
-        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(
-            async move {
-                let tmp_file = tokio::fs::File::from_std(tmp_file);
-                download_file_impl(uri, tmp_file).await
-            },
-        );
-
-    let result = match result {
+    let result = match download_file_impl(uri, &tmp_path, tokio::fs::File::from_std(tmp_file)).await
+    {
         Err(err) => Err((tmp_path, err)),
-        Ok(()) => {
-            tmp_path.persist(path).map_err(|e| (e.path, FileDownloadError::RenameError(e.error)))
-        }
+        Ok(()) => tmp_path.persist(path).map_err(|e| {
+            let from = e.path.to_path_buf();
+            let to = path.to_path_buf();
+            (e.path, FileDownloadError::RenameError(from, to, e.error))
+        }),
     };
 
     result.map_err(|(tmp_path, err)| match tmp_path.close() {
@@ -1155,16 +1529,30 @@ pub fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     })
 }
 
-pub fn download_genesis(url: &String, path: &Path) {
-    info!(target: "near", "Downloading genesis file from: {} ...", url);
-    download_file(url, path).expect("Failed to download the genesis file");
-    info!(target: "near", "Saved the genesis file to: {} ...", path.display());
+fn run_download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async { download_file(url, path).await })
 }
 
-pub fn download_config(url: &String, path: &Path) {
+pub fn download_genesis(url: &str, path: &Path) -> Result<(), FileDownloadError> {
+    info!(target: "near", "Downloading genesis file from: {} ...", url);
+    let result = run_download_file(url, path);
+    if result.is_ok() {
+        info!(target: "near", "Saved the genesis file to: {} ...", path.display());
+    }
+    result
+}
+
+pub fn download_config(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     info!(target: "near", "Downloading config file from: {} ...", url);
-    download_file(url, path).expect("Failed to download the configuration file");
-    info!(target: "near", "Saved the config file to: {} ...", path.display());
+    let result = run_download_file(url, path);
+    if result.is_ok() {
+        info!(target: "near", "Saved the config file to: {} ...", path.display());
+    }
+    result
 }
 
 #[derive(Deserialize)]
@@ -1199,14 +1587,9 @@ impl From<NodeKeyFile> for KeyFile {
     }
 }
 
-pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
-    let config = Config::from_file(&dir.join(CONFIG_FILENAME));
-    let genesis_config = GenesisConfig::from_file(&dir.join(&config.genesis_file));
-    let genesis_records_file = if let Some(genesis_records_file) = &config.genesis_records_file {
-        dir.join(genesis_records_file)
-    } else {
-        dir.join(&config.genesis_file)
-    };
+pub fn load_config(dir: &Path, genesis_validation: GenesisValidationMode) -> NearConfig {
+    let config = Config::from_file(&dir.join(CONFIG_FILENAME)).unwrap();
+    let genesis_file = dir.join(&config.genesis_file);
     let validator_signer = if dir.join(&config.validator_key_file).exists() {
         let signer =
             Arc::new(InMemoryValidatorSigner::from_file(&dir.join(&config.validator_key_file)))
@@ -1216,26 +1599,21 @@ pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
         None
     };
     let network_signer = NodeKeyFile::from_file(&dir.join(&config.node_key_file));
+
+    let genesis_records_file = config.genesis_records_file.clone();
     NearConfig::new(
         config,
-        Genesis::new_with_path(genesis_config, genesis_records_file),
+        match genesis_records_file {
+            Some(genesis_records_file) => Genesis::from_files(
+                &genesis_file,
+                &dir.join(genesis_records_file),
+                genesis_validation,
+            ),
+            None => Genesis::from_file(&genesis_file, genesis_validation),
+        },
         network_signer.into(),
         validator_signer,
     )
-}
-
-pub fn load_config(dir: &Path) -> NearConfig {
-    let mut near_config = load_config_without_genesis_records(dir);
-    near_config.genesis =
-        if let Some(ref genesis_records_file) = near_config.config.genesis_records_file {
-            Genesis::from_files(
-                &dir.join(&near_config.config.genesis_file),
-                &dir.join(genesis_records_file),
-            )
-        } else {
-            Genesis::from_file(&dir.join(&near_config.config.genesis_file))
-        };
-    near_config
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {

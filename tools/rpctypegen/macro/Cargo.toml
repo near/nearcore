@@ -2,12 +2,12 @@
 name = "near-rpc-error-macro"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
+publish = true
 # Please update rust-toolchain.toml as well when changing version here:
 rust-version = "1.56.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/nearprotocol/nearcore"
-homepage = "https://github.com/nearprotocol/nearcore"
+repository = "https://github.com/near/nearcore"
 description = """
 This crate generates schema for Rust structs which can be used by TypeScript.
 """
@@ -17,13 +17,11 @@ proc-macro = true
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-serde_json = {version = "1.0", features = ["preserve_order"]}
+serde_json = {version = "1.0", features = ["preserve_order"], optional = true}
 syn = { version = "1.0", features = ["full", "extra-traits"]}
-quote = "1.0"
-proc-macro2 = "1.0"
 
 near-rpc-error-core = { path = "../core" }
 
 [features]
 test = []
-dump_errors_schema = ["near-rpc-error-core/dump_errors_schema"]
+dump_errors_schema = ["near-rpc-error-core/dump_errors_schema", "serde_json"]

@@ -16,10 +16,19 @@ _REPO_DIR = pathlib.Path(__file__).resolve().parents[2]
 _OUT_DIR = _REPO_DIR / 'target/debug'
 
 
-def current_branch():
-    return os.environ.get('BUILDKITE_BRANCH') or subprocess.check_output([
-        "git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "HEAD"
-    ]).strip().decode()
+def current_branch() -> str:
+    """Returns checked out branch name or sha if we’re on detached head."""
+    branch = os.environ.get('BUILDKITE_BRANCH')
+    if branch:
+        return branch
+    try:
+        return subprocess.check_output(
+            ('git', 'symbolic-ref', '--short', '-q', 'HEAD')).strip().decode()
+    except subprocess.CalledProcessError as ex:
+        if ex.returncode != 1:
+            raise
+        # We’re on detached HEAD
+    return subprocess.check_output(('git', 'rev-parse', '@')).strip().decode()
 
 
 def __get_latest_deploy(chain_id: str) -> typing.Tuple[str, str]:
@@ -66,12 +75,16 @@ def _compile_binary(branch: str) -> Executables:
     # TODO: download pre-compiled binary from github for beta/stable?
     prev_branch = current_branch()
     stash_output = subprocess.check_output(['git', 'stash'])
-    subprocess.check_output(['git', 'checkout', str(branch)])
-    subprocess.check_output(['git', 'pull', 'origin', str(branch)])
-    result = _compile_current(branch)
-    subprocess.check_output(['git', 'checkout', prev_branch])
-    if stash_output != b"No local changes to save\n":
-        subprocess.check_output(['git', 'stash', 'pop'])
+    try:
+        subprocess.check_output(['git', 'checkout', str(branch)])
+        try:
+            subprocess.check_output(['git', 'pull', 'origin', str(branch)])
+            result = _compile_current(branch)
+        finally:
+            subprocess.check_output(['git', 'checkout', prev_branch])
+    finally:
+        if stash_output != b"No local changes to save\n":
+            subprocess.check_output(['git', 'stash', 'pop'])
     return result
 
 
@@ -93,6 +106,45 @@ def _compile_current(branch: str) -> Executables:
     (_OUT_DIR / 'neard').rename(neard)
     (_OUT_DIR / 'state-viewer').rename(state_viewer)
     return Executables(_OUT_DIR, neard, state_viewer)
+
+
+def patch_binary(binary: pathlib.Path) -> None:
+    """
+    Patch a specified external binary if doing so is necessary for the host
+    system to be able to run it.
+
+    Currently only supports NixOS.
+    """
+    # Are we running on NixOS and require patching…?
+    try:
+        with open('/etc/os-release', 'r') as f:
+            if not any(line.strip() == 'ID=nixos' for line in f):
+                return
+    except FileNotFoundError:
+        return
+    if os.path.exists('/lib'):
+        return
+    # Build an output with patchelf and interpreter in it
+    nix_expr = '''
+    with (import <nixpkgs> {});
+    symlinkJoin {
+      name = "nearcore-dependencies";
+      paths = [patchelf stdenv.cc.bintools gcc.cc.lib];
+    }
+    '''
+    path = subprocess.run(('nix-build', '-E', nix_expr),
+                          capture_output=True,
+                          encoding='utf-8').stdout.strip()
+    # Set the interpreter for the binary to NixOS'.
+    patchelf = f'{path}/bin/patchelf'
+    linker = (pathlib.Path(path) / "nix-support" /
+              "dynamic-linker").read_text().strip()
+    cmd = (patchelf, '--set-interpreter', linker, binary)
+    logger.debug('Patching NixOS interpreter {}'.format(cmd))
+    subprocess.check_call(cmd)
+    cmd = (patchelf, '--set-rpath', '$ORIGIN:{}/lib'.format(path), binary)
+    logger.debug('Patching DSO rpath {}'.format(cmd))
+    subprocess.check_call(cmd)
 
 
 def __download_file_if_missing(filename: pathlib.Path, url: str) -> None:
@@ -122,6 +174,7 @@ def __download_file_if_missing(filename: pathlib.Path, url: str) -> None:
             name = pathlib.Path(tmp.name)
             logger.debug('Executing ' + ' '.join(cmd))
             subprocess.check_call(cmd, stdout=tmp)
+        patch_binary(name)
         name.chmod(0o555)
         name.rename(filename)
         name = None
@@ -181,6 +234,8 @@ def prepare_ab_test(chain_id: str = 'mainnet') -> ABExecutables:
     except Exception as e:
         if is_nayduck:
             logger.exception('RC binary should be downloaded for NayDuck.', e)
+        else:
+            logger.exception(e)
         stable = _compile_binary(release)
 
     return ABExecutables(stable=stable,

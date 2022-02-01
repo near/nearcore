@@ -3,7 +3,6 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{Cursor, Read, Write};
-use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -158,7 +157,7 @@ impl TrieNode {
                     spaces,
                     if value.is_some() { "Some" } else { "None" }
                 )?;
-                spaces.push_str(" ");
+                spaces.push(' ');
                 for (idx, child) in
                     children.iter().enumerate().filter(|(_idx, child)| child.is_some())
                 {
@@ -181,7 +180,7 @@ impl TrieNode {
             TrieNode::Extension(key, child) => {
                 let slice = NibbleSlice::from_encoded(key);
                 writeln!(f, "{}Extension({:?})", spaces, slice)?;
-                spaces.push_str(" ");
+                spaces.push(' ');
                 match child {
                     NodeHandle::Hash(hash) => {
                         write!(f, "{}{}", spaces, hash)?;
@@ -353,7 +352,7 @@ impl RawTrieNode {
                 let value_length = cursor.read_u32::<LittleEndian>()?;
                 let mut arr = [0; 32];
                 cursor.read_exact(&mut arr)?;
-                let value_hash = CryptoHash::try_from(&arr[..]).unwrap();
+                let value_hash = CryptoHash(arr);
                 Ok(RawTrieNode::Leaf(key, value_length, value_hash))
             }
             BRANCH_NODE_NO_VALUE => {
@@ -364,7 +363,7 @@ impl RawTrieNode {
                 let value_length = cursor.read_u32::<LittleEndian>()?;
                 let mut arr = [0; 32];
                 cursor.read_exact(&mut arr)?;
-                let value_hash = CryptoHash::try_from(&arr[..]).unwrap();
+                let value_hash = CryptoHash(arr);
                 let children = decode_children(&mut cursor)?;
                 Ok(RawTrieNode::Branch(children, Some((value_length, value_hash))))
             }
@@ -372,9 +371,9 @@ impl RawTrieNode {
                 let key_length = cursor.read_u32::<LittleEndian>()?;
                 let mut key = vec![0; key_length as usize];
                 cursor.read_exact(&mut key)?;
-                let mut child = vec![0; 32];
+                let mut child = [0; 32];
                 cursor.read_exact(&mut child)?;
-                Ok(RawTrieNode::Extension(key, CryptoHash::try_from(child).unwrap()))
+                Ok(RawTrieNode::Extension(key, CryptoHash(child)))
             }
             _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type")),
         }
@@ -479,7 +478,7 @@ impl Trie {
         let storage =
             self.storage.as_caching_storage().expect("Storage should be TrieCachingStorage");
         let storage = TrieRecordingStorage {
-            store: Arc::clone(&storage.store),
+            store: storage.store.clone(),
             shard_uid: storage.shard_uid,
             recorded: RefCell::new(Default::default()),
         };
@@ -1084,8 +1083,7 @@ mod tests {
             (b"dog".to_vec(), Some(b"puppy".to_vec())),
             (b"h".to_vec(), Some(b"value".to_vec())),
         ];
-        let root =
-            test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes.clone());
+        let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
 
         let tries2 = ShardTries::new(store, 0, 1);
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard());
@@ -1096,7 +1094,7 @@ mod tests {
     #[test]
     fn test_trie_recording_reads() {
         let store = create_test_store();
-        let tries = ShardTries::new(store.clone(), 0, 1);
+        let tries = ShardTries::new(store, 0, 1);
         let empty_root = Trie::empty_root();
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
@@ -1106,8 +1104,7 @@ mod tests {
             (b"dog".to_vec(), Some(b"puppy".to_vec())),
             (b"h".to_vec(), Some(b"value".to_vec())),
         ];
-        let root =
-            test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes.clone());
+        let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
 
         let trie2 = tries.get_trie_for_shard(ShardUId::single_shard()).recording_reads();
         trie2.get(&root, b"dog").unwrap();
@@ -1124,14 +1121,13 @@ mod tests {
     #[test]
     fn test_trie_recording_reads_update() {
         let store = create_test_store();
-        let tries = ShardTries::new(store.clone(), 0, 1);
+        let tries = ShardTries::new(store, 0, 1);
         let empty_root = Trie::empty_root();
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
             (b"docu".to_vec(), Some(b"value".to_vec())),
         ];
-        let root =
-            test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes.clone());
+        let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
         // Trie: extension -> branch -> 2 leaves
         {
             let trie2 = tries.get_trie_for_shard(ShardUId::single_shard()).recording_reads();
@@ -1166,13 +1162,12 @@ mod tests {
             (b"doge".to_vec(), Some(b"coin".to_vec())),
             (b"docu".to_vec(), Some(b"value".to_vec())),
         ];
-        let root =
-            test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes.clone());
+        let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
         let dir = tempfile::Builder::new().prefix("test_dump_load_trie").tempdir().unwrap();
         store.save_to_file(ColState, &dir.path().join("test.bin")).unwrap();
         let store2 = create_test_store();
         store2.load_from_file(ColState, &dir.path().join("test.bin")).unwrap();
-        let tries2 = ShardTries::new(store2.clone(), 0, 1);
+        let tries2 = ShardTries::new(store2, 0, 1);
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard());
         assert_eq!(trie2.get(&root, b"doge").unwrap().unwrap(), b"coin");
     }

@@ -1,7 +1,8 @@
+use bytesize::ByteSize;
 use futures;
 use futures::task::Context;
 use log::{info, warn};
-use near_rust_allocator_proxy::allocator::{
+use near_rust_allocator_proxy::{
     current_thread_memory_usage, current_thread_peak_memory_usage, get_tid, reset_memory_usage_max,
     thread_memory_count, thread_memory_usage, total_memory_usage,
 };
@@ -13,8 +14,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::{Duration, Instant};
-
-use bytesize::ByteSize;
 use strum::AsStaticRef;
 
 static MEMORY_LIMIT: u64 = 512 * bytesize::MIB;

@@ -26,15 +26,10 @@ VOLUME [ /near ]
 WORKDIR /near
 COPY . .
 
-ENV CARGO_TARGET_DIR=/tmp/target
-ENV RUSTC_FLAGS='-C target-cpu=x86-64'
 ENV PORTABLE=ON
-RUN cargo build -p neard --release && \
-    mkdir /tmp/build && \
-    cd /tmp/target/release && \
-    mv ./neard /tmp/build
-
-COPY scripts/run_docker.sh /tmp/build/run.sh
+ARG make_target=
+RUN make CARGO_TARGET_DIR=/tmp/target \
+         "${make_target:?make_target not set}"
 
 # Actual image
 FROM ubuntu:18.04
@@ -45,6 +40,7 @@ RUN apt-get update -qq && apt-get install -y \
     libssl-dev ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /tmp/build/* /usr/local/bin
+COPY scripts/run_docker.sh /usr/local/bin/run.sh
+COPY --from=build /tmp/target/release/neard /usr/local/bin
 
-CMD ["/usr/local/bin/run.sh"]
+ENTRYPOINT ["/usr/local/bin/run.sh"]

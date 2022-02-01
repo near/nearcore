@@ -1,5 +1,6 @@
 import json
 import os
+import random
 import os.path
 import shlex
 import tempfile
@@ -21,7 +22,6 @@ KEY_TARGET_ENV_VAR = 'NEAR_PYTEST_KEY_TARGET'
 # NODE_SSH_KEY_PATH = '~/.ssh/near_ops'
 NODE_SSH_KEY_PATH = None
 NODE_USERNAME = 'ubuntu'
-NUM_SHARDS = 1
 NUM_ACCOUNTS = 26 * 2
 PROJECT = 'near-mocknet'
 PUBLIC_KEY = 'ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN'
@@ -42,22 +42,6 @@ tmux kill-session -t near || true
 done
 '''
 
-TMUX_START_SCRIPT_WITH_DEBUG_OUTPUT = '''
-sudo mv /home/ubuntu/near.log /home/ubuntu/near.log.1 2>/dev/null
-sudo rm -rf /home/ubuntu/.near/data
-tmux new -s near -d bash
-tmux send-keys -t near 'RUST_BACKTRACE=full RUST_LOG=debug,actix_web=info /home/ubuntu/neard run 2>&1 | tee /home/ubuntu/near.log' C-m
-'''
-
-TMUX_START_SCRIPT_NO_DEBUG_OUTPUT = '''
-sudo mv /home/ubuntu/near.log /home/ubuntu/near.log.1 2>/dev/null
-sudo rm -rf /home/ubuntu/.near/data
-tmux new -s near -d bash
-tmux send-keys -t near 'RUST_BACKTRACE=full /home/ubuntu/neard run 2>&1 | tee /home/ubuntu/near.log' C-m
-'''
-
-TMUX_START_SCRIPT = TMUX_START_SCRIPT_WITH_DEBUG_OUTPUT
-
 PYTHON_DIR = '/home/ubuntu/.near/pytest/'
 
 PYTHON_SETUP_SCRIPT = f'''
@@ -73,6 +57,21 @@ INSTALL_PYTHON_REQUIREMENTS = f'''
 cd {PYTHON_DIR}
 ./venv/bin/pip install -r requirements.txt
 '''
+
+ONE_NEAR = 10**24
+MIN_STAKE = 64 * (10**3)
+STAKE_STEP = 15 * (10**3)
+OTHER_STAKE = 10**6
+MAINNET_STAKES = [
+    43566361, 20091202, 19783811, 18990335, 18196731, 12284685, 10770734,
+    10769428, 9858038, 9704977, 8871933, 8296476, 7731153, 7499051, 7322703,
+    7307458, 6477856, 6293083, 6242196, 6093107, 6085802, 5553788, 5508664,
+    5286843, 5056137, 4944414, 4859235, 4732286, 4615542, 4565243, 4468179,
+    4451510, 4444888, 4412264, 4221909, 4219451, 4210541, 4161553, 4116102,
+    4085627, 4075090, 3988387, 3932601, 3923842, 3921959, 3915353, 3907857,
+    3905980, 3898791, 3886957, 3851553, 3831536, 3790646, 3784485, 3777647,
+    3760931, 3746129, 3741225, 3727313, 3699201, 3620341
+]
 
 
 def get_node(hostname):
@@ -163,15 +162,8 @@ def start_load_test_helper_script(script, node_account_id, pk, sk, rpc_nodes,
     return s
 
 
-def start_load_test_helper(node,
-                           script,
-                           pk,
-                           sk,
-                           rpc_nodes,
-                           num_nodes,
-                           max_tps,
-                           lead_account_id=None,
-                           get_node_key=False):
+def start_load_test_helper(node, script, pk, sk, rpc_nodes, num_nodes, max_tps,
+                           lead_account_id, get_node_key):
     upk, usk = None, None
     if get_node_key:
         node_key_json = download_and_read_json(
@@ -244,8 +236,7 @@ def chain_measure_bps_and_tps(archival_node,
                               start_time,
                               end_time,
                               duration=None):
-    latest_block_hash = archival_node.get_status(
-    )['sync_info']['latest_block_hash']
+    latest_block_hash = archival_node.get_latest_block().hash
     curr_block = archival_node.get_block(latest_block_hash)['result']
     curr_time = get_timestamp(curr_block)
 
@@ -366,8 +357,7 @@ def transfer_between_nodes(nodes):
     logger.info(f'Alice initial balance: {alice_initial_balance}')
     logger.info(f'Bob initial balance: {bob_initial_balance}')
 
-    last_block_hash = node.get_status()['sync_info']['latest_block_hash']
-    last_block_hash_decoded = base58.b58decode(last_block_hash.encode('utf8'))
+    last_block_hash = node.get_latest_block().hash_bytes
 
     tx, tx_hash = sign_payment_tx_and_get_hash(alice, bob.account_id,
                                                transfer_amount, alice_nonce + 1,
@@ -450,81 +440,66 @@ def compress_and_upload(nodes, src_filename, dst_filename):
 # We assume that the nodes already have the .near directory with the files
 # node_key.json, validator_key.json and config.json.
 def create_and_upload_genesis(validator_nodes,
-                              genesis_template_filename=None,
+                              chain_id,
                               rpc_nodes=None,
-                              chain_id=None,
-                              update_genesis_on_machine=False,
-                              epoch_length=None,
-                              node_pks=None):
+                              epoch_length=20000,
+                              node_pks=None,
+                              increasing_stakes=0.0,
+                              num_seats=100,
+                              sharding=True,
+                              all_node_pks=None,
+                              node_ips=None):
     logger.info(
         f'create_and_upload_genesis: validator_nodes: {validator_nodes}')
     assert chain_id
-    if not epoch_length:
-        epoch_length = 20000
     logger.info('Uploading genesis and config files')
     with tempfile.TemporaryDirectory() as tmp_dir:
-        update_config_file(validator_nodes + rpc_nodes, tmp_dir)
-
-        if not update_genesis_on_machine:
-            assert genesis_template_filename
-            mocknet_genesis_filename = os.path.join(tmp_dir, 'genesis.json')
-            validator_node_names = [
-                node.instance_name for node in validator_nodes
-            ]
-            rpc_node_names = [node.instance_name for node in rpc_nodes]
-            create_genesis_file(validator_node_names,
-                                genesis_template_filename,
-                                mocknet_genesis_filename,
-                                tmp_dir=tmp_dir,
-                                rpc_node_names=rpc_node_names,
-                                epoch_length=epoch_length,
-                                node_pks=node_pks)
-            # Save time and bandwidth by uploading a compressed file, which is 2% the size of the genesis file.
-            compress_and_upload(validator_nodes + rpc_nodes,
-                                mocknet_genesis_filename,
-                                '/home/ubuntu/.near/genesis.json')
-        else:
-            logger.info(
-                'Assuming that genesis_updater.py is available on the instances.'
-            )
-            validator_node_names = [
-                node.instance_name for node in validator_nodes
-            ]
-            rpc_node_names = [node.instance_name for node in rpc_nodes]
-            assert '-spoon' in chain_id, f'Expecting chain_id like "testnet-spoon" or "mainnet-spoon", got {chain_id}'
-            chain_id_in = chain_id.split('-spoon')[0]
-            genesis_filename_in = f'/home/ubuntu/.near/genesis.{chain_id_in}.json'
-            done_filename = f'/home/ubuntu/genesis_update_done_{int(time.time())}.txt'
-            pmap(
-                lambda node: start_genesis_updater(
-                    node, 'genesis_updater.py', genesis_filename_in,
-                    '/home/ubuntu/.near/genesis.json', chain_id,
-                    validator_node_names, rpc_node_names, done_filename,
-                    epoch_length, node_pks), validator_nodes + rpc_nodes)
-            pmap(lambda node: wait_genesis_updater_done(node, done_filename),
-                 validator_nodes + rpc_nodes)
+        logger.info(
+            'Assuming that genesis_updater.py is available on the instances.')
+        validator_node_names = [node.instance_name for node in validator_nodes]
+        rpc_node_names = [node.instance_name for node in rpc_nodes]
+        assert '-spoon' in chain_id, f'Expecting chain_id like "testnet-spoon" or "mainnet-spoon", got {chain_id}'
+        chain_id_in = chain_id.split('-spoon')[0]
+        genesis_filename_in = f'/home/ubuntu/.near/{chain_id_in}-genesis/genesis.json'
+        records_filename_in = f'/home/ubuntu/.near/{chain_id_in}-genesis/records.json'
+        config_filename_in = f'/home/ubuntu/.near/{chain_id_in}-genesis/config.json'
+        stamp = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
+        done_filename = f'/home/ubuntu/genesis_update_done_{stamp}.txt'
+        pmap(
+            lambda node: start_genesis_updater(
+                node, 'genesis_updater.py', genesis_filename_in,
+                '/home/ubuntu/.near/genesis.json', records_filename_in,
+                '/home/ubuntu/.near/records.json', config_filename_in,
+                '/home/ubuntu/.near/config.json', chain_id,
+                validator_node_names, rpc_node_names, done_filename,
+                epoch_length, node_pks, increasing_stakes, num_seats, sharding,
+                all_node_pks, node_ips), validator_nodes + rpc_nodes)
+        pmap(lambda node: wait_genesis_updater_done(node, done_filename),
+             validator_nodes + rpc_nodes)
 
 
 def create_genesis_file(validator_node_names,
-                        genesis_template_filename,
-                        mocknet_genesis_filename,
-                        tmp_dir=None,
+                        genesis_filename_in,
+                        genesis_filename_out,
+                        records_filename_in,
+                        records_filename_out,
                         rpc_node_names=None,
                         chain_id=None,
                         append=False,
                         epoch_length=None,
-                        node_pks=None):
+                        node_pks=None,
+                        increasing_stakes=0.0,
+                        num_seats=None,
+                        sharding=True):
     logger.info(
         f'create_genesis_file: validator_node_names: {validator_node_names}')
     logger.info(f'create_genesis_file: rpc_node_names: {rpc_node_names}')
-    with open(genesis_template_filename) as f:
+    with open(genesis_filename_in) as f:
         genesis_config = json.load(f)
+    with open(records_filename_in) as f:
+        records = json.load(f)
 
-    ONE_NEAR = 10**24
-    TOTAL_SUPPLY = (10**9) * ONE_NEAR
-    # Make sure our new validators have more tokens than any existing validators.
-    VALIDATOR_BALANCE = (10**7) * ONE_NEAR
-    STAKED_BALANCE = 15 * (10**5) * ONE_NEAR
+    VALIDATOR_BALANCE = (10**2) * ONE_NEAR
     RPC_BALANCE = (10**1) * ONE_NEAR
     TREASURY_ACCOUNT = 'test.near'
     TREASURY_BALANCE = (10**7) * ONE_NEAR
@@ -545,7 +520,7 @@ def create_genesis_file(validator_node_names,
 
     if append:
         # Unstake all tokens from all existing accounts.
-        for record in genesis_config['records']:
+        for record in records:
             if 'Account' in record:
                 account = record['Account'].get('account', {})
                 locked = int(account.get('locked', 0))
@@ -555,7 +530,7 @@ def create_genesis_file(validator_node_names,
                     account['locked'] = 0
 
     else:
-        genesis_config['records'] = []
+        records = []
 
     master_balance = 10**7
     assert master_balance > 0
@@ -569,7 +544,7 @@ def create_genesis_file(validator_node_names,
         ACCOUNT1_ACCOUNT: ACCOUNT1_BALANCE
     }
     seen_accounts = set()
-    for record in genesis_config['records']:
+    for record in records:
         if 'Account' in record:
             account_record = record['Account']
             account_id = account_record.get('account_id', '')
@@ -580,7 +555,7 @@ def create_genesis_file(validator_node_names,
 
     for account_id, balance in accounts.items():
         if account_id not in seen_accounts:
-            genesis_config['records'].append({
+            records.append({
                 'Account': {
                     'account_id': account_id,
                     'account': {
@@ -596,7 +571,7 @@ def create_genesis_file(validator_node_names,
         if node_pks:
             pkeys += node_pks
         for pk in pkeys:
-            genesis_config['records'].append({
+            records.append({
                 'AccessKey': {
                     'account_id': account_id,
                     'public_key': pk,
@@ -607,23 +582,37 @@ def create_genesis_file(validator_node_names,
                 }
             })
 
-    genesis_config['validators'] = []
-    for node_name in validator_node_names:
+    stakes = []
+    prev_stake = None
+    for i, node_name in enumerate(validator_node_names):
         account_id = node_account_name(node_name)
         logger.info(f'Adding account {account_id}')
-        genesis_config['records'].append({
+        if increasing_stakes:
+            if i * 5 < num_seats * 3 and i < len(MAINNET_STAKES):
+                staked = MAINNET_STAKES[i] * ONE_NEAR
+            elif prev_stake is None:
+                prev_stake = MIN_STAKE - STAKE_STEP
+                staked = prev_stake * ONE_NEAR
+            else:
+                prev_stake = prev_stake + STAKE_STEP
+                staked = prev_stake * ONE_NEAR
+            print(f'{account_id} {staked}')
+        else:
+            staked = MIN_STAKE
+        stakes.append((staked, account_id))
+        records.append({
             'Account': {
                 'account_id': account_id,
                 'account': {
                     'amount': str(VALIDATOR_BALANCE),
-                    'locked': str(STAKED_BALANCE),
+                    'locked': str(staked),
                     'code_hash': '11111111111111111111111111111111',
                     'storage_usage': 0,
                     'version': 'V1'
                 }
             }
         })
-        genesis_config['records'].append({
+        records.append({
             'AccessKey': {
                 'account_id': account_id,
                 'public_key': PUBLIC_KEY,
@@ -633,15 +622,10 @@ def create_genesis_file(validator_node_names,
                 }
             }
         })
-        genesis_config['validators'].append({
-            'account_id': account_id,
-            'public_key': PUBLIC_KEY,
-            'amount': str(STAKED_BALANCE)
-        })
         for i in range(NUM_ACCOUNTS):
             load_testing_account = load_testing_account_id(account_id, i)
             logger.info(f'Adding load testing account {load_testing_account}')
-            genesis_config['records'].append({
+            records.append({
                 'Account': {
                     'account_id': load_testing_account,
                     'account': {
@@ -653,7 +637,7 @@ def create_genesis_file(validator_node_names,
                     }
                 }
             })
-            genesis_config['records'].append({
+            records.append({
                 'AccessKey': {
                     'account_id': load_testing_account,
                     'public_key': PUBLIC_KEY,
@@ -666,7 +650,7 @@ def create_genesis_file(validator_node_names,
     for node_name in rpc_node_names:
         account_id = node_account_name(node_name)
         logger.info(f'Adding rpc node account {account_id}')
-        genesis_config['records'].append({
+        records.append({
             'Account': {
                 'account_id': account_id,
                 'account': {
@@ -678,7 +662,7 @@ def create_genesis_file(validator_node_names,
                 }
             }
         })
-        genesis_config['records'].append({
+        records.append({
             'AccessKey': {
                 'account_id': account_id,
                 'public_key': PUBLIC_KEY,
@@ -689,26 +673,61 @@ def create_genesis_file(validator_node_names,
             }
         })
 
+    genesis_config['validators'] = []
+    seats = compute_seats(stakes, num_seats)
+    seats_taken = 0
+    for seats, staked, account_id in seats:
+        if seats + seats_taken > num_seats:
+            break
+        genesis_config['validators'].append({
+            'account_id': account_id,
+            'public_key': PUBLIC_KEY,
+            'amount': str(staked),
+        })
+        seats_taken += seats
+
     total_supply = 0
-    for record in genesis_config['records']:
+    for record in records:
         account = record.get('Account', {}).get('account', {})
         total_supply += int(account.get('locked', 0))
         total_supply += int(account.get('amount', 0))
     genesis_config['total_supply'] = str(total_supply)
     # Testing simple nightshade.
-    genesis_config['protocol_version'] = 47
-    genesis_config['epoch_length'] = epoch_length
-    genesis_config['num_block_producer_seats'] = len(validator_node_names)
+    genesis_config['protocol_version'] = 49
+    genesis_config['epoch_length'] = int(epoch_length)
+    genesis_config['num_block_producer_seats'] = int(num_seats)
+    # Mainnet genesis disables protocol rewards, override to a value used today on mainnet.
+    genesis_config['protocol_reward_rate'] = [1, 10]
     # Loadtest helper signs all transactions using the same block.
     # Extend validity period to allow the same hash to be used for the whole duration of the test.
     genesis_config['transaction_validity_period'] = 10**9
+    # Protocol upgrades require downtime, therefore make it harder to kickout validators.
+    # The default value of this parameter is 90.
+    genesis_config['block_producer_kickout_threshold'] = 10
 
-    genesis_config.pop('simple_nightshade_shard_layout', None)
-    genesis_config.pop('shard_layout', None)
+    if sharding:
+        shard_layout = {
+            'V1': {
+                'fixed_shards': [],
+                'boundary_accounts': [
+                    'aurora', 'aurora-0', 'kkuuue2akv_1630967379.near'
+                ],
+                'shards_split_map': [[0, 1, 2, 3]],
+                'to_parent_shard_map': [0, 0, 0, 0],
+                'version': 1
+            }
+        }
+        genesis_config['shard_layout']: shard_layout
+        genesis_config['simple_nightshade_shard_layout'] = shard_layout
+    else:
+        genesis_config['shard_layout'] = {'V0': {'num_shards': 1, 'version': 0}}
+        genesis_config['simple_nightshade_shard_layout'] = {}
 
     # The json object gets truncated if I don't close and reopen the file.
-    with open(mocknet_genesis_filename, 'w') as f:
+    with open(genesis_filename_out, 'w') as f:
         json.dump(genesis_config, f, indent=2)
+    with open(records_filename_out, 'w') as f:
+        json.dump(records, f)
 
 
 def download_and_read_json(node, filename):
@@ -732,43 +751,52 @@ def get_node_keys(node):
     return node_key_json['public_key'], node_key_json['secret_key']
 
 
-def update_config_file(all_nodes, tmp_dir):
-    first_node = all_nodes[0]
-
-    # Download and read.
-    mocknet_config_filename = os.path.join(tmp_dir, 'config.json')
-    first_node.machine.download('/home/ubuntu/.near/config.json',
-                                mocknet_config_filename)
-    with open(mocknet_config_filename, 'r') as f:
+def update_config_file(config_filename_in, config_filename_out, all_node_pks,
+                       node_ips):
+    with open(config_filename_in) as f:
         config_json = json.load(f)
+
     port = config_json['network']['addr'].split(':')[
         1]  # Usually the port is 24567
-    node_addresses = pmap(lambda node: get_node_addr(node, port), all_nodes)
+    node_addresses = [
+        f'{node_key}@{node_ip}:{port}'
+        for node_key, node_ip in zip(all_node_pks, node_ips)
+    ]
 
     config_json['tracked_shards'] = [0]
     config_json['archive'] = True
     config_json['archival_peer_connections_lower_bound'] = 1
-
-    # Update the config and save it to the file.
     config_json['network']['boot_nodes'] = ','.join(node_addresses)
-    with open(mocknet_config_filename, 'w') as f:
+
+    with open(config_filename_out, 'w') as f:
         json.dump(config_json, f, indent=2)
 
-    pmap(
-        lambda node: node.machine.upload(mocknet_config_filename,
-                                         '/home/ubuntu/.near/config.json',
-                                         switch_user='ubuntu'), all_nodes)
 
-
-def start_nodes(nodes):
-    pmap(start_node, nodes)
+def start_nodes(nodes, upgrade_schedule=None):
+    pmap(lambda node: start_node(node, upgrade_schedule=upgrade_schedule),
+         nodes)
 
 
 def stop_nodes(nodes):
     pmap(stop_node, nodes)
 
 
-def start_node(node):
+def neard_start_script(node, upgrade_schedule=None, epoch_height=None):
+    if upgrade_schedule and upgrade_schedule.get(node.instance_name,
+                                                 0) <= epoch_height:
+        neard_binary = '/home/ubuntu/neard.upgrade'
+    else:
+        neard_binary = '/home/ubuntu/neard'
+    return '''
+        sudo mv /home/ubuntu/near.log /home/ubuntu/near.log.1 2>/dev/null
+        sudo mv /home/ubuntu/near.upgrade.log /home/ubuntu/near.upgrade.log.1 2>/dev/null
+        sudo rm -rf /home/ubuntu/.near/data
+        tmux new -s near -d bash
+        tmux send-keys -t near 'RUST_BACKTRACE=full RUST_LOG=debug,actix_web=info {neard_binary} run 2>&1 | tee -a {neard_binary}.log' C-m
+    '''.format(neard_binary=shlex.quote(neard_binary))
+
+
+def start_node(node, upgrade_schedule=None):
     m = node.machine
     logger.info(f'Starting node {m.name}')
     attempt = 0
@@ -778,7 +806,11 @@ def start_node(node):
         if pid != '':
             success = True
             break
-        start_process = m.run('sudo -u ubuntu -i', input=TMUX_START_SCRIPT)
+        start_process = m.run('sudo -u ubuntu -i',
+                              input=neard_start_script(
+                                  node,
+                                  upgrade_schedule=upgrade_schedule,
+                                  epoch_height=0))
         if start_process.returncode == 0:
             success = True
             break
@@ -796,8 +828,7 @@ def reset_data(node, retries=0):
         m = node.machine
         stop_node(node)
         logger.info(f'Clearing data directory of node {m.name}')
-        start_process = m.run('bash',
-                              input='/home/ubuntu/neard unsafe_reset_data')
+        start_process = m.run('bash', input='rm -r /home/ubuntu/.near')
         assert start_process.returncode == 0, m.name + '\n' + start_process.stderr
     except:
         if retries < 3:
@@ -810,35 +841,43 @@ def reset_data(node, retries=0):
             )
 
 
-def start_genesis_updater_script(script, genesis_filename_in,
-                                 genesis_filename_out, chain_id,
-                                 validator_nodes, rpc_nodes, done_filename,
-                                 epoch_length, node_pks):
+def start_genesis_updater_script(
+        script, genesis_filename_in, genesis_filename_out, records_filename_in,
+        records_filename_out, config_filename_in, config_filename_out, chain_id,
+        validator_nodes, rpc_nodes, done_filename, epoch_length, node_pks,
+        increasing_stakes, num_seats, sharding, all_node_pks, node_ips):
+    cmd = ' '.join([
+        shlex.quote(str(arg)) for arg in [
+            'nohup', './venv/bin/python', script, genesis_filename_in,
+            genesis_filename_out, records_filename_in, records_filename_out,
+            config_filename_in, config_filename_out, chain_id, ','.join(
+                validator_nodes), ','.join(rpc_nodes), done_filename,
+            epoch_length, ','.join(node_pks), increasing_stakes, num_seats,
+            sharding, ','.join(all_node_pks), ','.join(node_ips)
+        ]
+    ])
     return '''
         cd {dir}
-        rm -f ${done_filename}
-        nohup ./venv/bin/python {script} {genesis_filename_in} {genesis_filename_out} {chain_id} {validator_nodes} {rpc_nodes} {done_filename} {epoch_length} {node_pks} 1> genesis_updater.out 2> genesis_updater.err < /dev/null &
-    '''.format(dir=shlex.quote(PYTHON_DIR),
-               script=shlex.quote(script),
-               genesis_filename_in=shlex.quote(genesis_filename_in),
-               genesis_filename_out=shlex.quote(genesis_filename_out),
-               chain_id=shlex.quote(chain_id),
-               validator_nodes=shlex.quote(','.join(validator_nodes)),
-               rpc_nodes=shlex.quote(','.join(rpc_nodes)),
-               done_filename=shlex.quote(done_filename),
-               epoch_length=shlex.quote(str(epoch_length)),
-               node_pks=shlex.quote(','.join(node_pks)))
+        {cmd} 1> genesis_updater.out 2> genesis_updater.err < /dev/null &
+        '''.format(dir=shlex.quote(PYTHON_DIR), cmd=cmd)
 
 
 def start_genesis_updater(node, script, genesis_filename_in,
-                          genesis_filename_out, chain_id, validator_nodes,
-                          rpc_nodes, done_filename, epoch_length, node_pks):
+                          genesis_filename_out, records_filename_in,
+                          records_filename_out, config_filename_in,
+                          config_filename_out, chain_id, validator_nodes,
+                          rpc_nodes, done_filename, epoch_length, node_pks,
+                          increasing_stakes, num_seats, sharding, all_node_pks,
+                          node_ips):
     logger.info(f'Starting genesis_updater on {node.instance_name}')
     node.machine.run('bash',
                      input=start_genesis_updater_script(
                          script, genesis_filename_in, genesis_filename_out,
-                         chain_id, validator_nodes, rpc_nodes, done_filename,
-                         epoch_length, node_pks))
+                         records_filename_in, records_filename_out,
+                         config_filename_in, config_filename_out, chain_id,
+                         validator_nodes, rpc_nodes, done_filename,
+                         epoch_length, node_pks, increasing_stakes, num_seats,
+                         sharding, all_node_pks, node_ips))
 
 
 def start_genesis_update_waiter_script(done_filename):
@@ -890,3 +929,176 @@ def wait_node_up(node):
 
 def wait_all_nodes_up(all_nodes):
     pmap(lambda node: wait_node_up(node), all_nodes)
+
+
+def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
+                            increasing_stakes, num_block_producer_seats):
+    schedule = {}
+    if progressive_upgrade:
+        # Re-create stakes assignment.
+        stakes = []
+        if increasing_stakes:
+            prev_stake = None
+            for i, node in enumerate(validator_nodes):
+                if i * 5 < num_block_producer_seats * 3 and i < len(
+                        MAINNET_STAKES):
+                    staked = MAINNET_STAKES[i] * ONE_NEAR
+                elif prev_stake is None:
+                    prev_stake = MIN_STAKE - STAKE_STEP
+                    staked = prev_stake * ONE_NEAR
+                else:
+                    prev_stake = prev_stake + STAKE_STEP
+                    staked = prev_stake * ONE_NEAR
+                stakes.append((staked, node.instance_name))
+                print(f'{node_account_name(node.instance_name)} {staked}')
+
+        else:
+            for node in validator_nodes:
+                stakes.append((MIN_STAKE, node.instance_name))
+        logger.info(f'create_upgrade_schedule {stakes}')
+
+        # Compute seat assignments.
+        seats = compute_seats(stakes, num_block_producer_seats)
+
+        seats_upgraded = 0
+        for seat, stake, instance_name in seats:
+            # As the protocol upgrade takes place after 80% of the nodes are
+            # upgraded, stop a bit earlier to start in a non-upgraded state.
+            if (seats_upgraded + seat) * 100 > 75 * num_block_producer_seats:
+                break
+            schedule[instance_name] = 0
+            seats_upgraded += seat
+
+        # Upgrade the remaining validators during 4 epochs.
+        for node in validator_nodes:
+            if node.instance_name not in schedule:
+                schedule[node.instance_name] = random.randint(1, 4)
+
+        for node in rpc_nodes:
+            schedule[node.instance_name] = random.randint(0, 4)
+    else:
+        # Start all nodes upgraded.
+        for node in rpc_nodes:
+            schedule[node.instance_name] = 0
+        for node in validator_nodes:
+            schedule[node.instance_name] = 0
+
+    return schedule
+
+
+def compute_seats(stakes, num_block_producer_seats):
+    max_stake = 0
+    for i in stakes:
+        max_stake = max(max_stake, i[0])
+
+    # Compute seats assignment.
+    l = 0
+    r = max_stake + 1
+    seat_price = -1
+    while r - l > 1:
+        tmp_seat_price = (l + r) // 2
+        num_seats = 0
+        for i in range(len(stakes)):
+            num_seats += stakes[i][0] // tmp_seat_price
+        if num_seats <= num_block_producer_seats:
+            r = tmp_seat_price
+        else:
+            l = tmp_seat_price
+    seat_price = r
+    logger.info(f'compute_seats seat_price: {seat_price}')
+
+    seats = []
+    for stake, item in stakes:
+        seats.append((stake // seat_price, stake, item))
+    seats.sort(reverse=True)
+    return seats
+
+
+def upgrade_nodes(epoch_height, upgrade_schedule, all_nodes):
+    logger.info(f'Upgrading nodes for epoch height {epoch_height}')
+    for node in all_nodes:
+        if upgrade_schedule.get(node.instance_name, 0) == epoch_height:
+            upgrade_node(node)
+
+
+def get_epoch_height(rpc_nodes, prev_epoch_height):
+    nodes = rpc_nodes.copy()
+    random.shuffle(nodes)
+    max_height = prev_epoch_height
+    for node in nodes:
+        (addr, port) = node.rpc_addr()
+        j = {
+            'method': 'validators',
+            'params': [None],
+            'id': 'dontcare',
+            'jsonrpc': '2.0'
+        }
+        try:
+            r = requests.post('http://%s:%s' % (addr, port), json=j, timeout=15)
+            if r.ok:
+                response = r.json()
+                max_height = max(
+                    max_height,
+                    int(response.get('result', {}).get('epoch_height', 0)))
+        except Exception as e:
+            continue
+    return max_height
+
+
+def neard_restart_script(node):
+    neard_binary = '/home/ubuntu/neard.upgrade'
+    return '''
+        tmux send-keys -t near C-c
+        sudo mv /home/ubuntu/near.log /home/ubuntu/near.log.1 2>/dev/null
+        sudo mv /home/ubuntu/near.upgrade.log /home/ubuntu/near.upgrade.log.1 2>/dev/null
+        tmux send-keys -t near 'RUST_BACKTRACE=full RUST_LOG=debug,actix_web=info {neard_binary} run 2>&1 | tee -a {neard_binary}.log' C-m
+    '''.format(neard_binary=shlex.quote(neard_binary))
+
+
+def upgrade_node(node):
+    logger.info(f'Upgrading node {node.instance_name}')
+    attempt = 0
+    success = False
+    while attempt < 3:
+        start_process = node.machine.run('sudo -u ubuntu -i',
+                                         input=neard_restart_script(node))
+        if start_process.returncode == 0:
+            success = True
+            break
+        logger.warn(
+            f'Failed to upgrade neard, return code: {start_process.returncode}\n{node.instance_name}\n{start_process.stderr}'
+        )
+        attempt += 1
+        time.sleep(1)
+    if not success:
+        raise Exception(f'Could not upgrade node {node.instance_name}')
+
+
+STAKING_TIMEOUT = 60
+
+
+# If the available amount of whole NEAR tokens is above 10**3, then stakes all available amount.
+# Runs only if `last_staking` is at least `STAKING_TIMEOUT` seconds in the past.
+def stake_available_amount(node_account, last_staking):
+    # Repeat the staking transactions in case the validator selection algorithm changes.
+    # Don't query the balance too often, avoid overloading the RPC node.
+    if time.time() - last_staking > STAKING_TIMEOUT:
+        NEAR_IN_YOCTONEAR = 10**24
+        # Make several attempts just in case the RPC node doesn't respond.
+        for attempt in range(3):
+            try:
+                stake_amount = node_account.get_amount_yoctonear()
+                logger.info(
+                    f'Amount of {node_account.key.account_id} is {stake_amount}'
+                )
+                if stake_amount > (10**3) * NEAR_IN_YOCTONEAR:
+                    logger.info(
+                        f'Staking {stake_amount} for {node_account.key.account_id}'
+                    )
+                    node_account.send_stake_tx(stake_amount)
+                logger.info(
+                    f'Staked {stake_amount} for {node_account.key.account_id}')
+                return time.time()
+            except Exception as e:
+                logger.info('Failed to stake')
+    return None

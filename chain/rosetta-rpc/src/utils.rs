@@ -335,17 +335,17 @@ pub(crate) async fn query_account(
     }
 }
 
-pub(crate) async fn query_accounts(
+pub(crate) async fn query_accounts<R>(
     block_id: &near_primitives::types::BlockReference,
     account_ids: impl Iterator<Item = &near_primitives::types::AccountId>,
     view_client_addr: &Addr<ViewClientActor>,
-) -> Result<
-    std::collections::HashMap<
+) -> Result<R, crate::errors::ErrorKind>
+where
+    R: std::iter::FromIterator<(
         near_primitives::types::AccountId,
         near_primitives::views::AccountView,
-    >,
-    crate::errors::ErrorKind,
-> {
+    )>,
+{
     futures::stream::iter(account_ids)
         .map(|account_id| async move {
             let (_, _, account_info) =

@@ -19,6 +19,7 @@ static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (42, include_config!("42.json")),
     (48, include_config!("48.json")),
     (49, include_config!("49.json")),
+    (50, include_config!("50.json")),
 ];
 
 pub static INITIAL_TESTNET_CONFIG: &[u8] = include_config!("29_testnet.json");
@@ -49,7 +50,7 @@ impl RuntimeConfigStore {
             store.insert(0, Arc::new(config.clone()));
 
             config.storage_amount_per_byte = 10u128.pow(19);
-            store.insert(42, Arc::new(config.clone()));
+            store.insert(42, Arc::new(config));
         }
 
         Self { store }
@@ -117,6 +118,7 @@ mod tests {
             "97UzHtVFBc4235jdur3DgNSUGNfGQfzRDLmAkYdZ19Re",
             "C6uw6BoeXr3KoKpVP34hBA7TqoywMbwMtJgqbTpPCiSB",
             "2cuq2HvuHT7Z27LUbgEtMxP2ejqrHK34J2V1GL1joiMn",
+            "HFetcNKaC5s8Mj7bQz7jGMF7Rsvtuc3kjZRevWQ334n4",
         ];
         let actual_hashes = CONFIGS
             .iter()

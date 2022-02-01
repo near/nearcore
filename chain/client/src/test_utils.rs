@@ -20,12 +20,13 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
-use near_network::test_utils::MockPeerManagerAdapter;
+use near_network::test_utils::{MockPeerManagerAdapter, NetworkRecipient};
 use near_network::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRecipient, NetworkRequests,
-    NetworkResponses, PartialEdgeInfo, PeerManagerAdapter,
+    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
+    PeerManagerAdapter,
 };
 use near_network::PeerManagerActor;
+use near_network_primitives::types::PartialEdgeInfo;
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
@@ -226,10 +227,10 @@ pub fn setup_only_view(
 
     start_view_client(
         Some(signer.validator_id().clone()),
-        chain_genesis.clone(),
-        runtime.clone(),
+        chain_genesis,
+        runtime,
         network_adapter.clone(),
-        config.clone(),
+        config,
         #[cfg(feature = "test_features")]
         adv.clone(),
     )
@@ -372,10 +373,10 @@ impl BlockStats {
 
         if let Some(last_hash2) = self.last_hash {
             self.max_divergence =
-                max(self.max_divergence, self.calculate_distance(last_hash2, block.hash().clone()));
+                max(self.max_divergence, self.calculate_distance(last_hash2, *block.hash()));
         }
 
-        self.last_hash = Some(block.hash().clone());
+        self.last_hash = Some(*block.hash());
     }
 
     pub fn check_stats(&mut self, force: bool) {
@@ -551,7 +552,7 @@ pub fn setup_mock_all_validators(
                     for (i, name) in validators_clone2.iter().flatten().enumerate() {
                         if name == &account_id {
                             my_key_pair = Some(key_pairs[i].clone());
-                            my_address = Some(addresses[i].clone());
+                            my_address = Some(addresses[i]);
                             my_ord = Some(i);
                         }
                     }
@@ -950,7 +951,7 @@ pub fn setup_mock_all_validators(
                                         approval.target_height;
 
                                     if let Some(prev_height) =
-                                        hash_to_height1.read().unwrap().get(&parent_hash).clone()
+                                        hash_to_height1.read().unwrap().get(&parent_hash)
                                     {
                                         assert_eq!(prev_height + 1, approval.target_height);
                                     }
@@ -1092,7 +1093,7 @@ pub fn setup_client_with_runtime(
 }
 
 pub fn setup_client(
-    store: Arc<Store>,
+    store: Store,
     validators: Vec<Vec<AccountId>>,
     validator_groups: u64,
     num_shards: NumShards,
@@ -1248,7 +1249,7 @@ impl TestEnvBuilder {
                 .zip(network_adapters.iter())
                 .map(|(account_id, network_adapter)| {
                     let rng_seed = match seeds.get(&account_id) {
-                        Some(seed) => seed.clone(),
+                        Some(seed) => *seed,
                         None => TEST_SEED,
                     };
                     setup_client(
@@ -1272,12 +1273,12 @@ impl TestEnvBuilder {
                     .zip(runtime_adapters.into_iter())
                     .map(|((account_id, network_adapter), runtime_adapter)| {
                         let rng_seed = match seeds.get(&account_id) {
-                            Some(seed) => seed.clone(),
+                            Some(seed) => *seed,
                             None => TEST_SEED,
                         };
                         setup_client_with_runtime(
                             u64::try_from(num_validators).unwrap(),
-                            Some(account_id.clone()),
+                            Some(account_id),
                             false,
                             network_adapter.clone(),
                             chain_genesis.clone(),
@@ -1513,10 +1514,10 @@ impl TestEnv {
     /// this `TestEnv` was created with custom runtime adapters that
     /// customisation will be lost.
     pub fn restart(&mut self, idx: usize) {
-        let store = self.clients[idx].chain.store().owned_store();
+        let store = self.clients[idx].chain.store().store().clone();
         let account_id = self.get_client_id(idx).clone();
         let rng_seed = match self.seeds.get(&account_id) {
-            Some(seed) => seed.clone(),
+            Some(seed) => *seed,
             None => TEST_SEED,
         };
         self.clients[idx] = setup_client(

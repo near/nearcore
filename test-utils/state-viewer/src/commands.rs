@@ -2,7 +2,6 @@ use crate::apply_chain_range::apply_chain_range;
 use crate::epoch_info;
 use crate::state_dump::state_dump;
 use ansi_term::Color::Red;
-use borsh::BorshSerialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
@@ -14,6 +13,7 @@ use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -28,13 +28,13 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub(crate) fn peers(store: Arc<Store>) {
+pub(crate) fn peers(store: Store) {
     iter_peers_from_store(store, |(peer_id, peer_info)| {
         println!("{} {:?}", peer_id, peer_info);
     })
 }
 
-pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
+pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
     let (runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
     println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
     for (shard_id, state_root) in state_roots.iter().enumerate() {
@@ -51,9 +51,11 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Arc<Store>)
 
 pub(crate) fn dump_state(
     height: Option<BlockHeight>,
+    stream: bool,
+    file: Option<PathBuf>,
     home_dir: &Path,
     near_config: NearConfig,
-    store: Arc<Store>,
+    store: Store,
 ) {
     let mode = match height {
         Some(h) => LoadTrieMode::LastFinalFromHeight(h),
@@ -63,14 +65,20 @@ pub(crate) fn dump_state(
         load_trie_stop_at_height(store, home_dir, &near_config, mode);
     let height = header.height();
     let home_dir = PathBuf::from(&home_dir);
-    let output_dir = home_dir.join("output");
 
-    let records_path = output_dir.join("records.json");
-    let new_near_config =
-        state_dump(runtime, state_roots.clone(), header, &near_config, &records_path);
-
-    println!("Saving state at {:?} @ {} into {}", state_roots, height, output_dir.display(),);
-    new_near_config.save_to_dir(&output_dir);
+    if stream {
+        let output_dir = file.unwrap_or(home_dir.join("output"));
+        let records_path = output_dir.join("records.json");
+        let new_near_config =
+            state_dump(runtime, &state_roots, header, &near_config, Some(&records_path));
+        println!("Saving state at {:?} @ {} into {}", state_roots, height, output_dir.display(),);
+        new_near_config.save_to_dir(&output_dir);
+    } else {
+        let new_near_config = state_dump(runtime, &state_roots, header, &near_config, None);
+        let output_file = file.unwrap_or(home_dir.join("output.json"));
+        println!("Saving state at {:?} @ {} into {}", state_roots, height, output_file.display(),);
+        new_near_config.genesis.to_file(&output_file);
+    }
 }
 
 pub(crate) fn apply_range(
@@ -81,7 +89,7 @@ pub(crate) fn apply_range(
     csv_file: Option<PathBuf>,
     home_dir: &Path,
     near_config: NearConfig,
-    store: Arc<Store>,
+    store: Store,
     only_contracts: bool,
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
@@ -111,19 +119,16 @@ pub(crate) fn dump_code(
     output: &Path,
     home_dir: &Path,
     near_config: NearConfig,
-    store: Arc<Store>,
+    store: Store,
 ) {
     let (runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
     let epoch_id = &runtime.get_epoch_id(header.hash()).unwrap();
 
     for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let state_root_vec: Vec<u8> = state_root.try_to_vec().unwrap();
         let shard_uid = runtime.shard_id_to_uid(shard_id as u64, epoch_id).unwrap();
-        if let Ok(contract_code) = runtime.view_contract_code(
-            &shard_uid,
-            CryptoHash::try_from(state_root_vec).unwrap(),
-            &account_id.parse().unwrap(),
-        ) {
+        if let Ok(contract_code) =
+            runtime.view_contract_code(&shard_uid, *state_root, &account_id.parse().unwrap())
+        {
             let mut file = File::create(output).unwrap();
             file.write_all(contract_code.code()).unwrap();
             println!("Dump contract of account {} into file {}", account_id, output.display());
@@ -144,7 +149,7 @@ pub(crate) fn dump_account_storage(
     block_height: String,
     home_dir: &Path,
     near_config: NearConfig,
-    store: Arc<Store>,
+    store: Store,
 ) {
     let block_height = if block_height == "latest" {
         LoadTrieMode::Latest
@@ -189,7 +194,7 @@ pub(crate) fn print_chain(
     end_height: BlockHeight,
     home_dir: &Path,
     near_config: NearConfig,
-    store: Arc<Store>,
+    store: Store,
 ) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime = NightshadeRuntime::with_config(
@@ -257,7 +262,7 @@ pub(crate) fn replay_chain(
     end_height: BlockHeight,
     home_dir: &Path,
     near_config: NearConfig,
-    store: Arc<Store>,
+    store: Store,
 ) {
     let mut chain_store = ChainStore::new(store, near_config.genesis.config.genesis_height);
     let new_store = create_test_store();
@@ -289,7 +294,7 @@ pub(crate) fn apply_block_at_height(
     shard_id: ShardId,
     home_dir: &Path,
     near_config: NearConfig,
-    store: Arc<Store>,
+    store: Store,
 ) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::with_config(
@@ -399,7 +404,7 @@ pub(crate) fn view_chain(
     view_block: bool,
     view_chunks: bool,
     near_config: NearConfig,
-    store: Arc<Store>,
+    store: Store,
 ) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let block = {
@@ -464,7 +469,7 @@ pub(crate) fn view_chain(
     }
 }
 
-pub(crate) fn check_block_chunk_existence(store: Arc<Store>, near_config: NearConfig) {
+pub(crate) fn check_block_chunk_existence(store: Store, near_config: NearConfig) {
     let genesis_height = near_config.genesis.config.genesis_height;
     let mut chain_store = ChainStore::new(store.clone(), genesis_height);
     let head = chain_store.head().unwrap();
@@ -495,7 +500,7 @@ pub(crate) fn print_epoch_info(
     validator_account_id: Option<AccountId>,
     home_dir: &Path,
     near_config: NearConfig,
-    store: Arc<Store>,
+    store: Store,
 ) {
     let genesis_height = near_config.genesis.config.genesis_height;
     let mut chain_store = ChainStore::new(store.clone(), genesis_height);
@@ -520,6 +525,28 @@ pub(crate) fn print_epoch_info(
     );
 }
 
+pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store: Store) {
+    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+    let receipt = chain_store.get_receipt(&receipt_id);
+    println!("Receipt: {:#?}", receipt);
+}
+
+pub(crate) fn get_chunk(chunk_hash: ChunkHash, near_config: NearConfig, store: Store) {
+    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+    let chunk = chain_store.get_chunk(&chunk_hash);
+    println!("Chunk: {:#?}", chunk);
+}
+
+pub(crate) fn get_partial_chunk(
+    partial_chunk_hash: ChunkHash,
+    near_config: NearConfig,
+    store: Store,
+) {
+    let mut chain_store = ChainStore::new(store, near_config.genesis.config.genesis_height);
+    let partial_chunk = chain_store.get_partial_chunk(&partial_chunk_hash);
+    println!("Partial chunk: {:#?}", partial_chunk);
+}
+
 #[allow(unused)]
 enum LoadTrieMode {
     /// Load latest state
@@ -531,7 +558,7 @@ enum LoadTrieMode {
 }
 
 fn load_trie(
-    store: Arc<Store>,
+    store: Store,
     home_dir: &Path,
     near_config: &NearConfig,
 ) -> (NightshadeRuntime, Vec<StateRoot>, BlockHeader) {
@@ -539,7 +566,7 @@ fn load_trie(
 }
 
 fn load_trie_stop_at_height(
-    store: Arc<Store>,
+    store: Store,
     home_dir: &Path,
     near_config: &NearConfig,
     mode: LoadTrieMode,

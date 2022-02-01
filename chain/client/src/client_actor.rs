@@ -1,75 +1,58 @@
 //! Client actor orchestrates Client and facilitates network connection.
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
-use std::thread;
-use std::time::{Duration, Instant};
-
+use crate::client::Client;
+use crate::info::{get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper};
+use crate::sync::{StateSync, StateSyncResult};
+use crate::StatusResponse;
+use actix::dev::SendError;
 use actix::dev::ToEnvelope;
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
 use chrono::DateTime;
 use log::{debug, error, info, trace, warn};
-use near_primitives::time::{Clock, Utc};
-use rand::Rng;
-
-#[cfg(feature = "delay_detector")]
-use delay_detector::DelayDetector;
+use near_chain::chain::{
+    do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
+    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
+};
 use near_chain::test_utils::format_hash;
-use near_chain::types::AcceptedBlock;
-#[cfg(feature = "test_features")]
-use near_chain::StoreValidator;
+use near_chain::types::{AcceptedBlock, ValidatorInfoIdentifier};
 use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, ChainGenesis, ChainStoreAccess,
     Provenance, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
-#[cfg(feature = "test_features")]
-use near_chain_configs::GenesisConfig;
-use near_crypto::Signature;
+use near_client_primitives::types::{
+    Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
+    StatusError, StatusSyncInfo, SyncStatus,
+};
 use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
 };
-#[cfg(feature = "test_features")]
-use near_network_primitives::types::NetworkAdversarialMessage;
-#[cfg(feature = "sandbox")]
-use near_network_primitives::types::NetworkSandboxMessage;
+use near_network_primitives::types::ReasonForBan;
 use near_performance_metrics;
 use near_performance_metrics_macros::{perf, perf_with_debug};
+use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::{BlockHeight, EpochId};
+use near_primitives::syncing::StatePartKey;
+use near_primitives::time::{Clock, Utc};
+use near_primitives::types::BlockHeight;
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::ValidatorInfo;
-#[cfg(feature = "test_features")]
-use near_store::ColBlock;
-use near_telemetry::TelemetryActor;
-
-use crate::client::Client;
-use crate::info::{InfoHelper, ValidatorInfoHelper};
-use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
-#[cfg(feature = "test_features")]
-use crate::AdversarialControls;
-use crate::StatusResponse;
-use actix::dev::SendError;
-use near_chain::chain::{
-    do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
-};
-use near_client_primitives::types::{
-    Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
-    StatusError, StatusSyncInfo, SyncStatus,
-};
-use near_network_primitives::types::ReasonForBan;
-use near_primitives::block_header::ApprovalType;
-use near_primitives::syncing::StatePartKey;
 use near_store::db::DBCol::ColStateParts;
+use near_telemetry::TelemetryActor;
+use rand::seq::SliceRandom;
+use rand::{thread_rng, Rng};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -82,7 +65,7 @@ const HEAD_STALL_MULTIPLIER: u32 = 4;
 pub struct ClientActor {
     /// Adversarial controls
     #[cfg(feature = "test_features")]
-    pub adv: Arc<RwLock<AdversarialControls>>,
+    pub adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
 
     client: Client,
     network_adapter: Arc<dyn PeerManagerAdapter>,
@@ -139,16 +122,15 @@ impl ClientActor {
         enable_doomslug: bool,
         rng_seed: RngSeed,
         ctx: &Context<ClientActor>,
-        #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,
+        #[cfg(feature = "test_features")] adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
-        let runtime_adapter_clone = Arc::clone(&runtime_adapter);
         let sync_jobs_actor_addr = SyncJobsActor::start_in_arbiter(
             &state_parts_arbiter.handle(),
             move |ctx: &mut Context<SyncJobsActor>| -> SyncJobsActor {
                 ctx.set_mailbox_capacity(SyncJobsActor::MAILBOX_CAPACITY);
-                SyncJobsActor { runtime: runtime_adapter_clone, client_addr: self_addr }
+                SyncJobsActor { client_addr: self_addr }
             },
         );
         wait_until_genesis(&chain_genesis.time);
@@ -254,26 +236,28 @@ impl Handler<NetworkClientMessages> for ClientActor {
     #[perf_with_debug]
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new(format!("NetworkClientMessage {}", msg.as_ref()).into());
+        let _d = delay_detector::DelayDetector::new(
+            format!("NetworkClientMessage {}", msg.as_ref()).into(),
+        );
         self.check_triggers(ctx);
 
         match msg {
             #[cfg(feature = "test_features")]
             NetworkClientMessages::Adversarial(adversarial_msg) => {
                 return match adversarial_msg {
-                    NetworkAdversarialMessage::AdvDisableDoomslug => {
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvDisableDoomslug => {
                         info!(target: "adversary", "Turning Doomslug off");
                         self.adv.write().unwrap().adv_disable_doomslug = true;
                         self.client.doomslug.adv_disable();
                         self.client.chain.adv_disable_doomslug();
                         NetworkClientResponses::NoResponse
                     }
-                    NetworkAdversarialMessage::AdvDisableHeaderSync => {
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvDisableHeaderSync => {
                         info!(target: "adversary", "Blocking header sync");
                         self.adv.write().unwrap().adv_disable_header_sync = true;
                         NetworkClientResponses::NoResponse
                     }
-                    NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid) => {
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid) => {
                         info!(target: "adversary", "Producing {} blocks", num_blocks);
                         self.client.adv_produce_blocks = true;
                         self.client.adv_produce_blocks_only_valid = only_valid;
@@ -311,7 +295,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         }
                         NetworkClientResponses::NoResponse
                     }
-                    NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
                         info!(target: "adversary", "Switching to height {:?}", height);
                         let mut chain_store_update = self.client.chain.mut_store().store_update();
                         chain_store_update.save_largest_target_height(height);
@@ -321,26 +305,26 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         chain_store_update.commit().expect("adv method should not fail");
                         NetworkClientResponses::NoResponse
                     }
-                    NetworkAdversarialMessage::AdvGetSavedBlocks => {
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvGetSavedBlocks => {
                         info!(target: "adversary", "Requested number of saved blocks");
                         let store = self.client.chain.store().store();
                         let mut num_blocks = 0;
-                        for _ in store.iter(ColBlock) {
+                        for _ in store.iter(near_store::db::DBCol::ColBlock) {
                             num_blocks += 1;
                         }
                         NetworkClientResponses::AdvResult(num_blocks)
                     }
-                    NetworkAdversarialMessage::AdvCheckStorageConsistency => {
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvCheckStorageConsistency => {
                         // timeout is set to 1.5 seconds to give some room as we wait in Nightly for 2 seconds
                         let timeout = 1500;
                         info!(target: "adversary", "Check Storage Consistency, timeout set to {:?} milliseconds", timeout);
-                        let mut genesis = GenesisConfig::default();
+                        let mut genesis = near_chain_configs::GenesisConfig::default();
                         genesis.genesis_height = self.client.chain.store().get_genesis_height();
-                        let mut store_validator = StoreValidator::new(
+                        let mut store_validator = near_chain::store_validator::StoreValidator::new(
                             self.client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
                             genesis,
                             self.client.runtime_adapter.clone(),
-                            self.client.chain.store().owned_store(),
+                            self.client.chain.store().store().clone(),
                         );
                         store_validator.set_timeout(timeout);
                         store_validator.validate();
@@ -357,11 +341,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
             #[cfg(feature = "sandbox")]
             NetworkClientMessages::Sandbox(sandbox_msg) => {
                 return match sandbox_msg {
-                    NetworkSandboxMessage::SandboxPatchState(state) => {
+                    near_network_primitives::types::NetworkSandboxMessage::SandboxPatchState(state) => {
                         self.client.chain.patch_state(state);
                         NetworkClientResponses::NoResponse
                     }
-                    NetworkSandboxMessage::SandboxPatchStateStatus => {
+                    near_network_primitives::types::NetworkSandboxMessage::SandboxPatchStateStatus => {
                         NetworkClientResponses::SandboxResult(
                             near_network_primitives::types::SandboxResponse::SandboxPatchStateFinished(
                                 !self.client.chain.patch_state_in_progress(),
@@ -614,13 +598,13 @@ impl Handler<Status> for ClientActor {
     #[perf]
     fn handle(&mut self, msg: Status, ctx: &mut Context<Self>) -> Self::Result {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("client status".to_string().into());
+        let _d = delay_detector::DelayDetector::new("client status".to_string().into());
         self.check_triggers(ctx);
 
         let head = self.client.chain.head()?;
         let head_header = self.client.chain.get_block_header(&head.last_block_hash)?;
         let latest_block_time = head_header.raw_timestamp();
-        let latest_state_root = head_header.prev_state_root().clone().into();
+        let latest_state_root = (*head_header.prev_state_root()).into();
         if msg.is_health_check {
             let now = Utc::now();
             let block_timestamp = from_timestamp(latest_block_time);
@@ -674,7 +658,7 @@ impl Handler<Status> for ClientActor {
             protocol_version,
             latest_protocol_version: PROTOCOL_VERSION,
             chain_id: self.client.config.chain_id.clone(),
-            rpc_addr: self.client.config.rpc_addr.as_ref().map(|addr| addr.clone()),
+            rpc_addr: self.client.config.rpc_addr.clone(),
             validators,
             sync_info: StatusSyncInfo {
                 latest_block_hash: head.last_block_hash.into(),
@@ -695,19 +679,15 @@ impl Handler<GetNetworkInfo> for ClientActor {
     type Result = Result<NetworkInfoResponse, String>;
 
     #[perf]
-    fn handle(&mut self, msg: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, _msg: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("client get network info".into());
+        let _d = delay_detector::DelayDetector::new("client get network info".into());
         self.check_triggers(ctx);
 
         Ok(NetworkInfoResponse {
-            connected_peers: self
-                .network_info
-                .connected_peers
-                .clone()
-                .into_iter()
-                .map(|a| a.peer_info)
-                .collect::<Vec<_>>(),
+            connected_peers: (self.network_info.connected_peers.iter())
+                .map(|fpi| fpi.peer_info.clone())
+                .collect(),
             num_connected_peers: self.network_info.num_connected_peers,
             peer_max_count: self.network_info.peer_max_count,
             sent_bytes_per_sec: self.network_info.sent_bytes_per_sec,
@@ -718,18 +698,6 @@ impl Handler<GetNetworkInfo> for ClientActor {
 }
 
 impl ClientActor {
-    fn sign_announce_account(&self, epoch_id: &EpochId) -> Result<Signature, ()> {
-        if let Some(validator_signer) = self.client.validator_signer.as_ref() {
-            Ok(validator_signer.sign_account_announce(
-                validator_signer.validator_id(),
-                &self.node_id,
-                epoch_id,
-            ))
-        } else {
-            Err(())
-        }
-    }
-
     /// Check if client Account Id should be sent and send it.
     /// Account Id is sent when is not current a validator but are becoming a validator soon.
     fn check_send_announce_account(&mut self, prev_block_hash: CryptoHash) {
@@ -767,8 +735,12 @@ impl ClientActor {
         if self.client.is_validator(&next_epoch_id, &prev_block_hash) {
             debug!(target: "client", "Sending announce account for {}", validator_signer.validator_id());
             self.last_validator_announce_time = Some(now);
-            let signature = self.sign_announce_account(&next_epoch_id).unwrap();
 
+            let signature = validator_signer.sign_account_announce(
+                validator_signer.validator_id(),
+                &self.node_id,
+                &next_epoch_id,
+            );
             self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::AnnounceAccount(AnnounceAccount {
                     account_id: validator_signer.validator_id().clone(),
@@ -845,7 +817,7 @@ impl ClientActor {
         // scheduled with run_later will be delayed.
 
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("client triggers".into());
+        let _d = delay_detector::DelayDetector::new("client triggers".into());
 
         let mut delay = Duration::from_secs(1);
         let now = Utc::now();
@@ -981,11 +953,12 @@ impl ClientActor {
                 accepted_block.provenance,
             );
             let block = self.client.chain.get_block(&accepted_block.hash).unwrap();
+            let chunks_in_block = block.header().chunk_mask().iter().filter(|&&m| m).count();
             let gas_used = Block::compute_gas_used(block.chunks().iter(), block.header().height());
 
             let last_final_hash = *block.header().last_final_block();
 
-            self.info_helper.block_processed(gas_used);
+            self.info_helper.block_processed(gas_used, chunks_in_block as u64);
             self.check_send_announce_account(last_final_hash);
         }
     }
@@ -1009,7 +982,7 @@ impl ClientActor {
             block.mark_as_valid();
         } else {
             let chain = &mut self.client.chain;
-            let res = chain.process_block_header(block.header(), |_| {});
+            let res = chain.process_block_header(block.header(), &mut |_| {});
             let res = res.and_then(|_| chain.validate_block(&block));
             match res {
                 Ok(_) => {
@@ -1091,7 +1064,7 @@ impl ClientActor {
                 // we don't need to do anything here
                 near_chain::ErrorKind::ChunksMissing(_) => {}
                 _ => {
-                    debug!(target: "client", "Process block: block {} refused by chain: {}", hash, e.kind());
+                    debug!(target: "client", "Process block: block {} refused by chain: {:?}", hash, e.kind());
                 }
             },
         }
@@ -1139,7 +1112,7 @@ impl ClientActor {
         let mut is_syncing = self.client.sync_status.is_syncing();
 
         let full_peer_info = if let Some(full_peer_info) =
-            highest_height_peer(&self.network_info.highest_height_peers)
+            self.network_info.highest_height_peers.choose(&mut thread_rng())
         {
             full_peer_info
         } else {
@@ -1242,7 +1215,7 @@ impl ClientActor {
     /// Schedules itself again if it was not ran as response to state parts job result
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("client catchup".into());
+        let _d = delay_detector::DelayDetector::new("client catchup".into());
         match self.client.run_catchup(
             &self.network_info.highest_height_peers,
             &self.state_parts_task_scheduler,
@@ -1291,7 +1264,7 @@ impl ClientActor {
     /// finishing state part job
     fn sync(&mut self, ctx: &mut Context<ClientActor>) {
         #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("client sync".into());
+        let _d = delay_detector::DelayDetector::new("client sync".into());
         // Macro to schedule to call this function later if error occurred.
         macro_rules! unwrap_or_run_later (($obj: expr) => (match $obj {
             Ok(v) => v,
@@ -1359,7 +1332,7 @@ impl ClientActor {
                 let (sync_hash, mut new_shard_sync, just_enter_state_sync) =
                     match &self.client.sync_status {
                         SyncStatus::StateSync(sync_hash, shard_sync) => {
-                            (sync_hash.clone(), shard_sync.clone(), false)
+                            (*sync_hash, shard_sync.clone(), false)
                         }
                         _ => {
                             let sync_hash = unwrap_or_run_later!(self.find_sync_hash());
@@ -1370,7 +1343,7 @@ impl ClientActor {
                 let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
                 let block_header =
                     unwrap_or_run_later!(self.client.chain.get_block_header(&sync_hash));
-                let prev_hash = block_header.prev_hash().clone();
+                let prev_hash = *block_header.prev_hash();
                 let epoch_id = self.client.chain.get_block_header(&sync_hash).unwrap().epoch_id();
                 let shards_to_sync = (0..self.client.runtime_adapter.num_shards(epoch_id).unwrap())
                     .filter(|x| {
@@ -1403,16 +1376,15 @@ impl ClientActor {
                         self.client.sync_status = SyncStatus::StateSync(sync_hash, new_shard_sync);
                         if fetch_block {
                             if let Some(peer_info) =
-                                highest_height_peer(&self.network_info.highest_height_peers)
+                                self.network_info.highest_height_peers.choose(&mut thread_rng())
                             {
+                                let id = peer_info.peer_info.id.clone();
+
                                 if let Ok(header) = self.client.chain.get_block_header(&sync_hash) {
                                     for hash in
                                         vec![*header.prev_hash(), *header.hash()].into_iter()
                                     {
-                                        self.request_block_by_hash(
-                                            hash,
-                                            peer_info.peer_info.id.clone(),
-                                        );
+                                        self.request_block_by_hash(hash, id.clone());
                                     }
                                 }
                             }
@@ -1421,31 +1393,27 @@ impl ClientActor {
                     StateSyncResult::Completed => {
                         info!(target: "sync", "State sync: all shards are done");
 
-                        let accepted_blocks = Arc::new(RwLock::new(vec![]));
-                        let orphans_missing_chunks = Arc::new(RwLock::new(vec![]));
-                        let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
-                        let challenges = Arc::new(RwLock::new(vec![]));
+                        let mut accepted_blocks = vec![];
+                        let mut orphans_missing_chunks = vec![];
+                        let mut blocks_missing_chunks = vec![];
+                        let mut challenges = vec![];
 
                         unwrap_or_run_later!(self.client.chain.reset_heads_post_state_sync(
                             &me,
                             sync_hash,
-                            |accepted_block| {
-                                accepted_blocks.write().unwrap().push(accepted_block);
+                            &mut |accepted_block| {
+                                accepted_blocks.push(accepted_block);
                             },
-                            |missing_chunks| {
-                                blocks_missing_chunks.write().unwrap().push(missing_chunks)
+                            &mut |missing_chunks| { blocks_missing_chunks.push(missing_chunks) },
+                            &mut |orphan_missing_chunks| {
+                                orphans_missing_chunks.push(orphan_missing_chunks);
                             },
-                            |orphan_missing_chunks| {
-                                orphans_missing_chunks.write().unwrap().push(orphan_missing_chunks);
-                            },
-                            |challenge| challenges.write().unwrap().push(challenge)
+                            &mut |challenge| challenges.push(challenge)
                         ));
 
                         self.client.send_challenges(challenges);
 
-                        self.process_accepted_blocks(
-                            accepted_blocks.write().unwrap().drain(..).collect(),
-                        );
+                        self.process_accepted_blocks(accepted_blocks);
 
                         self.client
                             .request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
@@ -1469,7 +1437,7 @@ impl ClientActor {
             self.client.config.log_summary_period,
             move |act, ctx| {
                 #[cfg(feature = "delay_detector")]
-                let _d = DelayDetector::new("client log summary".into());
+                let _d = delay_detector::DelayDetector::new("client log summary".into());
                 let is_syncing = act.client.sync_status.is_syncing();
                 let head = unwrap_or_return!(act.client.chain.head(), act.log_summary(ctx));
                 let validator_info = if !is_syncing {
@@ -1499,6 +1467,13 @@ impl ClientActor {
                     None
                 };
 
+                let epoch_identifier = ValidatorInfoIdentifier::BlockHash(head.last_block_hash);
+                let validator_epoch_stats = act
+                    .client
+                    .runtime_adapter
+                    .get_validator_info(epoch_identifier)
+                    .map(get_validator_epoch_stats)
+                    .unwrap_or_default();
                 act.info_helper.info(
                     act.client.chain.store().get_genesis_height(),
                     &head,
@@ -1506,6 +1481,16 @@ impl ClientActor {
                     &act.node_id,
                     &act.network_info,
                     validator_info,
+                    validator_epoch_stats,
+                    act.client
+                        .runtime_adapter
+                        .get_epoch_height_from_prev_block(&head.prev_block_hash)
+                        .unwrap_or(0),
+                    act.client
+                        .runtime_adapter
+                        .get_protocol_upgrade_block_height(head.last_block_hash)
+                        .unwrap_or(None)
+                        .unwrap_or(0),
                 );
 
                 act.log_summary(ctx);
@@ -1521,7 +1506,6 @@ impl Drop for ClientActor {
 }
 
 struct SyncJobsActor {
-    runtime: Arc<dyn RuntimeAdapter>,
     client_addr: Addr<ClientActor>,
 }
 
@@ -1532,13 +1516,13 @@ impl SyncJobsActor {
         &mut self,
         msg: &ApplyStatePartsRequest,
     ) -> Result<(), near_chain_primitives::error::Error> {
-        let store = self.runtime.get_store();
+        let store = msg.runtime.get_store();
 
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
             let part = store.get(ColStateParts, &key)?.unwrap();
 
-            self.runtime.apply_state_part(
+            msg.runtime.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
                 part_id,
@@ -1621,7 +1605,7 @@ impl Handler<StateSplitRequest> for SyncJobsActor {
     type Result = ();
 
     fn handle(&mut self, msg: StateSplitRequest, _: &mut Self::Context) -> Self::Result {
-        let results = self.runtime.build_state_for_split_shards(
+        let results = msg.runtime.build_state_for_split_shards(
             msg.shard_uid,
             &msg.state_root,
             &msg.next_epoch_shard_layout,
@@ -1664,7 +1648,7 @@ pub fn start_client(
     network_adapter: Arc<dyn PeerManagerAdapter>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
-    #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,
+    #[cfg(feature = "test_features")] adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter_handle = Arbiter::current();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {

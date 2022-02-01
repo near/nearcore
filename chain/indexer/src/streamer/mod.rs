@@ -14,8 +14,8 @@ use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
 
 use self::errors::FailedToFetchData;
 use self::fetchers::{
-    fetch_block_by_hash, fetch_block_by_height, fetch_chunks, fetch_latest_block, fetch_outcomes,
-    fetch_state_changes, fetch_status,
+    fetch_block_by_hash, fetch_block_by_height, fetch_block_chunks, fetch_latest_block,
+    fetch_outcomes, fetch_state_changes, fetch_status,
 };
 pub use self::types::{
     IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
@@ -32,12 +32,35 @@ mod types;
 mod utils;
 
 const INTERVAL: Duration = Duration::from_millis(500);
-// Blocks #47317863 and #47317864
-// with restored receipts
-const PROBLEMATIC_BLOKS: [&'static str; 2] = [
-    "ErdT2vLmiMjkRoSUfgowFYXvhGaLJZUWrgimHRkousrK",
-    "2Fr7dVAZGoPYgpwj6dfASSde6Za34GNUJb4CkZ8NSQqw",
+
+/// Blocks #47317863 and #47317864 with restored receipts.
+const PROBLEMATIC_BLOKS: [CryptoHash; 2] = [
+    CryptoHash(
+        *b"\xcd\xde\x9a\x3f\x5d\xdf\xb4\x2c\xb9\x9b\xf4\x8c\x04\x95\x6f\x5b\
+           \xa0\xb7\x29\xe2\xa5\x04\xf8\xbd\x9c\x86\x92\xd6\x16\x8c\xcf\x14",
+    ),
+    CryptoHash(
+        *b"\x12\xa9\x5a\x1a\x3d\x14\xa7\x36\xb3\xce\xe6\xea\x07\x20\x8e\x75\
+           \x4e\xb5\xc2\xd7\xf9\x11\xca\x29\x09\xe0\xb8\x85\xb5\x2b\x95\x6a",
+    ),
 ];
+
+/// Tests whether raw hashes in [`PROBLEMATIC_BLOKS`] match expected
+/// user-readable hashes.  Ideally we would compute the hashes at compile time
+/// but there’s no const function for base58→bytes conversion so instead we’re
+/// hard-coding the raw base in [`PROBLEMATIC_BLOKS`] and have this test to
+/// confirm the raw values are correct.
+#[test]
+fn test_problematic_blocks_hash() {
+    let got: Vec<String> = PROBLEMATIC_BLOKS.iter().map(std::string::ToString::to_string).collect();
+    assert_eq!(
+        vec![
+            "ErdT2vLmiMjkRoSUfgowFYXvhGaLJZUWrgimHRkousrK",
+            "2Fr7dVAZGoPYgpwj6dfASSde6Za34GNUJb4CkZ8NSQqw"
+        ],
+        got
+    );
+}
 
 /// This function supposed to return the entire `StreamerMessage`.
 /// It fetches the block and all related parts (chunks, outcomes, state changes etc.)
@@ -47,33 +70,16 @@ async fn build_streamer_message(
     client: &Addr<near_client::ViewClientActor>,
     block: views::BlockView,
 ) -> Result<StreamerMessage, FailedToFetchData> {
-    let chunks_to_fetch = block
-        .chunks
-        .iter()
-        .filter_map(|c| {
-            if c.height_included == block.header.height {
-                Some(c.chunk_hash)
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    let chunks = fetch_chunks(&client, chunks_to_fetch).await?;
+    let chunks = fetch_block_chunks(&client, &block).await?;
 
     let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
     let num_shards = protocol_config_view.num_block_producer_seats_per_shard.len()
         as near_primitives::types::NumShards;
 
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
-    let mut indexer_shards: Vec<IndexerShard> = vec![];
-
-    for shard_id in 0..num_shards {
-        indexer_shards.push(IndexerShard {
-            shard_id,
-            chunk: None,
-            receipt_execution_outcomes: vec![],
-        })
-    }
+    let mut indexer_shards = (0..num_shards)
+        .map(|shard_id| IndexerShard { shard_id, chunk: None, receipt_execution_outcomes: vec![] })
+        .collect::<Vec<_>>();
 
     for chunk in chunks {
         let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
@@ -146,9 +152,13 @@ async fn build_streamer_message(
 
                     prev_block_hash = prev_block.header.prev_hash;
 
-                    if let Some(receipt) =
-                        find_local_receipt_by_id_in_block(&client, prev_block, execution_outcome.id)
-                            .await?
+                    if let Some(receipt) = find_local_receipt_by_id_in_block(
+                        &client,
+                        &protocol_config_view,
+                        prev_block,
+                        execution_outcome.id,
+                    )
+                    .await?
                     {
                         break 'find_local_receipt receipt;
                     }
@@ -168,23 +178,19 @@ async fn build_streamer_message(
         // so it was decided to artificially include the Receipts into the Chunk of the Block where
         // ExecutionOutcomes appear.
         // ref: https://github.com/near/nearcore/pull/4248
-        if PROBLEMATIC_BLOKS.contains(&block.header.hash.to_string().as_str()) {
-            let protocol_config =
-                fetchers::fetch_protocol_config(&client, block.header.hash).await?;
-
-            if &protocol_config.chain_id == "mainnet" {
-                let mut restored_receipts: Vec<views::ReceiptView> = vec![];
-                let receipt_ids_included: std::collections::HashSet<CryptoHash> =
-                    chunk_non_local_receipts.iter().map(|receipt| receipt.receipt_id).collect();
-
-                for outcome in &receipt_execution_outcomes {
-                    if receipt_ids_included.get(&outcome.receipt.receipt_id).is_none() {
-                        restored_receipts.push(outcome.receipt.clone());
-                    }
+        if PROBLEMATIC_BLOKS.contains(&block.header.hash)
+            && &protocol_config_view.chain_id == "mainnet"
+        {
+            let mut restored_receipts: Vec<views::ReceiptView> = vec![];
+            let receipt_ids_included: std::collections::HashSet<CryptoHash> =
+                chunk_non_local_receipts.iter().map(|receipt| receipt.receipt_id).collect();
+            for outcome in &receipt_execution_outcomes {
+                if receipt_ids_included.get(&outcome.receipt.receipt_id).is_none() {
+                    restored_receipts.push(outcome.receipt.clone());
                 }
-
-                chunk_receipts.extend(restored_receipts);
             }
+
+            chunk_receipts.extend(restored_receipts);
         }
 
         chunk_receipts.extend(chunk_non_local_receipts);
@@ -220,22 +226,11 @@ async fn build_streamer_message(
 /// otherwise returns None
 async fn find_local_receipt_by_id_in_block(
     client: &Addr<near_client::ViewClientActor>,
+    protocol_config_view: &near_chain_configs::ProtocolConfigView,
     block: views::BlockView,
     receipt_id: near_primitives::hash::CryptoHash,
 ) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
-    let chunks_to_fetch = block
-        .chunks
-        .iter()
-        .filter_map(|c| {
-            if c.height_included == block.header.height {
-                Some(c.chunk_hash)
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    let chunks = fetch_chunks(&client, chunks_to_fetch).await?;
-    let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
+    let chunks = fetch_block_chunks(&client, &block).await?;
 
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
 
