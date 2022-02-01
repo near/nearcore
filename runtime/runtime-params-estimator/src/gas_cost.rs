@@ -8,6 +8,7 @@ use num_traits::ToPrimitive;
 
 use crate::config::GasMetric;
 use crate::estimator_params::{GAS_IN_INSTR, GAS_IN_NS, IO_READ_BYTE_COST, IO_WRITE_BYTE_COST};
+use crate::least_squares_method;
 use crate::qemu::QemuMeasurement;
 
 /// Result of cost estimation.
@@ -76,6 +77,70 @@ impl GasCost {
     }
     pub(crate) fn set_uncertain(&mut self, uncertain: bool) {
         self.uncertain = uncertain;
+    }
+
+    /// Performs least squares using a separate variable for each component of the gas cost.
+    pub(crate) fn least_squares_method_gas_cost(xs: &Vec<u64>, ys: &Vec<Self>) -> (Self, Self) {
+        let metric = ys[0].metric;
+        let uncertain = ys.iter().any(|y| y.uncertain);
+
+        let base;
+        let factor;
+        match metric {
+            GasMetric::ICount => {
+                let (i_base, i_factor, _) = least_squares_method(
+                    xs,
+                    &ys.iter().map(|gas_cost| gas_cost.instructions.to_u64().unwrap()).collect(),
+                );
+                let (r_base, r_factor, _) = least_squares_method(
+                    xs,
+                    &ys.iter().map(|gas_cost| gas_cost.io_r_bytes.to_u64().unwrap()).collect(),
+                );
+                let (w_base, w_factor, _) = least_squares_method(
+                    xs,
+                    &ys.iter().map(|gas_cost| gas_cost.io_w_bytes.to_u64().unwrap()).collect(),
+                );
+                base = GasCost {
+                    time_ns: 0.into(),
+                    instructions: i_base.to_u64().unwrap().into(),
+                    io_r_bytes: r_base.to_u64().unwrap().into(),
+                    io_w_bytes: w_base.to_u64().unwrap().into(),
+                    metric,
+                    uncertain,
+                };
+                factor = GasCost {
+                    time_ns: 0.into(),
+                    instructions: i_factor.to_u64().unwrap().into(),
+                    io_r_bytes: r_factor.to_u64().unwrap().into(),
+                    io_w_bytes: w_factor.to_u64().unwrap().into(),
+                    metric,
+                    uncertain,
+                };
+            }
+            GasMetric::Time => {
+                let (t_base, t_factor, _) = least_squares_method(
+                    xs,
+                    &ys.iter().map(|gas_cost| gas_cost.time_ns.to_u64().unwrap()).collect(),
+                );
+                base = GasCost {
+                    time_ns: t_base.to_u64().unwrap_or(0).into(),
+                    instructions: 0.into(),
+                    io_r_bytes: 0.into(),
+                    io_w_bytes: 0.into(),
+                    metric,
+                    uncertain,
+                };
+                factor = GasCost {
+                    time_ns: t_factor.to_u64().unwrap().into(),
+                    instructions: 0.into(),
+                    io_r_bytes: 0.into(),
+                    io_w_bytes: 0.into(),
+                    metric,
+                    uncertain,
+                };
+            }
+        }
+        (base, factor)
     }
 }
 

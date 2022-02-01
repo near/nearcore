@@ -1780,7 +1780,14 @@ fn test_gc_tail_update() {
     store_update.commit().unwrap();
     env.clients[1]
         .chain
-        .reset_heads_post_state_sync(&None, *sync_block.hash(), |_| {}, |_| {}, |_| {}, |_| {})
+        .reset_heads_post_state_sync(
+            &None,
+            *sync_block.hash(),
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| {},
+        )
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
     assert_eq!(env.clients[1].chain.store().tail().unwrap(), prev_sync_height);
@@ -3695,6 +3702,12 @@ mod access_key_nonce_range_tests {
     /// - process the rest of blocks
     fn test_request_chunks_for_orphan() {
         init_test_logger();
+
+        // Skip the test if NUM_ORPHAN_ANCESTORS_CHECK is 1, which effectively disables
+        // fetching chunks for orphan
+        if NUM_ORPHAN_ANCESTORS_CHECK == 1 {
+            return;
+        }
 
         let num_clients = 2;
         let num_validators = 1;
