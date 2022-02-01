@@ -54,7 +54,7 @@ impl Encoder<Vec<u8>> for Codec {
                 && item.len() + 4 + buf.len() > buf.capacity()
             {
                 #[cfg(feature = "performance_stats")]
-                let tid = near_rust_allocator_proxy::allocator::get_tid();
+                let tid = near_rust_allocator_proxy::get_tid();
                 #[cfg(not(feature = "performance_stats"))]
                 let tid = 0;
                 error!(target: "network", "{} throwing away message, because buffer is full item.len(): {} buf.capacity: {}", 
@@ -180,18 +180,21 @@ mod test {
         let hash = CryptoHash::default();
         let signature = sk.sign(hash.as_ref());
 
-        let msg = PeerMessage::Routed(RoutedMessage {
-            target: PeerIdOrHash::PeerId(PeerId::new(sk.public_key())),
-            author: PeerId::new(sk.public_key()),
-            signature: signature.clone(),
-            ttl: 100,
-            body: RoutedMessageBody::BlockApproval(Approval {
-                account_id: "test2".parse().unwrap(),
-                inner: ApprovalInner::Endorsement(CryptoHash::default()),
-                target_height: 1,
-                signature,
-            }),
-        });
+        let msg = PeerMessage::Routed(
+            RoutedMessage {
+                target: PeerIdOrHash::PeerId(PeerId::new(sk.public_key())),
+                author: PeerId::new(sk.public_key()),
+                signature: signature.clone(),
+                ttl: 100,
+                body: RoutedMessageBody::BlockApproval(Approval {
+                    account_id: "test2".parse().unwrap(),
+                    inner: ApprovalInner::Endorsement(CryptoHash::default()),
+                    target_height: 1,
+                    signature,
+                }),
+            }
+            .into(),
+        );
         test_codec(msg);
     }
 
