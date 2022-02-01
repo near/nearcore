@@ -2286,6 +2286,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter
             .pay_per(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
         let read = Self::deref_value(&mut self.gas_counter, storage_read_value_byte, read?)?;
+        tracing::debug!(target: "trie", "DO NOT COUNT!");
         match read {
             Some(value) => {
                 self.internal_write_register(register_id, value)?;
