@@ -799,8 +799,8 @@ fn add_account_with_key(
 /// given and returns the key.  `test_seed` is ignored in this case.
 ///
 /// If the file does not exist and `account_id` is not `None`, generates a new
-/// key, saves it in the file and returns it.  If `test_seed` is note `None`,
-/// the key generation algorithm is seeded with given string making it fully
+/// key, saves it in the file and returns it.  If `test_seed` is not `None`, the
+/// key generation algorithm is seeded with given string making it fully
 /// deterministic.
 fn generate_or_load_key(
     home_dir: &Path,
