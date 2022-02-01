@@ -1,6 +1,7 @@
 # Changelog
 
 ## [unreleased]
+* increasing max_gas_burnt to 300, allowing larger transactions.
 
 ### Protocol Changes
 
