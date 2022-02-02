@@ -2999,7 +2999,6 @@ pub struct ChainUpdate<'a> {
     chain_store_update: ChainStoreUpdate<'a>,
     orphans: &'a OrphanBlockPool,
     blocks_with_missing_chunks: &'a MissingChunksPool<Orphan>,
-    #[allow(dead_code)] // dead_code if sandbox is enabled
     epoch_length: BlockHeightDelta,
     block_economics_config: &'a BlockEconomicsConfig,
     doomslug_threshold_mode: DoomslugThresholdMode,
@@ -3949,8 +3948,7 @@ impl<'a> ChainUpdate<'a> {
         let is_next = block.header().prev_hash() == &head.last_block_hash;
 
         // Sandbox allows fast-forwarding, so only enable when not within sandbox
-        #[cfg(not(feature = "sandbox"))]
-        {
+        if !cfg!(feature = "sandbox") {
             // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
             // overflow-related problems
             let block_height = block.header().height();
