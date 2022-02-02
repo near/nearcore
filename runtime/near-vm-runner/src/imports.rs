@@ -219,7 +219,7 @@ imports! {
     #["protocol_feature_alt_bn128", AltBn128] alt_bn128_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
 }
 
-#[cfg(feature = "wasmer0_vm")]
+#[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
 pub(crate) mod wasmer {
     use super::str_eq;
     use near_vm_logic::{ProtocolVersion, VMLogic, VMLogicError};
@@ -272,7 +272,7 @@ pub(crate) mod wasmer {
     }
 }
 
-#[cfg(feature = "wasmer2_vm")]
+#[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
 pub(crate) mod wasmer2 {
     use std::sync::Arc;
 
@@ -468,7 +468,7 @@ pub(crate) mod wasmtime {
                         }
                     });
                     unsafe {
-                        // transmute the lifetime of caller so it's possible to put it in a thread-local
+                        // Transmute the lifetime of caller so it's possible to put it in a thread-local.
                         crate::wasmtime_runner::CALLER.with(|runner_caller| *runner_caller.borrow_mut() = std::mem::transmute(caller));
                     }
                     let logic: &mut VMLogic<'_> = unsafe { &mut *(data as *mut VMLogic<'_>) };

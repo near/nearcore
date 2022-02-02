@@ -3,7 +3,7 @@ use near_primitives::types::BlockHeightDelta;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct RpcSandboxPatchStateRequest {
     pub records: Vec<StateRecord>,
 }
@@ -14,7 +14,7 @@ impl RpcSandboxPatchStateRequest {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct RpcSandboxPatchStateResponse {}
 
 #[derive(thiserror::Error, Debug, Serialize, Deserialize)]

@@ -8,8 +8,7 @@ use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, Unregister,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
-use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, MailboxError, Message};
+use actix::{MailboxError, Message};
 use futures::future::BoxFuture;
 use near_network_primitives::types::{
     AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, Edge, InboundTcpConnect,
@@ -33,7 +32,8 @@ use std::fmt::Debug;
 use strum::AsStaticStr;
 
 /// Message from peer to peer manager
-#[derive(strum::AsRefStr, Clone, Debug)]
+#[derive(actix::Message, strum::AsRefStr, Clone, Debug)]
+#[rtype(result = "PeerResponse")]
 pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
     RouteBack(Box<RoutedMessageBody>, CryptoHash),
@@ -55,11 +55,7 @@ impl deepsize::DeepSizeOf for PeerRequest {
     }
 }
 
-impl Message for PeerRequest {
-    type Result = PeerResponse;
-}
-
-#[derive(MessageResponse, Debug)]
+#[derive(actix::MessageResponse, Debug)]
 pub enum PeerResponse {
     NoResponse,
     UpdatedEdge(PartialEdgeInfo),
@@ -77,7 +73,8 @@ pub struct PeersResponse {
 /// which contains reply for each message to `PeerManager`.
 /// There is 1 to 1 mapping between an entry in `PeerManagerMessageRequest` and `PeerManagerMessageResponse`.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Debug)]
+#[derive(actix::Message, Debug)]
+#[rtype(result = "PeerManagerMessageResponse")]
 pub enum PeerManagerMessageRequest {
     RoutedMessageFrom(RoutedMessageFrom),
     NetworkRequests(NetworkRequests),
@@ -119,12 +116,8 @@ impl PeerManagerMessageRequest {
     }
 }
 
-impl Message for PeerManagerMessageRequest {
-    type Result = PeerManagerMessageResponse;
-}
-
 /// List of all replies to messages to `PeerManager`. See `PeerManagerMessageRequest` for more details.
-#[derive(MessageResponse, Debug)]
+#[derive(actix::MessageResponse, Debug)]
 pub enum PeerManagerMessageResponse {
     RoutedMessageFrom(bool),
     NetworkResponses(NetworkResponses),
@@ -207,8 +200,9 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
 
 // TODO(#1313): Use Box
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
+#[derive(actix::Message, Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
+#[rtype(result = "NetworkResponses")]
 pub enum NetworkRequests {
     /// Sends block, either when block was just produced or when requested.
     Block {
@@ -333,7 +327,7 @@ pub struct FullPeerInfo {
     pub partial_edge_info: PartialEdgeInfo,
 }
 
-#[derive(Debug)]
+#[derive(Debug, actix::MessageResponse)]
 pub struct NetworkInfo {
     pub connected_peers: Vec<FullPeerInfo>,
     pub num_connected_peers: usize,
@@ -346,19 +340,7 @@ pub struct NetworkInfo {
     pub peer_counter: usize,
 }
 
-impl<A, M> MessageResponse<A, M> for NetworkInfo
-where
-    A: Actor,
-    M: Message<Result = NetworkInfo>,
-{
-    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-        if let Some(tx) = tx {
-            tx.send(self)
-        }
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, actix::MessageResponse)]
 pub enum NetworkResponses {
     NoResponse,
     RoutingTableInfo(RoutingTableInfo),
@@ -368,25 +350,10 @@ pub enum NetworkResponses {
     RouteNotFound,
 }
 
-impl<A, M> MessageResponse<A, M> for NetworkResponses
-where
-    A: Actor,
-    M: Message<Result = NetworkResponses>,
-{
-    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-        if let Some(tx) = tx {
-            tx.send(self)
-        }
-    }
-}
-
-impl Message for NetworkRequests {
-    type Result = NetworkResponses;
-}
-
-#[derive(Debug, strum::AsRefStr, AsStaticStr)]
+#[derive(actix::Message, Debug, strum::AsRefStr, AsStaticStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
+#[rtype(result = "NetworkClientResponses")]
 pub enum NetworkClientMessages {
     #[cfg(feature = "test_features")]
     Adversarial(near_network_primitives::types::NetworkAdversarialMessage),
@@ -430,12 +397,8 @@ pub enum NetworkClientMessages {
     NetworkInfo(NetworkInfo),
 }
 
-impl Message for NetworkClientMessages {
-    type Result = NetworkClientResponses;
-}
-
 // TODO(#1313): Use Box
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, actix::MessageResponse)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientResponses {
     /// Adv controls.
@@ -459,18 +422,6 @@ pub enum NetworkClientResponses {
     DoesNotTrackShard,
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
-}
-
-impl<A, M> MessageResponse<A, M> for NetworkClientResponses
-where
-    A: Actor,
-    M: Message<Result = NetworkClientResponses>,
-{
-    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-        if let Some(tx) = tx {
-            tx.send(self)
-        }
-    }
 }
 
 /// Adapter to break dependency of sub-components on the network requests.
