@@ -181,6 +181,7 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ContractCompileBytes, contract_compile_bytes),
     (Cost::ContractCompileBaseV2, contract_compile_base_v2),
     (Cost::ContractCompileBytesV2, contract_compile_bytes_v2),
+    (Cost::DeployBytes, pure_deploy_bytes),
     (Cost::GasMeteringBase, gas_metering_base),
     (Cost::GasMeteringOp, gas_metering_op),
     (Cost::RocksDbInsertValueByte, rocks_db_insert_value_byte),
@@ -497,7 +498,10 @@ fn action_deploy_contract_per_byte(ctx: &mut EstimatorContext) -> GasCost {
         let code = read_resource(contract);
         xs.push(code.len() as u64);
         let cost = deploy_contract_cost(ctx, code, Some(pivot_fn.as_bytes()));
-        ys.push(cost);
+        // The sampled contracts are about 80% code. Since the deployment cost
+        // is heavily dominated by compilation, we therefore use a multiplier of
+        // 5/4 to guess what a contract with 100% code would cost to deploy.
+        ys.push(cost * 5 / 4);
     }
 
     // We do linear regression on a cost curve that is mostly flat for small
@@ -612,6 +616,34 @@ fn contract_compile_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost, Ga
 
     ctx.cached.compile_cost_base_per_byte_v2 = Some(costs.clone());
     costs
+}
+fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
+    // 10kiB
+    let small_code = read_resource(if cfg!(feature = "nightly_protocol_features") {
+        "test-contract/res/nightly_small_contract.wasm"
+    } else {
+        "test-contract/res/stable_small_contract.wasm"
+    });
+    // 1MiB
+    let large_code = read_resource(if cfg!(feature = "nightly_protocol_features") {
+        "test-contract/res/nightly_large_contract.wasm"
+    } else {
+        "test-contract/res/stable_large_contract.wasm"
+    });
+
+    let small_code_len = small_code.len();
+    let large_code_len = large_code.len();
+    let cost_10kib = deploy_contract_cost(ctx, small_code, Some(b"payload"));
+    let cost_1mib = deploy_contract_cost(ctx, large_code, Some(b"payload"));
+
+    if cost_1mib < cost_10kib {
+        eprintln!("High variance in pure_deploy_bytes: Deployment cost of small contract is higher than large contract.");
+        let mut cost = GasCost::zero(ctx.config.metric);
+        cost.set_uncertain(true);
+        cost
+    } else {
+        (cost_1mib - cost_10kib) / (large_code_len - small_code_len) as u64
+    }
 }
 
 fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {

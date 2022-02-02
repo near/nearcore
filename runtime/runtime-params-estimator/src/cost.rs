@@ -241,6 +241,13 @@ pub enum Cost {
     /// produces the steepest line.
     ContractCompileBaseV2,
     ContractCompileBytesV2,
+    /// The cost of contract deployment per byte, without the compilation cost.
+    ///
+    /// Estimation: Measure the cost of two contract that have the same code but
+    /// include different data sections. One data section is significantly
+    /// larger. The cost difference is pure overhead of moving around bytes that
+    /// are not code. Divide this cost by the difference of bytes.
+    DeployBytes,
     GasMeteringBase,
     GasMeteringOp,
     /// Cost of inserting a new value directly into a RocksDB instance.
