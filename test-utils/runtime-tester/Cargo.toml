@@ -21,8 +21,10 @@ near-crypto = { path = "../../core/crypto" }
 near-client = { path = "../../chain/client" }
 near-client-primitives = { path = "../../chain/client-primitives" }
 nearcore = { path = "../../nearcore" }
-near-logger-utils = { path = "../logger" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
+
+[dev-dependencies]
+near-logger-utils = { path = "../logger" }
 testlib = { path = "../testlib" }

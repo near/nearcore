@@ -1,20 +1,19 @@
-use std::collections::HashSet;
-use std::io::Result;
-use std::path::Path;
-
 use clap::{App, Arg};
-
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
+use near_chain_configs::GenesisValidationMode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_store::create_store;
 use nearcore::migrations::load_migration_data;
 use nearcore::{get_default_home, get_store_path, load_config, NightshadeRuntime, TrackedConfig};
+use std::collections::HashSet;
+use std::io::Result;
+use std::path::Path;
 
 fn get_receipt_hashes_in_repo() -> Vec<CryptoHash> {
-    let receipt_result = load_migration_data(&"mainnet".to_string()).restored_receipts;
+    let receipt_result = load_migration_data("mainnet").restored_receipts;
     let receipts = receipt_result.get(&0u64).unwrap();
-    receipts.into_iter().map(|receipt| receipt.get_hash()).collect()
+    receipts.iter().map(|receipt| receipt.get_hash()).collect()
 }
 
 fn get_differences_with_hashes_from_repo(
@@ -44,7 +43,7 @@ fn main() -> Result<()> {
 
     let shard_id = 0u64;
     let home_dir = matches.value_of("home").map(Path::new).unwrap();
-    let near_config = load_config(home_dir);
+    let near_config = load_config(home_dir, GenesisValidationMode::Full);
     let store = create_store(&get_store_path(home_dir));
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime = NightshadeRuntime::new(
@@ -149,7 +148,7 @@ mod tests {
         assert_eq!(receipt_hashes_not_verified, vec![extra_hash]);
         assert!(receipt_hashes_still_missing.is_empty());
 
-        let mut receipt_hashes_missing = receipt_hashes_in_repo.clone();
+        let mut receipt_hashes_missing = receipt_hashes_in_repo;
         receipt_hashes_missing.push(CryptoHash::default());
         let (receipt_hashes_not_verified, receipt_hashes_still_missing) =
             get_differences_with_hashes_from_repo(receipt_hashes_missing);

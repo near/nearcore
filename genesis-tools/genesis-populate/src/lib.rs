@@ -38,7 +38,7 @@ pub struct GenesisBuilder {
     #[allow(dead_code)]
     tmpdir: tempfile::TempDir,
     genesis: Arc<Genesis>,
-    store: Arc<Store>,
+    store: Store,
     runtime: NightshadeRuntime,
     unflushed_records: BTreeMap<ShardId, Vec<StateRecord>>,
     roots: BTreeMap<ShardId, StateRoot>,
@@ -53,11 +53,7 @@ pub struct GenesisBuilder {
 }
 
 impl GenesisBuilder {
-    pub fn from_config_and_store(
-        home_dir: &Path,
-        genesis: Arc<Genesis>,
-        store: Arc<Store>,
-    ) -> Self {
+    pub fn from_config_and_store(home_dir: &Path, genesis: Arc<Genesis>, store: Store) -> Self {
         let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
         let runtime = NightshadeRuntime::new(
             tmpdir.path(),

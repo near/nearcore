@@ -4,7 +4,7 @@ use chrono;
 use chrono::TimeZone;
 use near_logger_utils::init_test_logger;
 use near_primitives::hash::CryptoHash;
-use near_primitives::time::{Clock, MockClockGuard};
+use near_primitives::time::MockClockGuard;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Rational;
 use std::str::FromStr;
@@ -12,36 +12,34 @@ use std::str::FromStr;
 #[test]
 fn empty_chain() {
     init_test_logger();
-    let _mock_clock_guard = MockClockGuard::default();
+    let mock_clock_guard = MockClockGuard::default();
     let now = chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 1, 444);
-    Clock::add_utc(now);
+    mock_clock_guard.add_utc(now);
 
     let (chain, _, _) = setup();
-    let count_instant = { Clock::instant_call_count() };
-    let count_utc = { Clock::utc_call_count() };
+    let count_utc = { mock_clock_guard.utc_call_count() };
 
     assert_eq!(chain.head().unwrap().height, 0);
     let hash = chain.head().unwrap().last_block_hash;
     #[cfg(feature = "nightly_protocol")]
-    assert_eq!(hash, CryptoHash::from_str("3wFoFbJPPv7Jg1ZERuBWTCok4H9uRZ7Uagm1wiXdKpvV").unwrap());
+    assert_eq!(hash, CryptoHash::from_str("4iPPuWZ2BZj6i6zGCa96xFTQhp3FHkY2CzUCJFUUryt8").unwrap());
     #[cfg(not(feature = "nightly_protocol"))]
-    assert_eq!(hash, CryptoHash::from_str("BkrZeGCDnYJGAdc3G1fb1P8FMbnNDhBn6w5DjhQeNAdp").unwrap());
+    assert_eq!(hash, CryptoHash::from_str("9w8Z2UGnC6hxn5RR7B3akP7kBw7ohqyHAw1ssiK1NzTs").unwrap());
     assert_eq!(count_utc, 1);
-    assert_eq!(count_instant, 0);
 }
 
 #[test]
 fn build_chain() {
     init_test_logger();
-    let _mock_clock_guard = MockClockGuard::default();
+    let mock_clock_guard = MockClockGuard::default();
     // Adding first mock entry for genesis block
-    Clock::add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444));
+    mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444));
     for i in 1..5 {
         // two entries, because the clock is called 2 times per block
         // - one time for creation of the block
         // - one time for validating block header
-        Clock::add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
-        Clock::add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
+        mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
+        mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
     }
 
     let (mut chain, _, signer) = setup();
@@ -50,12 +48,12 @@ fn build_chain() {
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(
         prev_hash,
-        CryptoHash::from_str("5VroU43sRYCkttuJfpdP6iC57fsD4q2TCbWaronBWpz7").unwrap()
+        CryptoHash::from_str("zcVm8wC8eBt2b5C2uTNch2UyfXCwjs3qgYGZwyXcUAA").unwrap()
     );
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
         prev_hash,
-        CryptoHash::from_str("6C474NRQK1cLkGYrdaCpeVPKbBbsTxGeB7ZZWkdbD3uL").unwrap()
+        CryptoHash::from_str("CUcHvQVmaNdWZtSd4z2Y4eWD75orjkhF2uLBZmTQrYF9").unwrap()
     );
 
     for i in 0..4 {
@@ -66,19 +64,19 @@ fn build_chain() {
         assert_eq!(tip.unwrap().height, i + 1);
     }
     assert_eq!(chain.head().unwrap().height, 4);
-    let count_instant = Clock::instant_call_count();
-    let count_utc = Clock::utc_call_count();
+    let count_instant = mock_clock_guard.instant_call_count();
+    let count_utc = mock_clock_guard.utc_call_count();
     assert_eq!(count_utc, 9);
     assert_eq!(count_instant, 0);
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(
         chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("BNap11nsM7PEqYQertYU487g7gkCteQ8Fmee6QfyRdVQ").unwrap()
+        CryptoHash::from_str("CDfAT886U5up6bQZ3QNVcvxtuVM6sNyJnF6Nk6RMHnEZ").unwrap()
     );
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
         chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("5pXLqgQe98JSdhtQ66VQFjQzBRPdZaEiMaTpdGuziF4H").unwrap()
+        CryptoHash::from_str("FhnRwdDssC97PaAUZpkt71sL26oqBtdzPf1SW2P8twcM").unwrap()
     );
 }
 
@@ -110,7 +108,7 @@ fn build_chain_with_orhpans() {
         vec![],
         vec![],
         &*signer,
-        last_block.header().next_bp_hash().clone(),
+        *last_block.header().next_bp_hash(),
         CryptoHash::default(),
     );
     assert_eq!(chain.process_block_test(&None, block).unwrap_err().kind(), ErrorKind::Orphan);

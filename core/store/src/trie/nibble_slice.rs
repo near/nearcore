@@ -235,7 +235,7 @@ mod tests {
     use elastic_array::ElasticArray36;
     use rand::{thread_rng, Rng};
 
-    static D: &'static [u8; 3] = &[0x01u8, 0x23, 0x45];
+    static D: &[u8; 3] = &[0x01u8, 0x23, 0x45];
 
     #[test]
     fn basics() {

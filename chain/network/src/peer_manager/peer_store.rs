@@ -1,4 +1,4 @@
-use borsh::BorshSerialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_network_primitives::types::{
     KnownPeerState, KnownPeerStatus, NetworkConfig, PeerInfo, ReasonForBan,
 };
@@ -6,12 +6,13 @@ use near_primitives::network::PeerId;
 use near_primitives::time::Utc;
 use near_primitives::utils::to_timestamp;
 use near_store::{ColPeers, Store};
-use rand::seq::SliceRandom;
+use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::collections::hash_map::{Entry, Iter};
 use std::collections::HashMap;
+use std::error::Error;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::ops::Not;
 use tracing::{debug, error};
 
 /// Level of trust we have about a new (PeerId, Addr) pair.
@@ -42,7 +43,7 @@ impl VerifiedPeer {
 
 /// Known peers store, maintaining cache of known peers and connection to storage to save/load them.
 pub struct PeerStore {
-    store: Arc<Store>,
+    store: Store,
     peer_states: HashMap<PeerId, KnownPeerState>,
     // This is a reverse index, from physical address to peer_id
     // It can happens that some peers don't have known address, so
@@ -52,7 +53,7 @@ pub struct PeerStore {
 
 impl PeerStore {
     pub(crate) fn new(
-        store: Arc<Store>,
+        store: Store,
         boot_nodes: &[PeerInfo],
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let mut peer_states = HashMap::default();
@@ -78,13 +79,12 @@ impl PeerStore {
             }
         }
 
+        let now = to_timestamp(Utc::now());
         for (key, value) in store.iter(ColPeers) {
-            let key: Vec<u8> = key.into();
-            let value: Vec<u8> = value.into();
-            let peer_id: PeerId = key.try_into()?;
-            let mut peer_state: KnownPeerState = value.try_into()?;
+            let peer_id: PeerId = PeerId::try_from_slice(key.as_ref())?;
+            let mut peer_state: KnownPeerState = KnownPeerState::try_from_slice(value.as_ref())?;
             // Mark loaded node last seen to now, to avoid deleting them as soon as they are loaded.
-            peer_state.last_seen = to_timestamp(Utc::now());
+            peer_state.last_seen = now;
             match peer_state.status {
                 KnownPeerStatus::Banned(_, _) => {}
                 _ => peer_state.status = KnownPeerStatus::NotConnected,
@@ -126,9 +126,7 @@ impl PeerStore {
         let entry = self.peer_states.get_mut(&peer_info.id).unwrap();
         entry.last_seen = to_timestamp(Utc::now());
         entry.status = KnownPeerStatus::Connected;
-        let mut store_update = self.store.store_update();
-        store_update.set_ser(ColPeers, &peer_info.id.try_to_vec()?, entry)?;
-        store_update.commit().map_err(|err| err.into())
+        Self::save_to_db(&self.store, peer_info.id.try_to_vec()?.as_slice(), entry)
     }
 
     pub(crate) fn peer_disconnected(
@@ -138,9 +136,7 @@ impl PeerStore {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
             peer_state.last_seen = to_timestamp(Utc::now());
             peer_state.status = KnownPeerStatus::NotConnected;
-            let mut store_update = self.store.store_update();
-            store_update.set_ser(ColPeers, &peer_id.try_to_vec()?, peer_state)?;
-            store_update.commit().map_err(|err| err.into())
+            Self::save_to_db(&self.store, peer_id.try_to_vec()?.as_slice(), peer_state)
         } else {
             Err(format!("Peer {} is missing in the peer store", peer_id).into())
         }
@@ -154,12 +150,20 @@ impl PeerStore {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
             peer_state.last_seen = to_timestamp(Utc::now());
             peer_state.status = KnownPeerStatus::Banned(ban_reason, to_timestamp(Utc::now()));
-            let mut store_update = self.store.store_update();
-            store_update.set_ser(ColPeers, &peer_id.try_to_vec()?, peer_state)?;
-            store_update.commit().map_err(|err| err.into())
+            Self::save_to_db(&self.store, peer_id.try_to_vec()?.as_slice(), peer_state)
         } else {
             Err(format!("Peer {} is missing in the peer store", peer_id).into())
         }
+    }
+
+    fn save_to_db(
+        store: &Store,
+        peer_id: &[u8],
+        peer_state: &KnownPeerState,
+    ) -> Result<(), Box<dyn Error>> {
+        let mut store_update = store.store_update();
+        store_update.set_ser(ColPeers, peer_id, peer_state)?;
+        store_update.commit().map_err(|err| err.into())
     }
 
     pub(crate) fn peer_unban(
@@ -168,55 +172,46 @@ impl PeerStore {
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
             peer_state.status = KnownPeerStatus::NotConnected;
-            let mut store_update = self.store.store_update();
-            store_update.set_ser(ColPeers, &peer_id.try_to_vec()?, peer_state)?;
-            store_update.commit().map_err(|err| err.into())
+            Self::save_to_db(&self.store, peer_id.try_to_vec()?.as_slice(), peer_state)
         } else {
             Err(format!("Peer {} is missing in the peer store", peer_id).into())
         }
     }
 
-    fn find_peers<F>(&self, mut filter: F, count: u32) -> Vec<PeerInfo>
+    /// Find a random subset of peers based on filter.
+    fn find_peers<F>(&self, filter: F, count: usize) -> Vec<PeerInfo>
     where
-        F: FnMut(&KnownPeerState) -> bool,
+        F: FnMut(&&KnownPeerState) -> bool,
     {
-        let mut peers = self
-            .peer_states
-            .values()
-            .filter_map(|p| if filter(p) { Some(p.peer_info.clone()) } else { None })
-            .collect::<Vec<_>>();
-        if count == 0 {
-            return peers;
-        }
-        peers.shuffle(&mut thread_rng());
-        peers.iter().take(count as usize).cloned().collect::<Vec<_>>()
+        (self.peer_states.values())
+            .filter(filter)
+            .choose_multiple(&mut thread_rng(), count)
+            .into_iter()
+            .map(|kps| kps.peer_info.clone())
+            .collect()
     }
 
     /// Return unconnected or peers with unknown status that we can try to connect to.
     /// Peers with unknown addresses are filtered out.
-    pub(crate) fn unconnected_peers(
+    pub(crate) fn unconnected_peer(
         &self,
         ignore_fn: impl Fn(&KnownPeerState) -> bool,
-    ) -> Vec<PeerInfo> {
+    ) -> Option<PeerInfo> {
         self.find_peers(
             |p| {
                 (p.status == KnownPeerStatus::NotConnected || p.status == KnownPeerStatus::Unknown)
                     && !ignore_fn(p)
                     && p.peer_info.addr.is_some()
             },
-            0,
+            1,
         )
+        .get(0)
+        .cloned()
     }
 
     /// Return healthy known peers up to given amount.
-    pub(crate) fn healthy_peers(&self, max_count: u32) -> Vec<PeerInfo> {
-        self.find_peers(
-            |p| match p.status {
-                KnownPeerStatus::Banned(_, _) => false,
-                _ => true,
-            },
-            max_count,
-        )
+    pub(crate) fn healthy_peers(&self, max_count: usize) -> Vec<PeerInfo> {
+        self.find_peers(|p| matches!(p.status, KnownPeerStatus::Banned(_, _)).not(), max_count)
     }
 
     /// Return iterator over all known peers.
@@ -250,9 +245,7 @@ impl PeerStore {
 
     fn touch(&mut self, peer_id: &PeerId) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get(peer_id) {
-            let mut store_update = self.store.store_update();
-            store_update.set_ser(ColPeers, &peer_id.try_to_vec()?, peer_state)?;
-            store_update.commit().map_err(|err| err.into())
+            Self::save_to_db(&self.store, peer_id.try_to_vec()?.as_slice(), peer_state)
         } else {
             Ok(())
         }
@@ -318,13 +311,15 @@ impl PeerStore {
                     // If this peer already exists with a signed connection ignore this update.
                     // Warning: This is a problem for nodes that changes its address without changing peer_id.
                     //          It is recommended to change peer_id if address is changed.
-                    if self.peer_states.get(&peer_info.id).map_or(false, |peer_state| {
-                        peer_state.peer_info.addr.map_or(false, |current_addr| {
-                            self.addr_peers.get(&current_addr).map_or(false, |verified_peer| {
-                                verified_peer.trust_level == TrustLevel::Signed
+                    let is_peer_trusted =
+                        self.peer_states.get(&peer_info.id).map_or(false, |peer_state| {
+                            peer_state.peer_info.addr.map_or(false, |current_addr| {
+                                self.addr_peers.get(&current_addr).map_or(false, |verified_peer| {
+                                    verified_peer.trust_level == TrustLevel::Signed
+                                })
                             })
-                        })
-                    }) {
+                        });
+                    if is_peer_trusted {
                         return Ok(());
                     }
 
@@ -370,12 +365,12 @@ impl PeerStore {
 }
 
 /// Public method used to iterate through all peers stored in the database.
-pub fn iter_peers_from_store<F>(store: Arc<Store>, f: F)
+pub fn iter_peers_from_store<F>(store: Store, f: F)
 where
     F: Fn((&PeerId, &KnownPeerState)),
 {
     let peer_store = PeerStore::new(store, &[]).unwrap();
-    peer_store.iter().for_each(|x| f(x));
+    peer_store.iter().for_each(f);
 }
 
 #[cfg(test)]
@@ -383,6 +378,7 @@ mod test {
     use near_crypto::{KeyType, SecretKey};
     use near_store::create_store;
     use near_store::test_utils::create_test_store;
+    use std::net::{Ipv4Addr, SocketAddrV4};
 
     use super::*;
 
@@ -390,15 +386,15 @@ mod test {
         PeerId::new(SecretKey::from_seed(KeyType::ED25519, seed.as_str()).public_key())
     }
 
-    fn get_addr(port: u8) -> SocketAddr {
-        format!("127.0.0.1:{}", port).parse().unwrap()
+    fn get_addr(port: u16) -> SocketAddr {
+        SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port).into()
     }
 
     fn get_peer_info(peer_id: PeerId, addr: Option<SocketAddr>) -> PeerInfo {
         PeerInfo { id: peer_id, addr, account_id: None }
     }
 
-    fn gen_peer_info(port: u8) -> PeerInfo {
+    fn gen_peer_info(port: u16) -> PeerInfo {
         PeerInfo {
             id: PeerId::new(SecretKey::from_random(KeyType::ED25519).public_key()),
             addr: Some(get_addr(port)),
@@ -423,6 +419,20 @@ mod test {
             let store_new = create_store(tmp_dir.path());
             let peer_store_new = PeerStore::new(store_new, &boot_nodes).unwrap();
             assert_eq!(peer_store_new.healthy_peers(3).len(), 1);
+        }
+    }
+
+    #[test]
+    fn test_unconnected_peer() {
+        let tmp_dir = tempfile::Builder::new().prefix("_test_store_ban").tempdir().unwrap();
+        let peer_info_a = gen_peer_info(0);
+        let peer_info_to_ban = gen_peer_info(1);
+        let boot_nodes = vec![peer_info_a, peer_info_to_ban];
+        {
+            let store = create_store(tmp_dir.path());
+            let peer_store = PeerStore::new(store, &boot_nodes).unwrap();
+            assert!(peer_store.unconnected_peer(|_| false).is_some());
+            assert!(peer_store.unconnected_peer(|_| true).is_none());
         }
     }
 

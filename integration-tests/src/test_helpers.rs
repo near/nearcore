@@ -1,5 +1,5 @@
 use crate::node::Node;
-use cached::once_cell::sync::Lazy;
+use once_cell::sync::Lazy;
 use std::process::Output;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
@@ -9,7 +9,7 @@ static HEAVY_TESTS_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 pub fn heavy_test<F>(f: F)
 where
-    F: FnOnce() -> (),
+    F: FnOnce(),
 {
     let _guard = HEAVY_TESTS_LOCK.lock();
     f();

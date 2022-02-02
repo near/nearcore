@@ -13,18 +13,19 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from cluster import init_cluster, spin_up_node, load_config
 from configured_logger import logger
 from transaction import sign_staking_tx
-from utils import TxContext
+import utils
 
 TIMEOUT = 600
 # the height we spin up the second node
 TARGET_HEIGHT = 35
+EPOCH_LENGTH = 12
 
 config = load_config()
 # give more stake to the bootnode so that it can produce the blocks alone
 near_root, node_dirs = init_cluster(
     4, 1, 4, config,
-    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 12],
-     ["block_producer_kickout_threshold", 20],
+    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
+     ["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 20],
      ["chunk_producer_kickout_threshold", 20]], {
          0: {
              "view_client_throttle_period": {
@@ -92,7 +93,8 @@ node4 = spin_up_node(config, near_root, node_dirs[3], 3, boot_node=boot_node)
 observer = spin_up_node(config, near_root, node_dirs[4], 4, boot_node=boot_node)
 observer.stop_checking_store()
 
-ctx = TxContext([4, 4, 4, 4, 4], [boot_node, None, node3, node4, observer])
+ctx = utils.TxContext([4, 4, 4, 4, 4],
+                      [boot_node, None, node3, node4, observer])
 initial_balances = ctx.get_balances()
 total_supply = sum(initial_balances)
 
@@ -105,23 +107,15 @@ largest_height = 0
 # 1. Make the first node get to height 35. The second epoch will end around height 24-25,
 #    which would already result in a stall if the first node can't sync the state from the
 #    observer for the shard it doesn't care about
-while True:
-    assert time.time() - started < TIMEOUT
-    status = observer.get_status()
-    hash_ = status['sync_info']['latest_block_hash']
-    new_height = status['sync_info']['latest_block_height']
-    if new_height > largest_height:
-        largest_height = new_height
-        logger.info(new_height)
-    if new_height >= TARGET_HEIGHT:
+for height, hash_ in utils.poll_blocks(observer,
+                                       timeout=TIMEOUT,
+                                       poll_interval=0.1):
+    if height >= TARGET_HEIGHT:
         break
-
-    if new_height > 1 and not sent_txs:
+    if height > 1 and not sent_txs:
         ctx.send_moar_txs(hash_, 10, False)
-        logger.info("Sending txs at height %s" % new_height)
+        logger.info(f'Sending txs at height {height}')
         sent_txs = True
-
-    time.sleep(0.1)
 
 logger.info("stage 1 done")
 
@@ -131,19 +125,10 @@ node2.stop_checking_store()
 
 while True:
     assert time.time() - started < TIMEOUT
-
-    status = node2.get_status()
-    node2_height = status['sync_info']['latest_block_height']
-    node2_syncing = status['sync_info']['syncing']
-
-    status = boot_node.get_status()
-    if new_height > largest_height:
-        largest_height = new_height
-        logger.info(new_height)
-
-    if node2_height > TARGET_HEIGHT and not node2_syncing:
+    sync_info = node2.get_status()['sync_info']
+    if (sync_info['latest_block_height'] > TARGET_HEIGHT and
+            not sync_info['syncing']):
         break
-
     time.sleep(0.1)
 
 logger.info("stage 2 done")
@@ -183,7 +168,8 @@ tx = sign_staking_tx(node2.signer_key, node2.validator_key,
                      base58.b58decode(hash_.encode('utf8')))
 boot_node.send_tx(tx)
 
-assert (get_validators() == set(["test0", "test2", "test3"])), get_validators()
+validators = get_validators()
+assert validators == set(["test0", "test2", "test3"]), validators
 
 while True:
     if time.time() - started > TIMEOUT:
@@ -198,33 +184,30 @@ while True:
 logger.info("stage 4 done")
 
 ctx.next_nonce = 100
-# 5. Record the latest height and bring down the first node, wait for couple epochs to pass
-status = observer.get_status()
-last_height = status['sync_info']['latest_block_height']
+# 5. Bring down the first node, then wait until epoch T+3
+last_height = observer.get_latest_block().height
 
 ctx.nodes = [boot_node, node2, node3, node4, observer]
 ctx.act_to_val = [4, 4, 4, 4, 4]
 
 boot_node.kill()
-sent_txs = False
 
-while True:
-    assert time.time() - started < TIMEOUT
-    status = observer.get_status()
-    hash_ = status['sync_info']['latest_block_hash']
-    new_height = status['sync_info']['latest_block_height']
-    if new_height > largest_height:
-        largest_height = new_height
-        logger.info(new_height)
-    if new_height >= last_height + TARGET_HEIGHT:
+for height, hash_ in utils.poll_blocks(observer,
+                                       timeout=TIMEOUT,
+                                       poll_interval=0.1):
+    if height > last_height + 1:
+        ctx.send_moar_txs(hash_, 10, False)
+        logger.info(f'Sending txs at height {height}')
         break
 
-    if new_height > last_height + 1 and not sent_txs:
-        ctx.send_moar_txs(hash_, 10, False)
-        logger.info("Sending txs at height %s" % new_height)
-        sent_txs = True
-
-    time.sleep(0.1)
+start_epoch = -1
+for epoch_height in utils.poll_epochs(observer,
+                                      epoch_length=EPOCH_LENGTH,
+                                      timeout=TIMEOUT):
+    if start_epoch == -1:
+        start_epoch = epoch_height
+    if epoch_height >= start_epoch + 3:
+        break
 
 balances = ctx.get_balances()
 logger.info("New balances: %s\nNew total supply: %s" %

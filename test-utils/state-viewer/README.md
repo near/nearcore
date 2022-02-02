@@ -91,6 +91,29 @@ Flags:
 
 * `--height` takes state from the genesis up to and including the given height. By default, dumps all available state.
 
+### `rocksdb_stats`
+
+Tool for measuring statistics of the store for each column:
+- number of entries
+- column size
+- total keys size
+- total values size
+
+Before running, install `sst_dump` tool as follows:
+
+```shell
+git clone https://github.com/facebook/rocksdb.git
+cd rocksdb
+make sst_dump
+sudo cp sst_dump /usr/local/bin/
+```
+
+Should take ~2m for RPC node and 45m for archival node as of 4 Jan 2022.
+
+#### Output
+
+List of statistics for each column sorted by column size.
+
 #### Running on macOS
 
 ```bash

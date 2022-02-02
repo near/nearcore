@@ -6,18 +6,14 @@ use std::io::{Error, ErrorKind, Write};
 use std::str::FromStr;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "deepsize_feature")]
-use deepsize::DeepSizeOf;
 use ed25519_dalek::ed25519::signature::{Signature as _, Signer, Verifier};
-#[cfg(feature = "deepsize_feature")]
-use ed25519_dalek::SIGNATURE_LENGTH;
 use once_cell::sync::Lazy;
 use primitive_types::U256;
 use rand_core::OsRng;
 use secp256k1::Message;
 use serde::{Deserialize, Serialize};
 
-pub static SECP256K1: Lazy<secp256k1::Secp256k1> = Lazy::new(|| secp256k1::Secp256k1::new());
+pub static SECP256K1: Lazy<secp256k1::Secp256k1> = Lazy::new(secp256k1::Secp256k1::new);
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum KeyType {
@@ -151,7 +147,7 @@ impl Ord for Secp256K1PublicKey {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Clone, derive_more::AsRef)]
 #[as_ref(forward)]
 pub struct ED25519PublicKey(pub [u8; ed25519_dalek::PUBLIC_KEY_LENGTH]);
@@ -200,7 +196,7 @@ impl Ord for ED25519PublicKey {
 }
 
 /// Public key container supporting different curves.
-#[cfg_attr(feature = "deepsize_feature", derive(DeepSizeOf))]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq)]
 pub enum PublicKey {
     /// 256 bit elliptic curve based public-key.
@@ -687,7 +683,7 @@ pub enum Signature {
 impl deepsize::DeepSizeOf for Signature {
     fn deep_size_of_children(&self, _context: &mut deepsize::Context) -> usize {
         match self {
-            Signature::ED25519(_) => SIGNATURE_LENGTH,
+            Signature::ED25519(_) => ed25519_dalek::SIGNATURE_LENGTH,
             Signature::SECP256K1(_) => SECP256K1_SIGNATURE_LENGTH,
         }
     }

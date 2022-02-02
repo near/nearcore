@@ -19,6 +19,8 @@ import uuid
 from rc import gcloud
 from retrying import retry
 
+import base58
+
 import network
 from configured_logger import logger
 from key import Key
@@ -100,6 +102,33 @@ def make_boot_nodes_arg(boot_node: BootNode) -> typing.Tuple[str]:
     if not nodes:
         return ()
     return ('--boot-nodes', nodes)
+
+
+class BlockId(typing.NamedTuple):
+    """Stores block’s height and hash.
+
+    The values can be accessed either through properties or by structural
+    deconstruction, e.g.:
+
+        block_height, block_hash = block_id
+        assert block_height == block_id.height
+        assert block_hash == block_id.hash
+
+    Attributes:
+        height: Block’s height.
+        hash: Block’s hash encoding using base58.
+        hash_bytes: Block’s hash decoded as raw bytes.  Note that this attribute
+            cannot be accessed through aforementioned deconstruction.
+    """
+    height: int
+    hash: str
+
+    @property
+    def hash_bytes(self) -> bytes:
+        return base58.b58decode(self.hash.encode('ascii'))
+
+    def __str__(self) -> str:
+        return f'#{self.height} {self.hash}'
 
 
 class BaseNode(object):
@@ -189,19 +218,30 @@ class BaseNode(object):
                              [base64.b64encode(signed_tx).decode('utf8')],
                              timeout=timeout)
 
-    def get_status(self, check_storage=True, timeout=4):
+    def get_status(self,
+                   check_storage: bool = True,
+                   timeout: float = 4,
+                   verbose: bool = False):
         r = requests.get("http://%s:%s/status" % self.rpc_addr(),
                          timeout=timeout)
         r.raise_for_status()
         status = json.loads(r.content)
+        if verbose:
+            logger.info(f'Status: {status}')
         if check_storage and status['sync_info']['syncing'] == False:
             # Storage is not guaranteed to be in consistent state while syncing
             self.check_store()
+        if verbose:
+            logger.info(status)
         return status
 
+    def get_latest_block(self, **kw) -> BlockId:
+        sync_info = self.get_status(**kw)['sync_info']
+        return BlockId(height=sync_info['latest_block_height'],
+                       hash=sync_info['latest_block_hash'])
+
     def get_all_heights(self):
-        status = self.get_status()
-        hash_ = status['sync_info']['latest_block_hash']
+        hash_ = self.get_latest_block().hash
         heights = []
 
         while True:
@@ -219,17 +259,21 @@ class BaseNode(object):
             heights.append(height)
             hash_ = block['result']['header']['prev_hash']
 
-        return list(reversed(heights))
+        return reversed(heights)
 
     def get_validators(self):
         return self.json_rpc('validators', [None])
 
-    def get_account(self, acc, finality='optimistic'):
-        return self.json_rpc('query', {
+    def get_account(self, acc, finality='optimistic', do_assert=True):
+        res = self.json_rpc('query', {
             "request_type": "view_account",
             "account_id": acc,
             "finality": finality
         })
+        if do_assert:
+            assert 'error' not in res, res
+
+        return res
 
     def call_function(self,
                       acc,
@@ -368,6 +412,18 @@ class LocalNode(BaseNode):
         if self._start_proxy is not None:
             self._proxy_local_stopped = self._start_proxy()
 
+    def output_logs(self):
+        stdout = pathlib.Path(self.node_dir) / 'stdout'
+        stderr = pathlib.Path(self.node_dir) / 'stderr'
+        if os.environ.get('BUILDKITE'):
+            logger.info('=== stdout: ')
+            logger.info(stdout.read_text('utf-8', 'replace'))
+            logger.info('=== stderr: ')
+            logger.info(stderr.read_text('utf-8', 'replace'))
+        else:
+            logger.info(f'=== stdout: available at {stdout}')
+            logger.info(f'=== stderr: available at {stderr}')
+
     def start(self, *, boot_node: BootNode = None, skip_starting_proxy=False):
         if self._proxy_local_stopped is not None:
             while self._proxy_local_stopped.value != 2:
@@ -401,11 +457,6 @@ class LocalNode(BaseNode):
         except:
             logger.error(
                 '=== failed to start node, rpc does not ready in 10 seconds')
-            if os.environ.get('BUILDKITE'):
-                logger.info('=== stdout: ')
-                logger.info(stdout.read_text('utf-8', 'replace'))
-                logger.info('=== stderr: ')
-                logger.info(stderr.read_text('utf-8', 'replace'))
 
     def kill(self):
         if self._proxy_local_stopped is not None:
@@ -442,6 +493,8 @@ class LocalNode(BaseNode):
         if os.path.exists(target_path) and os.path.isdir(target_path):
             shutil.rmtree(target_path)
         os.rename(self.node_dir, target_path)
+        self.node_dir = target_path
+        self.output_logs()
         self.cleaned = True
 
     def stop_network(self):
@@ -595,7 +648,6 @@ def spin_up_node(config,
     logger.info("Starting node %s %s" %
                 (ordinal,
                  ('with ' + '='.join(args) if args else 'as BOOT NODE')))
-
     if is_local:
         blacklist = [
             "127.0.0.1:%s" % (24567 + 10 + bl_ordinal)
@@ -647,7 +699,7 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
                 ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
 
     process = subprocess.Popen([
-        os.path.join(near_root, binary_name), "testnet", "--v",
+        os.path.join(near_root, binary_name), "localnet", "--v",
         str(num_nodes), "--shards",
         str(num_shards), "--n",
         str(num_observers), "--prefix", "test"
