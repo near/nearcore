@@ -302,6 +302,7 @@ pub fn apply_chain_range(
     verbose_output: bool,
     csv_file: Option<&mut File>,
     only_contracts: bool,
+    sequential: bool,
 ) {
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(runtime);
     let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height);
@@ -338,7 +339,7 @@ pub fn apply_chain_range(
         );
     };
 
-    if cfg!(feature = "single_threaded") {
+    if sequential {
         range.into_iter().for_each(process_height);
     } else {
         range.into_par_iter().for_each(process_height);
@@ -503,6 +504,7 @@ mod test {
             runtime,
             true,
             Some(file.as_file_mut()),
+            false,
             false,
         );
         let mut csv = String::new();

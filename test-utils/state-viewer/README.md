@@ -40,8 +40,8 @@ Enable debug output to print extra details such as individual outcomes:
 ./target/release/state-viewer ...
 ```
 
-To make more precise time estimations, build the binary with `single_threaded` feature, which will also cause slowdown
-proportional to the number of rayon threads.
+To make more precise time estimations, enable `--sequential` flag, which will also cause slowdown proportional to the 
+number of rayon threads.
 
 #### Running for the whole `mainnet` history
 
