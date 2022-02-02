@@ -60,9 +60,9 @@ impl TrieCache {
                     let accounts = self.account_touches.entry(hash.clone()).or_default();
                     accounts.clear();
                     self.block_touches.insert(hash.clone(), block_hash);
+                    tracing::debug!(target: "trie", hash = %hash, account_id = %account_id);
                     accounts.insert(account_id);
                     let value = self.lru.pop(hash).expect("If position is Lru then value must be presented");
-                    tracing::debug!(target: "trie", hash = %hash, account_id = %account_id);
                     self.fixed.insert(hash.clone(), value);
                 };
                 (Some(value), true)
