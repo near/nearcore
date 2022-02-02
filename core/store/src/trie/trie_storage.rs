@@ -54,7 +54,8 @@ impl TrieCache {
     // (Option<&Vec<u8>>, bool)
     pub fn chargeable_get(&mut self, hash: &CryptoHash) -> (Option<&Vec<u8>>, bool) {
         let active_worker = self.active_worker().clone();
-        match self.get_cache_position(hash).clone() {
+        let cache_position = self.get_cache_position(hash).clone();
+        match cache_position {
             CachePosition::None => (None, true),
             CachePosition::Lru(value) => {
                 if let Some((block_hash, account_id)) = active_worker {
