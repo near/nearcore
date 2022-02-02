@@ -104,7 +104,7 @@ pub fn apply_chain_range(
 
     let all_blocks = end_height - start_height;
 
-    (start_height..=end_height).into_par_iter().for_each(|height| {
+    (start_height..=end_height).into_iter().for_each(|height| {
             let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height);
             let block_hash = match chain_store.get_block_hash_by_height(height) {
                 Ok(block_hash) => block_hash,
