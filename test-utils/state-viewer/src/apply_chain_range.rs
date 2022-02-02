@@ -91,7 +91,7 @@ fn apply_block_from_range(
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     progress_reporter: &ProgressReporter,
     verbose_output: bool,
-    csv_file_mutex: Arc<Mutex<Option<&mut File>>>,
+    csv_file_mutex: &Arc<Mutex<Option<&mut File>>>,
     only_contracts: bool,
 ) {
     let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height);
@@ -141,7 +141,7 @@ fn apply_block_from_range(
                     println!("Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.", height);
                 }
                 maybe_add_to_csv(
-                    &csv_file_mutex,
+                    csv_file_mutex,
                     &format!(
                         "{},{},{},,,{},,{},,",
                         height,
@@ -274,7 +274,7 @@ fn apply_block_from_range(
         }
     };
     maybe_add_to_csv(
-        &csv_file_mutex,
+        csv_file_mutex,
         &format!(
             "{},{},{},{},{},{},{},{},{},{}",
             height,
@@ -334,7 +334,7 @@ pub fn apply_chain_range(
             runtime_adapter.clone(),
             &progress_reporter,
             verbose_output,
-            csv_file_mutex,
+            &csv_file_mutex,
             only_contracts,
         );
     };
