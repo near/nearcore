@@ -79,7 +79,7 @@ impl<'a> RuntimeExt<'a> {
         epoch_info_provider: &'a dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
     ) -> Self {
-        trie_update.update_active_account_id(Some(account_id.clone()));
+        trie_update.update_active_account_id(Some(signer_id.clone()));
         RuntimeExt {
             trie_update,
             account_id,
