@@ -334,6 +334,7 @@ impl TrieCachingStorage {
 
     pub fn update_active_block_hash(&self, hash: &CryptoHash) {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
+        tracing::debug!(target: "runtime", hash = %hash, "update_active_block_hash");
         guard.active_block_hash = Some(hash.clone());
     }
 
