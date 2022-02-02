@@ -41,10 +41,10 @@ enum CachePosition<'a> {
 }
 
 impl TrieCache {
-    fn get_cache_position(&mut self, hash: &CryptoHash) -> CachePosition {
+    fn get_cache_position(&self, hash: &CryptoHash) -> CachePosition {
         match self.fixed.get(hash) {
             Some(value) => CachePosition::Fixed(value),
-            None => match self.lru.get(hash) {
+            None => match self.lru.peek(hash) {
                 Some(value) => CachePosition::Lru(value),
                 None => CachePosition::None
             }
