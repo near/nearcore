@@ -75,7 +75,7 @@ impl TrieCache {
                     }
                     let need_charge = !accounts.contains(&account_id);
                     if need_charge {
-                        tracing::debug!(target: "trie", hash = %hash, account_id = account_id);
+                        tracing::debug!(target: "trie", hash = %hash, account_id = %account_id);
                         accounts.insert(account_id.clone());
                     }
                     need_charge
