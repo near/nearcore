@@ -9,6 +9,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from cluster import start_cluster
 from configured_logger import logger
 
+
 def figure_out_binary():
     config = {
         'local': True,
@@ -28,10 +29,9 @@ def figure_out_binary():
                 config['binary_name'] = exe
                 return config
 
-    assert False, (
-        'Unable to figure out location of neard-sandbox binary; '
-        'Did you forget to run `make sandbox`?'
-    )
+    assert False, ('Unable to figure out location of neard-sandbox binary; '
+                   'Did you forget to run `make sandbox`?')
+
 
 # startup a RPC node
 BLOCKS_TO_FASTFORARD = 10000
@@ -39,14 +39,12 @@ CONFIG = figure_out_binary()
 nodes = start_cluster(1, 0, 1, CONFIG, [["epoch_length", 10]], {})
 
 # request to fast forward
-nodes[0].json_rpc(
-    'sandbox_fast_forward', {
-        "delta_height": BLOCKS_TO_FASTFORARD,
-    }
-)
+nodes[0].json_rpc('sandbox_fast_forward', {
+    "delta_height": BLOCKS_TO_FASTFORARD,
+})
 
 # wait a little for it to fast forward
 time.sleep(3)
 
 # Assert at the end that the node is past the amounts of blocks we specified
-assert(nodes[0].get_latest_block().height > BLOCKS_TO_FASTFORARD)
+assert nodes[0].get_latest_block().height > BLOCKS_TO_FASTFORARD
