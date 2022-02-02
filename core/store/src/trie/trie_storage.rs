@@ -33,6 +33,7 @@ struct TrieCache {
     account_touches: HashMap<CryptoHash, HashSet<AccountId>>,
 }
 
+#[derive(Clone)]
 enum CachePosition<'a> {
     None,
     Lru(&'a Vec<u8>),
