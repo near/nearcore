@@ -472,7 +472,7 @@ mod test {
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, None);
 
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
-        apply_chain_range(store, &genesis, None, None, 0, runtime, true, None, false);
+        apply_chain_range(store, &genesis, None, None, 0, runtime, true, None, false, false);
     }
 
     #[test]
