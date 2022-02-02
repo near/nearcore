@@ -35,8 +35,8 @@ struct ProgressReporter {
 }
 
 impl ProgressReporter {
-    pub fn inc_and_report_progress(self) {
-        let ProgressReporter { cnt, ts, all, skipped } = &self;
+    pub fn inc_and_report_progress(&self) {
+        let ProgressReporter { cnt, ts, all, skipped } = self;
         const PRINT_PER: u64 = 10000;
         let prev = cnt.fetch_add(1, Ordering::Relaxed);
         if (prev + 1) % PRINT_PER == 0 {
