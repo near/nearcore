@@ -71,6 +71,7 @@ struct CliArgs {
     /// Print extra debug information
     #[clap(long, multiple(true), possible_values=&["io", "rocksdb", "least-squares"])]
     debug: Vec<String>,
+    /// Prints hierarchical execution-timing information using the tracing-span-tree crate.
     #[clap(long)]
     tracing_span_tree: bool,
     /// Extra configuration parameters for RocksDB specific estimations
