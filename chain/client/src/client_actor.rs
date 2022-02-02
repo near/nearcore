@@ -358,7 +358,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             ),
                         )
                     }
-                    NetworkSandboxMessage::SandboxFastForward(delta_height) => {
+                    near_network_primitives::types::NetworkSandboxMessage::SandboxFastForward(delta_height) => {
                         self.fastforward_delta = Some(delta_height);
                         NetworkClientResponses::NoResponse
                     }
