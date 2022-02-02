@@ -20,10 +20,8 @@ pub enum Direction {
     Right,
 }
 
-pub fn combine_hash(hash1: MerkleHash, hash2: MerkleHash) -> MerkleHash {
-    let mut combined: Vec<u8> = hash1.into();
-    combined.append(&mut hash2.into());
-    hash(&combined)
+pub fn combine_hash(hash1: &MerkleHash, hash2: &MerkleHash) -> MerkleHash {
+    CryptoHash::hash_borsh(&(hash1, hash2))
 }
 
 /// Merklize an array of items. If the array is empty, returns hash of 0
@@ -69,7 +67,7 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
             } else if 2 * i + 1 >= arr_len {
                 hashes[2 * i]
             } else {
-                combine_hash(hashes[2 * i], hashes[2 * i + 1])
+                combine_hash(&hashes[2 * i], &hashes[2 * i + 1])
             };
             hashes[i] = hash;
             if len > 1 {
@@ -110,10 +108,10 @@ pub fn compute_root_from_path(path: &MerklePath, item_hash: MerkleHash) -> Merkl
     for item in path {
         match item.direction {
             Direction::Left => {
-                res = combine_hash(item.hash, res);
+                res = combine_hash(&item.hash, &res);
             }
             Direction::Right => {
-                res = combine_hash(res, item.hash);
+                res = combine_hash(&res, &item.hash);
             }
         }
     }
@@ -150,7 +148,7 @@ impl PartialMerkleTree {
             let mut res = *self.path.last().unwrap();
             let len = self.path.len();
             for i in (0..len - 1).rev() {
-                res = combine_hash(self.path[i], res);
+                res = combine_hash(&self.path[i], &res);
             }
             res
         }
@@ -161,7 +159,7 @@ impl PartialMerkleTree {
         let mut node = elem;
         while s % 2 == 1 {
             let last_path_elem = self.path.pop().unwrap();
-            node = combine_hash(last_path_elem, node);
+            node = combine_hash(&last_path_elem, &node);
             s /= 2;
         }
         self.path.push(node);
@@ -234,7 +232,7 @@ mod tests {
             let subtree_len = len.next_power_of_two() / 2;
             let left_root = compute_root(&hashes[0..subtree_len]);
             let right_root = compute_root(&hashes[subtree_len..len]);
-            combine_hash(left_root, right_root)
+            combine_hash(&left_root, &right_root)
         }
     }
 
@@ -248,5 +246,19 @@ mod tests {
             hashes.push(cur_hash);
             tree.insert(cur_hash);
         }
+    }
+
+    #[test]
+    fn test_combine_hash_stability() {
+        let a = MerkleHash::default();
+        let b = MerkleHash::default();
+        let cc = combine_hash(&a, &b);
+        assert_eq!(
+            cc.0,
+            [
+                245, 165, 253, 66, 209, 106, 32, 48, 39, 152, 239, 110, 211, 9, 151, 155, 67, 0,
+                61, 35, 32, 217, 240, 232, 234, 152, 49, 169, 39, 89, 251, 75
+            ]
+        );
     }
 }
