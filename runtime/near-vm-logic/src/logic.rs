@@ -165,7 +165,7 @@ impl<'a> VMLogic<'a> {
     }
 
     fn memory_get_vec(&mut self, offset: u64, len: u64) -> Result<Vec<u8>> {
-        tracing::debug!(target: "trie", offset=offset, len=len);
+        // tracing::debug!(target: "trie", offset=offset, len=len);
         self.gas_counter.pay_base(read_memory_base)?;
         self.gas_counter.pay_per(read_memory_byte, len)?;
         self.try_fit_mem(offset, len)?;

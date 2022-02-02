@@ -33,25 +33,25 @@ struct TrieCache {
     account_touches: HashMap<CryptoHash, HashSet<AccountId>>,
 }
 
-enum CachePosition {
+enum CachePosition<'a> {
     None,
-    Lru(Vec<u8>),
-    Fixed(Vec<u8>),
+    Lru(&'a Vec<u8>),
+    Fixed(&'a Vec<u8>),
 }
 
 impl TrieCache {
     fn get_cache_position(&mut self, hash: &CryptoHash) -> CachePosition {
         match self.fixed.get(hash) {
-            Some(value) => CachePosition::Fixed(value.clone()),
+            Some(value) => CachePosition::Fixed(value),
             None => match self.lru.get(hash) {
-                Some(value) => CachePosition::Lru(value.clone()),
+                Some(value) => CachePosition::Lru(value),
                 None => CachePosition::None
             }
         }
     }
 
     // (Option<&Vec<u8>>, bool)
-    pub fn chargeable_get(&mut self, hash: &CryptoHash) -> (Option<Vec<u8>>, bool) {
+    pub fn chargeable_get(&mut self, hash: &CryptoHash) -> (Option<&Vec<u8>>, bool) {
         match self.get_cache_position(hash) {
             CachePosition::None => (None, true),
             CachePosition::Lru(value) => {
@@ -60,9 +60,9 @@ impl TrieCache {
                     accounts.clear();
                     self.block_touches.insert(hash.clone(), block_hash);
                     accounts.insert(account_id);
-                    self.lru.pop(hash);
-                    self.fixed.insert(hash.clone(), value.clone());
-                    // return & to the same value?
+                    let value = self.lru.pop(hash).expect("If position is Lru then value must be presented");
+                    self.fixed.insert(hash.clone(), value);
+                    return (self.fixed.get(&hash), true);
                 };
                 (Some(value), true)
             }
