@@ -613,7 +613,7 @@ impl Trie {
     }
 
     pub(crate) fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
-        tracing::debug_span!(target: "trie", "retrieve_raw_bytes", hash = %hash).entered();
+        let _span = tracing::debug_span!(target: "trie", "retrieve_raw_bytes", hash = %hash).entered();
 
         #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
         if let Some(storage) = self.storage.as_caching_storage() {
