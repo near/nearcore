@@ -86,7 +86,7 @@ fn maybe_add_to_csv(csv_file_mutex: &Mutex<Option<&mut File>>, s: &str) {
 fn apply_block_from_range(
     height: BlockHeight,
     shard_id: ShardId,
-    store: Arc<Store>,
+    store: Store,
     genesis: &Genesis,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     progress_reporter: &ProgressReporter,
@@ -262,7 +262,7 @@ fn apply_block_from_range(
                 println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
             }
             if !smart_equals(&existing_chunk_extra, &chunk_extra) {
-                assert!(false, "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes, old_outcomes(store.clone(), &apply_result.outcomes));
+                assert!(false, "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes, old_outcomes(store, &apply_result.outcomes));
             }
         }
         None => {
@@ -318,7 +318,7 @@ pub fn apply_chain_range(
     let csv_file_mutex = Arc::new(Mutex::new(csv_file));
     maybe_add_to_csv(&csv_file_mutex, "Height,Hash,Author,#Tx,#Receipt,Timestamp,GasUsed,ChunkPresent,#ProcessedDelayedReceipts,#DelayedReceipts");
 
-    let range = (start_height..=end_height);
+    let range = start_height..=end_height;
     let progress_reporter = ProgressReporter {
         cnt: AtomicU64::new(0),
         ts: AtomicU64::new(timestamp()),
@@ -329,7 +329,7 @@ pub fn apply_chain_range(
         apply_block_from_range(
             height,
             shard_id,
-            store,
+            store.clone(),
             genesis,
             runtime_adapter,
             &progress_reporter,
