@@ -331,7 +331,7 @@ pub fn apply_chain_range(
             shard_id,
             store.clone(),
             genesis,
-            runtime_adapter,
+            runtime_adapter.clone(),
             &progress_reporter,
             verbose_output,
             csv_file_mutex,
