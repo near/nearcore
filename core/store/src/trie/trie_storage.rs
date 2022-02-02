@@ -52,10 +52,11 @@ impl TrieCache {
 
     // (Option<&Vec<u8>>, bool)
     pub fn chargeable_get(&mut self, hash: &CryptoHash) -> (Option<&Vec<u8>>, bool) {
-        match self.get_cache_position(hash) {
+        let active_worker = self.active_worker().clone();
+        match self.get_cache_position(hash).clone() {
             CachePosition::None => (None, true),
             CachePosition::Lru(value) => {
-                if let Some((block_hash, account_id)) = self.active_worker() {
+                if let Some((block_hash, account_id)) = active_worker {
                     let accounts = self.account_touches.entry(hash.clone()).or_default();
                     accounts.clear();
                     self.block_touches.insert(hash.clone(), block_hash);
@@ -67,7 +68,7 @@ impl TrieCache {
                 (Some(value), true)
             }
             CachePosition::Fixed(value) => {
-                let need_charge = if let Some((block_hash, account_id)) = self.active_worker() {
+                let need_charge = if let Some((block_hash, account_id)) = active_worker {
                     let recorded_block_hash = self.block_touches.get(hash).expect("If position is fixed then some block must be touched");
                     let accounts = self.account_touches.get_mut(hash).expect("If position is fixed then some account must be touched");
                     if block_hash != *recorded_block_hash {
