@@ -18,12 +18,12 @@ use near_chain::{
 };
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_client_primitives::types::{
-    Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
-    GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
-    GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetNextLightClientBlockError,
-    GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError, GetStateChangesError,
-    GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, QueryError, TxStatus,
-    TxStatusError,
+    Error, GetBlock, GetBlockError, GetBlockHeader, GetBlockProof, GetBlockProofError,
+    GetBlockProofResponse, GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome,
+    GetExecutionOutcomeError, GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError,
+    GetNextLightClientBlockError, GetProtocolConfig, GetProtocolConfigError, GetReceipt,
+    GetReceiptError, GetStateChangesError, GetStateChangesWithCauseInBlock, GetValidatorInfoError,
+    Query, QueryError, TxStatus, TxStatusError,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 #[cfg(feature = "test_features")]
@@ -48,7 +48,7 @@ use near_primitives::types::{
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
+    BlockHeaderView, BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus, GasPriceView,
     LightClientBlockView, QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView,
     StateChangesView,
@@ -569,6 +569,33 @@ impl Handler<GetBlock> for ViewClientActor {
             .get_block_producer(block.header().epoch_id(), block.header().height())?;
 
         Ok(BlockView::from_author_block(block_author, block))
+    }
+}
+
+/// Handles retrieving block header from the chain.
+impl Handler<GetBlockHeader> for ViewClientActor {
+    type Result = Result<BlockHeaderView, GetBlockError>;
+
+    #[perf]
+    fn handle(&mut self, msg: GetBlockHeader, _: &mut Self::Context) -> Self::Result {
+        match msg.0 {
+            BlockReference::Finality(finality) => self
+                .get_block_hash_by_finality(&finality)
+                .and_then(|hash| self.chain.get_block_header(&hash)),
+            BlockReference::BlockId(BlockId::Height(height)) => {
+                self.chain.get_header_by_height(height)
+            }
+            BlockReference::BlockId(BlockId::Hash(hash)) => self.chain.get_block_header(&hash),
+            BlockReference::SyncCheckpoint(sync_checkpoint) => {
+                match self.get_block_hash_by_sync_checkpoint(&sync_checkpoint)? {
+                    None => return Err(GetBlockError::NotSyncedYet),
+                    Some(hash) => self.chain.get_block_header(&hash),
+                }
+            }
+        }
+        .map(Clone::clone)
+        .map(std::convert::Into::into)
+        .map_err(std::convert::Into::into)
     }
 }
 

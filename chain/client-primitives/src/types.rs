@@ -19,7 +19,7 @@ use near_primitives::types::{
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
+    BlockHeaderView, BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
     QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView, StateChangesRequestView,
     StateChangesView,
@@ -168,7 +168,7 @@ impl SyncStatus {
     }
 }
 
-/// Actor message requesting block by id or hash.
+/// Actor message requesting block by id, hash or sync state.
 pub struct GetBlock(pub BlockReference);
 
 #[derive(thiserror::Error, Debug)]
@@ -209,6 +209,16 @@ impl GetBlock {
 
 impl Message for GetBlock {
     type Result = Result<BlockView, GetBlockError>;
+}
+
+/// Actor message requesting block header by id, hash or sync state.  This is
+/// similar to [`GetBlock`] but fewer information is returned.  This is
+/// especially useful because blocks are garbage collected but block headers
+/// aren’t.
+pub struct GetBlockHeader(pub BlockReference);
+
+impl Message for GetBlockHeader {
+    type Result = Result<BlockHeaderView, GetBlockError>;
 }
 
 /// Get block with the block merkle tree. Used for testing
