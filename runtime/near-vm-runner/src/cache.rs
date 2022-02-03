@@ -400,6 +400,7 @@ pub fn precompile_contract(
     current_protocol_version: ProtocolVersion,
     cache: Option<&dyn CompiledContractCache>,
 ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError> {
+    let _span = tracing::debug_span!(target: "vm", "precompile_contract").entered();
     let vm_kind = VMKind::for_protocol_version(current_protocol_version);
     precompile_contract_vm(vm_kind, wasm_code, config, cache)
 }
