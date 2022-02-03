@@ -79,7 +79,7 @@ impl<'a> RuntimeExt<'a> {
         epoch_info_provider: &'a dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
     ) -> Self {
-        trie_update.update_active_account_id(Some(signer_id.clone()));
+        trie_update.flip_caching_chunk_state();
         RuntimeExt {
             trie_update,
             account_id,
@@ -98,7 +98,7 @@ impl<'a> RuntimeExt<'a> {
     }
 
     pub fn stop(&mut self) {
-        self.trie_update.update_active_account_id(None);
+        self.trie_update.flip_caching_chunk_state();
     }
 
     #[inline]
@@ -157,10 +157,6 @@ impl<'a> RuntimeExt<'a> {
     #[inline]
     pub fn protocol_version(&self) -> ProtocolVersion {
         self.current_protocol_version
-    }
-
-    pub fn update_active_account_id(&self, account_id: Option<AccountId>) {
-        self.trie_update.update_active_account_id(account_id);
     }
 }
 

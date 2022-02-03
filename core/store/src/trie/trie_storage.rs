@@ -20,13 +20,8 @@ struct TrieCache {
     cache_state: CacheState,
     shard_cache: LruCache<CryptoHash, Vec<u8>>,
     chunk_cache: HashMap<CryptoHash, Vec<u8>>,
-    // Key hash -> Last recorded block hash
-    block_touches: HashMap<CryptoHash, CryptoHash>,
-    // Key hash -> Vector of accounts which took this key
-    account_touches: HashMap<CryptoHash, HashSet<AccountId>>,
 }
 
-#[derive(Clone)]
 enum CachePosition {
     None,
     ShardCache(Vec<u8>),
@@ -34,8 +29,8 @@ enum CachePosition {
 }
 
 enum CacheState {
-    CachingShard(CryptoHash),
-    CachingChunk(CryptoHash, AccountId),
+    CachingShard,
+    CachingChunk,
 }
 
 impl TrieCache {
@@ -53,33 +48,13 @@ impl TrieCache {
         match self.get_cache_position(hash) {
             CachePosition::None => (None, true),
             CachePosition::ShardCache(value) => {
-                if let CacheState::CachingChunk(block_hash, account_id) = &self.cache_state {
-                    let accounts = self.account_touches.entry(hash.clone()).or_default();
-                    accounts.clear();
-                    self.block_touches.insert(hash.clone(), block_hash.clone());
-                    accounts.insert(account_id.clone());
-                    let value = self.shard_cache.pop(hash).expect("If position is Lru then value must be presented");
+                if let CacheState::CachingChunk = &self.cache_state {
+                    let value = self.shard_cache.pop(hash).expect("If position is ShardCache then value must be presented");
                     self.chunk_cache.insert(hash.clone(), value);
                 };
                 (Some(value), true)
-            }
-            CachePosition::ChunkCache(value) => {
-                let need_charge = if let CacheState::CachingChunk(block_hash, account_id) = &self.cache_state {
-                    let recorded_block_hash = self.block_touches.get(hash).expect("If value is in chunk cache then some block must be touched");
-                    let accounts = self.account_touches.get_mut(hash).expect("If value is in chunk cache then some account must be touched");
-                    if block_hash != recorded_block_hash {
-                        accounts.clear();
-                    }
-                    let need_charge = !accounts.contains(account_id);
-                    if need_charge {
-                        accounts.insert(account_id.clone());
-                    }
-                    need_charge
-                } else {
-                    true
-                };
-                (Some(value), need_charge)
-            }
+            },
+            CachePosition::ChunkCache(value) => (Some(value), false),
         }
     }
 
@@ -89,18 +64,9 @@ impl TrieCache {
             return;
         }
 
-        if let CacheState::CachingChunk(block_hash, account_id) = &self.cache_state {
+        if let CacheState::CachingChunk = &self.cache_state {
             self.shard_cache.pop(&hash);
             self.chunk_cache.insert(hash, value);
-
-            let accounts = self.account_touches.entry(hash.clone()).or_default();
-            if let Some(recorded_block_hash) = self.block_touches.get(&hash) {
-                if block_hash != recorded_block_hash {
-                    accounts.clear();
-                }
-            }
-            self.block_touches.insert(hash.clone(), block_hash.clone());
-            accounts.insert(account_id.clone());
         } else {
             if self.chunk_cache.contains_key(&hash) {
                 self.chunk_cache.insert(hash, value);
@@ -111,8 +77,6 @@ impl TrieCache {
     }
 
     fn pop(&mut self, hash: &CryptoHash) -> Option<Vec<u8>> {
-        self.block_touches.remove(hash);
-        self.account_touches.remove(hash);
         match self.chunk_cache.remove(hash) {
             Some(value) => Some(value),
             None => self.shard_cache.pop(hash),
@@ -120,48 +84,32 @@ impl TrieCache {
     }
 
     fn drain_chunk_cache(&mut self) {
-        for (hash, value) in self.chunk_cache.drain() {
-            self.block_touches.remove(&hash);
-            self.account_touches.remove(&hash);
-            self.shard_cache.put(hash, value);
-        }
+        self.chunk_cache.drain().map(|(hash, value)| self.shard_cache.put(hash, value));
     }
 }
 
 impl SyncTrieCache {
     pub fn new() -> Self {
         Self(Arc::new(Mutex::new(TrieCache {
-            cache_state: CacheState::CachingShard(Default::default()),
+            cache_state: CacheState::CachingShard,
             shard_cache: LruCache::new(TRIE_MAX_CACHE_SIZE),
             chunk_cache: Default::default(),
-            block_touches: Default::default(),
-            account_touches: Default::default(),
         })))
     }
 
     pub fn clear(&self) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
-        guard.cache_state = CacheState::CachingShard(Default::default());
+        guard.cache_state = CacheState::CachingShard;
         guard.shard_cache.clear();
         guard.chunk_cache.clear();
-        guard.block_touches.clear();
-        guard.account_touches.clear();
     }
 
-    pub fn start_caching_chunk_for(&self, account_id: AccountId) {
+    pub fn flip_caching_chunk_state(&self) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
         guard.cache_state = match guard.cache_state {
-            CacheState::CachingShard(block_hash) => CacheState::CachingChunk(block_hash, account_id),
-            _ => unreachable!("Attempted to start caching chunk which was already started"),
-        }
-    }
-
-    pub fn pause_caching_chunk(&self) {
-        let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
-        guard.cache_state = match guard.cache_state {
-            CacheState::CachingChunk(block_hash, _) => CacheState::CachingShard(block_hash),
-            _ => unreachable!("Attempted to pause caching chunk which was not started"),
-        }
+            CacheState::CachingShard => CacheState::CachingChunk,
+            CacheState::CachingChunk => CacheState::CachingShard,
+        };
     }
 
     pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<&Vec<u8>>)>) {
@@ -326,7 +274,7 @@ impl TrieCachingStorage {
 
     pub fn prepare_trie_cache(&self, hash: &CryptoHash) {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
-        guard.cache_state = CacheState::CachingShard(hash.clone());
+        guard.cache_state = CacheState::CachingShard;
         guard.drain_chunk_cache();
     }
 }

@@ -47,9 +47,7 @@ impl<'a> TrieUpdateValuePtr<'a> {
     pub fn deref_value(&self) -> Result<Vec<u8>, StorageError> {
         match self {
             TrieUpdateValuePtr::MemoryRef(value) => Ok((*value).clone()),
-            TrieUpdateValuePtr::HashAndSize(trie, _, hash) => {
-                trie.retrieve_raw_bytes(hash)
-            },
+            TrieUpdateValuePtr::HashAndSize(trie, _, hash) => trie.retrieve_raw_bytes(hash),
         }
     }
 }
@@ -173,12 +171,9 @@ impl TrieUpdate {
         self.root
     }
 
-    pub fn update_active_account_id(&self, account_id: Option<AccountId>) {
+    pub fn flip_caching_chunk_state(&self) {
         if let Some(storage) = self.trie.storage.as_caching_storage() {
-            match account_id {
-                Some(account_id) => storage.cache.start_caching_chunk_for(account_id),
-                None => storage.cache.pause_caching_chunk(),
-            };
+            storage.cache.flip_caching_chunk_state();
         }
     }
 }
