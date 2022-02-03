@@ -38,8 +38,8 @@ impl TrieCache {
             Some(value) => CachePosition::ChunkCache(value.clone()),
             None => match self.shard_cache.get(hash) {
                 Some(value) => CachePosition::ShardCache(value.clone()),
-                None => CachePosition::None
-            }
+                None => CachePosition::None,
+            },
         }
     }
 
@@ -48,11 +48,14 @@ impl TrieCache {
             CachePosition::None => (None, true),
             CachePosition::ShardCache(value) => {
                 if let CacheState::CachingChunk = &self.cache_state {
-                    let value = self.shard_cache.pop(hash).expect("If position is ShardCache then value must be presented");
+                    let value = self
+                        .shard_cache
+                        .pop(hash)
+                        .expect("If position is ShardCache then value must be presented");
                     self.chunk_cache.insert(hash.clone(), value);
                 };
                 (Some(value), true)
-            },
+            }
             CachePosition::ChunkCache(value) => (Some(value), false),
         }
     }
@@ -83,7 +86,9 @@ impl TrieCache {
     }
 
     fn drain_chunk_cache(&mut self) {
-        self.chunk_cache.drain().for_each(|(hash, value)| {self.shard_cache.put(hash, value);});
+        self.chunk_cache.drain().for_each(|(hash, value)| {
+            self.shard_cache.put(hash, value);
+        });
     }
 }
 
