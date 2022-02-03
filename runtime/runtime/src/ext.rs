@@ -395,3 +395,9 @@ impl<'a> External for RuntimeExt<'a> {
             .map_err(|e| ExternalError::ValidatorError(e).into())
     }
 }
+
+impl<'a> Drop for RuntimeExt<'a> {
+    fn drop(&mut self) {
+        self.trie_update.update_active_account_id(None);
+    }
+}
