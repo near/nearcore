@@ -1,5 +1,5 @@
 pub use near_client_primitives::types::{
-    Error, GetBlock, GetBlockHeader, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
+    Error, GetBlock, GetBlockHash, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
     GetChunk, GetExecutionOutcome, GetExecutionOutcomeResponse, GetExecutionOutcomesForBlock,
     GetGasPrice, GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt,
     GetStateChanges, GetStateChangesInBlock, GetStateChangesWithCauseInBlock, GetValidatorInfo,
