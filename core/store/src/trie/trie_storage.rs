@@ -1,4 +1,3 @@
-use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -13,7 +12,6 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::AccountId;
 use std::cell::RefCell;
 use std::io::ErrorKind;
-use crate::trie::trie_storage::CacheState::CachingChunk;
 
 #[derive(Clone)]
 pub struct SyncTrieCache(Arc<Mutex<TrieCache>>);
@@ -62,7 +60,7 @@ impl TrieCache {
         match self.get_cache_position(hash) {
             CachePosition::None => (None, true),
             CachePosition::ShardCache(value) => {
-                if let CachingChunk(block_hash, account_id) = &self.cache_state {
+                if let CacheState::CachingChunk(block_hash, account_id) = &self.cache_state {
                     let accounts = self.account_touches.entry(hash.clone()).or_default();
                     accounts.clear();
                     self.block_touches.insert(hash.clone(), block_hash.clone());
@@ -74,7 +72,7 @@ impl TrieCache {
                 (Some(value), true)
             }
             CachePosition::ChunkCache(value) => {
-                let need_charge = if let CachingChunk(block_hash, account_id) = &self.cache_state {
+                let need_charge = if let CacheState::CachingChunk(block_hash, account_id) = &self.cache_state {
                     let recorded_block_hash = self.block_touches.get(hash).expect("If value is in chunk cache then some block must be touched");
                     let accounts = self.account_touches.get_mut(hash).expect("If value is in chunk cache then some account must be touched");
                     if block_hash != recorded_block_hash {
@@ -100,7 +98,7 @@ impl TrieCache {
             return;
         }
 
-        if let CachingChunk(block_hash, account_id) = &self.cache_state {
+        if let CacheState::CachingChunk(block_hash, account_id) = &self.cache_state {
             self.shard_cache.pop(&hash);
             self.chunk_cache.insert(hash, value);
 
