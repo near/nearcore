@@ -22,7 +22,7 @@ fs2 = "0.4"
 tracing = "0.1"
 borsh = "0.9"
 thiserror = "1"
-lru = "0.6.5"
+lru = "0.7.2"
 
 near-crypto = { path = "../crypto" }
 near-primitives = { path = "../primitives" }

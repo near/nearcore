@@ -50,7 +50,7 @@ use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -65,7 +65,7 @@ const HEAD_STALL_MULTIPLIER: u32 = 4;
 pub struct ClientActor {
     /// Adversarial controls
     #[cfg(feature = "test_features")]
-    pub adv: Arc<RwLock<crate::AdversarialControls>>,
+    pub adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
 
     client: Client,
     network_adapter: Arc<dyn PeerManagerAdapter>,
@@ -122,7 +122,7 @@ impl ClientActor {
         enable_doomslug: bool,
         rng_seed: RngSeed,
         ctx: &Context<ClientActor>,
-        #[cfg(feature = "test_features")] adv: Arc<RwLock<crate::AdversarialControls>>,
+        #[cfg(feature = "test_features")] adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
@@ -982,7 +982,7 @@ impl ClientActor {
             block.mark_as_valid();
         } else {
             let chain = &mut self.client.chain;
-            let res = chain.process_block_header(block.header(), |_| {});
+            let res = chain.process_block_header(block.header(), &mut |_| {});
             let res = res.and_then(|_| chain.validate_block(&block));
             match res {
                 Ok(_) => {
@@ -1393,31 +1393,27 @@ impl ClientActor {
                     StateSyncResult::Completed => {
                         info!(target: "sync", "State sync: all shards are done");
 
-                        let accepted_blocks = Arc::new(RwLock::new(vec![]));
-                        let orphans_missing_chunks = Arc::new(RwLock::new(vec![]));
-                        let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
-                        let challenges = Arc::new(RwLock::new(vec![]));
+                        let mut accepted_blocks = vec![];
+                        let mut orphans_missing_chunks = vec![];
+                        let mut blocks_missing_chunks = vec![];
+                        let mut challenges = vec![];
 
                         unwrap_or_run_later!(self.client.chain.reset_heads_post_state_sync(
                             &me,
                             sync_hash,
-                            |accepted_block| {
-                                accepted_blocks.write().unwrap().push(accepted_block);
+                            &mut |accepted_block| {
+                                accepted_blocks.push(accepted_block);
                             },
-                            |missing_chunks| {
-                                blocks_missing_chunks.write().unwrap().push(missing_chunks)
+                            &mut |missing_chunks| { blocks_missing_chunks.push(missing_chunks) },
+                            &mut |orphan_missing_chunks| {
+                                orphans_missing_chunks.push(orphan_missing_chunks);
                             },
-                            |orphan_missing_chunks| {
-                                orphans_missing_chunks.write().unwrap().push(orphan_missing_chunks);
-                            },
-                            |challenge| challenges.write().unwrap().push(challenge)
+                            &mut |challenge| challenges.push(challenge)
                         ));
 
                         self.client.send_challenges(challenges);
 
-                        self.process_accepted_blocks(
-                            accepted_blocks.write().unwrap().drain(..).collect(),
-                        );
+                        self.process_accepted_blocks(accepted_blocks);
 
                         self.client
                             .request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
@@ -1652,7 +1648,7 @@ pub fn start_client(
     network_adapter: Arc<dyn PeerManagerAdapter>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
-    #[cfg(feature = "test_features")] adv: Arc<RwLock<crate::AdversarialControls>>,
+    #[cfg(feature = "test_features")] adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter_handle = Arbiter::current();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
