@@ -944,6 +944,22 @@ impl Client {
         Ok(())
     }
 
+    #[cfg(feature = "sandbox")]
+    pub fn sandbox_update_tip(&mut self, height: BlockHeight) -> Result<(), Error> {
+        let tip = self.chain.head()?;
+
+        let last_final_hash =
+            *self.chain.get_block_header(&tip.last_block_hash)?.last_final_block();
+        let last_final_height = if last_final_hash == CryptoHash::default() {
+            self.chain.genesis().height()
+        } else {
+            self.chain.get_block_header(&last_final_hash)?.height()
+        };
+        self.doomslug.set_tip(Clock::instant(), tip.last_block_hash, height, last_final_height);
+
+        Ok(())
+    }
+
     pub fn send_approval(
         &mut self,
         parent_hash: &CryptoHash,
