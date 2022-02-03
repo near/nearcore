@@ -286,7 +286,7 @@ fn apply_block_from_range(
             apply_result.total_gas_burnt,
             chunk_present,
             apply_result.processed_delayed_receipts.len(),
-            delayed_indices.map_or(0, |d| d.next_available_index - d.first_index)
+            None, //delayed_indices.map_or(0, |d| d.next_available_index - d.first_index)
         ),
     );
     progress_reporter.inc_and_report_progress();
