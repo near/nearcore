@@ -91,6 +91,7 @@ pub(crate) fn apply_range(
     near_config: NearConfig,
     store: Store,
     only_contracts: bool,
+    sequential: bool,
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
@@ -111,6 +112,7 @@ pub(crate) fn apply_range(
         verbose_output,
         csv_file.as_mut(),
         only_contracts,
+        sequential,
     );
 }
 
