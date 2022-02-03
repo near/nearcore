@@ -40,6 +40,9 @@ Enable debug output to print extra details such as individual outcomes:
 ./target/release/state-viewer ...
 ```
 
+To make more precise time estimations, enable `--sequential` flag, which will also cause slowdown proportional to the 
+number of rayon threads.
+
 #### Running for the whole `mainnet` history
 
 As of today you need approximately 2TB of disk space for the whole history of `mainnet`, and the most practical way of

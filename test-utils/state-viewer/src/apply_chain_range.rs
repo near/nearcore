@@ -27,22 +27,32 @@ fn timestamp() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
 }
 
-fn inc_and_report_progress(cnt: &AtomicU64, ts: &AtomicU64, all: u64, skipped: &AtomicU64) {
-    const PRINT_PER: u64 = 10000;
-    let prev = cnt.fetch_add(1, Ordering::Relaxed);
-    if (prev + 1) % PRINT_PER == 0 {
-        let prev_ts = ts.load(Ordering::Relaxed);
-        let new_ts = timestamp();
-        let per_second = PRINT_PER / (new_ts - prev_ts);
-        ts.store(new_ts, Ordering::Relaxed);
-        let secs_remaining = (all - prev) / per_second;
-        println!(
-            "Processed {} blocks, {} blocks per second ({} skipped), {} secs remaining",
-            prev + 1,
-            per_second,
-            skipped.load(Ordering::Relaxed),
-            secs_remaining
-        );
+struct ProgressReporter {
+    cnt: AtomicU64,
+    ts: AtomicU64,
+    all: u64,
+    skipped: AtomicU64,
+}
+
+impl ProgressReporter {
+    pub fn inc_and_report_progress(&self) {
+        let ProgressReporter { cnt, ts, all, skipped } = self;
+        const PRINT_PER: u64 = 10000;
+        let prev = cnt.fetch_add(1, Ordering::Relaxed);
+        if (prev + 1) % PRINT_PER == 0 {
+            let prev_ts = ts.load(Ordering::Relaxed);
+            let new_ts = timestamp();
+            let per_second = PRINT_PER / (new_ts - prev_ts);
+            ts.store(new_ts, Ordering::Relaxed);
+            let secs_remaining = (all - prev) / per_second;
+            println!(
+                "Processed {} blocks, {} blocks per second ({} skipped), {} secs remaining",
+                prev + 1,
+                per_second,
+                skipped.load(Ordering::Relaxed),
+                secs_remaining
+            );
+        }
     }
 }
 
@@ -73,6 +83,215 @@ fn maybe_add_to_csv(csv_file_mutex: &Mutex<Option<&mut File>>, s: &str) {
     }
 }
 
+fn apply_block_from_range(
+    height: BlockHeight,
+    shard_id: ShardId,
+    store: Store,
+    genesis: &Genesis,
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    progress_reporter: &ProgressReporter,
+    verbose_output: bool,
+    csv_file_mutex: &Arc<Mutex<Option<&mut File>>>,
+    only_contracts: bool,
+) {
+    let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height);
+    let block_hash = match chain_store.get_block_hash_by_height(height) {
+        Ok(block_hash) => block_hash,
+        Err(_) => {
+            // Skipping block because it's not available in ChainStore.
+            progress_reporter.inc_and_report_progress();
+            return;
+        }
+    };
+    let block = chain_store.get_block(&block_hash).unwrap().clone();
+    let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
+    assert!(block.chunks().len() > 0);
+    let mut existing_chunk_extra = None;
+    let mut prev_chunk_extra = None;
+    let mut num_tx = 0;
+    let mut num_receipt = 0;
+    let chunk_present: bool;
+
+    let block_author = runtime_adapter
+        .get_block_producer(block.header().epoch_id(), block.header().height())
+        .unwrap();
+
+    let apply_result = if *block.header().prev_hash() == CryptoHash::default() {
+        if verbose_output {
+            println!("Skipping the genesis block #{}.", height);
+        }
+        progress_reporter.inc_and_report_progress();
+        return;
+    } else if block.chunks()[shard_id as usize].height_included() == height {
+        chunk_present = true;
+        let res_existing_chunk_extra = chain_store.get_chunk_extra(&block_hash, &shard_uid);
+        assert!(
+            res_existing_chunk_extra.is_ok(),
+            "Can't get existing chunk extra for block #{}",
+            height
+        );
+        existing_chunk_extra = Some(res_existing_chunk_extra.unwrap().clone());
+        let chunk =
+            chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap().clone();
+
+        let prev_block = match chain_store.get_block(block.header().prev_hash()) {
+            Ok(prev_block) => prev_block.clone(),
+            Err(_) => {
+                if verbose_output {
+                    println!("Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.", height);
+                }
+                maybe_add_to_csv(
+                    csv_file_mutex,
+                    &format!(
+                        "{},{},{},,,{},,{},,",
+                        height,
+                        block_hash,
+                        block_author,
+                        block.header().raw_timestamp(),
+                        chunk_present
+                    ),
+                );
+                progress_reporter.inc_and_report_progress();
+                return;
+            }
+        };
+
+        let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
+        let receipt_proof_response = chain_store_update
+            .get_incoming_receipts_for_shard(
+                shard_id,
+                block_hash,
+                prev_block.chunks()[shard_id as usize].height_included(),
+            )
+            .unwrap();
+        let receipts = collect_receipts_from_response(&receipt_proof_response);
+
+        let chunk_inner = chunk.cloned_header().take_inner();
+        let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
+            &mut chain_store,
+            runtime_adapter.as_ref(),
+            block.header().prev_hash(),
+            shard_id,
+        )
+        .unwrap();
+
+        num_receipt = receipts.len();
+        num_tx = chunk.transactions().len();
+        if only_contracts {
+            let mut has_contracts = false;
+            for tx in chunk.transactions() {
+                for action in &tx.transaction.actions {
+                    has_contracts = has_contracts
+                        || match action {
+                            Action::FunctionCall(_) | Action::DeployContract(_) => true,
+                            _ => false,
+                        }
+                }
+            }
+            if !has_contracts {
+                progress_reporter.skipped.fetch_add(1, Ordering::Relaxed);
+                return;
+            }
+        }
+        runtime_adapter
+            .apply_transactions(
+                shard_id,
+                chunk_inner.prev_state_root(),
+                height,
+                block.header().raw_timestamp(),
+                block.header().prev_hash(),
+                block.hash(),
+                &receipts,
+                chunk.transactions(),
+                chunk_inner.validator_proposals(),
+                prev_block.header().gas_price(),
+                chunk_inner.gas_limit(),
+                block.header().challenges_result(),
+                *block.header().random_value(),
+                true,
+                is_first_block_with_chunk_of_version,
+                None,
+            )
+            .unwrap()
+    } else {
+        chunk_present = false;
+        let chunk_extra =
+            chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap().clone();
+        prev_chunk_extra = Some(chunk_extra.clone());
+
+        runtime_adapter
+            .apply_transactions(
+                shard_id,
+                chunk_extra.state_root(),
+                block.header().height(),
+                block.header().raw_timestamp(),
+                block.header().prev_hash(),
+                block.hash(),
+                &[],
+                &[],
+                chunk_extra.validator_proposals(),
+                block.header().gas_price(),
+                chunk_extra.gas_limit(),
+                block.header().challenges_result(),
+                *block.header().random_value(),
+                false,
+                false,
+                None,
+            )
+            .unwrap()
+    };
+
+    let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+    let chunk_extra = ChunkExtra::new(
+        &apply_result.new_root,
+        outcome_root,
+        apply_result.validator_proposals,
+        apply_result.total_gas_burnt,
+        genesis.config.gas_limit,
+        apply_result.total_balance_burnt,
+    );
+
+    let state_update =
+        runtime_adapter.get_tries().new_trie_update(shard_uid, *chunk_extra.state_root());
+    let delayed_indices =
+        get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
+
+    match existing_chunk_extra {
+        Some(existing_chunk_extra) => {
+            if verbose_output {
+                println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
+            }
+            if !smart_equals(&existing_chunk_extra, &chunk_extra) {
+                assert!(false, "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes, old_outcomes(store, &apply_result.outcomes));
+            }
+        }
+        None => {
+            assert!(prev_chunk_extra.is_some());
+            assert!(apply_result.outcomes.is_empty());
+            if verbose_output {
+                println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nprev_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, prev_chunk_extra, apply_result.outcomes);
+            }
+        }
+    };
+    maybe_add_to_csv(
+        csv_file_mutex,
+        &format!(
+            "{},{},{},{},{},{},{},{},{},{}",
+            height,
+            block_hash,
+            block_author,
+            num_tx,
+            num_receipt,
+            block.header().raw_timestamp(),
+            apply_result.total_gas_burnt,
+            chunk_present,
+            apply_result.processed_delayed_receipts.len(),
+            delayed_indices.map_or(0, |d| d.next_available_index - d.first_index)
+        ),
+    );
+    progress_reporter.inc_and_report_progress();
+}
+
 pub fn apply_chain_range(
     store: Store,
     genesis: &Genesis,
@@ -83,6 +302,7 @@ pub fn apply_chain_range(
     verbose_output: bool,
     csv_file: Option<&mut File>,
     only_contracts: bool,
+    sequential: bool,
 ) {
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(runtime);
     let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height);
@@ -98,183 +318,32 @@ pub fn apply_chain_range(
     let csv_file_mutex = Arc::new(Mutex::new(csv_file));
     maybe_add_to_csv(&csv_file_mutex, "Height,Hash,Author,#Tx,#Receipt,Timestamp,GasUsed,ChunkPresent,#ProcessedDelayedReceipts,#DelayedReceipts");
 
-    let processed_blocks_cnt = AtomicU64::new(0);
-    let processed_blocks_timestamp = AtomicU64::new(timestamp());
-    let skipped_blocks = AtomicU64::new(0);
+    let range = start_height..=end_height;
+    let progress_reporter = ProgressReporter {
+        cnt: AtomicU64::new(0),
+        ts: AtomicU64::new(timestamp()),
+        all: end_height - start_height,
+        skipped: AtomicU64::new(0),
+    };
+    let process_height = |height| {
+        apply_block_from_range(
+            height,
+            shard_id,
+            store.clone(),
+            genesis,
+            runtime_adapter.clone(),
+            &progress_reporter,
+            verbose_output,
+            &csv_file_mutex,
+            only_contracts,
+        );
+    };
 
-    let all_blocks = end_height - start_height;
-
-    (start_height..=end_height).into_iter().for_each(|height| {
-            let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height);
-            let block_hash = match chain_store.get_block_hash_by_height(height) {
-                Ok(block_hash) => block_hash,
-                Err(_) => {
-                    // Skipping block because it's not available in ChainStore.
-                    inc_and_report_progress(&processed_blocks_cnt, &processed_blocks_timestamp, all_blocks, &skipped_blocks);
-                    return;
-                },
-            };
-            let block = chain_store.get_block(&block_hash).unwrap().clone();
-            let shard_uid =
-                runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
-            assert!(block.chunks().len() > 0);
-            let mut existing_chunk_extra = None;
-            let mut prev_chunk_extra = None;
-            let mut num_tx = 0;
-            let mut num_receipt = 0;
-            let chunk_present: bool;
-
-            let block_author = runtime_adapter.get_block_producer(block.header().epoch_id(), block.header().height()).unwrap();
-
-            let apply_result = if *block.header().prev_hash() == CryptoHash::default() {
-                if verbose_output {
-                    println!("Skipping the genesis block #{}.", height);
-                }
-                inc_and_report_progress(&processed_blocks_cnt,&processed_blocks_timestamp, all_blocks, &skipped_blocks);
-                return;
-            } else if block.chunks()[shard_id as usize].height_included() == height {
-                chunk_present = true;
-                let res_existing_chunk_extra = chain_store.get_chunk_extra(&block_hash, &shard_uid);
-                assert!(res_existing_chunk_extra.is_ok(), "Can't get existing chunk extra for block #{}", height);
-                existing_chunk_extra = Some(res_existing_chunk_extra.unwrap().clone());
-                let chunk = chain_store
-                    .get_chunk(&block.chunks()[shard_id as usize].chunk_hash())
-                    .unwrap()
-                    .clone();
-
-                let prev_block = match chain_store.get_block(block.header().prev_hash()) {
-                    Ok(prev_block) => prev_block.clone(),
-                    Err(_) => {
-                        if verbose_output {
-                            println!("Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.", height);
-                        }
-                        maybe_add_to_csv(&csv_file_mutex, &format!("{},{},{},,,{},,{},,", height, block_hash, block_author, block.header().raw_timestamp(), chunk_present));
-                        inc_and_report_progress(&processed_blocks_cnt, &processed_blocks_timestamp, all_blocks, &skipped_blocks);
-                        return;
-                    },
-                };
-
-                let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
-                let receipt_proof_response = chain_store_update
-                    .get_incoming_receipts_for_shard(
-                        shard_id,
-                        block_hash,
-                        prev_block.chunks()[shard_id as usize].height_included(),
-                    )
-                    .unwrap();
-                let receipts = collect_receipts_from_response(&receipt_proof_response);
-
-                let chunk_inner = chunk.cloned_header().take_inner();
-                let is_first_block_with_chunk_of_version =
-                    check_if_block_is_first_with_chunk_of_version(
-                        &mut chain_store,
-                        runtime_adapter.as_ref(),
-                        block.header().prev_hash(),
-                        shard_id,
-                    )
-                        .unwrap();
-
-                num_receipt = receipts.len();
-                num_tx = chunk.transactions().len();
-                if only_contracts {
-                    let mut has_contracts = false;
-                    for tx in chunk.transactions() {
-                        for action in &tx.transaction.actions {
-                            has_contracts = has_contracts || match action {
-                                Action::FunctionCall(_) | Action::DeployContract(_) => true,
-                                _ => {
-                                    false
-                                }
-                            }
-                        }
-                    }
-                    if !has_contracts {
-                        skipped_blocks.fetch_add(1, Ordering::Relaxed);
-                        return
-                    }
-                }
-                runtime_adapter
-                    .apply_transactions(
-                        shard_id,
-                        chunk_inner.prev_state_root(),
-                        height,
-                        block.header().raw_timestamp(),
-                        block.header().prev_hash(),
-                        block.hash(),
-                        &receipts,
-                        chunk.transactions(),
-                        chunk_inner.validator_proposals(),
-                        prev_block.header().gas_price(),
-                        chunk_inner.gas_limit(),
-                        block.header().challenges_result(),
-                        *block.header().random_value(),
-                        true,
-                        is_first_block_with_chunk_of_version,
-                        None,
-                    )
-                    .unwrap()
-            } else {
-                chunk_present = false;
-                let chunk_extra = chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap().clone();
-                prev_chunk_extra = Some(chunk_extra.clone());
-
-                runtime_adapter
-                    .apply_transactions(
-                        shard_id,
-                        chunk_extra.state_root(),
-                        block.header().height(),
-                        block.header().raw_timestamp(),
-                        block.header().prev_hash(),
-                        block.hash(),
-                        &[],
-                        &[],
-                        chunk_extra.validator_proposals(),
-                        block.header().gas_price(),
-                        chunk_extra.gas_limit(),
-                        block.header().challenges_result(),
-                        *block.header().random_value(),
-                        false,
-                        false,
-                        None,
-                    )
-                    .unwrap()
-            };
-
-            eprintln!("{:?}", apply_result.outcomes);
-            let (outcome_root, _) =
-                ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
-            let chunk_extra = ChunkExtra::new(
-                &apply_result.new_root,
-                outcome_root,
-                apply_result.validator_proposals,
-                apply_result.total_gas_burnt,
-                genesis.config.gas_limit,
-                apply_result.total_balance_burnt,
-            );
-
-            // let state_update = runtime_adapter.get_tries().new_trie_update(shard_uid, *chunk_extra.state_root());
-            let delayed_indices: Option<DelayedReceiptIndices> = None; //get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
-
-        match existing_chunk_extra {
-            Some(existing_chunk_extra) => {
-                if verbose_output {
-                    println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
-                }
-                if !smart_equals(&existing_chunk_extra, &chunk_extra) {
-                    // assert!(false, "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes, old_outcomes(store.clone(), &apply_result.outcomes));
-                }
-            },
-            None => {
-                assert!(prev_chunk_extra.is_some());
-                assert!(apply_result.outcomes.is_empty());
-                if verbose_output {
-                    println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nprev_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, prev_chunk_extra, apply_result.outcomes);
-                }
-            },
-        };
-        maybe_add_to_csv(&csv_file_mutex, &format!("{},{},{},{},{},{},{},{},{},{}", height, block_hash, block_author, num_tx, num_receipt, block.header().raw_timestamp(), apply_result.total_gas_burnt, chunk_present, apply_result.processed_delayed_receipts.len(), delayed_indices.map_or(0,|d|d.next_available_index-d.first_index)));
-        inc_and_report_progress(&processed_blocks_cnt, &processed_blocks_timestamp, all_blocks, &skipped_blocks);
-    });
+    if sequential {
+        range.into_iter().for_each(process_height);
+    } else {
+        range.into_par_iter().for_each(process_height);
+    }
 
     println!(
         "No differences found after applying chunks in the range {}..={} for shard_id {}",
@@ -403,7 +472,7 @@ mod test {
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, None);
 
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
-        apply_chain_range(store, &genesis, None, None, 0, runtime, true, None, false);
+        apply_chain_range(store, &genesis, None, None, 0, runtime, true, None, false, false);
     }
 
     #[test]
@@ -435,6 +504,7 @@ mod test {
             runtime,
             true,
             Some(file.as_file_mut()),
+            false,
             false,
         );
         let mut csv = String::new();
