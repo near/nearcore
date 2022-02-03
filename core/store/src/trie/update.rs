@@ -177,7 +177,7 @@ impl TrieUpdate {
     pub fn update_active_account_id(&self, account_id: Option<AccountId>) {
         // TODO: assert caching storage?
         if let Some(storage) = self.trie.storage.as_caching_storage() {
-            tracing::debug!(target: "runtime", account_id = account_id.map(|a| a.as_str()), "update_active_account_id");
+            tracing::debug!(target: "runtime", account_id = ?account_id, "update_active_account_id");
             storage.cache.update_active_account_id(account_id);
         }
     }
