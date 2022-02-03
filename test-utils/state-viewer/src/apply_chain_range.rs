@@ -240,7 +240,7 @@ fn apply_block_from_range(
             )
             .unwrap()
     };
-
+    tracing::debug!(target: "runtime", outcomes = ?apply_result.outcomes);
     let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
     let chunk_extra = ChunkExtra::new(
         &apply_result.new_root,
