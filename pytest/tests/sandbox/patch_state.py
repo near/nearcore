@@ -7,19 +7,19 @@ import pathlib
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
+import utils
 from cluster import start_cluster
 from transaction import sign_deploy_contract_tx, sign_function_call_tx
-from utils import load_test_contract, figure_out_sandbox_binary
 
-CONFIG = figure_out_sandbox_binary()
+CONFIG = utils.figure_out_sandbox_binary()
 
 # start node
 nodes = start_cluster(1, 0, 1, CONFIG, [["epoch_length", 10]], {})
 
 # deploy contract
 hash_ = nodes[0].get_latest_block().hash_bytes
-tx = sign_deploy_contract_tx(nodes[0].signer_key, load_test_contract(), 10,
-                             hash_)
+tx = sign_deploy_contract_tx(nodes[0].signer_key, utils.load_test_contract(),
+                             10, hash_)
 nodes[0].send_tx(tx)
 time.sleep(3)
 
