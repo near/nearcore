@@ -404,7 +404,7 @@ impl RawTrieNodeWithSize {
 }
 
 pub struct Trie {
-    pub storage: Box<dyn TrieStorage>,
+    pub(crate) storage: Box<dyn TrieStorage>,
     pub counter: TouchedNodesCounter,
 }
 

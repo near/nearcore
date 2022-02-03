@@ -32,7 +32,7 @@ enum CacheState {
     CachingChunk,
 }
 
-pub(crate) enum RetrievalCost {
+pub enum RetrievalCost {
     Free,
     Full,
 }
