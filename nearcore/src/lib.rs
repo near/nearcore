@@ -1,26 +1,27 @@
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
+pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
+use crate::migrations::{
+    migrate_12_to_13, migrate_18_to_19, migrate_19_to_20, migrate_22_to_23, migrate_23_to_24,
+    migrate_24_to_25, migrate_30_to_31,
+};
+pub use crate::runtime::NightshadeRuntime;
+pub use crate::shard_tracker::TrackedConfig;
 use actix::{Actor, Addr, Arbiter};
 use actix_rt::ArbiterHandle;
 use actix_web;
 use anyhow::Context;
-#[cfg(feature = "performance_stats")]
-use near_rust_allocator_proxy::reset_memory_usage_max;
-use tracing::{error, info, trace};
-
 use near_chain::ChainGenesis;
 #[cfg(feature = "test_features")]
 use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
-
 use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_primitives::network::PeerId;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
+#[cfg(feature = "performance_stats")]
+use near_rust_allocator_proxy::reset_memory_usage_max;
+use near_store::db::RocksDB;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
     migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_20_to_21,
@@ -29,14 +30,11 @@ use near_store::migrations::{
 };
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
-
-pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
-use crate::migrations::{
-    migrate_12_to_13, migrate_18_to_19, migrate_19_to_20, migrate_22_to_23, migrate_23_to_24,
-    migrate_24_to_25, migrate_30_to_31,
-};
-pub use crate::runtime::NightshadeRuntime;
-pub use crate::shard_tracker::TrackedConfig;
+use rocksdb::checkpoint::Checkpoint;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tracing::{error, info, trace};
 
 pub mod append_only_map;
 pub mod config;
@@ -81,6 +79,17 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         error!(target: "near", "DB version {} is created by a newer version of neard, please update neard or delete data", db_version);
         std::process::exit(1);
     }
+
+    let db = RocksDB::new(path).expect("Failed to open the database");
+    let checkpoint = Checkpoint::new(&db.db).unwrap();
+    let timestamp = chrono::Utc::now().format("%Y%m%d%H%M%S");
+    let checkpoint_dir = format!("db_snapshot_{}", timestamp);
+    let checkpoint_dir = Path::new(&checkpoint_dir);
+    let checkpoint_path = path;
+    let checkpoint_path = checkpoint_path.join(checkpoint_dir);
+    info!(target:"near","Creating a DB snapshot in {}",checkpoint_path.display());
+    checkpoint.create_checkpoint(checkpoint_path).unwrap();
+
     if db_version == near_primitives::version::DB_VERSION {
         return;
     }

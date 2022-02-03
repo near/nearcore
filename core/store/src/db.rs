@@ -439,7 +439,7 @@ impl DBTransaction {
 }
 
 pub struct RocksDB {
-    db: DB,
+    pub db: DB,
     cfs: Vec<*const ColumnFamily>,
 
     check_free_space_counter: std::sync::atomic::AtomicU16,

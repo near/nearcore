@@ -3249,6 +3249,7 @@ dependencies = [
  "primitive-types",
  "rand 0.7.3",
  "rayon",
+ "rocksdb",
  "serde",
  "serde_json",
  "smart-default",
