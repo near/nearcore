@@ -77,10 +77,10 @@ impl TrieCache {
                 let need_charge = if let CachingChunk(block_hash, account_id) = &self.cache_state {
                     let recorded_block_hash = self.block_touches.get(hash).expect("If value is in chunk cache then some block must be touched");
                     let accounts = self.account_touches.get_mut(hash).expect("If value is in chunk cache then some account must be touched");
-                    if block_hash != *recorded_block_hash {
+                    if block_hash != recorded_block_hash {
                         accounts.clear();
                     }
-                    let need_charge = !accounts.contains(&account_id);
+                    let need_charge = !accounts.contains(account_id);
                     if need_charge {
                         tracing::debug!(target: "trie", hash = %hash, account_id = %account_id);
                         accounts.insert(account_id.clone());
@@ -106,7 +106,7 @@ impl TrieCache {
 
             let accounts = self.account_touches.entry(hash.clone()).or_default();
             if let Some(recorded_block_hash) = self.block_touches.get(&hash) {
-                if block_hash != *recorded_block_hash {
+                if block_hash != recorded_block_hash {
                     accounts.clear();
                 }
             }
@@ -164,7 +164,7 @@ impl SyncTrieCache {
     pub fn start_caching_chunk_for(&self, account_id: AccountId) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
         guard.cache_state = match guard.cache_state {
-            CacheState::CachingShard(block_hash) => CacheState::CachingChunk(block_hash, account_id);
+            CacheState::CachingShard(block_hash) => CacheState::CachingChunk(block_hash, account_id),
             _ => unreachable!("Attempted to start caching chunk which was already started"),
         }
     }
