@@ -18,9 +18,7 @@ use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 pub(crate) use crate::trie::trie_storage::{SyncTrieCache, TrieCachingStorage};
-use crate::trie::trie_storage::{
-    TouchedNodesCounter, TrieMemoryPartialStorage, TrieRecordingStorage, TrieStorage,
-};
+use crate::trie::trie_storage::{RetrievalCost, TouchedNodesCounter, TrieMemoryPartialStorage, TrieRecordingStorage, TrieStorage};
 use crate::StorageError;
 
 mod insert_delete;
@@ -612,18 +610,19 @@ impl Trie {
     }
 
     pub(crate) fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
-        #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
-        if let Some(storage) = self.storage.as_caching_storage() {
-            return storage.chargeable_retrieve_raw_bytes(hash).map(|(value, need_charge)| {
-                if need_charge {
-                    self.counter.increment();
-                }
-                value
-            });
-        }
+        return self.storage.chargeable_retrieve_raw_bytes(hash).map(|(value, cost)| {
+            #[cfg(not(feature = "protocol_feature_chunk_nodes_cache"))]
+            self.counter.increment();
 
-        self.counter.increment();
-        self.storage.retrieve_raw_bytes(hash)
+            #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
+            match cost {
+                RetrievalCost::Full => {
+                    self.counter.increment()
+                },
+                RetrievalCost::Free => {},
+            }
+            value
+        })
     }
 
     pub fn retrieve_root_node(&self, root: &StateRoot) -> Result<StateRootNode, StorageError> {
