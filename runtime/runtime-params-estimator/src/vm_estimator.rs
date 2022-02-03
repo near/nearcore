@@ -1,6 +1,6 @@
 use crate::config::GasMetric;
 use crate::gas_cost::GasCost;
-use crate::{read_resource, REAL_CONTRACTS_SAMPLE};
+use crate::{utils::read_resource, REAL_CONTRACTS_SAMPLE};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::types::CompiledContractCache;
@@ -98,7 +98,8 @@ fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (GasCost, GasC
         ys.push(measure_contract(vm_kind, gas_metric, &contract, cache));
     }
 
-    let (a, b) = GasCost::least_squares_method_gas_cost(&xs, &ys);
+    let (a, b) =
+        GasCost::least_squares_method_gas_cost(&xs, &ys).expect("Returned negative parameters");
 
     // We multiply `b` by 5/4 to accommodate for the fact that test contracts are typically 80% code,
     // so in the worst case it could grow to 100% and our costs still give better upper estimation.

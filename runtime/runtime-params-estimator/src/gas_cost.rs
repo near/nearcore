@@ -8,7 +8,7 @@ use num_traits::ToPrimitive;
 
 use crate::config::GasMetric;
 use crate::estimator_params::{GAS_IN_INSTR, GAS_IN_NS, IO_READ_BYTE_COST, IO_WRITE_BYTE_COST};
-use crate::least_squares_method;
+use crate::least_squares::least_squares_method;
 use crate::qemu::QemuMeasurement;
 
 /// Result of cost estimation.
@@ -80,68 +80,113 @@ impl GasCost {
     }
 
     /// Performs least squares using a separate variable for each component of the gas cost.
-    pub(crate) fn least_squares_method_gas_cost(xs: &Vec<u64>, ys: &Vec<Self>) -> (Self, Self) {
+    ///
+    /// Least-squares linear regression is able to produce negative parameters
+    /// even when all input values are negative. However, negative gas costs
+    /// make no sense for us. What we really want to solve is non-negative least
+    /// squares (NNLS) but that is algorithmically much more complex. Instead,
+    /// when we do get negative values, we return (A,B), where A has negative
+    /// values set to zero and B contains the values so that solution = A-B.
+    pub(crate) fn least_squares_method_gas_cost(
+        xs: &[u64],
+        ys: &[Self],
+    ) -> Result<(Self, Self), ((Self, Self), (Self, Self))> {
         let metric = ys[0].metric;
         let uncertain = ys.iter().any(|y| y.uncertain);
 
-        let base;
-        let factor;
+        let mut t = (0.into(), 0.into(), vec![]);
+        let mut i = (0.into(), 0.into(), vec![]);
+        let mut r = (0.into(), 0.into(), vec![]);
+        let mut w = (0.into(), 0.into(), vec![]);
+
         match metric {
             GasMetric::ICount => {
-                let (i_base, i_factor, _) = least_squares_method(
+                i = least_squares_method(
                     xs,
-                    &ys.iter().map(|gas_cost| gas_cost.instructions.to_u64().unwrap()).collect(),
+                    &ys.iter()
+                        .map(|gas_cost| gas_cost.instructions.to_u64().unwrap())
+                        .collect::<Vec<_>>(),
                 );
-                let (r_base, r_factor, _) = least_squares_method(
+                r = least_squares_method(
                     xs,
-                    &ys.iter().map(|gas_cost| gas_cost.io_r_bytes.to_u64().unwrap()).collect(),
+                    &ys.iter()
+                        .map(|gas_cost| gas_cost.io_r_bytes.to_u64().unwrap())
+                        .collect::<Vec<_>>(),
                 );
-                let (w_base, w_factor, _) = least_squares_method(
+                w = least_squares_method(
                     xs,
-                    &ys.iter().map(|gas_cost| gas_cost.io_w_bytes.to_u64().unwrap()).collect(),
+                    &ys.iter()
+                        .map(|gas_cost| gas_cost.io_w_bytes.to_u64().unwrap())
+                        .collect::<Vec<_>>(),
                 );
-                base = GasCost {
-                    time_ns: 0.into(),
-                    instructions: i_base.to_u64().unwrap().into(),
-                    io_r_bytes: r_base.to_u64().unwrap().into(),
-                    io_w_bytes: w_base.to_u64().unwrap().into(),
-                    metric,
-                    uncertain,
-                };
-                factor = GasCost {
-                    time_ns: 0.into(),
-                    instructions: i_factor.to_u64().unwrap().into(),
-                    io_r_bytes: r_factor.to_u64().unwrap().into(),
-                    io_w_bytes: w_factor.to_u64().unwrap().into(),
-                    metric,
-                    uncertain,
-                };
             }
             GasMetric::Time => {
-                let (t_base, t_factor, _) = least_squares_method(
+                t = least_squares_method(
                     xs,
-                    &ys.iter().map(|gas_cost| gas_cost.time_ns.to_u64().unwrap()).collect(),
+                    &ys.iter()
+                        .map(|gas_cost| gas_cost.time_ns.to_u64().unwrap())
+                        .collect::<Vec<_>>(),
                 );
-                base = GasCost {
-                    time_ns: t_base.to_u64().unwrap_or(0).into(),
-                    instructions: 0.into(),
-                    io_r_bytes: 0.into(),
-                    io_w_bytes: 0.into(),
-                    metric,
-                    uncertain,
-                };
-                factor = GasCost {
-                    time_ns: t_factor.to_u64().unwrap().into(),
-                    instructions: 0.into(),
-                    io_r_bytes: 0.into(),
-                    io_w_bytes: 0.into(),
-                    metric,
-                    uncertain,
-                };
             }
         }
-        (base, factor)
+
+        let (pos_t_base, neg_t_base) = split_pos_neg(t.0);
+        let (pos_i_base, neg_i_base) = split_pos_neg(i.0);
+        let (pos_r_base, neg_r_base) = split_pos_neg(r.0);
+        let (pos_w_base, neg_w_base) = split_pos_neg(w.0);
+
+        let (pos_t_factor, neg_t_factor) = split_pos_neg(t.1);
+        let (pos_i_factor, neg_i_factor) = split_pos_neg(i.1);
+        let (pos_r_factor, neg_r_factor) = split_pos_neg(r.1);
+        let (pos_w_factor, neg_w_factor) = split_pos_neg(w.1);
+
+        let neg_base = GasCost {
+            time_ns: neg_t_base,
+            instructions: neg_i_base,
+            io_r_bytes: neg_r_base,
+            io_w_bytes: neg_w_base,
+            metric,
+            uncertain,
+        };
+        let neg_factor = GasCost {
+            time_ns: neg_t_factor,
+            instructions: neg_i_factor,
+            io_r_bytes: neg_r_factor,
+            io_w_bytes: neg_w_factor,
+            metric,
+            uncertain,
+        };
+        let pos_base = GasCost {
+            time_ns: pos_t_base,
+            instructions: pos_i_base,
+            io_r_bytes: pos_r_base,
+            io_w_bytes: pos_w_base,
+            metric,
+            uncertain,
+        };
+        let pos_factor = GasCost {
+            time_ns: pos_t_factor,
+            instructions: pos_i_factor,
+            io_r_bytes: pos_r_factor,
+            io_w_bytes: pos_w_factor,
+            metric,
+            uncertain,
+        };
+
+        if neg_base.to_gas() == 0 && neg_factor.to_gas() == 0 {
+            Ok((pos_base, pos_factor))
+        } else {
+            Err(((pos_base, pos_factor), (neg_base, neg_factor)))
+        }
     }
+}
+
+/// Transforms input C into two components, where A,B are non-negative and where A-B ~= input.
+/// This method intentionally rounds fractions to whole integers, rounding towards zero.
+fn split_pos_neg(num: Ratio<i128>) -> (Ratio<u64>, Ratio<u64>) {
+    let pos = num.to_integer().to_u64().unwrap_or_default().into();
+    let neg = (-num).to_integer().to_u64().unwrap_or_default().into();
+    (pos, neg)
 }
 
 impl GasClock {
@@ -269,5 +314,150 @@ impl GasCost {
             GasMetric::Time => self.time_ns * GAS_IN_NS,
         }
         .to_integer()
+    }
+}
+
+#[cfg(test)]
+impl GasCost {
+    fn new_time_based(time_ns: impl Into<Ratio<u64>>) -> Self {
+        let mut result = GasCost::zero(GasMetric::Time);
+        result.time_ns = time_ns.into();
+        result
+    }
+    fn new_icount_based(
+        instructions: impl Into<Ratio<u64>>,
+        io_r_bytes: impl Into<Ratio<u64>>,
+        io_w_bytes: impl Into<Ratio<u64>>,
+    ) -> Self {
+        let mut result = GasCost::zero(GasMetric::ICount);
+        result.instructions = instructions.into();
+        result.io_r_bytes = io_r_bytes.into();
+        result.io_w_bytes = io_w_bytes.into();
+        result
+    }
+}
+
+#[test]
+fn least_squares_method_gas_cost_time_ok() {
+    let xs = [10, 20, 30];
+
+    let ys = [
+        GasCost::new_time_based(10_050),
+        GasCost::new_time_based(20_050),
+        GasCost::new_time_based(30_050),
+    ];
+
+    match GasCost::least_squares_method_gas_cost(&xs, &ys) {
+        Ok((a, b)) => {
+            assert_eq!(a, GasCost::new_time_based(50));
+            assert_eq!(b, GasCost::new_time_based(1000));
+        }
+        Err(((_, _), (a, b))) => {
+            panic!("Least squares got negative values where it shouldn't. Negative parts: a={:?} b={:?}", a, b)
+        }
+    }
+}
+
+#[test]
+fn least_squares_method_gas_cost_time_neg_base() {
+    let xs = [10, 20, 30];
+
+    let ys = [
+        GasCost::new_time_based(9_950),
+        GasCost::new_time_based(19_950),
+        GasCost::new_time_based(29_950),
+    ];
+
+    match GasCost::least_squares_method_gas_cost(&xs, &ys) {
+        Err(((a_pos, b_pos), (a_neg, b_neg))) => {
+            assert_eq!(a_pos, GasCost::new_time_based(0));
+            assert_eq!(a_neg, GasCost::new_time_based(50));
+
+            assert_eq!(b_pos, GasCost::new_time_based(1000));
+            assert_eq!(b_neg, GasCost::new_time_based(0));
+        }
+        Ok(_) => panic!("Least squares got no negative values where it should have."),
+    }
+}
+#[test]
+fn least_squares_method_gas_cost_time_neg_factor() {
+    let xs = [10, 20, 30];
+
+    let ys =
+        [GasCost::new_time_based(990), GasCost::new_time_based(980), GasCost::new_time_based(970)];
+
+    match GasCost::least_squares_method_gas_cost(&xs, &ys) {
+        Err(((a_pos, b_pos), (a_neg, b_neg))) => {
+            assert_eq!(a_pos, GasCost::new_time_based(1000));
+            assert_eq!(a_neg, GasCost::new_time_based(0));
+
+            assert_eq!(b_pos, GasCost::new_time_based(0));
+            assert_eq!(b_neg, GasCost::new_time_based(1));
+        }
+        Ok(_) => panic!("Least squares got no negative values where it should have."),
+    }
+}
+
+#[test]
+fn least_squares_method_gas_cost_icount_ok() {
+    let xs = [10, 20, 30];
+
+    let ys = [
+        GasCost::new_icount_based(10_050, 20_060, 30_070),
+        GasCost::new_icount_based(20_050, 40_060, 60_070),
+        GasCost::new_icount_based(30_050, 60_060, 90_070),
+    ];
+
+    match GasCost::least_squares_method_gas_cost(&xs, &ys) {
+        Ok((a, b)) => {
+            assert_eq!(a, GasCost::new_icount_based(50, 60, 70));
+            assert_eq!(b, GasCost::new_icount_based(1000, 2000, 3000));
+        }
+        Err(((_, _), (a, b))) => {
+            panic!("Least squares got negative values where it shouldn't. Negative parts: a={:?} b={:?}", a, b)
+        }
+    }
+}
+
+#[test]
+fn least_squares_method_gas_cost_icount_neg_base() {
+    let xs = [10, 20, 30];
+
+    let ys = [
+        GasCost::new_icount_based(9_950, 19_960, 29_970),
+        GasCost::new_icount_based(19_950, 39_960, 59_970),
+        GasCost::new_icount_based(29_950, 59_960, 89_970),
+    ];
+
+    match GasCost::least_squares_method_gas_cost(&xs, &ys) {
+        Err(((a_pos, b_pos), (a_neg, b_neg))) => {
+            assert_eq!(a_pos, GasCost::new_icount_based(0, 0, 0));
+            assert_eq!(a_neg, GasCost::new_icount_based(50, 40, 30));
+
+            assert_eq!(b_pos, GasCost::new_icount_based(1000, 2000, 3000));
+            assert_eq!(b_neg, GasCost::new_icount_based(0, 0, 0));
+        }
+        Ok(_) => panic!("Least squares got no negative values where it should have."),
+    }
+}
+#[test]
+fn least_squares_method_gas_cost_icount_neg_factor() {
+    let xs = [10, 20, 30];
+
+    let ys = [
+        GasCost::new_icount_based(990, 981, 972),
+        GasCost::new_icount_based(980, 961, 942),
+        GasCost::new_icount_based(970, 941, 912),
+    ];
+
+    match GasCost::least_squares_method_gas_cost(&xs, &ys) {
+        Err(((a_pos, b_pos), (a_neg, b_neg))) => {
+            assert_eq!(a_pos, GasCost::new_icount_based(1000, 1001, 1002));
+            assert_eq!(a_neg, GasCost::new_icount_based(0, 0, 0));
+
+            assert_eq!(b_pos, GasCost::new_icount_based(0, 0, 0));
+            assert_eq!(b_neg, GasCost::new_icount_based(1, 2, 3));
+        }
+        Ok(_) => panic!("Least squares got no negative values where it should have."),
     }
 }
