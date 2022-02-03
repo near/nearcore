@@ -253,7 +253,7 @@ fn apply_block_from_range(
 
     // let state_update =
     //     runtime_adapter.get_tries().new_trie_update(shard_uid, *chunk_extra.state_root());
-    // let delayed_indices =
+    let delayed_indices: Option<DelayedReceiptIndices> = None;
     //     get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
 
     match existing_chunk_extra {
@@ -286,7 +286,7 @@ fn apply_block_from_range(
             apply_result.total_gas_burnt,
             chunk_present,
             apply_result.processed_delayed_receipts.len(),
-            None, //delayed_indices.map_or(0, |d| d.next_available_index - d.first_index)
+            delayed_indices.map_or(0, |d| d.next_available_index - d.first_index)
         ),
     );
     progress_reporter.inc_and_report_progress();

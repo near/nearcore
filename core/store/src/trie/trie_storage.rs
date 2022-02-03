@@ -114,7 +114,7 @@ impl TrieCache {
                 }
             }
             self.block_touches.insert(hash.clone(), active_block_hash);
-            tracing::debug!(target: "trie", hash = %hash, account_id = %active_account_id);
+            tracing::debug!(target: "trie", hash = %hash, account_id = active_account_id.as_str());
             accounts.insert(active_account_id);
         } else {
             if self.fixed.contains_key(&hash) {
