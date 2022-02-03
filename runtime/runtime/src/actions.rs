@@ -29,7 +29,6 @@ use near_vm_errors::{
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{VMContext, VMOutcome};
-use tracing::debug;
 
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::{ExternalError, RuntimeExt};
