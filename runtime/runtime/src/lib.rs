@@ -1187,7 +1187,7 @@ impl Runtime {
         let initial_state = TrieUpdate::new(trie.clone(), root);
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         if let Some(storage) = trie.storage.as_caching_storage() {
-            storage.update_active_block_hash(&apply_state.block_hash);
+            storage.prepare_trie_cache(&apply_state.block_hash);
         }
         let mut stats = ApplyStats::default();
 
@@ -1371,9 +1371,6 @@ impl Runtime {
             self.apply_state_patches(&mut state_update, patch);
         }
 
-        if let Some(storage) = trie.storage.as_caching_storage() {
-            storage.flush_fixed_cache();
-        }
         let (trie_changes, state_changes) = state_update.finalize()?;
 
         // Dedup proposals from the same account.

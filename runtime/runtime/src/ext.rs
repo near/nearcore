@@ -97,6 +97,10 @@ impl<'a> RuntimeExt<'a> {
         }
     }
 
+    pub fn stop(&mut self) {
+        self.trie_update.update_active_account_id(None);
+    }
+
     #[inline]
     pub fn account_id(&self) -> &'a AccountId {
         self.account_id
@@ -393,11 +397,5 @@ impl<'a> External for RuntimeExt<'a> {
         self.epoch_info_provider
             .validator_total_stake(self.epoch_id, self.prev_block_hash)
             .map_err(|e| ExternalError::ValidatorError(e).into())
-    }
-}
-
-impl<'a> Drop for RuntimeExt<'a> {
-    fn drop(&mut self) {
-        self.trie_update.update_active_account_id(None);
     }
 }

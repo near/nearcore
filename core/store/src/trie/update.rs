@@ -178,7 +178,10 @@ impl TrieUpdate {
         // TODO: assert caching storage?
         if let Some(storage) = self.trie.storage.as_caching_storage() {
             tracing::debug!(target: "runtime", account_id = ?account_id, "update_active_account_id");
-            storage.cache.update_active_account_id(account_id);
+            match account_id {
+                Some(account_id) => storage.cache.start_caching_chunk_for(account_id),
+                None => storage.cache.pause_caching_chunk(),
+            };
         }
     }
 }

@@ -1,3 +1,4 @@
+use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -12,6 +13,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::AccountId;
 use std::cell::RefCell;
 use std::io::ErrorKind;
+use crate::trie::trie_storage::CacheState::CachingChunk;
 
 #[derive(Clone)]
 pub struct SyncTrieCache(Arc<Mutex<TrieCache>>);
@@ -23,10 +25,9 @@ pub struct SyncTrieCache(Arc<Mutex<TrieCache>>);
 // }
 
 struct TrieCache {
-    lru: LruCache<CryptoHash, Vec<u8>>,
-    fixed: HashMap<CryptoHash, Vec<u8>>,
-    active_block_hash: Option<CryptoHash>,
-    active_account_id: Option<AccountId>,
+    cache_state: CacheState,
+    shard_cache: LruCache<CryptoHash, Vec<u8>>,
+    chunk_cache: HashMap<CryptoHash, Vec<u8>>,
     // Key hash -> Last recorded block hash
     block_touches: HashMap<CryptoHash, CryptoHash>,
     // Key hash -> Vector of accounts which took this key
@@ -36,16 +37,21 @@ struct TrieCache {
 #[derive(Clone)]
 enum CachePosition {
     None,
-    Lru(Vec<u8>),
-    Fixed(Vec<u8>),
+    ShardCache(Vec<u8>),
+    ChunkCache(Vec<u8>),
+}
+
+enum CacheState {
+    CachingShard(CryptoHash),
+    CachingChunk(CryptoHash, AccountId),
 }
 
 impl TrieCache {
     fn get_cache_position(&mut self, hash: &CryptoHash) -> CachePosition {
-        match self.fixed.get(hash) {
-            Some(value) => CachePosition::Fixed(value.clone()),
-            None => match self.lru.get(hash) {
-                Some(value) => CachePosition::Lru(value.clone()),
+        match self.chunk_cache.get(hash) {
+            Some(value) => CachePosition::ChunkCache(value.clone()),
+            None => match self.shard_cache.get(hash) {
+                Some(value) => CachePosition::ShardCache(value.clone()),
                 None => CachePosition::None
             }
         }
@@ -55,22 +61,22 @@ impl TrieCache {
     pub fn chargeable_get(&mut self, hash: &CryptoHash) -> (Option<Vec<u8>>, bool) {
         match self.get_cache_position(hash) {
             CachePosition::None => (None, true),
-            CachePosition::Lru(value) => {
-                if let Some((block_hash, account_id)) = self.active_worker() {
+            CachePosition::ShardCache(value) => {
+                if let CachingChunk(block_hash, account_id) = &self.cache_state {
                     let accounts = self.account_touches.entry(hash.clone()).or_default();
                     accounts.clear();
-                    self.block_touches.insert(hash.clone(), block_hash);
+                    self.block_touches.insert(hash.clone(), block_hash.clone());
                     tracing::debug!(target: "trie", hash = %hash, account_id = %account_id);
-                    accounts.insert(account_id);
-                    let value = self.lru.pop(hash).expect("If position is Lru then value must be presented");
-                    self.fixed.insert(hash.clone(), value);
+                    accounts.insert(account_id.clone());
+                    let value = self.shard_cache.pop(hash).expect("If position is Lru then value must be presented");
+                    self.chunk_cache.insert(hash.clone(), value);
                 };
                 (Some(value), true)
             }
-            CachePosition::Fixed(value) => {
-                let need_charge = if let Some((block_hash, account_id)) = self.active_worker() {
-                    let recorded_block_hash = self.block_touches.get(hash).expect("If position is fixed then some block must be touched");
-                    let accounts = self.account_touches.get_mut(hash).expect("If position is fixed then some account must be touched");
+            CachePosition::ChunkCache(value) => {
+                let need_charge = if let CachingChunk(block_hash, account_id) = &self.cache_state {
+                    let recorded_block_hash = self.block_touches.get(hash).expect("If value is in chunk cache then some block must be touched");
+                    let accounts = self.account_touches.get_mut(hash).expect("If value is in chunk cache then some account must be touched");
                     if block_hash != *recorded_block_hash {
                         accounts.clear();
                     }
@@ -88,39 +94,30 @@ impl TrieCache {
         }
     }
 
-    fn active_worker(&self) -> Option<(CryptoHash, AccountId)> {
-        if let Some(block_hash) = &self.active_block_hash {
-            if let Some(account_id) = &self.active_account_id {
-                return Some((block_hash.clone(), account_id.clone()));
-            }
-        }
-        None
-    }
-
     fn put(&mut self, hash: CryptoHash, value: Vec<u8>) {
         // TODO: put TRIE_LIMIT_CACHED_VALUE_SIZE to runtime config
         if value.len() >= TRIE_LIMIT_CACHED_VALUE_SIZE {
             return;
         }
 
-        if let Some((active_block_hash, active_account_id)) = self.active_worker() {
-            self.lru.pop(&hash);
-            self.fixed.insert(hash, value);
+        if let CachingChunk(block_hash, account_id) = &self.cache_state {
+            self.shard_cache.pop(&hash);
+            self.chunk_cache.insert(hash, value);
 
             let accounts = self.account_touches.entry(hash.clone()).or_default();
             if let Some(recorded_block_hash) = self.block_touches.get(&hash) {
-                if active_block_hash != *recorded_block_hash {
+                if block_hash != *recorded_block_hash {
                     accounts.clear();
                 }
             }
-            self.block_touches.insert(hash.clone(), active_block_hash);
-            tracing::debug!(target: "trie", hash = %hash, account_id = active_account_id.as_str());
-            accounts.insert(active_account_id);
+            self.block_touches.insert(hash.clone(), block_hash.clone());
+            tracing::debug!(target: "trie", hash = %hash, account_id = account_id.as_str());
+            accounts.insert(account_id.clone());
         } else {
-            if self.fixed.contains_key(&hash) {
-                self.fixed.insert(hash, value);
+            if self.chunk_cache.contains_key(&hash) {
+                self.chunk_cache.insert(hash, value);
             } else {
-                self.lru.put(hash, value);
+                self.shard_cache.put(hash, value);
             }
         }
     }
@@ -128,17 +125,17 @@ impl TrieCache {
     fn pop(&mut self, hash: &CryptoHash) -> Option<Vec<u8>> {
         self.block_touches.remove(hash);
         self.account_touches.remove(hash);
-        match self.fixed.remove(hash) {
+        match self.chunk_cache.remove(hash) {
             Some(value) => Some(value),
-            None => self.lru.pop(hash),
+            None => self.shard_cache.pop(hash),
         }
     }
 
-    fn flush_fixed(&mut self) {
-        for (hash, value) in self.fixed.drain() {
+    fn drain_chunk_cache(&mut self) {
+        for (hash, value) in self.chunk_cache.drain() {
             self.block_touches.remove(&hash);
             self.account_touches.remove(&hash);
-            self.lru.put(hash, value);
+            self.shard_cache.put(hash, value);
         }
     }
 }
@@ -147,10 +144,9 @@ impl SyncTrieCache {
     pub fn new() -> Self {
         // Self(Arc::new(Mutex::new(LruCache::new(TRIE_MAX_CACHE_SIZE))))
         Self(Arc::new(Mutex::new(TrieCache {
-            lru: LruCache::new(TRIE_MAX_CACHE_SIZE),
-            fixed: Default::default(),
-            active_block_hash: None,
-            active_account_id: None,
+            cache_state: CacheState::CachingShard(Default::default()),
+            shard_cache: LruCache::new(TRIE_MAX_CACHE_SIZE),
+            chunk_cache: Default::default(),
             block_touches: Default::default(),
             account_touches: Default::default(),
         })))
@@ -158,17 +154,27 @@ impl SyncTrieCache {
 
     pub fn clear(&self) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
-        guard.lru.clear();
-        guard.fixed.clear();
-        guard.active_block_hash = None;
-        guard.active_account_id = None;
+        guard.cache_state = CacheState::CachingShard(Default::default());
+        guard.shard_cache.clear();
+        guard.chunk_cache.clear();
         guard.block_touches.clear();
         guard.account_touches.clear();
     }
 
-    pub fn update_active_account_id(&self, account_id: Option<AccountId>) {
+    pub fn start_caching_chunk_for(&self, account_id: AccountId) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
-        guard.active_account_id = account_id;
+        guard.cache_state = match guard.cache_state {
+            CacheState::CachingShard(block_hash) => CacheState::CachingChunk(block_hash, account_id);
+            _ => unreachable!("Attempted to start caching chunk which was already started"),
+        }
+    }
+
+    pub fn pause_caching_chunk(&self) {
+        let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
+        guard.cache_state = match guard.cache_state {
+            CacheState::CachingChunk(block_hash, _) => CacheState::CachingShard(block_hash),
+            _ => unreachable!("Attempted to pause caching chunk which was not started"),
+        }
     }
 
     // TODO: Can we remove some key in the middle of the block, which breaks node touch charge logic?
@@ -332,15 +338,11 @@ impl TrieCachingStorage {
         }
     }
 
-    pub fn update_active_block_hash(&self, hash: &CryptoHash) {
+    pub fn prepare_trie_cache(&self, hash: &CryptoHash) {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
         tracing::debug!(target: "runtime", hash = %hash, "update_active_block_hash");
-        guard.active_block_hash = Some(hash.clone());
-    }
-
-    pub fn flush_fixed_cache(&self) {
-        let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
-        guard.flush_fixed();
+        guard.cache_state = CacheState::CachingShard(hash.clone());
+        guard.drain_chunk_cache();
     }
 }
 
