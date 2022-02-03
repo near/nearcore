@@ -86,7 +86,6 @@ fn send_tx(
 }
 
 #[test]
-#[cfg(feature = "sandbox")]
 fn test_patch_state() {
     let (mut env, _signer) = test_setup();
 
@@ -104,7 +103,6 @@ fn test_patch_state() {
 }
 
 #[test]
-#[cfg(feature = "sandbox")]
 fn test_patch_account() {
     let (mut env, _signer) = test_setup();
     let mut test1: Account = env.query_account("test1".parse().unwrap()).into();
@@ -120,7 +118,6 @@ fn test_patch_account() {
 }
 
 #[test]
-#[cfg(feature = "sandbox")]
 fn test_fast_forward() {
     init_test_logger();
     run_actix(async {
