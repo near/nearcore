@@ -9,7 +9,6 @@ use crate::trie::POISONED_LOCK_ERR;
 use crate::{ColState, StorageError, Store};
 use lru::LruCache;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::AccountId;
 use std::cell::RefCell;
 use std::io::ErrorKind;
 
@@ -84,7 +83,7 @@ impl TrieCache {
     }
 
     fn drain_chunk_cache(&mut self) {
-        self.chunk_cache.drain().map(|(hash, value)| self.shard_cache.put(hash, value));
+        self.chunk_cache.drain().for_each(|(hash, value)| {self.shard_cache.put(hash, value);});
     }
 }
 
@@ -272,7 +271,7 @@ impl TrieCachingStorage {
         }
     }
 
-    pub fn prepare_trie_cache(&self, hash: &CryptoHash) {
+    pub fn prepare_trie_cache(&self) {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
         guard.cache_state = CacheState::CachingShard;
         guard.drain_chunk_cache();

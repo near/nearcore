@@ -10,7 +10,6 @@ use crate::trie::TrieChanges;
 use crate::StorageError;
 
 use super::{Trie, TrieIterator};
-use near_primitives::account::id::AccountId;
 use near_primitives::trie_key::TrieKey;
 use std::rc::Rc;
 
