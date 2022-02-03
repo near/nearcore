@@ -601,7 +601,6 @@ impl Trie {
         if *hash == Trie::empty_root() {
             return Ok(TrieNodeWithSize::empty());
         }
-        tracing::debug!(target: "trie", hash = %hash, "key in retrieve_node");
         let bytes = self.retrieve_raw_bytes(hash)?;
         match RawTrieNodeWithSize::decode(&bytes) {
             Ok(value) => Ok(TrieNodeWithSize::from_raw(value)),
@@ -613,32 +612,24 @@ impl Trie {
     }
 
     pub(crate) fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
-        let _span = tracing::debug_span!(target: "trie", "retrieve_raw_bytes", hash = %hash).entered();
-
         #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
         if let Some(storage) = self.storage.as_caching_storage() {
             return storage.chargeable_retrieve_raw_bytes(hash).map(|(value, need_charge)| {
                 if need_charge {
                     self.counter.increment();
-                    tracing::debug!(target: "trie", hash = %hash, "incremented on hash");
-                } else {
-                    tracing::debug!(target: "trie", hash = %hash, "saved on hash");
                 }
                 value
             });
         }
 
         self.counter.increment();
-        let value = self.storage.retrieve_raw_bytes(hash);
-        tracing::debug!(target: "trie", hash = %hash, "incremented on hash");
-        value
+        self.storage.retrieve_raw_bytes(hash)
     }
 
     pub fn retrieve_root_node(&self, root: &StateRoot) -> Result<StateRootNode, StorageError> {
         if *root == Trie::empty_root() {
             return Ok(StateRootNode::empty());
         }
-        tracing::debug!(target: "trie", hash = %root, "key in retrieve_root_node");
         let data = self.retrieve_raw_bytes(root)?;
         match RawTrieNodeWithSize::decode(&data) {
             Ok(value) => {
@@ -658,21 +649,16 @@ impl Trie {
         mut key: NibbleSlice<'_>,
     ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
         let mut hash = *root;
-        // let result = key.until_offset(true);
-        // tracing::debug!(target: "trie", key = ?result, hash = %hash, "key in lookup");
 
         loop {
             if hash == Trie::empty_root() {
                 return Ok(None);
             }
-            let result = key.until_offset(false);
-            tracing::debug!(target: "trie", key = ?result, hash = %hash, "key in lookup");
             let bytes = self.retrieve_raw_bytes(&hash)?;
-
             let node = RawTrieNodeWithSize::decode(&bytes).map_err(|_| {
                 StorageError::StorageInconsistentState("RawTrieNode decode failed".to_string())
             })?;
-            
+
             match node.node {
                 RawTrieNode::Leaf(existing_key, value_length, value_hash) => {
                     if NibbleSlice::from_encoded(&existing_key).0 == key {
@@ -717,21 +703,13 @@ impl Trie {
         root: &CryptoHash,
         key: &[u8],
     ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
-        let key_vec = key.to_vec().clone();
-        let key = NibbleSlice::new(&key_vec);
+        let key = NibbleSlice::new(key);
         self.lookup(root, key)
-        // let key = NibbleSlice::new(key);
-        // self.lookup(root, key)
     }
 
     pub fn get(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
         match self.get_ref(root, key)? {
-            Some((_length, hash)) => {
-                let key_nibbles = NibbleSlice::new(key);
-                let result = key_nibbles.until_offset(true);
-                tracing::debug!(target: "trie", key = ?result, hash = %hash, "key in lookup");
-                self.retrieve_raw_bytes(&hash).map(Some)
-            },
+            Some((_length, hash)) => self.retrieve_raw_bytes(&hash).map(Some),
             None => Ok(None),
         }
     }

@@ -165,7 +165,6 @@ impl<'a> VMLogic<'a> {
     }
 
     fn memory_get_vec(&mut self, offset: u64, len: u64) -> Result<Vec<u8>> {
-        // tracing::debug!(target: "trie", offset=offset, len=len);
         self.gas_counter.pay_base(read_memory_base)?;
         self.gas_counter.pay_per(read_memory_byte, len)?;
         self.try_fit_mem(offset, len)?;
@@ -2271,7 +2270,6 @@ impl<'a> VMLogic<'a> {
     /// `base + storage_read_base + storage_read_key_byte * num_key_bytes + storage_read_value_byte + num_value_bytes
     ///  cost to read key from register + cost to write value into register`.
     pub fn storage_read(&mut self, key_len: u64, key_ptr: u64, register_id: u64) -> Result<u64> {
-        tracing::debug!(target: "trie", key_len=key_len, key_ptr=key_ptr, register_id=register_id);
         self.gas_counter.pay_base(base)?;
         self.gas_counter.pay_base(storage_read_base)?;
         let key = self.get_vec_from_memory_or_register(key_ptr, key_len)?;
@@ -2288,7 +2286,6 @@ impl<'a> VMLogic<'a> {
         self.gas_counter
             .pay_per(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
         let read = Self::deref_value(&mut self.gas_counter, storage_read_value_byte, read?)?;
-        tracing::debug!(target: "trie", "DO NOT COUNT!");
         match read {
             Some(value) => {
                 self.internal_write_register(register_id, value)?;

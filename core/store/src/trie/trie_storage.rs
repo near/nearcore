@@ -16,12 +16,6 @@ use std::io::ErrorKind;
 #[derive(Clone)]
 pub struct SyncTrieCache(Arc<Mutex<TrieCache>>);
 
-// Active trie worker - pair (block_hash, account (contract) id)
-// pub struct ActiveWorker {
-//     pub block_hash: CryptoHash,
-//     pub account_id: AccountId,
-// }
-
 struct TrieCache {
     cache_state: CacheState,
     shard_cache: LruCache<CryptoHash, Vec<u8>>,
@@ -55,7 +49,6 @@ impl TrieCache {
         }
     }
 
-    // (Option<&Vec<u8>>, bool)
     pub fn chargeable_get(&mut self, hash: &CryptoHash) -> (Option<Vec<u8>>, bool) {
         match self.get_cache_position(hash) {
             CachePosition::None => (None, true),
@@ -64,7 +57,6 @@ impl TrieCache {
                     let accounts = self.account_touches.entry(hash.clone()).or_default();
                     accounts.clear();
                     self.block_touches.insert(hash.clone(), block_hash.clone());
-                    tracing::debug!(target: "trie", hash = %hash, account_id = %account_id);
                     accounts.insert(account_id.clone());
                     let value = self.shard_cache.pop(hash).expect("If position is Lru then value must be presented");
                     self.chunk_cache.insert(hash.clone(), value);
@@ -80,7 +72,6 @@ impl TrieCache {
                     }
                     let need_charge = !accounts.contains(account_id);
                     if need_charge {
-                        tracing::debug!(target: "trie", hash = %hash, account_id = %account_id);
                         accounts.insert(account_id.clone());
                     }
                     need_charge
@@ -109,7 +100,6 @@ impl TrieCache {
                 }
             }
             self.block_touches.insert(hash.clone(), block_hash.clone());
-            tracing::debug!(target: "trie", hash = %hash, account_id = account_id.as_str());
             accounts.insert(account_id.clone());
         } else {
             if self.chunk_cache.contains_key(&hash) {
@@ -140,7 +130,6 @@ impl TrieCache {
 
 impl SyncTrieCache {
     pub fn new() -> Self {
-        // Self(Arc::new(Mutex::new(LruCache::new(TRIE_MAX_CACHE_SIZE))))
         Self(Arc::new(Mutex::new(TrieCache {
             cache_state: CacheState::CachingShard(Default::default()),
             shard_cache: LruCache::new(TRIE_MAX_CACHE_SIZE),
@@ -175,7 +164,6 @@ impl SyncTrieCache {
         }
     }
 
-    // TODO: Can we remove some key in the middle of the block, which breaks node touch charge logic?
     pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<&Vec<u8>>)>) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
         for (hash, opt_value_rc) in ops {
@@ -338,7 +326,6 @@ impl TrieCachingStorage {
 
     pub fn prepare_trie_cache(&self, hash: &CryptoHash) {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
-        tracing::debug!(target: "runtime", hash = %hash, "update_active_block_hash");
         guard.cache_state = CacheState::CachingShard(hash.clone());
         guard.drain_chunk_cache();
     }

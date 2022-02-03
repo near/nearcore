@@ -285,7 +285,6 @@ impl<'a> TrieIterator<'a> {
                 }
                 IterStep::Continue => {}
                 IterStep::Value(hash) => {
-                    tracing::debug!(target: "trie", hash = %hash, "key in visit_nodes");
                     self.trie.retrieve_raw_bytes(&hash)?;
                     nodes_list.push(TrieTraversalItem {
                         hash,
@@ -321,7 +320,6 @@ impl<'a> Iterator for TrieIterator<'a> {
                 },
                 IterStep::Continue => {}
                 IterStep::Value(hash) => {
-                    tracing::debug!(target: "trie", hash = %hash, "key in next");
                     return Some(
                         self.trie.retrieve_raw_bytes(&hash).map(|value| (self.key(), value)),
                     )
