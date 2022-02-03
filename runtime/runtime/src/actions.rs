@@ -436,6 +436,7 @@ pub(crate) fn action_deploy_contract(
     apply_state: &ApplyState,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
+    let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
     let prev_code_length = prev_code.map(|code| code.code().len() as u64).unwrap_or_default();

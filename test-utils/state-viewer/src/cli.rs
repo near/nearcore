@@ -197,6 +197,8 @@ pub struct ApplyRangeCmd {
     csv_file: Option<PathBuf>,
     #[clap(long)]
     only_contracts: bool,
+    #[clap(long)]
+    sequential: bool,
 }
 
 impl ApplyRangeCmd {
@@ -211,6 +213,7 @@ impl ApplyRangeCmd {
             near_config,
             store,
             self.only_contracts,
+            self.sequential,
         );
     }
 }

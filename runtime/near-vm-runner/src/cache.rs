@@ -1,15 +1,19 @@
 use crate::errors::ContractPrecompilatonResult;
-use crate::prepare;
 use crate::vm_kind::VMKind;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::CompiledContractCache;
-use near_vm_errors::{CacheError, CompilationError, FunctionCallError, VMError};
+use near_vm_errors::{CacheError, CompilationError};
 use near_vm_logic::{ProtocolVersion, VMConfig};
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
+
+#[cfg(target_arch = "x86_64")]
+use crate::prepare;
+#[cfg(target_arch = "x86_64")]
+use near_vm_errors::{FunctionCallError, VMError};
 
 #[derive(Debug, Clone, BorshSerialize)]
 enum ContractCacheKey {
@@ -32,13 +36,13 @@ enum CacheRecord {
 
 fn vm_hash(vm_kind: VMKind) -> u64 {
     match vm_kind {
-        #[cfg(feature = "wasmer0_vm")]
+        #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
         VMKind::Wasmer0 => crate::wasmer_runner::wasmer0_vm_hash(),
-        #[cfg(not(feature = "wasmer0_vm"))]
+        #[cfg(not(all(feature = "wasmer0_vm", target_arch = "x86_64")))]
         VMKind::Wasmer0 => panic!("Wasmer0 is not enabled"),
-        #[cfg(feature = "wasmer2_vm")]
+        #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
         VMKind::Wasmer2 => crate::wasmer2_runner::wasmer2_vm_hash(),
-        #[cfg(not(feature = "wasmer2_vm"))]
+        #[cfg(not(all(feature = "wasmer2_vm", target_arch = "x86_64")))]
         VMKind::Wasmer2 => panic!("Wasmer2 is not enabled"),
         #[cfg(feature = "wasmtime_vm")]
         VMKind::Wasmtime => crate::wasmtime_runner::wasmtime_vm_hash(),
@@ -62,6 +66,7 @@ pub fn get_contract_cache_key(
     near_primitives::hash::hash(&key.try_to_vec().unwrap())
 }
 
+#[cfg(target_arch = "x86_64")]
 fn cache_error(
     error: &CompilationError,
     key: &CryptoHash,
@@ -73,6 +78,7 @@ fn cache_error(
     Ok(())
 }
 
+#[cfg(target_arch = "x86_64")]
 pub fn into_vm_result<T>(
     res: Result<Result<T, CompilationError>, CacheError>,
 ) -> Result<T, VMError> {
@@ -114,15 +120,15 @@ impl fmt::Debug for MockCompiledContractCache {
     }
 }
 
-#[cfg(not(feature = "no_cache"))]
+#[cfg(all(not(feature = "no_cache"), target_arch = "x86_64"))]
 const CACHE_SIZE: usize = 128;
 
-#[cfg(all(feature = "wasmer0_vm", not(feature = "no_cache")))]
+#[cfg(all(feature = "wasmer0_vm", not(feature = "no_cache"), target_arch = "x86_64"))]
 static WASMER_CACHE: once_cell::sync::Lazy<
     near_cache::SyncLruCache<CryptoHash, Result<wasmer_runtime::Module, CompilationError>>,
 > = once_cell::sync::Lazy::new(|| near_cache::SyncLruCache::new(CACHE_SIZE));
 
-#[cfg(all(feature = "wasmer2_vm", not(feature = "no_cache")))]
+#[cfg(all(feature = "wasmer2_vm", not(feature = "no_cache"), target_arch = "x86_64"))]
 static WASMER2_CACHE: once_cell::sync::Lazy<
     near_cache::SyncLruCache<
         CryptoHash,
@@ -130,7 +136,7 @@ static WASMER2_CACHE: once_cell::sync::Lazy<
     >,
 > = once_cell::sync::Lazy::new(|| near_cache::SyncLruCache::new(CACHE_SIZE));
 
-#[cfg(feature = "wasmer0_vm")]
+#[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
 pub mod wasmer0_cache {
     use super::*;
     use near_vm_errors::CompilationError;
@@ -243,7 +249,7 @@ pub mod wasmer0_cache {
     }
 }
 
-#[cfg(feature = "wasmer2_vm")]
+#[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
 pub mod wasmer2_cache {
     use crate::wasmer2_runner::{VMArtifact, Wasmer2VM};
     use near_primitives::contract::ContractCode;
@@ -367,19 +373,19 @@ pub fn precompile_contract_vm(
         None => {}
     };
     match vm_kind {
-        #[cfg(feature = "wasmer0_vm")]
+        #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
         VMKind::Wasmer0 => {
             Ok(wasmer0_cache::compile_and_serialize_wasmer(wasm_code.code(), config, &key, cache)?
                 .map(|_| ContractPrecompilatonResult::ContractCompiled))
         }
-        #[cfg(not(feature = "wasmer0_vm"))]
+        #[cfg(not(all(feature = "wasmer0_vm", target_arch = "x86_64")))]
         VMKind::Wasmer0 => panic!("Wasmer0 is not enabled!"),
-        #[cfg(feature = "wasmer2_vm")]
+        #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
         VMKind::Wasmer2 => {
             Ok(wasmer2_cache::compile_and_serialize_wasmer2(wasm_code.code(), &key, config, cache)?
                 .map(|_| ContractPrecompilatonResult::ContractCompiled))
         }
-        #[cfg(not(feature = "wasmer2_vm"))]
+        #[cfg(not(all(feature = "wasmer2_vm", target_arch = "x86_64")))]
         VMKind::Wasmer2 => panic!("Wasmer2 is not enabled!"),
         VMKind::Wasmtime => panic!("Not yet supported"),
     }
@@ -394,6 +400,7 @@ pub fn precompile_contract(
     current_protocol_version: ProtocolVersion,
     cache: Option<&dyn CompiledContractCache>,
 ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError> {
+    let _span = tracing::debug_span!(target: "vm", "precompile_contract").entered();
     let vm_kind = VMKind::for_protocol_version(current_protocol_version);
     precompile_contract_vm(vm_kind, wasm_code, config, cache)
 }

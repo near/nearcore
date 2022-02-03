@@ -378,6 +378,7 @@ mod test {
     use near_crypto::{KeyType, SecretKey};
     use near_store::create_store;
     use near_store::test_utils::create_test_store;
+    use std::net::{Ipv4Addr, SocketAddrV4};
 
     use super::*;
 
@@ -385,15 +386,15 @@ mod test {
         PeerId::new(SecretKey::from_seed(KeyType::ED25519, seed.as_str()).public_key())
     }
 
-    fn get_addr(port: u8) -> SocketAddr {
-        format!("127.0.0.1:{}", port).parse().unwrap()
+    fn get_addr(port: u16) -> SocketAddr {
+        SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port).into()
     }
 
     fn get_peer_info(peer_id: PeerId, addr: Option<SocketAddr>) -> PeerInfo {
         PeerInfo { id: peer_id, addr, account_id: None }
     }
 
-    fn gen_peer_info(port: u8) -> PeerInfo {
+    fn gen_peer_info(port: u16) -> PeerInfo {
         PeerInfo {
             id: PeerId::new(SecretKey::from_random(KeyType::ED25519).public_key()),
             addr: Some(get_addr(port)),
