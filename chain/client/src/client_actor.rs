@@ -777,10 +777,8 @@ impl ClientActor {
 
         #[cfg(feature = "sandbox")]
         let latest_known = if let Some(delta_height) = self.fastforward_delta.take() {
-            let prior_pending_delta = self.client.pending_timestamp_fastforward.unwrap_or(0);
-            self.client.pending_timestamp_fastforward = Some(delta_height + prior_pending_delta);
-
-            let timestamp_delta_ns = self.client.sandbox_delta_time(delta_height);
+            self.client.accrued_fastforward_delta += delta_height;
+            let timestamp_delta_ns = self.client.sandbox_delta_time();
             let new_latest_known = near_chain::types::LatestKnown {
                 height: latest_known.height + delta_height,
                 seen: near_primitives::utils::to_timestamp(Clock::utc()) + timestamp_delta_ns,
