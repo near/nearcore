@@ -3947,11 +3947,14 @@ impl<'a> ChainUpdate<'a> {
         let head = self.chain_store_update.head()?;
         let is_next = block.header().prev_hash() == &head.last_block_hash;
 
-        // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
-        // overflow-related problems
-        let block_height = block.header().height();
-        if block_height > head.height + self.epoch_length * 20 {
-            return Err(ErrorKind::InvalidBlockHeight(block_height).into());
+        // Sandbox allows fast-forwarding, so only enable when not within sandbox
+        if !cfg!(feature = "sandbox") {
+            // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
+            // overflow-related problems
+            let block_height = block.header().height();
+            if block_height > head.height + self.epoch_length * 20 {
+                return Err(ErrorKind::InvalidBlockHeight(block_height).into());
+            }
         }
 
         // Block is an orphan if we do not know about the previous full block.
