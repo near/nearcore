@@ -75,6 +75,7 @@ use std::convert::{TryFrom, TryInto};
 use std::time::Instant;
 
 use estimator_params::sha256_cost;
+use gas_cost::LeastSquaresTolerance;
 use gas_metering::gas_metering_cost;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
@@ -499,10 +500,28 @@ fn action_deploy_contract_per_byte(ctx: &mut EstimatorContext) -> GasCost {
         ys.push(cost);
     }
 
-    let (_base, per_byte_cost) =
-        GasCost::least_squares_method_gas_cost(&xs, &ys).expect("Returned negative parameters");
-
-    per_byte_cost
+    // We do linear regression on a cost curve that is mostly flat for small
+    // contracts and steeper for larger contracts. Thus, the fitted linear
+    // function usually crosses the y-axis somewhere in the negative. The
+    // tolerance is chosen, quite arbitrarily, as a full base cost from protocol
+    // v50. Values further in the negative indicate that the estimation error is
+    // out of proportion.
+    let negative_base_tolerance = 369_531_500_000u64;
+    // For icount-based measurements, since we start compilation after the full
+    // contract is already loaded into memory, it is possible that IO costs per
+    // byte are essentially 0 and sometimes negative in the fitted curve. If
+    // this negative value is small enough, this can be tolerated and the
+    // parameter is clamped to 0 without marking the result as uncertain.
+    let rel_factor_tolerance = 0.001;
+    let (_base, per_byte) = GasCost::least_squares_method_gas_cost(
+        &xs,
+        &ys,
+        LeastSquaresTolerance::default()
+            .base_abs_nn_tolerance(negative_base_tolerance)
+            .factor_rel_nn_tolerance(rel_factor_tolerance),
+        ctx.config.debug_least_squares,
+    );
+    per_byte
 }
 
 /// Cost for deploying a specific contract.
