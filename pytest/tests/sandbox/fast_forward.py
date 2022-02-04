@@ -5,23 +5,62 @@
 import sys, time
 import pathlib
 
+from datetime import datetime as dt, timedelta
+
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from utils import figure_out_sandbox_binary
 
 # startup a RPC node
-BLOCKS_TO_FASTFORARD = 10000
+MIN_BLOCK_PROD_TIME = 1  # seconds
+MAX_BLOCK_PROD_TIME = 2  # seconds
+EPOCH_LENGTH = 10
+BLOCKS_TO_FASTFORWARD = 10000
 CONFIG = figure_out_sandbox_binary()
-nodes = start_cluster(1, 0, 1, CONFIG, [["epoch_length", 10]], {})
+CONFIG.update({
+    "consensus": {
+        "min_block_production_delay": {
+            "secs": MIN_BLOCK_PROD_TIME,
+            "nanos": 0,
+        },
+        "max_block_production_delay": {
+            "secs": MAX_BLOCK_PROD_TIME,
+            "nanos": 0,
+        },
+    }
+})
+
+nodes = start_cluster(1, 0, 1, CONFIG, [["epoch_length", EPOCH_LENGTH]], {})
 
 # request to fast forward
 nodes[0].json_rpc('sandbox_fast_forward', {
-    "delta_height": BLOCKS_TO_FASTFORARD,
+    "delta_height": BLOCKS_TO_FASTFORWARD,
 })
 
 # wait a little for it to fast forward
 time.sleep(3)
 
 # Assert at the end that the node is past the amounts of blocks we specified
-assert nodes[0].get_latest_block().height > BLOCKS_TO_FASTFORARD
+assert nodes[0].get_latest_block().height > BLOCKS_TO_FASTFORWARD
+
+# Assert that we're within the bounds of fast forward timestamp between range of min and max:
+sync_info = nodes[0].get_status()['sync_info']
+earliest = dt.strptime(sync_info['earliest_block_time'][:-4],
+                       '%Y-%m-%dT%H:%M:%S.%f')
+latest = dt.strptime(sync_info['latest_block_time'][:-4],
+                     '%Y-%m-%dT%H:%M:%S.%f')
+
+min_forwarded_secs = timedelta(0, BLOCKS_TO_FASTFORWARD * MIN_BLOCK_PROD_TIME)
+max_forwarded_secs = timedelta(0, BLOCKS_TO_FASTFORWARD * MAX_BLOCK_PROD_TIME)
+min_forwarded_time = earliest + min_forwarded_secs
+max_forwarded_time = earliest + max_forwarded_secs
+
+assert min_forwarded_time < latest < max_forwarded_time
+
+# wait a little longer for epoch height to be updated:
+time.sleep(7)
+
+# Check to see that the epoch height has been updated correctly:
+epoch_height = nodes[0].get_validators()['result']['epoch_height']
+assert epoch_height > BLOCKS_TO_FASTFORWARD / EPOCH_LENGTH
