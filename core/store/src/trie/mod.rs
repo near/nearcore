@@ -610,7 +610,7 @@ impl Trie {
     }
 
     pub(crate) fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
-        return self.storage.chargeable_retrieve_raw_bytes(hash).map(|(value, cost)| {
+        return self.storage.retrieve_raw_bytes_with_cost(hash).map(|(value, cost)| {
             #[cfg(not(feature = "protocol_feature_chunk_nodes_cache"))]
             self.counter.increment();
 

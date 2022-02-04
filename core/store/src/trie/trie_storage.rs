@@ -48,7 +48,7 @@ impl TrieCache {
         }
     }
 
-    pub fn chargeable_get(&mut self, hash: &CryptoHash) -> (Option<Vec<u8>>, RetrievalCost) {
+    pub fn get_with_cost(&mut self, hash: &CryptoHash) -> (Option<Vec<u8>>, RetrievalCost) {
         match self.get_cache_position(hash) {
             CachePosition::None => (None, RetrievalCost::Full),
             CachePosition::ShardCache(value) => {
@@ -146,7 +146,7 @@ pub trait TrieStorage {
     /// Get bytes of a serialized TrieNode with the node retrieval cost.
     /// # Errors
     /// StorageError if the storage fails internally or the hash is not present.
-    fn chargeable_retrieve_raw_bytes(
+    fn retrieve_raw_bytes_with_cost(
         &self,
         hash: &CryptoHash,
     ) -> Result<(Vec<u8>, RetrievalCost), StorageError> {
@@ -268,12 +268,12 @@ impl TrieCachingStorage {
         key
     }
 
-    pub(crate) fn chargeable_retrieve_raw_bytes(
+    pub(crate) fn retrieve_raw_bytes_with_cost(
         &self,
         hash: &CryptoHash,
     ) -> Result<(Vec<u8>, RetrievalCost), StorageError> {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
-        if let (Some(val), cost) = guard.chargeable_get(hash) {
+        if let (Some(val), cost) = guard.get_with_cost(hash) {
             Ok((val, cost))
         } else {
             let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
@@ -300,7 +300,7 @@ impl TrieCachingStorage {
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
-        self.chargeable_retrieve_raw_bytes(hash).map(|(val, _)| val)
+        self.retrieve_raw_bytes_with_cost(hash).map(|(val, _)| val)
     }
 
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
