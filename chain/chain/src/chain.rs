@@ -4193,10 +4193,7 @@ impl<'a> ChainUpdate<'a> {
         header: &BlockHeader,
         provenance: &Provenance,
         on_challenge: &mut dyn FnMut(ChallengeBody),
-    ) -> Result<(), Error>
-    where
-        F: FnMut(ChallengeBody),
-    {
+    ) -> Result<(), Error> {
         // Refuse blocks from the too distant future. Only exception to this is while we're within
         // sandbox, we're allowed to jump to the future via fast forwarding.
         #[cfg(not(feature = "sandbox"))]
