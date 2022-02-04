@@ -991,9 +991,10 @@ impl Client {
         let avg_block_prod_time = (self.config.min_block_production_delay.as_nanos()
             + self.config.max_block_production_delay.as_nanos())
             / 2;
-        (self.accrued_fastforward_delta as u128 * avg_block_prod_time)
-            .try_into()
-            .expect(&format!("Too high of a delta_height {} to convert into u64", self.accrued_fastforward_delta))
+        (self.accrued_fastforward_delta as u128 * avg_block_prod_time).try_into().expect(&format!(
+            "Too high of a delta_height {} to convert into u64",
+            self.accrued_fastforward_delta
+        ))
     }
 
     pub fn send_approval(
