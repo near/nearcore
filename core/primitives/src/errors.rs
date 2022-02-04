@@ -321,7 +321,7 @@ pub struct ActionError {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Debug, Clone, PartialEq, Eq, RpcError)]
+#[derive(Debug)]
 pub enum ContractCallError {
     MethodResolveError(MethodResolveError),
     CompilationError(CompilationError),
