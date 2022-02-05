@@ -560,6 +560,17 @@ impl JsonRpcHandler {
                 serde_json::to_value(sandbox_patch_state_response)
                     .map_err(|err| RpcError::serialization_error(err.to_string()))
             }
+            #[cfg(feature = "sandbox")]
+            "sandbox_fast_forward" => {
+                let sandbox_fast_forward_request =
+                    near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardRequest::parse(
+                        request.params,
+                    )?;
+                let sandbox_fast_forward_response =
+                    self.sandbox_fast_forward(sandbox_fast_forward_request).await?;
+                serde_json::to_value(sandbox_fast_forward_response)
+                    .map_err(|err| RpcError::serialization_error(err.to_string()))
+            }
             _ => Err(RpcError::method_not_found(request.method.clone())),
         };
 
@@ -1132,6 +1143,23 @@ impl JsonRpcHandler {
         .expect("patch state should happen at next block, never timeout");
 
         Ok(near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateResponse {})
+    }
+
+    async fn sandbox_fast_forward(
+        &self,
+        fast_forward_request: near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardResponse,
+        near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError,
+    > {
+        self.client_addr
+            .send(NetworkClientMessages::Sandbox(
+                near_network_primitives::types::NetworkSandboxMessage::SandboxFastForward(
+                    fast_forward_request.delta_height,
+                ),
+            ))
+            .await?;
+        Ok(near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardResponse {})
     }
 }
 

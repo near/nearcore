@@ -78,16 +78,16 @@ above), you can find it in `./target/release/neard`.
 #### mainnet
 
 ```bash
-neard --home ~/.near/mainnet init --chain-id mainnet --download-genesis
+neard --home ~/.near/mainnet init --chain-id mainnet --download-genesis --download-config
 ```
 
 #### testnet
 
 ```bash
-neard --home ~/.near/testnet init --chain-id testnet --download-genesis
+neard --home ~/.near/testnet init --chain-id testnet --download-genesis --download-config
 ```
 
-NOTE: The genesis of testnet is around 1GB, so it will take a while to download it.
+NOTE: The genesis of testnet is around 5GB, so it will take a while to download it.
 
 #### localnet (for local development)
 
