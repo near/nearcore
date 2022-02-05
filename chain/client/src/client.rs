@@ -537,7 +537,7 @@ impl Client {
                 BlockHeader::BlockHeaderV3(ref mut header) => &mut header.inner_lite,
             };
 
-            // Add in the accrued delta timestamp:
+            // Set block timestamp to the actual fast forwarded timestamp:
             inner_lite.timestamp = to_timestamp(Clock::utc()) + self.sandbox_delta_time();
         }
 

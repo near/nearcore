@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # test fast fowarding by a specific block height within a sandbox node. This will
-# fail if the block height is not past the forwarded height.
+# fail if the block height is not past the forwarded height. Also we will test
+# for the timestamps and epoch height being adjusted correctly after the block
+# height is changed.
 
+import datetime
 import sys, time
 import pathlib
-
-from datetime import datetime as dt, timedelta
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -46,21 +47,20 @@ assert nodes[0].get_latest_block().height > BLOCKS_TO_FASTFORWARD
 
 # Assert that we're within the bounds of fast forward timestamp between range of min and max:
 sync_info = nodes[0].get_status()['sync_info']
-earliest = dt.strptime(sync_info['earliest_block_time'][:-4],
-                       '%Y-%m-%dT%H:%M:%S.%f')
-latest = dt.strptime(sync_info['latest_block_time'][:-4],
-                     '%Y-%m-%dT%H:%M:%S.%f')
+earliest = datetime.datetime.strptime(sync_info['earliest_block_time'][:-4],
+                                      '%Y-%m-%dT%H:%M:%S.%f')
+latest = datetime.datetime.strptime(sync_info['latest_block_time'][:-4],
+                                    '%Y-%m-%dT%H:%M:%S.%f')
 
-min_forwarded_secs = timedelta(0, BLOCKS_TO_FASTFORWARD * MIN_BLOCK_PROD_TIME)
-max_forwarded_secs = timedelta(0, BLOCKS_TO_FASTFORWARD * MAX_BLOCK_PROD_TIME)
+min_forwarded_secs = datetime.timedelta(
+    0, BLOCKS_TO_FASTFORWARD * MIN_BLOCK_PROD_TIME)
+max_forwarded_secs = datetime.timedelta(
+    0, BLOCKS_TO_FASTFORWARD * MAX_BLOCK_PROD_TIME)
 min_forwarded_time = earliest + min_forwarded_secs
 max_forwarded_time = earliest + max_forwarded_secs
 
 assert min_forwarded_time < latest < max_forwarded_time
 
-# wait a little longer for epoch height to be updated:
-time.sleep(7)
-
 # Check to see that the epoch height has been updated correctly:
 epoch_height = nodes[0].get_validators()['result']['epoch_height']
-assert epoch_height > BLOCKS_TO_FASTFORWARD / EPOCH_LENGTH
+assert epoch_height >= BLOCKS_TO_FASTFORWARD / EPOCH_LENGTH

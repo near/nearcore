@@ -452,6 +452,12 @@ impl EpochManager {
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).
         self.save_epoch_info(store_update, &next_next_epoch_id, next_next_epoch_info)?;
+
+        // Store next_epoch info again since sandbox changes it:
+        if cfg!(feature = "sandbox") {
+            self.save_epoch_info(store_update, &next_epoch_id, next_epoch_info)?;
+        }
+
         Ok(())
     }
 
