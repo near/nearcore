@@ -1999,6 +1999,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "indexer-primitives"
+version = "0.0.0"
+dependencies = [
+ "near-primitives",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "indexmap"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2727,6 +2736,7 @@ dependencies = [
  "anyhow",
  "async-recursion",
  "futures",
+ "indexer-primitives",
  "near-chain-configs",
  "near-client",
  "near-crypto",

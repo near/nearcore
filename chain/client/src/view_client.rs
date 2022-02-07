@@ -22,8 +22,9 @@ use near_client_primitives::types::{
     GetBlockProofResponse, GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome,
     GetExecutionOutcomeError, GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError,
     GetNextLightClientBlockError, GetProtocolConfig, GetProtocolConfigError, GetReceipt,
-    GetReceiptError, GetStateChangesError, GetStateChangesWithCauseInBlock, GetValidatorInfoError,
-    Query, QueryError, TxStatus, TxStatusError,
+    GetReceiptError, GetStateChangesError, GetStateChangesWithCauseInBlock,
+    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
+    TxStatus, TxStatusError,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 #[cfg(feature = "test_features")]
@@ -44,14 +45,14 @@ use near_primitives::syncing::{
 };
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality,
-    MaybeBlockId, ShardId, TransactionOrReceiptId,
+    MaybeBlockId, ShardId, StateChangeValue, TransactionOrReceiptId,
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus, GasPriceView,
-    LightClientBlockView, QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView,
-    StateChangesView,
+    LightClientBlockView, QueryRequest, QueryResponse, ReceiptView, StateChangeWithCauseView,
+    StateChangesKindsView, StateChangesView,
 };
 
 use crate::{
@@ -780,6 +781,58 @@ impl Handler<GetStateChangesWithCauseInBlock> for ViewClientActor {
             .into_iter()
             .map(Into::into)
             .collect())
+    }
+}
+
+/// Returns a hashmap where the key represents the ShardID and the value
+/// is the list of changes in a store with causes for a given block.
+impl Handler<GetStateChangesWithCauseInBlockForTrackedShards> for ViewClientActor {
+    type Result = Result<HashMap<ShardId, StateChangesView>, GetStateChangesError>;
+
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: GetStateChangesWithCauseInBlockForTrackedShards,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let state_changes_with_cause_in_block =
+            self.chain.store().get_state_changes_with_cause_in_block(&msg.block_hash)?;
+
+        let mut state_changes_with_cause_split_by_shard_id: HashMap<ShardId, StateChangesView> =
+            HashMap::new();
+        for state_change_with_cause in state_changes_with_cause_in_block {
+            let account_id = match &state_change_with_cause.value {
+                StateChangeValue::AccountUpdate { account_id, .. } => account_id.clone(),
+                StateChangeValue::AccountDeletion { account_id } => account_id.clone(),
+                StateChangeValue::AccessKeyUpdate { account_id, .. } => account_id.clone(),
+                StateChangeValue::AccessKeyDeletion { account_id, .. } => account_id.clone(),
+                StateChangeValue::DataUpdate { account_id, .. } => account_id.clone(),
+                StateChangeValue::DataDeletion { account_id, .. } => account_id.clone(),
+                StateChangeValue::ContractCodeUpdate { account_id, .. } => account_id.clone(),
+                StateChangeValue::ContractCodeDeletion { account_id } => account_id.clone(),
+            };
+            let shard_id = if let Ok(shard_id) =
+                self.runtime_adapter.account_id_to_shard_id(&account_id, &msg.epoch_id)
+            {
+                shard_id
+            } else {
+                return Err(GetStateChangesError::IOError {
+                    error_message: format!("Failed to get ShardID from AccountID {}", account_id),
+                });
+            };
+
+            let mut state_changes = if let Some(changes_with_cause) =
+                state_changes_with_cause_split_by_shard_id.remove(&shard_id)
+            {
+                changes_with_cause
+            } else {
+                Vec::<StateChangeWithCauseView>::new()
+            };
+            state_changes.push(state_change_with_cause.into());
+            state_changes_with_cause_split_by_shard_id.insert(shard_id, state_changes);
+        }
+
+        Ok(state_changes_with_cause_split_by_shard_id)
     }
 }
 

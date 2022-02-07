@@ -18,6 +18,7 @@ serde = { version = "1", features = [ "derive" ] }
 serde_json = "1.0.55"
 tokio = { version = "1.1", features = ["time", "sync"] }
 
+indexer-primitives = { path = "../indexer-primitives" }
 nearcore = { path = "../../nearcore" }
 near-client = { path = "../client" }
 near-chain-configs = { path = "../../core/chain-configs" }

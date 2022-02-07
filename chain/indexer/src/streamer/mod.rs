@@ -17,18 +17,17 @@ use self::fetchers::{
     fetch_block_by_hash, fetch_block_by_height, fetch_block_chunks, fetch_latest_block,
     fetch_outcomes, fetch_state_changes, fetch_status,
 };
-pub use self::types::{
+use self::utils::convert_transactions_sir_into_local_receipts;
+use crate::streamer::fetchers::fetch_protocol_config;
+use crate::INDEXER;
+pub use indexer_primitives::{
     IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
     IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
     StreamerMessage,
 };
-use self::utils::convert_transactions_sir_into_local_receipts;
-use crate::streamer::fetchers::fetch_protocol_config;
-use crate::INDEXER;
 
 mod errors;
 mod fetchers;
-mod types;
 mod utils;
 
 const INTERVAL: Duration = Duration::from_millis(500);
@@ -77,13 +76,30 @@ async fn build_streamer_message(
         as near_primitives::types::NumShards;
 
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
+    let mut state_changes = fetch_state_changes(
+        &client,
+        block.header.hash,
+        near_primitives::types::EpochId(block.header.epoch_id.clone()),
+    )
+    .await?;
     let mut indexer_shards = (0..num_shards)
-        .map(|shard_id| IndexerShard { shard_id, chunk: None, receipt_execution_outcomes: vec![] })
+        .map(|shard_id| IndexerShard {
+            shard_id,
+            chunk: None,
+            receipt_execution_outcomes: vec![],
+            state_changes: vec![],
+        })
         .collect::<Vec<_>>();
 
     for chunk in chunks {
         let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
             chunk;
+
+        let shard_id = header.shard_id.clone() as usize;
+
+        indexer_shards[shard_id].state_changes = state_changes
+            .remove(&header.shard_id)
+            .expect("StateChanges for given shard should be present");
 
         let mut outcomes = shards_outcomes
             .remove(&header.shard_id)
@@ -127,8 +143,6 @@ async fn build_streamer_message(
         }
 
         let mut chunk_receipts = chunk_local_receipts;
-
-        let shard_id = header.shard_id.clone() as usize;
 
         let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
         for outcome in receipt_outcomes {
@@ -217,9 +231,7 @@ async fn build_streamer_message(
         )
     }
 
-    let state_changes = fetch_state_changes(&client, block.header.hash).await?;
-
-    Ok(StreamerMessage { block, shards: indexer_shards, state_changes })
+    Ok(StreamerMessage { block, shards: indexer_shards })
 }
 
 /// Function that tries to find specific local receipt by it's ID and returns it
