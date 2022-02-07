@@ -104,7 +104,7 @@ fn apply_block_from_range(
         }
     };
     let block = chain_store.get_block(&block_hash).unwrap().clone();
-    let num_chunks = block.chunks().len();
+    let num_chunks = block.chunks().len() as u64;
     assert!(num_chunks > 0);
 
     let mut process_block = |shard_id| {
