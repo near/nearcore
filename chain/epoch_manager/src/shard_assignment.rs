@@ -1,6 +1,6 @@
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{Balance, NumShards, ShardId};
-use near_primitives::utils::min_heap::MinHeap;
+use near_primitives::utils::min_heap::{MinHeap, PeekMut};
 
 /// Assign chunk producers (a.k.a. validators) to shards.  The i-th element
 /// of the output corresponds to the validators assigned to the i-th shard.
@@ -96,13 +96,13 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = T>>(
                     // producer.  Skip it and move to another validator.
                     break;
                 }
-                Some(top) if top.0 .0 >= min_validators_per_shard => {
+                Some(top) if top.0 >= min_validators_per_shard => {
                     // All remaining shards have min_validators_per_shard chunk
                     // producers assigned to them.  Don’t assign current
                     // validator to any shard and move to next cp.
                     break;
                 }
-                Some(top) if result[usize::try_from(top.0 .2).unwrap()].contains(&cp) => {
+                Some(top) if result[usize::try_from(top.2).unwrap()].contains(&cp) => {
                     // This chunk producer is already assigned to this shard.
                     // Pop the shard from the heap and try assigning the chunk
                     // producer to the next shard.
@@ -111,15 +111,15 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = T>>(
                     // this an O(N^2) algorithm.  At the moment there aren’t too
                     // many validators so it should be fine but if that’s
                     // becomes an issue we should switch to a hash set.
-                    buffer.push(std::collections::binary_heap::PeekMut::pop(top));
+                    buffer.push(PeekMut::pop(top));
                 }
                 Some(mut top) => {
                     // Chunk producer is not yet assigned to the shard and the
                     // shard still needs more validators.  Assign `cp` to it and
                     // move to next chunk producer
-                    top.0 .0 += 1;
-                    top.0 .1 += cp.get_stake();
-                    result[usize::try_from(top.0 .2).unwrap()].push(cp);
+                    top.0 += 1;
+                    top.1 += cp.get_stake();
+                    result[usize::try_from(top.2).unwrap()].push(cp);
                     break;
                 }
             }

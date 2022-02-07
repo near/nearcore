@@ -1,5 +1,5 @@
 use std::cmp::Reverse;
-use std::collections::binary_heap::{BinaryHeap, IntoIter, PeekMut};
+use std::collections::binary_heap::{BinaryHeap, IntoIter};
 
 /// Wrapper around `BinaryHeap` to be default min heap instead of max heap.
 #[derive(Debug, Clone)]
@@ -20,18 +20,16 @@ impl<T: Ord> MinHeap<T> {
         self.inner.peek().map(|Reverse(t)| t)
     }
 
-    // This sadly leaks an abstraction.
-    pub fn peek_mut(&mut self) -> Option<PeekMut<'_, Reverse<T>>> {
-        self.inner.peek_mut()
+    pub fn peek_mut(&mut self) -> Option<PeekMut<'_, T>> {
+        self.inner.peek_mut().map(PeekMut)
     }
 
     pub fn len(&self) -> usize {
         self.inner.len()
     }
 
-    // This sadly leaks an abstraction.
-    pub fn extend<I: std::iter::IntoIterator<Item = Reverse<T>>>(&mut self, iter: I) {
-        self.inner.extend(iter)
+    pub fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        self.inner.extend(iter.into_iter().map(|item| Reverse(item)))
     }
 }
 
@@ -60,9 +58,31 @@ impl<T> IntoIterator for MinHeap<T> {
     }
 }
 
+pub struct PeekMut<'a, T: std::cmp::Ord>(std::collections::binary_heap::PeekMut<'a, Reverse<T>>);
+
+impl<'a, T: std::cmp::Ord> PeekMut<'a, T> {
+    pub fn pop(this: Self) -> T {
+        std::collections::binary_heap::PeekMut::pop(this.0).0
+    }
+}
+
+impl<'a, T: std::cmp::Ord> std::ops::Deref for PeekMut<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        &self.0 .0
+    }
+}
+
+impl<'a, T: std::cmp::Ord> std::ops::DerefMut for PeekMut<'a, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.0 .0
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::MinHeap;
+    use super::{MinHeap, PeekMut};
 
     #[test]
     fn test_push_pop() {
@@ -143,5 +163,28 @@ mod tests {
 
         assert_eq!(None, heap.peek());
         assert_eq!(None, heap.pop());
+    }
+
+    #[test]
+    fn test_peek_mut() {
+        // Peek should reveal the smallest element, but not remove it
+        let mut heap = MinHeap::default();
+
+        heap.push(37);
+        heap.push(17);
+        heap.push(101);
+
+        let top = heap.peek_mut().unwrap();
+        assert_eq!(17, *top);
+        PeekMut::pop(top);
+        assert_eq!(Some(&37), heap.peek());
+
+        let mut top = heap.peek_mut().unwrap();
+        assert_eq!(37, *top);
+        *top = 111;
+        core::mem::drop(top);
+
+        assert_eq!(Some(101), heap.pop());
+        assert_eq!(Some(111), heap.pop());
     }
 }
