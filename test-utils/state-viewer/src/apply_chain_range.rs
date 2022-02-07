@@ -108,7 +108,7 @@ fn apply_block_from_range(
     let store = Arc::new(store);
     assert!(num_chunks > 0);
 
-    let mut process_block = |shard_id| {
+    let process_block = |shard_id| {
         let mut chain_store = ChainStore::new(store.as_ref().clone(), genesis.config.genesis_height);
 
         let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
@@ -325,8 +325,8 @@ pub fn apply_chain_range(
     let start_height = start_height.unwrap_or_else(|| chain_store.tail().unwrap());
 
     let shards_msg = match shard_id {
-        Some(id) => format!("shard_id {}", id).as_str(),
-        None => "all shards",
+        Some(id) => format!("shard_id {}", id),
+        None => "all shards".to_string(),
     };
     println!(
         "Applying chunks in the range {}..={} for {}",
