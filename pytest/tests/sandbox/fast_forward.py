@@ -10,15 +10,15 @@ import pathlib
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
+import utils
 from cluster import start_cluster
-from utils import figure_out_sandbox_binary
 
 # startup a RPC node
 MIN_BLOCK_PROD_TIME = 1  # seconds
 MAX_BLOCK_PROD_TIME = 2  # seconds
-EPOCH_LENGTH = 10
+EPOCH_LENGTH = 20
 BLOCKS_TO_FASTFORWARD = 10000
-CONFIG = figure_out_sandbox_binary()
+CONFIG = utils.figure_out_sandbox_binary()
 CONFIG.update({
     "consensus": {
         "min_block_production_delay": {
@@ -40,7 +40,8 @@ nodes[0].json_rpc('sandbox_fast_forward', {
 })
 
 # wait a little for it to fast forward
-time.sleep(3)
+# NOTE: epoch takes a couple of blocks before it gets updated, so +10 for this
+utils.wait_for_blocks(nodes[0], target=BLOCKS_TO_FASTFORWARD + 10)
 
 # Assert at the end that the node is past the amounts of blocks we specified
 assert nodes[0].get_latest_block().height > BLOCKS_TO_FASTFORWARD
