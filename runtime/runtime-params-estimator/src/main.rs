@@ -71,6 +71,9 @@ struct CliArgs {
     /// Print extra debug information
     #[clap(long, multiple(true), possible_values=&["io", "rocksdb", "least-squares"])]
     debug: Vec<String>,
+    /// Prints hierarchical execution-timing information using the tracing-span-tree crate.
+    #[clap(long)]
+    tracing_span_tree: bool,
     /// Extra configuration parameters for RocksDB specific estimations
     #[clap(flatten)]
     db_test_config: RocksDBTestConfig,
@@ -181,6 +184,10 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    if cli_args.tracing_span_tree {
+        tracing_span_tree::span_tree().enable();
+    }
+
     let warmup_iters_per_block = cli_args.warmup_iters;
     let mut rocksdb_test_config = cli_args.db_test_config;
     rocksdb_test_config.debug_rocksdb = debug_options.contains(&"rocksdb");
@@ -242,10 +249,14 @@ fn main_docker(
     exec("docker --version").context("please install `docker`")?;
 
     let project_root = project_root();
-    if exec("docker images -q rust-emu")?.is_empty() {
+
+    let image = "rust-emu";
+    let tag = "rust-1.58.1"; //< Update this when Dockerfile changes
+    let tagged_image = format!("{}:{}", image, tag);
+    if exec(&format!("docker images -q {}", tagged_image))?.is_empty() {
         // Build a docker image if there isn't one already.
         let status = Command::new("docker")
-            .args(&["build", "--tag", "rust-emu"])
+            .args(&["build", "--tag", &tagged_image])
             .arg(project_root.join("runtime/runtime-params-estimator/emu-cost"))
             .status()?;
         if !status.success() {

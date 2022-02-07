@@ -88,6 +88,9 @@ pub struct ClientActor {
     block_catch_up_scheduler: Box<dyn Fn(BlockCatchUpRequest)>,
     state_split_scheduler: Box<dyn Fn(StateSplitRequest)>,
     state_parts_client_arbiter: Arbiter,
+
+    #[cfg(feature = "sandbox")]
+    fastforward_delta: Option<near_primitives::types::BlockHeightDelta>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -182,6 +185,9 @@ impl ClientActor {
                 sync_jobs_actor_addr,
             ),
             state_parts_client_arbiter: state_parts_arbiter,
+
+            #[cfg(feature = "sandbox")]
+            fastforward_delta: None,
         })
     }
 }
@@ -351,6 +357,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 !self.client.chain.patch_state_in_progress(),
                             ),
                         )
+                    }
+                    near_network_primitives::types::NetworkSandboxMessage::SandboxFastForward(delta_height) => {
+                        self.fastforward_delta = Some(delta_height);
+                        NetworkClientResponses::NoResponse
                     }
                 };
             }
@@ -764,6 +774,21 @@ impl ClientActor {
 
         let head = self.client.chain.head()?;
         let latest_known = self.client.chain.mut_store().get_latest_known()?;
+
+        #[cfg(feature = "sandbox")]
+        let latest_known = if let Some(delta_height) = self.fastforward_delta.take() {
+            let new_latest_known = near_chain::types::LatestKnown {
+                height: latest_known.height + delta_height,
+                seen: near_primitives::utils::to_timestamp(Clock::utc()),
+            };
+
+            self.client.chain.mut_store().save_latest_known(new_latest_known.clone())?;
+            self.client.sandbox_update_tip(new_latest_known.height)?;
+            new_latest_known
+        } else {
+            latest_known
+        };
+
         assert!(
             head.height <= latest_known.height,
             "Latest known height is invalid {} vs {}",

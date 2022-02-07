@@ -599,7 +599,7 @@ impl Client {
         // with merkle receipts proofs which can be checked locally
         let shard_layout = self.runtime_adapter.get_shard_layout(epoch_id)?;
         let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &shard_layout);
+            Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout);
         let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
         let protocol_version = self.runtime_adapter.get_epoch_protocol_version(epoch_id)?;
@@ -940,6 +940,22 @@ impl Client {
                 last_final_height,
             );
         }
+
+        Ok(())
+    }
+
+    #[cfg(feature = "sandbox")]
+    pub fn sandbox_update_tip(&mut self, height: BlockHeight) -> Result<(), Error> {
+        let tip = self.chain.head()?;
+
+        let last_final_hash =
+            *self.chain.get_block_header(&tip.last_block_hash)?.last_final_block();
+        let last_final_height = if last_final_hash == CryptoHash::default() {
+            self.chain.genesis().height()
+        } else {
+            self.chain.get_block_header(&last_final_hash)?.height()
+        };
+        self.doomslug.set_tip(Clock::instant(), tip.last_block_hash, height, last_final_height);
 
         Ok(())
     }
