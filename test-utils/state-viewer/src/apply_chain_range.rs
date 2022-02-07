@@ -105,10 +105,11 @@ fn apply_block_from_range(
     };
     let block = chain_store.get_block(&block_hash).unwrap().clone();
     let num_chunks = block.chunks().len() as u64;
+    let store = Arc::new(store);
     assert!(num_chunks > 0);
 
     let mut process_block = |shard_id| {
-        let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height);
+        let mut chain_store = ChainStore::new(store.as_ref().clone(), genesis.config.genesis_height);
 
         let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
         let mut existing_chunk_extra = None;
