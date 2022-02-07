@@ -84,7 +84,7 @@ pub(crate) fn dump_state(
 pub(crate) fn apply_range(
     start_index: Option<BlockHeight>,
     end_index: Option<BlockHeight>,
-    shard_id: ShardId,
+    shard_id: Option<ShardId>,
     verbose_output: bool,
     csv_file: Option<PathBuf>,
     home_dir: &Path,

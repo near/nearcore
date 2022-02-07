@@ -189,8 +189,8 @@ pub struct ApplyRangeCmd {
     start_index: Option<BlockHeight>,
     #[clap(long)]
     end_index: Option<BlockHeight>,
-    #[clap(long, default_value = "0")]
-    shard_id: ShardId,
+    #[clap(long)]
+    shard_id: Option<ShardId>,
     #[clap(long)]
     verbose_output: bool,
     #[clap(long, parse(from_os_str))]
