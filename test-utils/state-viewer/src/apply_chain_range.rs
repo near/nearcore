@@ -299,8 +299,8 @@ fn apply_block_from_range(
     };
 
     match shard_id {
-        Some(shard_id) => process_block(shard_id),
-        None => (0..num_chunks).into_par_iter().map(process_block),
+        Some(shard_id) => { process_block(shard_id); }
+        None => { (0..num_chunks).into_par_iter().for_each(process_block); }
     };
 }
 
