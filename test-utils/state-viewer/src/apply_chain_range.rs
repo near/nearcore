@@ -146,8 +146,9 @@ fn apply_block_from_range(
                     maybe_add_to_csv(
                         csv_file_mutex,
                         &format!(
-                            "{},{},{},,,{},,{},,",
+                            "{},{},{},{},,,{},,{},,",
                             height,
+                            shard_id,
                             block_hash,
                             block_author,
                             block.header().raw_timestamp(),
@@ -276,30 +277,31 @@ fn apply_block_from_range(
                 }
             }
         };
+
+        maybe_add_to_csv(
+            csv_file_mutex,
+            &format!(
+                "{},{},{},{},{},{},{},{},{},{},{}",
+                height,
+                shard_id,
+                block_hash,
+                block_author,
+                num_tx,
+                num_receipt,
+                block.header().raw_timestamp(),
+                apply_result.total_gas_burnt,
+                chunk_present,
+                apply_result.processed_delayed_receipts.len(),
+                delayed_indices.map_or(0, |d| d.next_available_index - d.first_index)
+            ),
+        );
+        progress_reporter.inc_and_report_progress();
     };
 
     match shard_id {
         Some(shard_id) => process_block(shard_id),
         None => (0..num_chunks).into_par_iter().map(process_block),
     };
-
-    maybe_add_to_csv(
-        csv_file_mutex,
-        &format!(
-            "{},{},{},{},{},{},{},{},{},{}",
-            height,
-            block_hash,
-            block_author,
-            num_tx,
-            num_receipt,
-            block.header().raw_timestamp(),
-            apply_result.total_gas_burnt,
-            chunk_present,
-            apply_result.processed_delayed_receipts.len(),
-            delayed_indices.map_or(0, |d| d.next_available_index - d.first_index)
-        ),
-    );
-    progress_reporter.inc_and_report_progress();
 }
 
 pub fn apply_chain_range(
@@ -320,7 +322,7 @@ pub fn apply_chain_range(
     let start_height = start_height.unwrap_or_else(|| chain_store.tail().unwrap());
 
     let shards_msg = match shard_id {
-        Some(id) => format!("shard_id {}", id),
+        Some(id) => format!("shard_id {}", id).as_str(),
         None => "all shards",
     };
     println!(
@@ -486,7 +488,7 @@ mod test {
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, None);
 
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
-        apply_chain_range(store, &genesis, None, None, 0, runtime, true, None, false, false);
+        apply_chain_range(store, &genesis, None, None, Some(0), runtime, true, None, false, false);
     }
 
     #[test]
@@ -514,7 +516,7 @@ mod test {
             &genesis,
             None,
             None,
-            0,
+            Some(0),
             runtime,
             true,
             Some(file.as_file_mut()),
