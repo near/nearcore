@@ -98,14 +98,12 @@ impl InfoHelper {
         let sync_status_log = Some(display_sync_status(sync_status, head, genesis_height));
 
         let validator_info_log = validator_info.as_ref().map(|info| {
-            format!(" {}/{}", if info.is_validator { "V" } else { "-" }, info.num_validators)
+            format!(" {} validators", info.num_validators)
         });
 
         let network_info_log = Some(format!(
-            " {:2}/{:?}/{:2} peers ⬇ {} ⬆ {}",
+            " {} peers ⬇ {} ⬆ {}",
             network_info.num_connected_peers,
-            network_info.highest_height_peers.len(),
-            network_info.peer_max_count,
             pretty_bytes_per_sec(network_info.received_bytes_per_sec),
             pretty_bytes_per_sec(network_info.sent_bytes_per_sec)
         ));
