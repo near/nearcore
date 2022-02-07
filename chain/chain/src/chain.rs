@@ -66,7 +66,9 @@ use crate::{metrics, DoomslugThresholdMode};
 use actix::Message;
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
-use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout, ShardUId};
+use near_primitives::shard_layout::{
+    account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
+};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 /// Maximum number of orphans chain can store.
@@ -2969,6 +2971,49 @@ impl Chain {
         let prev_shard_id =
             runtime_adapter.get_prev_shard_ids(prev_block.hash(), vec![shard_id])?[0];
         Ok(prev_block.chunks().get(prev_shard_id as usize).unwrap().clone())
+    }
+
+    pub fn group_receipts_by_shard(
+        receipts: Vec<Receipt>,
+        shard_layout: &ShardLayout,
+    ) -> HashMap<ShardId, Vec<Receipt>> {
+        let mut result = HashMap::with_capacity(shard_layout.num_shards() as usize);
+        for receipt in receipts {
+            let shard_id = account_id_to_shard_id(&receipt.receiver_id, shard_layout);
+            let entry = result.entry(shard_id).or_insert_with(Vec::new);
+            entry.push(receipt)
+        }
+        result
+    }
+
+    pub fn build_receipts_hashes(
+        receipts: &[Receipt],
+        shard_layout: &ShardLayout,
+    ) -> Vec<CryptoHash> {
+        if shard_layout.num_shards() == 1 {
+            return vec![hash(&ReceiptList(0, receipts).try_to_vec().unwrap())];
+        }
+        let mut account_id_to_shard_id_map = HashMap::new();
+        let mut shard_receipts: Vec<_> =
+            (0..shard_layout.num_shards()).map(|i| (i, Vec::new())).collect();
+        for receipt in receipts.iter() {
+            let shard_id = match account_id_to_shard_id_map.get(&receipt.receiver_id) {
+                Some(id) => *id,
+                None => {
+                    let id = account_id_to_shard_id(&receipt.receiver_id, shard_layout);
+                    account_id_to_shard_id_map.insert(receipt.receiver_id.clone(), id);
+                    id
+                }
+            };
+            shard_receipts[shard_id as usize].1.push(receipt);
+        }
+        shard_receipts
+            .into_iter()
+            .map(|(i, rs)| {
+                let bytes = (i, rs).try_to_vec().unwrap();
+                hash(&bytes)
+            })
+            .collect()
     }
 }
 
