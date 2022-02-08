@@ -45,14 +45,14 @@ use near_primitives::syncing::{
 };
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality,
-    MaybeBlockId, ShardId, StateChangeValue, TransactionOrReceiptId,
+    MaybeBlockId, ShardId, TransactionOrReceiptId,
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus, GasPriceView,
-    LightClientBlockView, QueryRequest, QueryResponse, ReceiptView, StateChangeWithCauseView,
-    StateChangesKindsView, StateChangesView,
+    LightClientBlockView, QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView,
+    StateChangesView,
 };
 
 use crate::{
@@ -801,35 +801,17 @@ impl Handler<GetStateChangesWithCauseInBlockForTrackedShards> for ViewClientActo
         let mut state_changes_with_cause_split_by_shard_id: HashMap<ShardId, StateChangesView> =
             HashMap::new();
         for state_change_with_cause in state_changes_with_cause_in_block {
-            let account_id = match &state_change_with_cause.value {
-                StateChangeValue::AccountUpdate { account_id, .. } => account_id.clone(),
-                StateChangeValue::AccountDeletion { account_id } => account_id.clone(),
-                StateChangeValue::AccessKeyUpdate { account_id, .. } => account_id.clone(),
-                StateChangeValue::AccessKeyDeletion { account_id, .. } => account_id.clone(),
-                StateChangeValue::DataUpdate { account_id, .. } => account_id.clone(),
-                StateChangeValue::DataDeletion { account_id, .. } => account_id.clone(),
-                StateChangeValue::ContractCodeUpdate { account_id, .. } => account_id.clone(),
-                StateChangeValue::ContractCodeDeletion { account_id } => account_id.clone(),
-            };
-            let shard_id = if let Ok(shard_id) =
-                self.runtime_adapter.account_id_to_shard_id(&account_id, &msg.epoch_id)
-            {
-                shard_id
-            } else {
-                return Err(GetStateChangesError::IOError {
-                    error_message: format!("Failed to get ShardID from AccountID {}", account_id),
-                });
+            let account_id = &state_change_with_cause.value.get_affected_account_id();
+            let shard_id = match self.runtime_adapter.account_id_to_shard_id(&account_id, &msg.epoch_id) {
+                Ok(shard_id) => shard_id,
+                Err(err) => return Err(GetStateChangesError::IOError {
+                    error_message: format!("{}", err),
+                })
             };
 
-            let mut state_changes = if let Some(changes_with_cause) =
-                state_changes_with_cause_split_by_shard_id.remove(&shard_id)
-            {
-                changes_with_cause
-            } else {
-                Vec::<StateChangeWithCauseView>::new()
-            };
+            let state_changes =
+                state_changes_with_cause_split_by_shard_id.entry(shard_id).or_default();
             state_changes.push(state_change_with_cause.into());
-            state_changes_with_cause_split_by_shard_id.insert(shard_id, state_changes);
         }
 
         Ok(state_changes_with_cause_split_by_shard_id)

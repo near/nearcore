@@ -7,6 +7,11 @@ use tokio::sync::mpsc;
 use tokio::time;
 use tracing::{debug, info};
 
+pub use near_indexer_primitives::{
+    IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
+    IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
+    StreamerMessage,
+};
 use near_primitives::hash::CryptoHash;
 pub use near_primitives::views;
 
@@ -20,11 +25,6 @@ use self::fetchers::{
 use self::utils::convert_transactions_sir_into_local_receipts;
 use crate::streamer::fetchers::fetch_protocol_config;
 use crate::INDEXER;
-pub use indexer_primitives::{
-    IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
-    IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
-    StreamerMessage,
-};
 
 mod errors;
 mod fetchers;
@@ -87,7 +87,9 @@ async fn build_streamer_message(
             shard_id,
             chunk: None,
             receipt_execution_outcomes: vec![],
-            state_changes: vec![],
+            state_changes: state_changes
+                .remove(&shard_id)
+                .expect("StateChanges for given shard should be present"),
         })
         .collect::<Vec<_>>();
 
@@ -96,10 +98,6 @@ async fn build_streamer_message(
             chunk;
 
         let shard_id = header.shard_id.clone() as usize;
-
-        indexer_shards[shard_id].state_changes = state_changes
-            .remove(&header.shard_id)
-            .expect("StateChanges for given shard should be present");
 
         let mut outcomes = shards_outcomes
             .remove(&header.shard_id)

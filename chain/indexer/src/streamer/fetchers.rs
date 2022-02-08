@@ -6,12 +6,12 @@ use actix::Addr;
 use futures::stream::StreamExt;
 use tracing::warn;
 
+use near_indexer_primitives::IndexerExecutionOutcomeWithOptionalReceipt;
 pub use near_primitives::hash::CryptoHash;
 pub use near_primitives::{types, views};
 
 use super::errors::FailedToFetchData;
 use super::INDEXER;
-use indexer_primitives::IndexerExecutionOutcomeWithOptionalReceipt;
 
 pub(crate) async fn fetch_status(
     client: &Addr<near_client::ClientActor>,

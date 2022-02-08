@@ -3,6 +3,7 @@
 use anyhow::Context;
 use tokio::sync::mpsc;
 
+use near_chain_configs::GenesisValidationMode;
 pub use near_primitives;
 use near_primitives::types::Gas;
 pub use nearcore::{get_default_home, init_configs, NearConfig};
@@ -12,7 +13,6 @@ pub use self::streamer::{
     IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
     StreamerMessage,
 };
-use near_chain_configs::GenesisValidationMode;
 
 mod streamer;
 

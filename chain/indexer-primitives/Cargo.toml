@@ -1,5 +1,5 @@
 [package]
-name = "indexer-primitives"
+name = "near-indexer-primitives"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = true

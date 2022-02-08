@@ -233,6 +233,21 @@ pub enum StateChangeValue {
     ContractCodeDeletion { account_id: AccountId },
 }
 
+impl StateChangeValue {
+    pub fn get_affected_account_id(&self) -> &AccountId {
+        match &self {
+            StateChangeValue::AccountUpdate { account_id, .. } => account_id,
+            StateChangeValue::AccountDeletion { account_id } => account_id,
+            StateChangeValue::AccessKeyUpdate { account_id, .. } => account_id,
+            StateChangeValue::AccessKeyDeletion { account_id, .. } => account_id,
+            StateChangeValue::DataUpdate { account_id, .. } => account_id,
+            StateChangeValue::DataDeletion { account_id, .. } => account_id,
+            StateChangeValue::ContractCodeUpdate { account_id, .. } => account_id,
+            StateChangeValue::ContractCodeDeletion { account_id } => account_id,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct StateChangeWithCause {
     pub cause: StateChangeCause,
