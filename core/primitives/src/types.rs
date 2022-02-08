@@ -234,7 +234,7 @@ pub enum StateChangeValue {
 }
 
 impl StateChangeValue {
-    pub fn account_id(&self) -> &AccountId {
+    pub fn affected_account_id(&self) -> &AccountId {
         match &self {
             StateChangeValue::AccountUpdate { account_id, .. }
             | StateChangeValue::AccountDeletion { account_id }
