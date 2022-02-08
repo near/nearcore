@@ -4514,6 +4514,7 @@ mod contract_precompilation_tests {
 
 #[cfg(test)]
 mod chunk_nodes_cache_tests {
+    use std::collections::{BTreeMap, HashMap};
     use near_primitives::config::ExtCosts;
     use near_primitives::state_record::StateRecord;
     use near_primitives::transaction::ExecutionMetadata;
@@ -4529,12 +4530,20 @@ mod chunk_nodes_cache_tests {
         res
     }
 
+    struct ReceiptData {
+        block_hash: CryptoHash,
+        touching_trie_node_cost: u64,
+    }
+
     #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
     #[test]
     fn test() {
         init_test_logger();
         let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         let epoch_length = 5;
+        let gas_limit = 10_000_000_000_000;
+        let num_txs = 20;
+        genesis.config.gas_limit = gas_limit;
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = ProtocolFeature::ChunkNodesCache.protocol_version();
         let chain_genesis = ChainGenesis::from(&genesis);
@@ -4542,46 +4551,76 @@ mod chunk_nodes_cache_tests {
             .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
             .build();
 
-        let mut block_height = deploy_test_contract(
+        let block_height = deploy_test_contract(
             &mut env,
             "test0".parse().unwrap(),
             near_test_contracts::rs_contract(),
             epoch_length,
             1,
         );
-        let last_block = env.clients[0].chain.get_block_by_height(block_height - 1).unwrap();
+        let last_block_hash = env.clients[0].chain.get_block_by_height(block_height - 1).unwrap().hash().clone();
 
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-        let signed_transaction = SignedTransaction::call(
-            block_height,
-            "test0".parse().unwrap(),
-            "test0".parse().unwrap(),
-            &signer,
-            0,
-            "write_key_value".to_string(),
-            arr_u64_to_u8(&[10u64, 20u64]),
-            100_000_000_000_000,
-            *last_block.hash(),
-        );
-        let tx_hash = signed_transaction.get_hash();
-        env.clients[0].process_tx(signed_transaction, false, false);
-        block_height = produce_blocks_from_height(&mut env, epoch_length, block_height);
+        let tx_hashes: Vec<CryptoHash> = (0..num_txs).map(|i| {
+            let tx = SignedTransaction::call(
+                block_height + i,
+                "test0".parse().unwrap(),
+                "test0".parse().unwrap(),
+                &signer,
+                0,
+                "write_key_value".to_string(),
+                arr_u64_to_u8(&[10u64, 20u64]),
+                gas_limit / 3,
+                last_block_hash.clone(),
+            );
+            env.clients[0].process_tx(tx, false, false);
+            tx.get_hash()
+        }).collect();
 
-        let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
-        assert!(matches!(final_result.status, FinalExecutionStatus::SuccessValue(_)));
-        let transaction_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
-        let receipt_ids = transaction_outcome.outcome_with_id.outcome.receipt_ids;
-        eprintln!("{:?}", receipt_ids);
+        let new_block_height = produce_blocks_from_height(&mut env, epoch_length * 5, block_height);
+        (block_height..block_height+epoch_length * 5).for_each(|block_height| {
+            let block_hash = env.clients[0].chain.get_block_by_height(block_height + 1).unwrap().hash().clone();
+            let shard_state_header = env.clients[0].chain.get_state_header(0u64, block_hash).unwrap();
+            let chunk_receipt_ids: Vec<CryptoHash> = shard_state_header.take_chunk().receipts().iter().map(|r| r.receipt_id).collect();
+            // let blocks: HashMap<CryptoHash, BlockHeight> = (block_height..new_block_height).map(|height| {
+            //     (env.clients[0].chain.get_block_by_height(height).unwrap().hash(), height)
+            // }).into();
+            //
+            // let mut receipts_in_blocks: BTreeMap<BlockHeight, Vec<u64>> = BTreeMap::new();
 
-        let receipt_execution_outcomes =
-            env.clients[0].chain.mut_store().get_outcomes_by_id(&receipt_ids[0]).unwrap();
-        eprintln!("{:?}", receipt_execution_outcomes);
-        let metadata = receipt_execution_outcomes[0].outcome_with_id.outcome.metadata.clone();
-        let touching_trie_node_cost = match metadata {
-            ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),
-            ExecutionMetadata::V2(profile_data) => profile_data.get_ext_cost(ExtCosts::touching_trie_node),
-        };
-        eprintln!("{:?}", touching_trie_node_cost);
+            chunk_receipt_ids.iter().for_each(|receipt_hash| {
+                let receipt_execution_outcome =
+                    env.clients[0].chain.get_execution_outcome(&receipt_hash).unwrap();
+                let block_hash = receipt_execution_outcome.block_hash;
+                let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata.clone();
+                let touching_trie_node_cost = match metadata {
+                    ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),
+                    ExecutionMetadata::V2(profile_data) => profile_data.get_ext_cost(ExtCosts::touching_trie_node),
+                };
+                eprintln!("{} {}", receipt_hash, touching_trie_node_cost);
+            })
+        });
+        // let receipt_block_hashes_and_costs: Vec<ReceiptData> = tx_hashes.iter().map(|tx_hash| {
+        //     let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+        //     assert!(matches!(final_result.status, FinalExecutionStatus::SuccessValue(_)));
+        //     let transaction_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
+        //     let receipt_ids = transaction_outcome.outcome_with_id.outcome.receipt_ids;
+        //     assert_eq!(receipt_ids.len(), 1);
+        //     let receipt_execution_outcome =
+        //         env.clients[0].chain.get_execution_outcome(&receipt_ids[0]).unwrap();
+        //     let block_hash = receipt_execution_outcome.block_hash;
+        //     let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata.clone();
+        //     let touching_trie_node_cost = match metadata {
+        //         ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),
+        //         ExecutionMetadata::V2(profile_data) => profile_data.get_ext_cost(ExtCosts::touching_trie_node),
+        //     };
+        //
+        //     let block_height = blocks.get(&block_hash).unwrap();
+        //     receipts_in_blocks.entry(*block_height).or_default().pu
+        //     ReceiptData { block_hash, touching_trie_node_cost }
+        // }).collect();
+
+        // eprintln!("{:?}", touching_trie_node_cost);
         let last_block = env.clients[0].chain.get_block_by_height(block_height - 1).unwrap().clone();
         let state_roots: Vec<StateRoot> = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
 
