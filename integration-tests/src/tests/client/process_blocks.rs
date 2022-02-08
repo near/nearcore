@@ -4541,7 +4541,7 @@ mod chunk_nodes_cache_tests {
         init_test_logger();
         let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         let epoch_length = 5;
-        let gas_limit = 100_000_000_000_000;
+        let gas_limit = 5_000_000_000_000;
         let num_txs = 20;
         genesis.config.gas_limit = gas_limit;
         genesis.config.epoch_length = epoch_length;
