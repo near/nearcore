@@ -5,7 +5,7 @@
 # height is changed.
 
 import datetime
-import sys, time
+import sys
 import pathlib
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
@@ -42,9 +42,6 @@ nodes[0].json_rpc('sandbox_fast_forward', {
 # wait a little for it to fast forward
 # NOTE: epoch takes a couple of blocks before it gets updated, so +10 for this
 utils.wait_for_blocks(nodes[0], target=BLOCKS_TO_FASTFORWARD + 10)
-
-# Assert at the end that the node is past the amounts of blocks we specified
-assert nodes[0].get_latest_block().height > BLOCKS_TO_FASTFORWARD
 
 # Assert that we're within the bounds of fast forward timestamp between range of min and max:
 sync_info = nodes[0].get_status()['sync_info']
