@@ -4511,3 +4511,62 @@ mod contract_precompilation_tests {
         assert!(caches[1].get(&contract_key.0).unwrap().is_none());
     }
 }
+
+#[cfg(test)]
+mod chunk_nodes_cache_tests {
+    use super::*;
+
+    fn arr_u64_to_u8(value: &[u64]) -> Vec<u8> {
+        let mut res = vec![];
+        for el in value {
+            res.extend_from_slice(&el.to_le_bytes());
+        }
+        res
+    }
+
+    #[test]
+    fn test() {
+        init_test_logger();
+        let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        let epoch_length = 5;
+        genesis.config.epoch_length = epoch_length;
+        genesis.config.protocol_version = ProtocolFeature::ChunkNodesCache.protocol_version();
+        let chain_genesis = ChainGenesis::from(&genesis);
+        let mut env = TestEnv::builder(chain_genesis)
+            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+            .build();
+
+        let mut block_height = deploy_test_contract(
+            &mut env,
+            "test0".parse().unwrap(),
+            near_test_contracts::rs_contract(),
+            epoch_length,
+            1,
+        );
+        let last_block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
+
+        let signed_transaction = SignedTransaction::call(
+            i + 10,
+            "test0".parse().unwrap(),
+            "test0".parse().unwrap(),
+            &signer,
+            0,
+            "write_key_value".to_string(),
+            arr_u64_to_u8(&[10u64, 20u64]),
+            100_000_000_000_000,
+            *last_block.hash(),
+        );
+        let tx_hash = signed_transaction.get_hash();
+        block_height = produce_blocks_from_height(&mut env, epoch_length, block_height);
+
+        let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+        assert!(matches!(final_result.status, FinalExecutionStatus::SuccessValue(_)));
+        let transaction_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
+        let receipt_ids = transaction_outcome.outcome_with_id.outcome.receipt_ids;
+        eprintln!("{:?}", receipt_ids);
+
+        let receipt_execution_outcomes =
+            env.clients[0].chain.mut_store().get_outcomes_by_id(&receipt_ids[0]).unwrap();
+        eprintln!("{:?}", receipt_execution_outcomes);
+    }
+}

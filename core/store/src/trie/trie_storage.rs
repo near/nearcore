@@ -73,7 +73,6 @@ impl TrieCache {
     }
 
     fn put(&mut self, hash: CryptoHash, value: &[u8]) {
-        // TODO: put TRIE_LIMIT_CACHED_VALUE_SIZE to runtime config
         if value.len() >= TRIE_LIMIT_CACHED_VALUE_SIZE {
             return;
         }
@@ -103,7 +102,7 @@ impl SyncTrieCache {
     pub fn new() -> Self {
         Self(Arc::new(Mutex::new(TrieCache {
             cache_state: CacheState::CachingShard,
-            shard_cache: LruCache::new(TRIE_MAX_CACHE_SIZE),
+            shard_cache: LruCache::new(TRIE_MAX_SHARD_CACHE_SIZE),
             chunk_cache: Default::default(),
         })))
     }
@@ -220,19 +219,20 @@ impl TrieStorage for TrieMemoryPartialStorage {
     }
 }
 
-/// Maximum number of cache entries.
+/// Maximum number of cache entries per shard.
 /// It was chosen to fit into RAM well. RAM spend on trie cache should not exceed
 /// 100_000 * 4 (number of shards) * TRIE_LIMIT_CACHED_VALUE_SIZE = 400 MB.
 /// In our tests on a single shard, it barely occupied 40 MB, which is dominated by state cache size
 /// with 512 MB limit. The total RAM usage for a single shard was 1 GB.
 #[cfg(not(feature = "no_cache"))]
-const TRIE_MAX_CACHE_SIZE: usize = 100_000;
+const TRIE_MAX_SHARD_CACHE_SIZE: usize = 100_000;
 
 #[cfg(feature = "no_cache")]
-const TRIE_MAX_CACHE_SIZE: usize = 1;
+const TRIE_MAX_SHARD_CACHE_SIZE: usize = 1;
 
 /// Values above this size (in bytes) are never cached.
 /// Note that Trie inner nodes are always smaller than this.
+/// TODO (#6272): put it to the runtime config because nodes cache becomes a part of the protocol
 const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 1000;
 
 pub struct TrieCachingStorage {
