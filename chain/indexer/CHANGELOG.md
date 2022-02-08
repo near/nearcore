@@ -4,7 +4,7 @@
 
 * `state_changes` is moved to `IndexerShard` struct and represent only
   the state changes happened on the specific shard
-* All the NEAR Indexer Framework types was extracted to a separate crate `indexer-primitives`
+* All the NEAR Indexer Framework types were extracted to a separate crate `near-indexer-primitives`
 
 ## Breaking changes
 
