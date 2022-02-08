@@ -2804,6 +2804,12 @@ impl Chain {
         self.store.get_block(&hash)
     }
 
+    /// Gets block hash from the current chain by height.
+    #[inline]
+    pub fn get_block_hash_by_height(&mut self, height: BlockHeight) -> Result<CryptoHash, Error> {
+        self.store.get_block_hash_by_height(height)
+    }
+
     /// Gets a block header by hash.
     #[inline]
     pub fn get_block_header(&mut self, hash: &CryptoHash) -> Result<&BlockHeader, Error> {
