@@ -101,7 +101,7 @@ pub(crate) fn execute_function_call(
     };
 
     let protocol_version = runtime_ext.protocol_version();
-    let runner = || {
+    let runner = |runtime_ext| {
         near_vm_runner::run(
             &code,
             &function_call.method_name,
@@ -116,7 +116,7 @@ pub(crate) fn execute_function_call(
     };
     if checked_feature!("protocol_feature_chunk_nodes_cache", ChunkNodesCache, protocol_version) {
         runtime_ext.set_chunk_cache_state(CacheState::CachingChunk);
-        let result = runner();
+        let result = runner(runtime_ext);
         runtime_ext.set_chunk_cache_state(CacheState::CachingShard);
         result
     } else {
