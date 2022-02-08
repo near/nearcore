@@ -37,7 +37,11 @@ default = ["json_rpc", "jemalloc"]
 
 jemalloc = ["tikv-jemallocator"]
 performance_stats = ["nearcore/performance_stats"]
-memory_stats = ["nearcore/memory_stats", "near-rust-allocator-proxy", "jemalloc"]
+memory_stats = [
+  "nearcore/memory_stats",
+  "near-rust-allocator-proxy",
+  "jemalloc",
+]
 c_memory_stats = ["nearcore/c_memory_stats"]
 test_features = ["nearcore/test_features"]
 expensive_tests = ["nearcore/expensive_tests"]
