@@ -4517,6 +4517,7 @@ mod chunk_nodes_cache_tests {
     use near_primitives::config::ExtCosts;
     use near_primitives::state_record::StateRecord;
     use near_primitives::transaction::ExecutionMetadata;
+    use near_primitives::types::StateRoot;
     use near_store::TrieIterator;
     use super::*;
 
@@ -4582,7 +4583,7 @@ mod chunk_nodes_cache_tests {
         };
         eprintln!("{:?}", touching_trie_node_cost);
         let last_block = env.clients[0].chain.get_block_by_height(block_height - 1).unwrap();
-        let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        let state_roots: Vec<StateRoot> = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
 
         let trie = env.clients[0].runtime_adapter.get_trie_for_shard(0u64, last_block.hash()).unwrap();
         let trie = TrieIterator::new(&trie, state_roots[0]).unwrap();
