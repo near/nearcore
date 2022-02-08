@@ -134,17 +134,17 @@ fn test_counter() {
     let trie = tries.get_trie_for_shard(shard_uid);
     let trie = Rc::new(trie);
     let mut state_root = Trie::empty_root();
-    // let storage = match trie.storage.as_caching_storage() {
-    //     Some(storage) => storage,
-    //     None => assert!("TrieCachingStorage must be used as trie storage backend"),
-    // };
+    let storage = match trie.storage.as_caching_storage() {
+        Some(storage) => storage,
+        None => assert!("TrieCachingStorage must be used as trie storage backend"),
+    };
     let keys = vec![b"aaa", b"abb", b"baa"];
     let changes = keys.iter().cloned().enumerate().map(|(i, key)| (key.to_vec(), Some(vec![i as u8]))).collect();
     let trie_changes = simplify_changes(&changes);
     let state_root = test_populate_trie(&tries, &state_root, shard_uid, trie_changes.clone());
-    // eprintln!("{}", trie.counter.get());
-    // for key in keys {
-    //     trie.get(&state_root, key);
-    //     eprintln!("{}", trie.counter.get());
-    // }
+    eprintln!("{}", trie.counter.get());
+    for key in keys {
+        trie.get(&state_root, key);
+        eprintln!("{}", trie.counter.get());
+    }
 }

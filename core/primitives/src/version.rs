@@ -146,6 +146,10 @@ pub enum ProtocolFeature {
     /// alpha is min stake ratio
     #[cfg(feature = "protocol_feature_fix_staking_threshold")]
     FixStakingThreshold,
+    /// Ensure caching all nodes in the chunk for which touching trie node cost was charged. Charge for each such node
+    /// only once at the first access time.
+    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
+    ChunkNodesCache,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -162,7 +166,7 @@ const MAIN_NET_PROTOCOL_VERSION: ProtocolVersion = 51;
 pub const PROTOCOL_VERSION: ProtocolVersion = MAIN_NET_PROTOCOL_VERSION;
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 126;
+pub const PROTOCOL_VERSION: ProtocolVersion = 127;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -202,6 +206,8 @@ impl ProtocolFeature {
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
+            #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
+            ProtocolFeature::ChunkNodesCache => 127,
         }
     }
 }
