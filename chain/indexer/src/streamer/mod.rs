@@ -7,13 +7,13 @@ use tokio::sync::mpsc;
 use tokio::time;
 use tracing::{debug, info};
 
-pub use near_indexer_primitives::{
+use near_indexer_primitives::{
     IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
     IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
     StreamerMessage,
 };
 use near_primitives::hash::CryptoHash;
-pub use near_primitives::views;
+use near_primitives::views;
 
 use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
 

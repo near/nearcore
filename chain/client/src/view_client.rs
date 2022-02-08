@@ -801,12 +801,15 @@ impl Handler<GetStateChangesWithCauseInBlockForTrackedShards> for ViewClientActo
         let mut state_changes_with_cause_split_by_shard_id: HashMap<ShardId, StateChangesView> =
             HashMap::new();
         for state_change_with_cause in state_changes_with_cause_in_block {
-            let account_id = &state_change_with_cause.value.get_affected_account_id();
-            let shard_id = match self.runtime_adapter.account_id_to_shard_id(&account_id, &msg.epoch_id) {
+            let account_id = state_change_with_cause.value.account_id();
+            let shard_id = match self
+                .runtime_adapter
+                .account_id_to_shard_id(account_id, &msg.epoch_id)
+            {
                 Ok(shard_id) => shard_id,
-                Err(err) => return Err(GetStateChangesError::IOError {
-                    error_message: format!("{}", err),
-                })
+                Err(err) => {
+                    return Err(GetStateChangesError::IOError { error_message: format!("{}", err) })
+                }
             };
 
             let state_changes =
