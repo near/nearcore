@@ -10,6 +10,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::rc::Rc;
+use near_primitives::block::CacheState;
 
 /// TrieMemoryPartialStorage, but contains only the first n requested nodes.
 pub struct IncompletePartialStorage {
@@ -127,8 +128,8 @@ fn test_reads_with_incomplete_storage() {
     }
 }
 
-#[test]
-fn test_counter() {
+
+fn get_touched_nodes_numbers(with_chunk_cache: bool) -> Vec<u8> {
     let tries = create_tries_complex(1, 2);
     let shard_uid = ShardUId { version: 1, shard_id: 0 };
     let trie = tries.get_trie_for_shard(shard_uid);
@@ -138,13 +139,26 @@ fn test_counter() {
         Some(storage) => storage,
         None => assert!("TrieCachingStorage must be used as trie storage backend"),
     };
+    if with_chunk_cache {
+        storage.cache.set_chunk_cache_state(CacheState::CachingChunk);
+    }
     let keys = vec![b"aaa", b"abb", b"baa"];
     let changes = keys.iter().cloned().enumerate().map(|(i, key)| (key.to_vec(), Some(vec![i as u8]))).collect();
     let trie_changes = simplify_changes(&changes);
     let state_root = test_populate_trie(&tries, &state_root, shard_uid, trie_changes.clone());
-    eprintln!("{}", trie.counter.get());
-    for key in keys {
+    keys.iter().map(|key| {
+        let initial_counter = trie.counter.get();
         trie.get(&state_root, key);
-        eprintln!("{}", trie.counter.get());
-    }
+        trie.counter.get() - initial_counter
+    }).collect()
+}
+
+#[test]
+fn test_counter_shard_cache() {
+    eprintln!("{:?}", get_touched_nodes_numbers(false));
+}
+
+#[test]
+fn test_counter_chunk_cache() {
+    eprintln!("{:?}", get_touched_nodes_numbers(true));
 }

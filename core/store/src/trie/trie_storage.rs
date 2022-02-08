@@ -65,8 +65,8 @@ impl TrieCache {
             }
             CachePosition::ChunkCache(value) => {
                 RawBytesWithCost { value: Some(value), cost: match self.cache_state {
-                    CacheState::CachingChunk => TrieNodeRetrievalCost::Free,
                     CacheState::CachingShard => TrieNodeRetrievalCost::Full,
+                    CacheState::CachingChunk => TrieNodeRetrievalCost::Free,
                 } }
             },
         }
