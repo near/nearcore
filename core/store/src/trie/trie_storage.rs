@@ -28,6 +28,7 @@ enum CachePosition {
     ChunkCache(Vec<u8>),
 }
 
+#[derive(Debug)]
 pub enum TrieNodeRetrievalCost {
     Free,
     Full,
