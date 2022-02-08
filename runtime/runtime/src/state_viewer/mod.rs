@@ -241,7 +241,6 @@ impl TrieViewer {
             true,
             Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view }),
         );
-        runtime_ext.stop();
         let elapsed = now.elapsed();
         let time_ms =
             (elapsed.as_secs() as f64 / 1_000.0) + f64::from(elapsed.subsec_nanos()) / 1_000_000.0;

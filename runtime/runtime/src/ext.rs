@@ -5,6 +5,7 @@ use log::debug;
 
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::block::CacheState;
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
@@ -79,7 +80,6 @@ impl<'a> RuntimeExt<'a> {
         epoch_info_provider: &'a dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
     ) -> Self {
-        trie_update.flip_caching_chunk_state();
         RuntimeExt {
             trie_update,
             account_id,
@@ -97,8 +97,8 @@ impl<'a> RuntimeExt<'a> {
         }
     }
 
-    pub fn stop(&mut self) {
-        self.trie_update.flip_caching_chunk_state();
+    pub fn set_chunk_cache_state(&mut self, state: CacheState) {
+        self.trie_update.set_chunk_cache_state(state);
     }
 
     #[inline]

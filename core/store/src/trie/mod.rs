@@ -18,7 +18,7 @@ use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 pub(crate) use crate::trie::trie_storage::{SyncTrieCache, TrieCachingStorage};
-use crate::trie::trie_storage::{RetrievalCost, TouchedNodesCounter, TrieMemoryPartialStorage, TrieRecordingStorage, TrieStorage};
+use crate::trie::trie_storage::{TrieNodeRetrievalCost, TouchedNodesCounter, TrieMemoryPartialStorage, TrieRecordingStorage, TrieStorage};
 use crate::StorageError;
 
 mod insert_delete;
@@ -612,14 +612,19 @@ impl Trie {
     pub(crate) fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
         return self.storage.retrieve_raw_bytes_with_cost(hash).map(|(value, cost)| {
             #[cfg(not(feature = "protocol_feature_chunk_nodes_cache"))]
-            self.counter.increment();
-
+            {
+                tracing::debug!(target: "runtime", "yes no feature");
+                self.counter.increment();
+            }
             #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
             match cost {
-                RetrievalCost::Full => {
+                TrieNodeRetrievalCost::Full => {
+                    tracing::debug!(target: "runtime", "yes with feature");
                     self.counter.increment()
                 },
-                RetrievalCost::Free => {},
+                TrieNodeRetrievalCost::Free => {
+                    tracing::debug!(target: "runtime", "no with feature");
+                },
             }
             value
         })

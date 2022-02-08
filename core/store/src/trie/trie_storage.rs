@@ -11,6 +11,7 @@ use lru::LruCache;
 use near_primitives::shard_layout::ShardUId;
 use std::cell::RefCell;
 use std::io::ErrorKind;
+use near_primitives::block::CacheState;
 
 #[derive(Clone)]
 pub struct SyncTrieCache(Arc<Mutex<TrieCache>>);
@@ -27,12 +28,7 @@ enum CachePosition {
     ChunkCache(Vec<u8>),
 }
 
-enum CacheState {
-    CachingShard,
-    CachingChunk,
-}
-
-pub enum RetrievalCost {
+pub enum TrieNodeRetrievalCost {
     Free,
     Full,
 }
@@ -48,9 +44,9 @@ impl TrieCache {
         }
     }
 
-    pub fn get_with_cost(&mut self, hash: &CryptoHash) -> (Option<Vec<u8>>, RetrievalCost) {
+    pub fn get_with_cost(&mut self, hash: &CryptoHash) -> (Option<Vec<u8>>, TrieNodeRetrievalCost) {
         match self.get_cache_position(hash) {
-            CachePosition::None => (None, RetrievalCost::Full),
+            CachePosition::None => (None, TrieNodeRetrievalCost::Full),
             CachePosition::ShardCache(value) => {
                 if let CacheState::CachingChunk = &self.cache_state {
                     let value = self
@@ -59,17 +55,18 @@ impl TrieCache {
                         .expect("If position is ShardCache then value must be presented");
                     self.chunk_cache.insert(hash.clone(), value);
                 };
-                (Some(value), RetrievalCost::Full)
+                (Some(value), TrieNodeRetrievalCost::Full)
             }
-            CachePosition::ChunkCache(value) => (Some(value), RetrievalCost::Free),
+            CachePosition::ChunkCache(value) => (Some(value), TrieNodeRetrievalCost::Free),
         }
     }
 
-    fn put(&mut self, hash: CryptoHash, value: Vec<u8>) {
+    fn put(&mut self, hash: CryptoHash, value: &[u8]) {
         // TODO: put TRIE_LIMIT_CACHED_VALUE_SIZE to runtime config
         if value.len() >= TRIE_LIMIT_CACHED_VALUE_SIZE {
             return;
         }
+        let value = value.to_vec();
 
         if let CacheState::CachingChunk = &self.cache_state {
             self.shard_cache.pop(&hash);
@@ -113,12 +110,9 @@ impl SyncTrieCache {
         guard.chunk_cache.clear();
     }
 
-    pub fn flip_caching_chunk_state(&self) {
+    pub fn set_chunk_cache_state(&self, state: CacheState) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
-        guard.cache_state = match guard.cache_state {
-            CacheState::CachingShard => CacheState::CachingChunk,
-            CacheState::CachingChunk => CacheState::CachingShard,
-        };
+        guard.cache_state = state;
     }
 
     pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<&Vec<u8>>)>) {
@@ -126,7 +120,7 @@ impl SyncTrieCache {
         for (hash, opt_value_rc) in ops {
             if let Some(value_rc) = opt_value_rc {
                 if let (Some(value), _rc) = decode_value_with_rc(&value_rc) {
-                    guard.put(hash, value.to_vec());
+                    guard.put(hash, value);
                 } else {
                     guard.pop(&hash);
                 }
@@ -149,8 +143,8 @@ pub trait TrieStorage {
     fn retrieve_raw_bytes_with_cost(
         &self,
         hash: &CryptoHash,
-    ) -> Result<(Vec<u8>, RetrievalCost), StorageError> {
-        self.retrieve_raw_bytes(hash).map(|value| (value, RetrievalCost::Full))
+    ) -> Result<(Vec<u8>, TrieNodeRetrievalCost), StorageError> {
+        self.retrieve_raw_bytes(hash).map(|value| (value, TrieNodeRetrievalCost::Full))
     }
 
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
@@ -268,29 +262,6 @@ impl TrieCachingStorage {
         key
     }
 
-    pub(crate) fn retrieve_raw_bytes_with_cost(
-        &self,
-        hash: &CryptoHash,
-    ) -> Result<(Vec<u8>, RetrievalCost), StorageError> {
-        let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
-        if let (Some(val), cost) = guard.get_with_cost(hash) {
-            Ok((val, cost))
-        } else {
-            let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
-            let val = self
-                .store
-                .get(ColState, key.as_ref())
-                .map_err(|_| StorageError::StorageInternalError)?;
-            if let Some(val) = val {
-                guard.put(*hash, val.clone());
-                Ok((val, RetrievalCost::Full))
-            } else {
-                // not StorageError::TrieNodeMissing because it's only for TrieMemoryPartialStorage
-                Err(StorageError::StorageInconsistentState("Trie node missing".to_string()))
-            }
-        }
-    }
-
     pub fn prepare_trie_cache(&self) {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
         guard.cache_state = CacheState::CachingShard;
@@ -301,6 +272,30 @@ impl TrieCachingStorage {
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
         self.retrieve_raw_bytes_with_cost(hash).map(|(val, _)| val)
+    }
+
+    fn retrieve_raw_bytes_with_cost(
+        &self,
+        hash: &CryptoHash,
+    ) -> Result<(Vec<u8>, TrieNodeRetrievalCost), StorageError> {
+        let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
+        if let (Some(val), cost) = guard.get_with_cost(hash) {
+            tracing::debug!(target: "runtime", cost = ?cost);
+            Ok((val, cost))
+        } else {
+            let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
+            let val = self
+                .store
+                .get(ColState, key.as_ref())
+                .map_err(|_| StorageError::StorageInternalError)?;
+            if let Some(val) = val {
+                guard.put(*hash, &val);
+                Ok((val, TrieNodeRetrievalCost::Full))
+            } else {
+                // not StorageError::TrieNodeMissing because it's only for TrieMemoryPartialStorage
+                Err(StorageError::StorageInconsistentState("Trie node missing".to_string()))
+            }
+        }
     }
 
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {

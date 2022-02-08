@@ -2,6 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
+use near_primitives::block::CacheState;
 use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ActionError, ActionErrorKind, ContractCallError, RuntimeError};
@@ -99,7 +100,8 @@ pub(crate) fn execute_function_call(
         output_data_receivers,
     };
 
-    near_vm_runner::run(
+    runtime_ext.set_chunk_cache_state(CacheState::CachingChunk);
+    let result = near_vm_runner::run(
         &code,
         &function_call.method_name,
         runtime_ext,
@@ -109,7 +111,9 @@ pub(crate) fn execute_function_call(
         promise_results,
         apply_state.current_protocol_version,
         apply_state.cache.as_deref(),
-    )
+    );
+    runtime_ext.set_chunk_cache_state(CacheState::CachingShard);
+    result
 }
 
 pub(crate) fn action_function_call(
@@ -159,7 +163,6 @@ pub(crate) fn action_function_call(
         is_last_action,
         None,
     );
-    runtime_ext.stop();
     let execution_succeeded = match err {
         Some(VMError::FunctionCallError(err)) => match err {
             FunctionCallError::Nondeterministic(msg) => {

@@ -12,6 +12,7 @@ use crate::StorageError;
 use super::{Trie, TrieIterator};
 use near_primitives::trie_key::TrieKey;
 use std::rc::Rc;
+use near_primitives::block::CacheState;
 
 /// Key-value update. Contains a TrieKey and a value.
 pub struct TrieKeyValueUpdate {
@@ -173,9 +174,9 @@ impl TrieUpdate {
         self.root
     }
 
-    pub fn flip_caching_chunk_state(&self) {
+    pub fn set_chunk_cache_state(&self, state: CacheState) {
         if let Some(storage) = self.trie.storage.as_caching_storage() {
-            storage.cache.flip_caching_chunk_state();
+            storage.cache.set_chunk_cache_state(state);
         }
     }
 }
