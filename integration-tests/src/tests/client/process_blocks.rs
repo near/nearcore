@@ -4581,7 +4581,7 @@ mod chunk_nodes_cache_tests {
         let new_block_height = produce_blocks_from_height(&mut env, epoch_length * 5, block_height);
         (block_height..block_height+epoch_length * 5).for_each(|block_height| {
             let block_hash = env.clients[0].chain.get_block_by_height(block_height + 1).unwrap().hash().clone();
-            let shard_state_header = env.clients[0].chain.get_state_header(0u64, block_hash).unwrap();
+            let shard_state_header = env.clients[0].chain.get_state_response_header(0u64, block_hash).unwrap();
             let chunk_receipt_ids: Vec<CryptoHash> = shard_state_header.take_chunk().receipts().iter().map(|r| r.receipt_id).collect();
             // let blocks: HashMap<CryptoHash, BlockHeight> = (block_height..new_block_height).map(|height| {
             //     (env.clients[0].chain.get_block_by_height(height).unwrap().hash(), height)
