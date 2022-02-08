@@ -4579,7 +4579,8 @@ mod chunk_nodes_cache_tests {
         }).collect();
 
         let new_block_height = produce_blocks_from_height(&mut env, epoch_length * 5, block_height);
-        (block_height..block_height+epoch_length * 5).for_each(|block_height| {
+        (block_height..block_height+epoch_length * 4).for_each(|block_height| {
+            eprintln!("{}", block_height);
             let block = env.clients[0].chain.get_block_by_height(block_height + 1).unwrap();
             let chunk_header = block.chunks().get(0).unwrap().clone();
             let shard_chunk = env.clients[0].chain.get_chunk_clone_from_header(&chunk_header).unwrap();
@@ -4595,6 +4596,7 @@ mod chunk_nodes_cache_tests {
                     env.clients[0].chain.get_execution_outcome(&receipt_hash).unwrap();
                 let block_hash = receipt_execution_outcome.block_hash;
                 let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata.clone();
+                eprintln!("{:?}", metadata);
                 let touching_trie_node_cost = match metadata {
                     ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),
                     ExecutionMetadata::V2(profile_data) => profile_data.get_ext_cost(ExtCosts::touching_trie_node),
