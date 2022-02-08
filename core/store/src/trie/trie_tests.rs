@@ -137,7 +137,7 @@ fn get_touched_nodes_numbers(with_chunk_cache: bool) -> Vec<u64> {
     let mut state_root = Trie::empty_root();
     let storage = match trie.storage.as_caching_storage() {
         Some(storage) => storage,
-        None => assert!("TrieCachingStorage must be used as trie storage backend"),
+        None => panic!("TrieCachingStorage must be used as trie storage backend"),
     };
     if with_chunk_cache {
         storage.cache.set_chunk_cache_state(CacheState::CachingChunk);
