@@ -4574,7 +4574,7 @@ mod chunk_nodes_cache_tests {
                 last_block_hash.clone(),
             );
             env.clients[0].process_tx(tx, false, false);
-            tx.get_hash()
+            tx.get_hash().clone()
         }).collect();
 
         let new_block_height = produce_blocks_from_height(&mut env, epoch_length * 5, block_height);
