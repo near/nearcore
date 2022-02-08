@@ -128,7 +128,9 @@ fn test_reads_with_incomplete_storage() {
     }
 }
 
-
+// Helper for tests ensuring the correct behaviour of trie counter.
+// For example, on testing set of keys `[b"aaa", b"abb", b"baa"]`, we expect 6 touched nodes to get value for the first
+// key: Branch -> Extension -> Branch -> Extension -> Leaf plus retrieving the value by its hash.
 fn get_touched_nodes_numbers(with_chunk_cache: bool) -> Vec<u64> {
     let tries = create_tries_complex(1, 2);
     let shard_uid = ShardUId { version: 1, shard_id: 0 };
@@ -146,19 +148,20 @@ fn get_touched_nodes_numbers(with_chunk_cache: bool) -> Vec<u64> {
     if with_chunk_cache {
         storage.cache.set_chunk_cache_state(CacheState::CachingChunk);
     }
-    keys.iter().map(|key| {
+    changes.iter().map(|(key, value)| {
         let initial_counter = trie.counter.get();
-        trie.get(&state_root, *key).unwrap();
+        let got_value = trie.get(&state_root, key).unwrap();
+        assert_eq!(value, got_value);
         trie.counter.get() - initial_counter
     }).collect()
 }
 
 #[test]
 fn test_counter_shard_cache() {
-    eprintln!("{:?}", get_touched_nodes_numbers(false));
+    assert_eq!(get_touched_nodes_numbers(false), vec![6, 6, 4]);
 }
 
 #[test]
 fn test_counter_chunk_cache() {
-    eprintln!("{:?}", get_touched_nodes_numbers(true));
+    assert_eq!(get_touched_nodes_numbers(true), vec![6, 2, 2]);
 }
