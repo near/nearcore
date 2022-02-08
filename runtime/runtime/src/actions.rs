@@ -120,7 +120,7 @@ pub(crate) fn execute_function_call(
         runtime_ext.set_chunk_cache_state(CacheState::CachingShard);
         result
     } else {
-        runner()
+        runner(runtime_ext)
     }
 }
 
