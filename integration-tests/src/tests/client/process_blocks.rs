@@ -4514,6 +4514,10 @@ mod contract_precompilation_tests {
 
 #[cfg(test)]
 mod chunk_nodes_cache_tests {
+    use near_primitives::config::ExtCosts;
+    use near_primitives::state_record::StateRecord;
+    use near_primitives::transaction::ExecutionMetadata;
+    use near_store::TrieIterator;
     use super::*;
 
     fn arr_u64_to_u8(value: &[u64]) -> Vec<u8> {
@@ -4560,7 +4564,7 @@ mod chunk_nodes_cache_tests {
         );
         let tx_hash = signed_transaction.get_hash();
         env.clients[0].process_tx(signed_transaction, false, false);
-        produce_blocks_from_height(&mut env, epoch_length, block_height);
+        block_height = produce_blocks_from_height(&mut env, epoch_length, block_height);
 
         let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
         assert!(matches!(final_result.status, FinalExecutionStatus::SuccessValue(_)));
@@ -4571,5 +4575,22 @@ mod chunk_nodes_cache_tests {
         let receipt_execution_outcomes =
             env.clients[0].chain.mut_store().get_outcomes_by_id(&receipt_ids[0]).unwrap();
         eprintln!("{:?}", receipt_execution_outcomes);
+        let metadata = receipt_execution_outcomes[0].outcome_with_id.outcome.metadata.clone();
+        let touching_trie_node_cost = match metadata {
+            ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),
+            ExecutionMetadata::V2(profile_data) => profile_data.get_ext_cost(ExtCosts::touching_trie_node),
+        };
+        eprintln!("{:?}", touching_trie_node_cost);
+        let last_block = env.clients[0].chain.get_block_by_height(block_height - 1).unwrap();
+        let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+
+        let trie = env.clients[0].runtime_adapter.get_trie_for_shard(0u64, last_block.hash()).unwrap();
+        let trie = TrieIterator::new(&trie, state_roots[0]).unwrap();
+        for item in trie {
+            let (key, value) = item.unwrap();
+            if let Some(state_record) = StateRecord::from_raw_key_value(key, value) {
+                eprintln!("{}", state_record);
+            }
+        }
     }
 }
