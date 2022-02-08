@@ -4579,10 +4579,9 @@ mod chunk_nodes_cache_tests {
         }).collect();
 
         let new_block_height = produce_blocks_from_height(&mut env, epoch_length * 5, block_height);
-        let entries: Vec<_> = (block_height..new_block_height).map(|height| {
+        let blocks: HashMap<_, _> = (block_height..new_block_height).map(|height| {
             (env.clients[0].chain.get_block_by_height(height).unwrap().hash().clone(), height)
         }).collect();
-        let blocks: HashMap<CryptoHash, BlockHeight> = entries.into();
         // (block_height..block_height+epoch_length * 4).for_each(|block_height| {
         //     eprintln!("{}", block_height);
         //     let block = env.clients[0].chain.get_block_by_height(block_height).unwrap();
