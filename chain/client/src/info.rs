@@ -95,14 +95,18 @@ impl InfoHelper {
             Some(text) => ansi_term::Style::default().paint(text),
         };
 
+        let s = |num| if num == 1 { "" } else { "s" };
+
         let sync_status_log = Some(display_sync_status(sync_status, head, genesis_height));
 
-        let validator_info_log =
-            validator_info.as_ref().map(|info| format!(" {} validators", info.num_validators));
+        let validator_info_log = validator_info
+            .as_ref()
+            .map(|info| format!(" {} validator{}", info.num_validators, s(info.num_validators)));
 
         let network_info_log = Some(format!(
-            " {} peers ⬇ {} ⬆ {}",
+            " {} peer{} ⬇ {} ⬆ {}",
             network_info.num_connected_peers,
+            s(network_info.num_connected_peers),
             pretty_bytes_per_sec(network_info.received_bytes_per_sec),
             pretty_bytes_per_sec(network_info.sent_bytes_per_sec)
         ));
