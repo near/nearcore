@@ -4524,6 +4524,7 @@ mod chunk_nodes_cache_tests {
         res
     }
 
+    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
     #[test]
     fn test() {
         init_test_logger();
@@ -4558,7 +4559,8 @@ mod chunk_nodes_cache_tests {
             *last_block.hash(),
         );
         let tx_hash = signed_transaction.get_hash();
-        block_height = produce_blocks_from_height(&mut env, epoch_length, block_height);
+        env.clients[0].process_tx(tx, false, false);
+        produce_blocks_from_height(&mut env, epoch_length, block_height);
 
         let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
         assert!(matches!(final_result.status, FinalExecutionStatus::SuccessValue(_)));

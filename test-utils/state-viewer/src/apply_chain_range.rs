@@ -251,46 +251,45 @@ fn apply_block_from_range(
         apply_result.total_balance_burnt,
     );
 
-    // DEBUG. Uncomment before submitting
-    // let state_update =
-    //     runtime_adapter.get_tries().new_trie_update(shard_uid, *chunk_extra.state_root());
-    // let delayed_indices =
-    //     get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
-    //
-    // match existing_chunk_extra {
-    //     Some(existing_chunk_extra) => {
-    //         if verbose_output {
-    //             println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
-    //         }
-    //         if !smart_equals(&existing_chunk_extra, &chunk_extra) {
-    //             assert!(false, "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes, old_outcomes(store, &apply_result.outcomes));
-    //         }
-    //     }
-    //     None => {
-    //         assert!(prev_chunk_extra.is_some());
-    //         assert!(apply_result.outcomes.is_empty());
-    //         if verbose_output {
-    //             println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nprev_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, prev_chunk_extra, apply_result.outcomes);
-    //         }
-    //     }
-    // };
-    // maybe_add_to_csv(
-    //     csv_file_mutex,
-    //     &format!(
-    //         "{},{},{},{},{},{},{},{},{},{}",
-    //         height,
-    //         block_hash,
-    //         block_author,
-    //         num_tx,
-    //         num_receipt,
-    //         block.header().raw_timestamp(),
-    //         apply_result.total_gas_burnt,
-    //         chunk_present,
-    //         apply_result.processed_delayed_receipts.len(),
-    //         delayed_indices.map_or(0, |d| d.next_available_index - d.first_index)
-    //     ),
-    // );
-    // progress_reporter.inc_and_report_progress();
+    let state_update =
+        runtime_adapter.get_tries().new_trie_update(shard_uid, *chunk_extra.state_root());
+    let delayed_indices =
+        get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
+
+    match existing_chunk_extra {
+        Some(existing_chunk_extra) => {
+            if verbose_output {
+                println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
+            }
+            if !smart_equals(&existing_chunk_extra, &chunk_extra) {
+                assert!(false, "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes, old_outcomes(store, &apply_result.outcomes));
+            }
+        }
+        None => {
+            assert!(prev_chunk_extra.is_some());
+            assert!(apply_result.outcomes.is_empty());
+            if verbose_output {
+                println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nprev_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, prev_chunk_extra, apply_result.outcomes);
+            }
+        }
+    };
+    maybe_add_to_csv(
+        csv_file_mutex,
+        &format!(
+            "{},{},{},{},{},{},{},{},{},{}",
+            height,
+            block_hash,
+            block_author,
+            num_tx,
+            num_receipt,
+            block.header().raw_timestamp(),
+            apply_result.total_gas_burnt,
+            chunk_present,
+            apply_result.processed_delayed_receipts.len(),
+            delayed_indices.map_or(0, |d| d.next_available_index - d.first_index)
+        ),
+    );
+    progress_reporter.inc_and_report_progress();
 }
 
 pub fn apply_chain_range(
