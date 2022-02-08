@@ -4543,10 +4543,11 @@ mod chunk_nodes_cache_tests {
             epoch_length,
             1,
         );
-        let last_block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
+        let last_block = env.clients[0].chain.get_block_by_height(block_height - 1).unwrap();
 
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
         let signed_transaction = SignedTransaction::call(
-            i + 10,
+            block_height,
             "test0".parse().unwrap(),
             "test0".parse().unwrap(),
             &signer,
