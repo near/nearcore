@@ -268,7 +268,7 @@ impl TrieCachingStorage {
     }
 
     pub fn prepare_trie_cache(&self) {
-        let guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
+        let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
         guard.cache_state = CacheState::CachingShard;
         let mut chunk_cache_items: Vec<(CryptoHash, Vec<u8>)> = guard.chunk_cache.drain().collect();
         chunk_cache_items.drain(..).for_each(|(hash, value)| {
