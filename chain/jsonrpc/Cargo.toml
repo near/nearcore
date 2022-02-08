@@ -40,7 +40,10 @@ test_features = [
   "near-jsonrpc-adversarial-primitives/ser_de",
 ]
 nightly_protocol = ["near-primitives/nightly_protocol"]
-sandbox = ["near-network/sandbox", "near-client/sandbox"]
+sandbox = [
+  "near-network/sandbox",
+  "near-client/sandbox",
+]
 protocol_feature_routing_exchange_algorithm = [
   "near-network/protocol_feature_routing_exchange_algorithm",
   "near-client/protocol_feature_routing_exchange_algorithm",

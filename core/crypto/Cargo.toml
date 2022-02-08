@@ -37,5 +37,8 @@ hex-literal = "0.2"
 sha2 = ">=0.8,<0.10"
 
 [features]
-deepsize_feature = ["deepsize", "near-account-id/deepsize_feature"]
+deepsize_feature = [
+  "deepsize",
+  "near-account-id/deepsize_feature",
+]
 
