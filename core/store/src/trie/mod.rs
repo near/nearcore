@@ -612,19 +612,14 @@ impl Trie {
     pub(crate) fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
         return self.storage.retrieve_raw_bytes_with_cost(hash).map(|(value, cost)| {
             #[cfg(not(feature = "protocol_feature_chunk_nodes_cache"))]
-            {
-                tracing::debug!(target: "runtime", "yes no feature");
-                self.counter.increment();
-            }
+            self.counter.increment();
+
             #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
             match cost {
                 TrieNodeRetrievalCost::Full => {
-                    tracing::debug!(target: "runtime", "yes with feature");
                     self.counter.increment()
                 },
-                TrieNodeRetrievalCost::Free => {
-                    tracing::debug!(target: "runtime", "no with feature");
-                },
+                TrieNodeRetrievalCost::Free => {},
             }
             value
         })

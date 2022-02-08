@@ -34,6 +34,11 @@ pub enum TrieNodeRetrievalCost {
     Full,
 }
 
+struct RawBytesWithCost {
+    value: Option<Vec<u8>>,
+    cost: TrieNodeRetrievalCost,
+}
+
 impl TrieCache {
     fn get_cache_position(&mut self, hash: &CryptoHash) -> CachePosition {
         match self.chunk_cache.get(hash) {
@@ -45,20 +50,25 @@ impl TrieCache {
         }
     }
 
-    pub fn get_with_cost(&mut self, hash: &CryptoHash) -> (Option<Vec<u8>>, TrieNodeRetrievalCost) {
+    pub fn get_with_cost(&mut self, hash: &CryptoHash) -> RawBytesWithCost {
         match self.get_cache_position(hash) {
-            CachePosition::None => (None, TrieNodeRetrievalCost::Full),
+            CachePosition::None => RawBytesWithCost {value: None, cost: TrieNodeRetrievalCost::Full },
             CachePosition::ShardCache(value) => {
-                if let CacheState::CachingChunk = &self.cache_state {
+                if let CacheState::CachingChunk = self.cache_state {
                     let value = self
                         .shard_cache
                         .pop(hash)
                         .expect("If position is ShardCache then value must be presented");
                     self.chunk_cache.insert(hash.clone(), value);
                 };
-                (Some(value), TrieNodeRetrievalCost::Full)
+                RawBytesWithCost {value: Some(value), cost: TrieNodeRetrievalCost::Full }
             }
-            CachePosition::ChunkCache(value) => (Some(value), TrieNodeRetrievalCost::Free),
+            CachePosition::ChunkCache(value) => {
+                RawBytesWithCost { value: Some(value), cost: match self.cache_state {
+                    CacheState::CachingChunk => TrieNodeRetrievalCost::Free,
+                    CacheState::CachingShard => TrieNodeRetrievalCost::Full,
+                } }
+            },
         }
     }
 
@@ -86,12 +96,6 @@ impl TrieCache {
             Some(value) => Some(value),
             None => self.shard_cache.pop(hash),
         }
-    }
-
-    fn drain_chunk_cache(&mut self) {
-        self.chunk_cache.drain().for_each(|(hash, value)| {
-            self.shard_cache.put(hash, value);
-        });
     }
 }
 
@@ -266,7 +270,9 @@ impl TrieCachingStorage {
     pub fn prepare_trie_cache(&self) {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
         guard.cache_state = CacheState::CachingShard;
-        guard.drain_chunk_cache();
+        guard.chunk_cache.drain().for_each(|(hash, value)| {
+            guard.shard_cache.put(hash, value);
+        });
     }
 }
 
@@ -280,7 +286,7 @@ impl TrieStorage for TrieCachingStorage {
         hash: &CryptoHash,
     ) -> Result<(Vec<u8>, TrieNodeRetrievalCost), StorageError> {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
-        if let (Some(val), cost) = guard.get_with_cost(hash) {
+        if let RawBytesWithCost { value: Some(val), cost} = guard.get_with_cost(hash) {
             tracing::debug!(target: "runtime", cost = ?cost);
             Ok((val, cost))
         } else {
