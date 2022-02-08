@@ -5,7 +5,6 @@ use crate::info::{get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper};
 use crate::sync::{StateSync, StateSyncResult};
 use crate::StatusResponse;
 use actix::dev::SendError;
-use actix::dev::ToEnvelope;
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
@@ -197,7 +196,6 @@ where
     M: Message + Send + 'static,
     M::Result: Send,
     SyncJobsActor: Handler<M>,
-    Context<SyncJobsActor>: ToEnvelope<SyncJobsActor, M>,
 {
     Box::new(move |msg: M| {
         if let Err(err) = address.try_send(msg) {
