@@ -49,7 +49,8 @@ def main():
 
     # Dump state.
     subprocess.call([
-        "%sneard-%s" % (near_root, stable_branch), "--home", '%s/test0_finished' % node_root, "view_state", "dump_state"
+        "%sneard-%s" % (near_root, stable_branch), "--home",
+        '%s/test0_finished' % node_root, "view_state", "dump_state"
     ])
 
     # Migrate.
