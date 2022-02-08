@@ -129,7 +129,7 @@ fn test_reads_with_incomplete_storage() {
 }
 
 
-fn get_touched_nodes_numbers(with_chunk_cache: bool) -> Vec<u8> {
+fn get_touched_nodes_numbers(with_chunk_cache: bool) -> Vec<u64> {
     let tries = create_tries_complex(1, 2);
     let shard_uid = ShardUId { version: 1, shard_id: 0 };
     let trie = tries.get_trie_for_shard(shard_uid);
@@ -148,7 +148,7 @@ fn get_touched_nodes_numbers(with_chunk_cache: bool) -> Vec<u8> {
     let state_root = test_populate_trie(&tries, &state_root, shard_uid, trie_changes.clone());
     keys.iter().map(|key| {
         let initial_counter = trie.counter.get();
-        trie.get(&state_root, key);
+        trie.get(&state_root, *key);
         trie.counter.get() - initial_counter
     }).collect()
 }
