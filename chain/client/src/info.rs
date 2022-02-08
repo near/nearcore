@@ -1,6 +1,5 @@
 use crate::{metrics, SyncStatus};
 use actix::Addr;
-use ansi_term::Color::{Blue, Cyan, Green, White, Yellow};
 use log::info;
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_client_primitives::types::ShardSyncStatus;
@@ -89,21 +88,28 @@ impl InfoHelper {
         epoch_height: EpochHeight,
         protocol_upgrade_block_height: BlockHeight,
     ) {
-        let (cpu_usage, memory_usage) = if let Some(pid) = self.pid {
-            if self.sys.refresh_process(pid) {
-                let proc = self
-                    .sys
-                    .get_process(pid)
-                    .expect("refresh_process succeeds, this should be not None");
-                (proc.cpu_usage(), proc.memory())
-            } else {
-                (0.0, 0)
-            }
-        } else {
-            (0.0, 0)
+        let use_colour = matches!(self.log_summary_style, LogSummaryStyle::Colored);
+        let paint = |colour: ansi_term::Colour, text: Option<String>| match text {
+            None => ansi_term::Style::default().paint(""),
+            Some(text) if use_colour => colour.bold().paint(text),
+            Some(text) => ansi_term::Style::default().paint(text),
         };
 
-        // Block#, Block Hash, is validator/# validators, active/max peers, traffic, blocks/sec & tx/sec
+        let sync_status_log = Some(display_sync_status(sync_status, head, genesis_height));
+
+        let validator_info_log = validator_info.as_ref().map(|info| {
+            format!(" {}/{}", if info.is_validator { "V" } else { "-" }, info.num_validators)
+        });
+
+        let network_info_log = Some(format!(
+            " {:2}/{:?}/{:2} peers ⬇ {} ⬆ {}",
+            network_info.num_connected_peers,
+            network_info.highest_height_peers.len(),
+            network_info.peer_max_count,
+            pretty_bytes_per_sec(network_info.received_bytes_per_sec),
+            pretty_bytes_per_sec(network_info.sent_bytes_per_sec)
+        ));
+
         let avg_bls = (self.num_blocks_processed as f64)
             / (self.started.elapsed().as_millis() as f64)
             * 1000.0;
@@ -114,50 +120,30 @@ impl InfoHelper {
         };
         let avg_gas_used =
             ((self.gas_used as f64) / (self.started.elapsed().as_millis() as f64) * 1000.0) as u64;
+        let blocks_info_log =
+            Some(format!(" {:.2} bps {}", avg_bls, gas_used_per_sec(avg_gas_used)));
 
-        let validator_info_log = if let Some(ref validator_info) = validator_info {
-            format!(
-                "{}/{}",
-                if validator_info.is_validator { "V" } else { "-" },
-                validator_info.num_validators
-            )
-        } else {
-            String::new()
-        };
+        let proc_info = self.pid.filter(|pid| self.sys.refresh_process(*pid)).map(|pid| {
+            let proc = self
+                .sys
+                .get_process(pid)
+                .expect("refresh_process succeeds, this should be not None");
+            (proc.cpu_usage(), proc.memory())
+        });
+        let machine_info_log = proc_info
+            .as_ref()
+            .map(|(cpu, mem)| format!(" CPU: {:.0}%, Mem: {}", cpu, pretty_bytes(mem * 1024)));
 
-        let sync_status_log = display_sync_status(sync_status, head, genesis_height);
-        let network_info_log = format!(
-            "{:2}/{:?}/{:2} peers ⬇ {} ⬆ {}",
-            network_info.num_connected_peers,
-            network_info.highest_height_peers.len(),
-            network_info.peer_max_count,
-            pretty_bytes_per_sec(network_info.received_bytes_per_sec),
-            pretty_bytes_per_sec(network_info.sent_bytes_per_sec)
+        info!(
+            target: "stats", "{}{}{}{}{}",
+            paint(ansi_term::Colour::Yellow, sync_status_log),
+            paint(ansi_term::Colour::White, validator_info_log),
+            paint(ansi_term::Colour::Cyan, network_info_log),
+            paint(ansi_term::Colour::Green, blocks_info_log),
+            paint(ansi_term::Colour::Blue, machine_info_log),
         );
 
-        let blocks_info_log = format!("{:.2} bps {}", avg_bls, gas_used_per_sec(avg_gas_used));
-        let machine_info_log =
-            format!("CPU: {:.0}%, Mem: {}", cpu_usage, pretty_bytes(memory_usage * 1024));
-
-        match self.log_summary_style {
-            LogSummaryStyle::Colored => info!(
-                target: "stats", "{} {} {} {} {}",
-                Yellow.bold().paint(sync_status_log),
-                White.bold().paint(validator_info_log),
-                Cyan.bold().paint(network_info_log),
-                Green.bold().paint(blocks_info_log),
-                Blue.bold().paint(machine_info_log),
-            ),
-            LogSummaryStyle::Plain => info!(
-                target: "stats", "{} {} {} {} {}",
-                sync_status_log,
-                validator_info_log,
-                network_info_log,
-                blocks_info_log,
-                machine_info_log,
-            ),
-        };
-
+        let (cpu_usage, memory_usage) = proc_info.unwrap_or_default();
         let is_validator = validator_info.map(|v| v.is_validator).unwrap_or_default();
         (metrics::IS_VALIDATOR.set(is_validator as i64));
         (metrics::RECEIVED_BYTES_PER_SECOND.set(network_info.received_bytes_per_sec as i64));
