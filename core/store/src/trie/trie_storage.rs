@@ -269,10 +269,10 @@ impl TrieCachingStorage {
 
     pub fn prepare_trie_cache(&self) {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
-        guard.cache_state = CacheState::CachingShard;
-        let mut chunk_cache_items: Vec<(CryptoHash, Vec<u8>)> = guard.chunk_cache.drain().collect();
-        chunk_cache_items.drain(..).for_each(|(hash, value)| {
-            guard.shard_cache.put(hash, value);
+        let trie_cache: &mut TrieCache = &mut *guard;
+        trie_cache.cache_state = CacheState::CachingShard;
+        trie_cache.chunk_cache.drain().for_each(|(hash, value)| {
+            trie_cache.shard_cache.put(hash, value);
         });
     }
 }
@@ -288,7 +288,6 @@ impl TrieStorage for TrieCachingStorage {
     ) -> Result<(Vec<u8>, TrieNodeRetrievalCost), StorageError> {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
         if let RawBytesWithCost { value: Some(val), cost} = guard.get_with_cost(hash) {
-            tracing::debug!(target: "runtime", cost = ?cost);
             Ok((val, cost))
         } else {
             let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
