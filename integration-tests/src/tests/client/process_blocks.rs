@@ -4579,52 +4579,56 @@ mod chunk_nodes_cache_tests {
         }).collect();
 
         let new_block_height = produce_blocks_from_height(&mut env, epoch_length * 5, block_height);
-        (block_height..block_height+epoch_length * 4).for_each(|block_height| {
-            eprintln!("{}", block_height);
-            let block = env.clients[0].chain.get_block_by_height(block_height).unwrap();
-            let chunk_header = block.chunks().get(0).unwrap().clone();
-            let shard_chunk = env.clients[0].chain.get_chunk_clone_from_header(&chunk_header).unwrap();
-            eprintln!("{:?}", shard_chunk.receipts());
-            let chunk_receipt_ids: Vec<CryptoHash> = shard_chunk.receipts().iter().map(|r| r.receipt_id).collect();
-            // let blocks: HashMap<CryptoHash, BlockHeight> = (block_height..new_block_height).map(|height| {
-            //     (env.clients[0].chain.get_block_by_height(height).unwrap().hash(), height)
-            // }).into();
-            //
-            // let mut receipts_in_blocks: BTreeMap<BlockHeight, Vec<u64>> = BTreeMap::new();
-
-            chunk_receipt_ids.iter().for_each(|receipt_hash| {
-                let receipt_execution_outcome =
-                    env.clients[0].chain.get_execution_outcome(&receipt_hash).unwrap();
-                let block_hash = receipt_execution_outcome.block_hash;
-                let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata.clone();
-                assert!(matches!(receipt_execution_outcome.outcome_with_id.outcome.status, ExecutionStatus::SuccessValue(_)));
-                eprintln!("{:?}", receipt_execution_outcome.outcome_with_id.outcome);
-                let touching_trie_node_cost = match metadata {
-                    ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),
-                    ExecutionMetadata::V2(profile_data) => profile_data.get_ext_cost(ExtCosts::touching_trie_node),
-                };
-                eprintln!("{} {}", receipt_hash, touching_trie_node_cost);
-            })
-        });
-        // let receipt_block_hashes_and_costs: Vec<ReceiptData> = tx_hashes.iter().map(|tx_hash| {
-        //     let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
-        //     assert!(matches!(final_result.status, FinalExecutionStatus::SuccessValue(_)));
-        //     let transaction_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
-        //     let receipt_ids = transaction_outcome.outcome_with_id.outcome.receipt_ids;
-        //     assert_eq!(receipt_ids.len(), 1);
-        //     let receipt_execution_outcome =
-        //         env.clients[0].chain.get_execution_outcome(&receipt_ids[0]).unwrap();
-        //     let block_hash = receipt_execution_outcome.block_hash;
-        //     let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata.clone();
-        //     let touching_trie_node_cost = match metadata {
-        //         ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),
-        //         ExecutionMetadata::V2(profile_data) => profile_data.get_ext_cost(ExtCosts::touching_trie_node),
-        //     };
+        let blocks: HashMap<CryptoHash, BlockHeight> = (block_height..new_block_height).map(|height| {
+            (env.clients[0].chain.get_block_by_height(height).unwrap().hash(), height)
+        }).into();
+        // (block_height..block_height+epoch_length * 4).for_each(|block_height| {
+        //     eprintln!("{}", block_height);
+        //     let block = env.clients[0].chain.get_block_by_height(block_height).unwrap();
+        //     let chunk_header = block.chunks().get(0).unwrap().clone();
+        //     let shard_chunk = env.clients[0].chain.get_chunk_clone_from_header(&chunk_header).unwrap();
+        //     eprintln!("{:?}", shard_chunk.receipts());
+        //     let chunk_receipt_ids: Vec<CryptoHash> = shard_chunk.receipts().iter().map(|r| r.receipt_id).collect();
+        //     // let blocks: HashMap<CryptoHash, BlockHeight> = (block_height..new_block_height).map(|height| {
+        //     //     (env.clients[0].chain.get_block_by_height(height).unwrap().hash(), height)
+        //     // }).into();
+        //     //
+        //     // let mut receipts_in_blocks: BTreeMap<BlockHeight, Vec<u64>> = BTreeMap::new();
         //
-        //     let block_height = blocks.get(&block_hash).unwrap();
-        //     receipts_in_blocks.entry(*block_height).or_default().pu
-        //     ReceiptData { block_hash, touching_trie_node_cost }
-        // }).collect();
+        //     chunk_receipt_ids.iter().for_each(|receipt_hash| {
+        //         let receipt_execution_outcome =
+        //             env.clients[0].chain.get_execution_outcome(&receipt_hash).unwrap();
+        //         let block_hash = receipt_execution_outcome.block_hash;
+        //         let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata.clone();
+        //         assert!(matches!(receipt_execution_outcome.outcome_with_id.outcome.status, ExecutionStatus::SuccessValue(_)));
+        //         eprintln!("{:?}", receipt_execution_outcome.outcome_with_id.outcome);
+        //         let touching_trie_node_cost = match metadata {
+        //             ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),
+        //             ExecutionMetadata::V2(profile_data) => profile_data.get_ext_cost(ExtCosts::touching_trie_node),
+        //         };
+        //         eprintln!("{} {}", receipt_hash, touching_trie_node_cost);
+        //     })
+        // });
+
+        let receipt_block_hashes_and_costs: Vec<ReceiptData> = tx_hashes.iter().map(|tx_hash| {
+            let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+            assert!(matches!(final_result.status, FinalExecutionStatus::SuccessValue(_)));
+            let transaction_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
+            let receipt_ids = transaction_outcome.outcome_with_id.outcome.receipt_ids;
+            assert_eq!(receipt_ids.len(), 1);
+            let receipt_execution_outcome =
+                env.clients[0].chain.get_execution_outcome(&receipt_ids[0]).unwrap();
+            let block_hash = receipt_execution_outcome.block_hash;
+            let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata.clone();
+            let touching_trie_node_cost = match metadata {
+                ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),
+                ExecutionMetadata::V2(profile_data) => profile_data.get_ext_cost(ExtCosts::touching_trie_node),
+            };
+
+            let block_height = blocks.get(&block_hash).unwrap();
+            eprintln!("{} {} {}", receipt_ids[0], block_height, touching_trie_node_cost);
+            ReceiptData { block_hash, touching_trie_node_cost }
+        }).collect();
 
         // eprintln!("{:?}", touching_trie_node_cost);
         let last_block = env.clients[0].chain.get_block_by_height(block_height - 1).unwrap().clone();
