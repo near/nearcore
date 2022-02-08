@@ -1344,10 +1344,10 @@ mod test {
                     &None,
                     block.into(),
                     Provenance::PRODUCED,
-                    |_| {},
-                    |_| {},
-                    |_| {},
-                    |_| {},
+                    &mut |_| {},
+                    &mut |_| {},
+                    &mut |_| {},
+                    &mut |_| {},
                 )
                 .unwrap();
         }
@@ -1360,10 +1360,10 @@ mod test {
                     &None,
                     block.into(),
                     Provenance::PRODUCED,
-                    |_| {},
-                    |_| {},
-                    |_| {},
-                    |_| {},
+                    &mut |_| {},
+                    &mut |_| {},
+                    &mut |_| {},
+                    &mut |_| {},
                 )
                 .unwrap();
         }
@@ -1612,7 +1612,7 @@ mod test {
         }
         let block_headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
         let peer_infos = create_peer_infos(2);
-        env.clients[1].chain.sync_block_headers(block_headers, |_| unreachable!()).unwrap();
+        env.clients[1].chain.sync_block_headers(block_headers, &mut |_| unreachable!()).unwrap();
 
         // fetch three blocks at a time
         for i in 0..3 {
@@ -1680,7 +1680,7 @@ mod test {
         }
         let block_headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
         let peer_infos = create_peer_infos(2);
-        env.clients[1].chain.sync_block_headers(block_headers, |_| unreachable!()).unwrap();
+        env.clients[1].chain.sync_block_headers(block_headers, &mut |_| unreachable!()).unwrap();
         let is_state_sync = block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);
         let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter.clone());

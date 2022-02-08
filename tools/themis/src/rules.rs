@@ -51,7 +51,10 @@ pub fn is_unversioned(workspace: &Workspace) -> anyhow::Result<()> {
     let outliers = workspace
         .members
         .iter()
-        .filter(|pkg| pkg.parsed.version != semver::Version::new(0, 0, 0))
+        .filter(|pkg| {
+            !pkg.parsed.metadata["workspaces"]["independent"].as_bool().unwrap_or(false)
+                && pkg.parsed.version != semver::Version::new(0, 0, 0)
+        })
         .map(|pkg| Outlier {
             path: pkg.parsed.manifest_path.clone(),
             found: Some(pkg.parsed.version.to_string()),

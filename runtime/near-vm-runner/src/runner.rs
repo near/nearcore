@@ -97,11 +97,11 @@ impl VMKind {
     /// This is not intended to be used by code other than standalone-vm-runner.
     pub fn runtime(&self, config: VMConfig) -> Option<Box<dyn VM>> {
         match self {
-            #[cfg(feature = "wasmer0_vm")]
+            #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
             Self::Wasmer0 => Some(Box::new(crate::wasmer_runner::Wasmer0VM::new(config))),
             #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime => Some(Box::new(crate::wasmtime_runner::WasmtimeVM::new(config))),
-            #[cfg(feature = "wasmer2_vm")]
+            #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
             Self::Wasmer2 => Some(Box::new(crate::wasmer2_runner::Wasmer2VM::new(config))),
             #[allow(unreachable_patterns)] // reachable when some of the VMs are disabled.
             _ => None,

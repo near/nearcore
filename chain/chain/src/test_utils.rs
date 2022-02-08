@@ -1424,44 +1424,33 @@ mod test {
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ReceiptList;
     use near_primitives::time::Clock;
-    use near_primitives::types::{AccountId, EpochId, NumShards};
-    use near_store::test_utils::create_test_store;
+    use near_primitives::types::{AccountId, NumShards};
 
-    use crate::RuntimeAdapter;
+    use crate::Chain;
 
-    use super::KeyValueRuntime;
+    use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 
-    impl KeyValueRuntime {
-        fn naive_build_receipt_hashes(&self, receipts: &[Receipt]) -> Vec<CryptoHash> {
-            let mut receipts_hashes = vec![];
-            for shard_id in 0..self.num_shards {
-                let shard_receipts: Vec<Receipt> = receipts
-                    .iter()
-                    .filter(|&receipt| {
-                        self.account_id_to_shard_id(&receipt.receiver_id, &EpochId::default())
-                            .unwrap()
-                            == shard_id
-                    })
-                    .cloned()
-                    .collect();
-                receipts_hashes
-                    .push(hash(&ReceiptList(shard_id, &shard_receipts).try_to_vec().unwrap()));
-            }
+    fn naive_build_receipt_hashes(
+        receipts: &[Receipt],
+        shard_layout: &ShardLayout,
+    ) -> Vec<CryptoHash> {
+        let mut receipts_hashes = vec![];
+        for shard_id in 0..shard_layout.num_shards() {
+            let shard_receipts: Vec<Receipt> = receipts
+                .iter()
+                .filter(|&receipt| {
+                    account_id_to_shard_id(&receipt.receiver_id, shard_layout) == shard_id
+                })
+                .cloned()
+                .collect();
             receipts_hashes
+                .push(hash(&ReceiptList(shard_id, &shard_receipts).try_to_vec().unwrap()));
         }
+        receipts_hashes
     }
 
     fn test_build_receipt_hashes_with_num_shard(num_shards: NumShards) {
-        let store = create_test_store();
-        let runtime_adapter = KeyValueRuntime::new_with_validators(
-            store,
-            vec![(0..num_shards)
-                .map(|i| AccountId::try_from(format!("test{}", i)).unwrap())
-                .collect()],
-            1,
-            num_shards,
-            10,
-        );
+        let shard_layout = ShardLayout::v0(num_shards, 0);
         let create_receipt_from_receiver_id =
             |receiver_id| Receipt::new_balance_refund(&receiver_id, 0);
         let mut rng = rand::thread_rng();
@@ -1474,11 +1463,10 @@ mod test {
             })
             .collect::<Vec<_>>();
         let start = Clock::instant();
-        let naive_result = runtime_adapter.naive_build_receipt_hashes(&receipts);
+        let naive_result = naive_build_receipt_hashes(&receipts, &shard_layout);
         let naive_duration = start.elapsed();
         let start = Clock::instant();
-        let shard_layout = runtime_adapter.get_shard_layout(&EpochId::default()).unwrap();
-        let prod_result = runtime_adapter.build_receipts_hashes(&receipts, &shard_layout);
+        let prod_result = Chain::build_receipts_hashes(&receipts, &shard_layout);
         let prod_duration = start.elapsed();
         assert_eq!(naive_result, prod_result);
         // production implementation is at least 50% faster

@@ -31,10 +31,11 @@ tokio = { version = "1.1", features = ["fs"] }
 tracing = "0.1.13"
 smart-default = "0.6"
 num-rational = { version = "0.3", features = ["serde"] }
-near-rust-allocator-proxy = { version = "0.3.0", optional = true }
+near-rust-allocator-proxy = { version = "0.4", optional = true }
 lazy-static-include = "3"
 tempfile = "3"
 indicatif = "0.15.0"
+xz2 = "0.1.6"
 
 near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }
@@ -59,7 +60,6 @@ delay-detector = { path = "../tools/delay_detector", optional = true }
 [dev-dependencies]
 near-logger-utils = { path = "../test-utils/logger" }
 near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
-tempfile = "3"
 testlib = { path = "../test-utils/testlib" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
 primitive-types = "0.10"
