@@ -4584,6 +4584,7 @@ mod chunk_nodes_cache_tests {
             let block = env.clients[0].chain.get_block_by_height(block_height).unwrap();
             let chunk_header = block.chunks().get(0).unwrap().clone();
             let shard_chunk = env.clients[0].chain.get_chunk_clone_from_header(&chunk_header).unwrap();
+            eprintln!("{:?}", shard_chunk.receipts());
             let chunk_receipt_ids: Vec<CryptoHash> = shard_chunk.receipts().iter().map(|r| r.receipt_id).collect();
             // let blocks: HashMap<CryptoHash, BlockHeight> = (block_height..new_block_height).map(|height| {
             //     (env.clients[0].chain.get_block_by_height(height).unwrap().hash(), height)
@@ -4597,7 +4598,7 @@ mod chunk_nodes_cache_tests {
                 let block_hash = receipt_execution_outcome.block_hash;
                 let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata.clone();
                 assert!(matches!(receipt_execution_outcome.outcome_with_id.outcome.status, ExecutionStatus::SuccessValue(_)));
-                eprintln!("{:?}", metadata);
+                eprintln!("{:?}", receipt_execution_outcome.outcome_with_id.outcome);
                 let touching_trie_node_cost = match metadata {
                     ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),
                     ExecutionMetadata::V2(profile_data) => profile_data.get_ext_cost(ExtCosts::touching_trie_node),
