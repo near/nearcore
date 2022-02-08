@@ -270,7 +270,8 @@ impl TrieCachingStorage {
     pub fn prepare_trie_cache(&self) {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
         guard.cache_state = CacheState::CachingShard;
-        guard.chunk_cache.drain().for_each(|(hash, value)| {
+        let chunk_cache_iter = guard.chunk_cache.drain();
+        chunk_cache_iter.for_each(|(hash, value)| {
             guard.shard_cache.put(hash, value);
         });
     }
