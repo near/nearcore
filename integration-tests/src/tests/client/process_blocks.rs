@@ -4586,7 +4586,7 @@ mod chunk_nodes_cache_tests {
         let state_roots: Vec<StateRoot> = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
 
         let trie = env.clients[0].runtime_adapter.get_trie_for_shard(0u64, last_block.hash()).unwrap();
-        let trie = TrieIterator::new(&trie, state_roots[0]).unwrap();
+        let trie = TrieIterator::new(&trie, &state_roots[0]).unwrap();
         for item in trie {
             let (key, value) = item.unwrap();
             if let Some(state_record) = StateRecord::from_raw_key_value(key, value) {
