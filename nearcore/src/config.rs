@@ -322,6 +322,10 @@ fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
 }
 
+fn default_use_checkpoints_for_db_migration() -> bool {
+    true
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -435,6 +439,10 @@ pub struct Config {
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gas_burnt_view: Option<Gas>,
+    #[serde(default = "default_use_checkpoints_for_db_migration")]
+    pub use_checkpoints_for_db_migration: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub db_checkpoints_path: Option<PathBuf>,
 }
 
 impl Default for Config {
