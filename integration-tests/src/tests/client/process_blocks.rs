@@ -4541,7 +4541,7 @@ mod chunk_nodes_cache_tests {
         init_test_logger();
         let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         let epoch_length = 5;
-        let gas_limit = 10_000_000_000_000;
+        let gas_limit = 50_000_000_000_000;
         let num_txs = 20;
         genesis.config.gas_limit = gas_limit;
         genesis.config.epoch_length = epoch_length;
@@ -4581,7 +4581,7 @@ mod chunk_nodes_cache_tests {
         let new_block_height = produce_blocks_from_height(&mut env, epoch_length * 5, block_height);
         (block_height..block_height+epoch_length * 4).for_each(|block_height| {
             eprintln!("{}", block_height);
-            let block = env.clients[0].chain.get_block_by_height(block_height + 1).unwrap();
+            let block = env.clients[0].chain.get_block_by_height(block_height).unwrap();
             let chunk_header = block.chunks().get(0).unwrap().clone();
             let shard_chunk = env.clients[0].chain.get_chunk_clone_from_header(&chunk_header).unwrap();
             let chunk_receipt_ids: Vec<CryptoHash> = shard_chunk.receipts().iter().map(|r| r.receipt_id).collect();
@@ -4596,6 +4596,7 @@ mod chunk_nodes_cache_tests {
                     env.clients[0].chain.get_execution_outcome(&receipt_hash).unwrap();
                 let block_hash = receipt_execution_outcome.block_hash;
                 let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata.clone();
+                assert!(matches!(receipt_execution_outcome.outcome_with_id.outcome.status, ExecutionStatus::SuccessValue(_)));
                 eprintln!("{:?}", metadata);
                 let touching_trie_node_cost = match metadata {
                     ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),
