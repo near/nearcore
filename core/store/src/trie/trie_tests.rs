@@ -151,7 +151,7 @@ fn get_touched_nodes_numbers(with_chunk_cache: bool) -> Vec<u64> {
     changes.iter().map(|(key, value)| {
         let initial_counter = trie.counter.get();
         let got_value = trie.get(&state_root, key).unwrap();
-        assert_eq!(value, got_value);
+        assert_eq!(*value, got_value);
         trie.counter.get() - initial_counter
     }).collect()
 }
