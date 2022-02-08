@@ -12,9 +12,6 @@ use near_primitives::shard_layout::ShardUId;
 use std::cell::RefCell;
 use std::io::ErrorKind;
 use near_primitives::block::CacheState;
-use near_primitives::checked_feature;
-use near_primitives::types::ProtocolVersion;
-use near_primitives::version::PROTOCOL_VERSION;
 
 #[derive(Clone)]
 pub struct SyncTrieCache(Arc<Mutex<TrieCache>>);

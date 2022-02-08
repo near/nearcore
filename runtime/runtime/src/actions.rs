@@ -100,6 +100,7 @@ pub(crate) fn execute_function_call(
         output_data_receivers,
     };
 
+    let protocol_version = runtime_ext.protocol_version();
     let runner = || {
         near_vm_runner::run(
             &code,
@@ -113,7 +114,7 @@ pub(crate) fn execute_function_call(
             apply_state.cache.as_deref(),
         )
     };
-    if checked_feature!("protocol_feature_chunk_nodes_cache", ChunkNodesCache, runtime_ext.protocol_version()) {
+    if checked_feature!("protocol_feature_chunk_nodes_cache", ChunkNodesCache, protocol_version) {
         runtime_ext.set_chunk_cache_state(CacheState::CachingChunk);
         let result = runner();
         runtime_ext.set_chunk_cache_state(CacheState::CachingShard);
