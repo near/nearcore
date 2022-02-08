@@ -134,21 +134,21 @@ fn get_touched_nodes_numbers(with_chunk_cache: bool) -> Vec<u64> {
     let shard_uid = ShardUId { version: 1, shard_id: 0 };
     let trie = tries.get_trie_for_shard(shard_uid);
     let trie = Rc::new(trie);
-    let mut state_root = Trie::empty_root();
+    let state_root = Trie::empty_root();
     let storage = match trie.storage.as_caching_storage() {
         Some(storage) => storage,
         None => panic!("TrieCachingStorage must be used as trie storage backend"),
     };
-    if with_chunk_cache {
-        storage.cache.set_chunk_cache_state(CacheState::CachingChunk);
-    }
     let keys = vec![b"aaa", b"abb", b"baa"];
     let changes = keys.iter().cloned().enumerate().map(|(i, key)| (key.to_vec(), Some(vec![i as u8]))).collect();
     let trie_changes = simplify_changes(&changes);
     let state_root = test_populate_trie(&tries, &state_root, shard_uid, trie_changes.clone());
+    if with_chunk_cache {
+        storage.cache.set_chunk_cache_state(CacheState::CachingChunk);
+    }
     keys.iter().map(|key| {
         let initial_counter = trie.counter.get();
-        trie.get(&state_root, *key);
+        trie.get(&state_root, *key).unwrap();
         trie.counter.get() - initial_counter
     }).collect()
 }
