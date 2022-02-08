@@ -1,3 +1,4 @@
+use crate::near_chain_primitives::error::BlockKnownError;
 use crate::test_utils::setup;
 use crate::{Block, ChainStoreAccess, ErrorKind};
 use chrono;
@@ -124,7 +125,7 @@ fn build_chain_with_orhpans() {
     assert_eq!(res.unwrap().unwrap().height, 10);
     assert_eq!(
         chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err().kind(),
-        ErrorKind::Unfit("already known in store".to_string())
+        ErrorKind::BlockKnown(BlockKnownError::KnownInStore)
     );
 }
 
