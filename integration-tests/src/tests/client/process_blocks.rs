@@ -4540,8 +4540,8 @@ mod chunk_nodes_cache_tests {
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         let epoch_length = 1_000; // Avoid protocol upgrades
         let gas_limit = 20_000_000_000_000;
-        let num_txs = 20;
-        let num_blocks = 5;
+        // let num_txs = 20;
+        // let num_blocks = 5;
         genesis.config.gas_limit = gas_limit;
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = protocol_version;
@@ -4593,7 +4593,7 @@ mod chunk_nodes_cache_tests {
         env.clients[0].process_tx(tx, false, false);
 
         let num_blocks = 5;
-        let new_block_height = produce_blocks_from_height(&mut env, num_blocks, block_height);
+        produce_blocks_from_height(&mut env, num_blocks, block_height);
         let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
         assert!(matches!(final_result.status, FinalExecutionStatus::SuccessValue(_)));
         let transaction_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
