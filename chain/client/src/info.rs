@@ -17,6 +17,7 @@ use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo, ValidatorKickoutView};
 use near_telemetry::{telemetry, TelemetryActor};
 use std::cmp::min;
+use std::fmt::Write;
 use std::sync::Arc;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
 
@@ -267,22 +268,22 @@ fn display_sync_status(
             let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
             shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
             for (shard_id, shard_status) in shard_statuses {
-                res = res
-                    + format!(
-                        "[{}: {}]",
-                        shard_id,
-                        match shard_status.status {
-                            ShardSyncStatus::StateDownloadHeader => format!("header"),
-                            ShardSyncStatus::StateDownloadParts => format!("parts"),
-                            ShardSyncStatus::StateDownloadScheduling => format!("scheduling"),
-                            ShardSyncStatus::StateDownloadApplying => format!("applying"),
-                            ShardSyncStatus::StateDownloadComplete => format!("download complete"),
-                            ShardSyncStatus::StateSplitScheduling => format!("split scheduling"),
-                            ShardSyncStatus::StateSplitApplying => format!("split applying"),
-                            ShardSyncStatus::StateSyncDone => format!("done"),
-                        }
-                    )
-                    .as_str();
+                write!(
+                    res,
+                    "[{}: {}]",
+                    shard_id,
+                    match shard_status.status {
+                        ShardSyncStatus::StateDownloadHeader => "header",
+                        ShardSyncStatus::StateDownloadParts => "parts",
+                        ShardSyncStatus::StateDownloadScheduling => "scheduling",
+                        ShardSyncStatus::StateDownloadApplying => "applying",
+                        ShardSyncStatus::StateDownloadComplete => "download complete",
+                        ShardSyncStatus::StateSplitScheduling => "split scheduling",
+                        ShardSyncStatus::StateSplitApplying => "split applying",
+                        ShardSyncStatus::StateSyncDone => "done",
+                    }
+                )
+                .unwrap();
             }
             res
         }
