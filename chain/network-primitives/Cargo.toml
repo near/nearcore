@@ -26,6 +26,9 @@ near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 
 [features]
-deepsize_feature = ["deepsize", "near-primitives/deepsize_feature"]
+deepsize_feature = [
+  "deepsize",
+  "near-primitives/deepsize_feature",
+]
 sandbox = []
 test_features = ["serde"]
