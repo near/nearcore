@@ -4514,13 +4514,13 @@ mod contract_precompilation_tests {
 
 #[cfg(test)]
 mod chunk_nodes_cache_tests {
-    use std::collections::{HashMap};
+    use super::*;
     use near_primitives::config::ExtCosts;
     use near_primitives::state_record::StateRecord;
     use near_primitives::transaction::ExecutionMetadata;
     use near_primitives::types::StateRoot;
     use near_store::TrieIterator;
-    use super::*;
+    use std::collections::HashMap;
 
     fn arr_u64_to_u8(value: &[u64]) -> Vec<u8> {
         let mut res = vec![];
@@ -4535,10 +4535,10 @@ mod chunk_nodes_cache_tests {
     //     touching_trie_node_cost: u64,
     // }
 
-    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
-    fn test(protocol_version: ProtocolVersion) {
+    fn prepare_env(protocol_version: ProtocolVersion) -> (TestEnv, BlockHeight) {
         init_test_logger();
-        let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         let epoch_length = 1_000; // Avoid protocol upgrades
         let gas_limit = 20_000_000_000_000;
         let num_txs = 20;
@@ -4558,30 +4558,68 @@ mod chunk_nodes_cache_tests {
             num_blocks,
             1,
         );
-        let last_block_hash = env.clients[0].chain.get_block_by_height(block_height - 1).unwrap().hash().clone();
+        (env, block_height)
+    }
 
+    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
+    fn touching_trie_node_cost_for(protocol_version: ProtocolVersion) -> u64 {
+        let (mut env, block_height) = prepare_env(protocol_version);
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-        let tx_hashes: Vec<CryptoHash> = (0..num_txs).map(|i| {
-            let tx = SignedTransaction::call(
-                block_height + i,
-                "test0".parse().unwrap(),
-                "test0".parse().unwrap(),
-                &signer,
-                0,
-                "write_key_value".to_string(),
-                arr_u64_to_u8(&[10u64, 20u64]),
-                gas_limit / 3,
-                last_block_hash.clone(),
-            );
-            let hash = tx.get_hash().clone();
-            env.clients[0].process_tx(tx, false, false);
-            hash
-        }).collect();
 
-        let new_block_height = produce_blocks_from_height(&mut env, num_blocks * 5, block_height);
-        let blocks: HashMap<_, _> = (block_height..new_block_height).map(|height| {
-            (env.clients[0].chain.get_block_by_height(height).unwrap().hash().clone(), height)
-        }).collect();
+        let tx_gas = 10_000_000_000_000;
+        let last_block_hash =
+            env.clients[0].chain.get_block_by_height(block_height - 1).unwrap().hash().clone();
+        let tx = SignedTransaction::from_actions(
+            block_height + i,
+            "test0".parse().unwrap(),
+            "test0".parse().unwrap(),
+            &signer,
+            vec![
+                Action::FunctionCall(FunctionCallAction {
+                    args: arr_u64_to_u8(&[0u64, 10u64]),
+                    method_name: "write_key_value".to_string(),
+                    gas: tx_gas,
+                    deposit: 0,
+                }),
+                Action::FunctionCall(FunctionCallAction {
+                    args: arr_u64_to_u8(&[1u64, 20u64]),
+                    method_name: "write_key_value".to_string(),
+                    gas: tx_gas,
+                    deposit: 0,
+                }),
+            ],
+            last_block_hash.clone(),
+        );
+        let tx_hash = tx.get_hash().clone();
+        env.clients[0].process_tx(tx, false, false);
+
+        let num_blocks = 5;
+        let new_block_height = produce_blocks_from_height(&mut env, num_blocks, block_height);
+        let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+        assert!(matches!(final_result.status, FinalExecutionStatus::SuccessValue(_)));
+        let transaction_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
+        let receipt_ids = transaction_outcome.outcome_with_id.outcome.receipt_ids;
+        assert_eq!(receipt_ids.len(), 1);
+        let receipt_execution_outcome =
+            env.clients[0].chain.get_execution_outcome(&receipt_ids[0]).unwrap();
+        let block_hash = receipt_execution_outcome.block_hash;
+        let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata.clone();
+        let touching_trie_node_cost = match metadata {
+            ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),
+            ExecutionMetadata::V2(profile_data) => {
+                profile_data.get_ext_cost(ExtCosts::touching_trie_node)
+            }
+        };
+
+        let block_height = blocks.get(&block_hash).unwrap();
+        let tgas: f64 = (receipt_execution_outcome.outcome_with_id.outcome.gas_burnt as f64)
+            / (10u64.pow(12) as f64);
+        eprintln!("{} {} {} {}", receipt_ids[0], block_height, tgas, touching_trie_node_cost);
+        // let blocks: HashMap<_, _> = (block_height..new_block_height)
+        //     .map(|height| {
+        //         (env.clients[0].chain.get_block_by_height(height).unwrap().hash().clone(), height)
+        //     })
+        //     .collect();
         // (block_height..block_height+epoch_length * 4).for_each(|block_height| {
         //     eprintln!("{}", block_height);
         //     let block = env.clients[0].chain.get_block_by_height(block_height).unwrap();
@@ -4610,33 +4648,14 @@ mod chunk_nodes_cache_tests {
         //     })
         // });
 
-        let _receipt_block_hashes_and_costs: Vec<_> = tx_hashes.iter().map(|tx_hash| {
-            let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
-            assert!(matches!(final_result.status, FinalExecutionStatus::SuccessValue(_)));
-            let transaction_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
-            let receipt_ids = transaction_outcome.outcome_with_id.outcome.receipt_ids;
-            assert_eq!(receipt_ids.len(), 1);
-            let receipt_execution_outcome =
-                env.clients[0].chain.get_execution_outcome(&receipt_ids[0]).unwrap();
-            let block_hash = receipt_execution_outcome.block_hash;
-            let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata.clone();
-            let touching_trie_node_cost = match metadata {
-                ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),
-                ExecutionMetadata::V2(profile_data) => profile_data.get_ext_cost(ExtCosts::touching_trie_node),
-            };
-
-            let block_height = blocks.get(&block_hash).unwrap();
-            let tgas: f64 = (receipt_execution_outcome.outcome_with_id.outcome.gas_burnt as f64) / (10u64.pow(12) as f64);
-            eprintln!("{} {} {} {}", receipt_ids[0], block_height, tgas, touching_trie_node_cost);
-            // ReceiptData { block_hash, touching_trie_node_cost }
-            touching_trie_node_cost
-        }).collect();
-
         // eprintln!("{:?}", touching_trie_node_cost);
-        let last_block = env.clients[0].chain.get_block_by_height(block_height - 1).unwrap().clone();
-        let state_roots: Vec<StateRoot> = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        let last_block =
+            env.clients[0].chain.get_block_by_height(block_height - 1).unwrap().clone();
+        let state_roots: Vec<StateRoot> =
+            last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
 
-        let trie = env.clients[0].runtime_adapter.get_trie_for_shard(0u64, last_block.hash()).unwrap();
+        let trie =
+            env.clients[0].runtime_adapter.get_trie_for_shard(0u64, last_block.hash()).unwrap();
         let trie = TrieIterator::new(&trie, &state_roots[0]).unwrap();
         for item in trie {
             let (key, value) = item.unwrap();
@@ -4644,17 +4663,18 @@ mod chunk_nodes_cache_tests {
                 eprintln!("{}", state_record);
             }
         }
+
+        touching_trie_node_cost
     }
 
     #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
     #[test]
     fn test_feature() {
-        test(ProtocolFeature::ChunkNodesCache.protocol_version());
-    }
-
-    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
-    #[test]
-    fn test_no_feature() {
-        test(ProtocolFeature::ChunkNodesCache.protocol_version() - 1);
+        let base_cost = RuntimeConfig::test().wasm_config.ext_costs.touching_trie_node;
+        let cost_with_feature =
+            touching_trie_node_cost_for(ProtocolFeature::ChunkNodesCache.protocol_version());
+        let cost_without_feature =
+            touching_trie_node_cost_for(ProtocolFeature::ChunkNodesCache.protocol_version() - 1);
+        eprintln!("{} {} {}", cost_with_feature, cost_without_feature, base_cost);
     }
 }
