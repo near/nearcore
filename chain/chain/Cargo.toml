@@ -42,9 +42,19 @@ expensive_tests = []
 test_features = []
 delay_detector = ["delay-detector"]
 no_cache = ["near-store/no_cache"]
-protocol_feature_chunk_only_producers = ["near-chain-configs/protocol_feature_chunk_only_producers", "near-primitives/protocol_feature_chunk_only_producers"]
+protocol_feature_chunk_only_producers = [
+  "near-chain-configs/protocol_feature_chunk_only_producers",
+  "near-primitives/protocol_feature_chunk_only_producers",
+]
 
 protocol_feature_routing_exchange_algorithm = []
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_chunk_only_producers", "protocol_feature_routing_exchange_algorithm"]
-nightly_protocol = ["near-store/nightly_protocol", "near-primitives/nightly_protocol"]
+nightly_protocol_features = [
+  "nightly_protocol",
+  "protocol_feature_chunk_only_producers",
+  "protocol_feature_routing_exchange_algorithm",
+]
+nightly_protocol = [
+  "near-store/nightly_protocol",
+  "near-primitives/nightly_protocol",
+]
 sandbox = []
