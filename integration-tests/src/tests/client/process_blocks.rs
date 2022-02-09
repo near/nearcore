@@ -4539,9 +4539,10 @@ mod chunk_nodes_cache_tests {
     fn test(protocol_version: ProtocolVersion) {
         init_test_logger();
         let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-        let epoch_length = 1_000; // Avoid
+        let epoch_length = 1_000; // Avoid protocol upgrades
         let gas_limit = 5_000_000_000_000;
         let num_txs = 20;
+        let num_blocks = 5;
         genesis.config.gas_limit = gas_limit;
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = protocol_version;
@@ -4554,7 +4555,7 @@ mod chunk_nodes_cache_tests {
             &mut env,
             "test0".parse().unwrap(),
             near_test_contracts::rs_contract(),
-            epoch_length,
+            num_blocks,
             1,
         );
         let last_block_hash = env.clients[0].chain.get_block_by_height(block_height - 1).unwrap().hash().clone();
@@ -4577,7 +4578,7 @@ mod chunk_nodes_cache_tests {
             hash
         }).collect();
 
-        let new_block_height = produce_blocks_from_height(&mut env, epoch_length * 5, block_height);
+        let new_block_height = produce_blocks_from_height(&mut env, num_blocks * 5, block_height);
         let blocks: HashMap<_, _> = (block_height..new_block_height).map(|height| {
             (env.clients[0].chain.get_block_by_height(height).unwrap().hash().clone(), height)
         }).collect();
