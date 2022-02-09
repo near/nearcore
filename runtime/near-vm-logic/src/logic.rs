@@ -48,6 +48,7 @@ pub struct VMLogic<'a> {
     /// Storage usage of the current account at the moment
     current_storage_usage: StorageUsage,
     gas_counter: GasCounter,
+    gas_profile_started: Option<Gas>,
     /// What method returns.
     return_data: ReturnData,
     /// Logs written by the runtime.
@@ -134,6 +135,7 @@ impl<'a> VMLogic<'a> {
             current_account_locked_balance,
             current_storage_usage,
             gas_counter,
+            gas_profile_started: None,
             return_data: ReturnData::None,
             logs: vec![],
             registers: HashMap::new(),
@@ -1054,6 +1056,36 @@ impl<'a> VMLogic<'a> {
     /// * If we exceed the `prepaid_gas` then returns `GasExceeded`.
     pub fn gas(&mut self, opcodes: u32) -> Result<()> {
         self.gas_counter.pay_wasm_gas(opcodes)
+    }
+
+    pub fn gas_profile_start(&mut self) -> Result<()> {
+        if self.gas_profile_started.is_some() {
+            return Err(HostError::GuestPanic {
+                panic_msg: "gas profile already started".to_string(),
+            }
+            .into());
+        }
+        let gas = self.gas_counter.used_gas();
+        self.gas_profile_started = Some(gas);
+        Ok(())
+    }
+
+    pub fn gas_profile_stop(&mut self, bin: u32) -> Result<()> {
+        let cost = u8::try_from(bin).map_err(|err| HostError::GuestPanic {
+            panic_msg: format!("gas profile invalid bin number: {bin} (must be <= 255)"),
+        })?;
+        let gas = match self.gas_profile_started.take() {
+            None => {
+                return Err(HostError::GuestPanic {
+                    panic_msg: "gas profile not started".to_string(),
+                }
+                .into())
+            }
+            Some(it) => it,
+        };
+        let value = self.gas_counter.used_gas().saturating_sub(gas);
+        self.gas_counter.update_custom_profile(cost, value);
+        Ok(())
     }
 
     // ################

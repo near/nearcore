@@ -9,7 +9,7 @@ use crate::config::{ActionCosts, ExtCosts};
 pub struct DataArray(Box<[u64; Self::LEN]>);
 
 impl DataArray {
-    pub const LEN: usize = Cost::ALL.len();
+    pub const LEN: usize = Cost::ALL.len() + 256;
 }
 
 impl Index<usize> for DataArray {
@@ -82,6 +82,12 @@ impl ProfileData {
             self[Cost::ExtCost { ext_cost_kind: ext }].saturating_add(value);
     }
 
+    #[inline]
+    pub fn add_custom_cost(&mut self, cost: u8, value: u64) {
+        let index = Cost::ALL.len() + cost as usize;
+        self.data[index] = self.data[index].saturating_add(value)
+    }
+
     /// WasmInstruction is the only cost we don't explicitly account for.
     /// Instead, we compute it at the end of contract call as the difference
     /// between total gas burnt and what we've explicitly accounted for in the
@@ -104,6 +110,10 @@ impl ProfileData {
 
     pub fn get_ext_cost(&self, ext: ExtCosts) -> u64 {
         self[Cost::ExtCost { ext_cost_kind: ext }]
+    }
+
+    pub fn get_custom_cost(&self, cost: u8) -> u64 {
+        self.data[Cost::ALL.len() + cost as usize]
     }
 
     pub fn host_gas(&self) -> u64 {
@@ -168,6 +178,15 @@ impl fmt::Debug for ProfileData {
             }
         }
         writeln!(f, "------------------------------")?;
+        writeln!(f, "------ Custom --------")?;
+        for cost in 0..=255 {
+            let d = self.get_custom_cost(cost);
+            if d != 0 {
+                writeln!(f, "{:>03} -> {}", cost, d)?;
+            }
+        }
+        writeln!(f, "------------------------------")?;
+
         Ok(())
     }
 }

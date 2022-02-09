@@ -268,6 +268,10 @@ impl GasCounter {
         self.deduct_gas(burn_gas, use_gas)
     }
 
+    pub fn update_custom_profile(&mut self, cost: u8, value: Gas) {
+        self.profile.add_custom_cost(cost, value)
+    }
+
     pub fn prepay_gas(&mut self, use_gas: Gas) -> Result<()> {
         self.deduct_gas(0, use_gas)
     }
