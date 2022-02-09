@@ -654,7 +654,7 @@ impl Trie {
             let node = RawTrieNodeWithSize::decode(&bytes).map_err(|_| {
                 StorageError::StorageInconsistentState("RawTrieNode decode failed".to_string())
             })?;
-            tracing::debug!(target: "runtime", node = node.node, "get node");
+            tracing::debug!(target: "runtime", node = ?node.node, "get node");
 
             match node.node {
                 RawTrieNode::Leaf(existing_key, value_length, value_hash) => {
