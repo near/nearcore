@@ -4593,7 +4593,7 @@ mod chunk_nodes_cache_tests {
         env.clients[0].process_tx(tx, false, false);
 
         let num_blocks = 5;
-        produce_blocks_from_height(&mut env, num_blocks, block_height);
+        let new_block_height = produce_blocks_from_height(&mut env, num_blocks, block_height);
         let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
         assert!(matches!(final_result.status, FinalExecutionStatus::SuccessValue(_)));
         let transaction_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
@@ -4601,7 +4601,7 @@ mod chunk_nodes_cache_tests {
         assert_eq!(receipt_ids.len(), 1);
         let receipt_execution_outcome =
             env.clients[0].chain.get_execution_outcome(&receipt_ids[0]).unwrap();
-        // let block_hash = receipt_execution_outcome.block_hash;
+        let block_hash = receipt_execution_outcome.block_hash;
         let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata.clone();
         let touching_trie_node_cost = match metadata {
             ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),
@@ -4649,7 +4649,7 @@ mod chunk_nodes_cache_tests {
 
         // eprintln!("{:?}", touching_trie_node_cost);
         let last_block =
-            env.clients[0].chain.get_block_by_height(block_height - 1).unwrap().clone();
+            env.clients[0].chain.get_block_by_height(new_block_height - 1).unwrap().clone();
         let state_roots: Vec<StateRoot> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
 
