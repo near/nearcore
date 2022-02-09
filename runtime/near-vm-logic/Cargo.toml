@@ -23,6 +23,7 @@ ripemd160 = "0.9.0"
 serde = { version = "1", features = ["derive"] }
 sha2 = ">=0.8,<0.10"
 sha3 = ">=0.8,<0.10"
+tracing = "0.1.13"
 
 near-crypto = { path = "../../core/crypto" }
 near-account-id = { path = "../../core/account-id", features = [ "internal_unstable" ] }
