@@ -59,7 +59,10 @@ protocol_feature_routing_exchange_algorithm = [
     "near-stable-hasher",
 ]
 sandbox = ["near-network-primitives/sandbox"]
-test_features = ["near-network-primitives/test_features", "serde"]
+test_features = [
+  "near-network-primitives/test_features",
+  "serde",
+]
 
 [[bench]]
 name = "graph"

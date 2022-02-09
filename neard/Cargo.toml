@@ -37,7 +37,11 @@ default = ["json_rpc", "jemalloc"]
 
 jemalloc = ["tikv-jemallocator"]
 performance_stats = ["nearcore/performance_stats"]
-memory_stats = ["nearcore/memory_stats", "near-rust-allocator-proxy", "jemalloc"]
+memory_stats = [
+  "nearcore/memory_stats",
+  "near-rust-allocator-proxy",
+  "jemalloc",
+]
 c_memory_stats = ["nearcore/c_memory_stats"]
 test_features = ["nearcore/test_features"]
 expensive_tests = ["nearcore/expensive_tests"]
@@ -46,7 +50,10 @@ delay_detector = ["nearcore/delay_detector"]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_alt_bn128 = ["nearcore/protocol_feature_alt_bn128"]
-protocol_feature_chunk_only_producers = ["nearcore/protocol_feature_chunk_only_producers", "near-primitives/protocol_feature_chunk_only_producers"]
+protocol_feature_chunk_only_producers = [
+  "nearcore/protocol_feature_chunk_only_producers",
+  "near-primitives/protocol_feature_chunk_only_producers",
+]
 protocol_feature_routing_exchange_algorithm = ["nearcore/protocol_feature_routing_exchange_algorithm"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
 nightly_protocol_features = ["nearcore/nightly_protocol_features"]
