@@ -179,12 +179,21 @@ impl fmt::Debug for ProfileData {
         }
         writeln!(f, "------------------------------")?;
         writeln!(f, "------ Custom --------")?;
+        let mut xs = Vec::new();
+        let mut total = 0;
         for cost in 0..=255 {
             let d = self.get_custom_cost(cost);
+            total += d;
             if d != 0 {
-                writeln!(f, "{:>03} -> {}", cost, d)?;
+                xs.push((d, cost));
             }
         }
+        xs.sort();
+        xs.reverse();
+        for (d, cost) in xs {
+            writeln!(f, "{:>03X} -> {}", cost, d)?;
+        }
+        writeln!(f, "total -> {}", total)?;
         writeln!(f, "------------------------------")?;
 
         Ok(())
