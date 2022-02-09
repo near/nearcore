@@ -4586,6 +4586,12 @@ mod chunk_nodes_cache_tests {
                     gas: tx_gas,
                     deposit: 0,
                 }),
+                Action::FunctionCall(FunctionCallAction {
+                    args: arr_u64_to_u8(&[2u64, 20u64]),
+                    method_name: "write_key_value".to_string(),
+                    gas: tx_gas,
+                    deposit: 0,
+                }),
             ],
             last_block_hash.clone(),
         );
