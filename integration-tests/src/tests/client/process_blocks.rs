@@ -4625,7 +4625,7 @@ mod chunk_nodes_cache_tests {
             };
 
             let block_height = blocks.get(&block_hash).unwrap();
-            let tgas: f64 = receipt_execution_outcome.outcome_with_id.outcome.gas_burnt / (10f64 ** 12);
+            let tgas: f64 = (receipt_execution_outcome.outcome_with_id.outcome.gas_burnt as f64) / 10f64.pow(12);
             eprintln!("{} {} {} {}", receipt_ids[0], block_height, tgas, touching_trie_node_cost);
             // ReceiptData { block_hash, touching_trie_node_cost }
             touching_trie_node_cost
