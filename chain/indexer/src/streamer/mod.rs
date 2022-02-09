@@ -87,9 +87,7 @@ async fn build_streamer_message(
             shard_id,
             chunk: None,
             receipt_execution_outcomes: vec![],
-            state_changes: state_changes
-                .remove(&shard_id)
-                .expect("StateChanges for given shard should be present"),
+            state_changes: state_changes.remove(&shard_id).unwrap_or_default(),
         })
         .collect::<Vec<_>>();
 
