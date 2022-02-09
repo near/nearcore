@@ -4575,19 +4575,19 @@ mod chunk_nodes_cache_tests {
             &signer,
             vec![
                 Action::FunctionCall(FunctionCallAction {
-                    args: arr_u64_to_u8(&[0u64, 10u64]),
+                    args: arr_u64_to_u8(&[2u64.pow(62) + 0, 10u64]),
                     method_name: "write_key_value".to_string(),
                     gas: tx_gas,
                     deposit: 0,
                 }),
                 Action::FunctionCall(FunctionCallAction {
-                    args: arr_u64_to_u8(&[1u64, 20u64]),
+                    args: arr_u64_to_u8(&[2u64.pow(62) + 1, 20u64]),
                     method_name: "write_key_value".to_string(),
                     gas: tx_gas,
                     deposit: 0,
                 }),
                 Action::FunctionCall(FunctionCallAction {
-                    args: arr_u64_to_u8(&[2u64, 20u64]),
+                    args: arr_u64_to_u8(&[2u64.pow(62) + 2, 20u64]),
                     method_name: "write_key_value".to_string(),
                     gas: tx_gas,
                     deposit: 0,
