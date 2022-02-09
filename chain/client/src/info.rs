@@ -11,14 +11,17 @@ use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
 };
 use near_primitives::time::{Clock, Instant};
-use near_primitives::types::{AccountId, BlockHeight, EpochHeight, Gas, NumBlocks};
+use near_primitives::types::{AccountId, BlockHeight, EpochHeight, Gas, NumBlocks, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo, ValidatorKickoutView};
 use near_telemetry::{telemetry, TelemetryActor};
 use std::cmp::min;
+use std::fmt::Write;
 use std::sync::Arc;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
+
+const TERAGAS: f64 = 1_000_000_000_000_f64;
 
 pub struct ValidatorInfoHelper {
     pub is_validator: bool,
@@ -68,6 +71,12 @@ impl InfoHelper {
             validator_signer,
             log_summary_style: client_config.log_summary_style,
         }
+    }
+
+    pub fn chunk_processed(&mut self, shard: ShardId, gas_used: Gas) {
+        metrics::TGAS_USAGE_HIST
+            .with_label_values(&[&format!("{}", shard)])
+            .observe(gas_used as f64 / TERAGAS);
     }
 
     pub fn block_processed(&mut self, gas_used: Gas, num_chunks: u64) {
@@ -152,8 +161,7 @@ impl InfoHelper {
         (metrics::CHUNKS_PER_BLOCK_MILLIS.set((1000. * chunks_per_block) as i64));
         (metrics::CPU_USAGE.set(cpu_usage as i64));
         (metrics::MEMORY_USAGE.set((memory_usage * 1024) as i64));
-        let teragas = 1_000_000_000_000u64;
-        (metrics::AVG_TGAS_USAGE.set((avg_gas_used as f64 / teragas as f64).round() as i64));
+        (metrics::AVG_TGAS_USAGE.set((avg_gas_used as f64 / TERAGAS).round() as i64));
         (metrics::EPOCH_HEIGHT.set(epoch_height as i64));
         (metrics::PROTOCOL_UPGRADE_BLOCK_HEIGHT.set(protocol_upgrade_block_height as i64));
         (metrics::NODE_PROTOCOL_VERSION.set(PROTOCOL_VERSION as i64));
@@ -260,22 +268,22 @@ fn display_sync_status(
             let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
             shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
             for (shard_id, shard_status) in shard_statuses {
-                res = res
-                    + format!(
-                        "[{}: {}]",
-                        shard_id,
-                        match shard_status.status {
-                            ShardSyncStatus::StateDownloadHeader => format!("header"),
-                            ShardSyncStatus::StateDownloadParts => format!("parts"),
-                            ShardSyncStatus::StateDownloadScheduling => format!("scheduling"),
-                            ShardSyncStatus::StateDownloadApplying => format!("applying"),
-                            ShardSyncStatus::StateDownloadComplete => format!("download complete"),
-                            ShardSyncStatus::StateSplitScheduling => format!("split scheduling"),
-                            ShardSyncStatus::StateSplitApplying => format!("split applying"),
-                            ShardSyncStatus::StateSyncDone => format!("done"),
-                        }
-                    )
-                    .as_str();
+                write!(
+                    res,
+                    "[{}: {}]",
+                    shard_id,
+                    match shard_status.status {
+                        ShardSyncStatus::StateDownloadHeader => "header",
+                        ShardSyncStatus::StateDownloadParts => "parts",
+                        ShardSyncStatus::StateDownloadScheduling => "scheduling",
+                        ShardSyncStatus::StateDownloadApplying => "applying",
+                        ShardSyncStatus::StateDownloadComplete => "download complete",
+                        ShardSyncStatus::StateSplitScheduling => "split scheduling",
+                        ShardSyncStatus::StateSplitApplying => "split applying",
+                        ShardSyncStatus::StateSyncDone => "done",
+                    }
+                )
+                .unwrap();
             }
             res
         }
