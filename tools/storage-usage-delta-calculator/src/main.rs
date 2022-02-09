@@ -9,7 +9,7 @@ use std::io::Error;
 
 /// Calculates delta between actual storage usage and one saved in state
 /// output.json should contain dump of current state,
-/// run state-viewer --home ~/.near/mainnet/ dump_state
+/// run 'neard --home ~/.near/mainnet/ view_state dump_state'
 /// to get it
 fn main() -> Result<(), Error> {
     env_logger::Builder::new().filter(None, LevelFilter::Debug).init();

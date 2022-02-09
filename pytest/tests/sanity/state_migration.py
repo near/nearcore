@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 """
 Spins up stable node, runs it for a few blocks and stops it.
-Dump state via the stable state-viewer.
+Dump state via 'neard view_state'.
 Run migrations from stable version's genesis to the latest version.
 Spin up current node with migrated genesis and verify that it can keep producing blocks.
 """
@@ -49,8 +49,8 @@ def main():
 
     # Dump state.
     subprocess.call([
-        "%sstate-viewer-%s" % (near_root, stable_branch), "--home",
-        '%s/test0_finished' % node_root, "dump_state"
+        "%sneard-%s" % (near_root, stable_branch), "--home",
+        '%s/test0_finished' % node_root, "view_state", "dump_state"
     ])
 
     # Migrate.
