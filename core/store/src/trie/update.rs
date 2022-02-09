@@ -10,9 +10,9 @@ use crate::trie::TrieChanges;
 use crate::StorageError;
 
 use super::{Trie, TrieIterator};
+use near_primitives::block::CacheState;
 use near_primitives::trie_key::TrieKey;
 use std::rc::Rc;
-use near_primitives::block::CacheState;
 
 /// Key-value update. Contains a TrieKey and a value.
 pub struct TrieKeyValueUpdate {
@@ -47,7 +47,10 @@ impl<'a> TrieUpdateValuePtr<'a> {
     pub fn deref_value(&self) -> Result<Vec<u8>, StorageError> {
         match self {
             TrieUpdateValuePtr::MemoryRef(value) => Ok((*value).clone()),
-            TrieUpdateValuePtr::HashAndSize(trie, _, hash) => trie.retrieve_raw_bytes(hash),
+            TrieUpdateValuePtr::HashAndSize(trie, _, hash) => {
+                tracing::debug!(target: "runtime", hash = ?hash, "deref hash");
+                trie.retrieve_raw_bytes(hash)
+            }
         }
     }
 }

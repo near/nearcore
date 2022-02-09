@@ -18,7 +18,10 @@ use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 pub(crate) use crate::trie::trie_storage::{SyncTrieCache, TrieCachingStorage};
-use crate::trie::trie_storage::{TrieNodeRetrievalCost, TouchedNodesCounter, TrieMemoryPartialStorage, TrieRecordingStorage, TrieStorage};
+use crate::trie::trie_storage::{
+    TouchedNodesCounter, TrieMemoryPartialStorage, TrieNodeRetrievalCost, TrieRecordingStorage,
+    TrieStorage,
+};
 use crate::StorageError;
 
 mod insert_delete;
@@ -612,13 +615,11 @@ impl Trie {
     pub(crate) fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
         return self.storage.retrieve_raw_bytes_with_cost(hash).map(|(value, cost)| {
             match cost {
-                TrieNodeRetrievalCost::Full => {
-                    self.counter.increment()
-                },
-                TrieNodeRetrievalCost::Free => {},
+                TrieNodeRetrievalCost::Full => self.counter.increment(),
+                TrieNodeRetrievalCost::Free => {}
             }
             value
-        })
+        });
     }
 
     pub fn retrieve_root_node(&self, root: &StateRoot) -> Result<StateRootNode, StorageError> {
@@ -653,6 +654,7 @@ impl Trie {
             let node = RawTrieNodeWithSize::decode(&bytes).map_err(|_| {
                 StorageError::StorageInconsistentState("RawTrieNode decode failed".to_string())
             })?;
+            tracing::debug!(target: "runtime", node = node.node, "get node");
 
             match node.node {
                 RawTrieNode::Leaf(existing_key, value_length, value_hash) => {
