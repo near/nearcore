@@ -982,13 +982,12 @@ impl ClientActor {
             let last_final_hash = *block.header().last_final_block();
 
             let chunks = block.chunks();
-            let included_chunks = chunks
-                .iter()
-                .zip(block.header().chunk_mask().iter())
-                .filter(|(_, mask)| **mask)
-                .map(|(chunk, _)| chunk);
-            for chunk in included_chunks {
-                self.info_helper.chunk_processed(chunk.shard_id(), chunk.gas_used());
+            for (chunk, &included) in chunks.iter().zip(block.header().chunk_mask().iter()) {
+                if included {
+                    self.info_helper.chunk_processed(chunk.shard_id(), chunk.gas_used());
+                } else {
+                    self.info_helper.chunk_skipped(chunk.shard_id());
+                }
             }
 
             self.info_helper.block_processed(gas_used, chunks_in_block as u64);
