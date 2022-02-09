@@ -4541,7 +4541,7 @@ mod chunk_nodes_cache_tests {
         let epoch_length = 1_000; // Avoid protocol upgrades
         let gas_limit = 20_000_000_000_000;
         // let num_txs = 20;
-        // let num_blocks = 5;
+        let num_blocks = 5;
         genesis.config.gas_limit = gas_limit;
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = protocol_version;
