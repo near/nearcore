@@ -4520,7 +4520,6 @@ mod chunk_nodes_cache_tests {
     use near_primitives::transaction::ExecutionMetadata;
     use near_primitives::types::StateRoot;
     use near_store::TrieIterator;
-    use std::collections::HashMap;
 
     fn arr_u64_to_u8(value: &[u64]) -> Vec<u8> {
         let mut res = vec![];
@@ -4570,7 +4569,7 @@ mod chunk_nodes_cache_tests {
         let last_block_hash =
             env.clients[0].chain.get_block_by_height(block_height - 1).unwrap().hash().clone();
         let tx = SignedTransaction::from_actions(
-            block_height + i,
+            block_height,
             "test0".parse().unwrap(),
             "test0".parse().unwrap(),
             &signer,
@@ -4611,10 +4610,10 @@ mod chunk_nodes_cache_tests {
             }
         };
 
-        let block_height = blocks.get(&block_hash).unwrap();
+        // let block_height = blocks.get(&block_hash).unwrap();
         let tgas: f64 = (receipt_execution_outcome.outcome_with_id.outcome.gas_burnt as f64)
             / (10u64.pow(12) as f64);
-        eprintln!("{} {} {} {}", receipt_ids[0], block_height, tgas, touching_trie_node_cost);
+        eprintln!("{} {} {}", receipt_ids[0], tgas, touching_trie_node_cost);
         // let blocks: HashMap<_, _> = (block_height..new_block_height)
         //     .map(|height| {
         //         (env.clients[0].chain.get_block_by_height(height).unwrap().hash().clone(), height)
