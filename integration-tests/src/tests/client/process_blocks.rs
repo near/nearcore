@@ -4601,7 +4601,7 @@ mod chunk_nodes_cache_tests {
         assert_eq!(receipt_ids.len(), 1);
         let receipt_execution_outcome =
             env.clients[0].chain.get_execution_outcome(&receipt_ids[0]).unwrap();
-        let block_hash = receipt_execution_outcome.block_hash;
+        // let block_hash = receipt_execution_outcome.block_hash;
         let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata.clone();
         let touching_trie_node_cost = match metadata {
             ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),
