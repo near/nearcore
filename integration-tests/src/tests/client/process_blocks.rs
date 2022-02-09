@@ -133,7 +133,7 @@ fn deploy_test_contract(
     env: &mut TestEnv,
     account_id: AccountId,
     wasm_code: &[u8],
-    epoch_length: u64,
+    blocks_number: u64,
     height: BlockHeight,
 ) -> BlockHeight {
     let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
@@ -149,7 +149,7 @@ fn deploy_test_contract(
         *block.hash(),
     );
     env.clients[0].process_tx(tx, false, false);
-    produce_blocks_from_height(env, epoch_length, height)
+    produce_blocks_from_height(env, blocks_number, height)
 }
 
 /// Create environment and set of transactions which cause congestion on the chain.
@@ -4514,7 +4514,7 @@ mod contract_precompilation_tests {
 
 #[cfg(test)]
 mod chunk_nodes_cache_tests {
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::{HashMap};
     use near_primitives::config::ExtCosts;
     use near_primitives::state_record::StateRecord;
     use near_primitives::transaction::ExecutionMetadata;
@@ -4530,22 +4530,21 @@ mod chunk_nodes_cache_tests {
         res
     }
 
-    struct ReceiptData {
-        block_hash: CryptoHash,
-        touching_trie_node_cost: u64,
-    }
+    // struct ReceiptData {
+    //     block_hash: CryptoHash,
+    //     touching_trie_node_cost: u64,
+    // }
 
     #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
-    #[test]
-    fn test() {
+    fn test(protocol_version: ProtocolVersion) {
         init_test_logger();
         let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-        let epoch_length = 5;
+        let epoch_length = 1_000; // Avoid
         let gas_limit = 5_000_000_000_000;
         let num_txs = 20;
         genesis.config.gas_limit = gas_limit;
         genesis.config.epoch_length = epoch_length;
-        genesis.config.protocol_version = ProtocolFeature::ChunkNodesCache.protocol_version();
+        genesis.config.protocol_version = protocol_version;
         let chain_genesis = ChainGenesis::from(&genesis);
         let mut env = TestEnv::builder(chain_genesis)
             .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
@@ -4610,7 +4609,7 @@ mod chunk_nodes_cache_tests {
         //     })
         // });
 
-        let receipt_block_hashes_and_costs: Vec<ReceiptData> = tx_hashes.iter().map(|tx_hash| {
+        let _receipt_block_hashes_and_costs: Vec<_> = tx_hashes.iter().map(|tx_hash| {
             let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
             assert!(matches!(final_result.status, FinalExecutionStatus::SuccessValue(_)));
             let transaction_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
@@ -4626,8 +4625,9 @@ mod chunk_nodes_cache_tests {
             };
 
             let block_height = blocks.get(&block_hash).unwrap();
-            eprintln!("{} {} {}", receipt_ids[0], block_height, touching_trie_node_cost);
-            ReceiptData { block_hash, touching_trie_node_cost }
+            eprintln!("{} {} {} {}", receipt_ids[0], block_height, receipt_execution_outcome.outcome_with_id.outcome.gas_burnt / 10**12, touching_trie_node_cost);
+            // ReceiptData { block_hash, touching_trie_node_cost }
+            touching_trie_node_cost
         }).collect();
 
         // eprintln!("{:?}", touching_trie_node_cost);
@@ -4642,5 +4642,17 @@ mod chunk_nodes_cache_tests {
                 eprintln!("{}", state_record);
             }
         }
+    }
+
+    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
+    #[test]
+    fn test_feature() {
+        test(ProtocolFeature::ChunkNodesCache.protocol_version());
+    }
+
+    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
+    #[test]
+    fn test_no_feature() {
+        test(ProtocolFeature::ChunkNodesCache.protocol_version() - 1);
     }
 }
