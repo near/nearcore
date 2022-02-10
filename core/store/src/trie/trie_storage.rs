@@ -16,7 +16,7 @@ use std::io::ErrorKind;
 #[derive(Clone)]
 pub struct SyncTrieCache(pub(crate) Arc<Mutex<TrieCache>>);
 
-struct TrieCache {
+pub(crate) struct TrieCache {
     cache_state: CacheState,
     shard_cache: LruCache<CryptoHash, Vec<u8>>,
     chunk_cache: HashMap<CryptoHash, Vec<u8>>,
