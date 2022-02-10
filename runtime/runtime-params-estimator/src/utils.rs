@@ -8,6 +8,8 @@ use std::collections::HashMap;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_vm_logic::ExtCosts;
+use rand::distributions::Alphanumeric;
+use rand::Rng;
 
 pub fn read_resource(path: &str) -> Vec<u8> {
     let dir = env!("CARGO_MANIFEST_DIR");
@@ -222,4 +224,11 @@ pub(crate) fn generate_fn_name(index: usize, len: usize) -> Vec<u8> {
         name.push((b'A'..=b'Z').chain(b'a'..=b'z').nth(index % 52).unwrap());
     }
     name
+}
+
+/// Create a WASM module that is empty except for a main method and a single data entry with n characters
+pub(crate) fn generate_data_only_contract(data_size: usize) -> Vec<u8> {
+    let payload = rand::thread_rng().sample_iter(&Alphanumeric).take(data_size).collect::<String>();
+    let wat_code = format!("(module (data \"{}\") (func (export \"main\")))", payload);
+    wat::parse_str(wat_code).unwrap()
 }

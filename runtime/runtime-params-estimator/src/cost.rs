@@ -243,10 +243,11 @@ pub enum Cost {
     ContractCompileBytesV2,
     /// The cost of contract deployment per byte, without the compilation cost.
     ///
-    /// Estimation: Measure the cost of two contract that have the same code but
-    /// include different data sections. One data section is significantly
-    /// larger. The cost difference is pure overhead of moving around bytes that
-    /// are not code. Divide this cost by the difference of bytes.
+    /// Estimation: Measure the deployment costs of two data-only contracts,
+    /// where one data sections is empty and the other is max size as allowed by
+    /// contract size limits. The cost difference is pure overhead of moving
+    /// around bytes that are not code. Divide this cost by the difference of
+    /// bytes.
     DeployBytes,
     GasMeteringBase,
     GasMeteringOp,

@@ -93,8 +93,9 @@ use near_vm_runner::MockCompiledContractCache;
 use num_rational::Ratio;
 use rand::Rng;
 use utils::{
-    aggregate_per_block_measurements, fn_cost, fn_cost_count, fn_cost_with_setup, generate_fn_name,
-    noop_function_call_cost, read_resource, transaction_cost,
+    aggregate_per_block_measurements, fn_cost, fn_cost_count, fn_cost_with_setup,
+    generate_data_only_contract, generate_fn_name, noop_function_call_cost, read_resource,
+    transaction_cost,
 };
 use vm_estimator::{compile_single_contract_cost, compute_compile_cost_vm};
 
@@ -618,31 +619,20 @@ fn contract_compile_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost, Ga
     costs
 }
 fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
-    // 10kiB
-    let small_code = read_resource(if cfg!(feature = "nightly_protocol_features") {
-        "test-contract/res/nightly_small_contract.wasm"
-    } else {
-        "test-contract/res/stable_small_contract.wasm"
-    });
-    // 1MiB
-    let large_code = read_resource(if cfg!(feature = "nightly_protocol_features") {
-        "test-contract/res/nightly_large_contract.wasm"
-    } else {
-        "test-contract/res/stable_large_contract.wasm"
-    });
-
+    let small_code = generate_data_only_contract(0);
+    let large_code = generate_data_only_contract(bytesize::mb(4u64) as usize);
     let small_code_len = small_code.len();
     let large_code_len = large_code.len();
-    let cost_10kib = deploy_contract_cost(ctx, small_code, Some(b"payload"));
-    let cost_1mib = deploy_contract_cost(ctx, large_code, Some(b"payload"));
+    let cost_empty = deploy_contract_cost(ctx, small_code, Some(b"main"));
+    let cost_4mb = deploy_contract_cost(ctx, large_code, Some(b"main"));
 
-    if cost_1mib < cost_10kib {
+    if cost_4mb < cost_empty {
         eprintln!("High variance in pure_deploy_bytes: Deployment cost of small contract is higher than large contract.");
         let mut cost = GasCost::zero(ctx.config.metric);
         cost.set_uncertain(true);
         cost
     } else {
-        (cost_1mib - cost_10kib) / (large_code_len - small_code_len) as u64
+        (cost_4mb - cost_empty) / (large_code_len - small_code_len) as u64
     }
 }
 
