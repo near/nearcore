@@ -2198,7 +2198,6 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        tracing::debug!(target: "runtime", key = ?key, value = ?value, "storage_write");
         self.gas_counter.pay_per(storage_write_key_byte, key.len() as u64)?;
         self.gas_counter.pay_per(storage_write_value_byte, value.len() as u64)?;
         let nodes_before = self.ext.get_touched_nodes_count();
