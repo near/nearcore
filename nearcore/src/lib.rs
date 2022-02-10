@@ -46,7 +46,7 @@ mod runtime;
 mod shard_tracker;
 
 const STORE_PATH: &str = "data";
-const INCONSISTENT_STATE_STORE_KEY: [u8] = b"state_is_inconsistent";
+const INCONSISTENT_STATE_STORE_KEY: &'static [u8] = b"state_is_inconsistent";
 
 pub fn store_path_exists<P: AsRef<Path>>(path: P) -> bool {
     fs::canonicalize(path).is_ok()
@@ -76,6 +76,36 @@ pub fn get_default_home() -> PathBuf {
     PathBuf::default()
 }
 
+mod r#impl {
+    use crate::INCONSISTENT_STATE_STORE_KEY;
+    use near_store::Store;
+    use near_store::db::DBCol::ColBlockMisc;
+
+    pub struct MigrationInProgress<'a> {
+        store: &'a Store
+    }
+
+    impl<'a> MigrationInProgress<'a> {
+        pub fn new(store: &'a Store) -> MigrationInProgress {
+            let mut store_update = store.store_update();
+            store_update.set_ser(ColBlockMisc, &INCONSISTENT_STATE_STORE_KEY, &true).unwrap();
+            store_update.commit().unwrap();
+            MigrationInProgress{store}
+        }
+    }
+
+    impl<'a> Drop for MigrationInProgress<'a> {
+        fn drop(&mut self) {
+            if !std::thread::panicking() {
+                let mut store_update = self.store.store_update();
+                store_update.set_ser(ColBlockMisc, &INCONSISTENT_STATE_STORE_KEY, &false).unwrap();
+                store_update.commit().unwrap();
+            }
+        }
+    }
+}
+use r#impl::MigrationInProgress;
+
 /// Function checks current version of the database and applies migrations to the database.
 pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
@@ -87,18 +117,14 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         };
 
     if state_is_inconsistent {
-        error!("The state migration was earlier interrupted so the current state ",
+        error!(concat!("The state migration was earlier interrupted so the current state ",
                "can be inconsistent, it's recommended to recover the node from a backup otherwise ",
-               "this can lead to undefined failures.");
+               "this can lead to undefined failures."));
         if near_config.config.fail_if_state_is_inconsistent {
-            panic!("Failed to start because the state is inconsistent and ",
-                   "the flag fail_if_state_is_inconsistent is enabled");
+            panic!(concat!("Failed to start because the state is inconsistent and ",
+                   "the flag fail_if_state_is_inconsistent is enabled"));
         }
     }
-
-    let mut store_update = store.store_update();
-    store_update.set_ser(ColBlockMisc, &INCONSISTENT_STATE_STORE_KEY, &true).unwrap();
-    store_update.commit().unwrap();
 
     let db_version = get_store_version(path);
     if db_version > near_primitives::version::DB_VERSION {
@@ -115,6 +141,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         // Does not need to do anything since open db with option `create_missing_column_families`
         // Nevertheless need to bump db version, because db_version 1 binary can't open db_version 2 db
         info!(target: "near", "Migrate DB from version 1 to 2");
+        let _ = MigrationInProgress::new(&store);
         let store = create_store(path);
         set_store_version(&store, 2);
     }
@@ -298,10 +325,6 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         let db_version = get_store_version(path);
         debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
     }
-
-    let mut store_update = store.store_update();
-    store_update.set_ser(ColBlockMisc, &INCONSISTENT_STATE_STORE_KEY, &false).unwrap();
-    store_update.commit().unwrap();
 }
 
 pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Store {
