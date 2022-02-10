@@ -256,13 +256,13 @@ mod trie_cache_tests {
         (0..shard_cache_size as u8 + 1).for_each(|i| trie_cache.put(hash(&[i]), &[i]));
 
         assert_matches!(
-            trie_cache.get_with_cost(hash(&[0u8])),
+            trie_cache.get_with_cost(&hash(&[0u8])),
             RawBytesWithCost { value: None, cost: .. }
         );
         (1..shard_cache_size as u8 + 1).for_each(|i| {
             let value = vec![i];
             assert_matches!(
-                trie_cache.get_with_cost(hash(&value)),
+                trie_cache.get_with_cost(&hash(&value)),
                 RawBytesWithCost { value: Some(value), cost: .. }
             )
         });
