@@ -22,6 +22,7 @@ struct TrieCache {
     chunk_cache: HashMap<CryptoHash, Vec<u8>>,
 }
 
+#[derive(Debug)]
 pub(crate) enum CachePosition {
     None,
     ShardCache(Vec<u8>),
