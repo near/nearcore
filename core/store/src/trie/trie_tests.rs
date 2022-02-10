@@ -250,7 +250,7 @@ mod trie_cache_tests {
 
     #[test]
     fn test_trie_cache_positions() {
-        let mut trie_cache = TrieCache::new();
+        let mut trie_cache = TrieCache::new(5);
         let value = vec![1u8];
         let key = hash(&value);
 
