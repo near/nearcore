@@ -58,7 +58,7 @@ impl<'a> TrieUpdateValuePtr<'a> {
 impl TrieUpdate {
     pub fn new(trie: Rc<Trie>, root: CryptoHash) -> Self {
         if let Some(storage) = trie.storage.as_caching_storage() {
-            storage.prepare_trie_cache();
+            storage.reset_chunk_cache();
         }
         TrieUpdate { trie, root, committed: Default::default(), prospective: Default::default() }
     }

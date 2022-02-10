@@ -1,6 +1,7 @@
 use crate::test_utils::{create_tries_complex, gen_changes, simplify_changes, test_populate_trie};
-use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
+use crate::trie::trie_storage::{CachePosition, TrieMemoryPartialStorage, TrieStorage};
 use crate::{PartialStorage, Trie, TrieUpdate};
+use near_primitives::block::CacheState;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::ShardUId;
@@ -10,7 +11,6 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::rc::Rc;
-use near_primitives::block::CacheState;
 
 /// TrieMemoryPartialStorage, but contains only the first n requested nodes.
 pub struct IncompletePartialStorage {
@@ -128,40 +128,107 @@ fn test_reads_with_incomplete_storage() {
     }
 }
 
-// Helper for tests ensuring the correct behaviour of trie counter.
-// For example, on testing set of keys `[b"aaa", b"abb", b"baa"]`, we expect 6 touched nodes to get value for the first
-// key: Branch -> Extension -> Branch -> Extension -> Leaf plus retrieving the value by its hash.
-fn get_touched_nodes_numbers(with_chunk_cache: bool) -> Vec<u64> {
-    let tries = create_tries_complex(1, 2);
-    let shard_uid = ShardUId { version: 1, shard_id: 0 };
-    let trie = tries.get_trie_for_shard(shard_uid);
-    let trie = Rc::new(trie);
-    let state_root = Trie::empty_root();
-    let storage = match trie.storage.as_caching_storage() {
-        Some(storage) => storage,
-        None => panic!("TrieCachingStorage must be used as trie storage backend"),
-    };
-    let keys = vec![b"aaa", b"abb", b"baa"];
-    let changes = keys.iter().cloned().enumerate().map(|(i, key)| (key.to_vec(), Some(vec![i as u8]))).collect();
-    let trie_changes = simplify_changes(&changes);
-    let state_root = test_populate_trie(&tries, &state_root, shard_uid, trie_changes.clone());
-    if with_chunk_cache {
-        storage.cache.set_chunk_cache_state(CacheState::CachingChunk);
+#[cfg(test)]
+mod trie_counter_tests {
+    use super::*;
+    use crate::test_utils::create_tries;
+    use crate::trie::POISONED_LOCK_ERR;
+    use assert_matches::assert_matches;
+
+    const TEST_TRIE_ITEMS: Vec<(Vec<u8>, Option<Vec<u8>>)> = vec![
+        (b"aaa".to_vec(), Some(vec![0])),
+        (b"abb".to_vec() Some(vec![1])),
+        (b"baa".to_vec(), Some(vec![2])),
+    ];
+
+    // let changes = keys
+    //             .iter()
+    //             .cloned()
+    //             .enumerate()
+    //             .map(|(i, key)| (key.to_vec(), Some(vec![i as u8])))
+    //             .collect();
+    fn create_trie(items: &[(Vec<u8>, Option<Vec<u8>>)]) -> (Rc<Trie>, CryptoHash) {
+        let tries = create_tries();
+        let shard_uid = ShardUId { version: 1, shard_id: 0 };
+        let trie = tries.get_trie_for_shard(shard_uid);
+        let trie = Rc::new(trie);
+        let state_root = Trie::empty_root();
+        let trie_changes = simplify_changes(&items);
+        let state_root = test_populate_trie(&tries, &state_root, shard_uid, trie_changes.clone());
+        (trie, state_root)
     }
-    changes.iter().map(|(key, value)| {
-        let initial_counter = trie.counter.get();
-        let got_value = trie.get(&state_root, key).unwrap();
-        assert_eq!(*value, got_value);
-        trie.counter.get() - initial_counter
-    }).collect()
-}
 
-#[test]
-fn test_counter_shard_cache() {
-    assert_eq!(get_touched_nodes_numbers(false), vec![6, 6, 4]);
-}
+    // Helper for tests ensuring the correct behaviour of trie counter.
+    // For example, on testing set of keys `[b"aaa", b"abb", b"baa"]`, we expect 6 touched nodes to get value for the first
+    // key: Branch -> Extension -> Branch -> Extension -> Leaf plus retrieving the value by its hash.
+    fn get_touched_nodes_numbers(
+        trie: Rc<Trie>,
+        state_root: CryptoHash,
+        items: &[(Vec<u8>, Option<Vec<u8>>)],
+    ) -> Vec<u64> {
+        items
+            .iter()
+            .map(|(key, value)| {
+                let initial_counter = trie.counter.get();
+                let got_value = trie.get(&state_root, key).unwrap();
+                assert_eq!(*value, got_value);
+                trie.counter.get() - initial_counter
+            })
+            .collect()
+    }
 
-#[test]
-fn test_counter_chunk_cache() {
-    assert_eq!(get_touched_nodes_numbers(true), vec![6, 2, 2]);
+    #[test]
+    fn test_shard_cache() {
+        let (trie, state_root) = create_trie(&TEST_TRIE_ITEMS);
+        let storage = trie.storage.as_caching_storage().unwrap();
+        assert_eq!(get_touched_nodes_numbers(trie, state_root, &TEST_TRIE_ITEMS), vec![6, 6, 4]);
+    }
+
+    #[test]
+    fn test_chunk_cache() {
+        let (trie, state_root) = create_trie(&TEST_TRIE_ITEMS);
+        let storage = trie.storage.as_caching_storage().unwrap();
+        storage.cache.set_chunk_cache_state(CacheState::CachingChunk);
+        assert_eq!(get_touched_nodes_numbers(trie, state_root, &TEST_TRIE_ITEMS), vec![6, 2, 2]);
+    }
+
+    #[test]
+    fn test_reset_chunk_cache() {
+        let trie_items = &TEST_TRIE_ITEMS[..1];
+        let (trie, state_root) = create_trie(trie_items);
+        let storage = trie.storage.as_caching_storage().unwrap();
+        storage.cache.set_chunk_cache_state(CacheState::CachingChunk);
+        assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, trie_items), vec![2]);
+        assert_eq!(get_touched_nodes_numbers(trie, state_root, trie_items), vec![0]);
+        storage.reset_chunk_cache();
+        assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, trie_items), vec![2]);
+        assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, trie_items), vec![2]);
+    }
+
+    #[test]
+    fn test_trie_cache_position() {
+        let trie_items = &TEST_TRIE_ITEMS[..1];
+        let (trie, state_root) = create_trie(trie_items);
+        let storage = trie.storage.as_caching_storage().unwrap();
+        storage.cache.clear();
+        let value_hash = hash(&trie_items[0].1.unwrap());
+
+        {
+            let mut guard = storage.cache.0.lock().expect(POISONED_LOCK_ERR);
+            assert_matches!(guard.get_cache_position(&value_hash), CachePosition::None);
+        }
+
+        {
+            assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, trie_items), vec![2]);
+            let mut guard = storage.cache.0.lock().expect(POISONED_LOCK_ERR);
+            assert_matches!(guard.get_cache_position(&value_hash), CachePosition::ShardCache);
+        }
+
+        {
+            storage.cache.set_chunk_cache_state(CacheState::CachingChunk);
+            assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, trie_items), vec![2]);
+            let mut guard = storage.cache.0.lock().expect(POISONED_LOCK_ERR);
+            assert_matches!(guard.get_cache_position(&value_hash), CachePosition::ChunkCache);
+        }
+    }
 }

@@ -4512,10 +4512,12 @@ mod contract_precompilation_tests {
     }
 }
 
+#[cfg(feature = "protocol_feature_chunk_nodes_cache")]
 #[cfg(test)]
 mod chunk_nodes_cache_tests {
     use super::*;
     use near_primitives::config::ExtCosts;
+    use near_primitives::config::ExtCosts::base;
     use near_primitives::state_record::StateRecord;
     use near_primitives::transaction::ExecutionMetadata;
     use near_primitives::types::StateRoot;
@@ -4560,7 +4562,6 @@ mod chunk_nodes_cache_tests {
         (env, block_height)
     }
 
-    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
     fn touching_trie_node_cost_for(protocol_version: ProtocolVersion) -> u64 {
         let (mut env, mut block_height) = prepare_env(protocol_version);
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
@@ -4582,13 +4583,13 @@ mod chunk_nodes_cache_tests {
                     vec![
                         // We use keys like 2**62 + i to ensure that Trie leaves will be different for them
                         Action::FunctionCall(FunctionCallAction {
-                            args: arr_u64_to_u8(&[2u64.pow(62) * 0 + 0, 10u64 + i]),
+                            args: arr_u64_to_u8(&[0u64, 10u64 + i]),
                             method_name: "write_key_value".to_string(),
                             gas: tx_gas,
                             deposit: 0,
                         }),
                         Action::FunctionCall(FunctionCallAction {
-                            args: arr_u64_to_u8(&[2u64.pow(62) * 1 + 1, 20u64 + i]),
+                            args: arr_u64_to_u8(&[1u64, 20u64 + i]),
                             method_name: "write_key_value".to_string(),
                             gas: tx_gas,
                             deposit: 0,
@@ -4677,14 +4678,17 @@ mod chunk_nodes_cache_tests {
         touching_trie_node_cost
     }
 
-    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
     #[test]
     fn test_feature() {
         let base_cost = RuntimeConfig::test().wasm_config.ext_costs.touching_trie_node;
-        let cost_with_feature =
-            touching_trie_node_cost_for(ProtocolFeature::ChunkNodesCache.protocol_version());
-        let cost_without_feature =
+        let old_cost =
             touching_trie_node_cost_for(ProtocolFeature::ChunkNodesCache.protocol_version() - 1);
-        eprintln!("{} {} {}", cost_with_feature, cost_without_feature, base_cost);
+        let new_cost =
+            touching_trie_node_cost_for(ProtocolFeature::ChunkNodesCache.protocol_version());
+        let touch_difference = (new_cost - old_cost) / base_cost;
+        assert_eq!(touch_difference, 4);
     }
+
+    #[test]
+    fn test_protocol_upgrade() {}
 }

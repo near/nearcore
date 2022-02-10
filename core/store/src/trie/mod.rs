@@ -17,7 +17,7 @@ use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
-pub(crate) use crate::trie::trie_storage::{SyncTrieCache, TrieCachingStorage};
+pub(crate) use crate::trie::trie_storage::{CachePosition, SyncTrieCache, TrieCachingStorage};
 use crate::trie::trie_storage::{
     TouchedNodesCounter, TrieMemoryPartialStorage, TrieNodeRetrievalCost, TrieRecordingStorage,
     TrieStorage,
