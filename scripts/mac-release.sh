@@ -57,7 +57,6 @@ function upload_binary {
 }
 
 upload_binary neard
-upload_binary state-viewer
 upload_binary store-validator
 
 if [ "$release" == "release" ]
