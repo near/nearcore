@@ -135,7 +135,7 @@ mod trie_counter_tests {
     use crate::trie::POISONED_LOCK_ERR;
     use assert_matches::assert_matches;
 
-    let TEST_TRIE_ITEMS: Vec<(Vec<u8>, Option<Vec<u8>>)> = vec![
+    static TEST_TRIE_ITEMS: Vec<(Vec<u8>, Option<Vec<u8>>)> = vec![
         (b"aaa".to_vec(), Some(vec![0])),
         (b"abb".to_vec(), Some(vec![1])),
         (b"baa".to_vec(), Some(vec![2])),
