@@ -232,7 +232,7 @@ mod trie_counter_tests {
 
         {
             storage.cache.set_chunk_cache_state(CacheState::CachingChunk);
-            assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, trie_items), vec![2]);
+            assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, trie_items), vec![1]);
             let mut guard = storage.cache.0.lock().expect(POISONED_LOCK_ERR);
             assert_matches!(guard.get_cache_position(&value_hash), CachePosition::ChunkCache(_));
         }
