@@ -42,10 +42,10 @@ pub(crate) struct RawBytesWithCost {
 }
 
 impl TrieCache {
-    pub fn new() -> Self {
+    pub fn new(shard_cache_size: usize) -> Self {
         TrieCache {
             cache_state: CacheState::CachingShard,
-            shard_cache: LruCache::new(TRIE_MAX_SHARD_CACHE_SIZE),
+            shard_cache: LruCache::new(shard_cache_size),
             chunk_cache: Default::default(),
         }
     }
@@ -113,7 +113,7 @@ impl TrieCache {
 
 impl SyncTrieCache {
     pub fn new() -> Self {
-        Self(Arc::new(Mutex::new(TrieCache::new())))
+        Self(Arc::new(Mutex::new(TrieCache::new(TRIE_MAX_SHARD_CACHE_SIZE))))
     }
 
     pub fn clear(&self) {

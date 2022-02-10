@@ -213,6 +213,42 @@ mod trie_cache_tests {
     }
 
     #[test]
+    fn test_put() {
+        let mut trie_cache = TrieCache::new(5);
+        let key = hash(&[0, 1, 2]);
+        let value = vec![1u8];
+
+        trie_cache.put(key, &value);
+        assert_eq!(
+            trie_cache.get_with_cost(&key),
+            RawBytesWithCost { value: Some(value), cost: TrieNodeRetrievalCost::Full }
+        );
+
+        let value = vec![2u8];
+        trie_cache.put(key, &value);
+        assert_eq!(
+            trie_cache.get_with_cost(&key),
+            RawBytesWithCost { value: Some(value), cost: TrieNodeRetrievalCost::Full }
+        );
+    }
+
+    #[test]
+    fn test_pop() {
+        let mut trie_cache = TrieCache::new(5);
+        let key = hash(&[0, 1, 2]);
+        let value = vec![1u8];
+
+        trie_cache.put(key, &value);
+        assert_eq!(
+            trie_cache.get_with_cost(&key),
+            RawBytesWithCost { value: Some(value), cost: TrieNodeRetrievalCost::Full }
+        );
+
+        trie_cache.pop(&key);
+        assert_matches!(trie_cache.get_with_cost(&key), RawBytesWithCost { value: None, .. });
+    }
+
+    #[test]
     fn test_trie_cache_positions() {
         let mut trie_cache = TrieCache::new();
         let value = vec![1u8];
