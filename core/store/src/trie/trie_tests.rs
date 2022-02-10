@@ -1,5 +1,7 @@
 use crate::test_utils::{create_tries_complex, gen_changes, simplify_changes, test_populate_trie};
-use crate::trie::trie_storage::{CachePosition, TrieMemoryPartialStorage, TrieStorage};
+use crate::trie::trie_storage::{
+    CachePosition, RawBytesWithCost, TrieMemoryPartialStorage, TrieNodeRetrievalCost, TrieStorage,
+};
 use crate::{PartialStorage, Trie, TrieUpdate};
 use near_primitives::block::CacheState;
 use near_primitives::errors::StorageError;
@@ -224,7 +226,15 @@ mod trie_cache_tests {
 
         trie_cache.cache_state = CacheState::CachingChunk;
         assert_matches!(trie_cache.get_cache_position(&key), CachePosition::ShardCache(_));
+        assert_eq!(
+            trie_cache.get_with_cost(&key),
+            RawBytesWithCost { value: Some(value.clone()), cost: TrieNodeRetrievalCost::Full }
+        );
         assert_matches!(trie_cache.get_cache_position(&key), CachePosition::ChunkCache(_));
+        assert_eq!(
+            trie_cache.get_with_cost(&key),
+            RawBytesWithCost { value: Some(value), cost: TrieNodeRetrievalCost::Free }
+        );
 
         trie_cache.pop(&key);
         assert_matches!(trie_cache.get_cache_position(&key), CachePosition::None);

@@ -36,8 +36,8 @@ pub enum TrieNodeRetrievalCost {
 }
 
 pub(crate) struct RawBytesWithCost {
-    value: Option<Vec<u8>>,
-    cost: TrieNodeRetrievalCost,
+    pub(crate) value: Option<Vec<u8>>,
+    pub(crate) cost: TrieNodeRetrievalCost,
 }
 
 impl TrieCache {
