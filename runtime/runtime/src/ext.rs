@@ -97,8 +97,8 @@ impl<'a> RuntimeExt<'a> {
         }
     }
 
-    pub fn set_chunk_cache_state(&mut self, state: CacheState) {
-        self.trie_update.set_chunk_cache_state(state);
+    pub fn set_trie_cache_state(&mut self, state: CacheState) {
+        self.trie_update.set_trie_cache_state(state);
     }
 
     #[inline]

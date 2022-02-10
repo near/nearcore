@@ -115,9 +115,9 @@ pub(crate) fn execute_function_call(
         )
     };
     if checked_feature!("protocol_feature_chunk_nodes_cache", ChunkNodesCache, protocol_version) {
-        runtime_ext.set_chunk_cache_state(CacheState::CachingChunk);
+        runtime_ext.set_trie_cache_state(CacheState::CachingChunk);
         let result = runner(runtime_ext);
-        runtime_ext.set_chunk_cache_state(CacheState::CachingShard);
+        runtime_ext.set_trie_cache_state(CacheState::CachingShard);
         result
     } else {
         runner(runtime_ext)

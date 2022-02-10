@@ -129,9 +129,10 @@ fn test_reads_with_incomplete_storage() {
 }
 
 #[cfg(test)]
-mod trie_counter_tests {
+mod trie_cache_tests {
     use super::*;
     use crate::test_utils::create_tries;
+    use crate::trie::trie_storage::TrieCache;
     use crate::trie::POISONED_LOCK_ERR;
     use assert_matches::assert_matches;
 
@@ -191,7 +192,7 @@ mod trie_counter_tests {
         let trie_items = test_trie_items();
         let (trie, state_root) = create_trie(&trie_items);
         let storage = trie.storage.as_caching_storage().unwrap();
-        storage.cache.set_chunk_cache_state(CacheState::CachingChunk);
+        storage.cache.set_state(CacheState::CachingChunk);
         assert_eq!(get_touched_nodes_numbers(trie, state_root, &trie_items), vec![6, 2, 2]);
     }
 
@@ -201,7 +202,7 @@ mod trie_counter_tests {
         let trie_items = &trie_items[..1];
         let (trie, state_root) = create_trie(trie_items);
         let storage = trie.storage.as_caching_storage().unwrap();
-        storage.cache.set_chunk_cache_state(CacheState::CachingChunk);
+        storage.cache.set_state(CacheState::CachingChunk);
         assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, trie_items), vec![2]);
         assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, trie_items), vec![0]);
         storage.reset_chunk_cache();
@@ -210,7 +211,27 @@ mod trie_counter_tests {
     }
 
     #[test]
-    fn test_trie_cache_position() {
+    fn test_trie_cache_positions() {
+        let mut trie_cache = TrieCache::new();
+        let value = vec![1u8];
+        let key = hash(&value);
+
+        assert_matches!(trie_cache.cache_state, CacheState::CachingShard);
+        assert_matches!(trie_cache.get_cache_position(&key), CachePosition::None);
+
+        trie_cache.put(key, &value);
+        assert_matches!(trie_cache.get_cache_position(&key), CachePosition::ShardCache(_));
+
+        trie_cache.cache_state = CacheState::CachingChunk;
+        assert_matches!(trie_cache.get_cache_position(&key), CachePosition::ShardCache(_));
+        assert_matches!(trie_cache.get_cache_position(&key), CachePosition::ChunkCache(_));
+
+        trie_cache.pop(&key);
+        assert_matches!(trie_cache.get_cache_position(&key), CachePosition::None);
+    }
+
+    #[test]
+    fn test_trie_cache_position_2() {
         let trie_items = test_trie_items();
         let trie_items = &trie_items[..1];
         let (trie, state_root) = create_trie(trie_items);
@@ -231,8 +252,8 @@ mod trie_counter_tests {
         }
 
         {
-            storage.cache.set_chunk_cache_state(CacheState::CachingChunk);
-            assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, trie_items), vec![1]);
+            storage.cache.set_state(CacheState::CachingChunk);
+            assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, trie_items), vec![2]);
             let mut guard = storage.cache.0.lock().expect(POISONED_LOCK_ERR);
             assert_matches!(guard.get_cache_position(&value_hash), CachePosition::ChunkCache(_));
         }

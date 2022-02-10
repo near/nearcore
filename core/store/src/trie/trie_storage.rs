@@ -17,7 +17,7 @@ use std::io::ErrorKind;
 pub struct SyncTrieCache(pub(crate) Arc<Mutex<TrieCache>>);
 
 pub(crate) struct TrieCache {
-    cache_state: CacheState,
+    pub(crate) cache_state: CacheState,
     shard_cache: LruCache<CryptoHash, Vec<u8>>,
     chunk_cache: HashMap<CryptoHash, Vec<u8>>,
 }
@@ -41,18 +41,26 @@ pub(crate) struct RawBytesWithCost {
 }
 
 impl TrieCache {
-    pub(crate) fn get_cache_position(&mut self, hash: &CryptoHash) -> CachePosition {
-        match self.chunk_cache.get(hash) {
+    pub fn new() -> Self {
+        TrieCache {
+            cache_state: CacheState::CachingShard,
+            shard_cache: LruCache::new(TRIE_MAX_SHARD_CACHE_SIZE),
+            chunk_cache: Default::default(),
+        }
+    }
+
+    pub(crate) fn get_cache_position(&mut self, key: &CryptoHash) -> CachePosition {
+        match self.chunk_cache.get(key) {
             Some(value) => CachePosition::ChunkCache(value.clone()),
-            None => match self.shard_cache.get(hash) {
+            None => match self.shard_cache.get(key) {
                 Some(value) => CachePosition::ShardCache(value.clone()),
                 None => CachePosition::None,
             },
         }
     }
 
-    pub fn get_with_cost(&mut self, hash: &CryptoHash) -> RawBytesWithCost {
-        match self.get_cache_position(hash) {
+    pub fn get_with_cost(&mut self, key: &CryptoHash) -> RawBytesWithCost {
+        match self.get_cache_position(key) {
             CachePosition::None => {
                 RawBytesWithCost { value: None, cost: TrieNodeRetrievalCost::Full }
             }
@@ -60,9 +68,9 @@ impl TrieCache {
                 if let CacheState::CachingChunk = self.cache_state {
                     let value = self
                         .shard_cache
-                        .pop(hash)
+                        .pop(key)
                         .expect("If position is ShardCache then value must be presented");
-                    self.chunk_cache.insert(hash.clone(), value);
+                    self.chunk_cache.insert(key.clone(), value);
                 };
                 RawBytesWithCost { value: Some(value), cost: TrieNodeRetrievalCost::Full }
             }
@@ -76,25 +84,25 @@ impl TrieCache {
         }
     }
 
-    fn put(&mut self, hash: CryptoHash, value: &[u8]) {
+    pub fn put(&mut self, key: CryptoHash, value: &[u8]) {
         if value.len() >= TRIE_LIMIT_CACHED_VALUE_SIZE {
             return;
         }
         let value = value.to_vec();
 
         if let CacheState::CachingChunk = &self.cache_state {
-            self.shard_cache.pop(&hash);
-            self.chunk_cache.insert(hash, value);
+            self.shard_cache.pop(&key);
+            self.chunk_cache.insert(key, value);
         } else {
-            if self.chunk_cache.contains_key(&hash) {
-                self.chunk_cache.insert(hash, value);
+            if self.chunk_cache.contains_key(&key) {
+                self.chunk_cache.insert(key, value);
             } else {
-                self.shard_cache.put(hash, value);
+                self.shard_cache.put(key, value);
             }
         }
     }
 
-    fn pop(&mut self, hash: &CryptoHash) -> Option<Vec<u8>> {
+    pub fn pop(&mut self, hash: &CryptoHash) -> Option<Vec<u8>> {
         match self.chunk_cache.remove(hash) {
             Some(value) => Some(value),
             None => self.shard_cache.pop(hash),
@@ -104,11 +112,7 @@ impl TrieCache {
 
 impl SyncTrieCache {
     pub fn new() -> Self {
-        Self(Arc::new(Mutex::new(TrieCache {
-            cache_state: CacheState::CachingShard,
-            shard_cache: LruCache::new(TRIE_MAX_SHARD_CACHE_SIZE),
-            chunk_cache: Default::default(),
-        })))
+        Self(Arc::new(TrieCache::new()))
     }
 
     pub fn clear(&self) {
@@ -118,7 +122,7 @@ impl SyncTrieCache {
         guard.chunk_cache.clear();
     }
 
-    pub fn set_chunk_cache_state(&self, state: CacheState) {
+    pub fn set_state(&self, state: CacheState) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
         guard.cache_state = state;
     }

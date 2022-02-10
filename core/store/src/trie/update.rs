@@ -177,9 +177,9 @@ impl TrieUpdate {
         self.root
     }
 
-    pub fn set_chunk_cache_state(&self, state: CacheState) {
+    pub fn set_trie_cache_state(&self, state: CacheState) {
         if let Some(storage) = self.trie.storage.as_caching_storage() {
-            storage.cache.set_chunk_cache_state(state);
+            storage.cache.set_state(state);
         }
     }
 }
