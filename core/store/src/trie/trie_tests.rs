@@ -137,7 +137,7 @@ mod trie_counter_tests {
 
     const TEST_TRIE_ITEMS: Vec<(Vec<u8>, Option<Vec<u8>>)> = vec![
         (b"aaa".to_vec(), Some(vec![0])),
-        (b"abb".to_vec() Some(vec![1])),
+        (b"abb".to_vec(), Some(vec![1])),
         (b"baa".to_vec(), Some(vec![2])),
     ];
 
@@ -221,14 +221,14 @@ mod trie_counter_tests {
         {
             assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, trie_items), vec![2]);
             let mut guard = storage.cache.0.lock().expect(POISONED_LOCK_ERR);
-            assert_matches!(guard.get_cache_position(&value_hash), CachePosition::ShardCache);
+            assert_matches!(guard.get_cache_position(&value_hash), CachePosition::ShardCache(_));
         }
 
         {
             storage.cache.set_chunk_cache_state(CacheState::CachingChunk);
             assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, trie_items), vec![2]);
             let mut guard = storage.cache.0.lock().expect(POISONED_LOCK_ERR);
-            assert_matches!(guard.get_cache_position(&value_hash), CachePosition::ChunkCache);
+            assert_matches!(guard.get_cache_position(&value_hash), CachePosition::ChunkCache(_));
         }
     }
 }

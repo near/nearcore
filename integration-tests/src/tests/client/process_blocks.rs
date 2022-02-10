@@ -4581,7 +4581,6 @@ mod chunk_nodes_cache_tests {
                     "test0".parse().unwrap(),
                     &signer,
                     vec![
-                        // We use keys like 2**62 + i to ensure that Trie leaves will be different for them
                         Action::FunctionCall(FunctionCallAction {
                             args: arr_u64_to_u8(&[0u64, 10u64 + i]),
                             method_name: "write_key_value".to_string(),
