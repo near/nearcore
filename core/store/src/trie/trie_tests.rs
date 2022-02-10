@@ -257,13 +257,13 @@ mod trie_cache_tests {
 
         assert_matches!(
             trie_cache.get_with_cost(&hash(&[0u8])),
-            RawBytesWithCost { value: None, cost: .. }
+            RawBytesWithCost { value: None, .. }
         );
         (1..shard_cache_size as u8 + 1).for_each(|i| {
             let value = vec![i];
             assert_matches!(
                 trie_cache.get_with_cost(&hash(&value)),
-                RawBytesWithCost { value: Some(value), cost: .. }
+                RawBytesWithCost { value: Some(value), .. }
             )
         });
     }
