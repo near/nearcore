@@ -1,6 +1,6 @@
-# `state-viewer`
+# `neard view_state`
 
-`state-viewer` is a tool that helps you look into the state of the blockchain, which includes:
+`neard view_state` is a tool that helps you look into the state of the blockchain, which includes:
 
 * apply old blocks with a new version of the code or of the protocol
 * generate a genesis file from the current state of the blockchain
@@ -14,13 +14,13 @@ TODO: Fill out documentation for all available commands
 Basic example:
 ```bash
 make release
-./target/release/state-viewer --home ~/.near/ apply_range \
+./target/release/neard --home ~/.near/ view_state apply_range \
         --shard-id=0 --start-index=42376889 --end_index=423770101 \
          --verbose-output --csv-file=./apply_range.csv
 ```
 
 This command will:
-* build a release version of `state-viewer` with link-time optimizations
+* build `neard` with link-time optimizations
 * open the blockchain state at the location provided by `--home`
 * for each block with height between `--start-index` and `--end-index`
   * Run `apply_transactions` function
@@ -31,13 +31,12 @@ block, gas per block, delayed receipts per block. Useful for debugging performan
 data before making charts using this data.
 
 If you want to re-apply all the blocks in the available blockchain then omit both the `--start-index` and `--end-index`
-flags. Omitting `--start-index` makes `state-viewer` use blockchain state starting from the genesis. Omitting
-`--end-index` makes `state-viewer` use all blocks up to the latest block available in the blockchain.
+flags. Missing `--start-index` means use chain state starting from the genesis. Missing `--end-index` means using blocks up to the latest block available in the blockchain.
 
 Enable debug output to print extra details such as individual outcomes:
 
 ```bash
-./target/release/state-viewer ...
+./target/release/neard view_state apply_range --verbose ...
 ```
 
 To make more precise time estimations, enable `--sequential` flag, which will also cause slowdown proportional to the 
@@ -58,13 +57,13 @@ obtaining this whole history is the following:
 * SSH using `gcloud compute ssh <machine_name>" --project=rpc-prod`. Follow the `gcloud` CLI
   [installation guide](https://cloud.google.com/sdk/docs/install) if needed.
 * It is recommended to run all the following commands as user `ubuntu`: `sudo su ubuntu`.
-* Install tools be able to compile `state-viewer`:
+* Install tools be able to compile `neard`:
   * Install development packages: <https://docs.near.org/docs/develop/node/validator/compile-and-run-a-node>
   * Install Rust: <https://rustup.rs/>
   * Clone the git repository: `git clone http://github.com/near/nearcore`
-  * `make release` - note that this compiles not only `state-viewer` but also a few other tools.
+  * `make neard`
 * `sudo systemctl stop neard`, because a running node has a LOCK over the database.
-* Run `state-viewer` as described above
+* Run `neard view_state` as described above
 * Enjoy
 
 #### Checking Predicates

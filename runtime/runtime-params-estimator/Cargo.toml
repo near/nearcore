@@ -49,8 +49,15 @@ wat = "1.0"
 default = ["costs_counting"]
 costs_counting = ["near-vm-logic/costs_counting"]
 # Required feature for proper config, but can't be enabled by default because it is leaked to other release crates.
-required = ["costs_counting", "near-vm-runner/no_cpu_compatibility_checks", "no_cache"]
-no_cache = ["node-runtime/no_cache", "near-store/no_cache"]
+required = [
+  "costs_counting",
+  "near-vm-runner/no_cpu_compatibility_checks",
+  "no_cache",
+]
+no_cache = [
+  "node-runtime/no_cache",
+  "near-store/no_cache",
+]
 wasmtime = ["near-vm-runner/force_wasmtime"]
 nightly_protocol = ["near-primitives/nightly_protocol"]
 nightly_protocol_features = ["protocol_feature_alt_bn128"]

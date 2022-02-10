@@ -1,2 +1,3 @@
 # python sandbox node tests
 pytest sandbox/patch_state.py --features sandbox
+pytest sandbox/fast_forward.py --features sandbox
