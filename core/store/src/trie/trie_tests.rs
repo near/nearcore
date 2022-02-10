@@ -135,7 +135,7 @@ mod trie_counter_tests {
     use crate::trie::POISONED_LOCK_ERR;
     use assert_matches::assert_matches;
 
-    const TEST_TRIE_ITEMS: Vec<(Vec<u8>, Option<Vec<u8>>)> = vec![
+    let TEST_TRIE_ITEMS: Vec<(Vec<u8>, Option<Vec<u8>>)> = vec![
         (b"aaa".to_vec(), Some(vec![0])),
         (b"abb".to_vec(), Some(vec![1])),
         (b"baa".to_vec(), Some(vec![2])),
@@ -180,7 +180,6 @@ mod trie_counter_tests {
     #[test]
     fn test_shard_cache() {
         let (trie, state_root) = create_trie(&TEST_TRIE_ITEMS);
-        let storage = trie.storage.as_caching_storage().unwrap();
         assert_eq!(get_touched_nodes_numbers(trie, state_root, &TEST_TRIE_ITEMS), vec![6, 6, 4]);
     }
 
