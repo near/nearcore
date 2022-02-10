@@ -249,6 +249,22 @@ mod trie_cache_tests {
     }
 
     #[test]
+    fn test_shard_cache_size() {
+        let shard_cache_size = 5;
+        let mut trie_cache = TrieCache::new(shard_cache_size);
+
+        (0..shard_cache_size as u8 + 1).for_each(|i| trie_cache.put(hash(&[i]), &[i]));
+
+        assert_matches!(trie_cache.get_with_cost(&[i]), RawBytesWithCost { value: None, cost: .. });
+        (1..shard_cache_size as u8 + 1).for_each(|i| {
+            assert_matches!(
+                trie_cache.get_with_cost(&[i]),
+                RawBytesWithCost { value: Some(vec![i]), cost: .. }
+            )
+        });
+    }
+
+    #[test]
     fn test_trie_cache_positions() {
         let mut trie_cache = TrieCache::new(5);
         let value = vec![1u8];
