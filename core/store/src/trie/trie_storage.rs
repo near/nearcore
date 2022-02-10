@@ -35,7 +35,7 @@ pub enum TrieNodeRetrievalCost {
     Full,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub(crate) struct RawBytesWithCost {
     pub(crate) value: Option<Vec<u8>>,
     pub(crate) cost: TrieNodeRetrievalCost,
