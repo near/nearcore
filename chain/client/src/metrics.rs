@@ -1,6 +1,7 @@
 use near_metrics::{
-    try_create_histogram, try_create_histogram_vec, try_create_int_counter, try_create_int_gauge,
-    Histogram, HistogramVec, IntCounter, IntGauge, IntGaugeVec,
+    try_create_histogram, try_create_histogram_vec, try_create_int_counter,
+    try_create_int_counter_vec, try_create_int_gauge, Histogram, HistogramVec, IntCounter,
+    IntCounterVec, IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
 
@@ -138,4 +139,12 @@ pub static NODE_PROTOCOL_VERSION: Lazy<IntGauge> = Lazy::new(|| {
 });
 pub static NODE_DB_VERSION: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_node_db_version", "DB version used by the node").unwrap()
+});
+pub static CHUNK_SKIPPED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_chunk_skipped_total",
+        "Number of skipped chunks",
+        &["shard_id"],
+    )
+    .unwrap()
 });
