@@ -216,8 +216,8 @@ mod trie_counter_tests {
         let (trie, state_root) = create_trie(trie_items);
         let storage = trie.storage.as_caching_storage().unwrap();
         storage.cache.clear();
-        let value = trie_items[0].1.unwrap();
-        let value_hash = hash(&value);
+        let value = trie_items[0].1.as_ref().unwrap();
+        let value_hash = hash(value);
 
         {
             let mut guard = storage.cache.0.lock().expect(POISONED_LOCK_ERR);
