@@ -29,7 +29,7 @@ pub(crate) enum CachePosition {
     ChunkCache(Vec<u8>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum TrieNodeRetrievalCost {
     Free,
     Full,
