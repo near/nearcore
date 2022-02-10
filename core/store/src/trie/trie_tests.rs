@@ -261,9 +261,9 @@ mod trie_cache_tests {
         );
         (1..shard_cache_size as u8 + 1).for_each(|i| {
             let value = vec![i];
-            assert_matches!(
+            assert_eq!(
                 trie_cache.get_with_cost(&hash(&value)),
-                RawBytesWithCost { value: Some(value), .. }
+                RawBytesWithCost { value: Some(value), cost: TrieNodeRetrievalCost::Full }
             )
         });
     }
