@@ -4562,45 +4562,56 @@ mod chunk_nodes_cache_tests {
 
     #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
     fn touching_trie_node_cost_for(protocol_version: ProtocolVersion) -> u64 {
-        let (mut env, block_height) = prepare_env(protocol_version);
+        let (mut env, mut block_height) = prepare_env(protocol_version);
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
 
         let tx_gas = 10_000_000_000_000;
-        let last_block_hash =
-            env.clients[0].chain.get_block_by_height(block_height - 1).unwrap().hash().clone();
-        let tx = SignedTransaction::from_actions(
-            block_height,
-            "test0".parse().unwrap(),
-            "test0".parse().unwrap(),
-            &signer,
-            vec![
-                // We use keys like 2**62 + i to ensure that Trie leaves will be different for them
-                Action::FunctionCall(FunctionCallAction {
-                    args: arr_u64_to_u8(&[2u64.pow(62) * 0 + 0, 10u64]),
-                    method_name: "write_key_value".to_string(),
-                    gas: tx_gas,
-                    deposit: 0,
-                }),
-                Action::FunctionCall(FunctionCallAction {
-                    args: arr_u64_to_u8(&[2u64.pow(62) * 1 + 1, 20u64]),
-                    method_name: "write_key_value".to_string(),
-                    gas: tx_gas,
-                    deposit: 0,
-                }),
-                Action::FunctionCall(FunctionCallAction {
-                    args: arr_u64_to_u8(&[2u64.pow(62) * 2 + 2, 30u64]),
-                    method_name: "write_key_value".to_string(),
-                    gas: tx_gas,
-                    deposit: 0,
-                }),
-            ],
-            last_block_hash.clone(),
-        );
-        let tx_hash = tx.get_hash().clone();
-        env.clients[0].process_tx(tx, false, false);
+        let tx_hashes: Vec<_> = (0..2)
+            .map(|i| {
+                let last_block_hash = env.clients[0]
+                    .chain
+                    .get_block_by_height(block_height - 1)
+                    .unwrap()
+                    .hash()
+                    .clone();
+                let tx = SignedTransaction::from_actions(
+                    block_height,
+                    "test0".parse().unwrap(),
+                    "test0".parse().unwrap(),
+                    &signer,
+                    vec![
+                        // We use keys like 2**62 + i to ensure that Trie leaves will be different for them
+                        Action::FunctionCall(FunctionCallAction {
+                            args: arr_u64_to_u8(&[2u64.pow(62) * 0 + 0, 10u64 + i]),
+                            method_name: "write_key_value".to_string(),
+                            gas: tx_gas,
+                            deposit: 0,
+                        }),
+                        Action::FunctionCall(FunctionCallAction {
+                            args: arr_u64_to_u8(&[2u64.pow(62) * 1 + 1, 20u64 + i]),
+                            method_name: "write_key_value".to_string(),
+                            gas: tx_gas,
+                            deposit: 0,
+                        }),
+                        Action::FunctionCall(FunctionCallAction {
+                            args: arr_u64_to_u8(&[2u64.pow(62) * 2 + 2, 30u64 + i]),
+                            method_name: "write_key_value".to_string(),
+                            gas: tx_gas,
+                            deposit: 0,
+                        }),
+                    ],
+                    last_block_hash.clone(),
+                );
+                let tx_hash = tx.get_hash().clone();
+                env.clients[0].process_tx(tx, false, false);
 
-        let num_blocks = 5;
-        let new_block_height = produce_blocks_from_height(&mut env, num_blocks, block_height);
+                let num_blocks = 5;
+                let new_block_height =
+                    produce_blocks_from_height(&mut env, num_blocks, block_height);
+                tx_hash
+            })
+            .collect();
+        let tx_hash = tx_hashes[-1];
         let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
         assert!(matches!(final_result.status, FinalExecutionStatus::SuccessValue(_)));
         let transaction_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
