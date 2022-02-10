@@ -21,6 +21,7 @@ use near_network::PeerManagerActor;
 use near_primitives::network::PeerId;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
+use near_store::db::DBCol::ColBlockMisc;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
     migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_20_to_21,
@@ -45,6 +46,7 @@ mod runtime;
 mod shard_tracker;
 
 const STORE_PATH: &str = "data";
+const INCONSISTENT_STATE_STORE_KEY: [u8] = b"state_is_inconsistent";
 
 pub fn store_path_exists<P: AsRef<Path>>(path: P) -> bool {
     fs::canonicalize(path).is_ok()
@@ -76,6 +78,28 @@ pub fn get_default_home() -> PathBuf {
 
 /// Function checks current version of the database and applies migrations to the database.
 pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
+    let store = create_store(path);
+    let state_is_inconsistent =
+        match store.get_ser::<bool>(ColBlockMisc, &INCONSISTENT_STATE_STORE_KEY) {
+            Ok(Some(x)) => x,
+            Ok(None) => false,
+            Err(e) => panic!("Can't read DB, {:?}", e),
+        };
+
+    if state_is_inconsistent {
+        error!("The state migration was earlier interrupted so the current state ",
+               "can be inconsistent, it's recommended to recover the node from a backup otherwise ",
+               "this can lead to undefined failures.");
+        if near_config.config.fail_if_state_is_inconsistent {
+            panic!("Failed to start because the state is inconsistent and ",
+                   "the flag fail_if_state_is_inconsistent is enabled");
+        }
+    }
+
+    let mut store_update = store.store_update();
+    store_update.set_ser(ColBlockMisc, &INCONSISTENT_STATE_STORE_KEY, &true).unwrap();
+    store_update.commit().unwrap();
+
     let db_version = get_store_version(path);
     if db_version > near_primitives::version::DB_VERSION {
         error!(target: "near", "DB version {} is created by a newer version of neard, please update neard or delete data", db_version);
@@ -274,6 +298,10 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         let db_version = get_store_version(path);
         debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
     }
+
+    let mut store_update = store.store_update();
+    store_update.set_ser(ColBlockMisc, &INCONSISTENT_STATE_STORE_KEY, &false).unwrap();
+    store_update.commit().unwrap();
 }
 
 pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Store {

@@ -435,6 +435,7 @@ pub struct Config {
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gas_burnt_view: Option<Gas>,
+    pub fail_if_state_is_inconsistent: bool,
 }
 
 impl Default for Config {
@@ -461,6 +462,7 @@ impl Default for Config {
             view_client_throttle_period: default_view_client_throttle_period(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
+            fail_if_state_is_inconsistent: false,
         }
     }
 }
