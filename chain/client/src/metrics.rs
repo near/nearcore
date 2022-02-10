@@ -1,6 +1,7 @@
 use near_metrics::{
-    try_create_histogram, try_create_int_counter, try_create_int_gauge, Histogram, IntCounter,
-    IntGauge, IntGaugeVec,
+    try_create_histogram, try_create_histogram_vec, try_create_int_counter,
+    try_create_int_counter_vec, try_create_int_gauge, Histogram, HistogramVec, IntCounter,
+    IntCounterVec, IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
 
@@ -58,6 +59,18 @@ pub static AVG_TGAS_USAGE: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_chunk_tgas_used",
         "Number of Tgas (10^12 of gas) used by the last processed chunk",
+    )
+    .unwrap()
+});
+pub static TGAS_USAGE_HIST: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_tgas_used_hist",
+        "Number of Tgas (10^12 of gas) used by processed chunks, as a histogram",
+        &["shard"],
+        Some(vec![
+            50., 100., 300., 500., 700., 800., 900., 950., 1000., 1050., 1100., 1150., 1200.,
+            1250., 1300.,
+        ]),
     )
     .unwrap()
 });
@@ -126,4 +139,12 @@ pub static NODE_PROTOCOL_VERSION: Lazy<IntGauge> = Lazy::new(|| {
 });
 pub static NODE_DB_VERSION: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_node_db_version", "DB version used by the node").unwrap()
+});
+pub static CHUNK_SKIPPED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_chunk_skipped_total",
+        "Number of skipped chunks",
+        &["shard_id"],
+    )
+    .unwrap()
 });

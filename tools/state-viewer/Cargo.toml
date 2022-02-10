@@ -36,6 +36,11 @@ near-client = { path = "../../chain/client" }
 testlib = { path = "../../test-utils/testlib" }
 
 [features]
-sandbox = ["node-runtime/sandbox", "near-chain/sandbox", "near-network/sandbox", "near-client/sandbox"]
+sandbox = [
+  "node-runtime/sandbox",
+  "near-chain/sandbox",
+  "near-network/sandbox",
+  "near-client/sandbox",
+]
 nightly_protocol_features = ["nearcore/nightly_protocol_features"]
 nightly_protocol = ["nearcore/nightly_protocol"]
