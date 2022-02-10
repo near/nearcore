@@ -9,7 +9,6 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
-use cached::{Cached, SizedCache};
 use log::{debug, error, info, trace, warn};
 
 use near_chain::types::ValidatorInfoIdentifier;
@@ -19,12 +18,12 @@ use near_chain::{
 };
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_client_primitives::types::{
-    Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
-    GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
-    GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetNextLightClientBlockError,
-    GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError, GetStateChangesError,
-    GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, QueryError, TxStatus,
-    TxStatusError,
+    Error, GetBlock, GetBlockError, GetBlockHash, GetBlockProof, GetBlockProofError,
+    GetBlockProofResponse, GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome,
+    GetExecutionOutcomeError, GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError,
+    GetNextLightClientBlockError, GetProtocolConfig, GetProtocolConfigError, GetReceipt,
+    GetReceiptError, GetStateChangesError, GetStateChangesWithCauseInBlock, GetValidatorInfoError,
+    Query, QueryError, TxStatus, TxStatusError,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 #[cfg(feature = "test_features")]
@@ -70,15 +69,15 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 /// Request and response manager across all instances of ViewClientActor.
 pub struct ViewClientRequestManager {
     /// Transaction query that needs to be forwarded to other shards
-    pub tx_status_requests: SizedCache<CryptoHash, Instant>,
+    pub tx_status_requests: lru::LruCache<CryptoHash, Instant>,
     /// Transaction status response
-    pub tx_status_response: SizedCache<CryptoHash, FinalExecutionOutcomeView>,
+    pub tx_status_response: lru::LruCache<CryptoHash, FinalExecutionOutcomeView>,
     /// Query requests that need to be forwarded to other shards
-    pub query_requests: SizedCache<String, Instant>,
+    pub query_requests: lru::LruCache<String, Instant>,
     /// Query responses from other nodes (can be errors)
-    pub query_responses: SizedCache<String, Result<QueryResponse, String>>,
+    pub query_responses: lru::LruCache<String, Result<QueryResponse, String>>,
     /// Receipt outcome requests
-    pub receipt_outcome_requests: SizedCache<CryptoHash, Instant>,
+    pub receipt_outcome_requests: lru::LruCache<CryptoHash, Instant>,
 }
 
 #[cfg(feature = "test_features")]
@@ -107,11 +106,11 @@ pub struct ViewClientActor {
 impl ViewClientRequestManager {
     pub fn new() -> Self {
         Self {
-            tx_status_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
-            tx_status_response: SizedCache::with_size(QUERY_REQUEST_LIMIT),
-            query_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
-            query_responses: SizedCache::with_size(QUERY_REQUEST_LIMIT),
-            receipt_outcome_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
+            tx_status_requests: lru::LruCache::new(QUERY_REQUEST_LIMIT),
+            tx_status_response: lru::LruCache::new(QUERY_REQUEST_LIMIT),
+            query_requests: lru::LruCache::new(QUERY_REQUEST_LIMIT),
+            query_responses: lru::LruCache::new(QUERY_REQUEST_LIMIT),
+            receipt_outcome_requests: lru::LruCache::new(QUERY_REQUEST_LIMIT),
         }
     }
 }
@@ -159,14 +158,14 @@ impl ViewClientActor {
         }
     }
 
-    fn need_request<K: Hash + Eq + Clone>(key: K, cache: &mut SizedCache<K, Instant>) -> bool {
+    fn need_request<K: Hash + Eq + Clone>(key: K, cache: &mut lru::LruCache<K, Instant>) -> bool {
         let now = Clock::instant();
-        let need_request = match cache.cache_get(&key) {
+        let need_request = match cache.get(&key) {
             Some(time) => now - *time > Duration::from_millis(REQUEST_WAIT_TIME),
             None => true,
         };
         if need_request {
-            cache.cache_set(key, now);
+            cache.put(key, now);
         }
         need_request
     }
@@ -363,8 +362,8 @@ impl ViewClientActor {
     ) -> Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError> {
         {
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
-            if let Some(res) = request_manager.tx_status_response.cache_remove(&tx_hash) {
-                request_manager.tx_status_requests.cache_remove(&tx_hash);
+            if let Some(res) = request_manager.tx_status_response.pop(&tx_hash) {
+                request_manager.tx_status_requests.pop(&tx_hash);
                 return Ok(Some(FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(res)));
             }
         }
@@ -570,6 +569,31 @@ impl Handler<GetBlock> for ViewClientActor {
             .get_block_producer(block.header().epoch_id(), block.header().height())?;
 
         Ok(BlockView::from_author_block(block_author, block))
+    }
+}
+
+/// Handles retrieving block header from the chain.
+impl Handler<GetBlockHash> for ViewClientActor {
+    type Result = Result<CryptoHash, GetBlockError>;
+
+    #[perf]
+    fn handle(&mut self, msg: GetBlockHash, _: &mut Self::Context) -> Self::Result {
+        match msg.0 {
+            BlockReference::Finality(finality) => self.get_block_hash_by_finality(&finality),
+            BlockReference::BlockId(BlockId::Height(height)) => {
+                self.chain.get_block_hash_by_height(height)
+            }
+            BlockReference::BlockId(BlockId::Hash(hash)) => {
+                // Fetch block header to confirm that the block exists.  This is
+                // only done so that we can get an error if the hash does not
+                // correspond to a known block.
+                self.chain.get_block_header(&hash).map(|_| hash)
+            }
+            BlockReference::SyncCheckpoint(sync_checkpoint) => Ok(self
+                .get_block_hash_by_sync_checkpoint(&sync_checkpoint)?
+                .ok_or(GetBlockError::NotSyncedYet)?),
+        }
+        .map_err(std::convert::Into::into)
     }
 }
 
@@ -1018,8 +1042,8 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             NetworkViewClientMessages::TxStatusResponse(tx_result) => {
                 let tx_hash = tx_result.transaction_outcome.id;
                 let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
-                if request_manager.tx_status_requests.cache_remove(&tx_hash).is_some() {
-                    request_manager.tx_status_response.cache_set(tx_hash, *tx_result);
+                if request_manager.tx_status_requests.pop(&tx_hash).is_some() {
+                    request_manager.tx_status_response.put(tx_hash, *tx_result);
                 }
                 NetworkViewClientResponses::NoResponse
             }

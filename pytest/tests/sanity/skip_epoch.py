@@ -18,13 +18,14 @@ import utils
 TIMEOUT = 600
 # the height we spin up the second node
 TARGET_HEIGHT = 35
+EPOCH_LENGTH = 12
 
 config = load_config()
 # give more stake to the bootnode so that it can produce the blocks alone
 near_root, node_dirs = init_cluster(
     4, 1, 4, config,
-    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 12],
-     ["block_producer_kickout_threshold", 20],
+    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
+     ["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 20],
      ["chunk_producer_kickout_threshold", 20]], {
          0: {
              "view_client_throttle_period": {
@@ -167,7 +168,8 @@ tx = sign_staking_tx(node2.signer_key, node2.validator_key,
                      base58.b58decode(hash_.encode('utf8')))
 boot_node.send_tx(tx)
 
-assert (get_validators() == set(["test0", "test2", "test3"])), get_validators()
+validators = get_validators()
+assert validators == set(["test0", "test2", "test3"]), validators
 
 while True:
     if time.time() - started > TIMEOUT:
@@ -182,24 +184,30 @@ while True:
 logger.info("stage 4 done")
 
 ctx.next_nonce = 100
-# 5. Record the latest height and bring down the first node, wait for couple epochs to pass
+# 5. Bring down the first node, then wait until epoch T+3
 last_height = observer.get_latest_block().height
 
 ctx.nodes = [boot_node, node2, node3, node4, observer]
 ctx.act_to_val = [4, 4, 4, 4, 4]
 
 boot_node.kill()
-sent_txs = False
 
 for height, hash_ in utils.poll_blocks(observer,
                                        timeout=TIMEOUT,
                                        poll_interval=0.1):
-    if height >= last_height + TARGET_HEIGHT:
-        break
-    if height > last_height + 1 and not sent_txs:
+    if height > last_height + 1:
         ctx.send_moar_txs(hash_, 10, False)
         logger.info(f'Sending txs at height {height}')
-        sent_txs = True
+        break
+
+start_epoch = -1
+for epoch_height in utils.poll_epochs(observer,
+                                      epoch_length=EPOCH_LENGTH,
+                                      timeout=TIMEOUT):
+    if start_epoch == -1:
+        start_epoch = epoch_height
+    if epoch_height >= start_epoch + 3:
+        break
 
 balances = ctx.get_balances()
 logger.info("New balances: %s\nNew total supply: %s" %

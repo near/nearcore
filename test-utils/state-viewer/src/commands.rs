@@ -28,13 +28,13 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub(crate) fn peers(store: Arc<Store>) {
+pub(crate) fn peers(store: Store) {
     iter_peers_from_store(store, |(peer_id, peer_info)| {
         println!("{} {:?}", peer_id, peer_info);
     })
 }
 
-pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
+pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
     let (runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
     println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
     for (shard_id, state_root) in state_roots.iter().enumerate() {
@@ -55,7 +55,7 @@ pub(crate) fn dump_state(
     file: Option<PathBuf>,
     home_dir: &Path,
     near_config: NearConfig,
-    store: Arc<Store>,
+    store: Store,
 ) {
     let mode = match height {
         Some(h) => LoadTrieMode::LastFinalFromHeight(h),
@@ -89,8 +89,9 @@ pub(crate) fn apply_range(
     csv_file: Option<PathBuf>,
     home_dir: &Path,
     near_config: NearConfig,
-    store: Arc<Store>,
+    store: Store,
     only_contracts: bool,
+    sequential: bool,
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
@@ -111,6 +112,7 @@ pub(crate) fn apply_range(
         verbose_output,
         csv_file.as_mut(),
         only_contracts,
+        sequential,
     );
 }
 
@@ -119,7 +121,7 @@ pub(crate) fn dump_code(
     output: &Path,
     home_dir: &Path,
     near_config: NearConfig,
-    store: Arc<Store>,
+    store: Store,
 ) {
     let (runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
     let epoch_id = &runtime.get_epoch_id(header.hash()).unwrap();
@@ -149,7 +151,7 @@ pub(crate) fn dump_account_storage(
     block_height: String,
     home_dir: &Path,
     near_config: NearConfig,
-    store: Arc<Store>,
+    store: Store,
 ) {
     let block_height = if block_height == "latest" {
         LoadTrieMode::Latest
@@ -194,7 +196,7 @@ pub(crate) fn print_chain(
     end_height: BlockHeight,
     home_dir: &Path,
     near_config: NearConfig,
-    store: Arc<Store>,
+    store: Store,
 ) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime = NightshadeRuntime::with_config(
@@ -262,7 +264,7 @@ pub(crate) fn replay_chain(
     end_height: BlockHeight,
     home_dir: &Path,
     near_config: NearConfig,
-    store: Arc<Store>,
+    store: Store,
 ) {
     let mut chain_store = ChainStore::new(store, near_config.genesis.config.genesis_height);
     let new_store = create_test_store();
@@ -294,7 +296,7 @@ pub(crate) fn apply_block_at_height(
     shard_id: ShardId,
     home_dir: &Path,
     near_config: NearConfig,
-    store: Arc<Store>,
+    store: Store,
 ) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::with_config(
@@ -404,7 +406,7 @@ pub(crate) fn view_chain(
     view_block: bool,
     view_chunks: bool,
     near_config: NearConfig,
-    store: Arc<Store>,
+    store: Store,
 ) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let block = {
@@ -469,7 +471,7 @@ pub(crate) fn view_chain(
     }
 }
 
-pub(crate) fn check_block_chunk_existence(store: Arc<Store>, near_config: NearConfig) {
+pub(crate) fn check_block_chunk_existence(store: Store, near_config: NearConfig) {
     let genesis_height = near_config.genesis.config.genesis_height;
     let mut chain_store = ChainStore::new(store.clone(), genesis_height);
     let head = chain_store.head().unwrap();
@@ -500,7 +502,7 @@ pub(crate) fn print_epoch_info(
     validator_account_id: Option<AccountId>,
     home_dir: &Path,
     near_config: NearConfig,
-    store: Arc<Store>,
+    store: Store,
 ) {
     let genesis_height = near_config.genesis.config.genesis_height;
     let mut chain_store = ChainStore::new(store.clone(), genesis_height);
@@ -525,13 +527,13 @@ pub(crate) fn print_epoch_info(
     );
 }
 
-pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store: Arc<Store>) {
+pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store: Store) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let receipt = chain_store.get_receipt(&receipt_id);
     println!("Receipt: {:#?}", receipt);
 }
 
-pub(crate) fn get_chunk(chunk_hash: ChunkHash, near_config: NearConfig, store: Arc<Store>) {
+pub(crate) fn get_chunk(chunk_hash: ChunkHash, near_config: NearConfig, store: Store) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let chunk = chain_store.get_chunk(&chunk_hash);
     println!("Chunk: {:#?}", chunk);
@@ -540,9 +542,9 @@ pub(crate) fn get_chunk(chunk_hash: ChunkHash, near_config: NearConfig, store: A
 pub(crate) fn get_partial_chunk(
     partial_chunk_hash: ChunkHash,
     near_config: NearConfig,
-    store: Arc<Store>,
+    store: Store,
 ) {
-    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+    let mut chain_store = ChainStore::new(store, near_config.genesis.config.genesis_height);
     let partial_chunk = chain_store.get_partial_chunk(&partial_chunk_hash);
     println!("Partial chunk: {:#?}", partial_chunk);
 }
@@ -558,7 +560,7 @@ enum LoadTrieMode {
 }
 
 fn load_trie(
-    store: Arc<Store>,
+    store: Store,
     home_dir: &Path,
     near_config: &NearConfig,
 ) -> (NightshadeRuntime, Vec<StateRoot>, BlockHeader) {
@@ -566,7 +568,7 @@ fn load_trie(
 }
 
 fn load_trie_stop_at_height(
-    store: Arc<Store>,
+    store: Store,
     home_dir: &Path,
     near_config: &NearConfig,
     mode: LoadTrieMode,

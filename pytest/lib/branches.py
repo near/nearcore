@@ -16,10 +16,19 @@ _REPO_DIR = pathlib.Path(__file__).resolve().parents[2]
 _OUT_DIR = _REPO_DIR / 'target/debug'
 
 
-def current_branch():
-    return os.environ.get('BUILDKITE_BRANCH') or subprocess.check_output([
-        "git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "HEAD"
-    ]).strip().decode()
+def current_branch() -> str:
+    """Returns checked out branch name or sha if we’re on detached head."""
+    branch = os.environ.get('BUILDKITE_BRANCH')
+    if branch:
+        return branch
+    try:
+        return subprocess.check_output(
+            ('git', 'symbolic-ref', '--short', '-q', 'HEAD')).strip().decode()
+    except subprocess.CalledProcessError as ex:
+        if ex.returncode != 1:
+            raise
+        # We’re on detached HEAD
+    return subprocess.check_output(('git', 'rev-parse', '@')).strip().decode()
 
 
 def __get_latest_deploy(chain_id: str) -> typing.Tuple[str, str]:
@@ -48,7 +57,6 @@ def __get_latest_deploy(chain_id: str) -> typing.Tuple[str, str]:
 class Executables(typing.NamedTuple):
     root: pathlib.Path
     neard: pathlib.Path
-    state_viewer: pathlib.Path
 
     def node_config(self) -> typing.Dict[str, typing.Any]:
         return {
@@ -66,12 +74,16 @@ def _compile_binary(branch: str) -> Executables:
     # TODO: download pre-compiled binary from github for beta/stable?
     prev_branch = current_branch()
     stash_output = subprocess.check_output(['git', 'stash'])
-    subprocess.check_output(['git', 'checkout', str(branch)])
-    subprocess.check_output(['git', 'pull', 'origin', str(branch)])
-    result = _compile_current(branch)
-    subprocess.check_output(['git', 'checkout', prev_branch])
-    if stash_output != b"No local changes to save\n":
-        subprocess.check_output(['git', 'stash', 'pop'])
+    try:
+        subprocess.check_output(['git', 'checkout', str(branch)])
+        try:
+            subprocess.check_output(['git', 'pull', 'origin', str(branch)])
+            result = _compile_current(branch)
+        finally:
+            subprocess.check_output(['git', 'checkout', prev_branch])
+    finally:
+        if stash_output != b"No local changes to save\n":
+            subprocess.check_output(['git', 'stash', 'pop'])
     return result
 
 
@@ -85,14 +97,10 @@ def _compile_current(branch: str) -> Executables:
                           cwd=_REPO_DIR)
     subprocess.check_call(['cargo', 'build', '-p', 'near-test-contracts'],
                           cwd=_REPO_DIR)
-    subprocess.check_call(['cargo', 'build', '-p', 'state-viewer'],
-                          cwd=_REPO_DIR)
     branch = escaped(branch)
     neard = _OUT_DIR / f'neard-{branch}'
-    state_viewer = _OUT_DIR / f'state-viewer-{branch}'
     (_OUT_DIR / 'neard').rename(neard)
-    (_OUT_DIR / 'state-viewer').rename(state_viewer)
-    return Executables(_OUT_DIR, neard, state_viewer)
+    return Executables(_OUT_DIR, neard)
 
 
 def patch_binary(binary: pathlib.Path) -> None:
@@ -116,7 +124,7 @@ def patch_binary(binary: pathlib.Path) -> None:
     with (import <nixpkgs> {});
     symlinkJoin {
       name = "nearcore-dependencies";
-      paths = [patchelf stdenv.cc.bintools];
+      paths = [patchelf stdenv.cc.bintools gcc.cc.lib];
     }
     '''
     path = subprocess.run(('nix-build', '-E', nix_expr),
@@ -124,9 +132,13 @@ def patch_binary(binary: pathlib.Path) -> None:
                           encoding='utf-8').stdout.strip()
     # Set the interpreter for the binary to NixOS'.
     patchelf = f'{path}/bin/patchelf'
-    cmd = (patchelf, '--set-interpreter', f'{path}/nix-support/dynamic-linker',
-           binary)
-    logger.debug('Patching for NixOS ' + ' '.join(cmd))
+    linker = (pathlib.Path(path) / "nix-support" /
+              "dynamic-linker").read_text().strip()
+    cmd = (patchelf, '--set-interpreter', linker, binary)
+    logger.debug('Patching NixOS interpreter {}'.format(cmd))
+    subprocess.check_call(cmd)
+    cmd = (patchelf, '--set-rpath', '$ORIGIN:{}/lib'.format(path), binary)
+    logger.debug('Patching DSO rpath {}'.format(cmd))
     subprocess.check_call(cmd)
 
 
@@ -167,15 +179,12 @@ def __download_file_if_missing(filename: pathlib.Path, url: str) -> None:
 
 
 def __download_binary(release: str, deploy: str) -> Executables:
-    """Download binary for given release and deploye."""
-    logger.info(f'Getting neard and state-viewer for {release}@{_UNAME} '
-                f'(deploy={deploy})')
+    """Download binary for given release and deploy."""
+    logger.info(f'Getting neard for {release}@{_UNAME} (deploy={deploy})')
     neard = _OUT_DIR / f'neard-{release}-{deploy}'
-    state_viewer = _OUT_DIR / f'state-viewer-{release}-{deploy}'
     basehref = f'{_BASEHREF}/nearcore/{_UNAME}/{release}/{deploy}'
     __download_file_if_missing(neard, f'{basehref}/neard')
-    __download_file_if_missing(state_viewer, f'{basehref}/state-viewer')
-    return Executables(_OUT_DIR, neard, state_viewer)
+    return Executables(_OUT_DIR, neard)
 
 
 class ABExecutables(typing.NamedTuple):
@@ -206,8 +215,7 @@ def prepare_ab_test(chain_id: str = 'mainnet') -> ABExecutables:
     if is_nayduck:
         # On NayDuck the file is fetched from a builder host so there’s no need
         # to build it.
-        current = Executables(_OUT_DIR, _OUT_DIR / 'neard',
-                              _OUT_DIR / 'state-viewer')
+        current = Executables(_OUT_DIR, _OUT_DIR / 'neard')
     else:
         current = _compile_current(current_branch())
 
@@ -217,6 +225,8 @@ def prepare_ab_test(chain_id: str = 'mainnet') -> ABExecutables:
     except Exception as e:
         if is_nayduck:
             logger.exception('RC binary should be downloaded for NayDuck.', e)
+        else:
+            logger.exception(e)
         stable = _compile_binary(release)
 
     return ABExecutables(stable=stable,

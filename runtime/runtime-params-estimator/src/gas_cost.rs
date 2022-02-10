@@ -8,6 +8,7 @@ use num_traits::ToPrimitive;
 
 use crate::config::GasMetric;
 use crate::estimator_params::{GAS_IN_INSTR, GAS_IN_NS, IO_READ_BYTE_COST, IO_WRITE_BYTE_COST};
+use crate::least_squares::least_squares_method;
 use crate::qemu::QemuMeasurement;
 
 /// Result of cost estimation.
@@ -77,6 +78,213 @@ impl GasCost {
     pub(crate) fn set_uncertain(&mut self, uncertain: bool) {
         self.uncertain = uncertain;
     }
+    /// Performs least squares using a separate variable for each component of the gas cost.
+    ///
+    /// Least-squares linear regression sometimes to produces negative
+    /// parameters even when all input values are positive. However, negative
+    /// gas costs make no sense for us. What we really want to solve is
+    /// non-negative least squares (NNLS) but that is algorithmically much more
+    /// complex. To keep it simpler, instead of solving NNLS, the caller has a
+    /// couple of choices how to handle negative solutions.
+    pub(crate) fn least_squares_method_gas_cost(
+        xs: &[u64],
+        ys: &[Self],
+        tolerance: LeastSquaresTolerance,
+        verbose: bool,
+    ) -> (Self, Self) {
+        match least_squares_method_gas_cost_pos_neg(xs, ys, verbose) {
+            Ok(res) => res,
+            Err((mut pos, neg)) => {
+                // On negative parameters, return positive part and mark as uncertain if necessary
+                if !tolerance.tolerates(&pos, &neg) {
+                    pos.0.set_uncertain(true);
+                    pos.1.set_uncertain(true);
+                }
+                pos
+            }
+        }
+    }
+}
+
+/// Defines what negative solutions are allowed in a least-squares result.
+/// Default is all negative values are treated as errors.
+#[derive(Clone, PartialEq)]
+pub(crate) struct LeastSquaresTolerance {
+    base_nn_tolerance: NonNegativeTolerance,
+    factor_nn_tolerance: NonNegativeTolerance,
+}
+
+impl Default for LeastSquaresTolerance {
+    fn default() -> Self {
+        Self {
+            base_nn_tolerance: NonNegativeTolerance::Strict,
+            factor_nn_tolerance: NonNegativeTolerance::Strict,
+        }
+    }
+}
+impl LeastSquaresTolerance {
+    /// Tolerate negative values in base cost up to a factor of total cost
+    #[allow(dead_code)]
+    pub(crate) fn base_rel_nn_tolerance(mut self, rel_tolerance: f64) -> Self {
+        self.base_nn_tolerance = NonNegativeTolerance::RelativeTolerance(rel_tolerance);
+        self
+    }
+    /// Tolerate negative values in base cost up to a factor of total cost
+    pub(crate) fn factor_rel_nn_tolerance(mut self, rel_tolerance: f64) -> Self {
+        self.factor_nn_tolerance = NonNegativeTolerance::RelativeTolerance(rel_tolerance);
+        self
+    }
+    /// Tolerate negative values in base cost up to a fixed gas value
+    pub(crate) fn base_abs_nn_tolerance(mut self, abs_tolerance: Gas) -> Self {
+        self.base_nn_tolerance = NonNegativeTolerance::AbsoluteTolerance(abs_tolerance);
+        self
+    }
+    /// Tolerate negative values in base cost up to a fixed gas value
+    #[allow(dead_code)]
+    pub(crate) fn factor_abs_nn_tolerance(mut self, abs_tolerance: Gas) -> Self {
+        self.factor_nn_tolerance = NonNegativeTolerance::AbsoluteTolerance(abs_tolerance);
+        self
+    }
+}
+
+/// Defines what negative solutions are allowed in a least-squares result
+#[derive(Clone, Copy, PartialEq)]
+enum NonNegativeTolerance {
+    /// Allow no negative values
+    Strict,
+    /// Tolerate negative values if it changes the total gas by less than X times.
+    RelativeTolerance(f64),
+    /// Tolerate negative values if they are below X gas
+    AbsoluteTolerance(Gas),
+}
+
+impl LeastSquaresTolerance {
+    fn tolerates(&self, pos: &(GasCost, GasCost), neg: &(GasCost, GasCost)) -> bool {
+        self.base_nn_tolerance.tolerates(&pos.0, &neg.0)
+            && self.factor_nn_tolerance.tolerates(&pos.1, &neg.1)
+    }
+}
+impl NonNegativeTolerance {
+    fn tolerates(&self, pos: &GasCost, neg: &GasCost) -> bool {
+        match self {
+            NonNegativeTolerance::Strict => neg.to_gas() == 0,
+            NonNegativeTolerance::RelativeTolerance(rel_tolerance) => {
+                pos.to_gas() > 0
+                    && Ratio::new(neg.to_gas(), pos.to_gas()).to_f64().unwrap() <= *rel_tolerance
+            }
+            NonNegativeTolerance::AbsoluteTolerance(gas_threshold) => {
+                neg.to_gas() <= *gas_threshold
+            }
+        }
+    }
+}
+
+/// Like GasCost::least_squares_method_gas_cost but in the case of a solution with negative parameters, it returns  (A,B), where A has negative values set to zero and B contains the
+/// values so that solution = A-B.
+fn least_squares_method_gas_cost_pos_neg(
+    xs: &[u64],
+    ys: &[GasCost],
+    verbose: bool,
+) -> Result<(GasCost, GasCost), ((GasCost, GasCost), (GasCost, GasCost))> {
+    let metric = ys[0].metric;
+    let uncertain = ys.iter().any(|y| y.uncertain);
+
+    let mut t = (0.into(), 0.into(), vec![]);
+    let mut i = (0.into(), 0.into(), vec![]);
+    let mut r = (0.into(), 0.into(), vec![]);
+    let mut w = (0.into(), 0.into(), vec![]);
+
+    match metric {
+        GasMetric::ICount => {
+            i = least_squares_method(
+                xs,
+                &ys.iter()
+                    .map(|gas_cost| gas_cost.instructions.to_u64().unwrap())
+                    .collect::<Vec<_>>(),
+            );
+            r = least_squares_method(
+                xs,
+                &ys.iter()
+                    .map(|gas_cost| gas_cost.io_r_bytes.to_u64().unwrap())
+                    .collect::<Vec<_>>(),
+            );
+            w = least_squares_method(
+                xs,
+                &ys.iter()
+                    .map(|gas_cost| gas_cost.io_w_bytes.to_u64().unwrap())
+                    .collect::<Vec<_>>(),
+            );
+        }
+        GasMetric::Time => {
+            t = least_squares_method(
+                xs,
+                &ys.iter().map(|gas_cost| gas_cost.time_ns.to_u64().unwrap()).collect::<Vec<_>>(),
+            );
+        }
+    }
+
+    let (pos_t_base, neg_t_base) = split_pos_neg(t.0);
+    let (pos_i_base, neg_i_base) = split_pos_neg(i.0);
+    let (pos_r_base, neg_r_base) = split_pos_neg(r.0);
+    let (pos_w_base, neg_w_base) = split_pos_neg(w.0);
+
+    let (pos_t_factor, neg_t_factor) = split_pos_neg(t.1);
+    let (pos_i_factor, neg_i_factor) = split_pos_neg(i.1);
+    let (pos_r_factor, neg_r_factor) = split_pos_neg(r.1);
+    let (pos_w_factor, neg_w_factor) = split_pos_neg(w.1);
+
+    let neg_base = GasCost {
+        time_ns: neg_t_base,
+        instructions: neg_i_base,
+        io_r_bytes: neg_r_base,
+        io_w_bytes: neg_w_base,
+        metric,
+        uncertain,
+    };
+    let neg_factor = GasCost {
+        time_ns: neg_t_factor,
+        instructions: neg_i_factor,
+        io_r_bytes: neg_r_factor,
+        io_w_bytes: neg_w_factor,
+        metric,
+        uncertain,
+    };
+    let pos_base = GasCost {
+        time_ns: pos_t_base,
+        instructions: pos_i_base,
+        io_r_bytes: pos_r_base,
+        io_w_bytes: pos_w_base,
+        metric,
+        uncertain,
+    };
+    let pos_factor = GasCost {
+        time_ns: pos_t_factor,
+        instructions: pos_i_factor,
+        io_r_bytes: pos_r_factor,
+        io_w_bytes: pos_w_factor,
+        metric,
+        uncertain,
+    };
+
+    if neg_base.to_gas() == 0 && neg_factor.to_gas() == 0 {
+        Ok((pos_base, pos_factor))
+    } else {
+        if verbose {
+            eprintln!(
+                "Least-squares had negative parameters: ({:?} - {:?}) + N * ({:?} - {:?})",
+                pos_base, neg_base, pos_factor, neg_factor
+            );
+        }
+        Err(((pos_base, pos_factor), (neg_base, neg_factor)))
+    }
+}
+
+/// Transforms input C into two components, where A,B are non-negative and where A-B ~= input.
+/// This method intentionally rounds fractions to whole integers, rounding towards zero.
+fn split_pos_neg(num: Ratio<i128>) -> (Ratio<u64>, Ratio<u64>) {
+    let pos = num.to_integer().to_u64().unwrap_or_default().into();
+    let neg = (-num).to_integer().to_u64().unwrap_or_default().into();
+    (pos, neg)
 }
 
 impl GasClock {
@@ -204,5 +412,265 @@ impl GasCost {
             GasMetric::Time => self.time_ns * GAS_IN_NS,
         }
         .to_integer()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{least_squares_method_gas_cost_pos_neg, GasCost, LeastSquaresTolerance};
+    use crate::{
+        config::GasMetric,
+        estimator_params::{GAS_IN_INSTR, GAS_IN_NS, IO_READ_BYTE_COST, IO_WRITE_BYTE_COST},
+    };
+    use near_primitives::types::Gas;
+    use num_rational::Ratio;
+    use num_traits::ToPrimitive;
+
+    #[track_caller]
+    fn check_uncertainty(
+        xs: &[u64],
+        ys: &[GasCost],
+        tolerance: LeastSquaresTolerance,
+        expected_uncertain: bool,
+    ) {
+        let result = GasCost::least_squares_method_gas_cost(xs, ys, tolerance, true);
+        assert_eq!(result.0.is_uncertain(), expected_uncertain);
+        assert_eq!(result.1.is_uncertain(), expected_uncertain);
+    }
+
+    #[track_caller]
+    fn check_least_squares_method_gas_cost_pos_neg(
+        xs: &[u64],
+        ys: &[GasCost],
+        expected: Result<(GasCost, GasCost), ((GasCost, GasCost), (GasCost, GasCost))>,
+    ) {
+        let result = least_squares_method_gas_cost_pos_neg(xs, ys, true);
+        assert_eq!(result, expected);
+    }
+
+    impl GasCost {
+        pub(crate) fn new_time_based(time_ns: impl Into<Ratio<u64>>) -> Self {
+            let mut result = GasCost::zero(GasMetric::Time);
+            result.time_ns = time_ns.into();
+            result
+        }
+        pub(crate) fn new_icount_based(
+            instructions: impl Into<Ratio<u64>>,
+            io_r_bytes: impl Into<Ratio<u64>>,
+            io_w_bytes: impl Into<Ratio<u64>>,
+        ) -> Self {
+            let mut result = GasCost::zero(GasMetric::ICount);
+            result.instructions = instructions.into();
+            result.io_r_bytes = io_r_bytes.into();
+            result.io_w_bytes = io_w_bytes.into();
+            result
+        }
+    }
+
+    fn abs_tolerance(base: Gas, factor: Gas) -> LeastSquaresTolerance {
+        LeastSquaresTolerance::default().base_abs_nn_tolerance(base).factor_abs_nn_tolerance(factor)
+    }
+    fn rel_tolerance(base: f64, factor: f64) -> LeastSquaresTolerance {
+        LeastSquaresTolerance::default().base_rel_nn_tolerance(base).factor_rel_nn_tolerance(factor)
+    }
+
+    #[test]
+    fn least_squares_method_gas_cost_time_ok() {
+        let xs = [10, 20, 30];
+
+        let ys = [
+            GasCost::new_time_based(10_050),
+            GasCost::new_time_based(20_050),
+            GasCost::new_time_based(30_050),
+        ];
+
+        let expected = Ok((GasCost::new_time_based(50), GasCost::new_time_based(1000)));
+        // Check low-level least-squares method
+        check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
+
+        // Also check applied tolerance strategies, in  this case they should always be certain as the solution is positive
+        check_uncertainty(&xs, &ys, Default::default(), false);
+        check_uncertainty(&xs, &ys, abs_tolerance(1, 1), false);
+        check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), false);
+    }
+
+    #[test]
+    fn least_squares_method_gas_cost_time_neg_base() {
+        let xs = [10, 20, 30];
+
+        let ys = [
+            GasCost::new_time_based(9_950),
+            GasCost::new_time_based(19_950),
+            GasCost::new_time_based(29_950),
+        ];
+
+        let expected = Err((
+            (GasCost::new_time_based(0), GasCost::new_time_based(1000)),
+            (GasCost::new_time_based(50), GasCost::new_time_based(0)),
+        ));
+        check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
+
+        check_uncertainty(&xs, &ys, Default::default(), true);
+        check_uncertainty(&xs, &ys, abs_tolerance(1, 1), true);
+        check_uncertainty(&xs, &ys, abs_tolerance((GAS_IN_NS * 50).to_integer(), 1), false);
+        check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), true);
+    }
+
+    #[test]
+    fn least_squares_method_gas_cost_time_neg_factor() {
+        let xs = [10, 20, 30];
+
+        let ys = [
+            GasCost::new_time_based(990),
+            GasCost::new_time_based(980),
+            GasCost::new_time_based(970),
+        ];
+
+        let expected = Err((
+            (GasCost::new_time_based(1000), GasCost::new_time_based(0)),
+            (GasCost::new_time_based(0), GasCost::new_time_based(1)),
+        ));
+        check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
+
+        check_uncertainty(&xs, &ys, Default::default(), true);
+        check_uncertainty(&xs, &ys, abs_tolerance(1, 1), true);
+        check_uncertainty(&xs, &ys, abs_tolerance(1, 1_000_000), false);
+        check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), true);
+    }
+
+    #[test]
+    fn least_squares_method_gas_cost_icount_ok() {
+        let xs = [10, 20, 30];
+
+        let ys = [
+            GasCost::new_icount_based(10_050, 20_060, 30_070),
+            GasCost::new_icount_based(20_050, 40_060, 60_070),
+            GasCost::new_icount_based(30_050, 60_060, 90_070),
+        ];
+
+        let expected = Ok((
+            GasCost::new_icount_based(50, 60, 70),
+            GasCost::new_icount_based(1000, 2000, 3000),
+        ));
+        check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
+
+        check_uncertainty(&xs, &ys, Default::default(), false);
+        check_uncertainty(&xs, &ys, abs_tolerance(1, 1), false);
+        check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), false);
+    }
+
+    #[test]
+    fn least_squares_method_gas_cost_icount_neg_base() {
+        let xs = [10, 20, 30];
+
+        let ys = [
+            GasCost::new_icount_based(9_950, 19_960, 29_970),
+            GasCost::new_icount_based(19_950, 39_960, 59_970),
+            GasCost::new_icount_based(29_950, 59_960, 89_970),
+        ];
+
+        let expected = Err((
+            (GasCost::new_icount_based(0, 0, 0), GasCost::new_icount_based(1000, 2000, 3000)),
+            (GasCost::new_icount_based(50, 40, 30), GasCost::new_icount_based(0, 0, 0)),
+        ));
+        check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
+
+        check_uncertainty(&xs, &ys, Default::default(), true);
+        check_uncertainty(&xs, &ys, abs_tolerance(1, 1), true);
+        check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), true);
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(
+                (GAS_IN_INSTR * 50 + IO_READ_BYTE_COST * 40 + IO_WRITE_BYTE_COST * 30)
+                    .ceil()
+                    .to_integer(),
+                0,
+            ),
+            false,
+        );
+    }
+
+    #[test]
+    fn least_squares_method_gas_cost_icount_neg_factor() {
+        let xs = [10, 20, 30];
+
+        let ys = [
+            GasCost::new_icount_based(990, 981, 972),
+            GasCost::new_icount_based(980, 961, 942),
+            GasCost::new_icount_based(970, 941, 912),
+        ];
+
+        let expected = Err((
+            (GasCost::new_icount_based(1000, 1001, 1002), GasCost::new_icount_based(0, 0, 0)),
+            (GasCost::new_icount_based(0, 0, 0), GasCost::new_icount_based(1, 2, 3)),
+        ));
+        check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
+
+        check_uncertainty(&xs, &ys, Default::default(), true);
+        check_uncertainty(&xs, &ys, abs_tolerance(1, 1), true);
+        check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), true);
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(
+                0,
+                (GAS_IN_INSTR * 1 + IO_READ_BYTE_COST * 2 + IO_WRITE_BYTE_COST * 3)
+                    .ceil()
+                    .to_integer(),
+            ),
+            false,
+        );
+    }
+
+    #[test]
+    fn least_squares_method_gas_cost_icount_mixed_neg_pos() {
+        let xs = [10, 20, 30];
+
+        let ys = [
+            GasCost::new_icount_based(990, 1010, 0),
+            GasCost::new_icount_based(980, 1020, 10),
+            GasCost::new_icount_based(970, 1030, 20),
+        ];
+
+        let expected = Err((
+            (GasCost::new_icount_based(1000, 1000, 0), GasCost::new_icount_based(0, 1, 1)),
+            (GasCost::new_icount_based(0, 0, 10), GasCost::new_icount_based(1, 0, 0)),
+        ));
+        check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
+
+        check_uncertainty(&xs, &ys, Default::default(), true);
+        check_uncertainty(&xs, &ys, abs_tolerance(1, 1), true);
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(
+                (IO_WRITE_BYTE_COST * 10).ceil().to_integer(),
+                (GAS_IN_INSTR * 1).ceil().to_integer(),
+            ),
+            false,
+        );
+
+        // Compute relative thresholds based on estimator params
+        let rel_base = (IO_WRITE_BYTE_COST * 10) / (GAS_IN_INSTR * 1000 + IO_READ_BYTE_COST * 1000);
+        let rel_factor = (GAS_IN_INSTR * 1) / (IO_READ_BYTE_COST * 1 + IO_WRITE_BYTE_COST * 1);
+        check_uncertainty(
+            &xs,
+            &ys,
+            rel_tolerance(rel_base.to_f64().unwrap() * 1.1, rel_factor.to_f64().unwrap() * 1.1),
+            false,
+        );
+        check_uncertainty(
+            &xs,
+            &ys,
+            rel_tolerance(rel_base.to_f64().unwrap() * 0.9, rel_factor.to_f64().unwrap() * 1.1),
+            true,
+        );
+        check_uncertainty(
+            &xs,
+            &ys,
+            rel_tolerance(rel_base.to_f64().unwrap() * 1.1, rel_factor.to_f64().unwrap() * 0.9),
+            true,
+        );
     }
 }

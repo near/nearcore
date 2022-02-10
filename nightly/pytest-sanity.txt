@@ -33,8 +33,7 @@ pytest --timeout=240 sanity/state_sync4.py
 pytest --timeout=240 sanity/state_sync4.py --features nightly_protocol,nightly_protocol_features
 pytest --timeout=240 sanity/state_sync5.py
 pytest --timeout=240 sanity/state_sync5.py --features nightly_protocol,nightly_protocol_features
-# TODO(#6021): Currently broken, waiting for a fix.
-# pytest --timeout=480 sanity/routing_table_sync.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=480 sanity/routing_table_sync.py --features nightly_protocol,nightly_protocol_features
 pytest --timeout=600 sanity/state_sync_routed.py manytx 115
 pytest --timeout=600 sanity/state_sync_routed.py manytx 115 --features nightly_protocol,nightly_protocol_features
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re
@@ -65,11 +64,6 @@ pytest --timeout=360 sanity/block_sync_archival.py
 pytest --timeout=360 sanity/block_sync_archival.py --features nightly_protocol,nightly_protocol_features
 pytest --timeout=240 sanity/validator_switch.py
 pytest --timeout=240 sanity/validator_switch.py --features nightly_protocol,nightly_protocol_features
-pytest --timeout=240 sanity/restaked.py
-# TODO(#4618): This is currently broken (even though non-nightly
-# works).  Comment out while we’re working on a fix / deciding whether
-# to remove them.
-#pytest --timeout=240 sanity/restaked.py --features nightly_protocol,nightly_protocol_features
 pytest --timeout=240 sanity/rpc_state_changes.py
 pytest --timeout=240 sanity/rpc_state_changes.py --features nightly_protocol,nightly_protocol_features
 pytest sanity/rpc_max_gas_burnt.py
@@ -134,6 +128,9 @@ pytest sanity/restart.py --features nightly_protocol,nightly_protocol_features
 #pytest sanity/rpc_finality.py --features nightly_protocol,nightly_protocol_features
 #pytest sanity/state_migration.py
 #pytest sanity/state_migration.py --features nightly_protocol,nightly_protocol_features
+
+pytest sanity/rpc_hash.py
+pytest sanity/rpc_hash.py --features nightly_protocol,nightly_protocol_features
 
 # Rosetta RPC tests
 pytest sanity/rosetta.py

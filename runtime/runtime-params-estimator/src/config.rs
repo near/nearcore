@@ -32,4 +32,6 @@ pub struct Config {
     pub costs_to_measure: Option<Vec<String>>,
     /// Configuration specific to raw RocksDB tests. Does NOT affect normal tests that use RocksDB through the nearcore interface.
     pub rocksdb_test_config: RocksDBTestConfig,
+    /// Print extra details on least-squares computation
+    pub debug_least_squares: bool,
 }

@@ -64,7 +64,7 @@ def function_call_set_delete_state(account,
     else:
         assert function_call_state[i]
         item = random.choice(function_call_state[i])
-        (next_id, next_val) = item
+        next_id, next_val = item
         next_account_id = load_testing_account_id(node_account.key.account_id,
                                                   next_id)
         s = f'{{"account_id": "account_{next_val}"}}'
@@ -187,7 +187,7 @@ def init_ft_account(node_account, account):
 
 
 def get_test_accounts_from_args(argv):
-    assert (len(argv) == 7)
+    assert len(argv) == 7
     node_account_id = argv[1]
     pk = argv[2]
     sk = argv[3]
@@ -247,9 +247,11 @@ def main(argv):
     global function_call_state
     function_call_state = [[]] * NUM_ACCOUNTS
 
-    total_tx_sent, elapsed_time = 0, 0
+    total_tx_sent = 0
+    start_time = time.monotonic()
     while True:
-        (total_tx_sent, elapsed_time) = mocknet_helpers.throttle_txns(
+        elapsed_time = time.monotonic() - start_time
+        total_tx_sent = mocknet_helpers.throttle_txns(
             send_random_transactions, total_tx_sent, elapsed_time,
             max_tps_per_node, node_account, test_accounts)
 

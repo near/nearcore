@@ -14,7 +14,6 @@ use nearcore::{get_default_home, get_store_path, load_config, NearConfig};
 use once_cell::sync::Lazy;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::Arc;
 
 static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(|| get_default_home());
 
@@ -151,7 +150,7 @@ pub struct DumpStateCmd {
 }
 
 impl DumpStateCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         dump_state(self.height, self.stream, self.file, home_dir, near_config, store);
     }
 }
@@ -165,7 +164,7 @@ pub struct ChainCmd {
 }
 
 impl ChainCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         print_chain(self.start_index, self.end_index, home_dir, near_config, store);
     }
 }
@@ -179,7 +178,7 @@ pub struct ReplayCmd {
 }
 
 impl ReplayCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         replay_chain(self.start_index, self.end_index, home_dir, near_config, store);
     }
 }
@@ -198,10 +197,12 @@ pub struct ApplyRangeCmd {
     csv_file: Option<PathBuf>,
     #[clap(long)]
     only_contracts: bool,
+    #[clap(long)]
+    sequential: bool,
 }
 
 impl ApplyRangeCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         apply_range(
             self.start_index,
             self.end_index,
@@ -212,6 +213,7 @@ impl ApplyRangeCmd {
             near_config,
             store,
             self.only_contracts,
+            self.sequential,
         );
     }
 }
@@ -225,7 +227,7 @@ pub struct ApplyCmd {
 }
 
 impl ApplyCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         apply_block_at_height(self.height, self.shard_id, home_dir, near_config, store);
     }
 }
@@ -241,7 +243,7 @@ pub struct ViewChainCmd {
 }
 
 impl ViewChainCmd {
-    pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
+    pub fn run(self, near_config: NearConfig, store: Store) {
         view_chain(self.height, self.block, self.chunk, near_config, store);
     }
 }
@@ -255,7 +257,7 @@ pub struct DumpCodeCmd {
 }
 
 impl DumpCodeCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         dump_code(self.account_id, &self.output, home_dir, near_config, store);
     }
 }
@@ -273,7 +275,7 @@ pub struct DumpAccountStorageCmd {
 }
 
 impl DumpAccountStorageCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         dump_account_storage(
             self.account_id,
             self.storage_key,
@@ -295,7 +297,7 @@ pub struct EpochInfoCmd {
 }
 
 impl EpochInfoCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Arc<Store>) {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         print_epoch_info(
             self.epoch_selection,
             self.validator_account_id.map(|s| AccountId::from_str(&s).unwrap()),
@@ -326,7 +328,7 @@ pub struct ReceiptsCmd {
 }
 
 impl ReceiptsCmd {
-    pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
+    pub fn run(self, near_config: NearConfig, store: Store) {
         get_receipt(CryptoHash::from_str(&self.receipt_id).unwrap(), near_config, store)
     }
 }
@@ -338,7 +340,7 @@ pub struct ChunksCmd {
 }
 
 impl ChunksCmd {
-    pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
+    pub fn run(self, near_config: NearConfig, store: Store) {
         let chunk_hash = ChunkHash::from(CryptoHash::from_str(&self.chunk_hash).unwrap());
         get_chunk(chunk_hash, near_config, store)
     }
@@ -350,7 +352,7 @@ pub struct PartialChunksCmd {
 }
 
 impl PartialChunksCmd {
-    pub fn run(self, near_config: NearConfig, store: Arc<Store>) {
+    pub fn run(self, near_config: NearConfig, store: Store) {
         let partial_chunk_hash =
             ChunkHash::from(CryptoHash::from_str(&self.partial_chunk_hash).unwrap());
         get_partial_chunk(partial_chunk_hash, near_config, store)

@@ -1,6 +1,7 @@
 use crate::config::GasMetric;
 use crate::gas_cost::GasCost;
-use crate::vm_estimator::{create_context, least_squares_method};
+use crate::least_squares::least_squares_method;
+use crate::vm_estimator::create_context;
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;

@@ -41,4 +41,8 @@ near-network = { path = "../network" }
 insta = "1"
 
 [features]
-protocol_feature_chunk_only_producers = ["near-primitives/protocol_feature_chunk_only_producers", "near-client/protocol_feature_chunk_only_producers", "near-chain-configs/protocol_feature_chunk_only_producers"]
+protocol_feature_chunk_only_producers = [
+  "near-primitives/protocol_feature_chunk_only_producers",
+  "near-client/protocol_feature_chunk_only_producers",
+  "near-chain-configs/protocol_feature_chunk_only_producers",
+]
