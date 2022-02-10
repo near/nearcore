@@ -4606,12 +4606,11 @@ mod chunk_nodes_cache_tests {
                 env.clients[0].process_tx(tx, false, false);
 
                 let num_blocks = 5;
-                let new_block_height =
-                    produce_blocks_from_height(&mut env, num_blocks, block_height);
+                block_height = produce_blocks_from_height(&mut env, num_blocks, block_height);
                 tx_hash
             })
             .collect();
-        let tx_hash = tx_hashes[-1];
+        let tx_hash = tx_hashes[tx_hashes.len() - 1];
         let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
         assert!(matches!(final_result.status, FinalExecutionStatus::SuccessValue(_)));
         let transaction_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
@@ -4667,7 +4666,7 @@ mod chunk_nodes_cache_tests {
 
         // eprintln!("{:?}", touching_trie_node_cost);
         let last_block =
-            env.clients[0].chain.get_block_by_height(new_block_height - 1).unwrap().clone();
+            env.clients[0].chain.get_block_by_height(block_height - 1).unwrap().clone();
         let state_roots: Vec<StateRoot> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
 
