@@ -112,7 +112,7 @@ impl TrieCache {
 
 impl SyncTrieCache {
     pub fn new() -> Self {
-        Self(Arc::new(TrieCache::new()))
+        Self(Arc::new(Mutex::new(TrieCache::new())))
     }
 
     pub fn clear(&self) {

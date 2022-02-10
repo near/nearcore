@@ -14,8 +14,8 @@ use crate::block::BlockValidityError::{
 };
 pub use crate::block_header::*;
 use crate::challenge::{Challenges, ChallengesResult};
-use crate::hash::{CryptoHash, hash};
-use crate::merkle::{MerklePath, merklize, verify_path};
+use crate::hash::{hash, CryptoHash};
+use crate::merkle::{merklize, verify_path, MerklePath};
 use crate::sharding::{
     ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
     ShardChunkHeaderV1,
@@ -627,6 +627,7 @@ impl Tip {
     }
 }
 
+#[derive(Debug)]
 pub enum CacheState {
     CachingShard,
     CachingChunk,
