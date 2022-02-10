@@ -102,7 +102,7 @@ def function_call_ft_transfer_call(account, node_account, base_block_hash=None):
         f'Calling function "ft_transfer_call" with arguments {s} on account {account.key.account_id} contract {dest_account_id}'
     )
     tx_res = mocknet_helpers.retry_and_ignore_errors(
-        lambda: account.send_call_contract_raw_tx(dest_account_id,
+        lambda: account.send_call_contract_raw_tx(node_account,
                                                   'ft_transfer_call',
                                                   s.encode('utf-8'),
                                                   1,
