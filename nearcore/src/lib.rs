@@ -41,8 +41,8 @@ pub use crate::shard_tracker::TrackedConfig;
 
 pub mod append_only_map;
 pub mod config;
-pub mod migration_is_in_progress;
 pub mod migrations;
+mod migration_is_in_progress;
 mod runtime;
 mod shard_tracker;
 
