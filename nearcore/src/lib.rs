@@ -81,6 +81,10 @@ mod r#impl {
     use near_store::Store;
     use tracing::{error, info};
 
+    /// This is an RAII class to mark in the state an ongoing DB migration.
+    /// It's needed to notify the user about DB probably being corrupted.
+    /// Possible scenarios: the user interruted node startup during the migration or the migration
+    /// had panicked.
     pub struct MigrationIsInProgress<'a> {
         store: &'a Store,
         current_version: u32,
@@ -92,7 +96,7 @@ mod r#impl {
             store_update.set_ser(ColBlockMisc, &MIGRATION_IS_IN_PROGRESS_STORE_KEY, &true).unwrap();
             store_update.commit().unwrap();
             info!(target: "near", concat!("DB migration (v{} to v{}) is in progress please don't interrupt ",
-                          " the node otherwise DB can become corrupted."),
+                          " the node otherwise DB can become corrupted. Please consider recovering the state from backup."),
                           current_version, current_version + 1);
             MigrationIsInProgress { store, current_version }
         }
