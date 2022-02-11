@@ -31,6 +31,7 @@ use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
 
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
+use crate::migration_is_in_progress::{MigrationIsInProgress, check_if_migration_is_in_progress};
 use crate::migrations::{
     migrate_12_to_13, migrate_18_to_19, migrate_19_to_20, migrate_22_to_23, migrate_23_to_24,
     migrate_24_to_25, migrate_30_to_31,
@@ -40,6 +41,7 @@ pub use crate::shard_tracker::TrackedConfig;
 
 pub mod append_only_map;
 pub mod config;
+pub mod migration_is_in_progress;
 pub mod migrations;
 mod runtime;
 mod shard_tracker;
@@ -73,91 +75,6 @@ pub fn get_default_home() -> PathBuf {
 
     PathBuf::default()
 }
-
-mod r#impl {
-    const MIGRATION_IS_IN_PROGRESS_STORE_KEY: &'static [u8] = b"migration_is_in_progress";
-    const STORE_IS_PROBABLY_CORRUPTED_STORE_KEY: &'static [u8] = b"store_is_probably_corrupted";
-    use near_store::db::DBCol::ColBlockMisc;
-    use near_store::Store;
-    use tracing::{error, info};
-
-    /// This is an RAII class to mark in the state an ongoing DB migration.
-    /// It's needed to notify the user about DB probably being corrupted.
-    /// Possible scenarios: the user interruted node startup during the migration or the migration
-    /// had panicked.
-    pub struct MigrationIsInProgress<'a> {
-        store: &'a Store,
-        current_version: u32,
-    }
-
-    impl<'a> MigrationIsInProgress<'a> {
-        pub fn new(store: &'a Store, current_version: u32) -> MigrationIsInProgress {
-            let mut store_update = store.store_update();
-            store_update.set_ser(ColBlockMisc, &MIGRATION_IS_IN_PROGRESS_STORE_KEY, &true).unwrap();
-            store_update.commit().unwrap();
-            info!(target: "near", concat!("DB migration (v{} to v{}) is in progress please don't interrupt ",
-                          " the node otherwise DB can become corrupted. Please consider recovering the state from backup."),
-                          current_version, current_version + 1);
-            MigrationIsInProgress { store, current_version }
-        }
-    }
-
-    impl<'a> Drop for MigrationIsInProgress<'a> {
-        fn drop(&mut self) {
-            if !std::thread::panicking() {
-                let mut store_update = self.store.store_update();
-                store_update
-                    .set_ser(ColBlockMisc, &MIGRATION_IS_IN_PROGRESS_STORE_KEY, &false)
-                    .unwrap();
-                store_update.commit().unwrap();
-                info!(target: "near", "DB migration (v{} to v{}) succeeded.", self.current_version, self.current_version + 1);
-            }
-        }
-    }
-
-    pub fn check_if_migration_is_in_progress(
-        store: &Store,
-        fail_if_migration_is_in_progress: bool,
-    ) {
-        let store_is_probably_corrupted =
-            match store.get_ser::<bool>(ColBlockMisc, &STORE_IS_PROBABLY_CORRUPTED_STORE_KEY) {
-                Ok(Some(x)) => x,
-                Ok(None) => false,
-                Err(e) => panic!("Can't read DB, {:?}", e),
-            };
-        if store_is_probably_corrupted {
-            error!(target: "near", concat!("DB was earlier migrated while another migration was interrupted",
-                           " so the current state can be corrupted and lead to undefined failures."));
-        }
-
-        let migration_is_in_progress =
-            match store.get_ser::<bool>(ColBlockMisc, &MIGRATION_IS_IN_PROGRESS_STORE_KEY) {
-                Ok(Some(x)) => x,
-                Ok(None) => false,
-                Err(e) => panic!("Can't read DB, {:?}", e),
-            };
-
-        if migration_is_in_progress {
-            error!(target: "near", concat!("DB migration was earlier interrupted so the current state can ",
-                   "be corrupted, it's recommended to recover the node from a backup otherwise ",
-                   "this can lead to undefined failures."));
-            if fail_if_migration_is_in_progress {
-                panic!(concat!(
-                    "Failed to start because DB is probably corrupted and ",
-                    "the flag fail_if_migration_is_in_progress is enabled"
-                ));
-            } else {
-                let mut store_update = store.store_update();
-                store_update
-                    .set_ser(ColBlockMisc, &STORE_IS_PROBABLY_CORRUPTED_STORE_KEY, &true)
-                    .unwrap();
-                store_update.commit().unwrap();
-            }
-        }
-    }
-}
-use r#impl::check_if_migration_is_in_progress;
-use r#impl::MigrationIsInProgress;
 
 /// Function checks current version of the database and applies migrations to the database.
 pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
