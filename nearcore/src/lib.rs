@@ -31,7 +31,7 @@ use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
 
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
-use crate::migration_is_in_progress::{MigrationIsInProgress, check_if_migration_is_in_progress};
+use crate::migration_is_in_progress::{check_if_migration_is_in_progress, MigrationIsInProgress};
 use crate::migrations::{
     migrate_12_to_13, migrate_18_to_19, migrate_19_to_20, migrate_22_to_23, migrate_23_to_24,
     migrate_24_to_25, migrate_30_to_31,

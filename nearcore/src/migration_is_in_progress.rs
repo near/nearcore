@@ -41,10 +41,7 @@ impl<'a> Drop for MigrationIsInProgress<'a> {
 
 /// Responsible for notifying the user about previous migrations being interrupted.
 /// The behaviour (panic or ignore) can be controlled with the config flag fail_if_migration_is_in_progress.
-pub fn check_if_migration_is_in_progress(
-    store: &Store,
-    fail_if_migration_is_in_progress: bool,
-) {
+pub fn check_if_migration_is_in_progress(store: &Store, fail_if_migration_is_in_progress: bool) {
     let store_is_probably_corrupted =
         match store.get_ser::<bool>(ColBlockMisc, &STORE_IS_PROBABLY_CORRUPTED_STORE_KEY) {
             Ok(Some(x)) => x,
@@ -69,8 +66,8 @@ pub fn check_if_migration_is_in_progress(
                "this can lead to undefined failures."));
         if fail_if_migration_is_in_progress {
             panic!(concat!(
-                "Failed to start because DB is probably corrupted and ",
-                "the flag fail_if_migration_is_in_progress is enabled"
+                "Failed to start because DB is probably corrupted if you want to proceed anyway, ",
+                "rerun with --fail_if_migration_is_in_progress=false."
             ));
         } else {
             let mut store_update = store.store_update();
