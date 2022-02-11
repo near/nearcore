@@ -9,9 +9,10 @@ use near_store::create_store;
 use near_vm_runner::internal::VMKind;
 use nearcore::{get_store_path, load_config};
 use runtime_params_estimator::config::{Config, GasMetric};
-use runtime_params_estimator::CostTable;
-use runtime_params_estimator::{costs_to_runtime_config, QemuCommandBuilder};
-use runtime_params_estimator::{read_resource, RocksDBTestConfig};
+use runtime_params_estimator::utils::read_resource;
+use runtime_params_estimator::{
+    costs_to_runtime_config, CostTable, QemuCommandBuilder, RocksDBTestConfig,
+};
 use std::env;
 use std::fmt::Write;
 use std::fs;
