@@ -29,7 +29,6 @@ use near_store::migrations::{
 };
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
-use std::time;
 
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
 use crate::migrations::{
