@@ -47,4 +47,7 @@ single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
 test_features = []
 protocol_feature_chunk_only_producers = []
 nightly_protocol = []
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_chunk_only_producers"]
+nightly_protocol_features = [
+  "nightly_protocol",
+  "protocol_feature_chunk_only_producers",
+]
