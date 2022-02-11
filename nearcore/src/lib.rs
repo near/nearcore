@@ -114,7 +114,7 @@ mod r#impl {
             };
         if store_is_probably_broken {
             error!(concat!("The state was earlier migrated while another migration was interrupted",
-                           " so the current state can be broken and lead to undefined failures"));
+                           " so the current state can be broken and lead to undefined failures."));
         }
 
         let migration_is_in_progress =
@@ -146,13 +146,6 @@ use r#impl::check_if_migration_is_in_progress;
 pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     check_if_migration_is_in_progress(&store, near_config.config.fail_if_migration_is_in_progress);
-
-    /*{
-        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
-        info!("Running fake migration");
-        std::thread::sleep(time::Duration::from_secs(10));
-        info!("End of fake migration");
-    }*/
 
     let db_version = get_store_version(path);
     if db_version > near_primitives::version::DB_VERSION {
