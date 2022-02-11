@@ -50,7 +50,8 @@ pub fn check_if_migration_is_in_progress(store: &Store, fail_if_migration_is_in_
         };
     if store_is_probably_corrupted {
         error!(target: "near", concat!("DB was earlier migrated while another migration was interrupted",
-                       " so the current state can be corrupted and lead to undefined failures."));
+                       " so the current state can be corrupted and lead to undefined failures, ",
+                       " it's recommended to recover the node from a backup."));
     }
 
     let migration_is_in_progress =
