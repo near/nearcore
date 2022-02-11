@@ -125,10 +125,10 @@ mod r#impl {
 
         if migration_is_in_progress {
             error!(concat!("The state migration was earlier interrupted so the current state can ",
-                   "be inconsistent, it's recommended to recover the node from a backup otherwise ",
+                   "be corrupted, it's recommended to recover the node from a backup otherwise ",
                    "this can lead to undefined failures."));
             if fail_if_migration_is_in_progress {
-                panic!(concat!("Failed to start because the state is inconsistent and ",
+                panic!(concat!("Failed to start because the state is probably corrupted and ",
                        "the flag fail_if_migration_is_in_progress is enabled"));
             } else {
                 let mut store_update = store.store_update();
