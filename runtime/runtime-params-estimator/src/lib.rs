@@ -627,7 +627,6 @@ fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
     let cost_4mb = deploy_contract_cost(ctx, large_code, Some(b"main"));
 
     if cost_4mb < cost_empty {
-        eprintln!("High variance in pure_deploy_bytes: Deployment cost of small contract is higher than large contract.");
         let mut cost = GasCost::zero(ctx.config.metric);
         cost.set_uncertain(true);
         cost
