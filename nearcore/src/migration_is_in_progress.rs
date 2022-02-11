@@ -20,7 +20,7 @@ impl<'a> MigrationIsInProgress<'a> {
         store_update.set_ser(ColBlockMisc, &MIGRATION_IS_IN_PROGRESS_STORE_KEY, &true).unwrap();
         store_update.commit().unwrap();
         info!(target: "near", concat!("DB migration (v{} to v{}) is in progress please don't interrupt ",
-                      " the node otherwise DB can become corrupted. Please consider recovering the state from backup."),
+                      " the node otherwise DB can become corrupted."),
                       current_version, current_version + 1);
         MigrationIsInProgress { store, current_version }
     }
@@ -51,7 +51,7 @@ pub fn check_if_migration_is_in_progress(store: &Store, fail_if_migration_is_in_
     if store_is_probably_corrupted {
         error!(target: "near", concat!("DB was earlier migrated while another migration was interrupted",
                        " so the current state can be corrupted and lead to undefined failures, ",
-                       " it's recommended to recover the node from a backup."));
+                       " please consider recovering the state from backup."));
     }
 
     let migration_is_in_progress =
@@ -63,8 +63,7 @@ pub fn check_if_migration_is_in_progress(store: &Store, fail_if_migration_is_in_
 
     if migration_is_in_progress {
         error!(target: "near", concat!("DB migration was earlier interrupted so the current state can ",
-               "be corrupted, it's recommended to recover the node from a backup otherwise ",
-               "this can lead to undefined failures."));
+               "be corrupted, please consider recovering the state from backup."));
         if fail_if_migration_is_in_progress {
             panic!(concat!(
                 "Failed to start because DB is probably corrupted if you want to proceed anyway, ",
