@@ -30,7 +30,6 @@ use near_store::migrations::{
 };
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
-use rocksdb::checkpoint::Checkpoint;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::{fs, io};
@@ -72,9 +71,9 @@ pub fn get_default_home() -> PathBuf {
     PathBuf::default()
 }
 
-fn db_checkpoint_root_dir(path: &Path, near_config: &NearConfig) -> PathBuf {
-    if let Some(db_checkpoints_path) = near_config.config.db_checkpoints_path {
-        db_checkpoints_path
+fn db_checkpoint_root_dir<'a>(path: &'a Path, near_config: &'a NearConfig) -> &'a Path {
+    if let Some(db_checkpoints_path) = &near_config.config.db_checkpoints_path {
+        &db_checkpoints_path
     } else {
         path
     }
@@ -98,15 +97,16 @@ fn find_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<Option<Pa
 }
 
 fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf, anyhow::Error> {
-    let db = RocksDB::new(path)?;
-    let checkpoint = Checkpoint::new(&db.db).unwrap();
-    let timestamp = chrono::Utc::now().format("%Y%m%d%H%M%S");
-    let checkpoint_dir = format!("{}{}", DB_CHECKPOINT_PREFIX, timestamp);
-    let checkpoint_dir = Path::new(&checkpoint_dir);
+    let checkpoint_dir =
+        format!("{}{}", DB_CHECKPOINT_PREFIX, &chrono::Utc::now().format("%Y%m%d%H%M%S"));
     let checkpoint_path = db_checkpoint_root_dir(path, near_config);
-    let checkpoint_path = checkpoint_path.join(checkpoint_dir);
+    let checkpoint_path = checkpoint_path.join(Path::new(&checkpoint_dir));
+
+    let db = RocksDB::new(path)?;
+    let checkpoint = db.checkpoint()?;
     info!(target:"near","Creating a DB snapshot in '{}'",checkpoint_path.display());
-    checkpoint.create_checkpoint(checkpoint_path)?;
+    checkpoint.create_checkpoint(&checkpoint_path)?;
+
     Ok(checkpoint_path)
 }
 
@@ -118,12 +118,9 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         std::process::exit(1);
     }
 
-    /*
-    TODO: Experimnent only
     if db_version == near_primitives::version::DB_VERSION {
         return;
     }
-     */
 
     if near_config.config.use_checkpoints_for_db_migration {
         let existing_checkpoint_path = find_db_checkpoint(path, near_config);
@@ -147,7 +144,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
                 Some(checkpoint_path)
             }
             Err(err) => {
-                warn!(target: "near", "Failed to create a DB checkpoint before a DB migration");
+                warn!(target: "near", "Failed to create a DB checkpoint before a DB migration: {}", err);
                 None
             }
         }
@@ -347,23 +344,16 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
 
     if near_config.config.use_checkpoints_for_db_migration {
         if let Some(checkpoint_path) = checkpoint_path {
-            info!("Deleting DB checkpoint at '{}'", checkpoint_path.display());
-            match std::fs::remove_dir_all(checkpoint_path) {
+            info!(target: "near", "Deleting DB checkpoint at '{}'", checkpoint_path.display());
+            match std::fs::remove_dir_all(&checkpoint_path) {
                 Ok(_) => {
-                    info!("Deleted DB checkpoint at '{}'", checkpoint_path.display());
+                    info!(target: "near","Deleted DB checkpoint at '{}'", checkpoint_path.display());
                 }
                 Err(err) => {
-                    error!("Failed to delete a DB checkpoint at '{}'. Error: {:#?}. Please delete it manually before the next start of the node.", checkpoint_path.display(), err);
+                    error!(target: "near","Failed to delete a DB checkpoint at '{}'. Error: {:#?}. Please delete it manually before the next start of the node.", checkpoint_path.display(), err);
                 }
             }
         }
-    }
-
-    // TODO
-    // FIXME
-    // clean up
-    if db_version == near_primitives::version::DB_VERSION {
-        return;
     }
 }
 

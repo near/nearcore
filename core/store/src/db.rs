@@ -16,6 +16,7 @@ use near_primitives::version::DbVersion;
 
 use crate::db::refcount::merge_refcounted_records;
 
+use rocksdb::checkpoint::Checkpoint;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 
@@ -439,7 +440,7 @@ impl DBTransaction {
 }
 
 pub struct RocksDB {
-    pub db: DB,
+    db: DB,
     cfs: Vec<*const ColumnFamily>,
 
     check_free_space_counter: std::sync::atomic::AtomicU16,
@@ -871,6 +872,10 @@ impl RocksDB {
         } else {
             Ok(())
         }
+    }
+
+    pub fn checkpoint(&self) -> Result<Checkpoint, DBError> {
+        Checkpoint::new(&self.db).map_err(|err| DBError(err))
     }
 }
 

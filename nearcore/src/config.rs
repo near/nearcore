@@ -469,6 +469,8 @@ impl Default for Config {
             view_client_throttle_period: default_view_client_throttle_period(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
+            db_checkpoints_path: None,
+            use_checkpoints_for_db_migration: true,
         }
     }
 }
