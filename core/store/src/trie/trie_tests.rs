@@ -1,7 +1,5 @@
 use crate::test_utils::{create_tries_complex, gen_changes, simplify_changes, test_populate_trie};
-use crate::trie::trie_storage::{
-    CachePosition, RawBytesWithCost, TrieMemoryPartialStorage, TrieNodeRetrievalCost, TrieStorage,
-};
+use crate::trie::trie_storage::{CachePosition, TrieMemoryPartialStorage, TrieStorage};
 use crate::{PartialStorage, Trie, TrieUpdate};
 use near_primitives::block::CacheState;
 use near_primitives::errors::StorageError;
@@ -134,7 +132,6 @@ fn test_reads_with_incomplete_storage() {
 mod trie_cache_tests {
     use super::*;
     use crate::test_utils::create_tries;
-    use crate::trie::trie_storage::TrieCache;
     use crate::trie::POISONED_LOCK_ERR;
     use assert_matches::assert_matches;
 

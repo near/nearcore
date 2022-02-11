@@ -433,13 +433,13 @@ mod tests {
         let key = hash(&value);
 
         trie_cache.put(key, &value);
-        assert_eq!(trie_cache.shard_cache.get(&key), Some(value));
+        assert_eq!(trie_cache.shard_cache.get(&key), Some(&value));
         assert!(!trie_cache.chunk_cache.contains_key(&key));
 
         trie_cache.cache_state = CacheState::CachingChunk;
         let value = vec![2u8];
         trie_cache.put(key, &value);
         assert!(!trie_cache.shard_cache.contains(&key));
-        assert_eq!(trie_cache.chunk_cache.get(&key), Some(value));
+        assert_eq!(trie_cache.chunk_cache.get(&key), Some(&value));
     }
 }
