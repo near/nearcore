@@ -21,7 +21,6 @@ use near_network::PeerManagerActor;
 use near_primitives::network::PeerId;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
-use near_store::db::DBCol::ColBlockMisc;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
     migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_20_to_21,
@@ -30,6 +29,7 @@ use near_store::migrations::{
 };
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
+use std::time;
 
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
 use crate::migrations::{
@@ -46,7 +46,6 @@ mod runtime;
 mod shard_tracker;
 
 const STORE_PATH: &str = "data";
-const INCONSISTENT_STATE_STORE_KEY: &'static [u8] = b"state_is_inconsistent";
 
 pub fn store_path_exists<P: AsRef<Path>>(path: P) -> bool {
     fs::canonicalize(path).is_ok()
@@ -77,54 +76,83 @@ pub fn get_default_home() -> PathBuf {
 }
 
 mod r#impl {
-    use crate::INCONSISTENT_STATE_STORE_KEY;
+    const MIGRATION_IS_IN_PROGRESS_STORE_KEY: &'static [u8] = b"migration_is_in_progress";
+    const STORE_IS_PROBABLY_BROKEN_STORE_KEY: &'static [u8] = b"store_is_probably_broken";
     use near_store::Store;
     use near_store::db::DBCol::ColBlockMisc;
+    use tracing::error;
 
-    pub struct MigrationInProgress<'a> {
+    pub struct MigrationIsInProgress<'a> {
         store: &'a Store
     }
 
-    impl<'a> MigrationInProgress<'a> {
-        pub fn new(store: &'a Store) -> MigrationInProgress {
+    impl<'a> MigrationIsInProgress<'a> {
+        pub fn new(store: &'a Store) -> MigrationIsInProgress {
             let mut store_update = store.store_update();
-            store_update.set_ser(ColBlockMisc, &INCONSISTENT_STATE_STORE_KEY, &true).unwrap();
+            store_update.set_ser(ColBlockMisc, &MIGRATION_IS_IN_PROGRESS_STORE_KEY, &true).unwrap();
             store_update.commit().unwrap();
-            MigrationInProgress{store}
+            MigrationIsInProgress{store}
         }
     }
 
-    impl<'a> Drop for MigrationInProgress<'a> {
+    impl<'a> Drop for MigrationIsInProgress<'a> {
         fn drop(&mut self) {
             if !std::thread::panicking() {
                 let mut store_update = self.store.store_update();
-                store_update.set_ser(ColBlockMisc, &INCONSISTENT_STATE_STORE_KEY, &false).unwrap();
+                store_update.set_ser(ColBlockMisc, &MIGRATION_IS_IN_PROGRESS_STORE_KEY, &false).unwrap();
+                store_update.commit().unwrap();
+            }
+        }
+    }
+
+    pub fn check_if_migration_is_in_progress(store: &Store, fail_if_migration_is_in_progress: bool) {
+        let store_is_probably_broken =
+            match store.get_ser::<bool>(ColBlockMisc, &STORE_IS_PROBABLY_BROKEN_STORE_KEY) {
+                Ok(Some(x)) => x,
+                Ok(None) => false,
+                Err(e) => panic!("Can't read DB, {:?}", e),
+            };
+        if store_is_probably_broken {
+            error!(concat!("The state was earlier migrated while another migration was interrupted",
+                           " so the current state can be broken and lead to undefined failures"));
+        }
+
+        let migration_is_in_progress =
+            match store.get_ser::<bool>(ColBlockMisc, &MIGRATION_IS_IN_PROGRESS_STORE_KEY) {
+                Ok(Some(x)) => x,
+                Ok(None) => false,
+                Err(e) => panic!("Can't read DB, {:?}", e),
+            };
+
+        if migration_is_in_progress {
+            error!(concat!("The state migration was earlier interrupted so the current state can ",
+                   "be inconsistent, it's recommended to recover the node from a backup otherwise ",
+                   "this can lead to undefined failures."));
+            if fail_if_migration_is_in_progress {
+                panic!(concat!("Failed to start because the state is inconsistent and ",
+                       "the flag fail_if_migration_is_in_progress is enabled"));
+            } else {
+                let mut store_update = store.store_update();
+                store_update.set_ser(ColBlockMisc, &STORE_IS_PROBABLY_BROKEN_STORE_KEY, &true).unwrap();
                 store_update.commit().unwrap();
             }
         }
     }
 }
-use r#impl::MigrationInProgress;
+use r#impl::MigrationIsInProgress;
+use r#impl::check_if_migration_is_in_progress;
 
 /// Function checks current version of the database and applies migrations to the database.
 pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
-    let state_is_inconsistent =
-        match store.get_ser::<bool>(ColBlockMisc, &INCONSISTENT_STATE_STORE_KEY) {
-            Ok(Some(x)) => x,
-            Ok(None) => false,
-            Err(e) => panic!("Can't read DB, {:?}", e),
-        };
+    check_if_migration_is_in_progress(&store, near_config.config.fail_if_migration_is_in_progress);
 
-    if state_is_inconsistent {
-        error!(concat!("The state migration was earlier interrupted so the current state ",
-               "can be inconsistent, it's recommended to recover the node from a backup otherwise ",
-               "this can lead to undefined failures."));
-        if near_config.config.fail_if_state_is_inconsistent {
-            panic!(concat!("Failed to start because the state is inconsistent and ",
-                   "the flag fail_if_state_is_inconsistent is enabled"));
-        }
-    }
+    /*{
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
+        info!("Running fake migration");
+        std::thread::sleep(time::Duration::from_secs(10));
+        info!("End of fake migration");
+    }*/
 
     let db_version = get_store_version(path);
     if db_version > near_primitives::version::DB_VERSION {
@@ -141,7 +169,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         // Does not need to do anything since open db with option `create_missing_column_families`
         // Nevertheless need to bump db version, because db_version 1 binary can't open db_version 2 db
         info!(target: "near", "Migrate DB from version 1 to 2");
-        let _ = MigrationInProgress::new(&store);
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         let store = create_store(path);
         set_store_version(&store, 2);
     }
@@ -149,6 +177,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         // version 2 => 3: add ColOutcomesByBlockHash + rename LastComponentNonce -> ColLastComponentNonce
         // The column number is the same, so we don't need additional updates
         info!(target: "near", "Migrate DB from version 2 to 3");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         let store = create_store(path);
         fill_col_outcomes_by_hash(&store);
         set_store_version(&store, 3);
@@ -156,12 +185,14 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
     if db_version <= 3 {
         // version 3 => 4: add ColTransactionRefCount
         info!(target: "near", "Migrate DB from version 3 to 4");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         let store = create_store(path);
         fill_col_transaction_refcount(&store);
         set_store_version(&store, 4);
     }
     if db_version <= 4 {
         info!(target: "near", "Migrate DB from version 4 to 5");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         // version 4 => 5: add ColProcessedBlockHeights
         // we don't need to backfill the old heights since at worst we will just process some heights
         // again.
@@ -170,6 +201,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
     }
     if db_version <= 5 {
         info!(target: "near", "Migrate DB from version 5 to 6");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         // version 5 => 6: add merge operator to ColState
         // we don't have merge records before so old storage works
         let store = create_store(path);
@@ -177,6 +209,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
     }
     if db_version <= 6 {
         info!(target: "near", "Migrate DB from version 6 to 7");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         // version 6 => 7:
         // - make ColState use 8 bytes for refcount (change to merge operator)
         // - move ColTransactionRefCount into ColTransactions
@@ -185,107 +218,127 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
     }
     if db_version <= 7 {
         info!(target: "near", "Migrate DB from version 7 to 8");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         // version 7 => 8:
         // delete values in column `StateColParts`
         migrate_7_to_8(path);
     }
     if db_version <= 8 {
         info!(target: "near", "Migrate DB from version 8 to 9");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         // version 8 => 9:
         // Repair `ColTransactions`, `ColReceiptIdToShardId`
         migrate_8_to_9(path);
     }
     if db_version <= 9 {
         info!(target: "near", "Migrate DB from version 9 to 10");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         // version 9 => 10;
         // populate partial encoded chunks for chunks that exist in storage
         migrate_9_to_10(path, near_config.client_config.archive);
     }
     if db_version <= 10 {
         info!(target: "near", "Migrate DB from version 10 to 11");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         // version 10 => 11
         // Add final head
         migrate_10_to_11(path);
     }
     if db_version <= 11 {
         info!(target: "near", "Migrate DB from version 11 to 12");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         // version 11 => 12;
         // populate ColReceipts with existing receipts
         migrate_11_to_12(path);
     }
     if db_version <= 12 {
         info!(target: "near", "Migrate DB from version 12 to 13");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         // version 12 => 13;
         // migrate ColTransactionResult to fix the inconsistencies there
         migrate_12_to_13(path, near_config);
     }
     if db_version <= 13 {
         info!(target: "near", "Migrate DB from version 13 to 14");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         // version 13 => 14;
         // store versioned enums for shard chunks
         migrate_13_to_14(path);
     }
     if db_version <= 14 {
         info!(target: "near", "Migrate DB from version 14 to 15");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         // version 14 => 15;
         // Change ColOutcomesByBlockHash to be ordered within each shard
         migrate_14_to_15(path);
     }
     if db_version <= 15 {
         info!(target: "near", "Migrate DB from version 15 to 16");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         // version 15 => 16: add column for compiled contracts
         let store = create_store(path);
         set_store_version(&store, 16);
     }
     if db_version <= 16 {
         info!(target: "near", "Migrate DB from version 16 to 17");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         // version 16 => 17: add column for storing epoch validator info
         let store = create_store(path);
         set_store_version(&store, 17);
     }
     if db_version <= 17 {
         info!(target: "near", "Migrate DB from version 17 to 18");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         // version 17 => 18: add `hash` to `BlockInfo` and ColHeaderHashesByHeight
         migrate_17_to_18(path);
     }
     if db_version <= 18 {
         info!(target: "near", "Migrate DB from version 18 to 19");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         // version 18 => 19: populate ColEpochValidatorInfo for archival nodes
         migrate_18_to_19(path, near_config);
     }
     if db_version <= 19 {
         info!(target: "near", "Migrate DB from version 19 to 20");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         // version 19 => 20: fix execution outcome
         migrate_19_to_20(path, near_config);
     }
     if db_version <= 20 {
         info!(target: "near", "Migrate DB from version 20 to 21");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         // version 20 => 21: delete genesis json hash due to change in Genesis::json_hash function
         migrate_20_to_21(path);
     }
     if db_version <= 21 {
         info!(target: "near", "Migrate DB from version 21 to 22");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         // version 21 => 22: rectify inflation: add `timestamp` to `BlockInfo`
         migrate_21_to_22(path);
     }
     if db_version <= 22 {
         info!(target: "near", "Migrate DB from version 22 to 23");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         migrate_22_to_23(path, near_config);
     }
     if db_version <= 23 {
         info!(target: "near", "Migrate DB from version 23 to 24");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         migrate_23_to_24(path, near_config);
     }
     if db_version <= 24 {
         info!(target: "near", "Migrate DB from version 24 to 25");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         migrate_24_to_25(path);
     }
     if db_version <= 25 {
         info!(target: "near", "Migrate DB from version 25 to 26");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         migrate_25_to_26(path);
     }
     if db_version <= 26 {
         info!(target: "near", "Migrate DB from version 26 to 27");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         migrate_26_to_27(path, near_config.client_config.archive);
     }
     if db_version <= 27 {
@@ -293,22 +346,26 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         // Does not need to do anything since open db with option `create_missing_column_families`
         // Nevertheless need to bump db version, because db_version 1 binary can't open db_version 2 db
         info!(target: "near", "Migrate DB from version 27 to 28");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         let store = create_store(path);
         set_store_version(&store, 28);
     }
     if db_version <= 28 {
         // version 28 => 29: delete ColNextBlockWithNewChunk, ColLastBlockWithNewChunk
         info!(target: "near", "Migrate DB from version 28 to 29");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         migrate_28_to_29(path);
     }
     if db_version <= 29 {
         // version 29 => 30: migrate all structures that use ValidatorStake to versionized version
         info!(target: "near", "Migrate DB from version 29 to 30");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         migrate_29_to_30(path);
     }
     if db_version <= 30 {
         // version 30 => 31: recompute block ordinal due to a bug fixed in #5761
         info!(target: "near", "Migrate DB from version 30 to 31");
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store);
         migrate_30_to_31(path, &near_config);
     }
 
