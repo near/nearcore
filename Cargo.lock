@@ -2884,6 +2884,7 @@ name = "near-network-primitives"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "actix_derive",
  "anyhow",
  "borsh",
  "chrono",

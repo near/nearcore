@@ -91,7 +91,8 @@ use rand::seq::SliceRandom;
 
 use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
-    byzantine_assert, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind, RuntimeAdapter,
+    byzantine_assert, Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind,
+    RuntimeAdapter,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_pool::{PoolIteratorWrapper, TransactionPool};
@@ -123,7 +124,6 @@ use near_network_primitives::types::{
     PartialEncodedChunkResponseMsg,
 };
 use near_primitives::epoch_manager::RngSeed;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use rand::Rng;
 
 mod chunk_cache;
@@ -963,20 +963,6 @@ impl ShardsManager {
         transactions: &Vec<SignedTransaction>,
     ) {
         self.pool_for_shard(shard_id).reintroduce_transactions(transactions.clone());
-    }
-
-    pub fn group_receipts_by_shard(
-        &self,
-        receipts: Vec<Receipt>,
-        shard_layout: &ShardLayout,
-    ) -> HashMap<ShardId, Vec<Receipt>> {
-        let mut result = HashMap::with_capacity(shard_layout.num_shards() as usize);
-        for receipt in receipts {
-            let shard_id = account_id_to_shard_id(&receipt.receiver_id, shard_layout);
-            let entry = result.entry(shard_id).or_insert_with(Vec::new);
-            entry.push(receipt)
-        }
-        result
     }
 
     pub fn receipts_recipient_filter<T>(
@@ -1912,13 +1898,14 @@ impl ShardsManager {
         let shard_layout =
             self.runtime_adapter.get_shard_layout_from_prev_block(&header.prev_block_hash())?;
         let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &shard_layout);
+            Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout);
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
             merklize(&outgoing_receipts_hashes);
         assert_eq!(header.outgoing_receipts_root(), outgoing_receipts_root);
 
         // Save this chunk into encoded_chunks & process encoded chunk to add to the store.
-        let mut receipts_by_shard = self.group_receipts_by_shard(outgoing_receipts, &shard_layout);
+        let mut receipts_by_shard =
+            Chain::group_receipts_by_shard(outgoing_receipts, &shard_layout);
         let receipts = outgoing_receipts_proofs
             .into_iter()
             .enumerate()
@@ -1972,7 +1959,7 @@ impl ShardsManager {
         let shard_layout =
             self.runtime_adapter.get_shard_layout_from_prev_block(&prev_block_hash)?;
         let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &shard_layout);
+            Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout);
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
             merklize(&outgoing_receipts_hashes);
         assert_eq!(chunk_header.outgoing_receipts_root(), outgoing_receipts_root);
@@ -1987,7 +1974,8 @@ impl ShardsManager {
             entry.push(part_ord);
         }
 
-        let mut receipts_by_shard = self.group_receipts_by_shard(outgoing_receipts, &shard_layout);
+        let mut receipts_by_shard =
+            Chain::group_receipts_by_shard(outgoing_receipts, &shard_layout);
         let receipt_proofs: Vec<_> = outgoing_receipts_proofs
             .into_iter()
             .enumerate()
@@ -2154,7 +2142,7 @@ mod test {
                 vec![],
                 vec![],
                 &vec![],
-                merklize(&runtime_adapter.build_receipts_hashes(&vec![], &shard_layout)).0,
+                merklize(&Chain::build_receipts_hashes(&vec![], &shard_layout)).0,
                 CryptoHash::default(),
                 &signer,
                 &mut rs,
