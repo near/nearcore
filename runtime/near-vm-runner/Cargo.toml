@@ -63,7 +63,11 @@ base64 = "0.13"
 
 [features]
 # all vms enabled for now
-default = ["wasmer0_vm", "wasmtime_vm", "wasmer2_vm"]
+default = [
+  "wasmer0_vm",
+  "wasmtime_vm",
+  "wasmer2_vm",
+]
 wasmer0_vm = [ "wasmer-runtime", "wasmer-runtime-core" ]
 wasmtime_vm = [ "wasmtime", "anyhow"]
 wasmer2_vm = [

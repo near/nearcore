@@ -5,7 +5,6 @@ use crate::info::{get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper};
 use crate::sync::{StateSync, StateSyncResult};
 use crate::StatusResponse;
 use actix::dev::SendError;
-use actix::dev::ToEnvelope;
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
@@ -197,7 +196,6 @@ where
     M: Message + Send + 'static,
     M::Result: Send,
     SyncJobsActor: Handler<M>,
-    Context<SyncJobsActor>: ToEnvelope<SyncJobsActor, M>,
 {
     Box::new(move |msg: M| {
         if let Err(err) = address.try_send(msg) {
@@ -982,6 +980,15 @@ impl ClientActor {
             let gas_used = Block::compute_gas_used(block.chunks().iter(), block.header().height());
 
             let last_final_hash = *block.header().last_final_block();
+
+            let chunks = block.chunks();
+            for (chunk, &included) in chunks.iter().zip(block.header().chunk_mask().iter()) {
+                if included {
+                    self.info_helper.chunk_processed(chunk.shard_id(), chunk.gas_used());
+                } else {
+                    self.info_helper.chunk_skipped(chunk.shard_id());
+                }
+            }
 
             self.info_helper.block_processed(gas_used, chunks_in_block as u64);
             self.check_send_announce_account(last_final_hash);
