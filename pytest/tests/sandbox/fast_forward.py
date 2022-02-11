@@ -61,4 +61,4 @@ assert min_forwarded_time < latest < max_forwarded_time
 
 # Check to see that the epoch height has been updated correctly:
 epoch_height = nodes[0].get_validators()['result']['epoch_height']
-assert epoch_height >= BLOCKS_TO_FASTFORWARD / EPOCH_LENGTH
+assert epoch_height > BLOCKS_TO_FASTFORWARD / EPOCH_LENGTH

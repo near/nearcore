@@ -413,8 +413,15 @@ impl EpochManager {
         let next_next_epoch_config = self.config.for_protocol_version(next_version);
         #[cfg(feature = "sandbox")]
         {
+            // explaination on calculation:
+            // (block_height / length) gives us epoch_height, but we index from 1, so +1 at the end.
+            // Note, this is a retroactive update for sandbox since we can receive fast-forward
+            // requests in the middle of an epoch. block_height is different based on when it gets
+            // called. When fast-forwarded, we need to retroactively adjust the epoch height, but
+            // with a normal `finalize_epoch`, it's the start of the epoch's next block height, so
+            // (height - 1) is needed after adding +1 at the end.
             *next_epoch_info.epoch_height_mut() =
-                block_info.height() / next_next_epoch_config.epoch_length;
+                ((block_info.height() - 1) / next_next_epoch_config.epoch_length) + 1;
         }
 
         let next_next_epoch_info = match proposals_to_epoch_info(
@@ -453,7 +460,8 @@ impl EpochManager {
         // where epoch_id of it is the hash of last block in this epoch (T).
         self.save_epoch_info(store_update, &next_next_epoch_id, next_next_epoch_info)?;
 
-        // Store next_epoch info again since sandbox changes it:
+        // Store next_epoch info again since sandbox changes it. Need to retroactively update
+        // since a fast-forward request can happen in the middle of an epoch.
         if cfg!(feature = "sandbox") {
             self.save_epoch_info(store_update, &next_epoch_id, next_epoch_info)?;
         }
@@ -4018,5 +4026,56 @@ mod tests2 {
         let epoch_validators_unique_in_cache =
             epoch_manager.epoch_validators_ordered_unique.get(&epoch_id).unwrap().clone();
         assert_eq!(epoch_validators_unique, epoch_validators_unique_in_cache);
+    }
+
+    #[test]
+    #[cfg(feature = "sandbox")]
+    fn test_sandbox_epoch_height_change() {
+        use near_primitives::types::BlockHeightDelta;
+        const EPOCH_LENGTH: BlockHeightDelta = 5;
+        const BLOCKS_TO_FAST_FORWARD: BlockHeightDelta = 1000;
+
+        // setup epoch manager
+        let amount_staked = 1_000_000;
+        let validators = vec![
+            ("test1".parse().unwrap(), amount_staked),
+            ("test2".parse().unwrap(), amount_staked),
+        ];
+        let mut epoch_manager =
+            setup_default_epoch_manager(validators, EPOCH_LENGTH, 1, 10, 0, 90, 60);
+        let h = hash_range(11);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+
+        // Initially record 7 blocks without any fast-forwarding:
+        for i in 1..8 {
+            record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
+        }
+
+        // First two epoch heights should be 1 and 2
+        let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[0])).unwrap().clone();
+        assert_eq!(epoch_info.epoch_height(), 1);
+        let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[5])).unwrap().clone();
+        assert_eq!(epoch_info.epoch_height(), 2);
+
+        // Then record some fast-forwarded blocks, starting in the middle of an epoch:
+        for i in 8..11 {
+            record_block(
+                &mut epoch_manager,
+                h[i - 1],
+                h[i],
+                i as u64 + BLOCKS_TO_FAST_FORWARD,
+                vec![],
+            );
+        }
+
+        // Fast-forward in the middle of an epoch should reflect in that the epoch height got updated:
+        let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[5])).unwrap().clone();
+        let expected_epoch_height = (5 + BLOCKS_TO_FAST_FORWARD) / EPOCH_LENGTH + 1;
+        assert_eq!(epoch_info.epoch_height(), expected_epoch_height);
+        // Subsequent one should just be additonal prev epoch height + 1
+        // NOTE: that the requests happens on the 8th recorded block because that's when the sandbox
+        // request to fast-forward would have been sent.
+        let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[8])).unwrap().clone();
+        assert_eq!(epoch_info.epoch_height(), expected_epoch_height + 1);
     }
 }
