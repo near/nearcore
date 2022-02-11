@@ -1,0 +1,35 @@
+[[branch]]
+name = "master"
+weight = 10
+
+[[branch]]
+name = "1.24.0"
+weight = 10
+
+[[branch]]
+name = "1.23.1"
+weight = 10
+
+[[target]]
+crate = "runtime/near-vm-runner/fuzz"
+runner = "runner"
+weight = 10
+flags = ["-len_control=0", "-prefer_small=0", "-max_len=4000000", "-rss_limit_mb=10240"]
+
+[[target]]
+crate = "test-utils/runtime-tester/fuzz"
+runner = "runtime_fuzzer"
+weight = 10
+flags = ["-len_control=0", "-prefer_small=0", "-max_len=4000000", "-rss_limit_mb=10240"]
+
+[[target]]
+crate = "core/account-id/fuzz"
+runner = "borsh"
+weight = 1
+flags = ["-len_control=0", "-prefer_small=0", "-max_len=4000000", "-rss_limit_mb=10240"]
+
+[[target]]
+crate = "core/account-id/fuzz"
+runner = "serde"
+weight = 1
+flags = ["-len_control=0", "-prefer_small=0", "-max_len=4000000", "-rss_limit_mb=10240"]
