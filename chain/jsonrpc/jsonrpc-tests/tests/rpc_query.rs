@@ -371,6 +371,7 @@ fn test_status() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let status = client.status().await.unwrap();
         assert_eq!(status.chain_id, "unittest");
+        assert_eq!(status.sync_info.epoch_start_height, 0);
         assert_eq!(status.sync_info.latest_block_height, 0);
         assert_eq!(status.sync_info.syncing, false);
     });

@@ -643,6 +643,9 @@ impl Handler<Status> for ClientActor {
             })
             .collect();
 
+        let epoch_start_height =
+            self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?;
+
         let protocol_version =
             self.client.runtime_adapter.get_epoch_protocol_version(&head.epoch_id)?;
 
@@ -669,6 +672,8 @@ impl Handler<Status> for ClientActor {
             rpc_addr: self.client.config.rpc_addr.clone(),
             validators,
             sync_info: StatusSyncInfo {
+                epoch_id: head.epoch_id,
+                epoch_start_height,
                 latest_block_hash: head.last_block_hash.into(),
                 latest_block_height: head.height,
                 latest_state_root,
