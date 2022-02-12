@@ -10,6 +10,18 @@ pub struct MockedExternal {
     pub fake_trie: HashMap<Vec<u8>, Vec<u8>>,
     receipts: Vec<Receipt>,
     pub validators: HashMap<AccountId, Balance>,
+    #[cfg(feature = "protocol_feature_function_call_ratio")]
+    distribute_leftover_gas_to: Vec<GasRatioMetadata>,
+    #[cfg(feature = "protocol_feature_function_call_ratio")]
+    gas_ratio_sum: u64,
+}
+
+#[derive(Clone)]
+#[cfg(feature = "protocol_feature_function_call_ratio")]
+struct GasRatioMetadata {
+    receipt_index: usize,
+    action_index: usize,
+    gas_ratio: u64,
 }
 
 pub struct MockedValuePtr {
@@ -118,6 +130,37 @@ impl External for MockedExternal {
         Ok(())
     }
 
+    #[cfg(feature = "protocol_feature_function_call_ratio")]
+    fn append_action_function_call_ratio(
+        &mut self,
+        receipt_index: u64,
+        method_name: Vec<u8>,
+        arguments: Vec<u8>,
+        attached_deposit: u128,
+        prepaid_gas: u64,
+        gas_ratio: u64,
+    ) -> Result<()> {
+        let receipt_index = receipt_index as usize;
+        let receipt = self.receipts.get_mut(receipt_index).unwrap();
+        if gas_ratio > 0 {
+            self.distribute_leftover_gas_to.push(GasRatioMetadata {
+                receipt_index,
+                action_index: receipt.actions.len(),
+                gas_ratio,
+            });
+            self.gas_ratio_sum =
+                self.gas_ratio_sum.checked_add(gas_ratio).ok_or(HostError::IntegerOverflow)?;
+        }
+
+        receipt.actions.push(Action::FunctionCall(FunctionCallAction {
+            method_name,
+            args: arguments,
+            deposit: attached_deposit,
+            gas: prepaid_gas,
+        }));
+        Ok(())
+    }
+
     fn append_action_transfer(&mut self, receipt_index: u64, amount: u128) -> Result<()> {
         self.receipts
             .get_mut(receipt_index as usize)
@@ -208,6 +251,33 @@ impl External for MockedExternal {
 
     fn validator_total_stake(&self) -> Result<Balance> {
         Ok(self.validators.values().sum())
+    }
+
+    #[cfg(feature = "protocol_feature_function_call_ratio")]
+    fn distribute_unused_gas(&mut self, gas: Gas) -> Gas {
+        if self.gas_ratio_sum != 0 {
+            let gas_per_ratio = gas / self.gas_ratio_sum;
+
+            self.distribute_leftover_gas_to
+                .drain(..)
+                .map(|GasRatioMetadata { receipt_index, action_index, gas_ratio }| {
+                    let assign_gas = gas_per_ratio * gas_ratio;
+                    if let Some(Action::FunctionCall(FunctionCallAction { ref mut gas, .. })) = self
+                        .receipts
+                        .get_mut(receipt_index)
+                        .and_then(|receipt| receipt.actions.get_mut(action_index))
+                    {
+                        *gas += assign_gas;
+                    } else {
+                        panic!("Invalid index for assigning unused gas ratio");
+                    }
+
+                    assign_gas
+                })
+                .sum()
+        } else {
+            0
+        }
     }
 }
 

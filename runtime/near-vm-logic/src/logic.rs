@@ -1507,6 +1507,62 @@ impl<'a> VMLogic<'a> {
         amount_ptr: u64,
         gas: Gas,
     ) -> Result<()> {
+        self.promise_batch_action_function_call_ratio(
+            promise_idx,
+            method_name_len,
+            method_name_ptr,
+            arguments_len,
+            arguments_ptr,
+            amount_ptr,
+            gas,
+            0,
+        )
+    }
+
+    /// Appends `FunctionCall` action to the batch of actions for the given promise pointed by
+    /// `promise_idx`. This function allows not specifying a specific gas value and allowing the
+    /// runtime to assign remaining gas based on a ratio.
+    ///
+    /// # Gas
+    ///
+    /// Gas can be specified using a static amount, a ratio of remaining prepaid gas, or a mixture
+    /// of both. To omit a static gas amount, [`u64::MAX`] can be passed for the `gas` parameter.
+    /// To omit assigning remaining gas, [`u64::MAX`] can be passed as the `gas_ratio` parameter.
+    ///
+    /// The gas ratio parameter works as the following:
+    ///
+    /// All unused prepaid gas from the current function call is split among all function calls
+    /// which supply this gas ratio. The amount attached to each respective call depends on the
+    /// value of the ratio.
+    ///
+    /// For example, if 40 gas is leftover from the current method call and three functions specify
+    /// the ratios 1, 5, 2 then 5, 25, 10 gas will be added to each function call respectively,
+    /// using up all remaining available gas.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If `method_name_len + method_name_ptr` or `arguments_len + arguments_ptr` or
+    /// `amount_ptr + 16` points outside the memory of the guest or host returns
+    /// `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
+    /// - If the [`u64::MAX`] special value is passed for `gas` and `gas_ratio` parameters
+    ///
+    ///
+    /// [`u64::MAX`]: std::u64::MAX
+    pub fn promise_batch_action_function_call_ratio(
+        &mut self,
+        promise_index: u64,
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        amount_ptr: u64,
+        gas: u64,
+        gas_ratio: u64,
+    ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view() {
             return Err(HostError::ProhibitedInView {
@@ -1521,7 +1577,7 @@ impl<'a> VMLogic<'a> {
         }
         let arguments = self.get_vec_from_memory_or_register(arguments_ptr, arguments_len)?;
 
-        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_index)?;
 
         // Input can't be large enough to overflow
         let num_bytes = method_name.len() as u64 + arguments.len() as u64;
@@ -1541,7 +1597,27 @@ impl<'a> VMLogic<'a> {
 
         self.deduct_balance(amount)?;
 
-        self.ext.append_action_function_call(receipt_idx, method_name, arguments, amount, gas)?;
+        #[cfg(feature = "protocol_feature_function_call_ratio")]
+        self.ext.append_action_function_call_ratio(
+            receipt_idx,
+            method_name,
+            arguments,
+            amount,
+            gas,
+            gas_ratio,
+        )?;
+
+        #[cfg(not(feature = "protocol_feature_function_call_ratio"))]
+        {
+            let _ = gas_ratio;
+            self.ext.append_action_function_call(
+                receipt_idx,
+                method_name,
+                arguments,
+                amount,
+                gas,
+            )?;
+        }
         Ok(())
     }
 
@@ -2481,7 +2557,17 @@ impl<'a> VMLogic<'a> {
     }
 
     /// Computes the outcome of execution.
-    pub fn outcome(self) -> VMOutcome {
+    #[allow(unused_mut)]
+    pub fn outcome(mut self) -> VMOutcome {
+        #[cfg(feature = "protocol_feature_function_call_ratio")]
+        if !self.context.is_view() {
+            // Distribute unused gas to scheduled function calls
+            let unused_gas = self.context.prepaid_gas - self.gas_counter.used_gas();
+            let distributed_gas = self.ext.distribute_unused_gas(unused_gas);
+            // Distributed gas must be below gas available if `distribute_unused_gas` is correct.
+            self.gas_counter.prepay_gas(distributed_gas).unwrap();
+        }
+
         let burnt_gas = self.gas_counter.burnt_gas();
         let used_gas = self.gas_counter.used_gas();
 

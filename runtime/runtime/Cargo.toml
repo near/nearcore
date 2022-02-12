@@ -56,6 +56,10 @@ protocol_feature_alt_bn128 = [
     "near-vm-runner/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128",
 ]
+protocol_feature_function_call_ratio = [
+    "near-primitives/protocol_feature_function_call_ratio",
+    "near-vm-logic/protocol_feature_function_call_ratio",
+]
 sandbox = []
 
 [dev-dependencies]

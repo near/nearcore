@@ -35,6 +35,18 @@ pub struct RuntimeExt<'a> {
     last_block_hash: &'a CryptoHash,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
+
+    #[cfg(feature = "protocol_feature_function_call_ratio")]
+    distribute_leftover_gas_to: Vec<GasRatioMetadata>,
+    #[cfg(feature = "protocol_feature_function_call_ratio")]
+    gas_ratio_sum: u64,
+}
+
+#[cfg(feature = "protocol_feature_function_call_ratio")]
+struct GasRatioMetadata {
+    receipt_index: usize,
+    action_index: usize,
+    gas_ratio: u64,
 }
 
 /// Error used by `RuntimeExt`.
@@ -93,6 +105,11 @@ impl<'a> RuntimeExt<'a> {
             last_block_hash,
             epoch_info_provider,
             current_protocol_version,
+
+            #[cfg(feature = "protocol_feature_function_call_ratio")]
+            distribute_leftover_gas_to: vec![],
+            #[cfg(feature = "protocol_feature_function_call_ratio")]
+            gas_ratio_sum: 0,
         }
     }
 
@@ -140,13 +157,18 @@ impl<'a> RuntimeExt<'a> {
             .collect()
     }
 
-    fn append_action(&mut self, receipt_index: u64, action: Action) {
-        self.action_receipts
+    fn append_action(&mut self, receipt_index: u64, action: Action) -> usize {
+        let actions = &mut self
+            .action_receipts
             .get_mut(receipt_index as usize)
             .expect("receipt index should be present")
             .1
-            .actions
-            .push(action);
+            .actions;
+
+        actions.push(action);
+
+        // Return index that action was inserted at
+        actions.len() - 1
     }
 
     #[inline]
@@ -251,6 +273,40 @@ impl<'a> External for RuntimeExt<'a> {
         code: Vec<u8>,
     ) -> ExtResult<()> {
         self.append_action(receipt_index, Action::DeployContract(DeployContractAction { code }));
+        Ok(())
+    }
+
+    #[cfg(feature = "protocol_feature_function_call_ratio")]
+    fn append_action_function_call_ratio(
+        &mut self,
+        receipt_index: u64,
+        method_name: Vec<u8>,
+        args: Vec<u8>,
+        attached_deposit: u128,
+        prepaid_gas: u64,
+        gas_ratio: u64,
+    ) -> ExtResult<()> {
+        let action_index = self.append_action(
+            receipt_index,
+            Action::FunctionCall(FunctionCallAction {
+                method_name: String::from_utf8(method_name)
+                    .map_err(|_| HostError::InvalidMethodName)?,
+                args,
+                gas: prepaid_gas,
+                deposit: attached_deposit,
+            }),
+        );
+
+        if gas_ratio > 0 {
+            self.distribute_leftover_gas_to.push(GasRatioMetadata {
+                receipt_index: receipt_index as usize,
+                action_index,
+                gas_ratio,
+            });
+            self.gas_ratio_sum =
+                self.gas_ratio_sum.checked_add(gas_ratio).ok_or(HostError::IntegerOverflow)?;
+        }
+
         Ok(())
     }
 
@@ -388,5 +444,32 @@ impl<'a> External for RuntimeExt<'a> {
         self.epoch_info_provider
             .validator_total_stake(self.epoch_id, self.prev_block_hash)
             .map_err(|e| ExternalError::ValidatorError(e).into())
+    }
+
+    #[cfg(feature = "protocol_feature_function_call_ratio")]
+    fn distribute_unused_gas(&mut self, gas: u64) -> u64 {
+        if self.gas_ratio_sum != 0 {
+            let gas_per_ratio = gas / self.gas_ratio_sum;
+
+            self.distribute_leftover_gas_to
+                .drain(..)
+                .map(|GasRatioMetadata { receipt_index, action_index, gas_ratio }| {
+                    let assign_gas = gas_per_ratio * gas_ratio;
+                    if let Some(Action::FunctionCall(FunctionCallAction { ref mut gas, .. })) = self
+                        .action_receipts
+                        .get_mut(receipt_index)
+                        .and_then(|(_, receipt)| receipt.actions.get_mut(action_index))
+                    {
+                        *gas += assign_gas;
+                    } else {
+                        panic!("Invalid index for assigning unused gas ratio");
+                    }
+
+                    assign_gas
+                })
+                .sum()
+        } else {
+            0
+        }
     }
 }

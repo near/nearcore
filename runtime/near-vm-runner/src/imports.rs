@@ -154,6 +154,16 @@ imports! {
         amount_ptr: u64,
         gas: u64
     ] -> []>,
+    promise_batch_action_function_call_ratio<[
+        promise_index: u64,
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        amount_ptr: u64,
+        gas: u64,
+        gas_ratio: u64
+    ] -> []>,
     promise_batch_action_transfer<[promise_index: u64, amount_ptr: u64] -> []>,
     promise_batch_action_stake<[
         promise_index: u64,
