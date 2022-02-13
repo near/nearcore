@@ -78,3 +78,66 @@ pub fn check_if_migration_is_in_progress(store: &Store, fail_if_migration_is_in_
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::create_store;
+    use near_store::db::DBCol::ColState;
+    use near_store::Store;
+    use crate::migration_is_in_progress::MIGRATION_IS_IN_PROGRESS_STORE_KEY;
+    use crate::migration_is_in_progress::STORE_IS_PROBABLY_CORRUPTED_STORE_KEY;
+    use near_store::ColBlockMisc;
+    use crate::{MigrationIsInProgress, check_if_migration_is_in_progress};
+
+    fn get_bool_flag_from_db(store: &Store, key: &[u8]) -> bool {
+        match store.get_ser::<bool>(ColBlockMisc, &key) {
+            Ok(Some(x)) => x,
+            Ok(None) => false,
+            Err(e) => panic!("Can't read DB, {:?}", e),
+        }
+    }
+
+    #[test]
+    fn test_migration_is_in_progress_set() {
+        let tmp_dir = tempfile::Builder::new().prefix("_test_migration_is_in_progress").tempdir().unwrap();
+        let store = create_store(tmp_dir.path());
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store, 1);
+        assert_eq!(get_bool_flag_from_db(&store, &MIGRATION_IS_IN_PROGRESS_STORE_KEY), true);
+    }
+
+    #[test]
+    fn test_migration_is_in_progress_dropped() {
+        let tmp_dir = tempfile::Builder::new().prefix("_test_migration_is_in_progress").tempdir().unwrap();
+        let store = create_store(tmp_dir.path());
+        {
+            let _migration_is_in_progress = MigrationIsInProgress::new(&store, 1);
+        }
+        assert_eq!(get_bool_flag_from_db(&store, &MIGRATION_IS_IN_PROGRESS_STORE_KEY), false);
+    }
+
+    #[test]
+    fn test_check_if_migration_is_in_progress_no_panic() {
+        let tmp_dir = tempfile::Builder::new().prefix("_test_migration_is_in_progress").tempdir().unwrap();
+        let store = create_store(tmp_dir.path());
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store, 1);
+        check_if_migration_is_in_progress(&store, false);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_check_if_migration_is_in_progress_panic() {
+        let tmp_dir = tempfile::Builder::new().prefix("_test_migration_is_in_progress").tempdir().unwrap();
+        let store = create_store(tmp_dir.path());
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store, 1);
+        check_if_migration_is_in_progress(&store, true);
+    }
+
+    #[test]
+    fn test_store_is_probably_corrupted_set() {
+        let tmp_dir = tempfile::Builder::new().prefix("_test_migration_is_in_progress").tempdir().unwrap();
+        let store = create_store(tmp_dir.path());
+        let _migration_is_in_progress = MigrationIsInProgress::new(&store, 1);
+        check_if_migration_is_in_progress(&store, false);
+        assert_eq!(get_bool_flag_from_db(&store, &STORE_IS_PROBABLY_CORRUPTED_STORE_KEY), true);
+    }
+}
