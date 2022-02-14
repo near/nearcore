@@ -55,7 +55,10 @@ near-logger-utils = { path = "../test-utils/logger" }
 portpicker = "0.1.1"
 
 [features]
-performance_stats = ["nearcore/performance_stats", "near-network/performance_stats"]
+performance_stats = [
+  "nearcore/performance_stats",
+  "near-network/performance_stats",
+]
 expensive_tests = []
 test_features = ["nearcore/test_features"]
 protocol_feature_alt_bn128 = [
@@ -63,9 +66,25 @@ protocol_feature_alt_bn128 = [
     "node-runtime/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128",
 ]
-protocol_feature_chunk_only_producers = ["near-client/protocol_feature_chunk_only_producers", "near-primitives/protocol_feature_chunk_only_producers"]
-protocol_feature_access_key_nonce_for_implicit_accounts = ["near-primitives/protocol_feature_access_key_nonce_for_implicit_accounts", "node-runtime/protocol_feature_access_key_nonce_for_implicit_accounts"]
-nightly_protocol_features = ["nearcore/nightly_protocol_features", "protocol_feature_alt_bn128", "protocol_feature_chunk_only_producers", "protocol_feature_access_key_nonce_for_implicit_accounts"]
+protocol_feature_chunk_only_producers = [
+  "near-client/protocol_feature_chunk_only_producers",
+  "near-primitives/protocol_feature_chunk_only_producers",
+]
+protocol_feature_access_key_nonce_for_implicit_accounts = [
+  "near-primitives/protocol_feature_access_key_nonce_for_implicit_accounts",
+  "node-runtime/protocol_feature_access_key_nonce_for_implicit_accounts",
+]
+nightly_protocol_features = [
+  "nearcore/nightly_protocol_features",
+  "protocol_feature_alt_bn128",
+  "protocol_feature_chunk_only_producers",
+  "protocol_feature_access_key_nonce_for_implicit_accounts",
+]
 nightly_protocol = ["nearcore/nightly_protocol"]
-sandbox = ["near-network/sandbox", "near-chain/sandbox", "node-runtime/sandbox", "near-client/sandbox"]
+sandbox = [
+  "near-network/sandbox",
+  "near-chain/sandbox",
+  "node-runtime/sandbox",
+  "near-client/sandbox",
+]
 no_cache = ["nearcore/no_cache"]

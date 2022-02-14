@@ -2306,6 +2306,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "lzma-sys"
+version = "0.1.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bdb4b7c3eddad11d3af9e86c487607d2d2442d185d848575365c4856ba96d619"
+dependencies = [
+ "cc",
+ "libc",
+ "pkg-config",
+]
+
+[[package]]
 name = "mach"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2873,6 +2884,7 @@ name = "near-network-primitives"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "actix_derive",
  "anyhow",
  "borsh",
  "chrono",
@@ -3030,15 +3042,13 @@ dependencies = [
 
 [[package]]
 name = "near-rust-allocator-proxy"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02f7efdf6d23964df1003d7784e3c2d99302f28eeeb19e1c19db75a0f886c358"
+checksum = "be44da452581a4f2e7870d86886f50605853943ded9b6a7975495914645cdca4"
 dependencies = [
  "backtrace",
- "libc",
- "log",
  "nix",
- "rand 0.7.3",
+ "tracing",
 ]
 
 [[package]]
@@ -3248,6 +3258,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "xz2",
 ]
 
 [[package]]
@@ -4340,6 +4351,7 @@ dependencies = [
  "serde_json",
  "sha256",
  "tempfile",
+ "tracing-span-tree",
  "walrus",
  "wat",
 ]
@@ -5998,6 +6010,15 @@ name = "wyz"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85e60b0d1b5f99db2556934e21937020776a5d31520bf169e851ac44e6420214"
+
+[[package]]
+name = "xz2"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c179869f34fc7c01830d3ce7ea2086bc3a07e0d35289b667d0a8bf910258926c"
+dependencies = [
+ "lzma-sys",
+]
 
 [[package]]
 name = "yaml-rust"

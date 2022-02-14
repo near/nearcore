@@ -116,6 +116,7 @@ To build QEMU use:
 Then build and test the QEMU's JIT plugin:
 
     cd /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin
+    cp /host/qemu-linux/bin/qemu-x86_64 ./
     make QEMU_DIR=/host/qemu
     make test
 

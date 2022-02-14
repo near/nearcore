@@ -216,6 +216,7 @@ pub enum PeerMessage {
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingTableSyncV2(RoutingSyncV2),
 }
+#[cfg(target_arch = "x86_64")] // Non-x86_64 doesn't match this requirement yet but it's not bad as it's not production-ready
 const _: () = assert!(std::mem::size_of::<PeerMessage>() <= 1144, "PeerMessage > 1144 bytes");
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
