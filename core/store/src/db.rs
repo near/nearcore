@@ -826,7 +826,7 @@ fn rocksdb_column_options(col: DBCol) -> Options {
         opts.set_merge_operator(
             "refcount merge",
             RocksDB::refcount_merge,
-            &RocksDB::refcount_merge,
+            RocksDB::refcount_merge,
         );
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
     }
