@@ -302,8 +302,8 @@ pub struct QueryResponse {
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StatusSyncInfo {
-    pub epoch_id: EpochId,
-    pub epoch_start_height: BlockHeight,
+    pub epoch_id: Option<EpochId>,
+    pub epoch_start_height: Option<BlockHeight>,
     pub latest_block_hash: CryptoHash,
     pub latest_block_height: BlockHeight,
     pub latest_state_root: CryptoHash,

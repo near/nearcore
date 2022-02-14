@@ -672,8 +672,8 @@ impl Handler<Status> for ClientActor {
             rpc_addr: self.client.config.rpc_addr.clone(),
             validators,
             sync_info: StatusSyncInfo {
-                epoch_id: head.epoch_id,
-                epoch_start_height,
+                epoch_id: Some(head.epoch_id),
+                epoch_start_height: Some(epoch_start_height),
                 latest_block_hash: head.last_block_hash.into(),
                 latest_block_height: head.height,
                 latest_state_root,
