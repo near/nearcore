@@ -823,11 +823,7 @@ fn rocksdb_column_options(col: DBCol) -> Options {
     opts.set_target_file_size_base(64 * bytesize::MIB);
     opts.set_compression_per_level(&[]);
     if col.is_rc() {
-        opts.set_merge_operator(
-            "refcount merge",
-            RocksDB::refcount_merge,
-            RocksDB::refcount_merge,
-        );
+        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
     }
     opts
