@@ -37,7 +37,7 @@ near-store = { path = "../../core/store" }
 near-primitives = { path = "../../core/primitives" }
 
 nearcore = { path = "../../nearcore" }
-rocksdb = { version = "0.18.0", default-features = false, features = ["snappy", "lz4", "zstd", "bzip2"] }
+rocksdb = "0.18.0"
 walrus = "0.18.0"
 hex = "0.4"
 cfg-if = "1"
