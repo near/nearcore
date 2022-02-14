@@ -76,23 +76,25 @@ pub fn check_if_migration_is_in_progress(store: &Store, fail_if_migration_is_in_
 
 #[cfg(test)]
 mod tests {
-    use crate::create_store;
+    use near_store::db::TestDB;
+    use std::sync::Arc;
     use super::*;
+
+    fn create_test_store() -> Store {
+        let db = Arc::new(TestDB::new());
+        Store::new(db)
+    }
 
     #[test]
     fn test_migration_is_in_progress_set() {
-        let tmp_dir =
-            tempfile::Builder::new().prefix("test_migration_is_in_progress_set").tempdir().unwrap();
-        let store = create_store(tmp_dir.path());
+        let store = create_test_store();
         let _migration_is_in_progress = MigrationIsInProgress::new(&store, 1);
         assert_eq!(get_bool_flag_from_db(&store, &MIGRATION_IS_IN_PROGRESS_STORE_KEY), true);
     }
 
     #[test]
     fn test_migration_is_in_progress_dropped() {
-        let tmp_dir =
-            tempfile::Builder::new().prefix("test_migration_is_in_progress_dropped").tempdir().unwrap();
-        let store = create_store(tmp_dir.path());
+        let store = create_test_store();
         {
             let _migration_is_in_progress = MigrationIsInProgress::new(&store, 1);
         }
@@ -101,9 +103,7 @@ mod tests {
 
     #[test]
     fn test_check_if_migration_is_in_progress_no_panic() {
-        let tmp_dir =
-            tempfile::Builder::new().prefix("test_check_if_migration_is_in_progress_no_panic").tempdir().unwrap();
-        let store = create_store(tmp_dir.path());
+        let store = create_test_store();
         let _migration_is_in_progress = MigrationIsInProgress::new(&store, 1);
         check_if_migration_is_in_progress(&store, false);
     }
@@ -111,18 +111,14 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_check_if_migration_is_in_progress_panic() {
-        let tmp_dir =
-            tempfile::Builder::new().prefix("test_check_if_migration_is_in_progress_panic").tempdir().unwrap();
-        let store = create_store(tmp_dir.path());
+        let store = create_test_store();
         let _migration_is_in_progress = MigrationIsInProgress::new(&store, 1);
         check_if_migration_is_in_progress(&store, true);
     }
 
     #[test]
     fn test_store_is_probably_corrupted_set_and_no_panic() {
-        let tmp_dir =
-            tempfile::Builder::new().prefix("test_store_is_probably_corrupted_set_and_no_panic").tempdir().unwrap();
-        let store = create_store(tmp_dir.path());
+        let store = create_test_store();
         let _migration_is_in_progress = MigrationIsInProgress::new(&store, 1);
         check_if_migration_is_in_progress(&store, false);
         assert_eq!(get_bool_flag_from_db(&store, &STORE_IS_PROBABLY_CORRUPTED_STORE_KEY), true);
