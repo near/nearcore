@@ -93,8 +93,9 @@ use near_vm_runner::MockCompiledContractCache;
 use num_rational::Ratio;
 use rand::Rng;
 use utils::{
-    aggregate_per_block_measurements, fn_cost, fn_cost_count, fn_cost_with_setup, generate_fn_name,
-    noop_function_call_cost, read_resource, transaction_cost,
+    aggregate_per_block_measurements, fn_cost, fn_cost_count, fn_cost_with_setup,
+    generate_data_only_contract, generate_fn_name, noop_function_call_cost, read_resource,
+    transaction_cost,
 };
 use vm_estimator::{compile_single_contract_cost, compute_compile_cost_vm};
 
@@ -181,6 +182,7 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ContractCompileBytes, contract_compile_bytes),
     (Cost::ContractCompileBaseV2, contract_compile_base_v2),
     (Cost::ContractCompileBytesV2, contract_compile_bytes_v2),
+    (Cost::DeployBytes, pure_deploy_bytes),
     (Cost::GasMeteringBase, gas_metering_base),
     (Cost::GasMeteringOp, gas_metering_op),
     (Cost::RocksDbInsertValueByte, rocks_db_insert_value_byte),
@@ -497,7 +499,10 @@ fn action_deploy_contract_per_byte(ctx: &mut EstimatorContext) -> GasCost {
         let code = read_resource(contract);
         xs.push(code.len() as u64);
         let cost = deploy_contract_cost(ctx, code, Some(pivot_fn.as_bytes()));
-        ys.push(cost);
+        // The sampled contracts are about 80% code. Since the deployment cost
+        // is heavily dominated by compilation, we therefore use a multiplier of
+        // 5/4 to guess what a contract with 100% code would cost to deploy.
+        ys.push(cost * 5 / 4);
     }
 
     // We do linear regression on a cost curve that is mostly flat for small
@@ -612,6 +617,22 @@ fn contract_compile_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost, Ga
 
     ctx.cached.compile_cost_base_per_byte_v2 = Some(costs.clone());
     costs
+}
+fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
+    let small_code = generate_data_only_contract(0);
+    let large_code = generate_data_only_contract(bytesize::mb(4u64) as usize);
+    let small_code_len = small_code.len();
+    let large_code_len = large_code.len();
+    let cost_empty = deploy_contract_cost(ctx, small_code, Some(b"main"));
+    let cost_4mb = deploy_contract_cost(ctx, large_code, Some(b"main"));
+
+    if cost_4mb < cost_empty {
+        let mut cost = GasCost::zero(ctx.config.metric);
+        cost.set_uncertain(true);
+        cost
+    } else {
+        (cost_4mb - cost_empty) / (large_code_len - small_code_len) as u64
+    }
 }
 
 fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {
