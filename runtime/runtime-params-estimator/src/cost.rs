@@ -7,12 +7,54 @@ use std::str::FromStr;
 #[derive(Copy, Clone, PartialEq, Eq, Debug, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum Cost {
+    // Every set of actions in a transaction needs to be transformed into a
+    // action receipt, regardless of whether it is executed locally within the
+    // same block or delayed. The gas cost for this is paid when the receipt is
+    // created. The base amount is `action_receipt_creation_config.execution` +
+    // (either `action_receipt_creation.send_sir` or
+    // `action_receipt_creation.send_not_sir` depending on whether
+    // `sender == receiver`).
+    // On top of that, each type of action has its own costs defined, which is
+    // added for each action included in the receipt.
+    //
+    /// Estimates `ActionCosts::new_receipt`, which is the base cost for
+    /// creating a new action receipt, excluding actual action costs.
+    ///
+    /// Estimation: Measure the creation and execution of an empty action
+    /// receipt, where sender and receiver are two different accounts. This
+    /// involves applying two blocks and both contribute to the measured cost.
+    /// The cost is then divided by 2 to split between `send_not_sir` and
+    /// `execution` cost. `send_sir` is set to the same value as `send_not_sir`
+    /// for now.
     ActionReceiptCreation,
+    /// Estimates `ActionCosts::new_receipt`.`send_sir`. Although, note that it
+    /// is currently configured to be the same as `send_not_sir`. But we already
+    /// use this value as partial estimation of other action costs.
+    ///
+    /// Estimation: Measure the creation and execution of an empty action
+    /// receipt, where sender and receiver are the same account.
     ActionSirReceiptCreation,
     DataReceiptCreationBase,
     DataReceiptCreationPerByte,
     ActionCreateAccount,
+    // Deploying a new contract for an account on the blockchain stores the WASM
+    // code in the trie. Additionally, it also triggers a compilation of the
+    // code to check that it is valid WASM. The compiled code is then stored in
+    // the database, in a separate column family for cached contract code. The
+    // costs charged for such a contract deployment action is
+    // `ActionDeployContractBase` + `N` * `ActionDeployContractPerByte`, where
+    // `N` is the number of bytes in the WASM code.
+    /// Estimates `action_creation_config.deploy_contract_cost`, which is
+    /// charged once per contract deployment
+    ///
+    /// Estimation: Measure deployment cost of a "smallest" contract.
     ActionDeployContractBase,
+    /// Estimates `action_creation_config.deploy_contract_cost_per_byte`, which
+    /// is charged for every byte in the WASM code when deploying the contract
+    ///
+    /// Estimation: Measure several cost for deploying several core contract in
+    /// a transaction. Subtract base costs and apply least-squares on the
+    /// results to find the per-byte costs.
     ActionDeployContractPerByte,
     ActionFunctionCallBase,
     ActionFunctionCallPerByte,
@@ -171,8 +213,42 @@ pub enum Cost {
     AltBn128G1SumByte,
 
     // Costs used only in estimator
-    ContractCompileBase,  // TODO: Needs estimation function
-    ContractCompileBytes, // TODO: Needs estimation function
+    //
+    /// Costs associated with applying an empty block. This overhead is not
+    /// charged to any specific account and thus does not directly affect gas
+    /// fees. However, for estimation this is a crucial value to know. Many
+    /// estimation methods require to know this value in order to subtract it
+    /// from the measurement.
+    ApplyBlock,
+    // Compilation happens during deployment and the pre-compiled code is stored
+    // in the DB. Thus, compilation cost is part of deployment cost and not a
+    // cost we charge in isolation. But how expensive compilation is, is an
+    // important value to track nevertheless.
+    // We have two alternatives to estimate compilation cost.
+    //
+    /// `ContractCompileBase` and `ContractCompileBytes` are estimated together,
+    /// by compiling several core contracts and computing least-squares on the
+    /// code sizes and execution times.
+    ContractCompileBase,
+    ContractCompileBytes,
+    /// Contract compile costs V2 is an alternative estimation for the
+    /// compilation cost. Instead of least-squares method, it finds a linear
+    /// function that is higher than any of the measured contracts.
+    ///
+    /// Estimation: Compiles a "smallest possible" contract and several core
+    /// contracts. The smallest contract is taken as the first anchor the linear
+    /// function. The second defining point is which ever of the core contracts
+    /// produces the steepest line.
+    ContractCompileBaseV2,
+    ContractCompileBytesV2,
+    /// The cost of contract deployment per byte, without the compilation cost.
+    ///
+    /// Estimation: Measure the deployment costs of two data-only contracts,
+    /// where one data sections is empty and the other is max size as allowed by
+    /// contract size limits. The cost difference is pure overhead of moving
+    /// around bytes that are not code. Divide this cost by the difference of
+    /// bytes.
+    DeployBytes,
     GasMeteringBase,
     GasMeteringOp,
     /// Cost of inserting a new value directly into a RocksDB instance.

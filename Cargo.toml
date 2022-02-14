@@ -32,21 +32,21 @@ members = [
     "test-utils/actix-test-utils",
     "test-utils/runtime-tester",
     "test-utils/runtime-tester/fuzz",
-    "test-utils/state-viewer",
     "test-utils/store-validator",
     "test-utils/testlib",
     "neard",
     "nearcore",
-    "tools/rpctypegen/core",
-    "tools/rpctypegen/macro",
     "genesis-tools/genesis-csv-to-json",
     "genesis-tools/genesis-populate",
     "genesis-tools/keypair-generator",
-    "tools/restaked",
-    "tools/indexer/example",
     "tools/delay_detector",
-    "tools/storage-usage-delta-calculator",
+    "tools/indexer/example",
+    "tools/restaked",
     "tools/restored-receipts-verifier",
+    "tools/rpctypegen/core",
+    "tools/rpctypegen/macro",
+    "tools/state-viewer",
+    "tools/storage-usage-delta-calculator",
     "tools/themis",
     "integration-tests",
     "utils/near-rate-limiter",
@@ -54,7 +54,8 @@ members = [
 ]
 
 [workspace.metadata.workspaces]
-version = "0.11.0"
+version = "0.12.0"
+exclude = [ "neard" ]
 
 [patch.crates-io]
 

@@ -27,5 +27,9 @@ protocol_feature_chunk_only_producers = [
     "near-chain/protocol_feature_chunk_only_producers",
     "near-primitives/protocol_feature_chunk_only_producers",
 ]
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_chunk_only_producers", "protocol_feature_alt_bn128"]
+nightly_protocol_features = [
+  "nightly_protocol",
+  "protocol_feature_chunk_only_producers",
+  "protocol_feature_alt_bn128",
+]
 nightly_protocol = []
