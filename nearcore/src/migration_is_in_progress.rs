@@ -77,10 +77,7 @@ pub fn check_if_migration_is_in_progress(store: &Store, fail_if_migration_is_in_
 #[cfg(test)]
 mod tests {
     use crate::create_store;
-    use crate::migration_is_in_progress::{
-        check_if_migration_is_in_progress, get_bool_flag_from_db, MigrationIsInProgress,
-        MIGRATION_IS_IN_PROGRESS_STORE_KEY, STORE_IS_PROBABLY_CORRUPTED_STORE_KEY,
-    };
+    use super::*;
 
     #[test]
     fn test_migration_is_in_progress_set() {
