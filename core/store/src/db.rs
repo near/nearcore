@@ -802,7 +802,7 @@ fn rocksdb_block_based_options(cache_size: usize) -> BlockBasedOptions {
     block_opts.set_block_cache(&Cache::new_lru_cache(cache_size).unwrap());
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
     block_opts.set_cache_index_and_filter_blocks(true);
-    block_opts.set_bloom_filter(10, true);
+    block_opts.set_bloom_filter(10.0, true);
     block_opts
 }
 
@@ -823,7 +823,11 @@ fn rocksdb_column_options(col: DBCol) -> Options {
     opts.set_target_file_size_base(64 * bytesize::MIB);
     opts.set_compression_per_level(&[]);
     if col.is_rc() {
-        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
+        opts.set_merge_operator(
+            "refcount merge",
+            RocksDB::refcount_merge,
+            &RocksDB::refcount_merge,
+        );
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
     }
     opts
