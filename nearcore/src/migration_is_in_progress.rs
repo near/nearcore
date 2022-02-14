@@ -76,9 +76,9 @@ pub fn check_if_migration_is_in_progress(store: &Store, fail_if_migration_is_in_
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use near_store::db::TestDB;
     use std::sync::Arc;
-    use super::*;
 
     fn create_test_store() -> Store {
         let db = Arc::new(TestDB::new());
