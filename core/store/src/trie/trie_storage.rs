@@ -8,24 +8,31 @@ use crate::db::refcount::decode_value_with_rc;
 use crate::trie::POISONED_LOCK_ERR;
 use crate::{ColState, StorageError, Store};
 use lru::LruCache;
-use near_primitives::block::CacheState;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::types::TrieCacheState;
 use std::cell::RefCell;
 use std::io::ErrorKind;
 
 #[derive(Clone)]
 pub struct SyncTrieCache(Arc<Mutex<TrieCache>>);
 
+/// Cache for Trie nodes.
+/// Maps hash of the encoded node to the encoded node bytes.
+/// Note that "node" here means both the trie node and the value stored in trie.
 pub(crate) struct TrieCache {
-    pub(crate) cache_state: CacheState,
+    pub(crate) cache_state: TrieCacheState,
     shard_cache: LruCache<CryptoHash, Vec<u8>>,
     chunk_cache: HashMap<CryptoHash, Vec<u8>>,
 }
 
+/// Position of the value in cache.
 #[derive(Debug)]
 pub(crate) enum CachePosition {
+    /// Value is not presented.
     None,
+    /// Value is presented in the shard cache.
     ShardCache(Vec<u8>),
+    /// Value is presented in the chunk cache.
     ChunkCache(Vec<u8>),
 }
 
@@ -37,14 +44,16 @@ pub enum TrieNodeRetrievalCost {
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct RawBytesWithCost {
+    /// Bytes of the retrieved node. None if no value was found in cache.
     pub(crate) value: Option<Vec<u8>>,
+    /// Cost of node retrieval.
     pub(crate) cost: TrieNodeRetrievalCost,
 }
 
 impl TrieCache {
     pub fn new(shard_cache_size: usize) -> Self {
         TrieCache {
-            cache_state: CacheState::CachingShard,
+            cache_state: TrieCacheState::CachingShard,
             shard_cache: LruCache::new(shard_cache_size),
             chunk_cache: Default::default(),
         }
@@ -66,7 +75,7 @@ impl TrieCache {
                 RawBytesWithCost { value: None, cost: TrieNodeRetrievalCost::Full }
             }
             CachePosition::ShardCache(value) => {
-                if let CacheState::CachingChunk = self.cache_state {
+                if let TrieCacheState::CachingChunk = self.cache_state {
                     let value = self
                         .shard_cache
                         .pop(key)
@@ -78,8 +87,8 @@ impl TrieCache {
             CachePosition::ChunkCache(value) => RawBytesWithCost {
                 value: Some(value),
                 cost: match self.cache_state {
-                    CacheState::CachingShard => TrieNodeRetrievalCost::Full,
-                    CacheState::CachingChunk => TrieNodeRetrievalCost::Free,
+                    TrieCacheState::CachingShard => TrieNodeRetrievalCost::Full,
+                    TrieCacheState::CachingChunk => TrieNodeRetrievalCost::Free,
                 },
             },
         }
@@ -91,7 +100,7 @@ impl TrieCache {
         }
         let value = value.to_vec();
 
-        if let CacheState::CachingChunk = &self.cache_state {
+        if let TrieCacheState::CachingChunk = &self.cache_state {
             self.shard_cache.pop(&key);
             self.chunk_cache.insert(key, value);
         } else {
@@ -118,12 +127,12 @@ impl SyncTrieCache {
 
     pub fn clear(&self) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
-        guard.cache_state = CacheState::CachingShard;
+        guard.cache_state = TrieCacheState::CachingShard;
         guard.shard_cache.clear();
         guard.chunk_cache.clear();
     }
 
-    pub fn set_state(&self, state: CacheState) {
+    pub fn set_state(&self, state: TrieCacheState) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
         guard.cache_state = state;
     }
@@ -392,13 +401,13 @@ mod tests {
         let value = vec![1u8];
         let key = hash(&value);
 
-        assert_matches!(trie_cache.cache_state, CacheState::CachingShard);
+        assert_matches!(trie_cache.cache_state, TrieCacheState::CachingShard);
         assert_matches!(trie_cache.get_cache_position(&key), CachePosition::None);
 
         trie_cache.put(key, &value);
         assert_matches!(trie_cache.get_cache_position(&key), CachePosition::ShardCache(_));
 
-        trie_cache.cache_state = CacheState::CachingChunk;
+        trie_cache.cache_state = TrieCacheState::CachingChunk;
         assert_matches!(trie_cache.get_cache_position(&key), CachePosition::ShardCache(_));
         assert_eq!(
             trie_cache.get_with_cost(&key),
@@ -424,7 +433,7 @@ mod tests {
         assert_eq!(trie_cache.shard_cache.get(&key), Some(&value));
         assert!(!trie_cache.chunk_cache.contains_key(&key));
 
-        trie_cache.cache_state = CacheState::CachingChunk;
+        trie_cache.cache_state = TrieCacheState::CachingChunk;
         let value = vec![2u8];
         trie_cache.put(key, &value);
         assert!(!trie_cache.shard_cache.contains(&key));
