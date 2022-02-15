@@ -91,7 +91,7 @@ fn find_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<Option<Pa
         }
         return false;
     }) {
-        return Ok(Some(PathBuf::from(entry?.file_name())));
+        return Ok(Some(PathBuf::from(entry?.path())));
     }
     Ok(None)
 }

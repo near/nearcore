@@ -439,8 +439,10 @@ pub struct Config {
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gas_burnt_view: Option<Gas>,
+    /// Checkpoints let the user recover from interrupted DB migrations.
     #[serde(default = "default_use_checkpoints_for_db_migration")]
     pub use_checkpoints_for_db_migration: bool,
+    /// Absolute path to the root directory for DB checkpoints.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub db_checkpoints_path: Option<PathBuf>,
 }
