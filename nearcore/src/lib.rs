@@ -127,7 +127,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         match existing_checkpoint_path {
             Ok(existing_checkpoint_path) => match existing_checkpoint_path {
                 Some(existing_checkpoint_path) => {
-                    panic!("Detected an existing DB migration checkpoint: '{}'. If the previous DB migration attempt failed, please delete the checkpoint and restart. Otherwise, please restore from that checkpoint and restart.",existing_checkpoint_path.display());
+                    panic!("Detected an existing DB migration checkpoint: '{}'. Probably a DB migration got interrupted and your DB is corrupted. Please replace the contents of '{}' with data from that checkpoint, delete the checkpoint and try again.",existing_checkpoint_path.display(), path.display());
                 }
                 None => {}
             },
