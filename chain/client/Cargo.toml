@@ -50,10 +50,31 @@ near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
 byzantine_asserts = ["near-chain/byzantine_asserts"]
 expensive_tests = []
-test_features = ["near-network/test_features", "near-chain/test_features"]
-delay_detector = ["near-chain/delay_detector", "near-network/delay_detector", "delay-detector"]
-protocol_feature_chunk_only_producers = ["near-primitives/protocol_feature_chunk_only_producers", "near-chain/protocol_feature_chunk_only_producers"]
-protocol_feature_routing_exchange_algorithm = ["near-network/protocol_feature_routing_exchange_algorithm", "near-chain/protocol_feature_routing_exchange_algorithm", "near-primitives/protocol_feature_routing_exchange_algorithm"]
+test_features = [
+  "near-network/test_features",
+  "near-chain/test_features",
+]
+delay_detector = [
+  "near-chain/delay_detector",
+  "near-network/delay_detector",
+  "delay-detector",
+]
+protocol_feature_chunk_only_producers = [
+  "near-primitives/protocol_feature_chunk_only_producers",
+  "near-chain/protocol_feature_chunk_only_producers",
+]
+protocol_feature_routing_exchange_algorithm = [
+  "near-network/protocol_feature_routing_exchange_algorithm",
+  "near-chain/protocol_feature_routing_exchange_algorithm",
+  "near-primitives/protocol_feature_routing_exchange_algorithm",
+]
 nightly_protocol = []
-nightly_protocol_features = ["nightly_protocol", "near-chain/nightly_protocol_features", "protocol_feature_routing_exchange_algorithm"]
-sandbox = ["near-network/sandbox", "near-chain/sandbox"]
+nightly_protocol_features = [
+  "nightly_protocol",
+  "near-chain/nightly_protocol_features",
+  "protocol_feature_routing_exchange_algorithm",
+]
+sandbox = [
+  "near-network/sandbox",
+  "near-chain/sandbox",
+]

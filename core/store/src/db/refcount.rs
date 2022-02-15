@@ -85,7 +85,7 @@ impl RocksDB {
     pub(crate) fn refcount_merge(
         _new_key: &[u8],
         existing_val: Option<&[u8]>,
-        operands: &mut MergeOperands,
+        operands: &MergeOperands,
     ) -> Option<Vec<u8>> {
         let mut result = vec![];
         if let Some(val) = existing_val {
