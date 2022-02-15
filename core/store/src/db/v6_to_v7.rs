@@ -4,7 +4,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use rocksdb::{ColumnFamilyDescriptor, MergeOperands, Options};
 use strum::IntoEnumIterator;
 
-use crate::db::{rocksdb_column_options, DBError, RocksDB, RocksDBOptions, col_name};
+use crate::db::{col_name, rocksdb_column_options, DBError, RocksDB, RocksDBOptions};
 use crate::DBCol;
 
 fn refcount_merge_v6(
@@ -63,10 +63,7 @@ impl RocksDB {
             .cf_descriptors(
                 DBCol::iter()
                     .map(|col| {
-                        ColumnFamilyDescriptor::new(
-                            col_name(col),
-                            rocksdb_column_options_v6(col),
-                        )
+                        ColumnFamilyDescriptor::new(col_name(col), rocksdb_column_options_v6(col))
                     })
                     .collect(),
             )
