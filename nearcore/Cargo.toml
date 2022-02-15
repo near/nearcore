@@ -66,7 +66,7 @@ near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
 primitive-types = "0.10"
 
 [features]
-default = ["json_rpc"]
+default = ["json_rpc", "rosetta_rpc"]
 
 performance_stats = [
   "near-performance-metrics/performance_stats",
