@@ -19,7 +19,8 @@ use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 pub(crate) use crate::trie::trie_storage::{SyncTrieCache, TrieCachingStorage};
 use crate::trie::trie_storage::{
-    TouchedNodesCounter, TrieMemoryPartialStorage, TrieRecordingStorage, TrieStorage,
+    TouchedNodesCounter, TrieMemoryPartialStorage, TrieNodeRetrievalCost, TrieRecordingStorage,
+    TrieStorage,
 };
 use crate::StorageError;
 
@@ -612,8 +613,11 @@ impl Trie {
     }
 
     pub(crate) fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
-        return self.storage.retrieve_raw_bytes_with_cost(hash).map(|(value, _)| {
-            self.counter.increment();
+        return self.storage.retrieve_raw_bytes_with_cost(hash).map(|(value, cost)| {
+            match cost {
+                TrieNodeRetrievalCost::Full => self.counter.increment(),
+                TrieNodeRetrievalCost::Free => {}
+            }
             value
         });
     }

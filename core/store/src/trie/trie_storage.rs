@@ -19,6 +19,7 @@ pub struct SyncTrieCache(Arc<Mutex<TrieCache>>);
 /// Cache for Trie nodes.
 /// Maps hash of the encoded node to the encoded node bytes.
 /// Note that "node" here means both the trie node and the value stored in trie.
+/// TODO (#5920): enable chunk nodes caching in Runtime::apply.
 pub(crate) struct TrieCache {
     pub(crate) cache_state: TrieCacheState,
     shard_cache: LruCache<CryptoHash, Vec<u8>>,
