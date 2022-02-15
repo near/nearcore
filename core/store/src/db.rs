@@ -488,6 +488,10 @@ impl Default for RocksDBOptions {
     }
 }
 
+fn col_name(col: DBCol) -> String {
+    format!("col{}", col as usize)
+}
+
 impl RocksDBOptions {
     /// Once the disk space is below the `free_disk_space_warn_threshold`, RocksDB will emit an warning message every [`interval`](RocksDBOptions::check_free_space_interval) write.
     pub fn free_disk_space_warn_threshold(mut self, warn_treshold: bytesize::ByteSize) -> Self {
@@ -524,11 +528,14 @@ impl RocksDBOptions {
 
     /// Opens a read only database.
     pub fn read_only<P: AsRef<std::path::Path>>(self, path: P) -> Result<RocksDB, DBError> {
-        let options = self.rocksdb_options.unwrap_or_default();
-        let cf_names: Vec<_> = self.cf_names.unwrap_or_else(|| vec!["col0".to_string()]);
-        let db = DB::open_cf_for_read_only(&options, path, cf_names.iter(), false)?;
-        let cfs =
-            cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
+        use strum::IntoEnumIterator;
+        let options = self.rocksdb_options.unwrap_or_else(rocksdb_options);
+        let cf_with_opts = DBCol::iter().map(|col| (col_name(col), rocksdb_column_options(col)));
+        let db = DB::open_cf_with_opts_for_read_only(&options, path, cf_with_opts, false)?;
+        let cfs = DBCol::iter()
+            .map(|col| db.cf_handle(&col_name(col)).unwrap() as *const ColumnFamily)
+            .collect();
+
         Ok(RocksDB {
             db,
             cfs,
@@ -542,17 +549,11 @@ impl RocksDBOptions {
     pub fn read_write<P: AsRef<std::path::Path>>(self, path: P) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
         let options = self.rocksdb_options.unwrap_or_else(rocksdb_options);
-        let cf_names = self
-            .cf_names
-            .unwrap_or_else(|| DBCol::iter().map(|col| format!("col{}", col as usize)).collect());
+        let cf_names =
+            self.cf_names.unwrap_or_else(|| DBCol::iter().map(|col| col_name(col)).collect());
         let cf_descriptors = self.cf_descriptors.unwrap_or_else(|| {
             DBCol::iter()
-                .map(|col| {
-                    ColumnFamilyDescriptor::new(
-                        format!("col{}", col as usize),
-                        rocksdb_column_options(col),
-                    )
-                })
+                .map(|col| ColumnFamilyDescriptor::new(col_name(col), rocksdb_column_options(col)))
                 .collect()
         });
         let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
@@ -842,7 +843,7 @@ impl RocksDB {
         })
     }
 
-    fn new_read_only<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
+    pub fn new_read_only<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
         RocksDBOptions::default().read_only(path)
     }
 

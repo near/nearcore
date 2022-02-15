@@ -9,7 +9,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{DB_VERSION, PROTOCOL_VERSION};
-use near_store::{create_store, Store};
+use near_store::{create_read_only_store, Store};
 use nearcore::{get_default_home, get_store_path, load_config, NearConfig};
 use once_cell::sync::Lazy;
 use std::path::{Path, PathBuf};
@@ -109,7 +109,7 @@ pub enum StateViewerSubCommand {
 impl StateViewerSubCommand {
     pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
         let near_config = load_config(home_dir, genesis_validation);
-        let store = create_store(&get_store_path(home_dir));
+        let store = create_read_only_store(&get_store_path(home_dir));
         match self {
             StateViewerSubCommand::Peers => peers(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
