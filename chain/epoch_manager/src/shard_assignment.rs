@@ -93,30 +93,32 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = T>>(
             match shard_index.peek_mut() {
                 None => {
                     // No shards left which don’t already contain this chunk
-                    // producer.  Skip it and move to another validator.
+                    // producer.  Skip it and move to another producer.
                     break;
                 }
                 Some(top) if top.0 >= min_validators_per_shard => {
-                    // All remaining shards have min_validators_per_shard chunk
-                    // producers assigned to them.  Don’t assign current
-                    // validator to any shard and move to next cp.
+                    // `shard_index` is sorted by number of chunk producers,
+                    // thus all remaining shards have min_validators_per_shard
+                    // producers already assigned to them.  Don’t assign current
+                    // one to any shard and move to next cp.
                     break;
                 }
                 Some(top) if result[usize::try_from(top.2).unwrap()].contains(&cp) => {
                     // This chunk producer is already assigned to this shard.
-                    // Pop the shard from the heap and try assigning the chunk
-                    // producer to the next shard.
+                    // Pop the shard from the heap for now and try assigning the
+                    // producer to the next shard.  (We’ll look back at the
+                    // shard once we figure out what to do with current `cp`).
                     //
                     // TODO(mina86): The contains check in the condition makes
                     // this an O(N^2) algorithm.  At the moment there aren’t too
-                    // many validators so it should be fine but if that’s
+                    // many chunk producers so it should be fine but if that’s
                     // becomes an issue we should switch to a hash set.
                     buffer.push(PeekMut::pop(top));
                 }
                 Some(mut top) => {
                     // Chunk producer is not yet assigned to the shard and the
-                    // shard still needs more validators.  Assign `cp` to it and
-                    // move to next chunk producer
+                    // shard still needs more producers.  Assign `cp` to it and
+                    // move to next one.
                     top.0 += 1;
                     top.1 += cp.get_stake();
                     result[usize::try_from(top.2).unwrap()].push(cp);
@@ -124,6 +126,8 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = T>>(
                 }
             }
         }
+        // Any shards we skipped over (because `cp` was already assigned to
+        // them) need to be put back into the heap.
         shard_index.extend(buffer.drain(..));
     }
 }

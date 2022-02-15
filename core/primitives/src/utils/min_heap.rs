@@ -181,7 +181,16 @@ mod tests {
 
         let mut top = heap.peek_mut().unwrap();
         assert_eq!(37, *top);
+        *top = 42;
+        // Drop so `top` no longer holds exclusive reference to `heap`.
+        core::mem::drop(top);
+        assert_eq!(Some(&42), heap.peek());
+
+        let mut top = heap.peek_mut().unwrap();
+        assert_eq!(42, *top);
         *top = 111;
+        // This time dropping will also update position of the element in the
+        // heap.
         core::mem::drop(top);
 
         assert_eq!(Some(101), heap.pop());
