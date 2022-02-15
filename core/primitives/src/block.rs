@@ -626,3 +626,9 @@ impl Tip {
         }
     }
 }
+
+#[derive(Debug)]
+pub enum CacheState {
+    CachingShard,
+    CachingChunk,
+}

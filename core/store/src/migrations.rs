@@ -39,7 +39,7 @@ use crate::migrations::v6_to_v7::{
 use crate::migrations::v8_to_v9::{
     recompute_col_rc, repair_col_receipt_id_to_shard_id, repair_col_transactions,
 };
-use crate::trie::{TrieCache, TrieCachingStorage};
+use crate::trie::{SyncTrieCache, TrieCachingStorage};
 use crate::{create_store, Store, StoreUpdate, Trie, TrieUpdate, FINAL_HEAD_KEY, HEAD_KEY};
 use std::path::Path;
 
@@ -425,7 +425,7 @@ pub fn migrate_14_to_15(path: &Path) {
     let store = create_store(path);
     let trie_store = Box::new(TrieCachingStorage::new(
         store.clone(),
-        TrieCache::new(),
+        SyncTrieCache::new(),
         ShardUId::single_shard(),
     ));
     let trie = Rc::new(Trie::new(trie_store, ShardUId::single_shard()));

@@ -12,24 +12,24 @@ use near_primitives::types::{
 };
 
 use crate::db::{DBCol, DBOp, DBTransaction};
-use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
+use crate::trie::trie_storage::{SyncTrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
 use crate::{StorageError, Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 
 struct ShardTriesInner {
     store: Store,
     /// Cache reserved for client actor to use
-    caches: RwLock<HashMap<ShardUId, TrieCache>>,
+    caches: RwLock<HashMap<ShardUId, SyncTrieCache>>,
     /// Cache for readers.
-    view_caches: RwLock<HashMap<ShardUId, TrieCache>>,
+    view_caches: RwLock<HashMap<ShardUId, SyncTrieCache>>,
 }
 
 #[derive(Clone)]
 pub struct ShardTries(Arc<ShardTriesInner>);
 
 impl ShardTries {
-    fn get_new_cache(shards: &[ShardUId]) -> HashMap<ShardUId, TrieCache> {
-        shards.iter().map(|&shard_id| (shard_id, TrieCache::new())).collect()
+    fn get_new_cache(shards: &[ShardUId]) -> HashMap<ShardUId, SyncTrieCache> {
+        shards.iter().map(|&shard_id| (shard_id, SyncTrieCache::new())).collect()
     }
 
     pub fn new(store: Store, shard_version: ShardVersion, num_shards: NumShards) -> Self {
@@ -60,7 +60,7 @@ impl ShardTries {
         let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
         let cache = {
             let mut caches = caches_to_use.write().expect(POISONED_LOCK_ERR);
-            caches.entry(shard_uid).or_insert_with(TrieCache::new).clone()
+            caches.entry(shard_uid).or_insert_with(SyncTrieCache::new).clone()
         };
         let store = Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid));
         Trie::new(store, shard_uid)
@@ -100,7 +100,7 @@ impl ShardTries {
             }
         }
         for (shard_uid, ops) in shards {
-            let cache = caches.entry(shard_uid).or_insert_with(TrieCache::new).clone();
+            let cache = caches.entry(shard_uid).or_insert_with(SyncTrieCache::new).clone();
             cache.update_cache(ops);
         }
         Ok(())
