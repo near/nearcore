@@ -33,7 +33,7 @@ near-performance-metrics = { path = "../utils/near-performance-metrics" }
 near-state-viewer = { path = "../tools/state-viewer", package = "state-viewer" }
 
 [features]
-default = ["json_rpc", "jemalloc"]
+default = ["json_rpc", "rosetta_rpc", "jemalloc"]
 
 jemalloc = ["tikv-jemallocator"]
 performance_stats = ["nearcore/performance_stats"]
