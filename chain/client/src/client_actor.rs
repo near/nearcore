@@ -672,8 +672,6 @@ impl Handler<Status> for ClientActor {
             rpc_addr: self.client.config.rpc_addr.clone(),
             validators,
             sync_info: StatusSyncInfo {
-                epoch_id: Some(head.epoch_id),
-                epoch_start_height: Some(epoch_start_height),
                 latest_block_hash: head.last_block_hash.into(),
                 latest_block_height: head.height,
                 latest_state_root,
@@ -682,6 +680,8 @@ impl Handler<Status> for ClientActor {
                 earliest_block_hash,
                 earliest_block_height,
                 earliest_block_time,
+                epoch_id: Some(head.epoch_id),
+                epoch_start_height: Some(epoch_start_height),
             },
             validator_account_id,
         })

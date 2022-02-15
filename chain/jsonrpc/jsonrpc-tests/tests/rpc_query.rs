@@ -13,7 +13,7 @@ use near_logger_utils::init_test_logger;
 use near_network::test_utils::WaitOrTimeoutActor;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockId, BlockReference, ShardId, SyncCheckpoint};
+use near_primitives::types::{BlockId, BlockReference, EpochId, ShardId, SyncCheckpoint};
 use near_primitives::views::QueryRequest;
 
 use near_jsonrpc_tests::{self as test_utils, test_with_client};
@@ -371,9 +371,10 @@ fn test_status() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let status = client.status().await.unwrap();
         assert_eq!(status.chain_id, "unittest");
-        assert_eq!(status.sync_info.epoch_start_height, Some(0));
         assert_eq!(status.sync_info.latest_block_height, 0);
         assert_eq!(status.sync_info.syncing, false);
+        assert_eq!(status.sync_info.epoch_id, Some(EpochId::default()));
+        assert_eq!(status.sync_info.epoch_start_height, Some(0));
     });
 }
 
