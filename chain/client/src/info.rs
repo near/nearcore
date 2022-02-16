@@ -114,7 +114,7 @@ impl InfoHelper {
 
         let validator_info_log = validator_info.as_ref().map(|info| {
             format!(
-                "{}{} validator{}",
+                " {}{} validator{}",
                 if info.is_validator { "Validator | " } else { "" },
                 info.num_validators,
                 s(info.num_validators)
