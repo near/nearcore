@@ -30,7 +30,7 @@ fn trie_lookup(bench: &mut Bencher) {
     state_update.commit().expect("Failed to commit");
 
     bench.iter(|| {
-        for _ in 0..1 {
+        for _ in 0..2 {
             for (key, _) in other_changes.iter() {
                 trie.get(&root, key).unwrap();
             }
