@@ -12,13 +12,17 @@ fn rand_bytes() -> Vec<u8> {
     (0..10).map(|_| random::<u8>()).collect()
 }
 
+fn long_rand_bytes() -> Vec<u8> {
+    (0..1000).map(|_| random::<u8>()).collect()
+}
+
 fn trie_lookup(bench: &mut Bencher) {
     let tries = create_tries();
     let trie = tries.get_trie_for_shard(ShardUId::single_shard());
     let root = Trie::empty_root();
     let mut changes = vec![];
     for _ in 0..1000 {
-        changes.push((rand_bytes(), Some(rand_bytes())));
+        changes.push((rand_bytes(), Some(long_rand_bytes())));
     }
     let other_changes = changes.clone();
     let trie_changes = trie.update(&root, changes.drain(..)).unwrap();
