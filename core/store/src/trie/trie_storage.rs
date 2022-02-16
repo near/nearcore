@@ -72,7 +72,7 @@ pub struct TrieRecordingStorage {
 impl TrieStorage for TrieRecordingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         if let Some(val) = self.recorded.borrow().get(hash) {
-            return Ok(val.into());
+            return Ok(val.as_slice().into());
         }
         let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
         let val = self
@@ -104,7 +104,7 @@ impl TrieStorage for TrieMemoryPartialStorage {
         let result = self
             .recorded_storage
             .get(hash)
-            .map_or_else(|| Err(StorageError::TrieNodeMissing), |val| Ok(val.into()));
+            .map_or_else(|| Err(StorageError::TrieNodeMissing), |val| Ok(val.as_slice().into()));
         if result.is_ok() {
             self.visited_nodes.borrow_mut().insert(*hash);
         }
