@@ -35,7 +35,7 @@ fn trie_lookup(bench: &mut Bencher) {
         }
     };
     for _ in 0..2 {
-        bench.iter(f);
+        bench.iter(move || f());
     }
 }
 
