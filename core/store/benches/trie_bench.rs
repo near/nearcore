@@ -29,7 +29,7 @@ fn trie_lookup(bench: &mut Bencher) {
     let root = Trie::empty_root();
     let mut changes = vec![];
     for _ in 0..3000 {
-        changes.push((rand_nibbles(), Some(long_rand_bytes())));
+        changes.push((rand_nibbles(), Some(rand_bytes())));
     }
     let other_changes = changes.clone();
     let trie_changes = trie.update(&root, changes.drain(..)).unwrap();
