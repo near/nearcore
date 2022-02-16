@@ -612,10 +612,7 @@ impl Trie {
         }
     }
 
-    pub(crate) fn retrieve_raw_bytes(
-        &self,
-        hash: &CryptoHash,
-    ) -> Result<Arc<Vec<u8>>, StorageError> {
+    pub(crate) fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         self.counter.increment();
         self.storage.retrieve_raw_bytes(hash)
     }
