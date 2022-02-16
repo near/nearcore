@@ -178,9 +178,9 @@ impl TrieStorage for TrieCachingStorage {
             if let Some(val) = val {
                 let val: Arc<[u8]> = val.into();
                 if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
-                    guard.put(*hash, val);
+                    guard.put(*hash, val.clone());
                 }
-                Ok(val.clone())
+                Ok(val)
             } else {
                 // not StorageError::TrieNodeMissing because it's only for TrieMemoryPartialStorage
                 Err(StorageError::StorageInconsistentState("Trie node missing".to_string()))
