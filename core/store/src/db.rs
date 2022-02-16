@@ -874,6 +874,7 @@ impl RocksDB {
         }
     }
 
+    /// Creates a Checkpoint object that can be used to actually create a checkpoint on disk.
     pub fn checkpoint(&self) -> Result<Checkpoint, DBError> {
         Checkpoint::new(&self.db).map_err(|err| DBError(err))
     }

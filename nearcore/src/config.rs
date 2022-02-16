@@ -443,6 +443,7 @@ pub struct Config {
     #[serde(default = "default_use_checkpoints_for_db_migration")]
     pub use_checkpoints_for_db_migration: bool,
     /// Absolute path to the root directory for DB checkpoints.
+    /// If not set, default to the database location, i.e. '$home/data/'.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub db_checkpoints_path: Option<PathBuf>,
 }
