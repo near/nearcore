@@ -2708,6 +2708,7 @@ dependencies = [
  "near-chain-configs",
  "near-client",
  "near-crypto",
+ "near-indexer-primitives",
  "near-primitives",
  "nearcore",
  "node-runtime",
@@ -2716,6 +2717,15 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "near-indexer-primitives"
+version = "0.0.0"
+dependencies = [
+ "near-primitives",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
