@@ -29,13 +29,14 @@ fn trie_lookup(bench: &mut Bencher) {
     let (state_update, root) = tries.apply_all(&trie_changes, ShardUId::single_shard()).unwrap();
     state_update.commit().expect("Failed to commit");
 
-    bench.bench_n(2, |bench| {
-        bench.iter(|| {
-            for (key, _) in other_changes.iter() {
-                trie.get(&root, key).unwrap();
-            }
-        })
-    });
+    let f = || {
+        for (key, _) in other_changes.iter() {
+            trie.get(&root, key).unwrap();
+        }
+    };
+    for _ in 0..2 {
+        bench.iter(f);
+    }
 }
 
 fn trie_update(bench: &mut Bencher) {
