@@ -2,7 +2,7 @@
 extern crate bencher;
 
 use bencher::Bencher;
-use rand::random;
+use rand::{random, Rng};
 use std::time::Instant;
 
 use near_primitives::shard_layout::ShardUId;
@@ -11,6 +11,12 @@ use near_store::Trie;
 
 fn rand_bytes() -> Vec<u8> {
     (0..10).map(|_| random::<u8>()).collect()
+}
+
+fn rand_nibbles() -> Vec<u8> {
+    (0..10)
+        .map(|_| rand::thread_rng().gen_range(0, 2) + 16 * rand::thread_rng().gen_range(0, 2))
+        .collect()
 }
 
 fn long_rand_bytes() -> Vec<u8> {
@@ -22,8 +28,8 @@ fn trie_lookup(bench: &mut Bencher) {
     let trie = tries.get_trie_for_shard(ShardUId::single_shard());
     let root = Trie::empty_root();
     let mut changes = vec![];
-    for _ in 0..1000 {
-        changes.push((rand_bytes(), Some(long_rand_bytes())));
+    for _ in 0..3000 {
+        changes.push((rand_nibbles(), Some(long_rand_bytes())));
     }
     let other_changes = changes.clone();
     let trie_changes = trie.update(&root, changes.drain(..)).unwrap();
