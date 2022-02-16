@@ -36,7 +36,7 @@ impl TrieStorage for IncompletePartialStorage {
         let result = self
             .recorded_storage
             .get(hash)
-            .map_or_else(|| Err(StorageError::TrieNodeMissing), |val| Ok(val.into()));
+            .map_or_else(|| Err(StorageError::TrieNodeMissing), |val| Ok(val.as_slice().into()));
 
         if result.is_ok() {
             self.visited_nodes.borrow_mut().insert(*hash);
