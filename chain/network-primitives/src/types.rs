@@ -276,6 +276,7 @@ pub enum NetworkAdversarialMessage {
 pub enum NetworkSandboxMessage {
     SandboxPatchState(Vec<near_primitives::state_record::StateRecord>),
     SandboxPatchStateStatus,
+    SandboxFastForward(near_primitives::types::BlockHeightDelta),
 }
 
 #[cfg(feature = "sandbox")]
