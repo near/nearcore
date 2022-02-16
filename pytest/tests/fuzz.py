@@ -2,6 +2,7 @@
 
 import os
 import pathlib
+import shlex
 import signal
 import subprocess
 import sys
@@ -23,6 +24,9 @@ def run(directory: str, fuzz_target: str, timeout=typing.Optional[int]) -> int:
     # don’t handle timeout correctly.
     if timeout:
         args += (f'-max_total_time={timeout}',)
+
+    cmd = ' '.join(shlex.quote(str(arg)) for arg in args)
+    sys.stderr.write(f'+ ( cd {shlex.quote(str(cwd))} && {cmd} )\n')
 
     # Secondly, we’re not using `subprocess.call(..., timeout=...)` because that
     # sends KILL signal only to the process spawned by the call and doesn’t kill
