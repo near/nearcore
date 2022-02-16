@@ -17,7 +17,7 @@ fn trie_lookup(bench: &mut Bencher) {
     let trie = tries.get_trie_for_shard(ShardUId::single_shard());
     let root = Trie::empty_root();
     let mut changes = vec![];
-    for _ in 0..100 {
+    for _ in 0..1000 {
         changes.push((rand_bytes(), Some(rand_bytes())));
     }
     let other_changes = changes.clone();
