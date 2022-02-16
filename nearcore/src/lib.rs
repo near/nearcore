@@ -101,6 +101,7 @@ fn check_db_checkpoint_exists(path: &Path, near_config: &NearConfig) -> Option<P
 }
 
 /// Creates a consistent DB checkpoint and returns its path.
+/// By default it creates checkpoints in the DB directory, but can be overridden by the config.
 fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf, anyhow::Error> {
     let checkpoint_path = db_checkpoint_path(path, near_config);
 
