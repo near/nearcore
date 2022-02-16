@@ -147,7 +147,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
                 Some(checkpoint_path)
             }
             Err(err) => {
-                panic!(target: "near", "Failed to create a DB checkpoint before a DB migration: {}. If this persists, you can disable checkpoints in `config.json`:\n```\"use_checkpoints_for_db_migration\": false\n```", err);
+                panic!("Failed to create a DB checkpoint before a DB migration: {}. If this persists, you can disable checkpoints in `config.json`:\n```\"use_checkpoints_for_db_migration\": false\n```", err);
             }
         }
     } else {
