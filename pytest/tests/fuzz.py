@@ -46,7 +46,7 @@ def _kill_process_tree(pid: int) -> None:
 
     proc = psutil.Process(pid)
     procs = proc.children(recursive=True) + [proc]
-    for proc in procss:
+    for proc in procs:
         try:
             proc.send_signal(signal.SIGKILL)
         except psutil.NoSuchProcess:
