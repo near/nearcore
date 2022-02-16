@@ -3,6 +3,7 @@ extern crate bencher;
 
 use bencher::Bencher;
 use rand::random;
+use std::time::Instant;
 
 use near_primitives::shard_layout::ShardUId;
 use near_store::test_utils::create_tries;
@@ -34,9 +35,12 @@ fn trie_lookup(bench: &mut Bencher) {
             trie.get(&root, key).unwrap();
         }
     };
-    for _ in 0..2 {
-        bench.iter(move || f());
-    }
+    bench.iter(move || {
+        let start = Instant::now();
+        f();
+        let took = start.elapsed();
+        println!("took {:?}", took);
+    });
 }
 
 fn trie_update(bench: &mut Bencher) {
