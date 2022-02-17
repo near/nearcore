@@ -175,12 +175,12 @@ mod trie_counter_tests {
     fn count_touched_nodes() {
         let trie_items = test_trie_items();
         let (trie, state_root) = create_trie(&trie_items);
-        assert_eq!(get_touched_nodes_numbers(trie, state_root, &trie_items), vec![6, 6, 4]);
+        assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, &trie_items), vec![6, 6, 4]);
 
         #[cfg(not(feature = "no_cache"))]
         {
             let storage = trie.storage.as_caching_storage().unwrap();
-            let mut guard = storage.cache.0.lock().expect(POISONED_LOCK_ERR);
+            let guard = storage.cache.0.lock().expect(POISONED_LOCK_ERR);
             assert_eq!(guard.len(), 14);
         }
     }
