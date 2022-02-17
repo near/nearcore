@@ -1,6 +1,5 @@
-use serde::{Deserialize, Serialize};
-
 use crate::types::Balance;
+use serde::{Deserialize, Serialize};
 
 /// Data structure for semver version and github tag or commit.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -16,6 +15,7 @@ pub type DbVersion = u32;
 /// Current version of the database.
 pub const DB_VERSION: DbVersion = 31;
 
+use crate::upgrade_schedule::{get_protocol_version_internal, ProtocolUpgradeVotingSchedule};
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
 
@@ -164,6 +164,29 @@ pub const PROTOCOL_VERSION: ProtocolVersion = MAIN_NET_PROTOCOL_VERSION;
 #[cfg(feature = "nightly_protocol")]
 pub const PROTOCOL_VERSION: ProtocolVersion = 126;
 
+#[allow(dead_code)]
+const MAIN_NET_PROTOCOL_UPGRADE_VOTING_START: Option<ProtocolUpgradeVotingSchedule> =
+    Some(ProtocolUpgradeVotingSchedule("2022-02-17 12:44:00"));
+#[cfg(not(feature = "nightly_protocol"))]
+const PROTOCOL_UPGRADE_VOTING_START: Option<ProtocolUpgradeVotingSchedule> =
+    MAIN_NET_PROTOCOL_UPGRADE_VOTING_START;
+
+#[allow(dead_code)]
+const NIGHTLY_PROTOCOL_UPGRADE_VOTING_START: Option<ProtocolUpgradeVotingSchedule> = None;
+#[cfg(feature = "nightly_protocol")]
+const PROTOCOL_UPGRADE_VOTING_START: Option<ProtocolUpgradeVotingSchedule> =
+    NIGHTLY_PROTOCOL_UPGRADE_VOTING_START;
+
+/// Gives new clients an option to upgrade without announcing that they support the new version.
+/// This gives non-validator nodes time to upgrade. See https://github.com/near/NEPs/issues/205
+pub fn get_protocol_version(next_epoch_protocol_version: ProtocolVersion) -> ProtocolVersion {
+    get_protocol_version_internal(
+        next_epoch_protocol_version,
+        PROTOCOL_VERSION,
+        PROTOCOL_UPGRADE_VOTING_START,
+    )
+}
+
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
         match self {
@@ -245,4 +268,23 @@ macro_rules! checked_feature {
             $non_feature_block
         }
     }};
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::version::{
+        MAIN_NET_PROTOCOL_UPGRADE_VOTING_START, NIGHTLY_PROTOCOL_UPGRADE_VOTING_START,
+    };
+
+    #[test]
+    // This unit test ensures validity of upgrade schedule, because the validity can't be ensured
+    // during `const` construction.
+    fn test_upgrade_schedule_valid() {
+        if let Some(schedule) = MAIN_NET_PROTOCOL_UPGRADE_VOTING_START {
+            assert!(schedule.is_valid());
+        }
+        if let Some(schedule) = NIGHTLY_PROTOCOL_UPGRADE_VOTING_START {
+            assert!(schedule.is_valid());
+        }
+    }
 }
