@@ -74,7 +74,7 @@ where
     print!("Test touches {} nodes, expected result {:?}...", size, expected);
     for i in 0..(size + 1) {
         let storage = IncompletePartialStorage::new(storage.clone(), i);
-        let trie = Trie { storage: Box::new(storage), counter: Default::default() };
+        let trie = Trie { storage: Box::new(storage) };
         let expected_result =
             if i < size { Err(&StorageError::TrieNodeMissing) } else { Ok(&expected) };
         assert_eq!(test(Rc::new(trie)).as_ref(), expected_result);
@@ -123,6 +123,66 @@ fn test_reads_with_incomplete_storage() {
                 Ok(keys)
             };
             test_incomplete_storage(Rc::clone(&trie), trie_update_keys);
+        }
+    }
+}
+
+#[cfg(test)]
+mod trie_counter_tests {
+    use super::*;
+    use crate::test_utils::create_tries;
+    use crate::trie::POISONED_LOCK_ERR;
+    use assert_matches::assert_matches;
+
+    fn test_trie_items() -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
+        vec![
+            (b"aaa".to_vec(), Some(vec![0])),
+            (b"abb".to_vec(), Some(vec![1])),
+            (b"baa".to_vec(), Some(vec![2])),
+        ]
+    }
+
+    fn create_trie(items: &[(Vec<u8>, Option<Vec<u8>>)]) -> (Rc<Trie>, CryptoHash) {
+        let tries = create_tries();
+        let shard_uid = ShardUId { version: 1, shard_id: 0 };
+        let trie = tries.get_trie_for_shard(shard_uid);
+        let trie = Rc::new(trie);
+        let state_root = Trie::empty_root();
+        let trie_changes = simplify_changes(&items);
+        let state_root = test_populate_trie(&tries, &state_root, shard_uid, trie_changes.clone());
+        (trie, state_root)
+    }
+
+    // Helper for tests ensuring the correct behaviour of trie counter.
+    // For example, on testing set of keys `[b"aaa", b"abb", b"baa"]`, we expect 6 touched nodes to get value for the first
+    // key: Branch -> Extension -> Branch -> Extension -> Leaf plus retrieving the value by its hash.
+    fn get_touched_nodes_numbers(
+        trie: Rc<Trie>,
+        state_root: CryptoHash,
+        items: &[(Vec<u8>, Option<Vec<u8>>)],
+    ) -> Vec<u64> {
+        items
+            .iter()
+            .map(|(key, value)| {
+                let initial_counter = trie.get_touched_nodes_count();
+                let got_value = trie.get(&state_root, key).unwrap();
+                assert_eq!(*value, got_value);
+                trie.get_touched_nodes_count() - initial_counter
+            })
+            .collect()
+    }
+
+    #[test]
+    fn count_touched_nodes() {
+        let trie_items = test_trie_items();
+        let (trie, state_root) = create_trie(&trie_items);
+        assert_eq!(get_touched_nodes_numbers(trie, state_root, &trie_items), vec![6, 6, 4]);
+
+        #[cfg(not(feature = "no_cache"))]
+        {
+            let storage = trie.storage.as_caching_storage().unwrap();
+            let mut guard = storage.cache.0.lock().expect(POISONED_LOCK_ERR);
+            assert_eq!(guard.len(), 14);
         }
     }
 }

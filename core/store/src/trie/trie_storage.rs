@@ -9,11 +9,11 @@ use crate::trie::POISONED_LOCK_ERR;
 use crate::{ColState, StorageError, Store};
 use lru::LruCache;
 use near_primitives::shard_layout::ShardUId;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::io::ErrorKind;
 
 #[derive(Clone)]
-pub struct TrieCache(Arc<Mutex<LruCache<CryptoHash, Vec<u8>>>>);
+pub struct TrieCache(pub(crate) Arc<Mutex<LruCache<CryptoHash, Vec<u8>>>>);
 
 impl TrieCache {
     pub fn new() -> Self {
@@ -58,6 +58,10 @@ pub trait TrieStorage {
 
     fn as_partial_storage(&self) -> Option<&TrieMemoryPartialStorage> {
         None
+    }
+
+    fn get_touched_nodes_count(&self) -> u64 {
+        unimplemented!();
     }
 }
 
@@ -135,11 +139,13 @@ pub struct TrieCachingStorage {
     pub(crate) store: Store,
     pub(crate) cache: TrieCache,
     pub(crate) shard_uid: ShardUId,
+
+    pub(crate) counter: Cell<u64>,
 }
 
 impl TrieCachingStorage {
     pub fn new(store: Store, cache: TrieCache, shard_uid: ShardUId) -> TrieCachingStorage {
-        TrieCachingStorage { store, cache, shard_uid }
+        TrieCachingStorage { store, cache, shard_uid, counter: Cell::new(0u64) }
     }
 
     pub(crate) fn get_shard_uid_and_hash_from_key(
@@ -162,10 +168,15 @@ impl TrieCachingStorage {
         key[8..].copy_from_slice(hash.as_ref());
         key
     }
+
+    fn inc_counter(&self) {
+        self.counter.set(self.counter.get() + 1);
+    }
 }
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
+        self.inc_counter();
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
         if let Some(val) = guard.get(hash) {
             Ok(val.clone())
@@ -190,21 +201,8 @@ impl TrieStorage for TrieCachingStorage {
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
         Some(self)
     }
-}
 
-/// Runtime counts the number of touched trie nodes for the purpose of gas calculation.
-/// Trie increments it on every call to TrieStorage::retrieve_raw_bytes()
-#[derive(Default)]
-pub struct TouchedNodesCounter {
-    counter: AtomicU64,
-}
-
-impl TouchedNodesCounter {
-    pub fn increment(&self) {
-        self.counter.fetch_add(1, Ordering::SeqCst);
-    }
-
-    pub fn get(&self) -> u64 {
-        self.counter.load(Ordering::SeqCst)
+    fn get_touched_nodes_count(&self) -> u64 {
+        self.counter.get()
     }
 }

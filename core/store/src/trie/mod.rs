@@ -17,10 +17,8 @@ use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
-use crate::trie::trie_storage::{
-    TouchedNodesCounter, TrieMemoryPartialStorage, TrieRecordingStorage, TrieStorage,
-};
 pub(crate) use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
+use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage, TrieStorage};
 use crate::StorageError;
 
 mod insert_delete;
@@ -407,7 +405,6 @@ impl RawTrieNodeWithSize {
 
 pub struct Trie {
     pub(crate) storage: Box<dyn TrieStorage>,
-    pub counter: TouchedNodesCounter,
 }
 
 /// Stores reference count change for some key-value pair in DB.
@@ -471,7 +468,7 @@ pub struct ApplyStatePartResult {
 
 impl Trie {
     pub fn new(store: Box<dyn TrieStorage>, _shard_uid: ShardUId) -> Self {
-        Trie { storage: store, counter: TouchedNodesCounter::default() }
+        Trie { storage: store }
     }
 
     pub fn recording_reads(&self) -> Self {
@@ -482,7 +479,7 @@ impl Trie {
             shard_uid: storage.shard_uid,
             recorded: RefCell::new(Default::default()),
         };
-        Trie { storage: Box::new(storage), counter: TouchedNodesCounter::default() }
+        Trie { storage: Box::new(storage) }
     }
 
     pub fn empty_root() -> StateRoot {
@@ -505,7 +502,6 @@ impl Trie {
                 recorded_storage,
                 visited_nodes: Default::default(),
             }),
-            counter: TouchedNodesCounter::default(),
         }
     }
 
@@ -577,7 +573,6 @@ impl Trie {
         if *hash == Trie::empty_root() {
             Ok(memory.store(TrieNodeWithSize::empty()))
         } else {
-            self.counter.increment();
             let bytes = self.storage.retrieve_raw_bytes(hash)?;
             match RawTrieNodeWithSize::decode(&bytes) {
                 Ok(value) => {
@@ -612,7 +607,6 @@ impl Trie {
     }
 
     pub(crate) fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
-        self.counter.increment();
         self.storage.retrieve_raw_bytes(hash)
     }
 
@@ -757,6 +751,10 @@ impl Trie {
 
     pub fn iter<'a>(&'a self, root: &CryptoHash) -> Result<TrieIterator<'a>, StorageError> {
         TrieIterator::new(self, root)
+    }
+
+    pub fn get_touched_nodes_count(&self) -> u64 {
+        self.storage.get_touched_nodes_count()
     }
 }
 
