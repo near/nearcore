@@ -40,8 +40,9 @@ impl TrieCache {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
-        let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
+        let guard = self.0.lock().expect(POISONED_LOCK_ERR);
         guard.len()
     }
 }

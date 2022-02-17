@@ -131,6 +131,11 @@ fn test_reads_with_incomplete_storage() {
 mod caching_storage_tests {
     use super::*;
     use crate::test_utils::create_tries;
+    use crate::trie::nibble_slice::NibbleSlice;
+
+    fn create_trie_key(nibbles: &[u8]) -> Vec<u8> {
+        NibbleSlice::encode_nibbles(&nibbles, false).into_vec()
+    }
 
     fn create_trie(items: &[(Vec<u8>, Option<Vec<u8>>)]) -> (Rc<Trie>, CryptoHash) {
         let tries = create_tries();
@@ -163,18 +168,35 @@ mod caching_storage_tests {
     // Test nodes counter and trie cache size on the sample of trie items.
     #[test]
     fn count_touched_nodes() {
-        // For keys ["aaa", "abb", "baa"], we expect 6 touched nodes to get value for the first key "aaa":
-        // Branch -> Extension -> Branch -> Extension -> Leaf plus retrieving the value by its hash. In total
-        // there will be 10 distinct nodes, because "abb" and "baa" both add one Leaf and value.
+        // For keys with nibbles [000, 011, 100], we expect 6 touched nodes to get value for the first key 000:
+        // Extension -> Branch -> Branch -> Leaf plus retrieving the value by its hash. In total
+        // there will be 9 distinct nodes, because 011 and 100 both add one Leaf and value.
         let trie_items = vec![
-            (b"aaa".to_vec(), Some(vec![0])),
-            (b"abb".to_vec(), Some(vec![1])),
-            (b"baa".to_vec(), Some(vec![2])),
+            (create_trie_key(&vec![0, 0, 0]), Some(vec![0])),
+            (create_trie_key(&vec![0, 1, 1]), Some(vec![1])),
+            (create_trie_key(&vec![1, 0, 0]), Some(vec![2])),
         ];
         let (trie, state_root) = create_trie(&trie_items);
-        assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, &trie_items), vec![6, 6, 4]);
+        assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, &trie_items), vec![5, 5, 4]);
 
         let storage = trie.storage.as_caching_storage().unwrap();
-        assert_eq!(storage.cache.len(), 10);
+        assert_eq!(storage.cache.len(), 9);
+    }
+
+    // Check that same values are stored in the same trie node.
+    #[test]
+    fn count_touched_nodes_repeated_values() {
+        // For these keys there will be 5 nodes with distinct hashes, because each path looks like
+        // Extension([0, 0]) -> Branch -> Leaf([48/49]) -> value.
+        // TODO: explain the exact values in path items here
+        let trie_items = vec![
+            (create_trie_key(&vec![0, 0]), Some(vec![1])),
+            (create_trie_key(&vec![1, 1]), Some(vec![1])),
+        ];
+        let (trie, state_root) = create_trie(&trie_items);
+        assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, &trie_items), vec![4, 4]);
+
+        let storage = trie.storage.as_caching_storage().unwrap();
+        assert_eq!(storage.cache.len(), 5);
     }
 }

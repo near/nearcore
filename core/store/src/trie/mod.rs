@@ -606,10 +606,6 @@ impl Trie {
         }
     }
 
-    pub(crate) fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
-        self.storage.retrieve_raw_bytes(hash)
-    }
-
     pub fn retrieve_root_node(&self, root: &StateRoot) -> Result<StateRootNode, StorageError> {
         if *root == Trie::empty_root() {
             return Ok(StateRootNode::empty());
