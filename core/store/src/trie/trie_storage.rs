@@ -59,9 +59,7 @@ pub trait TrieStorage {
         None
     }
 
-    fn get_touched_nodes_count(&self) -> u64 {
-        unimplemented!();
-    }
+    fn get_touched_nodes_count(&self) -> u64;
 }
 
 /// Records every value read by retrieve_raw_bytes.
