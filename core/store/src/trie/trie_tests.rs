@@ -154,8 +154,9 @@ mod caching_storage_tests {
     }
 
     // Helper for tests ensuring the correct behaviour of trie counter.
-    // For example, on testing set of keys `[b"aaa", b"abb", b"baa"]`, we expect 6 touched nodes to get value for the
-    // first key: Branch -> Extension -> Branch -> Extension -> Leaf plus retrieving the value by its hash.
+    // For example, on testing set of keys ["aaa", "abb", "baa"], we expect 6 touched nodes to get value for the
+    // first key: Branch -> Extension -> Branch -> Extension -> Leaf plus retrieving the value by its hash. In total
+    // there will be 10 nodes, because "abb" and "baa" both add one Leaf and value.
     fn get_touched_nodes_numbers(
         trie: Rc<Trie>,
         state_root: CryptoHash,
