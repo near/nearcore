@@ -1,3 +1,21 @@
+"""
+End-to-end test for canary nodes.
+Assuming each canary node has an account with positive balance.
+Periodically (1 minute) each account sends itself 0 tokens. Some tokens get burned in the process.
+Account balances get exported to prometheus and can be used to detect when transactions stop affecting the world, aka the chain of testnet or mainnet.
+We observe effects on the chain using public RPC endpoints to ensure canaries are running a fork.
+
+python3 tests/endtoend/test.py
+    --ips <ip_node1,ip_node2>
+    --accounts <account_node1,account_node2>
+    --interval-sec 60
+    --port 3030
+    --public-key <public_key of test accounts>
+    --private-key <private key of test account>
+    --rpc-server-addr rpc.testnet.near.org
+    --rpc-server-port 80
+    --metrics-port 3040
+"""
 #!/usr/bin/env python3
 import argparse
 import random
@@ -49,7 +67,6 @@ def pinger(account, interval, rpc_server):
 if __name__ == '__main__':
     logger.info('Starting end-to-end test.')
     parser = argparse.ArgumentParser(description='Run an end-to-end test')
-    parser.add_argument('--project', required=True)
     parser.add_argument('--ips', required=True)
     parser.add_argument('--accounts', required=True)
     parser.add_argument('--interval-sec', type=float, required=True)
@@ -64,7 +81,6 @@ if __name__ == '__main__':
 
     prometheus_client.start_http_server(args.metrics_port)
 
-    project = args.project
     assert args.ips
     ips = args.ips.split(',')
     assert args.accounts
