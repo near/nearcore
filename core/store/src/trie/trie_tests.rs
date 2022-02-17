@@ -132,7 +132,6 @@ mod trie_counter_tests {
     use super::*;
     use crate::test_utils::create_tries;
     use crate::trie::POISONED_LOCK_ERR;
-    use assert_matches::assert_matches;
 
     fn test_trie_items() -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
         vec![
@@ -154,8 +153,8 @@ mod trie_counter_tests {
     }
 
     // Helper for tests ensuring the correct behaviour of trie counter.
-    // For example, on testing set of keys `[b"aaa", b"abb", b"baa"]`, we expect 6 touched nodes to get value for the first
-    // key: Branch -> Extension -> Branch -> Extension -> Leaf plus retrieving the value by its hash.
+    // For example, on testing set of keys `[b"aaa", b"abb", b"baa"]`, we expect 6 touched nodes to get value for the
+    // first key: Branch -> Extension -> Branch -> Extension -> Leaf plus retrieving the value by its hash.
     fn get_touched_nodes_numbers(
         trie: Rc<Trie>,
         state_root: CryptoHash,
