@@ -80,7 +80,6 @@ fn try_main() -> Result<()> {
 
     println!("cargo:rustc-env=NEARD_BUILD={}", get_git_version()?);
 
-    println!("cargo:rerun-if-env-changed=RUSTC");
     println!("cargo:rustc-env=NEARD_RUSTC_VERSION={}", rustc_version::version()?);
 
     Ok(())
