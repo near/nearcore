@@ -75,9 +75,10 @@ def _kill_process_tree(pid: int) -> None:
 def _get_timeout() -> typing.Optional[int]:
     """Returns test timeout configured on NayDuck
 
-    When run on NayDuck, returns timeout in seconds that NayDuck gives us to
-    execute.  If we run over that time, the test will be reported as timed out.
-    When not running on NayDuck, returns None denoting no timeout.
+    Returns:
+        When run on NayDuck, returns timeout in seconds that NayDuck gives us to
+        execute.  If we run over that time, the test will be reported as timed
+        out.  When not running on NayDuck, returns None denoting no timeout.
     """
     timeout = os.environ.get('NAYDUCK_TIMEOUT')
     if timeout:
