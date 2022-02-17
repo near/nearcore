@@ -12,7 +12,7 @@ use std::cell::{Cell, RefCell};
 use std::io::ErrorKind;
 
 #[derive(Clone)]
-pub struct TrieCache(pub(crate) Arc<Mutex<LruCache<CryptoHash, Vec<u8>>>>);
+pub struct TrieCache(Arc<Mutex<LruCache<CryptoHash, Vec<u8>>>>);
 
 impl TrieCache {
     pub fn new() -> Self {
@@ -39,6 +39,11 @@ impl TrieCache {
             }
         }
     }
+
+    pub(crate) fn len(&self) -> usize {
+        let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
+        guard.len()
+    }
 }
 
 pub trait TrieStorage {
@@ -59,11 +64,14 @@ pub trait TrieStorage {
         None
     }
 
-    fn get_touched_nodes_count(&self) -> u64;
+    fn get_touched_nodes_count(&self) -> u64 {
+        unimplemented!();
+    }
 }
 
 /// Records every value read by retrieve_raw_bytes.
 /// Used for obtaining state parts (and challenges in the future).
+/// TODO (#6316): implement proper nodes counting logic as in TrieCachingStorage
 pub struct TrieRecordingStorage {
     pub(crate) store: Store,
     pub(crate) shard_uid: ShardUId,

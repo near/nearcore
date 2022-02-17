@@ -46,7 +46,7 @@ impl<'a> TrieUpdateValuePtr<'a> {
     pub fn deref_value(&self) -> Result<Vec<u8>, StorageError> {
         match self {
             TrieUpdateValuePtr::MemoryRef(value) => Ok((*value).clone()),
-            TrieUpdateValuePtr::HashAndSize(trie, _, hash) => trie.retrieve_raw_bytes(hash),
+            TrieUpdateValuePtr::HashAndSize(trie, _, hash) => trie.storage.retrieve_raw_bytes(hash),
         }
     }
 }

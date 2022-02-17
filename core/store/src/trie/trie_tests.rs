@@ -131,16 +131,6 @@ fn test_reads_with_incomplete_storage() {
 mod caching_storage_tests {
     use super::*;
     use crate::test_utils::create_tries;
-    #[cfg(not(feature = "no_cache"))]
-    use crate::trie::POISONED_LOCK_ERR;
-
-    fn test_trie_items() -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
-        vec![
-            (b"aaa".to_vec(), Some(vec![0])),
-            (b"abb".to_vec(), Some(vec![1])),
-            (b"baa".to_vec(), Some(vec![2])),
-        ]
-    }
 
     fn create_trie(items: &[(Vec<u8>, Option<Vec<u8>>)]) -> (Rc<Trie>, CryptoHash) {
         let tries = create_tries();
@@ -153,10 +143,7 @@ mod caching_storage_tests {
         (trie, state_root)
     }
 
-    // Helper for tests ensuring the correct behaviour of trie counter.
-    // For example, on testing set of keys ["aaa", "abb", "baa"], we expect 6 touched nodes to get value for the
-    // first key: Branch -> Extension -> Branch -> Extension -> Leaf plus retrieving the value by its hash. In total
-    // there will be 10 nodes, because "abb" and "baa" both add one Leaf and value.
+    // Get values corresponding to keys one by one, returning vector of numbers of touched nodes for each `get`.
     fn get_touched_nodes_numbers(
         trie: Rc<Trie>,
         state_root: CryptoHash,
@@ -176,15 +163,18 @@ mod caching_storage_tests {
     // Test nodes counter and trie cache size on the sample of trie items.
     #[test]
     fn count_touched_nodes() {
-        let trie_items = test_trie_items();
+        // For keys ["aaa", "abb", "baa"], we expect 6 touched nodes to get value for the first key "aaa":
+        // Branch -> Extension -> Branch -> Extension -> Leaf plus retrieving the value by its hash. In total
+        // there will be 10 distinct nodes, because "abb" and "baa" both add one Leaf and value.
+        let trie_items = vec![
+            (b"aaa".to_vec(), Some(vec![0])),
+            (b"abb".to_vec(), Some(vec![1])),
+            (b"baa".to_vec(), Some(vec![2])),
+        ];
         let (trie, state_root) = create_trie(&trie_items);
         assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, &trie_items), vec![6, 6, 4]);
 
-        #[cfg(not(feature = "no_cache"))]
-        {
-            let storage = trie.storage.as_caching_storage().unwrap();
-            let guard = storage.cache.0.lock().expect(POISONED_LOCK_ERR);
-            assert_eq!(guard.len(), 10);
-        }
+        let storage = trie.storage.as_caching_storage().unwrap();
+        assert_eq!(storage.cache.len(), 10);
     }
 }
