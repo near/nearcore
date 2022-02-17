@@ -43,4 +43,4 @@ RUN apt-get update -qq && apt-get install -y \
 COPY scripts/run_docker.sh /usr/local/bin/run.sh
 COPY --from=build /tmp/target/release/neard /usr/local/bin/
 
-ENTRYPOINT ["/usr/local/bin/run.sh"]
+CMD ["/usr/local/bin/run.sh"]
