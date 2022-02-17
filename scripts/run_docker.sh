@@ -1,7 +1,8 @@
 #!/bin/sh
 set -e
 
-export NEAR_HOME=/srv/near
+NEAR_HOME=/srv/near
+export NEAR_HOME
 
 NEARD_FLAGS=${NEAR_HOME:+--home="$NEAR_HOME"}
 
