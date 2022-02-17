@@ -181,7 +181,7 @@ mod trie_counter_tests {
         {
             let storage = trie.storage.as_caching_storage().unwrap();
             let guard = storage.cache.0.lock().expect(POISONED_LOCK_ERR);
-            assert_eq!(guard.len(), 14);
+            assert_eq!(guard.len(), 10);
         }
     }
 }
