@@ -128,9 +128,10 @@ fn test_reads_with_incomplete_storage() {
 }
 
 #[cfg(test)]
-mod trie_counter_tests {
+mod caching_storage_tests {
     use super::*;
     use crate::test_utils::create_tries;
+    #[cfg(not(feature = "no_cache"))]
     use crate::trie::POISONED_LOCK_ERR;
 
     fn test_trie_items() -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
@@ -171,6 +172,7 @@ mod trie_counter_tests {
             .collect()
     }
 
+    // Test nodes counter and trie cache size on the sample of trie items.
     #[test]
     fn count_touched_nodes() {
         let trie_items = test_trie_items();
