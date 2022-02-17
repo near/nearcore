@@ -12,6 +12,25 @@ import psutil
 
 
 def run(directory: str, fuzz_target: str, timeout=typing.Optional[int]) -> int:
+    """Executes `cargo fuzz run` on given target in given directory.
+
+    Args:
+        directory: Directory within the repository to execute the `cargo fuzz`
+            command in.
+        fuzz_target: The `cargo fuzz run` target.
+        timeout: Optional timeout in seconds denoting maximum time the fuzzer
+            can run.  If given, the fuzzer will be killed after given time
+            passes and run is considered a success, i.e. function returns 0.
+
+    Returns:
+        The exit status of the fuzzer except that if timeout is specified and
+        fuzzer runs over allotted interval it is killed and the function returns
+        zero denoting success.  Similarly, if script is interrupted with Ctrl+C,
+        the fuzzer is killed and run is considered a success.
+
+        This behaviour is because the fuzzer normally runs until it finds
+        a failure at which point it exits with non-zero exit code.
+    """
     cwd = pathlib.Path(__file__).resolve().parents[2] / directory
     args = ('cargo', 'fuzz', 'run', fuzz_target, '--', '-len_control=0'
             '-prefer_small=0', '-max_len=4000000', '-rss_limit_mb=10240')
@@ -56,9 +75,9 @@ def _kill_process_tree(pid: int) -> None:
 def _get_timeout() -> typing.Optional[int]:
     """Returns test timeout configured on NayDuck
 
-    When run on NayDuck, returns timeout that NayDuck gives us to execute.  If
-    we run over that time, the test will be reported as timed out.  When not
-    running on NayDuck, returns None denoting no timeout.
+    When run on NayDuck, returns timeout in seconds that NayDuck gives us to
+    execute.  If we run over that time, the test will be reported as timed out.
+    When not running on NayDuck, returns None denoting no timeout.
     """
     timeout = os.environ.get('NAYDUCK_TIMEOUT')
     if timeout:
