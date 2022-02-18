@@ -71,45 +71,35 @@ pub fn get_default_home() -> PathBuf {
     PathBuf::default()
 }
 
-/// Returns the path of a directory where DB checkpoint can be found or created.
-/// Default location is the same as the database location: `path`.
-fn db_checkpoint_root_dir<'a>(path: &'a Path, near_config: &'a NearConfig) -> &'a Path {
-    if let Some(db_checkpoints_path) = &near_config.config.db_checkpoints_path {
-        &db_checkpoints_path
-    } else {
-        path
-    }
-}
-
 /// Returns the path of the DB checkpoint.
-fn db_checkpoint_path<'a>(path: &'a Path, near_config: &'a NearConfig) -> PathBuf {
-    let checkpoint_path = db_checkpoint_root_dir(path, near_config);
-    let checkpoint_path = checkpoint_path.join(DB_CHECKPOINT_NAME);
-    checkpoint_path
+/// Default location is the same as the database location: `path`.
+fn db_checkpoint_path(path: &Path, near_config: &NearConfig) -> PathBuf {
+    near_config
+        .config
+        .db_migration_snapshot_path
+        .as_ref()
+        .unwrap_or(&path.to_path_buf())
+        .join(DB_CHECKPOINT_NAME)
 }
 
 const DB_CHECKPOINT_NAME: &str = "db_snapshot_before_migration";
-
-/// Returns the path of the first DB checkpoint found on disk.
-fn check_db_checkpoint_exists(path: &Path, near_config: &NearConfig) -> Option<PathBuf> {
-    let path = db_checkpoint_path(path, near_config);
-    if path.exists() {
-        Some(path)
-    } else {
-        None
-    }
-}
 
 /// Creates a consistent DB checkpoint and returns its path.
 /// By default it creates checkpoints in the DB directory, but can be overridden by the config.
 fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf, anyhow::Error> {
     let checkpoint_path = db_checkpoint_path(path, near_config);
+    if checkpoint_path.exists() {
+        panic!(
+            "Detected an existing database migration snapshot: '{}'.\n\
+             Probably a database migration got interrupted and your database is corrupted.\n\
+             Please replace the contents of '{}' with data from that checkpoint, delete the checkpoint and try again.",checkpoint_path.display(), path.display());
+    }
 
     let db = RocksDB::new(path)?;
     let checkpoint = db.checkpoint()?;
-    info!(target:"near","Creating a DB snapshot in '{}'",checkpoint_path.display());
+    info!(target:"near","Creating a database migration snapshot in '{}'",checkpoint_path.display());
     checkpoint.create_checkpoint(&checkpoint_path)?;
-    info!(target:"near","Created a DB snapshot in '{}'",checkpoint_path.display());
+    info!(target:"near","Created a database migration snapshot in '{}'",checkpoint_path.display());
 
     Ok(checkpoint_path)
 }
@@ -126,28 +116,25 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         return;
     }
 
-    // Before attemping a DB migration check if the current DB is corrupted. We assume that
-    // checkpoints get created before each migration attempt and get removed after successful
-    // attempts.
-    if near_config.config.use_checkpoints_for_db_migration {
-        match check_db_checkpoint_exists(path, near_config) {
-            Some(existing_checkpoint_path) => {
-                panic!("Detected an existing DB migration checkpoint: '{}'. Probably a DB migration got interrupted and your DB is corrupted. Please replace the contents of '{}' with data from that checkpoint, delete the checkpoint and try again.",existing_checkpoint_path.display(), path.display());
-            }
-            None => {}
-        }
-    }
-
     // Before starting a DB migration, create a consistent snapshot of the database. If a migration
     // fails, it can be used to quickly restore the database to its original state.
-    let checkpoint_path = if near_config.config.use_checkpoints_for_db_migration {
+    let checkpoint_path = if near_config.config.use_db_migration_snapshot {
         match create_db_checkpoint(path, near_config) {
             Ok(checkpoint_path) => {
                 info!(target: "near", "Created a DB checkpoint before a DB migration: '{}'. Please recover from this checkpoint if the migration gets interrupted.", checkpoint_path.display());
                 Some(checkpoint_path)
             }
             Err(err) => {
-                panic!("Failed to create a DB checkpoint before a DB migration: {}. If this persists, you can disable checkpoints in `config.json`:\n```\"use_checkpoints_for_db_migration\": false\n```", err);
+                panic!(
+                    "Failed to create a database migration snapshot: {}.\n\
+                     Please consider fixing this issue and retrying.\n\
+                     You can change the location of database migration snapshots by adjusting `config.json`:\n\
+                     \t\"db_migration_snapshot_path\": \"/absolute/path/to/existing/dir\",\n\
+                     Alternatively, you can disable database migration snapshots in `config.json`:\n\
+                     \t\"use_db_migration_snapshot\": false,\n\
+                     ",
+                    err
+                );
             }
         }
     } else {
@@ -345,16 +332,14 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
     }
 
     // DB migration was successful, remove the checkpoint to avoid it taking up precious disk space.
-    if near_config.config.use_checkpoints_for_db_migration {
-        if let Some(checkpoint_path) = checkpoint_path {
-            info!(target: "near", "Deleting DB checkpoint at '{}'", checkpoint_path.display());
-            match std::fs::remove_dir_all(&checkpoint_path) {
-                Ok(_) => {
-                    info!(target: "near", "Deleted DB checkpoint at '{}'", checkpoint_path.display());
-                }
-                Err(err) => {
-                    error!(target: "near", "Failed to delete a DB checkpoint at '{}'. Error: {:#?}. Please delete it manually before the next start of the node.", checkpoint_path.display(), err);
-                }
+    if let Some(checkpoint_path) = checkpoint_path {
+        info!(target: "near", "Deleting the database migration snapshot at '{}'", checkpoint_path.display());
+        match std::fs::remove_dir_all(&checkpoint_path) {
+            Ok(_) => {
+                info!(target: "near", "Deleted the database migration snapshot at '{}'", checkpoint_path.display());
+            }
+            Err(err) => {
+                error!(target: "near", "Failed to delete the database migration snapshot at '{}'. Error: {:#?}. Please delete it manually before the next start of the node.", checkpoint_path.display(), err);
             }
         }
     }

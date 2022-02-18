@@ -28,7 +28,6 @@ near-rust-allocator-proxy = { version = "0.4", optional = true }
 num-rational = { version = "0.3", features = ["serde"] }
 rand = "0.7"
 rayon = "1.5"
-rocksdb = { version = "0.18.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 smart-default = "0.6"
