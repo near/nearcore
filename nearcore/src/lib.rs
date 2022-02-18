@@ -74,12 +74,17 @@ pub fn get_default_home() -> PathBuf {
 /// Returns the path of the DB checkpoint.
 /// Default location is the same as the database location: `path`.
 fn db_checkpoint_path(path: &Path, near_config: &NearConfig) -> PathBuf {
-    near_config
-        .config
-        .db_migration_snapshot_path
-        .as_ref()
-        .unwrap_or(&path.to_path_buf())
-        .join(DB_CHECKPOINT_NAME)
+    let root_path =
+        if let Some(db_migration_snapshot_path) = &near_config.config.db_migration_snapshot_path {
+            assert!(
+                db_migration_snapshot_path.is_absolute(),
+                "'db_migration_snapshot_path' must be an absolute path to an existing directory."
+            );
+            db_migration_snapshot_path.clone()
+        } else {
+            path.to_path_buf()
+        };
+    root_path.join(DB_CHECKPOINT_NAME)
 }
 
 const DB_CHECKPOINT_NAME: &str = "db_snapshot_before_migration";
