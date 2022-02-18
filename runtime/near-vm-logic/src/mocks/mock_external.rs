@@ -11,17 +11,17 @@ pub struct MockedExternal {
     receipts: Vec<Receipt>,
     pub validators: HashMap<AccountId, Balance>,
     #[cfg(feature = "protocol_feature_function_call_weight")]
-    distribute_leftover_gas_to: Vec<GasRatioMetadata>,
+    distribute_leftover_gas_to: Vec<GasWeightMetadata>,
     #[cfg(feature = "protocol_feature_function_call_weight")]
-    gas_ratio_sum: u64,
+    gas_weight_sum: u64,
 }
 
 #[derive(Clone)]
 #[cfg(feature = "protocol_feature_function_call_weight")]
-struct GasRatioMetadata {
+struct GasWeightMetadata {
     receipt_index: usize,
     action_index: usize,
-    gas_ratio: u64,
+    gas_weight: u64,
 }
 
 pub struct MockedValuePtr {
@@ -138,18 +138,18 @@ impl External for MockedExternal {
         arguments: Vec<u8>,
         attached_deposit: u128,
         prepaid_gas: u64,
-        gas_ratio: u64,
+        gas_weight: u64,
     ) -> Result<()> {
         let receipt_index = receipt_index as usize;
         let receipt = self.receipts.get_mut(receipt_index).unwrap();
-        if gas_ratio > 0 {
-            self.distribute_leftover_gas_to.push(GasRatioMetadata {
+        if gas_weight > 0 {
+            self.distribute_leftover_gas_to.push(GasWeightMetadata {
                 receipt_index,
                 action_index: receipt.actions.len(),
-                gas_ratio,
+                gas_weight,
             });
-            self.gas_ratio_sum =
-                self.gas_ratio_sum.checked_add(gas_ratio).ok_or(HostError::IntegerOverflow)?;
+            self.gas_weight_sum =
+                self.gas_weight_sum.checked_add(gas_weight).ok_or(HostError::IntegerOverflow)?;
         }
 
         receipt.actions.push(Action::FunctionCall(FunctionCallAction {
@@ -255,13 +255,13 @@ impl External for MockedExternal {
 
     #[cfg(feature = "protocol_feature_function_call_weight")]
     fn distribute_unused_gas(&mut self, gas: Gas) -> Gas {
-        if self.gas_ratio_sum != 0 {
-            let gas_per_ratio = gas / self.gas_ratio_sum;
+        if self.gas_weight_sum != 0 {
+            let gas_per_weight = gas / self.gas_weight_sum;
 
             self.distribute_leftover_gas_to
                 .drain(..)
-                .map(|GasRatioMetadata { receipt_index, action_index, gas_ratio }| {
-                    let assign_gas = gas_per_ratio * gas_ratio;
+                .map(|GasWeightMetadata { receipt_index, action_index, gas_weight }| {
+                    let assign_gas = gas_per_weight * gas_weight;
                     if let Some(Action::FunctionCall(FunctionCallAction { ref mut gas, .. })) = self
                         .receipts
                         .get_mut(receipt_index)
@@ -269,7 +269,7 @@ impl External for MockedExternal {
                     {
                         *gas += assign_gas;
                     } else {
-                        panic!("Invalid index for assigning unused gas ratio");
+                        panic!("Invalid index for assigning unused gas weight");
                     }
 
                     assign_gas

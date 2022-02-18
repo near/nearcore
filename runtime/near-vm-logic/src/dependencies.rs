@@ -318,7 +318,7 @@ pub trait External {
         arguments: Vec<u8>,
         attached_deposit: Balance,
         prepaid_gas: Gas,
-        gas_ratio: u64,
+        gas_weight: u64,
     ) -> Result<()>;
 
     /// Attach the [`TransferAction`] action to an existing receipt.
@@ -532,11 +532,11 @@ pub trait External {
     /// Returns total stake of validators in the current epoch.
     fn validator_total_stake(&self) -> Result<Balance>;
 
-    /// Distribute the gas among the scheduled function calls that specify a gas ratio.
+    /// Distribute the gas among the scheduled function calls that specify a gas weight.
     /// Returns the amount of distributed gas.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `gas` - amount of unused gas to distribute
     #[cfg(feature = "protocol_feature_function_call_weight")]
     fn distribute_unused_gas(&mut self, gas: Gas) -> Gas;

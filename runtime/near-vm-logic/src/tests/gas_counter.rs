@@ -109,19 +109,19 @@ fn function_call_weight_check(function_calls: impl IntoIterator<Item = (u64, u64
     let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
     let mut logic = logic_builder.build_with_prepaid_gas(gas_limit);
 
-    let mut ratio_sum = 0;
-    for (static_gas, gas_ratio) in function_calls {
+    let mut weight_sum = 0;
+    for (static_gas, gas_weight) in function_calls {
         let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
-        promise_batch_action_function_call_weight(&mut logic, index, 0, static_gas, gas_ratio)
+        promise_batch_action_function_call_weight(&mut logic, index, 0, static_gas, gas_weight)
             .expect("batch action function call should succeed");
 
-        ratio_sum += gas_ratio;
+        weight_sum += gas_weight;
     }
     let outcome = logic.outcome();
 
     // Verify that all gas is used when only one ratio is specified
-    println!("{} {} {}", outcome.used_gas, gas_limit, ratio_sum);
-    assert!(outcome.used_gas + ratio_sum - 1 >= gas_limit);
+    println!("{} {} {}", outcome.used_gas, gas_limit, weight_sum);
+    assert!(outcome.used_gas + weight_sum - 1 >= gas_limit);
 }
 
 #[cfg(feature = "protocol_feature_function_call_weight")]
@@ -133,10 +133,10 @@ fn function_call_weight_single_smoke_test() {
     // Single function with static gas
     function_call_weight_check([(888, 1)]);
 
-    // Large ratio
+    // Large weight
     function_call_weight_check([(0, 88888)]);
 
-    // Ratio larger than gas limit
+    // Weight larger than gas limit
     function_call_weight_check([(0, 11u64.pow(14))]);
 
     // Split two
@@ -145,8 +145,14 @@ fn function_call_weight_single_smoke_test() {
     // Split two with static gas
     function_call_weight_check([(1_000_000, 3), (3_000_000, 2)]);
 
-    // Many different gas ratios
-    function_call_weight_check([(1_000_000, 3), (3_000_000, 2), (0, 1), (1_000_000_000, 0), (0, 4)]);
+    // Many different gas weights
+    function_call_weight_check([
+        (1_000_000, 3),
+        (3_000_000, 2),
+        (0, 1),
+        (1_000_000_000, 0),
+        (0, 4),
+    ]);
 }
 
 impl VMLogicBuilder {
