@@ -19,8 +19,8 @@ use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, Nonce};
 use near_store::PartialStorage;
 
-use crate::byzantine_assert;
 use crate::types::ApplyTransactionResult;
+use crate::{byzantine_assert, Chain};
 use crate::{ChainStore, Error, ErrorKind, RuntimeAdapter};
 
 /// Gas limit cannot be adjusted for more than 0.1% at a time.
@@ -78,8 +78,7 @@ pub fn validate_chunk_proofs(
             };
             runtime_adapter.get_shard_layout_from_prev_block(&prev_block_hash)?
         };
-        let outgoing_receipts_hashes =
-            runtime_adapter.build_receipts_hashes(receipts, &shard_layout);
+        let outgoing_receipts_hashes = Chain::build_receipts_hashes(receipts, &shard_layout);
         let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
         if receipts_root != outgoing_receipts_root {
             byzantine_assert!(false);
@@ -167,7 +166,7 @@ pub fn validate_chunk_with_chunk_extra(
     )?;
     let outgoing_receipts_hashes = {
         let shard_layout = runtime_adapter.get_shard_layout_from_prev_block(prev_block_hash)?;
-        runtime_adapter.build_receipts_hashes(&outgoing_receipts, &shard_layout)
+        Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)
     };
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 

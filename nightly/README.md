@@ -95,8 +95,8 @@ honest I can’t vouch whether it even works.
 Lastly, at the end of the test specification line additional features
 can be given in the form of `--features <features>` arguments.
 Similarly to `--release`, this results in given features being enabled
-in builds.  Note that the `test_features` and `rosetta_rpc` features
-are always enabled so there's no need to specify it explicitly.
+in builds.  Note that the `test_features` Cargo feature is always
+enabled so there's no need to specify it explicitly.
 
 Note that with `--skip-build` switch the `--release` and `--features`
 flags are essentially ignored since they only affect the build and are
