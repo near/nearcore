@@ -87,7 +87,7 @@ fn db_checkpoint_path(path: &Path, near_config: &NearConfig) -> PathBuf {
     root_path.join(DB_CHECKPOINT_NAME)
 }
 
-const DB_CHECKPOINT_NAME: &str = "db_snapshot_before_migration";
+const DB_CHECKPOINT_NAME: &str = "db_migration_snapshot";
 
 /// Creates a consistent DB checkpoint and returns its path.
 /// By default it creates checkpoints in the DB directory, but can be overridden by the config.

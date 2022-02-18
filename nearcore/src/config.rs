@@ -445,6 +445,7 @@ pub struct Config {
     /// Location of the DB checkpoint for the DB migrations. This can be one of the following:
     /// * Empty, the checkpoint will be created in the database location, i.e. '$home/data'.
     /// * Absolute path that points to an existing directory. The checkpoint will be a sub-directory in that directory.
+    /// For example, setting "use_db_migration_snapshot" to "/tmp/" will create a directory "/tmp/db_migration_snapshot" and populate it with the database files.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub db_migration_snapshot_path: Option<PathBuf>,
 }
