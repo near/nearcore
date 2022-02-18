@@ -37,16 +37,13 @@ pub struct RuntimeExt<'a> {
     current_protocol_version: ProtocolVersion,
 
     #[cfg(feature = "protocol_feature_function_call_weight")]
-    distribute_leftover_gas_to: Vec<GasWeightMetadata>,
-    #[cfg(feature = "protocol_feature_function_call_weight")]
-    gas_weight_sum: u64,
+    gas_weights: Vec<(FunctionCallActionIndex, u64)>,
 }
 
 #[cfg(feature = "protocol_feature_function_call_weight")]
-struct GasWeightMetadata {
+struct FunctionCallActionIndex {
     receipt_index: usize,
     action_index: usize,
-    gas_weight: u64,
 }
 
 /// Error used by `RuntimeExt`.
@@ -107,9 +104,7 @@ impl<'a> RuntimeExt<'a> {
             current_protocol_version,
 
             #[cfg(feature = "protocol_feature_function_call_weight")]
-            distribute_leftover_gas_to: vec![],
-            #[cfg(feature = "protocol_feature_function_call_weight")]
-            gas_weight_sum: 0,
+            gas_weights: vec![],
         }
     }
 
@@ -298,13 +293,10 @@ impl<'a> External for RuntimeExt<'a> {
         );
 
         if gas_weight > 0 {
-            self.distribute_leftover_gas_to.push(GasWeightMetadata {
-                receipt_index: receipt_index as usize,
-                action_index,
+            self.gas_weights.push((
+                FunctionCallActionIndex { receipt_index: receipt_index as usize, action_index },
                 gas_weight,
-            });
-            self.gas_weight_sum =
-                self.gas_weight_sum.checked_add(gas_weight).ok_or(HostError::IntegerOverflow)?;
+            ));
         }
 
         Ok(())
@@ -447,29 +439,44 @@ impl<'a> External for RuntimeExt<'a> {
     }
 
     #[cfg(feature = "protocol_feature_function_call_weight")]
-    fn distribute_unused_gas(&mut self, gas: u64) -> u64 {
-        if self.gas_weight_sum != 0 {
-            let gas_per_ratio = gas / self.gas_weight_sum;
+    fn distribute_unused_gas(&mut self, gas: u64) -> bool {
+        let gas_weight_sum: u128 =
+            self.gas_weights.iter().map(|(_, gas_weight)| *gas_weight as u128).sum();
+        if gas_weight_sum != 0 {
+            let gas_per_weight = (gas as u128 / gas_weight_sum) as u64;
 
-            self.distribute_leftover_gas_to
-                .drain(..)
-                .map(|GasWeightMetadata { receipt_index, action_index, gas_weight }| {
-                    let assign_gas = gas_per_ratio * gas_weight;
-                    if let Some(Action::FunctionCall(FunctionCallAction { ref mut gas, .. })) = self
-                        .action_receipts
-                        .get_mut(receipt_index)
-                        .and_then(|(_, receipt)| receipt.actions.get_mut(action_index))
-                    {
-                        *gas += assign_gas;
-                    } else {
-                        panic!("Invalid index for assigning unused gas weight");
-                    }
+            let mut distribute_gas = |metadata: &FunctionCallActionIndex, assigned_gas: u64| {
+                let FunctionCallActionIndex { receipt_index, action_index } = metadata;
+                if let Some(Action::FunctionCall(FunctionCallAction { ref mut gas, .. })) = self
+                    .action_receipts
+                    .get_mut(*receipt_index)
+                    .and_then(|(_, receipt)| receipt.actions.get_mut(*action_index))
+                {
+                    *gas += assigned_gas;
+                } else {
+                    panic!("Invalid index for assigning unused gas weight");
+                }
+            };
 
-                    assign_gas
+            let distributed: u64 = self
+                .gas_weights
+                .iter()
+                .map(|(action_index, gas_weight)| {
+                    let assigned_gas = gas_per_weight * gas_weight;
+
+                    distribute_gas(action_index, assigned_gas);
+
+                    assigned_gas
                 })
-                .sum()
+                .sum();
+
+            // Distribute remaining gas to final action.
+            if let Some((last_idx, _)) = self.gas_weights.last() {
+                distribute_gas(last_idx, gas - distributed);
+            }
+            true
         } else {
-            0
+            false
         }
     }
 }

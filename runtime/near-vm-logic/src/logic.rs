@@ -1551,7 +1551,7 @@ impl<'a> VMLogic<'a> {
     /// - If `0` is passed for both `gas` and `gas_weight` parameters
     pub fn promise_batch_action_function_call_weight(
         &mut self,
-        promise_index: u64,
+        promise_idx: u64,
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -1574,7 +1574,7 @@ impl<'a> VMLogic<'a> {
         }
         let arguments = self.get_vec_from_memory_or_register(arguments_ptr, arguments_len)?;
 
-        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_index)?;
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         // Input can't be large enough to overflow
         let num_bytes = method_name.len() as u64 + arguments.len() as u64;
@@ -2560,9 +2560,11 @@ impl<'a> VMLogic<'a> {
         if !self.context.is_view() {
             // Distribute unused gas to scheduled function calls
             let unused_gas = self.context.prepaid_gas - self.gas_counter.used_gas();
-            let distributed_gas = self.ext.distribute_unused_gas(unused_gas);
-            // Distributed gas must be below gas available if `distribute_unused_gas` is correct.
-            self.gas_counter.prepay_gas(distributed_gas).unwrap();
+
+            // Distribute the unused gas and prepay for the gas.
+            if self.ext.distribute_unused_gas(unused_gas) {
+                self.gas_counter.prepay_gas(unused_gas).unwrap();
+            }
         }
 
         let burnt_gas = self.gas_counter.burnt_gas();

@@ -538,6 +538,10 @@ pub trait External {
     /// # Arguments
     ///
     /// * `gas` - amount of unused gas to distribute
+    ///
+    /// # Returns
+    ///
+    /// Function returns true if gas was distributed, false if no ratios existed to distribute to.
     #[cfg(feature = "protocol_feature_function_call_weight")]
-    fn distribute_unused_gas(&mut self, gas: Gas) -> Gas;
+    fn distribute_unused_gas(&mut self, gas: Gas) -> bool;
 }
