@@ -2,3 +2,4 @@
 ./pytest.txt
 ./expensive.txt
 ./fuzzing.txt
+#pytest endtoend/test.py # Do not run nightly

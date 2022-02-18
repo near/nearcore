@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 End-to-end test for canary nodes.
 Assuming each canary node has an account with positive balance.
@@ -16,7 +17,6 @@ python3 tests/endtoend/test.py
     --rpc-server-port 80
     --metrics-port 3040
 """
-#!/usr/bin/env python3
 import argparse
 import random
 import sys
@@ -34,7 +34,7 @@ from concurrent.futures import ThreadPoolExecutor
 from configured_logger import logger
 import prometheus_client
 
-balance_histogram = prometheus_client.Gauge(
+balance_gauge = prometheus_client.Gauge(
     'near_e2e_account_balance',
     'Balance of the test accounts running an end-to-end test. Measured in yoctonear.',
     ['account'])
@@ -52,7 +52,7 @@ def pinger(account, interval, rpc_server):
             lambda: mocknet_helpers.get_amount_yoctonear(
                 account_id, addr=rpc_server[0], port=rpc_server[1]))
         if balance is not None:
-            balance_histogram.labels(account=account_id).set(balance)
+            balance_gauge.labels(account=account_id).set(balance)
         logger.info(f'Sending 0 tokens from {account_id} to itself')
         tx_res = mocknet_helpers.retry_and_ignore_errors(
             lambda: account.send_transfer_tx(

@@ -39,6 +39,13 @@ def get_nonce_for_pk(account_id,
         if k['public_key'] == pk:
             return k['access_key']['nonce']
 
+    nonce = next((key['access_key']['nonce']
+                  for key in access_keys['result']['keys']
+                  if key['public_key'] == pk), None)
+    if nonce is None:
+        raise KeyError(f'Nonce for {account_id} {pk} not found')
+    return nonce
+
 
 def get_latest_block_hash(addr=LOCAL_ADDR, port=RPC_PORT):
     last_block_hash = get_status(addr=addr,
