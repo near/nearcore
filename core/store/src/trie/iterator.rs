@@ -324,7 +324,7 @@ impl<'a> Iterator for TrieIterator<'a> {
                         self.trie
                             .storage
                             .retrieve_raw_bytes(&hash)
-                            .map(|value| (self.key(), value)),
+                            .map(|value| (self.key(), value.to_vec())),
                     )
                 }
             }

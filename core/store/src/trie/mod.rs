@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{Cursor, Read, Write};
+use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -614,7 +615,7 @@ impl Trie {
         match RawTrieNodeWithSize::decode(&data) {
             Ok(value) => {
                 let memory_usage = TrieNodeWithSize::from_raw(value).memory_usage;
-                Ok(StateRootNode { data, memory_usage })
+                Ok(StateRootNode { data: data.to_vec(), memory_usage })
             }
             Err(_) => Err(StorageError::StorageInconsistentState(format!(
                 "Failed to decode node {}",
@@ -689,7 +690,9 @@ impl Trie {
 
     pub fn get(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
         match self.get_ref(root, key)? {
-            Some((_length, hash)) => self.storage.retrieve_raw_bytes(&hash).map(Some),
+            Some((_length, hash)) => {
+                self.storage.retrieve_raw_bytes(&hash).map(|bytes| Some(bytes.to_vec()))
+            }
             None => Ok(None),
         }
     }
