@@ -37,7 +37,7 @@ pub struct RuntimeExt<'a> {
     current_protocol_version: ProtocolVersion,
 
     #[cfg(feature = "protocol_feature_function_call_weight")]
-    gas_weights: Vec<(FunctionCallActionIndex, u64)>,
+    gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
 }
 
 #[cfg(feature = "protocol_feature_function_call_weight")]
@@ -45,6 +45,9 @@ struct FunctionCallActionIndex {
     receipt_index: usize,
     action_index: usize,
 }
+
+#[derive(Clone)]
+struct GasWeight(u64);
 
 /// Error used by `RuntimeExt`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -295,7 +298,7 @@ impl<'a> External for RuntimeExt<'a> {
         if gas_weight > 0 {
             self.gas_weights.push((
                 FunctionCallActionIndex { receipt_index: receipt_index as usize, action_index },
-                gas_weight,
+                GasWeight(gas_weight),
             ));
         }
 
@@ -441,7 +444,7 @@ impl<'a> External for RuntimeExt<'a> {
     #[cfg(feature = "protocol_feature_function_call_weight")]
     fn distribute_unused_gas(&mut self, gas: u64) -> bool {
         let gas_weight_sum: u128 =
-            self.gas_weights.iter().map(|(_, gas_weight)| *gas_weight as u128).sum();
+            self.gas_weights.iter().map(|(_, GasWeight(weight))| *weight as u128).sum();
         if gas_weight_sum != 0 {
             let gas_per_weight = (gas as u128 / gas_weight_sum) as u64;
 
@@ -461,8 +464,8 @@ impl<'a> External for RuntimeExt<'a> {
             let distributed: u64 = self
                 .gas_weights
                 .iter()
-                .map(|(action_index, gas_weight)| {
-                    let assigned_gas = gas_per_weight * gas_weight;
+                .map(|(action_index, GasWeight(weight))| {
+                    let assigned_gas = gas_per_weight * weight;
 
                     distribute_gas(action_index, assigned_gas);
 
@@ -474,6 +477,7 @@ impl<'a> External for RuntimeExt<'a> {
             if let Some((last_idx, _)) = self.gas_weights.last() {
                 distribute_gas(last_idx, gas - distributed);
             }
+            self.gas_weights.clear();
             true
         } else {
             false

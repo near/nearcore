@@ -11,7 +11,7 @@ pub struct MockedExternal {
     receipts: Vec<Receipt>,
     pub validators: HashMap<AccountId, Balance>,
     #[cfg(feature = "protocol_feature_function_call_weight")]
-    gas_weights: Vec<(FunctionCallActionIndex, u64)>,
+    gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
 }
 
 #[derive(Clone)]
@@ -20,6 +20,9 @@ struct FunctionCallActionIndex {
     receipt_index: usize,
     action_index: usize,
 }
+
+#[derive(Clone)]
+struct GasWeight(u64);
 
 pub struct MockedValuePtr {
     value: Vec<u8>,
@@ -142,7 +145,7 @@ impl External for MockedExternal {
         if gas_weight > 0 {
             self.gas_weights.push((
                 FunctionCallActionIndex { receipt_index, action_index: receipt.actions.len() },
-                gas_weight,
+                GasWeight(gas_weight),
             ));
         }
 
@@ -250,7 +253,7 @@ impl External for MockedExternal {
     #[cfg(feature = "protocol_feature_function_call_weight")]
     fn distribute_unused_gas(&mut self, gas: Gas) -> bool {
         let gas_weight_sum: u128 =
-            self.gas_weights.iter().map(|(_, gas_weight)| *gas_weight as u128).sum();
+            self.gas_weights.iter().map(|(_, GasWeight(weight))| *weight as u128).sum();
         if gas_weight_sum != 0 {
             let gas_per_weight = (gas as u128 / gas_weight_sum) as u64;
 
@@ -270,8 +273,8 @@ impl External for MockedExternal {
             let distributed: u64 = self
                 .gas_weights
                 .iter()
-                .map(|(action_index, gas_weight)| {
-                    let assigned_gas = gas_per_weight * gas_weight;
+                .map(|(action_index, GasWeight(weight))| {
+                    let assigned_gas = gas_per_weight * weight;
 
                     distribute_gas(action_index, assigned_gas);
 
@@ -283,6 +286,7 @@ impl External for MockedExternal {
             if let Some((last_idx, _)) = self.gas_weights.last() {
                 distribute_gas(last_idx, gas - distributed);
             }
+            self.gas_weights.clear();
             true
         } else {
             false
