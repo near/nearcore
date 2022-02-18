@@ -10,14 +10,14 @@ pub struct MockedExternal {
     pub fake_trie: HashMap<Vec<u8>, Vec<u8>>,
     receipts: Vec<Receipt>,
     pub validators: HashMap<AccountId, Balance>,
-    #[cfg(feature = "protocol_feature_function_call_ratio")]
+    #[cfg(feature = "protocol_feature_function_call_weight")]
     distribute_leftover_gas_to: Vec<GasRatioMetadata>,
-    #[cfg(feature = "protocol_feature_function_call_ratio")]
+    #[cfg(feature = "protocol_feature_function_call_weight")]
     gas_ratio_sum: u64,
 }
 
 #[derive(Clone)]
-#[cfg(feature = "protocol_feature_function_call_ratio")]
+#[cfg(feature = "protocol_feature_function_call_weight")]
 struct GasRatioMetadata {
     receipt_index: usize,
     action_index: usize,
@@ -130,8 +130,8 @@ impl External for MockedExternal {
         Ok(())
     }
 
-    #[cfg(feature = "protocol_feature_function_call_ratio")]
-    fn append_action_function_call_ratio(
+    #[cfg(feature = "protocol_feature_function_call_weight")]
+    fn append_action_function_call_weight(
         &mut self,
         receipt_index: u64,
         method_name: Vec<u8>,
@@ -253,7 +253,7 @@ impl External for MockedExternal {
         Ok(self.validators.values().sum())
     }
 
-    #[cfg(feature = "protocol_feature_function_call_ratio")]
+    #[cfg(feature = "protocol_feature_function_call_weight")]
     fn distribute_unused_gas(&mut self, gas: Gas) -> Gas {
         if self.gas_ratio_sum != 0 {
             let gas_per_ratio = gas / self.gas_ratio_sum;

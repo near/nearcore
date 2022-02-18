@@ -102,8 +102,8 @@ fn test_hit_prepaid_gas_limit() {
     assert_eq!(outcome.used_gas, gas_limit);
 }
 
-#[cfg(feature = "protocol_feature_function_call_ratio")]
-fn function_call_ratio_check(function_calls: impl IntoIterator<Item = (u64, u64)>) {
+#[cfg(feature = "protocol_feature_function_call_weight")]
+fn function_call_weight_check(function_calls: impl IntoIterator<Item = (u64, u64)>) {
     let gas_limit = 10u64.pow(14);
 
     let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
@@ -112,7 +112,7 @@ fn function_call_ratio_check(function_calls: impl IntoIterator<Item = (u64, u64)
     let mut ratio_sum = 0;
     for (static_gas, gas_ratio) in function_calls {
         let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
-        promise_batch_action_function_call_ratio(&mut logic, index, 0, static_gas, gas_ratio)
+        promise_batch_action_function_call_weight(&mut logic, index, 0, static_gas, gas_ratio)
             .expect("batch action function call should succeed");
 
         ratio_sum += gas_ratio;
@@ -124,29 +124,29 @@ fn function_call_ratio_check(function_calls: impl IntoIterator<Item = (u64, u64)
     assert!(outcome.used_gas + ratio_sum - 1 >= gas_limit);
 }
 
-#[cfg(feature = "protocol_feature_function_call_ratio")]
+#[cfg(feature = "protocol_feature_function_call_weight")]
 #[test]
-fn function_call_ratio_single_smoke_test() {
+fn function_call_weight_single_smoke_test() {
     // Single function call
-    function_call_ratio_check([(0, 1)]);
+    function_call_weight_check([(0, 1)]);
 
     // Single function with static gas
-    function_call_ratio_check([(888, 1)]);
+    function_call_weight_check([(888, 1)]);
 
     // Large ratio
-    function_call_ratio_check([(0, 88888)]);
+    function_call_weight_check([(0, 88888)]);
 
     // Ratio larger than gas limit
-    function_call_ratio_check([(0, 11u64.pow(14))]);
+    function_call_weight_check([(0, 11u64.pow(14))]);
 
     // Split two
-    function_call_ratio_check([(0, 3), (0, 2)]);
+    function_call_weight_check([(0, 3), (0, 2)]);
 
     // Split two with static gas
-    function_call_ratio_check([(1_000_000, 3), (3_000_000, 2)]);
+    function_call_weight_check([(1_000_000, 3), (3_000_000, 2)]);
 
     // Many different gas ratios
-    function_call_ratio_check([(1_000_000, 3), (3_000_000, 2), (0, 1), (1_000_000_000, 0), (0, 4)]);
+    function_call_weight_check([(1_000_000, 3), (3_000_000, 2), (0, 1), (1_000_000_000, 0), (0, 4)]);
 }
 
 impl VMLogicBuilder {

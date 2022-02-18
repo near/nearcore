@@ -1507,7 +1507,7 @@ impl<'a> VMLogic<'a> {
         amount_ptr: u64,
         gas: Gas,
     ) -> Result<()> {
-        self.promise_batch_action_function_call_ratio(
+        self.promise_batch_action_function_call_weight(
             promise_idx,
             method_name_len,
             method_name_ptr,
@@ -1521,22 +1521,22 @@ impl<'a> VMLogic<'a> {
 
     /// Appends `FunctionCall` action to the batch of actions for the given promise pointed by
     /// `promise_idx`. This function allows not specifying a specific gas value and allowing the
-    /// runtime to assign remaining gas based on a ratio.
+    /// runtime to assign remaining gas based on a weight.
     ///
     /// # Gas
     ///
-    /// Gas can be specified using a static amount, a ratio of remaining prepaid gas, or a mixture
-    /// of both. To omit a static gas amount, [`u64::MAX`] can be passed for the `gas` parameter.
-    /// To omit assigning remaining gas, [`u64::MAX`] can be passed as the `gas_ratio` parameter.
+    /// Gas can be specified using a static amount, a weight of remaining prepaid gas, or a mixture
+    /// of both. To omit a static gas amount, `0` can be passed for the `gas` parameter.
+    /// To omit assigning remaining gas, `0` can be passed as the `gas_weight` parameter.
     ///
-    /// The gas ratio parameter works as the following:
+    /// The gas weight parameter works as the following:
     ///
     /// All unused prepaid gas from the current function call is split among all function calls
-    /// which supply this gas ratio. The amount attached to each respective call depends on the
-    /// value of the ratio.
+    /// which supply this gas weight. The amount attached to each respective call depends on the
+    /// value of the weight.
     ///
     /// For example, if 40 gas is leftover from the current method call and three functions specify
-    /// the ratios 1, 5, 2 then 5, 25, 10 gas will be added to each function call respectively,
+    /// the weights 1, 5, 2 then 5, 25, 10 gas will be added to each function call respectively,
     /// using up all remaining available gas.
     ///
     /// # Errors
@@ -1548,11 +1548,8 @@ impl<'a> VMLogic<'a> {
     /// `amount_ptr + 16` points outside the memory of the guest or host returns
     /// `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
-    /// - If the [`u64::MAX`] special value is passed for `gas` and `gas_ratio` parameters
-    ///
-    ///
-    /// [`u64::MAX`]: std::u64::MAX
-    pub fn promise_batch_action_function_call_ratio(
+    /// - If `0` is passed for both `gas` and `gas_weight` parameters
+    pub fn promise_batch_action_function_call_weight(
         &mut self,
         promise_index: u64,
         method_name_len: u64,
@@ -1561,7 +1558,7 @@ impl<'a> VMLogic<'a> {
         arguments_ptr: u64,
         amount_ptr: u64,
         gas: u64,
-        gas_ratio: u64,
+        gas_weight: u64,
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view() {
@@ -1597,19 +1594,19 @@ impl<'a> VMLogic<'a> {
 
         self.deduct_balance(amount)?;
 
-        #[cfg(feature = "protocol_feature_function_call_ratio")]
-        self.ext.append_action_function_call_ratio(
+        #[cfg(feature = "protocol_feature_function_call_weight")]
+        self.ext.append_action_function_call_weight(
             receipt_idx,
             method_name,
             arguments,
             amount,
             gas,
-            gas_ratio,
+            gas_weight,
         )?;
 
-        #[cfg(not(feature = "protocol_feature_function_call_ratio"))]
+        #[cfg(not(feature = "protocol_feature_function_call_weight"))]
         {
-            let _ = gas_ratio;
+            let _ = gas_weight;
             self.ext.append_action_function_call(
                 receipt_idx,
                 method_name,
@@ -2559,7 +2556,7 @@ impl<'a> VMLogic<'a> {
     /// Computes the outcome of execution.
     #[allow(unused_mut)]
     pub fn outcome(mut self) -> VMOutcome {
-        #[cfg(feature = "protocol_feature_function_call_ratio")]
+        #[cfg(feature = "protocol_feature_function_call_weight")]
         if !self.context.is_view() {
             // Distribute unused gas to scheduled function calls
             let unused_gas = self.context.prepaid_gas - self.gas_counter.used_gas();

@@ -146,8 +146,8 @@ pub enum ProtocolFeature {
     /// alpha is min stake ratio
     #[cfg(feature = "protocol_feature_fix_staking_threshold")]
     FixStakingThreshold,
-    #[cfg(feature = "protocol_feature_function_call_ratio")]
-    FunctionCallRatio,
+    #[cfg(feature = "protocol_feature_function_call_weight")]
+    FunctionCallWeight,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -205,9 +205,9 @@ impl ProtocolFeature {
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
-            #[cfg(feature = "protocol_feature_function_call_ratio")]
+            #[cfg(feature = "protocol_feature_function_call_weight")]
             // TODO idk where this number comes from
-            ProtocolFeature::FunctionCallRatio => 127,
+            ProtocolFeature::FunctionCallWeight => 127,
         }
     }
 }

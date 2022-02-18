@@ -53,9 +53,9 @@ pub fn promise_batch_action_function_call(
     )
 }
 
-#[cfg(feature = "protocol_feature_function_call_ratio")]
+#[cfg(feature = "protocol_feature_function_call_weight")]
 #[allow(dead_code)]
-pub fn promise_batch_action_function_call_ratio(
+pub fn promise_batch_action_function_call_weight(
     logic: &mut VMLogic<'_>,
     promise_index: u64,
     amount: u128,
@@ -65,7 +65,7 @@ pub fn promise_batch_action_function_call_ratio(
     let method_id = b"promise_batch_action";
     let args = b"promise_batch_action_args";
 
-    logic.promise_batch_action_function_call_ratio(
+    logic.promise_batch_action_function_call_weight(
         promise_index,
         method_id.len() as _,
         method_id.as_ptr() as _,

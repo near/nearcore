@@ -285,7 +285,7 @@ pub trait External {
     /// * `arguments` - a Wasm code to attach
     /// * `attached_deposit` - amount of tokens to transfer with the call
     /// * `prepaid_gas` - amount of prepaid gas to attach to the call
-    /// * `gas_ratio` - ratio of unused gas to distribute to the function call action
+    /// * `gas_weight` - relative weight of unused gas to distribute to the function call action
     ///
     /// # Example
     ///
@@ -295,7 +295,7 @@ pub trait External {
     ///
     /// # let mut external = MockedExternal::new();
     /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
-    /// external.append_action_function_call_ratio(
+    /// external.append_action_function_call_weight(
     ///     receipt_index,
     ///     b"method_name".to_vec(),
     ///     b"{serialised: arguments}".to_vec(),
@@ -308,10 +308,10 @@ pub trait External {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    #[cfg(feature = "protocol_feature_function_call_ratio")]
+    #[cfg(feature = "protocol_feature_function_call_weight")]
     // TODO: unclear if this should be a supertrait to avoid semver breaking changes
     // TODO: or if we can just modify the existing function
-    fn append_action_function_call_ratio(
+    fn append_action_function_call_weight(
         &mut self,
         receipt_index: ReceiptIndex,
         method_name: Vec<u8>,
@@ -535,7 +535,9 @@ pub trait External {
     /// Distribute the gas among the scheduled function calls that specify a gas ratio.
     /// Returns the amount of distributed gas.
     ///
+    /// # Arguments
+    /// 
     /// * `gas` - amount of unused gas to distribute
-    #[cfg(feature = "protocol_feature_function_call_ratio")]
+    #[cfg(feature = "protocol_feature_function_call_weight")]
     fn distribute_unused_gas(&mut self, gas: Gas) -> Gas;
 }

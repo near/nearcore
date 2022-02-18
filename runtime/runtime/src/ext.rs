@@ -36,13 +36,13 @@ pub struct RuntimeExt<'a> {
     epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
 
-    #[cfg(feature = "protocol_feature_function_call_ratio")]
+    #[cfg(feature = "protocol_feature_function_call_weight")]
     distribute_leftover_gas_to: Vec<GasRatioMetadata>,
-    #[cfg(feature = "protocol_feature_function_call_ratio")]
+    #[cfg(feature = "protocol_feature_function_call_weight")]
     gas_ratio_sum: u64,
 }
 
-#[cfg(feature = "protocol_feature_function_call_ratio")]
+#[cfg(feature = "protocol_feature_function_call_weight")]
 struct GasRatioMetadata {
     receipt_index: usize,
     action_index: usize,
@@ -106,9 +106,9 @@ impl<'a> RuntimeExt<'a> {
             epoch_info_provider,
             current_protocol_version,
 
-            #[cfg(feature = "protocol_feature_function_call_ratio")]
+            #[cfg(feature = "protocol_feature_function_call_weight")]
             distribute_leftover_gas_to: vec![],
-            #[cfg(feature = "protocol_feature_function_call_ratio")]
+            #[cfg(feature = "protocol_feature_function_call_weight")]
             gas_ratio_sum: 0,
         }
     }
@@ -276,8 +276,8 @@ impl<'a> External for RuntimeExt<'a> {
         Ok(())
     }
 
-    #[cfg(feature = "protocol_feature_function_call_ratio")]
-    fn append_action_function_call_ratio(
+    #[cfg(feature = "protocol_feature_function_call_weight")]
+    fn append_action_function_call_weight(
         &mut self,
         receipt_index: u64,
         method_name: Vec<u8>,
@@ -446,7 +446,7 @@ impl<'a> External for RuntimeExt<'a> {
             .map_err(|e| ExternalError::ValidatorError(e).into())
     }
 
-    #[cfg(feature = "protocol_feature_function_call_ratio")]
+    #[cfg(feature = "protocol_feature_function_call_weight")]
     fn distribute_unused_gas(&mut self, gas: u64) -> u64 {
         if self.gas_ratio_sum != 0 {
             let gas_per_ratio = gas / self.gas_ratio_sum;
