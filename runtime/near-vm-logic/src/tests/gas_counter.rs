@@ -109,19 +109,19 @@ fn function_call_weight_check(function_calls: impl IntoIterator<Item = (u64, u64
     let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
     let mut logic = logic_builder.build_with_prepaid_gas(gas_limit);
 
-    let mut weight_sum = 0;
+    let mut weight_sum = 0u128;
     for (static_gas, gas_weight) in function_calls {
         let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
         promise_batch_action_function_call_weight(&mut logic, index, 0, static_gas, gas_weight)
             .expect("batch action function call should succeed");
 
-        weight_sum += gas_weight;
+        weight_sum += gas_weight as u128;
     }
     let outcome = logic.outcome();
 
     // Verify that all gas is used when only one ratio is specified
     println!("{} {} {}", outcome.used_gas, gas_limit, weight_sum);
-    assert!(outcome.used_gas + weight_sum - 1 >= gas_limit);
+    assert!(outcome.used_gas as u128 + weight_sum - 1 >= gas_limit as u128);
 }
 
 #[cfg(feature = "protocol_feature_function_call_weight")]
@@ -153,6 +153,9 @@ fn function_call_weight_single_smoke_test() {
         (1_000_000_000, 0),
         (0, 4),
     ]);
+
+    // Weight over u64 bounds
+    function_call_weight_check([(0, u64::MAX), (0, 1000)]);
 }
 
 impl VMLogicBuilder {
