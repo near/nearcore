@@ -2,9 +2,9 @@ pub use near_client_primitives::types::{
     Error, GetBlock, GetBlockHash, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
     GetChunk, GetExecutionOutcome, GetExecutionOutcomeResponse, GetExecutionOutcomesForBlock,
     GetGasPrice, GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt,
-    GetStateChanges, GetStateChangesInBlock, GetStateChangesWithCauseInBlock, GetValidatorInfo,
-    GetValidatorOrdered, Query, QueryError, Status, StatusResponse, SyncStatus, TxStatus,
-    TxStatusError,
+    GetStateChanges, GetStateChangesInBlock, GetStateChangesWithCauseInBlock,
+    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfo, GetValidatorOrdered, Query,
+    QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
 };
 
 pub use crate::client::Client;

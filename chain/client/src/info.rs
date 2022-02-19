@@ -112,9 +112,14 @@ impl InfoHelper {
 
         let sync_status_log = Some(display_sync_status(sync_status, head, genesis_height));
 
-        let validator_info_log = validator_info
-            .as_ref()
-            .map(|info| format!(" {} validator{}", info.num_validators, s(info.num_validators)));
+        let validator_info_log = validator_info.as_ref().map(|info| {
+            format!(
+                " {}{} validator{}",
+                if info.is_validator { "Validator | " } else { "" },
+                info.num_validators,
+                s(info.num_validators)
+            )
+        });
 
         let network_info_log = Some(format!(
             " {} peer{} ⬇ {} ⬆ {}",
