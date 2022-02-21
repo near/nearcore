@@ -160,8 +160,11 @@ class DockerNode(cluster.LocalNode):
         if boot_node:
             env['BOOT_NODES'] = cluster.make_boot_nodes_arg(boot_node)[1]
 
-        cid = docker_run(detach=True, network=True, home=self.node_dir,
-                         container_home='/srv/near', env=env)
+        cid = docker_run(detach=True,
+                         network=True,
+                         home=self.node_dir,
+                         container_home='/srv/near',
+                         env=env)
         self._container_id = cid
         logger.info(f'Node started in Docker container {cid}')
 
