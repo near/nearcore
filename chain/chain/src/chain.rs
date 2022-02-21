@@ -1015,7 +1015,7 @@ impl Chain {
         ) {
             Ok(_) => {}
             Err(err) => {
-                debug!(target: "chain", "Invalid challenge: {}", err);
+                warn!(target: "chain", "Invalid challenge: {}\nChallenge: {:#?}", err, challenge);
             }
         }
         unwrap_or_return!(chain_update.commit());
@@ -1380,7 +1380,7 @@ impl Chain {
                             let requested_missing_chunks = if let Some(orphan_missing_chunks) =
                                 self.should_request_chunks_for_orphan(me, &block)
                             {
-                                debug!(target:"chain", "request missing chunks for orphan {:?} {:?}", block_hash, orphan_missing_chunks.missing_chunks);
+                                debug!(target:"chain", "Request missing chunks for orphan {:?} {:?}", block_hash, orphan_missing_chunks.missing_chunks);
                                 // This callback handles requesting missing chunks. It adds the missing chunks
                                 // to a list and all missing chunks in the list will be requested
                                 // at the end of Client::process_block
@@ -1640,7 +1640,7 @@ impl Chain {
                 if let Some(orphan_missing_chunks) =
                     self.should_request_chunks_for_orphan(me, &orphan)
                 {
-                    debug!(target:"chain", "request missing chunks for orphan {:?}", orphan_hash);
+                    debug!(target:"chain", "Request missing chunks for orphan {:?}", orphan_hash);
                     orphan_misses_chunks(orphan_missing_chunks);
                     self.orphans.mark_missing_chunks_requested_for_orphan(orphan_hash);
                 }
@@ -2243,7 +2243,7 @@ impl Chain {
             // here we store the state roots in chunk_extra in the database for later use
             let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
             chain_update.chain_store_update.save_chunk_extra(&prev_hash, &shard_uid, chunk_extra);
-            debug!(target:"chain", "finish building split state for shard {:?} {:?} {:?} ", shard_uid, prev_hash, state_root);
+            debug!(target:"chain", "Finish building split state for shard {:?} {:?} {:?} ", shard_uid, prev_hash, state_root);
         }
         chain_update.commit()
     }
@@ -3626,7 +3626,13 @@ impl<'a> ChainUpdate<'a> {
                         chunk_header,
                     )
                     .map_err(|e| {
-                        debug!(target: "chain", "Failed to validate chunk extra: {:?}", e);
+                        warn!(target: "chain", "Failed to validate chunk extra: {:?}.\n\
+                                                block prev_hash: {}\n\
+                                                block hash: {}\n\
+                                                shard_id: {}\n\
+                                                prev_chunk_height_included: {}\n\
+                                                prev_chunk_extra: {:#?}\n\
+                                                chunk_header: {:#?}", e,block.header().prev_hash(),block.header().hash(),shard_id,prev_chunk_height_included,prev_chunk_extra,chunk_header);
                         byzantine_assert!(false);
                         match self.create_chunk_state_challenge(prev_block, block, chunk_header) {
                             Ok(chunk_state) => {
@@ -4212,7 +4218,7 @@ impl<'a> ChainUpdate<'a> {
         let apply_chunk_work = if is_caught_up {
             self.apply_chunks_preprocessing(me, block, &prev_block, ApplyChunksMode::IsCaughtUp)?
         } else {
-            debug!("add block to catch up {:?} {:?}", prev_hash, *block.hash());
+            debug!("Add block to catch up {:?} {:?}", prev_hash, *block.hash());
             self.chain_store_update.add_block_to_catchup(prev_hash, *block.hash());
             self.apply_chunks_preprocessing(me, block, &prev_block, ApplyChunksMode::NotCaughtUp)?
         };
