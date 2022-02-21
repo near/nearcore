@@ -189,7 +189,7 @@ class DockerNode(cluster.LocalNode):
 
 def main():
     # Build the container
-    # run(('make', 'docker-nearcore'))
+    run(('make', 'docker-nearcore'))
 
     dot_near = pathlib.Path.home() / '.near'
 
