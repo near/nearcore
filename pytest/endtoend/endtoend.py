@@ -23,11 +23,10 @@ import sys
 import time
 import pathlib
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / 'lib'))
 
 import account as account_mod
 import key as key_mod
-import mocknet
 import mocknet_helpers
 from concurrent.futures import ThreadPoolExecutor
 
