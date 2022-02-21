@@ -20,6 +20,8 @@ use near_vm_errors::InconsistentStateError;
 use near_vm_errors::{HostError, VMLogicError};
 use std::collections::HashMap;
 use std::mem::size_of;
+#[cfg(feature = "sandbox")]
+use log::debug;
 
 pub type Result<T> = ::std::result::Result<T, VMLogicError>;
 
@@ -2515,6 +2517,13 @@ impl<'a> VMLogic<'a> {
         let new_burn_gas = self.gas_counter.burnt_gas();
         let new_used_gas = self.gas_counter.used_gas();
         self.gas_counter.process_gas_limit(new_burn_gas, new_used_gas)
+    }
+
+    #[cfg(feature = "sandbox")]
+    pub fn debug_log(&mut self, len: u64, ptr: u64) -> Result<()> {
+        let message = self.get_utf8_string(len, ptr)?;
+        debug!(target: "sandbox", "{}", message);
+        Ok(())
     }
 }
 

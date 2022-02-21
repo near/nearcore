@@ -431,6 +431,10 @@ fn init_logging(verbose: Option<&str>) {
         }
     }
 
+    if cfg!(feature = "sandbox") {
+        env_filter = env_filter.add_directive("sandbox=debug".parse().unwrap());
+    }
+
     tracing_subscriber::fmt::Subscriber::builder()
         .with_span_events(
             tracing_subscriber::fmt::format::FmtSpan::ENTER
