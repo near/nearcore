@@ -2,6 +2,7 @@ use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -1058,6 +1059,17 @@ pub fn init_configs(
                 CryptoHash::default(),
             );
             add_protocol_account(&mut records);
+            let foo = ShardLayout::v1(
+                vec![
+                    AccountId::from_str("a.near").unwrap(),
+                    AccountId::from_str("b.near").unwrap(),
+                    AccountId::from_str("c.near").unwrap(),
+                    AccountId::from_str("d.near").unwrap(),
+                ],
+                vec![],
+                None,
+                1,
+            );
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
@@ -1092,6 +1104,7 @@ pub fn init_configs(
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
                 protocol_treasury_account: signer.account_id.clone(),
                 fishermen_threshold: FISHERMEN_THRESHOLD,
+                shard_layout: foo,
                 min_gas_price: MIN_GAS_PRICE,
                 ..Default::default()
             };
