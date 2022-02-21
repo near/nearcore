@@ -13,8 +13,6 @@ The purpose of the test is to verify that:
 - `docker run -eBOOT_NODE=... ... nearcore` (i.e. passing boot nodes via
   BOOT_NODE environment variable) works and
 - `docker run ... nearcore sh -c 'neard ...'` works.
-
-Note that
 """
 
 import os
