@@ -5,8 +5,8 @@ use near_vm_logic::ExtCosts;
 
 use crate::config::Config;
 use crate::gas_cost::GasCost;
-use crate::get_account_id;
 use crate::testbed::RuntimeTestbed;
+use crate::utils::get_account_id;
 
 use super::transaction_builder::TransactionBuilder;
 
@@ -26,7 +26,9 @@ pub(crate) struct CachedCosts {
     pub(crate) storage_read_base: Option<GasCost>,
     pub(crate) action_function_call_base_per_byte_v2: Option<(GasCost, GasCost)>,
     pub(crate) compile_cost_base_per_byte: Option<(GasCost, GasCost)>,
+    pub(crate) compile_cost_base_per_byte_v2: Option<(GasCost, GasCost)>,
     pub(crate) gas_metering_cost_base_per_op: Option<(GasCost, GasCost)>,
+    pub(crate) apply_block: Option<GasCost>,
 }
 
 impl<'c> EstimatorContext<'c> {

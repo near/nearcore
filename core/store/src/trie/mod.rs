@@ -479,7 +479,7 @@ impl Trie {
         let storage =
             self.storage.as_caching_storage().expect("Storage should be TrieCachingStorage");
         let storage = TrieRecordingStorage {
-            store: Arc::clone(&storage.store),
+            store: storage.store.clone(),
             shard_uid: storage.shard_uid,
             recorded: RefCell::new(Default::default()),
         };
@@ -612,7 +612,7 @@ impl Trie {
         }
     }
 
-    pub(crate) fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
+    pub(crate) fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         self.counter.increment();
         self.storage.retrieve_raw_bytes(hash)
     }
@@ -625,7 +625,7 @@ impl Trie {
         match RawTrieNodeWithSize::decode(&data) {
             Ok(value) => {
                 let memory_usage = TrieNodeWithSize::from_raw(value).memory_usage;
-                Ok(StateRootNode { data, memory_usage })
+                Ok(StateRootNode { data: data.to_vec(), memory_usage })
             }
             Err(_) => Err(StorageError::StorageInconsistentState(format!(
                 "Failed to decode node {}",
@@ -700,7 +700,9 @@ impl Trie {
 
     pub fn get(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
         match self.get_ref(root, key)? {
-            Some((_length, hash)) => self.retrieve_raw_bytes(&hash).map(Some),
+            Some((_length, hash)) => {
+                self.retrieve_raw_bytes(&hash).map(|bytes| Some(bytes.to_vec()))
+            }
             None => Ok(None),
         }
     }

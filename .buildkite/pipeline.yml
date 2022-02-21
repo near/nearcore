@@ -32,7 +32,7 @@ steps:
   - label: "cargo test nightly not integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features,test_features,rosetta_rpc -p '*' --exclude 'integration-tests*'
+      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features,test_features -p '*' --exclude 'integration-tests*'
 
     timeout: 60
     agents:
@@ -86,8 +86,6 @@ steps:
     command: |
       source ~/.cargo/env && set -eux
       source ~/.nvm/nvm.sh
-      rustup default nightly-2020-05-15
-      rustup target add wasm32-unknown-unknown
       scripts/test_nearlib.sh
     timeout: 20
     agents:

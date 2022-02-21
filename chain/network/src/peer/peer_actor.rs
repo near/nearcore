@@ -50,8 +50,8 @@ use tracing::{debug, error, info, trace, warn};
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
 /// Maximum number of messages per minute from single peer.
-// TODO: current limit is way to high due to us sending lots of messages during sync.
-const MAX_PEER_MSG_PER_MIN: u64 = u64::MAX;
+// TODO(#5453): current limit is way to high due to us sending lots of messages during sync.
+const MAX_PEER_MSG_PER_MIN: usize = usize::MAX;
 
 /// Maximum number of transaction messages we will accept between block messages.
 /// The purpose of this constant is to ensure we do not spend too much time deserializing and
@@ -105,7 +105,6 @@ pub struct PeerActor {
     /// Cache of recently routed messages, this allows us to drop duplicates
     routed_message_cache: LruCache<(PeerId, PeerIdOrHash, Signature), Instant>,
     /// A helper data structure for limiting reading
-    #[allow(unused)]
     throttle_controller: ThrottleController,
 }
 
@@ -158,15 +157,6 @@ impl PeerActor {
         }
     }
 
-    /// Whether the peer is considered abusive due to sending too many messages.
-    // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
-    // some day be less than `u64::MAX`.
-    #[allow(clippy::absurd_extreme_comparisons)]
-    fn is_abusive(&self) -> bool {
-        self.tracker.received_bytes.count_per_min() > MAX_PEER_MSG_PER_MIN
-            || self.tracker.sent_bytes.count_per_min() > MAX_PEER_MSG_PER_MIN
-    }
-
     fn send_message(&mut self, msg: &PeerMessage) {
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
@@ -182,7 +172,7 @@ impl PeerActor {
                 let bytes_len = bytes.len();
                 if !self.framed.write(bytes) {
                     #[cfg(feature = "performance_stats")]
-                    let tid = near_rust_allocator_proxy::allocator::get_tid();
+                    let tid = near_rust_allocator_proxy::get_tid();
                     #[cfg(not(feature = "performance_stats"))]
                     let tid = 0;
                     error!(
@@ -197,7 +187,7 @@ impl PeerActor {
         };
     }
 
-    fn fetch_client_chain_info(&mut self, ctx: &mut Context<PeerActor>) {
+    fn fetch_client_chain_info(&self, ctx: &mut Context<PeerActor>) {
         ctx.wait(
             self.view_client_addr
                 .send(NetworkViewClientMessages::GetChainInfo)
@@ -216,7 +206,7 @@ impl PeerActor {
         );
     }
 
-    fn send_handshake(&mut self, ctx: &mut Context<PeerActor>) {
+    fn send_handshake(&self, ctx: &mut Context<PeerActor>) {
         if self.other_peer_id().is_none() {
             error!(target: "network", "Sending handshake to an unknown peer");
             return;
@@ -286,7 +276,7 @@ impl PeerActor {
         }
     }
 
-    fn receive_view_client_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
+    fn receive_view_client_message(&self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
         let mut msg_hash = None;
         let view_client_message = match msg {
             PeerMessage::Routed(message) => {
@@ -689,11 +679,10 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             }
             self.routed_message_cache.put(key, now);
         }
-        if let PeerMessage::Routed(RoutedMessage {
-            body: RoutedMessageBody::ForwardTx(_), ..
-        }) = &peer_msg
-        {
-            self.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
+        if let PeerMessage::Routed(routed) = &peer_msg {
+            if let RoutedMessage { body: RoutedMessageBody::ForwardTx(_), .. } = routed.as_ref() {
+                self.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
+            }
         } else if let PeerMessage::Block(_) = &peer_msg {
             self.txns_since_last_block.store(0, Ordering::Release);
         }
@@ -1042,18 +1031,27 @@ impl Handler<QueryPeerStats> for PeerActor {
     type Result = PeerStatsResult;
 
     #[perf]
-    fn handle(&mut self, msg: QueryPeerStats, _: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, _msg: QueryPeerStats, _: &mut Self::Context) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = delay_detector::DelayDetector::new("query peer stats".into());
+
+        // TODO(#5218) Refactor this code to use `SystemTime`
+        let now = Instant::now();
+        let sent = self.tracker.sent_bytes.minute_stats(now);
+        let received = self.tracker.received_bytes.minute_stats(now);
+
+        // Whether the peer is considered abusive due to sending too many messages.
+        // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
+        // some day be less than `u64::MAX`.
+        let is_abusive = received.count_per_min > MAX_PEER_MSG_PER_MIN
+            || sent.count_per_min > MAX_PEER_MSG_PER_MIN;
+
         PeerStatsResult {
             chain_info: self.chain_info.clone(),
-            received_bytes_per_sec: self.tracker.received_bytes.bytes_per_min() / 60,
-            sent_bytes_per_sec: self.tracker.sent_bytes.bytes_per_min() / 60,
-            is_abusive: self.is_abusive(),
-            message_counts: (
-                self.tracker.sent_bytes.count_per_min(),
-                self.tracker.received_bytes.count_per_min(),
-            ),
+            received_bytes_per_sec: received.bytes_per_min / 60,
+            sent_bytes_per_sec: sent.bytes_per_min / 60,
+            is_abusive,
+            message_counts: (sent.count_per_min, received.count_per_min),
         }
     }
 }

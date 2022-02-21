@@ -293,8 +293,29 @@ class RosettaRPC:
             }, **kw)
 
     def get_block(self, *, block_id: BlockIdentifier) -> JsonDict:
-        res = self.rpc('/block', block_identifier=block_identifier(block_id))
-        return res['block']
+
+        def fetch(block_id: BlockIdentifier) -> JsonDict:
+            block_id = block_identifier(block_id)
+            return self.rpc('/block', block_identifier=block_id)['block']
+
+        block = fetch(block_id)
+        if not block:
+            return block
+
+        # Verify that fetching block by index and hash produce the same result
+        # as well as getting individual transactions produce the same object as
+        # the one returned when fetching transactions individually.
+        #
+        # TODO(mpn): The order of operations is currently nondeterministic for
+        # non-genesis block.  Perform check only on genesis block for now.
+        if block['block_identifier']['index'] == 0:
+            assert block == fetch(block['block_identifier']['index'])
+            assert block == fetch(block['block_identifier']['hash'])
+            for tx in block['transactions']:
+                assert tx == self.get_transaction(
+                    block_id=block_id, tx_id=tx['transaction_identifier'])
+
+        return block
 
     def get_transaction(self, *, block_id: BlockIdentifier,
                         tx_id: TxIdentifier) -> JsonDict:
@@ -336,14 +357,94 @@ class RosettaTestCase(unittest.TestCase):
         see if the returned data looks as expected.  Since the exact hashes
         differ each time the test runs, those are assumed to be correct.
         """
+
+        def normalise_operations(transactions: typing.Sequence[typing.Any]):
+            """Normalises operations in a transactions by sorting by value."""
+            for tr in transactions:
+                ops = tr.get('operations', [])
+                ops.sort(key=lambda op: int(op['amount']['value']))
+                for idx, op in enumerate(ops):
+                    op['operation_identifier']['index'] = idx
+
         block_0 = self.rosetta.get_block(block_id=0)
+        normalise_operations(block_0['transactions'])
         block_0_id = block_0['block_identifier']
         trans_0_id = 'block:' + block_0_id['hash']
         trans_0 = {
             'metadata': {
                 'type': 'BLOCK'
             },
-            'operations': [],
+            'operations': [{
+                'account': {
+                    'address': 'near',
+                    'sub_account': {
+                        'address': 'LIQUID_BALANCE_FOR_STORAGE'
+                    }
+                },
+                'amount': {
+                    'currency': {
+                        'decimals': 24,
+                        'symbol': 'NEAR'
+                    },
+                    'value': '1820000000000000000000'
+                },
+                'operation_identifier': {
+                    'index': 0
+                },
+                'status': 'SUCCESS',
+                'type': 'TRANSFER'
+            }, {
+                'account': {
+                    'address': 'test0',
+                    'sub_account': {
+                        'address': 'LOCKED'
+                    }
+                },
+                'amount': {
+                    'currency': {
+                        'decimals': 24,
+                        'symbol': 'NEAR'
+                    },
+                    'value': '50000000000000000000000000000000'
+                },
+                'operation_identifier': {
+                    'index': 1
+                },
+                'status': 'SUCCESS',
+                'type': 'TRANSFER'
+            }, {
+                'account': {
+                    'address': 'test0'
+                },
+                'amount': {
+                    'currency': {
+                        'decimals': 24,
+                        'symbol': 'NEAR'
+                    },
+                    'value': '950000000000000000000000000000000'
+                },
+                'operation_identifier': {
+                    'index': 2
+                },
+                'status': 'SUCCESS',
+                'type': 'TRANSFER'
+            }, {
+                'account': {
+                    'address': 'near'
+                },
+                'amount': {
+                    'currency': {
+                        'decimals': 24,
+                        'symbol': 'NEAR'
+                    },
+                    'value': '999999999998180000000000000000000'
+                },
+                'operation_identifier': {
+                    'index': 3
+                },
+                'status': 'SUCCESS',
+                'type': 'TRANSFER'
+            }],
             'transaction_identifier': {
                 'hash': trans_0_id
             }
@@ -359,13 +460,14 @@ class RosettaTestCase(unittest.TestCase):
             block_0)
 
         # Getting by hash should work and should return the exact same thing
-        self.assertEqual(block_0,
-                         self.rosetta.get_block(block_id=block_0_id['hash']))
+        block = self.rosetta.get_block(block_id=block_0_id['hash'])
+        normalise_operations(block['transactions'])
+        self.assertEqual(block_0, block)
 
         # Get transaction from genesis block.
-        self.assertEqual(
-            trans_0,
-            self.rosetta.get_transaction(block_id=block_0_id, tx_id=trans_0_id))
+        tr = self.rosetta.get_transaction(block_id=block_0_id, tx_id=trans_0_id)
+        normalise_operations((tr,))
+        self.assertEqual(trans_0, tr)
 
         # Block at height=1 should have genesis block as parent and only
         # validator update as a single operation.

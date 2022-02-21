@@ -219,7 +219,7 @@ imports! {
     #["protocol_feature_alt_bn128", AltBn128] alt_bn128_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
 }
 
-#[cfg(feature = "wasmer0_vm")]
+#[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
 pub(crate) mod wasmer {
     use super::str_eq;
     use near_vm_logic::{ProtocolVersion, VMLogic, VMLogicError};
@@ -272,7 +272,7 @@ pub(crate) mod wasmer {
     }
 }
 
-#[cfg(feature = "wasmer2_vm")]
+#[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
 pub(crate) mod wasmer2 {
     use std::sync::Arc;
 
@@ -438,25 +438,8 @@ pub(crate) mod wasmtime {
         static EMBEDDER_ERROR: RefCell<Option<VMLogicError>> = RefCell::new(None);
     }
 
-    // Wasm has only i32/i64 types, so Wasmtime 0.17 only accepts
-    // external functions taking i32/i64 type.
-    // Remove, once using version with https://github.com/bytecodealliance/wasmtime/issues/1829
-    // fixed. It doesn't affect correctness, as bit patterns are the same.
-    #[cfg(feature = "wasmtime_vm")]
-    macro_rules! rust2wasm {
-        (u64) => {
-            i64
-        };
-        (u32) => {
-            i32
-        };
-        ( () ) => {
-            ()
-        };
-    }
-
     pub(crate) fn link(
-        linker: &mut wasmtime::Linker,
+        linker: &mut wasmtime::Linker<()>,
         memory: wasmtime::Memory,
         raw_logic: *mut c_void,
         protocol_version: ProtocolVersion,
@@ -469,21 +452,28 @@ pub(crate) mod wasmtime {
               $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
             ) => {
                 #[allow(unused_parens)]
-                fn $func( $( $arg_name: rust2wasm!($arg_type) ),* ) -> Result<($( rust2wasm!($returns)),*), wasmtime::Trap> {
+                fn $func(caller: wasmtime::Caller<'_, ()>, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*), wasmtime::Trap> {
                     const IS_GAS: bool = str_eq(stringify!($func), "gas");
                     let _span = if IS_GAS {
                         None
                     } else {
                         Some(tracing::trace_span!(target: "host-function", stringify!($func)).entered())
                     };
+                    // the below is bad. don't do this at home. it probably works thanks to the exact way the system is setup.
+                    // Thanksfully, this doesn't run in production, and hopefully should be possible to remove before we even
+                    // consider doing so.
                     let data = CALLER_CONTEXT.with(|caller_context| {
                         unsafe {
                             *caller_context.get()
                         }
                     });
+                    unsafe {
+                        // Transmute the lifetime of caller so it's possible to put it in a thread-local.
+                        crate::wasmtime_runner::CALLER.with(|runner_caller| *runner_caller.borrow_mut() = std::mem::transmute(caller));
+                    }
                     let logic: &mut VMLogic<'_> = unsafe { &mut *(data as *mut VMLogic<'_>) };
                     match logic.$func( $( $arg_name as $arg_type, )* ) {
-                        Ok(result) => Ok(result as ($( rust2wasm!($returns) ),* ) ),
+                        Ok(result) => Ok(result as ($( $returns ),* ) ),
                         Err(err) => {
                             // Wasmtime doesn't have proper mechanism for wrapping custom errors
                             // into traps. So, just store error into TLS and use special exit code here.
@@ -495,7 +485,7 @@ pub(crate) mod wasmtime {
                     }
                 }
 
-                linker.func("env", stringify!($func), $func).expect("cannot link external");
+                linker.func_wrap("env", stringify!($func), $func).expect("cannot link external");
             };
         }
         for_each_available_import!(protocol_version, add_import);
