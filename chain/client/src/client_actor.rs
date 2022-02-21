@@ -6,7 +6,7 @@ use crate::sync::{StateSync, StateSyncResult};
 use crate::StatusResponse;
 use actix::dev::SendError;
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
-use actix_rt::ArbiterHandle;
+use actix_rt::{ArbiterHandle, System};
 use borsh::BorshSerialize;
 use chrono::DateTime;
 use log::{debug, error, info, trace, warn};
@@ -1534,6 +1534,8 @@ impl ClientActor {
 impl Drop for ClientActor {
     fn drop(&mut self) {
         self.state_parts_client_arbiter.stop();
+        info!(target:"chain", "As ClientActor is dropped, initiate a graceful shutdown.");
+        System::current().stop();
     }
 }
 

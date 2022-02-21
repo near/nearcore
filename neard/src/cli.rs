@@ -1,11 +1,14 @@
+use actix::{Actor, Arbiter, Context};
 use clap::{AppSettings, Clap};
 use futures::future::FutureExt;
+use futures_intrusive::channel::Channel;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use std::{env, fs, io};
 use tracing::metadata::LevelFilter;
 use tracing::{debug, error, info, warn};
@@ -283,6 +286,26 @@ pub(super) struct RunCmd {
     max_gas_burnt_view: Option<Gas>,
 }
 
+/// SystemStoppedActor is used to monitor whether the actix System was stopped.
+struct SystemStoppedActor {}
+
+impl Actor for SystemStoppedActor {
+    type Context = Context<Self>;
+
+    // Does nothing but needs to be implemented for the Actor trait trait.
+    fn started(&mut self, _: &mut Self::Context) {}
+}
+
+use once_cell::sync::Lazy;
+pub static SYSTEM_STOPPED_CHANNEL: Lazy<Channel<bool, [bool; 1]>> = Lazy::new(|| Channel::new());
+
+impl Drop for SystemStoppedActor {
+    fn drop(&mut self) {
+        // try_send() can't block and therefore works in a non-async function.
+        SYSTEM_STOPPED_CHANNEL.try_send(true).unwrap();
+    }
+}
+
 impl RunCmd {
     pub(super) fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
         // Load configs from home.
@@ -351,6 +374,11 @@ impl RunCmd {
         sys.block_on(async move {
             let nearcore::NearNode { rpc_servers, .. } =
                 nearcore::start_with_config(home_dir, near_config).expect("start_with_config");
+            let system_stopped_arbiter = Arbiter::new();
+            SystemStoppedActor::start_in_arbiter(
+                &system_stopped_arbiter.handle(),
+                |_| -> SystemStoppedActor { SystemStoppedActor {} },
+            );
 
             let sig = if cfg!(unix) {
                 use tokio::signal::unix::{signal, SignalKind};
@@ -358,7 +386,8 @@ impl RunCmd {
                 let mut sigterm = signal(SignalKind::terminate()).unwrap();
                 futures::select! {
                     _ = sigint .recv().fuse() => "SIGINT",
-                    _ = sigterm.recv().fuse() => "SIGTERM"
+                    _ = sigterm.recv().fuse() => "SIGTERM",
+                    _ = SYSTEM_STOPPED_CHANNEL.receive() => "DIED",
                 }
             } else {
                 tokio::signal::ctrl_c().await.unwrap();
@@ -373,6 +402,11 @@ impl RunCmd {
             actix::System::current().stop();
         });
         sys.run().unwrap();
+        // Wait a few extra seconds to let RocksDB cleanly shut down.
+        // It's unknown how much time the process actually needs.
+        const ROCKS_DB_SLEEP_SECONDS: u64 = 3;
+        info!(target: "neard", "Waiting for {} seconds to let RocksDB shut down cleanly...",ROCKS_DB_SLEEP_SECONDS);
+        std::thread::sleep(Duration::from_secs(ROCKS_DB_SLEEP_SECONDS));
     }
 }
 
