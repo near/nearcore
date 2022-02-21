@@ -12,6 +12,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use near_primitives::time::Clock;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
+use tempfile::tempdir;
 use tokio::io::AsyncWriteExt;
 use tracing::{error, info};
 
@@ -27,7 +28,7 @@ use near_network_primitives::types::blacklist_from_iter;
 use near_network_primitives::types::{NetworkConfig, ROUTED_MESSAGE_TTL};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
@@ -1059,17 +1060,18 @@ pub fn init_configs(
                 CryptoHash::default(),
             );
             add_protocol_account(&mut records);
-            let foo = ShardLayout::v1(
-                vec![
-                    AccountId::from_str("a.near").unwrap(),
-                    AccountId::from_str("b.near").unwrap(),
-                    AccountId::from_str("c.near").unwrap(),
-                    AccountId::from_str("d.near").unwrap(),
-                ],
-                vec![],
-                None,
-                1,
-            );
+            let shards = if num_shards > 1 {
+                ShardLayout::v1(
+                    (0..num_shards - 1)
+                        .map(|f| AccountId::from_str(format!("shard{}.near", f).as_str()).unwrap())
+                        .collect(),
+                    vec![],
+                    None,
+                    1,
+                )
+            } else {
+                ShardLayout::v0_single_shard()
+            };
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
@@ -1104,7 +1106,7 @@ pub fn init_configs(
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
                 protocol_treasury_account: signer.account_id.clone(),
                 fishermen_threshold: FISHERMEN_THRESHOLD,
-                shard_layout: foo,
+                shard_layout: shards,
                 min_gas_price: MIN_GAS_PRICE,
                 ..Default::default()
             };
@@ -1652,4 +1654,51 @@ pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
         (signer, Some(validator_signer))
     };
     NearConfig::new(config, genesis, signer.into(), validator_signer)
+}
+
+#[test]
+fn test_init_config_localnet() {
+    // Check that we can initialize the config with multiple shards.
+    let temp_dir = tempdir().unwrap();
+    init_configs(
+        &temp_dir.path(),
+        Some("localnet"),
+        None,
+        Some("seed1"),
+        3,
+        false,
+        None,
+        false,
+        None,
+        false,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    let genesis =
+        Genesis::from_file(temp_dir.path().join("genesis.json"), GenesisValidationMode::UnsafeFast);
+    assert_eq!(genesis.config.chain_id, "localnet");
+    assert_eq!(genesis.config.shard_layout.num_shards(), 3);
+    assert_eq!(
+        account_id_to_shard_id(
+            &AccountId::from_str("shard0.near").unwrap(),
+            &genesis.config.shard_layout
+        ),
+        0
+    );
+    assert_eq!(
+        account_id_to_shard_id(
+            &AccountId::from_str("shard1.near").unwrap(),
+            &genesis.config.shard_layout
+        ),
+        1
+    );
+    assert_eq!(
+        account_id_to_shard_id(
+            &AccountId::from_str("foobar.near").unwrap(),
+            &genesis.config.shard_layout
+        ),
+        2
+    );
 }
