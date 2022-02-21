@@ -34,6 +34,7 @@ near-state-viewer = { path = "../tools/state-viewer", package = "state-viewer" }
 
 [build-dependencies]
 anyhow = "1.0.51"
+rustc_version = "0.4"
 
 [features]
 default = ["json_rpc", "rosetta_rpc", "jemalloc"]
