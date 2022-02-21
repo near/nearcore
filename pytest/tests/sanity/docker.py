@@ -64,8 +64,7 @@ def docker_run(shell_cmd: typing.Optional[str] = None,
                *,
                detach: bool = False,
                network: bool = False,
-               home: pathlib.Path,
-               container_home: str = '/home/near',
+               volume: typing.Tuple[pathlib.Path, str],
                env: typing.Dict[str, str] = {}) -> typing.Optional[str]:
     """Runs a `docker run` command.
 
@@ -82,15 +81,14 @@ def docker_run(shell_cmd: typing.Optional[str] = None,
         network: Whether to enable network.  If True, the container will be
             configured to use host’s network.  This allows processes in
             different containers to connect with each other easily.
-        home: A directory to mount as `container_home` inside of the container.
-        container_home: Path within the container where which `home` directory
-            is mounted.
+        volume: A (path, container_path) tuple denoting that local `path` should
+            be mounted under `container_path` inside of the container.
         env: *Additional* environment variables set inside of the container.
 
     Returns:
         Command’s stripped standard output if `detach` is true, None otherwise.
     """
-    cmd = ['docker', 'run']
+    cmd = ['docker', 'run', '--read-only', f'-v{volume[0]}:{volume[1]}']
 
     # Either run detached or attach standard output and standard error so they
     # are visible.
@@ -106,10 +104,6 @@ def docker_run(shell_cmd: typing.Optional[str] = None,
     else:
         # The command does not need networking so disable it.
         cmd.append('--network=none')
-
-    # Map home to /home/near or /srv/near and since the command will not modify
-    # anything else run in read only mode.
-    cmd.extend(('--read-only', f'-v{home}:{container_home}'))
 
     # Use current user to run the code inside the container so that data saved
     # in home will be readable by us outside of the container (otherwise, the
@@ -160,8 +154,7 @@ class DockerNode(cluster.LocalNode):
 
         cid = docker_run(detach=True,
                          network=True,
-                         home=self.node_dir,
-                         container_home='/srv/near',
+                         volume=(self.node_dir, '/srv/near'),
                          env=env)
         self._container_id = cid
         logger.info(f'Node started in Docker container {cid}')
@@ -196,7 +189,7 @@ def main():
 
     # Initialise local network
     cmd = f'neard --home /home/near localnet --v {NUM_NODES} --prefix test'
-    docker_run(cmd, home=dot_near)
+    docker_run(cmd, volume=(dot_near, '/home/near'))
 
     nodes = []
     try:
