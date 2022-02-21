@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration as TimeDuration, Instant};
 
 use borsh::BorshSerialize;
 use chrono::Duration;
 use itertools::Itertools;
+use lru::LruCache;
 use near_primitives::time::Clock;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
@@ -69,6 +70,7 @@ use delay_detector::DelayDetector;
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
+use once_cell::sync::Lazy;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 /// Maximum number of orphans chain can store.
@@ -390,6 +392,29 @@ pub fn check_known(
         return Ok(Err(BlockKnownError::KnownInMissingChunks));
     }
     check_known_store(chain, block_hash)
+}
+
+pub static COMPUTATION_TIMER: Lazy<Mutex<LruCache<CryptoHash, u64>>> =
+    Lazy::new(|| Mutex::new(LruCache::new(1000)));
+
+pub struct CryptoHashTimer {
+    key: CryptoHash,
+    start: Instant,
+}
+
+impl CryptoHashTimer {
+    pub fn new(key: CryptoHash) -> Self {
+        CryptoHashTimer { key, start: Clock::instant() }
+    }
+}
+
+impl Drop for CryptoHashTimer {
+    fn drop(&mut self) {
+        COMPUTATION_TIMER
+            .lock()
+            .unwrap()
+            .put(self.key, (Clock::instant() - self.start).as_millis() as u64);
+    }
 }
 
 /// Facade to the blockchain block processing and storage.
@@ -978,6 +1003,7 @@ impl Chain {
         on_challenge: &mut dyn FnMut(ChallengeBody),
     ) -> Result<Option<Tip>, Error> {
         let block_hash = *block.hash();
+        let _timer = CryptoHashTimer::new(block_hash);
         let res = self.process_block_single(
             me,
             block,
@@ -3701,6 +3727,7 @@ impl<'a> ChainUpdate<'a> {
                     let states_to_patch = self.states_to_patch.take();
 
                     result.push(Box::new(move || -> Result<ApplyChunkResult, Error> {
+                        let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
                         match runtime_adapter.apply_transactions(
                             shard_id,
                             chunk_inner.prev_state_root(),

@@ -12,7 +12,7 @@ use chrono::DateTime;
 use log::{debug, error, info, trace, warn};
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
+    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse, COMPUTATION_TIMER,
 };
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, ValidatorInfoIdentifier};
@@ -43,7 +43,9 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::ValidatorInfo;
+use near_primitives::views::{
+    DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, ValidatorInfo,
+};
 use near_store::db::DBCol::ColStateParts;
 use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
@@ -661,6 +663,56 @@ impl Handler<Status> for ClientActor {
                 earliest_block_time = Some(earliest_block.timestamp());
             }
         }
+        let detailed_debug_status = if msg.get_detailed_info {
+            let mut blocks_debug: Vec<DebugBlockStatus> = Vec::new();
+
+            let mut last_block_hash = head.last_block_hash;
+            let mut last_block_timestamp: u64 = 0;
+
+            // Fetch last 50 blocks.
+            for _ in 0..50 {
+                let block = match self.client.chain.get_block(&last_block_hash) {
+                    Ok(block) => block,
+                    Err(_) => break,
+                };
+                let chunks = block
+                    .chunks()
+                    .iter()
+                    .map(|chunk| DebugChunkStatus {
+                        shard_id: chunk.shard_id(),
+                        chunk_hash: chunk.chunk_hash(),
+                        gas_used: chunk.gas_used(),
+                        processing_time_ms: *COMPUTATION_TIMER
+                            .lock()
+                            .unwrap()
+                            .get(&chunk.chunk_hash().0)
+                            .unwrap_or(&0),
+                    })
+                    .collect();
+
+                blocks_debug.push(DebugBlockStatus {
+                    block_hash: last_block_hash,
+                    block_height: block.header().height(),
+                    chunks,
+                    processing_time_ms: *COMPUTATION_TIMER
+                        .lock()
+                        .unwrap()
+                        .get(&last_block_hash)
+                        .unwrap_or(&0),
+                    timestamp_delta: if last_block_timestamp > 0 {
+                        last_block_timestamp.saturating_sub(block.header().raw_timestamp())
+                    } else {
+                        0
+                    },
+                });
+                last_block_hash = block.header().prev_hash().clone();
+                last_block_timestamp = block.header().raw_timestamp();
+            }
+
+            Some(DetailedDebugStatus { last_blocks: blocks_debug })
+        } else {
+            None
+        };
         Ok(StatusResponse {
             version: self.client.config.version.clone(),
             protocol_version,
@@ -679,6 +731,7 @@ impl Handler<Status> for ClientActor {
                 earliest_block_time,
             },
             validator_account_id,
+            detailed_debug_status,
         })
     }
 }

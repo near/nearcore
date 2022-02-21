@@ -2749,6 +2749,7 @@ dependencies = [
  "actix-web",
  "easy-ext",
  "futures",
+ "lazy-static-include",
  "near-chain-configs",
  "near-client",
  "near-jsonrpc-adversarial-primitives",

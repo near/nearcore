@@ -4,7 +4,8 @@ use std::time::{Duration, Instant};
 
 use actix::Addr;
 use actix_cors::Cors;
-use actix_web::{http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
+use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
+use actix_web::{HttpRequest, HttpResponseBuilder};
 use futures::Future;
 use futures::FutureExt;
 use prometheus;
@@ -864,7 +865,11 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::status::RpcHealthResponse,
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
-        Ok(self.client_addr.send(Status { is_health_check: true }).await??.into())
+        Ok(self
+            .client_addr
+            .send(Status { is_health_check: true, get_detailed_info: false })
+            .await??
+            .into())
     }
 
     pub async fn status(
@@ -873,7 +878,24 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::status::RpcStatusResponse,
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
-        Ok(self.client_addr.send(Status { is_health_check: false }).await??.into())
+        Ok(self
+            .client_addr
+            .send(Status { is_health_check: false, get_detailed_info: false })
+            .await??
+            .into())
+    }
+
+    pub async fn debugz(
+        &self,
+    ) -> Result<
+        near_jsonrpc_primitives::types::status::RpcStatusResponse,
+        near_jsonrpc_primitives::types::status::RpcStatusError,
+    > {
+        Ok(self
+            .client_addr
+            .send(Status { is_health_check: false, get_detailed_info: true })
+            .await??
+            .into())
     }
 
     /// Expose Genesis Config (with internal Runtime Config) without state records to keep the
@@ -1310,6 +1332,18 @@ fn status_handler(
     response.boxed()
 }
 
+fn debugz_handler(
+    handler: web::Data<JsonRpcHandler>,
+) -> impl Future<Output = Result<HttpResponse, HttpError>> {
+    let response = async move {
+        match handler.debugz().await {
+            Ok(value) => Ok(HttpResponse::Ok().json(&value)),
+            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        }
+    };
+    response.boxed()
+}
+
 fn health_handler(
     handler: web::Data<JsonRpcHandler>,
 ) -> impl Future<Output = Result<HttpResponse, HttpError>> {
@@ -1358,6 +1392,21 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
         .allowed_headers(vec![http::header::AUTHORIZATION, http::header::ACCEPT])
         .allowed_header(http::header::CONTENT_TYPE)
         .max_age(3600)
+}
+
+lazy_static_include::lazy_static_include_str! {
+    LAST_BLOCKS_HTML => "res/last_blocks.html",
+    DEBUGZ_HTML => "res/debugz.html",
+}
+
+#[get("/debugz")]
+async fn debugz_html() -> actix_web::Result<impl actix_web::Responder> {
+    Ok(HttpResponse::Ok().body(*DEBUGZ_HTML))
+}
+
+#[get("/debugz/last_blocks")]
+async fn last_blocks_html() -> actix_web::Result<impl actix_web::Responder> {
+    Ok(HttpResponse::Ok().body(*LAST_BLOCKS_HTML))
 }
 
 /// Starts HTTP server(s) listening for RPC requests.
@@ -1413,6 +1462,9 @@ pub fn start_http(
             )
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
+            .service(web::resource("/debugz/api/last_blocks").route(web::get().to(debugz_handler)))
+            .service(debugz_html)
+            .service(last_blocks_html)
     })
     .bind(addr)
     .unwrap()

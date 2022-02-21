@@ -134,7 +134,7 @@ fn test_stake_nodes() {
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     actix::spawn(
-                        test_nodes[0].client.send(Status { is_health_check: false }).then(|res| {
+                        test_nodes[0].client.send(Status { is_health_check: false, get_detailed_info: false }).then(|res| {
                             let res = res.unwrap();
                             if res.is_err() {
                                 return future::ready(());
@@ -231,7 +231,7 @@ fn test_validator_kickout() {
                     let test_node1 = test_nodes[(num_nodes / 2) as usize].clone();
                     let finalized_mark1 = finalized_mark.clone();
 
-                    actix::spawn(test_node1.client.send(Status { is_health_check: false }).then(
+                    actix::spawn(test_node1.client.send(Status { is_health_check: false, get_detailed_info: false }).then(
                         move |res| {
                             let expected: Vec<_> = (num_nodes / 2..num_nodes)
                                 .map(|i| ValidatorInfo {
@@ -394,7 +394,7 @@ fn test_validator_join() {
                     let test_nodes = test_nodes.clone();
                     let test_node1 = test_nodes[0].clone();
                     let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
-                    actix::spawn(test_node1.client.send(Status { is_health_check: false }).then(
+                    actix::spawn(test_node1.client.send(Status { is_health_check: false, get_detailed_info: false }).then(
                         move |res| {
                             let expected = vec![
                                 ValidatorInfo {
