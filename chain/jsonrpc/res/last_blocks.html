@@ -33,6 +33,8 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script>
         $(document).ready(function () {
+            var root = $("#blocks_table_tbody");
+            root[0].innerHTML = "Loading...";
             $.ajax({
                 type: "GET",
                 url: "/debugz/api/last_blocks",

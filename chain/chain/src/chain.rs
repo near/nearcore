@@ -395,7 +395,7 @@ pub fn check_known(
 }
 
 pub static COMPUTATION_TIMER: Lazy<Mutex<LruCache<CryptoHash, u64>>> =
-    Lazy::new(|| Mutex::new(LruCache::new(1000)));
+    Lazy::new(|| Mutex::new(LruCache::new(10000)));
 
 pub struct CryptoHashTimer {
     key: CryptoHash,
