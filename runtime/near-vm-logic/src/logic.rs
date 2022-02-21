@@ -5,6 +5,8 @@ use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
 use crate::ValuePtr;
 use byteorder::ByteOrder;
+#[cfg(feature = "sandbox")]
+use log::debug;
 use near_crypto::Secp256K1Signature;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
@@ -20,8 +22,6 @@ use near_vm_errors::InconsistentStateError;
 use near_vm_errors::{HostError, VMLogicError};
 use std::collections::HashMap;
 use std::mem::size_of;
-#[cfg(feature = "sandbox")]
-use log::debug;
 
 pub type Result<T> = ::std::result::Result<T, VMLogicError>;
 
