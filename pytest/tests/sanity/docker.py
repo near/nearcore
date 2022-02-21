@@ -31,8 +31,8 @@ import cluster
 from configured_logger import logger
 import utils
 
-BLOCKS = 10
-NUM_NODES = 42
+BLOCKS = 42
+NUM_NODES = 3
 
 _REPO_DIR = pathlib.Path(__file__).resolve().parents[3]
 _CD_PRINTED = False
