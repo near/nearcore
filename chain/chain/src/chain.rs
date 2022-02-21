@@ -1003,7 +1003,6 @@ impl Chain {
         on_challenge: &mut dyn FnMut(ChallengeBody),
     ) -> Result<Option<Tip>, Error> {
         let block_hash = *block.hash();
-        let _timer = CryptoHashTimer::new(block_hash);
         let res = self.process_block_single(
             me,
             block,
@@ -1316,6 +1315,8 @@ impl Chain {
     ) -> Result<Option<Tip>, Error> {
         metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
         metrics::NUM_ORPHANS.set(self.orphans.len() as i64);
+        let block_hash = *block.hash();
+        let _timer = CryptoHashTimer::new(block_hash);
         let success_timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
 
         let res = self.process_block_single_impl(
