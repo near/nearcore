@@ -1015,7 +1015,7 @@ impl Chain {
         ) {
             Ok(_) => {}
             Err(err) => {
-                warn!(target: "chain", "Invalid challenge: {}", err);
+                warn!(target: "chain", "Invalid challenge: {}\nChallenge: {:#?}", err, challenge);
             }
         }
         unwrap_or_return!(chain_update.commit());
@@ -3626,7 +3626,13 @@ impl<'a> ChainUpdate<'a> {
                         chunk_header,
                     )
                     .map_err(|e| {
-                        warn!(target: "chain", "Failed to validate chunk extra: {:?}", e);
+                        warn!(target: "chain", "Failed to validate chunk extra: {:?}.\n\
+                                                block prev_hash: {}\n\
+                                                block hash: {}\n\
+                                                shard_id: {}\n\
+                                                prev_chunk_height_included: {}\n\
+                                                prev_chunk_extra: {:#?}\n\
+                                                chunk_header: {:#?}", e,block.header().prev_hash(),block.header().hash(),shard_id,prev_chunk_height_included,prev_chunk_extra,chunk_header);
                         byzantine_assert!(false);
                         match self.create_chunk_state_challenge(prev_block, block, chunk_header) {
                             Ok(chunk_state) => {
