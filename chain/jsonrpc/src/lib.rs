@@ -5,7 +5,6 @@ use std::time::{Duration, Instant};
 use actix::Addr;
 use actix_cors::Cors;
 use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
-use actix_web::{HttpRequest, HttpResponseBuilder};
 use futures::Future;
 use futures::FutureExt;
 use prometheus;
