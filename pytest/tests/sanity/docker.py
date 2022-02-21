@@ -183,7 +183,7 @@ class DockerNode(cluster.LocalNode):
         # which we do want to read.
         if self.__WARN_LOGS:
             logger.info(
-                'Due to technical libation logs from node is not available')
+                'Due to technical limitations logs from node is not available')
             type(self).__WARN_LOGS = False
         pass
 
