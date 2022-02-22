@@ -1330,7 +1330,6 @@ pub fn test_smart_contract_free(node: impl Node) {
 
 pub fn test_contract_read_write_cost(node: impl Node) {
     let node_user = node.user();
-    let root = node_user.get_state_root();
     let transaction_result = node_user
         .function_call(
             alice_account(),

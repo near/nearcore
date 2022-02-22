@@ -312,4 +312,10 @@ mod test {
         let node = create_free_runtime_node();
         test_smart_contract_free(node);
     }
+
+    #[test]
+    fn test_contract_read_write_cost_runtime() {
+        let node = create_runtime_node();
+        test_contract_read_write_cost(node);
+    }
 }
