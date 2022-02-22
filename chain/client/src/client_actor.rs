@@ -12,7 +12,8 @@ use chrono::DateTime;
 use log::{debug, error, info, trace, warn};
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse, COMPUTATION_TIMER,
+    BlockCatchUpResponse, CryptoHashTimer, StateSplitRequest, StateSplitResponse,
+    CRYPTO_HASH_TIMER_RESULTS,
 };
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, ValidatorInfoIdentifier};
@@ -682,11 +683,8 @@ impl Handler<Status> for ClientActor {
                         shard_id: chunk.shard_id(),
                         chunk_hash: chunk.chunk_hash(),
                         gas_used: chunk.gas_used(),
-                        processing_time_ms: *COMPUTATION_TIMER
-                            .lock()
-                            .unwrap()
-                            .get(&chunk.chunk_hash().0)
-                            .unwrap_or(&0),
+                        processing_time_ms: CryptoHashTimer::get_timer_value(chunk.chunk_hash().0)
+                            .unwrap_or(0),
                     })
                     .collect();
 
@@ -694,11 +692,8 @@ impl Handler<Status> for ClientActor {
                     block_hash: last_block_hash,
                     block_height: block.header().height(),
                     chunks,
-                    processing_time_ms: *COMPUTATION_TIMER
-                        .lock()
-                        .unwrap()
-                        .get(&last_block_hash)
-                        .unwrap_or(&0),
+                    processing_time_ms: CryptoHashTimer::get_timer_value(last_block_hash)
+                        .unwrap_or(0),
                     timestamp_delta: if last_block_timestamp > 0 {
                         last_block_timestamp.saturating_sub(block.header().raw_timestamp())
                     } else {
