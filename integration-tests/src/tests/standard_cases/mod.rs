@@ -13,7 +13,7 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::hash;
 use near_primitives::serialize::to_base64;
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::views::{
     AccessKeyView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
@@ -1344,7 +1344,7 @@ pub fn test_contract_read_write_cost(node: impl Node) {
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
 
     let gas_profile = &transaction_result.receipts_outcome[0].outcome.metadata.gas_profile;
-    let touching_trie_node_cost = gas_profile
+    let touching_trie_node_cost: Gas = gas_profile
         .unwrap()
         .iter()
         .map(|cost| if cost.cost_category == "TOUCHING_TRIE_NODE" { cost.gas_used } else { 0 })
