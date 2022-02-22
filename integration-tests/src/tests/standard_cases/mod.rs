@@ -1335,7 +1335,7 @@ pub fn test_contract_read_write_cost(node: impl Node) {
             alice_account(),
             bob_account(),
             "write_key_value",
-            arr_u64_to_u8(&[1u64, 20u64 + i]),
+            arr_u64_to_u8(&[10u64, 20u64]),
             10u64.pow(14),
             0,
         )
