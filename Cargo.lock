@@ -720,7 +720,7 @@ version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc38c385bfd7e444464011bb24820f40dd1c76bcdfa1b78611cb7c2e5cafab75"
 dependencies = [
- "rustc_version",
+ "rustc_version 0.2.3",
 ]
 
 [[package]]
@@ -1736,28 +1736,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "git-version"
-version = "0.3.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6b0decc02f4636b9ccad390dcbe77b722a77efedfa393caf8379a51d5c61899"
-dependencies = [
- "git-version-macro",
- "proc-macro-hack",
-]
-
-[[package]]
-name = "git-version-macro"
-version = "0.3.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe69f1cbdb6e28af2bac214e943b99ce8a0a06b447d15d3e61161b0423139f3f"
-dependencies = [
- "proc-macro-hack",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "glob"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2699,6 +2677,7 @@ dependencies = [
  "near-chain-configs",
  "near-client",
  "near-crypto",
+ "near-indexer-primitives",
  "near-primitives",
  "nearcore",
  "node-runtime",
@@ -2707,6 +2686,15 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "near-indexer-primitives"
+version = "0.0.0"
+dependencies = [
+ "near-primitives",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3266,9 +3254,9 @@ name = "neard"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "anyhow",
  "clap 3.0.0-beta.2",
  "futures",
- "git-version",
  "near-chain-configs",
  "near-performance-metrics",
  "near-primitives",
@@ -3276,6 +3264,7 @@ dependencies = [
  "nearcore",
  "once_cell",
  "openssl-probe",
+ "rustc_version 0.4.0",
  "shell-escape",
  "state-viewer",
  "tikv-jemallocator",
@@ -4416,6 +4405,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustc_version"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfa0f585226d2e68097d4f95d113b15b83a82e819ab25717ec0590d9584ef366"
+dependencies = [
+ "semver 1.0.4",
+]
+
+[[package]]
 name = "rustix"
 version = "0.31.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4795,7 +4793,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d022496b16281348b52d0e30ae99e01a73d737b2f45d38fed4edf79f9325a1d5"
 dependencies = [
  "discard",
- "rustc_version",
+ "rustc_version 0.2.3",
  "stdweb-derive",
  "stdweb-internal-macros",
  "stdweb-internal-runtime",
@@ -5702,7 +5700,7 @@ dependencies = [
  "nix",
  "page_size",
  "parking_lot 0.10.2",
- "rustc_version",
+ "rustc_version 0.2.3",
  "serde",
  "serde-bench",
  "serde_bytes",

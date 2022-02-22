@@ -73,10 +73,14 @@ impl InfoHelper {
         }
     }
 
-    pub fn chunk_processed(&mut self, shard: ShardId, gas_used: Gas) {
+    pub fn chunk_processed(&mut self, shard_id: ShardId, gas_used: Gas) {
         metrics::TGAS_USAGE_HIST
-            .with_label_values(&[&format!("{}", shard)])
+            .with_label_values(&[&format!("{}", shard_id)])
             .observe(gas_used as f64 / TERAGAS);
+    }
+
+    pub fn chunk_skipped(&mut self, shard_id: ShardId) {
+        metrics::CHUNK_SKIPPED_TOTAL.with_label_values(&[&format!("{}", shard_id)]).inc();
     }
 
     pub fn block_processed(&mut self, gas_used: Gas, num_chunks: u64) {
@@ -108,9 +112,14 @@ impl InfoHelper {
 
         let sync_status_log = Some(display_sync_status(sync_status, head, genesis_height));
 
-        let validator_info_log = validator_info
-            .as_ref()
-            .map(|info| format!(" {} validator{}", info.num_validators, s(info.num_validators)));
+        let validator_info_log = validator_info.as_ref().map(|info| {
+            format!(
+                " {}{} validator{}",
+                if info.is_validator { "Validator | " } else { "" },
+                info.num_validators,
+                s(info.num_validators)
+            )
+        });
 
         let network_info_log = Some(format!(
             " {} peer{} ⬇ {} ⬆ {}",

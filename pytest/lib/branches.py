@@ -57,7 +57,6 @@ def __get_latest_deploy(chain_id: str) -> typing.Tuple[str, str]:
 class Executables(typing.NamedTuple):
     root: pathlib.Path
     neard: pathlib.Path
-    state_viewer: pathlib.Path
 
     def node_config(self) -> typing.Dict[str, typing.Any]:
         return {
@@ -98,14 +97,10 @@ def _compile_current(branch: str) -> Executables:
                           cwd=_REPO_DIR)
     subprocess.check_call(['cargo', 'build', '-p', 'near-test-contracts'],
                           cwd=_REPO_DIR)
-    subprocess.check_call(['cargo', 'build', '-p', 'state-viewer'],
-                          cwd=_REPO_DIR)
     branch = escaped(branch)
     neard = _OUT_DIR / f'neard-{branch}'
-    state_viewer = _OUT_DIR / f'state-viewer-{branch}'
     (_OUT_DIR / 'neard').rename(neard)
-    (_OUT_DIR / 'state-viewer').rename(state_viewer)
-    return Executables(_OUT_DIR, neard, state_viewer)
+    return Executables(_OUT_DIR, neard)
 
 
 def patch_binary(binary: pathlib.Path) -> None:
@@ -184,15 +179,12 @@ def __download_file_if_missing(filename: pathlib.Path, url: str) -> None:
 
 
 def __download_binary(release: str, deploy: str) -> Executables:
-    """Download binary for given release and deploye."""
-    logger.info(f'Getting neard and state-viewer for {release}@{_UNAME} '
-                f'(deploy={deploy})')
+    """Download binary for given release and deploy."""
+    logger.info(f'Getting neard for {release}@{_UNAME} (deploy={deploy})')
     neard = _OUT_DIR / f'neard-{release}-{deploy}'
-    state_viewer = _OUT_DIR / f'state-viewer-{release}-{deploy}'
     basehref = f'{_BASEHREF}/nearcore/{_UNAME}/{release}/{deploy}'
     __download_file_if_missing(neard, f'{basehref}/neard')
-    __download_file_if_missing(state_viewer, f'{basehref}/state-viewer')
-    return Executables(_OUT_DIR, neard, state_viewer)
+    return Executables(_OUT_DIR, neard)
 
 
 class ABExecutables(typing.NamedTuple):
@@ -223,8 +215,7 @@ def prepare_ab_test(chain_id: str = 'mainnet') -> ABExecutables:
     if is_nayduck:
         # On NayDuck the file is fetched from a builder host so there’s no need
         # to build it.
-        current = Executables(_OUT_DIR, _OUT_DIR / 'neard',
-                              _OUT_DIR / 'state-viewer')
+        current = Executables(_OUT_DIR, _OUT_DIR / 'neard')
     else:
         current = _compile_current(current_branch())
 

@@ -1,6 +1,6 @@
 use crate::config::GasMetric;
-use crate::gas_cost::GasCost;
-use crate::{read_resource, REAL_CONTRACTS_SAMPLE};
+use crate::gas_cost::{GasCost, LeastSquaresTolerance};
+use crate::{utils::read_resource, REAL_CONTRACTS_SAMPLE};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::types::CompiledContractCache;
@@ -71,7 +71,11 @@ impl CompiledContractCache for MockCompiledContractCache {
 /// Returns `(a, b)` - approximation coefficients for formula `a + b * x`
 /// where `x` is the contract size in bytes. Practically, we compute upper bound
 /// of this approximation, assuming that whole contract consists of code only.
-fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (GasCost, GasCost) {
+fn precompilation_cost(
+    gas_metric: GasMetric,
+    vm_kind: VMKind,
+    verbose: bool,
+) -> (GasCost, GasCost) {
     if cfg!(debug_assertions) {
         eprintln!("WARNING: did you pass --release flag, results do not make sense otherwise")
     }
@@ -98,7 +102,17 @@ fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (GasCost, GasC
         ys.push(measure_contract(vm_kind, gas_metric, &contract, cache));
     }
 
-    let (a, b) = GasCost::least_squares_method_gas_cost(&xs, &ys);
+    // Motivation behind these values is the same as in `fn action_deploy_contract_per_byte`.
+    let negative_base_tolerance = 369_531_500_000u64;
+    let rel_factor_tolerance = 0.001;
+    let (a, b) = GasCost::least_squares_method_gas_cost(
+        &xs,
+        &ys,
+        LeastSquaresTolerance::default()
+            .base_abs_nn_tolerance(negative_base_tolerance)
+            .factor_rel_nn_tolerance(rel_factor_tolerance),
+        verbose,
+    );
 
     // We multiply `b` by 5/4 to accommodate for the fact that test contracts are typically 80% code,
     // so in the worst case it could grow to 100% and our costs still give better upper estimation.
@@ -154,7 +168,7 @@ pub(crate) fn compute_compile_cost_vm(
     vm_kind: VMKind,
     verbose: bool,
 ) -> (GasCost, GasCost) {
-    let (a, b) = precompilation_cost(metric, vm_kind);
+    let (a, b) = precompilation_cost(metric, vm_kind, verbose);
     let base = a.to_gas();
     let per_byte = b.to_gas();
     if verbose {

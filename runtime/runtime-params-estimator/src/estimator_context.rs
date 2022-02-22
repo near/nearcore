@@ -5,8 +5,8 @@ use near_vm_logic::ExtCosts;
 
 use crate::config::Config;
 use crate::gas_cost::GasCost;
-use crate::get_account_id;
 use crate::testbed::RuntimeTestbed;
+use crate::utils::get_account_id;
 
 use super::transaction_builder::TransactionBuilder;
 

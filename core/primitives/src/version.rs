@@ -8,6 +8,8 @@ use crate::types::Balance;
 pub struct Version {
     pub version: String,
     pub build: String,
+    #[serde(default)]
+    pub rustc_version: String,
 }
 
 /// Database version.
@@ -155,7 +157,7 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = MAIN_NET_PROTOCOL
 /// Current protocol version used on the main net.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const MAIN_NET_PROTOCOL_VERSION: ProtocolVersion = 51;
+const MAIN_NET_PROTOCOL_VERSION: ProtocolVersion = 52;
 
 /// Version used by this binary.
 #[cfg(not(feature = "nightly_protocol"))]
