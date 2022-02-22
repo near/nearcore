@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
-use log::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use near_chain::types::ValidatorInfoIdentifier;
 use near_chain::{
