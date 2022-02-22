@@ -32,6 +32,7 @@ class Account:
         assert rpc_info or rpc_infos
         if rpc_info:
             assert not rpc_infos
+            rpc_infos = [rpc_info]
         self.rpc_infos = rpc_infos
         assert key.account_id
         self.tx_timestamps = []
@@ -62,9 +63,11 @@ class Account:
         self.tx_timestamps.append(time.time())
         self.nonce += 1
 
-    def send_transfer_tx(self, dest_account_id, base_block_hash=None):
+    def send_transfer_tx(self,
+                         dest_account_id,
+                         transfer_amount=100,
+                         base_block_hash=None):
         self.prep_tx()
-        transfer_amount = 100
         tx = sign_payment_tx(self.key, dest_account_id, transfer_amount,
                              self.nonce, base_block_hash or
                              self.base_block_hash)
