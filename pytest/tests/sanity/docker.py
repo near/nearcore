@@ -208,7 +208,7 @@ def main():
         # Wait for BLOCKS blocks to be generated
         latest = utils.wait_for_blocks(nodes[0], target=BLOCKS)
 
-        # Fetch latest block from all the nodess
+        # Fetch latest block from all the nodes
         blocks = []
         for ordinal, node in enumerate(nodes):
             utils.wait_for_blocks(node, target=latest.height)
@@ -221,9 +221,9 @@ def main():
 
         # All blocks should be equal
         for ordinal in range(1, NUM_NODES):
-            assert blocks[0] == blocks[1], (ordinal, blocks)
+            assert blocks[0] == blocks[ordinal], (ordinal, blocks)
 
-        logger.info(f'All good')
+        logger.info('All good')
 
     finally:
         # `docker stop` takes a few seconds so stop all containers in parallel.
