@@ -1,17 +1,15 @@
 use actix::{Actor, Arbiter, Context};
 use clap::{AppSettings, Clap};
 use futures::future::FutureExt;
-use futures::pin_mut;
+use futures_intrusive::channel::Channel;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use nearcore::get_store_path;
-use std::mem::swap;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
-use tokio::sync::oneshot;
 use tracing::metadata::LevelFilter;
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
@@ -290,7 +288,8 @@ pub(super) struct RunCmd {
 
 /// SystemStoppedActor is used to monitor whether the actix System was stopped.
 struct SystemStoppedActor {
-    tx: Option<oneshot::Sender<bool>>,
+    // 'Actor' requires the reference to have a static lifetime.
+    channel: &'static Channel<bool, [bool; 1]>,
 }
 
 impl Actor for SystemStoppedActor {
@@ -302,26 +301,8 @@ impl Actor for SystemStoppedActor {
 
 impl Drop for SystemStoppedActor {
     fn drop(&mut self) {
-        info!(target:"neard","Detected that actix System got stopped");
-        let mut swapped = None;
-        swap(&mut swapped, &mut self.tx);
-        if let Some(tx) = swapped {
-            match tx.send(true) {
-                Err(err) => {
-                    error!(target:"neard","Failed to send SystemStoppedActor message: {:#?}",err);
-                }
-                Ok(_) => {}
-            }
-        }
-    }
-}
-
-async fn system_stopped_wait(rx: oneshot::Receiver<bool>) {
-    match rx.blocking_recv() {
-        Err(err) => {
-            error!(target:"neard","Failed to listen to system stop events: {:#?}",err);
-        }
-        Ok(_) => {}
+        // try_send() can't block and therefore works in a non-async function.
+        self.channel.try_send(true).unwrap();
     }
 }
 
@@ -389,17 +370,18 @@ impl RunCmd {
             }
         }
 
-        let (tx, rx) = oneshot::channel::<bool>();
-        let rx_task = system_stopped_wait(rx).fuse();
-        pin_mut!(rx_task);
+        // Leaking a reference from the box is the simplest way of getting a reference with static lifetime.
+        let channel = Box::new(Channel::new());
+        let channel_ref: &'static mut Channel<bool, [bool; 1]> = Box::leak(channel);
         let sys = actix::System::new();
         sys.block_on(async move {
             let nearcore::NearNode { rpc_servers, .. } =
                 nearcore::start_with_config(home_dir, near_config).expect("start_with_config");
             let system_stopped_arbiter = Arbiter::new();
+            // Dropping `_addr` drops the actor which looks like stopping the system. Please don't drop `_addr`.
             let _addr = SystemStoppedActor::start_in_arbiter(
                 &system_stopped_arbiter.handle(),
-                |_| -> SystemStoppedActor { SystemStoppedActor { tx: Some(tx) } },
+                |_| -> SystemStoppedActor { SystemStoppedActor { channel: channel_ref } },
             );
 
             let sig = if cfg!(unix) {
@@ -409,7 +391,7 @@ impl RunCmd {
                 futures::select! {
                     _ = sigint .recv().fuse() => "SIGINT",
                     _ = sigterm.recv().fuse() => "SIGTERM",
-                    _ = rx_task => "DIED",
+                    _ = channel_ref.receive() => "DIED",
                 }
             } else {
                 tokio::signal::ctrl_c().await.unwrap();
