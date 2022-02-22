@@ -135,3 +135,6 @@ pytest sanity/rpc_hash.py --features nightly_protocol,nightly_protocol_features
 # Rosetta RPC tests
 pytest sanity/rosetta.py
 pytest sanity/rosetta.py --features nightly_protocol,nightly_protocol_features
+
+# Make sure Docker image can be build and run
+pytest --skip-build --timeout=1h sanity/docker.py
