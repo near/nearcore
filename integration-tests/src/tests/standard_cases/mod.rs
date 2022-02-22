@@ -1352,12 +1352,5 @@ pub fn test_contract_read_write_cost(node: impl Node) {
         .sum();
     let node_touches =
         touching_trie_node_cost / RuntimeConfig::test().wasm_config.ext_costs.touching_trie_node;
-    eprintln!("{:?}", node_touches);
-
-    // let total_gas_burnt = transaction_result.transaction_outcome.outcome.gas_burnt
-    //     + transaction_result.receipts_outcome.iter().map(|t| t.outcome.gas_burnt).sum::<u64>();
-    // assert_eq!(total_gas_burnt, 0);
-    //
-    // let new_root = node_user.get_state_root();
-    // assert_ne!(root, new_root);
+    assert_eq!(node_touches, 2);
 }
