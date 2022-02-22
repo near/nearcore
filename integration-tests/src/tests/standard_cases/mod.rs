@@ -1330,6 +1330,7 @@ pub fn test_smart_contract_free(node: impl Node) {
 
 pub fn test_contract_read_write_cost(node: impl Node) {
     let node_user = node.user();
+    let fee_helper = fee_helper(&node_user);
     let transaction_result = node_user
         .function_call(
             alice_account(),
@@ -1341,8 +1342,17 @@ pub fn test_contract_read_write_cost(node: impl Node) {
         )
         .unwrap();
     assert_matches!(transaction_result.status, FinalExecutionStatus::SuccessValue(_));
-    eprintln!("{:?}", transaction_result.receipts_outcome);
-    // assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+
+    let gas_profile = &transaction_result.receipts_outcome[0].outcome.metadata.gas_profile;
+    let touching_trie_node_cost = gas_profile
+        .unwrap()
+        .iter()
+        .map(|cost| if cost.cost_category == "TOUCHING_TRIE_NODE" { cost.gas_used } else { 0 })
+        .sum();
+    let node_touches =
+        touching_trie_node_cost / RuntimeConfig::test().wasm_config.ext_costs.touching_trie_node;
+    eprintln!("{:?}", node_touches);
 
     // let total_gas_burnt = transaction_result.transaction_outcome.outcome.gas_burnt
     //     + transaction_result.receipts_outcome.iter().map(|t| t.outcome.gas_burnt).sum::<u64>();
