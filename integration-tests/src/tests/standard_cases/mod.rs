@@ -1345,6 +1345,7 @@ pub fn test_contract_read_write_cost(node: impl Node) {
 
     let gas_profile = &transaction_result.receipts_outcome[0].outcome.metadata.gas_profile;
     let touching_trie_node_cost: Gas = gas_profile
+        .clone()
         .unwrap()
         .iter()
         .map(|cost| if cost.cost_category == "TOUCHING_TRIE_NODE" { cost.gas_used } else { 0 })
