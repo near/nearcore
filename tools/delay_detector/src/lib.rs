@@ -1,7 +1,7 @@
 use cpu_time::ProcessTime;
-use log::{info, warn};
 use std::borrow::Cow;
 use std::time::{Duration, Instant};
+use tracing::{info, warn};
 
 struct Snapshot {
     real_time: Duration,
