@@ -35,6 +35,14 @@ fn fee_helper(node: &impl Node) -> FeeHelper {
     FeeHelper::new(RuntimeConfig::test().transaction_costs, node.genesis().config.min_gas_price)
 }
 
+fn arr_u64_to_u8(value: &[u64]) -> Vec<u8> {
+    let mut res = vec![];
+    for el in value {
+        res.extend_from_slice(&el.to_le_bytes());
+    }
+    res
+}
+
 /// Adds given access key to the given account_id using signer2.
 fn add_access_key(
     node: &impl Node,
@@ -1318,4 +1326,29 @@ pub fn test_smart_contract_free(node: impl Node) {
 
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
+}
+
+pub fn test_contract_read_write_cost(node: impl Node) {
+    let node_user = node.user();
+    let root = node_user.get_state_root();
+    let transaction_result = node_user
+        .function_call(
+            alice_account(),
+            bob_account(),
+            "write_key_value",
+            arr_u64_to_u8(&[1u64, 20u64 + i]),
+            10u64.pow(14),
+            0,
+        )
+        .unwrap();
+    assert_matches!(transaction_result.status, FinalExecutionStatus::SuccessValue(_));
+    eprintln!("{:?}", transaction_result.receipts_outcome);
+    // assert_eq!(transaction_result.receipts_outcome.len(), 1);
+
+    // let total_gas_burnt = transaction_result.transaction_outcome.outcome.gas_burnt
+    //     + transaction_result.receipts_outcome.iter().map(|t| t.outcome.gas_burnt).sum::<u64>();
+    // assert_eq!(total_gas_burnt, 0);
+    //
+    // let new_root = node_user.get_state_root();
+    // assert_ne!(root, new_root);
 }
