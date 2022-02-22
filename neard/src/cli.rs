@@ -5,10 +5,10 @@ use futures_intrusive::channel::Channel;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
+use near_store::db::RocksDB;
 use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 use std::{env, fs, io};
 use tracing::metadata::LevelFilter;
 use tracing::{debug, error, info, warn};
@@ -287,7 +287,10 @@ pub(super) struct RunCmd {
 }
 
 /// SystemStoppedActor is used to monitor whether the actix System was stopped.
-struct SystemStoppedActor {}
+struct SystemStoppedActor {
+    // 'Actor' requires the reference to have a static lifetime.
+    channel: &'static Channel<bool, [bool; 1]>,
+}
 
 impl Actor for SystemStoppedActor {
     type Context = Context<Self>;
@@ -296,13 +299,10 @@ impl Actor for SystemStoppedActor {
     fn started(&mut self, _: &mut Self::Context) {}
 }
 
-use once_cell::sync::Lazy;
-pub static SYSTEM_STOPPED_CHANNEL: Lazy<Channel<bool, [bool; 1]>> = Lazy::new(|| Channel::new());
-
 impl Drop for SystemStoppedActor {
     fn drop(&mut self) {
         // try_send() can't block and therefore works in a non-async function.
-        SYSTEM_STOPPED_CHANNEL.try_send(true).unwrap();
+        self.channel.try_send(true).unwrap();
     }
 }
 
@@ -370,14 +370,18 @@ impl RunCmd {
             }
         }
 
+        // Leaking a reference from the box is the simplest way of getting a reference with static lifetime.
+        let channel = Box::new(Channel::new());
+        let channel_ref: &'static mut Channel<bool, [bool; 1]> = Box::leak(channel);
         let sys = actix::System::new();
         sys.block_on(async move {
             let nearcore::NearNode { rpc_servers, .. } =
                 nearcore::start_with_config(home_dir, near_config).expect("start_with_config");
             let system_stopped_arbiter = Arbiter::new();
-            SystemStoppedActor::start_in_arbiter(
+            // Dropping `_addr` drops the actor which looks like stopping the system. Please don't drop `_addr`.
+            let _addr = SystemStoppedActor::start_in_arbiter(
                 &system_stopped_arbiter.handle(),
-                |_| -> SystemStoppedActor { SystemStoppedActor {} },
+                |_| -> SystemStoppedActor { SystemStoppedActor { channel: channel_ref } },
             );
 
             let sig = if cfg!(unix) {
@@ -387,7 +391,7 @@ impl RunCmd {
                 futures::select! {
                     _ = sigint .recv().fuse() => "SIGINT",
                     _ = sigterm.recv().fuse() => "SIGTERM",
-                    _ = SYSTEM_STOPPED_CHANNEL.receive() => "DIED",
+                    _ = channel_ref.receive() => "DIED",
                 }
             } else {
                 tokio::signal::ctrl_c().await.unwrap();
@@ -402,11 +406,8 @@ impl RunCmd {
             actix::System::current().stop();
         });
         sys.run().unwrap();
-        // Wait a few extra seconds to let RocksDB cleanly shut down.
-        // It's unknown how much time the process actually needs.
-        const ROCKS_DB_SLEEP_SECONDS: u64 = 3;
-        info!(target: "neard", "Waiting for {} seconds to let RocksDB shut down cleanly...",ROCKS_DB_SLEEP_SECONDS);
-        std::thread::sleep(Duration::from_secs(ROCKS_DB_SLEEP_SECONDS));
+        info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
+        RocksDB::block_until_all_instances_are_dropped();
     }
 }
 
