@@ -1348,7 +1348,7 @@ pub fn test_contract_read_write_cost(node: impl Node) {
         .clone()
         .unwrap()
         .iter()
-        .map(|cost| if cost.cost_category == "TOUCHING_TRIE_NODE" { cost.gas_used } else { 0 })
+        .map(|cost| if cost.cost == "TOUCHING_TRIE_NODE" { cost.gas_used } else { 0 })
         .sum();
     let node_touches =
         touching_trie_node_cost / RuntimeConfig::test().wasm_config.ext_costs.touching_trie_node;
