@@ -330,7 +330,7 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         cmd.args(&["--env", "CARGO_PROFILE_RELEASE_LTO=fat"])
             .args(&["--env", "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1"]);
     }
-    cmd.arg("rust-emu");
+    cmd.arg(tagged_image);
 
     if debug_shell {
         cmd.args(&["/usr/bin/env", "bash"]);
