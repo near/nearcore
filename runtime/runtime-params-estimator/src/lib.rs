@@ -1065,7 +1065,7 @@ fn touching_trie_node_read(ctx: &mut EstimatorContext) -> GasCost {
 
     // Prepare a long chain in the trie
     let signer = tb.random_account();
-    let key = std::iter::repeat('j').take(final_key_len).collect::<String>();
+    let key = "j".repeat(final_key_len);
     let mut setup_block = Vec::new();
     for key_len in 0..final_key_len {
         setup_block.push(tb.account_insert_key(signer.clone(), &key.as_str()[..key_len], "0"));
