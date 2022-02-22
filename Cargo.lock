@@ -1227,7 +1227,7 @@ name = "delay-detector"
 version = "0.0.0"
 dependencies = [
  "cpu-time",
- "log",
+ "tracing",
 ]
 
 [[package]]
@@ -1413,19 +1413,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "env_logger"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a19187fea3ac7e84da7dacf48de0c45d63c6a76f9490dae389aead16c243fce3"
-dependencies = [
- "atty",
- "humantime",
- "log",
- "regex",
- "termcolor",
 ]
 
 [[package]]
@@ -1865,12 +1852,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6456b8a6c8f33fee7d958fcd1b60d55b11940a79e63ae87013e6d22e26034440"
 
 [[package]]
-name = "humantime"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
-
-[[package]]
 name = "hyper"
 version = "0.14.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2026,7 +2007,6 @@ dependencies = [
  "futures",
  "hex",
  "hyper",
- "log",
  "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
@@ -2525,10 +2505,10 @@ dependencies = [
  "chrono",
  "failure",
  "failure_derive",
- "log",
  "near-crypto",
  "near-primitives",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -2540,7 +2520,6 @@ dependencies = [
  "borsh",
  "chrono",
  "futures",
- "log",
  "lru",
  "near-chain",
  "near-chunks-primitives",
@@ -2553,6 +2532,7 @@ dependencies = [
  "near-store",
  "rand 0.7.3",
  "reed-solomon-erasure",
+ "tracing",
 ]
 
 [[package]]
@@ -2573,7 +2553,6 @@ dependencies = [
  "chrono",
  "delay-detector",
  "futures",
- "log",
  "lru",
  "near-actix-test-utils",
  "near-chain",
@@ -2599,6 +2578,7 @@ dependencies = [
  "strum",
  "sysinfo",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -2651,7 +2631,6 @@ version = "0.0.0"
 dependencies = [
  "borsh",
  "chrono",
- "log",
  "lru",
  "near-chain",
  "near-chain-configs",
@@ -2664,6 +2643,7 @@ dependencies = [
  "rand 0.7.3",
  "serde_json",
  "smart-default",
+ "tracing",
 ]
 
 [[package]]
@@ -2827,8 +2807,8 @@ name = "near-metrics"
 version = "0.0.0"
 dependencies = [
  "lazy_static",
- "log",
  "prometheus",
+ "tracing",
 ]
 
 [[package]]
@@ -2895,12 +2875,12 @@ dependencies = [
  "bytesize",
  "futures",
  "libc",
- "log",
  "near-rust-allocator-proxy",
  "once_cell",
  "strum",
  "tokio",
  "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -3298,7 +3278,6 @@ dependencies = [
  "byteorder",
  "hex",
  "indicatif",
- "log",
  "near-chain-configs",
  "near-crypto",
  "near-metrics",
@@ -4243,13 +4222,13 @@ name = "restaked"
 version = "0.0.0"
 dependencies = [
  "clap 2.33.3",
- "env_logger",
  "integration-tests",
- "log",
  "near-crypto",
  "near-jsonrpc-client",
  "near-primitives",
  "nearcore",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -4353,7 +4332,6 @@ version = "0.0.0"
 dependencies = [
  "byteorder",
  "libfuzzer-sys",
- "log",
  "near-chain",
  "near-chain-configs",
  "near-client",
@@ -4368,6 +4346,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "testlib",
+ "tracing",
 ]
 
 [[package]]
@@ -4841,12 +4820,12 @@ checksum = "213701ba3370744dcd1a12960caa4843b3d68b4d1c0a5d575e0d65b2ee9d16c0"
 name = "storage-usage-delta-calculator"
 version = "0.0.0"
 dependencies = [
- "env_logger",
- "log",
  "near-chain-configs",
  "near-primitives",
  "node-runtime",
  "serde_json",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
