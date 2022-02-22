@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
+#[cfg(test)]
 use std::str::FromStr;
+
 use std::sync::{Arc, Mutex};
 use std::time::{Duration as TimeDuration, Instant};
 
@@ -7,7 +9,7 @@ use borsh::BorshSerialize;
 use chrono::Duration;
 use itertools::Itertools;
 use lru::LruCache;
-use near_primitives::time::{Clock, MockClockGuard};
+use near_primitives::time::Clock;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -402,11 +404,13 @@ pub static CRYPTO_HASH_TIMER_RESULTS: Lazy<Mutex<LruCache<CryptoHash, u64>>> =
 /// It stores the data in the global LRU cache, which allows it to be read afterwards.
 ///
 /// Example use:
+/// ```rust, ignore
 /// {
-///     let timer_ = CryptoHashTime(block.hash);
+///     let _timer = CryptoHashTime(block.hash);
 ///     // Do stuff with the block
 ///     // timer gets released at the end of this block
 /// }
+/// ```
 pub struct CryptoHashTimer {
     key: CryptoHash,
     start: Instant,
@@ -438,7 +442,7 @@ fn test_crypto_hash_timer() {
     let crypto_hash = CryptoHash::from_str("s3N6V7CNAN2Eg6vfivMVHR4hbMZeh72fTmYbrC6dXBT").unwrap();
     // Timer should be missing.
     assert_eq!(CryptoHashTimer::get_timer_value(crypto_hash), None);
-    let mock_clock_guard = MockClockGuard::default();
+    let mock_clock_guard = near_primitives::time::MockClockGuard::default();
     mock_clock_guard.add_instant(Instant::now());
     mock_clock_guard.add_instant(Instant::now() + std::time::Duration::from_secs(1));
     {

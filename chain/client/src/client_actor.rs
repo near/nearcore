@@ -13,7 +13,6 @@ use log::{debug, error, info, trace, warn};
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
     BlockCatchUpResponse, CryptoHashTimer, StateSplitRequest, StateSplitResponse,
-    CRYPTO_HASH_TIMER_RESULTS,
 };
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, ValidatorInfoIdentifier};
@@ -664,6 +663,8 @@ impl Handler<Status> for ClientActor {
                 earliest_block_time = Some(earliest_block.timestamp());
             }
         }
+        // Provide more detailed information about the current state of chain.
+        // For now - provide info about last 50 blocks.
         let detailed_debug_status = if msg.get_detailed_info {
             let mut blocks_debug: Vec<DebugBlockStatus> = Vec::new();
 

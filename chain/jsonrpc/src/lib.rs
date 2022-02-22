@@ -61,6 +61,10 @@ impl Default for RpcLimitsConfig {
     }
 }
 
+fn default_enable_debug_rpc() -> bool {
+    false
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RpcConfig {
     pub addr: String,
@@ -70,6 +74,10 @@ pub struct RpcConfig {
     pub polling_config: RpcPollingConfig,
     #[serde(default)]
     pub limits_config: RpcLimitsConfig,
+    // If true, enable some debug RPC endpoints (like one to get the latest block).
+    // We disable it by default, as some of those endpoints might be quite CPU heavy.
+    #[serde(default = "default_enable_debug_rpc")]
+    pub enable_debug_rpc: bool,
 }
 
 impl Default for RpcConfig {
@@ -80,6 +88,7 @@ impl Default for RpcConfig {
             cors_allowed_origins: vec!["*".to_owned()],
             polling_config: Default::default(),
             limits_config: Default::default(),
+            enable_debug_rpc: false,
         }
     }
 }
@@ -199,6 +208,7 @@ struct JsonRpcHandler {
     view_client_addr: Addr<ViewClientActor>,
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
+    enable_debug_rpc: bool,
     #[cfg(feature = "test_features")]
     peer_manager_addr: Addr<near_network::PeerManagerActor>,
     #[cfg(feature = "test_features")]
@@ -890,11 +900,17 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::status::RpcStatusResponse,
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
-        Ok(self
-            .client_addr
-            .send(Status { is_health_check: false, get_detailed_info: true })
-            .await??
-            .into())
+        if self.enable_debug_rpc {
+            Ok(self
+                .client_addr
+                .send(Status { is_health_check: false, get_detailed_info: true })
+                .await??
+                .into())
+        } else {
+            Err(near_jsonrpc_primitives::types::status::RpcStatusError::InternalError {
+                error_message: "Debug not enabled in configuration.".to_string(),
+            })
+        }
     }
 
     /// Expose Genesis Config (with internal Runtime Config) without state records to keep the
@@ -1427,8 +1443,14 @@ pub fn start_http(
     #[cfg(feature = "test_features")] peer_manager_addr: Addr<near_network::PeerManagerActor>,
     #[cfg(feature = "test_features")] routing_table_addr: Addr<near_network::RoutingTableActor>,
 ) -> Vec<(&'static str, actix_web::dev::Server)> {
-    let RpcConfig { addr, prometheus_addr, cors_allowed_origins, polling_config, limits_config } =
-        config;
+    let RpcConfig {
+        addr,
+        prometheus_addr,
+        cors_allowed_origins,
+        polling_config,
+        limits_config,
+        enable_debug_rpc,
+    } = config;
     let prometheus_addr = prometheus_addr.filter(|it| it != &addr);
     let cors_allowed_origins_clone = cors_allowed_origins.clone();
     info!(target:"network", "Starting http server at {}", addr);
@@ -1441,6 +1463,7 @@ pub fn start_http(
                 view_client_addr: view_client_addr.clone(),
                 polling_config,
                 genesis_config: genesis_config.clone(),
+                enable_debug_rpc,
                 #[cfg(feature = "test_features")]
                 peer_manager_addr: peer_manager_addr.clone(),
                 #[cfg(feature = "test_features")]
