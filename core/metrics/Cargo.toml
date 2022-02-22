@@ -13,4 +13,4 @@ description = "A fork of the lighthouse_metrics crate used to implement promethe
 [dependencies]
 lazy_static = "1.4"
 prometheus = "0.11"
-log = "0.4"
+tracing = "0.1.13"

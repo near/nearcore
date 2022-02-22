@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use borsh::BorshDeserialize;
-use log::debug;
+use tracing::debug;
 
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
