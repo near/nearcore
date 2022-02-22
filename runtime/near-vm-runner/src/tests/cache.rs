@@ -18,6 +18,7 @@ use std::hash::{Hash, Hasher};
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use wasmer_compiler::{CpuFeature, Target};
+use wasmer_engine::Executable;
 
 #[test]
 fn test_caches_compilation_error() {
@@ -111,10 +112,10 @@ fn test_wasmer2_artifact_output_stability() {
     let triple = "x86_64-unknown-linux-gnu".parse().unwrap();
     let target = Target::new(triple, features);
     let vm = Wasmer2VM::new_for_target(config, target);
-    let artifact = vm.compile_uncached(&prepared_code).unwrap();
-    let serialized = artifact.artifact().serialize().unwrap();
+    let executable = vm.compile_uncached(&prepared_code).unwrap();
+    let serialized = executable.serialize().unwrap();
     serialized.hash(&mut hasher);
-    assert_eq!(hasher.finish(), 16203733374745522118, "WASMER2_CONFIG needs version change");
+    assert_eq!(hasher.finish(), 2128441495928970645, "WASMER2_CONFIG needs version change");
 }
 
 /// [`CompiledContractCache`] which simulates failures in the underlying
