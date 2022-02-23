@@ -97,14 +97,16 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf
         panic!(
             "Detected an existing database migration snapshot: '{}'.\n\
              Probably a database migration got interrupted and your database is corrupted.\n\
-             Please replace the contents of '{}' with data from that checkpoint, delete the checkpoint and try again.",checkpoint_path.display(), path.display());
+             Please replace the contents of '{}' with data from that checkpoint, delete the checkpoint and try again.",
+            checkpoint_path.display(),
+            path.display());
     }
 
     let db = RocksDB::new(path)?;
     let checkpoint = db.checkpoint()?;
-    info!(target:"near","Creating a database migration snapshot in '{}'",checkpoint_path.display());
+    info!(target: "near", "Creating a database migration snapshot in '{}'", checkpoint_path.display());
     checkpoint.create_checkpoint(&checkpoint_path)?;
-    info!(target:"near","Created a database migration snapshot in '{}'",checkpoint_path.display());
+    info!(target: "near", "Created a database migration snapshot in '{}'", checkpoint_path.display());
 
     Ok(checkpoint_path)
 }
@@ -344,7 +346,13 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
                 info!(target: "near", "Deleted the database migration snapshot at '{}'", checkpoint_path.display());
             }
             Err(err) => {
-                error!(target: "near", "Failed to delete the database migration snapshot at '{}'. Error: {:#?}. Please delete it manually before the next start of the node.", checkpoint_path.display(), err);
+                error!(
+                    "Failed to delete the database migration snapshot at '{}'.\n\
+                    \tError: {:#?}.\n\
+                    \n\
+                    Please delete the database migration snapshot manually before the next start of the node.",
+                    checkpoint_path.display(),
+                    err);
             }
         }
     }
