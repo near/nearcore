@@ -1328,7 +1328,10 @@ pub fn test_smart_contract_free(node: impl Node) {
     assert_ne!(root, new_root);
 }
 
-pub fn test_contract_read_write_cost(node: impl Node) {
+/// Checks correctness of touching trie node cost for writing value into contract storage.
+/// First call should touch 2 nodes (Extension and Branch), because before it contract storage is empty.
+/// The second call should touch 4 nodes, because the first call adds Leaf and Value nodes to trie.  
+pub fn test_contract_write_key_value_cost(node: impl Node) {
     let node_user = node.user();
     let results: Vec<Gas> = vec![2, 4];
     for i in 0..2 {
