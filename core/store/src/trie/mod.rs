@@ -638,7 +638,7 @@ impl Trie {
             let node = RawTrieNodeWithSize::decode(&bytes).map_err(|_| {
                 StorageError::StorageInconsistentState("RawTrieNode decode failed".to_string())
             })?;
-            eprintln!("{:?}", node.node);
+
             match node.node {
                 RawTrieNode::Leaf(existing_key, value_length, value_hash) => {
                     if NibbleSlice::from_encoded(&existing_key).0 == key {

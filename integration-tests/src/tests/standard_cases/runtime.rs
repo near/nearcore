@@ -314,8 +314,8 @@ mod test {
     }
 
     #[test]
-    fn test_contract_read_write_cost_runtime() {
+    fn test_contract_write_key_value_cost_runtime() {
         let node = create_runtime_node();
-        test_contract_read_write_cost(node);
+        test_contract_write_key_value_cost(node);
     }
 }
