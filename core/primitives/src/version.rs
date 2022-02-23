@@ -154,7 +154,7 @@ pub enum ProtocolFeature {
 /// protocol version is lower than this.
 pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = MAIN_NET_PROTOCOL_VERSION - 2;
 
-/// Current protocol version used on the main net.
+/// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
 const MAIN_NET_PROTOCOL_VERSION: ProtocolVersion = 52;
@@ -166,13 +166,16 @@ pub const PROTOCOL_VERSION: ProtocolVersion = MAIN_NET_PROTOCOL_VERSION;
 #[cfg(feature = "nightly_protocol")]
 pub const PROTOCOL_VERSION: ProtocolVersion = 126;
 
+/// The moment in time after which the voting for the latest client version should start on the
+/// mainnet version of the protocol.
 #[allow(dead_code)]
-const MAIN_NET_PROTOCOL_UPGRADE_VOTING_START: Option<ProtocolUpgradeVotingSchedule> =
-    Some(ProtocolUpgradeVotingSchedule("2022-02-17 12:44:00"));
+const MAIN_NET_PROTOCOL_UPGRADE_VOTING_START: Option<ProtocolUpgradeVotingSchedule> = None;
 #[cfg(not(feature = "nightly_protocol"))]
 const PROTOCOL_UPGRADE_VOTING_START: Option<ProtocolUpgradeVotingSchedule> =
     MAIN_NET_PROTOCOL_UPGRADE_VOTING_START;
 
+/// The moment in time after which the voting for the latest client version should start on the
+/// nightly version of the protocol.
 #[allow(dead_code)]
 const NIGHTLY_PROTOCOL_UPGRADE_VOTING_START: Option<ProtocolUpgradeVotingSchedule> = None;
 #[cfg(feature = "nightly_protocol")]

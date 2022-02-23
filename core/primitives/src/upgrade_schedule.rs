@@ -1,7 +1,9 @@
 use chrono::{DateTime, NaiveDateTime, ParseResult, Utc};
 use near_primitives_core::types::ProtocolVersion;
 
+/// Defines the point in time after which validators are expected to vote on the new protocol version.
 pub(crate) struct ProtocolUpgradeVotingSchedule(pub &'static str);
+
 impl ProtocolUpgradeVotingSchedule {
     #[allow(dead_code)]
     pub fn is_valid(self) -> bool {
@@ -41,6 +43,11 @@ pub(crate) fn get_protocol_version_internal(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The tests call `get_protocol_version_internal()` with the following parameters:
+    // No schedule:                  (X-2,X), (X,X), (X+2,X)
+    // Before the scheduled upgrade: (X-2,X), (X,X), (X+2,X)
+    // After the scheduled upgrade:  (X-2,X), (X,X), (X+2,X)
 
     #[test]
     fn test_no_upgrade_schedule() {
