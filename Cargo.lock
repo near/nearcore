@@ -2020,6 +2020,7 @@ dependencies = [
  "near-logger-utils",
  "near-network",
  "near-network-primitives",
+ "near-performance-metrics",
  "near-primitives",
  "near-store",
  "near-telemetry",

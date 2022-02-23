@@ -1748,7 +1748,6 @@ impl ShardsManager {
     }
 
     pub fn create_encoded_shard_chunk(
-        &mut self,
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
         outcome_root: CryptoHash,

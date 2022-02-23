@@ -459,23 +459,7 @@ impl ViewClientActor {
         &mut self,
         hashes: Vec<CryptoHash>,
     ) -> Result<Vec<BlockHeader>, near_chain::Error> {
-        let header = match self.chain.find_common_header(&hashes) {
-            Some(header) => header,
-            None => return Ok(vec![]),
-        };
-
-        let mut headers = vec![];
-        let max_height = self.chain.header_head()?.height;
-        // TODO: this may be inefficient if there are a lot of skipped blocks.
-        for h in header.height() + 1..=max_height {
-            if let Ok(header) = self.chain.get_header_by_height(h) {
-                headers.push(header.clone());
-                if headers.len() >= sync::MAX_BLOCK_HEADERS as usize {
-                    break;
-                }
-            }
-        }
-        Ok(headers)
+        self.chain.retrieve_headers(hashes, sync::MAX_BLOCK_HEADERS)
     }
 
     fn check_signature_account_announce(

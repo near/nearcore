@@ -3018,6 +3018,30 @@ impl Chain {
             .ok_or_else(|| ErrorKind::DBNotFoundErr(format!("EXECUTION OUTCOME: {}", id)).into())
     }
 
+    pub fn retrieve_headers(
+        &mut self,
+        hashes: Vec<CryptoHash>,
+        max_headers_returned: u64,
+    ) -> Result<Vec<BlockHeader>, Error> {
+        let header = match self.find_common_header(&hashes) {
+            Some(header) => header,
+            None => return Ok(vec![]),
+        };
+
+        let mut headers = vec![];
+        let max_height = self.header_head()?.height;
+        // TODO: this may be inefficient if there are a lot of skipped blocks.
+        for h in header.height() + 1..=max_height {
+            if let Ok(header) = self.get_header_by_height(h) {
+                headers.push(header.clone());
+                if headers.len() >= max_headers_returned as usize {
+                    break;
+                }
+            }
+        }
+        Ok(headers)
+    }
+
     /// Returns a vector of chunk headers, each of which corresponds to the previous chunk of
     /// a chunk in the block after `prev_block`
     /// This function is important when the block after `prev_block` has different number of chunks

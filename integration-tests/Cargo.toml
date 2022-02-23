@@ -42,6 +42,7 @@ near-primitives = { path = "../core/primitives" }
 near-store = { path = "../core/store" }
 near-telemetry = { path = "../chain/telemetry" }
 near-test-contracts = { path = "../runtime/near-test-contracts" }
+near-performance-metrics = { path = "../utils/near-performance-metrics" }
 near-vm-errors = { path = "../runtime/near-vm-errors" }
 near-vm-runner = { path = "../runtime/near-vm-runner" }
 nearcore = { path = "../nearcore" }

@@ -8,7 +8,6 @@ use near_chain::{Chain, ChainStore};
 use near_crypto::KeyType;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_primitives::block::BlockHeader;
-use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{self, CryptoHash};
 use near_primitives::merkle;
 use near_primitives::sharding::{
@@ -209,37 +208,29 @@ impl ChunkTestFixture {
             .find(|v| v != &mock_chunk_producer && v != &mock_shard_tracker)
             .unwrap();
 
-        const TEST_SEED: RngSeed = [3; 32];
-        let mut producer_shard_manager = ShardsManager::new(
-            Some(mock_chunk_producer),
-            mock_runtime.clone(),
-            mock_network.clone(),
-            TEST_SEED,
-        );
         let receipts = Vec::new();
         let shard_layout = mock_runtime.get_shard_layout(&EpochId::default()).unwrap();
         let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout);
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
-        let (mock_chunk, mock_merkles) = producer_shard_manager
-            .create_encoded_shard_chunk(
-                mock_parent_hash,
-                Default::default(),
-                Default::default(),
-                mock_height,
-                mock_shard_id,
-                0,
-                1000,
-                0,
-                Vec::new(),
-                Vec::new(),
-                &receipts,
-                receipts_root,
-                MerkleHash::default(),
-                &signer,
-                &mut rs,
-                PROTOCOL_VERSION,
-            )
-            .unwrap();
+        let (mock_chunk, mock_merkles) = ShardsManager::create_encoded_shard_chunk(
+            mock_parent_hash,
+            Default::default(),
+            Default::default(),
+            mock_height,
+            mock_shard_id,
+            0,
+            1000,
+            0,
+            Vec::new(),
+            Vec::new(),
+            &receipts,
+            receipts_root,
+            MerkleHash::default(),
+            &signer,
+            &mut rs,
+            PROTOCOL_VERSION,
+        )
+        .unwrap();
 
         let all_part_ords: Vec<u64> =
             (0..mock_chunk.content().parts.len()).map(|p| p as u64).collect();

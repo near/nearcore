@@ -1,0 +1,277 @@
+use actix::{Actor, Context, Handler, Recipient};
+use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess, Error};
+use near_chain_configs::GenesisConfig;
+use near_client::sync;
+use near_network::types::{
+    FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
+    PeerManagerMessageRequest, PeerManagerMessageResponse,
+};
+use near_network_primitives::types::{
+    PartialEdgeInfo, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
+};
+use near_primitives::block::GenesisId;
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{BlockHeight, ShardId};
+use std::collections::HashMap;
+use std::time::Duration;
+use tracing::info;
+
+mod setup;
+
+/// MockPeerManagerActor mocks PeerManagerActor and responds to messages from ClientActor.
+/// Instead of sending these messages out to other peers, it simulates a network and reads
+/// the needed block and chunk content from the storage.
+struct MockPeerManagerActor {
+    /// Client address for the node that we are testing
+    client_addr: Recipient<NetworkClientMessages>,
+    mock_client: MockClient,
+    network_info: NetworkInfo,
+    /// Block production speed for the network that we are simulating
+    block_production_delay: Duration,
+}
+
+impl MockPeerManagerActor {
+    fn new(
+        client_addr: Recipient<NetworkClientMessages>,
+        genesis_config: &GenesisConfig,
+        chain: Chain,
+        peers_start_height: BlockHeight,
+        block_production_delay: Duration,
+    ) -> Self {
+        // for now, we only simulate one peer
+        // we will add more complicated network config in the future
+        let peer = FullPeerInfo {
+            peer_info: PeerInfo::random(),
+            chain_info: near_network_primitives::types::PeerChainInfoV2 {
+                genesis_id: GenesisId {
+                    chain_id: genesis_config.chain_id.clone(),
+                    hash: *chain.genesis().hash(),
+                },
+                height: peers_start_height,
+                tracked_shards: (0..genesis_config.shard_layout.num_shards()).collect(),
+                archival: false,
+            },
+            partial_edge_info: PartialEdgeInfo::default(),
+        };
+        let network_info = NetworkInfo {
+            connected_peers: vec![peer.clone()],
+            num_connected_peers: 1,
+            peer_max_count: 1,
+            highest_height_peers: vec![peer],
+            sent_bytes_per_sec: 0,
+            received_bytes_per_sec: 0,
+            known_producers: vec![],
+            peer_counter: 0,
+        };
+        Self {
+            client_addr,
+            mock_client: MockClient { chain },
+            network_info,
+            block_production_delay,
+        }
+    }
+
+    fn update_peers(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
+        let _response =
+            self.client_addr.do_send(NetworkClientMessages::NetworkInfo(self.network_info.clone()));
+        for peer in self.network_info.connected_peers.iter_mut() {
+            let current_height = peer.chain_info.height;
+            if let Ok(block) = self.mock_client.retrieve_block_by_height(current_height) {
+                let _response = self.client_addr.do_send(NetworkClientMessages::Block(
+                    block,
+                    peer.peer_info.id.clone(),
+                    false,
+                ));
+            }
+            if current_height < self.mock_client.chain.head().unwrap().height {
+                peer.chain_info.height = current_height + 1;
+            }
+        }
+        self.network_info.highest_height_peers = self.network_info.connected_peers.clone();
+        near_performance_metrics::actix::run_later(
+            ctx,
+            self.block_production_delay,
+            move |act, ctx| {
+                act.update_peers(ctx);
+            },
+        );
+    }
+}
+
+impl Actor for MockPeerManagerActor {
+    type Context = Context<Self>;
+    fn started(&mut self, ctx: &mut Self::Context) {
+        // Start syncing job.
+        self.update_peers(ctx);
+    }
+}
+
+impl Handler<PeerManagerMessageRequest> for MockPeerManagerActor {
+    type Result = PeerManagerMessageResponse;
+
+    fn handle(&mut self, msg: PeerManagerMessageRequest, _ctx: &mut Self::Context) -> Self::Result {
+        match msg {
+            PeerManagerMessageRequest::NetworkRequests(request) => match request {
+                NetworkRequests::BlockRequest { hash, peer_id } => {
+                    let block = self.mock_client.retrieve_block(&hash).unwrap();
+                    let _response = self
+                        .client_addr
+                        .do_send(NetworkClientMessages::Block(block, peer_id, true));
+                }
+                NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
+                    let headers = self.mock_client.retrieve_block_headers(hashes.clone()).unwrap();
+                    let _response = self
+                        .client_addr
+                        .do_send(NetworkClientMessages::BlockHeaders(headers, peer_id));
+                }
+                NetworkRequests::PartialEncodedChunkRequest { request, .. } => {
+                    let response =
+                        self.mock_client.retrieve_partial_encoded_chunk(&request).unwrap();
+                    let _response = self
+                        .client_addr
+                        .do_send(NetworkClientMessages::PartialEncodedChunkResponse(response));
+                }
+                NetworkRequests::Block { .. } => {}
+                _ => {
+                    panic!("MockPeerManagerActor receives unexpected message {:?}", request);
+                }
+            },
+            _ => {
+                panic!("MockPeerManagerActor receives unexpected message {:?}", msg);
+            }
+        }
+        PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
+    }
+}
+
+struct MockClient {
+    chain: Chain,
+}
+
+impl MockClient {
+    fn retrieve_block_headers(
+        &mut self,
+        hashes: Vec<CryptoHash>,
+    ) -> Result<Vec<BlockHeader>, Error> {
+        self.chain.retrieve_headers(hashes, sync::MAX_BLOCK_HEADERS)
+    }
+
+    fn retrieve_block_by_height(&mut self, block_height: BlockHeight) -> Result<Block, Error> {
+        self.chain.get_block_by_height(block_height).map(|b| b.clone())
+    }
+
+    fn retrieve_block(&mut self, block_hash: &CryptoHash) -> Result<Block, Error> {
+        self.chain.get_block(block_hash).map(|b| b.clone())
+    }
+
+    fn retrieve_partial_encoded_chunk(
+        &mut self,
+        request: &PartialEncodedChunkRequestMsg,
+    ) -> Result<PartialEncodedChunkResponseMsg, Error> {
+        let partial_chunk = self.chain.mut_store().get_partial_chunk(&request.chunk_hash)?;
+        let present_parts: HashMap<u64, _> =
+            partial_chunk.parts().iter().map(|part| (part.part_ord, part)).collect();
+        let parts: Vec<_> = request
+            .part_ords
+            .iter()
+            .flat_map(|ord| present_parts.get(ord).map(|x| *x).cloned())
+            .collect();
+
+        // Same process for receipts as above for parts.
+        let present_receipts: HashMap<ShardId, _> = partial_chunk
+            .receipts()
+            .iter()
+            .map(|receipt| (receipt.1.to_shard_id, receipt))
+            .collect();
+        let receipts: Vec<_> = request
+            .tracking_shards
+            .iter()
+            .flat_map(|shard_id| present_receipts.get(shard_id).map(|x| *x).cloned())
+            .collect();
+
+        Ok(PartialEncodedChunkResponseMsg {
+            chunk_hash: request.chunk_hash.clone(),
+            parts,
+            receipts,
+        })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::mock_network::MockClient;
+    use near_chain::ChainGenesis;
+    use near_chain::{Chain, RuntimeAdapter};
+    use near_chain_configs::Genesis;
+    use near_client::test_utils::TestEnv;
+    use near_logger_utils::init_test_logger;
+    use near_network_primitives::types::PartialEncodedChunkRequestMsg;
+    use near_primitives::types::EpochId;
+    use near_store::test_utils::create_test_store;
+    use nearcore::config::GenesisExt;
+    use std::path::Path;
+    use std::sync::Arc;
+
+    // build a TestEnv with one validator with 20 blocks of history, all empty
+    fn setup_mock() -> (MockClient, TestEnv) {
+        let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        let chain_genesis = ChainGenesis::from(&genesis);
+        let runtimes = vec![Arc::new(nearcore::NightshadeRuntime::test(
+            Path::new("../../../.."),
+            create_test_store(),
+            &genesis,
+        )) as Arc<dyn RuntimeAdapter>];
+        let mut env = TestEnv::builder(chain_genesis.clone())
+            .validator_seats(1)
+            .runtime_adapters(runtimes.clone())
+            .build();
+        for i in 0..20 {
+            env.produce_block(0, i + 1);
+        }
+
+        let chain = Chain::new(
+            runtimes[0].clone(),
+            &chain_genesis,
+            env.clients[0].chain.doomslug_threshold_mode,
+        )
+        .unwrap();
+        (MockClient { chain }, env)
+    }
+
+    #[test]
+    fn test_mock_network_impl() {
+        init_test_logger();
+        let (mut mock_network, mut env) = setup_mock();
+        let blocks: Vec<_> =
+            (1..21).map(|h| env.clients[0].chain.get_block_by_height(h).unwrap().clone()).collect();
+
+        for block in blocks.iter() {
+            assert_eq!(&mock_network.retrieve_block(block.hash()).unwrap(), block);
+        }
+
+        for block in blocks.iter() {
+            for chunk in block.chunks().iter() {
+                if chunk.height_included() == block.header().height() {
+                    let _partial_encoded_chunk_response = mock_network
+                        .retrieve_partial_encoded_chunk(&PartialEncodedChunkRequestMsg {
+                            chunk_hash: chunk.chunk_hash(),
+                            part_ords: (0..env.clients[0].runtime_adapter.num_total_parts() as u64)
+                                .collect(),
+                            tracking_shards: (0..env.clients[0]
+                                .runtime_adapter
+                                .num_shards(&EpochId::default())
+                                .unwrap())
+                                .collect(),
+                        })
+                        .unwrap();
+                }
+            }
+        }
+
+        for block in blocks.iter() {
+            // check the retrieve block headers work. We don't check the results here since
+            // it is simply a wrapper around Chain::retrieve_block_headers
+            mock_network.retrieve_block_headers(vec![*block.hash()]).unwrap();
+        }
+    }
+}
