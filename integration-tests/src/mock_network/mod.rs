@@ -21,10 +21,16 @@ mod setup;
 /// MockPeerManagerActor mocks PeerManagerActor and responds to messages from ClientActor.
 /// Instead of sending these messages out to other peers, it simulates a network and reads
 /// the needed block and chunk content from the storage.
+/// MockPeerManagerActor has the following responsibilities
+/// - Responds to BlockRequest, BlockHeadersRequest and PartialEncodedChunkRequest
+/// - Sends NetworkInfo to ClientActor periodically
+/// - Simulates block production and sends the most "recent" block to ClientActor
 struct MockPeerManagerActor {
     /// Client address for the node that we are testing
     client_addr: Recipient<NetworkClientMessages>,
-    mock_client: MockClient,
+    /// Access a pre-generated chain history from storage
+    chain_history_access: ChainHistoryAccess,
+    /// Current network state for the simulated network
     network_info: NetworkInfo,
     /// Block production speed for the network that we are simulating
     block_production_delay: Duration,
@@ -65,25 +71,28 @@ impl MockPeerManagerActor {
         };
         Self {
             client_addr,
-            mock_client: MockClient { chain },
+            chain_history_access: ChainHistoryAccess { chain },
             network_info,
             block_production_delay,
         }
     }
 
+    /// This function gets called periodically
+    /// When it is called, it increments peer heights by 1 and sends the block at that height
+    /// to ClientActor. In a way, it simulates peers that get upgraded and broadcast blocks
     fn update_peers(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
         let _response =
             self.client_addr.do_send(NetworkClientMessages::NetworkInfo(self.network_info.clone()));
         for peer in self.network_info.connected_peers.iter_mut() {
             let current_height = peer.chain_info.height;
-            if let Ok(block) = self.mock_client.retrieve_block_by_height(current_height) {
+            if let Ok(block) = self.chain_history_access.retrieve_block_by_height(current_height) {
                 let _response = self.client_addr.do_send(NetworkClientMessages::Block(
                     block,
                     peer.peer_info.id.clone(),
                     false,
                 ));
             }
-            if current_height < self.mock_client.chain.head().unwrap().height {
+            if current_height < self.chain_history_access.chain.head().unwrap().height {
                 peer.chain_info.height = current_height + 1;
             }
         }
@@ -113,20 +122,21 @@ impl Handler<PeerManagerMessageRequest> for MockPeerManagerActor {
         match msg {
             PeerManagerMessageRequest::NetworkRequests(request) => match request {
                 NetworkRequests::BlockRequest { hash, peer_id } => {
-                    let block = self.mock_client.retrieve_block(&hash).unwrap();
+                    let block = self.chain_history_access.retrieve_block(&hash).unwrap();
                     let _response = self
                         .client_addr
                         .do_send(NetworkClientMessages::Block(block, peer_id, true));
                 }
                 NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
-                    let headers = self.mock_client.retrieve_block_headers(hashes.clone()).unwrap();
+                    let headers =
+                        self.chain_history_access.retrieve_block_headers(hashes.clone()).unwrap();
                     let _response = self
                         .client_addr
                         .do_send(NetworkClientMessages::BlockHeaders(headers, peer_id));
                 }
                 NetworkRequests::PartialEncodedChunkRequest { request, .. } => {
                     let response =
-                        self.mock_client.retrieve_partial_encoded_chunk(&request).unwrap();
+                        self.chain_history_access.retrieve_partial_encoded_chunk(&request).unwrap();
                     let _response = self
                         .client_addr
                         .do_send(NetworkClientMessages::PartialEncodedChunkResponse(response));
@@ -144,11 +154,12 @@ impl Handler<PeerManagerMessageRequest> for MockPeerManagerActor {
     }
 }
 
-struct MockClient {
+/// This class provides access a pre-generated chain history
+struct ChainHistoryAccess {
     chain: Chain,
 }
 
-impl MockClient {
+impl ChainHistoryAccess {
     fn retrieve_block_headers(
         &mut self,
         hashes: Vec<CryptoHash>,
@@ -199,7 +210,7 @@ impl MockClient {
 
 #[cfg(test)]
 mod test {
-    use crate::mock_network::MockClient;
+    use crate::mock_network::ChainHistoryAccess;
     use near_chain::ChainGenesis;
     use near_chain::{Chain, RuntimeAdapter};
     use near_chain_configs::Genesis;
@@ -213,7 +224,7 @@ mod test {
     use std::sync::Arc;
 
     // build a TestEnv with one validator with 20 blocks of history, all empty
-    fn setup_mock() -> (MockClient, TestEnv) {
+    fn setup_mock() -> (ChainHistoryAccess, TestEnv) {
         let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         let chain_genesis = ChainGenesis::from(&genesis);
         let runtimes = vec![Arc::new(nearcore::NightshadeRuntime::test(
@@ -235,7 +246,7 @@ mod test {
             env.clients[0].chain.doomslug_threshold_mode,
         )
         .unwrap();
-        (MockClient { chain }, env)
+        (ChainHistoryAccess { chain }, env)
     }
 
     #[test]
