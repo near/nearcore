@@ -21,6 +21,7 @@ num-traits = "0.2.11"
 hex = "0.4.2"
 rayon = "1.5"
 thiserror = "1.0"
+tracing = "0.1.13"
 
 borsh = "0.9"
 

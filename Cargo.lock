@@ -4348,6 +4348,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "runtime-tester-fuzz"
+version = "0.0.0"
+dependencies = [
+ "libfuzzer-sys",
+ "runtime-tester",
+ "serde_json",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
