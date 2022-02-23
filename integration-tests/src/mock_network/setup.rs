@@ -115,7 +115,9 @@ mod test {
 
     // Just a test to test that the basic mocknet setup works
     // This test first starts a localnet with one validator node that generates 20 blocks
-    // then start a mock network with one non-validator node trying to catch up these 20 blocks
+    // to generate a chain history
+    // then start a mock network with this chain history and test that
+    // the client in the mock network can catch up these 20 blocks
     #[test]
     fn test_mocknet_basic() {
         init_integration_logger();

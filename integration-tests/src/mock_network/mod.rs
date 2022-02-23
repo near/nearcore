@@ -19,7 +19,7 @@ mod setup;
 
 /// MockPeerManagerActor mocks PeerManagerActor and responds to messages from ClientActor.
 /// Instead of sending these messages out to other peers, it simulates a network and reads
-/// the needed block and chunk content from the storage.
+/// the needed block and chunk content from storage.
 /// MockPeerManagerActor has the following responsibilities
 /// - Responds to BlockRequest, BlockHeadersRequest and PartialEncodedChunkRequest
 /// - Sends NetworkInfo to ClientActor periodically
