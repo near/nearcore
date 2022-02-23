@@ -14,7 +14,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, ShardId};
 use std::collections::HashMap;
 use std::time::Duration;
-use tracing::info;
 
 mod setup;
 
