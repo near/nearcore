@@ -94,12 +94,12 @@ const DB_CHECKPOINT_NAME: &str = "db_migration_snapshot";
 fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf, anyhow::Error> {
     let checkpoint_path = db_checkpoint_path(path, near_config);
     if checkpoint_path.exists() {
-        panic!(
+        return Err(anyhow::anyhow!(
             "Detected an existing database migration snapshot: '{}'.\n\
              Probably a database migration got interrupted and your database is corrupted.\n\
              Please replace the contents of '{}' with data from that checkpoint, delete the checkpoint and try again.",
             checkpoint_path.display(),
-            path.display());
+            path.display()));
     }
 
     let db = RocksDB::new(path)?;
@@ -133,7 +133,8 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
             }
             Err(err) => {
                 panic!(
-                    "Failed to create a database migration snapshot: {}.\n\
+                    "Failed to create a database migration snapshot:\n\
+                     {}\n\
                      Please consider fixing this issue and retrying.\n\
                      You can change the location of database migration snapshots by adjusting `config.json`:\n\
                      \t\"db_migration_snapshot_path\": \"/absolute/path/to/existing/dir\",\n\
