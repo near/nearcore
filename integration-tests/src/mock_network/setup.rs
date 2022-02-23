@@ -113,7 +113,9 @@ mod test {
     use nearcore::config::GenesisExt;
     use nearcore::{load_test_config, start_with_config};
 
-    // just a test to test that the basic mocknet setup works
+    // Just a test to test that the basic mocknet setup works
+    // This test first starts a localnet with one validator node that generates 20 blocks
+    // then start a mock network with one non-validator node trying to catch up these 20 blocks
     #[test]
     fn test_mocknet_basic() {
         init_integration_logger();

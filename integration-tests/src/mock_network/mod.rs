@@ -249,20 +249,20 @@ mod test {
     }
 
     #[test]
-    fn test_mock_network_impl() {
+    fn test_chain_history_access() {
         init_test_logger();
-        let (mut mock_network, mut env) = setup_mock();
+        let (mut chain_history_access, mut env) = setup_mock();
         let blocks: Vec<_> =
             (1..21).map(|h| env.clients[0].chain.get_block_by_height(h).unwrap().clone()).collect();
 
         for block in blocks.iter() {
-            assert_eq!(&mock_network.retrieve_block(block.hash()).unwrap(), block);
+            assert_eq!(&chain_history_access.retrieve_block(block.hash()).unwrap(), block);
         }
 
         for block in blocks.iter() {
             for chunk in block.chunks().iter() {
                 if chunk.height_included() == block.header().height() {
-                    let _partial_encoded_chunk_response = mock_network
+                    let _partial_encoded_chunk_response = chain_history_access
                         .retrieve_partial_encoded_chunk(&PartialEncodedChunkRequestMsg {
                             chunk_hash: chunk.chunk_hash(),
                             part_ords: (0..env.clients[0].runtime_adapter.num_total_parts() as u64)
@@ -281,7 +281,7 @@ mod test {
         for block in blocks.iter() {
             // check the retrieve block headers work. We don't check the results here since
             // it is simply a wrapper around Chain::retrieve_block_headers
-            mock_network.retrieve_block_headers(vec![*block.hash()]).unwrap();
+            chain_history_access.retrieve_block_headers(vec![*block.hash()]).unwrap();
         }
     }
 }
