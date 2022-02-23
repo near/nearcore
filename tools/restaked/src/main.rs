@@ -3,7 +3,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::{App, Arg};
-use log::{error, info, LevelFilter};
+use tracing::metadata::LevelFilter;
+use tracing::{error, info};
+use tracing_subscriber::EnvFilter;
 
 use near_crypto::{InMemorySigner, KeyFile};
 use near_primitives::views::CurrentEpochValidatorInfo;
@@ -22,7 +24,11 @@ fn maybe_kicked_out(validator_info: &CurrentEpochValidatorInfo) -> bool {
 }
 
 fn main() {
-    env_logger::Builder::new().filter(None, LevelFilter::Info).init();
+    tracing_subscriber::fmt::Subscriber::builder()
+        .with_env_filter(EnvFilter::default().add_directive(LevelFilter::DEBUG.into()))
+        .with_writer(std::io::stderr)
+        .init();
+
     let default_home = get_default_home();
     let matches = App::new("Key-pairs generator")
         .about(
@@ -111,11 +117,11 @@ fn main() {
         if restake {
             // Already kicked out or getting kicked out.
             let amount = if stake_amount == 0 { last_stake_amount } else { stake_amount };
-            info!("Sending staking transaction {} -> {}", key_file.account_id, amount);
+            info!(target: "restaked", "Sending staking transaction {} -> {}", key_file.account_id, amount);
             if let Err(err) =
                 user.stake(key_file.account_id.clone(), key_file.public_key.clone(), amount)
             {
-                error!("Failed to send staking transaction: {}", err);
+                error!(target: "restaked", "Failed to send staking transaction: {}", err);
             }
         }
         std::thread::sleep(Duration::from_secs(wait_period));

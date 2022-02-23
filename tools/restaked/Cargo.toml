@@ -9,8 +9,8 @@ edition = "2021"
 
 [dependencies]
 clap = "2.33.0"
-log = "0.4"
-env_logger = "0.8"
+tracing = "0.1.13"
+tracing-subscriber = "0.2.4"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
