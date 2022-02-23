@@ -32,7 +32,7 @@ members = [
     "chain/rosetta-rpc",
     "test-utils/actix-test-utils",
     "test-utils/runtime-tester",
-    "test-utils/runtime-tester/fuzz",
+#    "test-utils/runtime-tester/fuzz",
     "test-utils/store-validator",
     "test-utils/testlib",
     "neard",
