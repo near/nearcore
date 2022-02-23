@@ -1,6 +1,5 @@
 use crate::{metrics, SyncStatus};
 use actix::Addr;
-use log::info;
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_client_primitives::types::ShardSyncStatus;
 use near_network::types::NetworkInfo;
@@ -20,6 +19,7 @@ use std::cmp::min;
 use std::fmt::Write;
 use std::sync::Arc;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
+use tracing::info;
 
 const TERAGAS: f64 = 1_000_000_000_000_f64;
 
@@ -114,7 +114,7 @@ impl InfoHelper {
 
         let validator_info_log = validator_info.as_ref().map(|info| {
             format!(
-                "{}{} validator{}",
+                " {}{} validator{}",
                 if info.is_validator { "Validator | " } else { "" },
                 info.num_validators,
                 s(info.num_validators)

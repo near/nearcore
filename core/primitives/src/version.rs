@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 pub struct Version {
     pub version: String,
     pub build: String,
+    #[serde(default)]
+    pub rustc_version: String,
 }
 
 /// Database version.

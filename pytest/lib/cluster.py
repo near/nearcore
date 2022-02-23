@@ -123,6 +123,10 @@ class BlockId(typing.NamedTuple):
     height: int
     hash: str
 
+    @classmethod
+    def from_header(cls, header: typing.Dict[str, typing.Any]) -> 'BlockId':
+        return cls(height=int(header['height']), hash=header['hash'])
+
     @property
     def hash_bytes(self) -> bytes:
         return base58.b58decode(self.hash.encode('ascii'))

@@ -9,34 +9,44 @@ LOCAL_ADDR = '127.0.0.1'
 RPC_PORT = '3030'
 
 
-def get_status():
-    r = requests.get(f'http://{LOCAL_ADDR}:{RPC_PORT}/status', timeout=10)
+def get_status(addr=LOCAL_ADDR, port=RPC_PORT):
+    r = requests.get(f'http://{addr}:{port}/status', timeout=10)
     r.raise_for_status()
     return r.json()
 
 
-def json_rpc(method, params):
+def json_rpc(method, params, addr=LOCAL_ADDR, port=RPC_PORT):
     j = {'method': method, 'params': params, 'id': 'dontcare', 'jsonrpc': '2.0'}
-    r = requests.post(f'http://{LOCAL_ADDR}:{RPC_PORT}', json=j, timeout=10)
+    r = requests.post(f'http://{addr}:{port}', json=j, timeout=10)
     return r.json()
 
 
-def get_nonce_for_pk(account_id, pk, finality='optimistic'):
-    access_keys = json_rpc(
-        'query', {
-            'request_type': 'view_access_key_list',
-            'account_id': account_id,
-            'finality': finality
-        })
+def get_nonce_for_pk(account_id,
+                     pk,
+                     finality='optimistic',
+                     addr=LOCAL_ADDR,
+                     port=RPC_PORT):
+    access_keys = json_rpc('query', {
+        'request_type': 'view_access_key_list',
+        'account_id': account_id,
+        'finality': finality
+    },
+                           addr=addr,
+                           port=port)
     logger.info(f'get_nonce_for_pk {account_id}')
     assert access_keys['result']['keys'], account_id
-    for k in access_keys['result']['keys']:
-        if k['public_key'] == pk:
-            return k['access_key']['nonce']
+
+    nonce = next((key['access_key']['nonce']
+                  for key in access_keys['result']['keys']
+                  if key['public_key'] == pk), None)
+    if nonce is None:
+        raise KeyError(f'Nonce for {account_id} {pk} not found')
+    return nonce
 
 
-def get_latest_block_hash():
-    last_block_hash = get_status()['sync_info']['latest_block_hash']
+def get_latest_block_hash(addr=LOCAL_ADDR, port=RPC_PORT):
+    last_block_hash = get_status(addr=addr,
+                                 port=port)['sync_info']['latest_block_hash']
     return base58.b58decode(last_block_hash.encode('utf-8'))
 
 
@@ -77,3 +87,14 @@ def wait_at_least_one_block():
         if height > start_height:
             break
         time.sleep(1.0)
+
+
+def get_amount_yoctonear(account_id, addr=LOCAL_ADDR, port=RPC_PORT):
+    j = json_rpc('query', {
+        'request_type': 'view_account',
+        'finality': 'optimistic',
+        'account_id': account_id
+    },
+                 addr=addr,
+                 port=port)
+    return int(j.get('result', {}).get('amount', 0))
