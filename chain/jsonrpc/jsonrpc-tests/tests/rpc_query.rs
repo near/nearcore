@@ -553,25 +553,6 @@ fn test_invalid_methods() {
 }
 
 #[test]
-fn test_validators_non_existing_block_hash() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
-        let validators_response = client
-            .validators(Some(near_primitives::types::BlockId::Hash(
-                near_primitives::hash::CryptoHash::from_str(
-                    "123PXBoQKnTnARA49ctEzAiradrAAAEtLRCJGpjH24qC",
-                )
-                .unwrap(),
-            )))
-            .await;
-
-        assert!(
-            validators_response.is_err(),
-            "validators for non exsiting block hash, but received success instead of error"
-        );
-    });
-}
-
-#[test]
 fn test_get_chunk_with_object_in_params() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let chunk: near_primitives::views::ChunkView = test_utils::call_method(
