@@ -67,9 +67,9 @@ impl TransactionBuilder {
         let arg = (key.len() as u64)
             .to_le_bytes()
             .into_iter()
-            .chain(key.as_bytes().into_iter().cloned())
+            .chain(key.bytes())
             .chain((value.len() as u64).to_le_bytes().into_iter())
-            .chain(value.as_bytes().into_iter().cloned())
+            .chain(value.bytes())
             .collect();
 
         self.transaction_from_function_call(account, "account_storage_insert_key", arg)
@@ -78,11 +78,7 @@ impl TransactionBuilder {
     /// Transaction that checks existence of a given key under an account.
     /// The account must have the test contract deployed.
     pub(crate) fn account_has_key(&mut self, account: AccountId, key: &str) -> SignedTransaction {
-        let arg = (key.len() as u64)
-            .to_le_bytes()
-            .into_iter()
-            .chain(key.as_bytes().into_iter().cloned())
-            .collect();
+        let arg = (key.len() as u64).to_le_bytes().into_iter().chain(key.bytes()).collect();
 
         self.transaction_from_function_call(account, "account_storage_has_key", arg)
     }

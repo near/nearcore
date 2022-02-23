@@ -1068,7 +1068,9 @@ fn touching_trie_node_read(ctx: &mut EstimatorContext) -> GasCost {
     let key = "j".repeat(final_key_len);
     let mut setup_block = Vec::new();
     for key_len in 0..final_key_len {
-        setup_block.push(tb.account_insert_key(signer.clone(), &key.as_str()[..key_len], "0"));
+        let key = &key.as_str()[..key_len];
+        let value = "0";
+        setup_block.push(tb.account_insert_key(signer.clone(), key, value));
     }
 
     let mut blocks = Vec::with_capacity(1 + 2 * warmup_iters + 2 * measured_iters);
@@ -1121,7 +1123,9 @@ fn touching_trie_node_write(ctx: &mut EstimatorContext) -> GasCost {
     let key = std::iter::repeat('j').take(final_key_len).collect::<String>();
     let mut setup_block = Vec::new();
     for key_len in 0..final_key_len {
-        setup_block.push(tb.account_insert_key(signer.clone(), &key.as_str()[..key_len], "0"));
+        let key = &key.as_str()[..key_len];
+        let value = "0";
+        setup_block.push(tb.account_insert_key(signer.clone(), key, value));
     }
 
     let mut blocks = Vec::with_capacity(1 + 2 * warmup_iters + 2 * measured_iters);
