@@ -1,3 +1,6 @@
+// Currently only testing wasmer code, so disabled outside of x86_64
+#![cfg(target_arch = "x86_64")]
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
@@ -138,14 +141,13 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
             errs += err;
         }
     } else {
-        let runtime = vm_kind.runtime().expect("runtime is has not been compiled");
+        let runtime = vm_kind.runtime(vm_config).expect("runtime is has not been compiled");
         for _ in 0..repeat {
             let result1 = runtime.run(
                 &code1,
                 method_name1,
                 &mut fake_external,
                 context.clone(),
-                &vm_config,
                 &fees,
                 &promise_results,
                 ProtocolVersion::MAX,
@@ -159,7 +161,6 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
                 method_name1,
                 &mut fake_external,
                 context.clone(),
-                &vm_config,
                 &fees,
                 &promise_results,
                 ProtocolVersion::MAX,

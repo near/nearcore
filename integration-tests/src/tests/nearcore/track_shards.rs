@@ -12,6 +12,7 @@ use near_primitives::hash::CryptoHash;
 use crate::tests::nearcore::node_cluster::NodeCluster;
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn track_shards() {
     init_integration_logger();
 
@@ -27,7 +28,7 @@ fn track_shards() {
         let last_block_hash: Arc<RwLock<Option<CryptoHash>>> = Arc::new(RwLock::new(None));
         WaitOrTimeoutActor::new(
             Box::new(move |_ctx| {
-                let bh = last_block_hash.read().unwrap().map(|h| h.clone());
+                let bh = *last_block_hash.read().unwrap();
                 if let Some(block_hash) = bh {
                     spawn_interruptible(view_client.send(GetChunk::BlockHash(block_hash, 3)).then(
                         move |res| {
@@ -45,8 +46,7 @@ fn track_shards() {
                     spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
                         match &res {
                             Ok(Ok(b)) if b.header.height > 10 => {
-                                *last_block_hash1.write().unwrap() =
-                                    Some(b.header.hash.clone().into());
+                                *last_block_hash1.write().unwrap() = Some(b.header.hash);
                             }
                             Err(_) => return future::ready(()),
                             _ => {}

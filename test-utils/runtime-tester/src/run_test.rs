@@ -67,7 +67,7 @@ impl Scenario {
             .build();
 
         let result = self.process_blocks(&mut env);
-        ScenarioResult { result: result, homedir: tempdir, env: env }
+        ScenarioResult { result, homedir: tempdir, env }
     }
 
     fn process_blocks(&self, env: &mut TestEnv) -> Result<RuntimeStats, Error> {
@@ -185,8 +185,8 @@ mod test {
     use std::path::Path;
     use std::time::{Duration, Instant};
 
-    use log::info;
     use near_logger_utils::init_test_logger;
+    use tracing::info;
 
     #[test]
     #[ignore]

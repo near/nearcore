@@ -19,19 +19,19 @@ use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{
     convert_boot_nodes, expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal,
-    GetInfo, StopSignal, WaitOrTimeoutActor,
+    GetInfo, NetworkRecipient, StopSignal, WaitOrTimeoutActor,
 };
 
 use near_network::routing::start_routing_table_actor;
 #[cfg(feature = "test_features")]
-use near_network::types::SetAdvOptions;
-use near_network::types::{NetworkRecipient, NetworkRequests, NetworkResponses};
+use near_network::test_utils::SetAdvOptions;
+use near_network::types::{NetworkRequests, NetworkResponses};
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network::PeerManagerActor;
+use near_network_primitives::types::blacklist_from_iter;
 use near_network_primitives::types::{
     NetworkConfig, OutboundTcpConnect, PeerInfo, ROUTED_MESSAGE_TTL,
 };
-use near_network_primitives::utils::blacklist_from_iter;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -636,7 +636,7 @@ impl Runner {
         }));
 
         let mut network_config =
-            NetworkConfig::from_seed(accounts_id[node_id].as_ref(), ports[node_id].clone());
+            NetworkConfig::from_seed(accounts_id[node_id].as_ref(), ports[node_id]);
 
         network_config.ban_window = test_config.ban_window;
         network_config.max_num_peers = test_config.max_num_peers;
@@ -659,7 +659,7 @@ impl Runner {
         setup_network_node(
             accounts_id[node_id].clone(),
             self.validators.clone().unwrap(),
-            self.genesis_time.clone().unwrap(),
+            self.genesis_time.unwrap(),
             network_config,
         )
     }
@@ -670,8 +670,7 @@ impl Runner {
             .collect();
         let ports: Vec<_> = (0..self.num_nodes).map(|_| open_port()).collect();
 
-        let validators: Vec<_> =
-            accounts_id.iter().map(|x| x.clone()).take(self.num_validators).collect();
+        let validators: Vec<_> = accounts_id.iter().cloned().take(self.num_validators).collect();
 
         let mut peers_info =
             convert_boot_nodes(accounts_id.iter().map(|x| x.as_ref()).zip(ports.clone()).collect());

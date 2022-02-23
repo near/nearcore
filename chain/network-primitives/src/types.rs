@@ -8,11 +8,10 @@
 ///
 /// NOTE:
 /// - We also export publicly types from `crate::network_protocol`
-use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, Message};
+use actix::Message;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
-use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
+use near_crypto::SecretKey;
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -22,15 +21,12 @@ use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
-use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::net::{AddrParseError, IpAddr, SocketAddr};
-use std::str::FromStr;
+use std::net::SocketAddr;
 use std::time::Duration;
 use strum::AsStaticStr;
 use tokio::net::TcpStream;
-use tracing::{error, warn};
 
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
@@ -38,6 +34,10 @@ pub use crate::network_protocol::{
     PeerChainInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, Ping, Pong, RoutedMessage,
     RoutedMessageBody, StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
 };
+
+pub use crate::config::{blacklist_from_iter, BlockedPorts, NetworkConfig};
+
+pub use crate::network_protocol::edge::{Edge, EdgeState, PartialEdgeInfo, SimpleEdge};
 
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network
@@ -58,28 +58,6 @@ pub enum PeerType {
     Inbound,
     /// Outbound session
     Outbound,
-}
-
-/// Peer status.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum PeerStatus {
-    /// Waiting for handshake.
-    Connecting,
-    /// Ready to go.
-    Ready,
-    /// Banned, should shutdown this peer.
-    Banned(ReasonForBan),
-}
-
-/// Account route description
-/// Unused?
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct AnnounceAccountRoute {
-    pub peer_id: PeerId,
-    pub hash: CryptoHash,
-    pub signature: Signature,
 }
 
 // Don't need Borsh ?
@@ -137,204 +115,23 @@ impl RawRoutedMessage {
         author: PeerId,
         secret_key: &SecretKey,
         routed_message_ttl: u8,
-    ) -> RoutedMessage {
+    ) -> Box<RoutedMessage> {
         let target = self.target.peer_id_or_hash().unwrap();
         let hash = RoutedMessage::build_hash(&target, &author, &self.body);
         let signature = secret_key.sign(hash.as_ref());
-        RoutedMessage { target, author, signature, ttl: routed_message_ttl, body: self.body }
+        RoutedMessage { target, author, signature, ttl: routed_message_ttl, body: self.body }.into()
     }
 }
 
 /// Routed Message wrapped with previous sender of the message.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Clone, Debug)]
+#[derive(actix::Message, Clone, Debug)]
+#[rtype(result = "bool")]
 pub struct RoutedMessageFrom {
     /// Routed messages.
-    pub msg: RoutedMessage,
+    pub msg: Box<RoutedMessage>,
     /// Previous hop in the route. Used for messages that needs routing back.
     pub from: PeerId,
-}
-
-impl Message for RoutedMessageFrom {
-    type Result = bool;
-}
-
-#[derive(Debug, Clone)]
-pub enum BlockedPorts {
-    All,
-    Some(HashSet<u16>),
-}
-
-/// Configuration for the peer-to-peer manager.
-#[derive(Clone)]
-pub struct NetworkConfig {
-    pub public_key: PublicKey,
-    pub secret_key: SecretKey,
-    pub account_id: Option<AccountId>,
-    pub addr: Option<SocketAddr>,
-    pub boot_nodes: Vec<PeerInfo>,
-    pub handshake_timeout: Duration,
-    pub reconnect_delay: Duration,
-    pub bootstrap_peers_period: Duration,
-    /// Maximum number of active peers. Hard limit.
-    pub max_num_peers: u32,
-    /// Minimum outbound connections a peer should have to avoid eclipse attacks.
-    pub minimum_outbound_peers: u32,
-    /// Lower bound of the ideal number of connections.
-    pub ideal_connections_lo: u32,
-    /// Upper bound of the ideal number of connections.
-    pub ideal_connections_hi: u32,
-    /// Peers which last message is was within this period of time are considered active recent peers.
-    pub peer_recent_time_window: Duration,
-    /// Number of peers to keep while removing a connection.
-    /// Used to avoid disconnecting from peers we have been connected since long time.
-    pub safe_set_size: u32,
-    /// Lower bound of the number of connections to archival peers to keep
-    /// if we are an archival node.
-    pub archival_peer_connections_lower_bound: u32,
-    /// Duration of the ban for misbehaving peers.
-    pub ban_window: Duration,
-    /// Remove expired peers.
-    pub peer_expiration_duration: Duration,
-    /// Maximum number of peer addresses we should ever send on PeersRequest.
-    pub max_send_peers: u32,
-    /// Duration for checking on stats from the peers.
-    pub peer_stats_period: Duration,
-    /// Time to persist Accounts Id in the router without removing them.
-    pub ttl_account_id_router: Duration,
-    /// Number of hops a message is allowed to travel before being dropped.
-    /// This is used to avoid infinite loop because of inconsistent view of the network
-    /// by different nodes.
-    pub routed_message_ttl: u8,
-    /// Maximum number of routes that we should keep track for each Account id in the Routing Table.
-    pub max_routes_to_store: usize,
-    /// Height horizon for highest height peers
-    /// For example if one peer is 1 height away from max height peer,
-    /// we still want to use the rest to query for state/headers/blocks.
-    pub highest_peer_horizon: u64,
-    /// Period between pushing network info to client
-    pub push_info_period: Duration,
-    /// Peers on blacklist by IP:Port.
-    /// Nodes will not accept or try to establish connection to such peers.
-    pub blacklist: HashMap<IpAddr, BlockedPorts>,
-    /// Flag to disable outbound connections. When this flag is active, nodes will not try to
-    /// establish connection with other nodes, but will accept incoming connection if other requirements
-    /// are satisfied.
-    /// This flag should be ALWAYS FALSE. Only set to true for testing purposes.
-    pub outbound_disabled: bool,
-    /// Not clear old data, set `true` for archive nodes.
-    pub archive: bool,
-}
-
-impl NetworkConfig {
-    /// Returns network config with given seed used for peer id.
-    pub fn from_seed(seed: &str, port: u16) -> Self {
-        let secret_key = SecretKey::from_seed(KeyType::ED25519, seed);
-        let public_key = secret_key.public_key();
-        NetworkConfig {
-            public_key,
-            secret_key,
-            account_id: Some(seed.parse().unwrap()),
-            addr: Some(format!("0.0.0.0:{}", port).parse().unwrap()),
-            boot_nodes: vec![],
-            handshake_timeout: Duration::from_secs(60),
-            reconnect_delay: Duration::from_secs(60),
-            bootstrap_peers_period: Duration::from_millis(100),
-            max_num_peers: 10,
-            minimum_outbound_peers: 5,
-            ideal_connections_lo: 30,
-            ideal_connections_hi: 35,
-            peer_recent_time_window: Duration::from_secs(600),
-            safe_set_size: 20,
-            archival_peer_connections_lower_bound: 10,
-            ban_window: Duration::from_secs(1),
-            peer_expiration_duration: Duration::from_secs(60 * 60),
-            max_send_peers: 512,
-            peer_stats_period: Duration::from_secs(5),
-            ttl_account_id_router: Duration::from_secs(60 * 60),
-            routed_message_ttl: ROUTED_MESSAGE_TTL,
-            max_routes_to_store: 1,
-            highest_peer_horizon: 5,
-            push_info_period: Duration::from_millis(100),
-            blacklist: HashMap::new(),
-            outbound_disabled: false,
-            archive: false,
-        }
-    }
-
-    pub fn verify(&self) {
-        if self.max_send_peers == 0 {
-            panic!("max_send_peers can't be 0");
-        }
-
-        if self.ideal_connections_lo + 1 >= self.ideal_connections_hi {
-            error!(target: "network",
-            "Invalid ideal_connections values. lo({}) > hi({}).",
-            self.ideal_connections_lo, self.ideal_connections_hi);
-        }
-
-        if self.ideal_connections_hi >= self.max_num_peers {
-            error!(target: "network",
-                "max_num_peers({}) is below ideal_connections_hi({}) which may lead to connection saturation and declining new connections.",
-                self.max_num_peers, self.ideal_connections_hi
-            );
-        }
-
-        if self.max_num_peers as usize >= MAX_NUM_PEERS {
-            error!(target: "network",
-                "max_num_peers({}) is higher than MAX_NUM_PEERS({}) due to implementation limits",
-                self.max_num_peers, MAX_NUM_PEERS
-            );
-        }
-
-        if self.outbound_disabled {
-            warn!(target: "network", "Outbound connections are disabled.");
-        }
-
-        if self.safe_set_size <= self.minimum_outbound_peers {
-            error!(target: "network",
-                "safe_set_size({}) must be larger than minimum_outbound_peers({}).",
-                self.safe_set_size,
-                self.minimum_outbound_peers
-            );
-        }
-
-        if UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE * 2 > self.peer_recent_time_window {
-            error!(
-                target: "network",
-                "Very short peer_recent_time_window({}). it should be at least twice update_interval_last_time_received_message({}).",
-                self.peer_recent_time_window.as_secs(), UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE.as_secs()
-            );
-        }
-    }
-}
-
-/// Used to match a socket addr by IP:Port or only by IP
-#[derive(Clone, Debug)]
-pub enum PatternAddr {
-    Ip(IpAddr),
-    IpPort(SocketAddr),
-}
-
-impl PatternAddr {
-    pub fn contains(&self, addr: &SocketAddr) -> bool {
-        match self {
-            PatternAddr::Ip(pattern) => &addr.ip() == pattern,
-            PatternAddr::IpPort(pattern) => addr == pattern,
-        }
-    }
-}
-
-impl FromStr for PatternAddr {
-    type Err = AddrParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Ok(pattern) = s.parse::<IpAddr>() {
-            return Ok(PatternAddr::Ip(pattern));
-        }
-
-        s.parse::<SocketAddr>().map(PatternAddr::IpPort)
-    }
 }
 
 /// not part of protocol, probably doesn't need `borsh`
@@ -359,7 +156,8 @@ impl KnownPeerStatus {
 pub struct KnownPeerState {
     pub peer_info: PeerInfo,
     pub status: KnownPeerStatus,
-    pub first_seen: u64,
+    /// Unused
+    first_seen: u64,
     pub last_seen: u64,
 }
 
@@ -371,10 +169,6 @@ impl KnownPeerState {
             first_seen: to_timestamp(Clock::utc()),
             last_seen: to_timestamp(Clock::utc()),
         }
-    }
-
-    pub fn first_seen(&self) -> DateTime<Utc> {
-        from_timestamp(self.first_seen)
     }
 
     pub fn last_seen(&self) -> DateTime<Utc> {
@@ -411,16 +205,6 @@ impl InboundTcpConnect {
 pub struct OutboundTcpConnect {
     /// Peer information of the outbound connection
     pub peer_info: PeerInfo,
-}
-
-/// Unregister message from Peer to PeerManager.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct Unregister {
-    pub peer_id: PeerId,
-    pub peer_type: PeerType,
-    pub remove_from_peer_store: bool,
 }
 
 /// Ban reason.
@@ -461,11 +245,6 @@ pub enum PeerManagerRequest {
     UnregisterPeer,
 }
 
-/// Messages from Peer to PeerManager
-#[derive(Message, Debug)]
-#[rtype(result = "()")]
-pub enum PeerRequest {}
-
 #[derive(Debug, Clone)]
 pub struct KnownProducer {
     pub account_id: AccountId,
@@ -497,6 +276,7 @@ pub enum NetworkAdversarialMessage {
 pub enum NetworkSandboxMessage {
     SandboxPatchState(Vec<near_primitives::state_record::StateRecord>),
     SandboxPatchStateStatus,
+    SandboxFastForward(near_primitives::types::BlockHeightDelta),
 }
 
 #[cfg(feature = "sandbox")]
@@ -505,7 +285,8 @@ pub enum SandboxResponse {
     SandboxPatchStateFinished(bool),
 }
 
-#[derive(AsStaticStr)]
+#[derive(actix::Message, AsStaticStr)]
+#[rtype(result = "NetworkViewClientResponses")]
 pub enum NetworkViewClientMessages {
     #[cfg(feature = "test_features")]
     Adversarial(NetworkAdversarialMessage),
@@ -538,7 +319,7 @@ pub enum NetworkViewClientMessages {
     AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, actix::MessageResponse)]
 pub enum NetworkViewClientResponses {
     /// Transaction execution outcome
     TxStatus(Box<FinalExecutionOutcomeView>),
@@ -571,27 +352,13 @@ pub enum NetworkViewClientResponses {
     NoResponse,
 }
 
-impl<A, M> MessageResponse<A, M> for NetworkViewClientResponses
-where
-    A: Actor,
-    M: Message<Result = NetworkViewClientResponses>,
-{
-    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-        if let Some(tx) = tx {
-            tx.send(self)
-        }
-    }
-}
-
-impl Message for NetworkViewClientMessages {
-    type Result = NetworkViewClientResponses;
-}
-
 /// Peer stats query.
+#[derive(actix::Message)]
+#[rtype(result = "PeerStatsResult")]
 pub struct QueryPeerStats {}
 
 /// Peer stats result
-#[derive(Debug)]
+#[derive(Debug, actix::MessageResponse)]
 pub struct PeerStatsResult {
     /// Chain info.
     pub chain_info: PeerChainInfoV2,
@@ -602,23 +369,7 @@ pub struct PeerStatsResult {
     /// Returns if this peer is abusive and should be banned.
     pub is_abusive: bool,
     /// Counts of incoming/outgoing messages from given peer.
-    pub message_counts: (u64, u64),
-}
-
-impl<A, M> MessageResponse<A, M> for PeerStatsResult
-where
-    A: Actor,
-    M: Message<Result = PeerStatsResult>,
-{
-    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-        if let Some(tx) = tx {
-            tx.send(self)
-        }
-    }
-}
-
-impl Message for QueryPeerStats {
-    type Result = PeerStatsResult;
+    pub message_counts: (usize, usize),
 }
 
 #[cfg(test)]
@@ -643,7 +394,6 @@ mod tests {
     #[test]
     fn test_enum_size() {
         assert_size!(PeerType);
-        assert_size!(PeerStatus);
         assert_size!(RoutedMessageBody);
         assert_size!(PeerIdOrHash);
         assert_size!(KnownPeerStatus);
@@ -655,18 +405,15 @@ mod tests {
     fn test_struct_size() {
         assert_size!(PeerInfo);
         assert_size!(PeerChainInfoV2);
-        assert_size!(AnnounceAccountRoute);
         assert_size!(AnnounceAccount);
         assert_size!(Ping);
         assert_size!(Pong);
         assert_size!(RawRoutedMessage);
         assert_size!(RoutedMessage);
         assert_size!(RoutedMessageFrom);
-        assert_size!(NetworkConfig);
         assert_size!(KnownPeerState);
         assert_size!(InboundTcpConnect);
         assert_size!(OutboundTcpConnect);
-        assert_size!(Unregister);
         assert_size!(Ban);
         assert_size!(StateResponseInfoV1);
         assert_size!(QueryPeerStats);

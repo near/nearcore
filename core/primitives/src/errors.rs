@@ -7,7 +7,7 @@ use std::fmt::{Debug, Display};
 
 use crate::hash::CryptoHash;
 use near_rpc_error_macro::RpcError;
-use near_vm_errors::{CompilationError, FunctionCallErrorSer, MethodResolveError, VMLogicError};
+use near_vm_errors::{CompilationError, FunctionCallErrorSer, MethodResolveError};
 
 /// Error returned in the ExecutionOutcome in case of failure
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -61,25 +61,8 @@ pub enum RuntimeError {
     ValidatorError(EpochError),
 }
 
-/// Error used by `RuntimeExt`. This error has to be serializable, because it's transferred through
-/// the `VMLogicError`, which isn't aware of internal Runtime errors.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
-pub enum ExternalError {
-    /// Unexpected error which is typically related to the node storage corruption.
-    /// It's possible the input state is invalid or malicious.
-    StorageError(StorageError),
-    /// Error when accessing validator information. Happens inside epoch manager.
-    ValidatorError(EpochError),
-}
-
-impl From<ExternalError> for VMLogicError {
-    fn from(err: ExternalError) -> Self {
-        VMLogicError::ExternalError(err.try_to_vec().expect("Borsh serialize cannot fail"))
-    }
-}
-
 /// Internal
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StorageError {
     /// Key-value db internal failure
     StorageInternalError,
@@ -742,7 +725,7 @@ impl Display for ActionErrorKind {
     }
 }
 
-#[derive(Eq, PartialEq, BorshSerialize, BorshDeserialize, Clone)]
+#[derive(Eq, PartialEq, Clone)]
 pub enum EpochError {
     /// Error calculating threshold from given stakes for given number of seats.
     /// Only should happened if calling code doesn't check for integer value of stake > number of seats.

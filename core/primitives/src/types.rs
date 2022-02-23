@@ -233,6 +233,21 @@ pub enum StateChangeValue {
     ContractCodeDeletion { account_id: AccountId },
 }
 
+impl StateChangeValue {
+    pub fn affected_account_id(&self) -> &AccountId {
+        match &self {
+            StateChangeValue::AccountUpdate { account_id, .. }
+            | StateChangeValue::AccountDeletion { account_id }
+            | StateChangeValue::AccessKeyUpdate { account_id, .. }
+            | StateChangeValue::AccessKeyDeletion { account_id, .. }
+            | StateChangeValue::DataUpdate { account_id, .. }
+            | StateChangeValue::DataDeletion { account_id, .. }
+            | StateChangeValue::ContractCodeUpdate { account_id, .. }
+            | StateChangeValue::ContractCodeDeletion { account_id } => account_id,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct StateChangeWithCause {
     pub cause: StateChangeCause,
@@ -737,7 +752,7 @@ pub mod chunk_extra {
             balance_burnt: Balance,
         ) -> Self {
             Self::V2(ChunkExtraV2 {
-                state_root: state_root.clone(),
+                state_root: *state_root,
                 outcome_root,
                 validator_proposals,
                 gas_used,

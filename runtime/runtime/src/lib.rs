@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use log::debug;
+use tracing::debug;
 
 use near_chain_configs::Genesis;
 pub use near_crypto;
@@ -281,7 +281,7 @@ impl Runtime {
             Err(e) => {
                 metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                 state_update.rollback();
-                return Err(e);
+                Err(e)
             }
         }
     }
@@ -563,7 +563,7 @@ impl Runtime {
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
                 if let Some(amount) = get_insufficient_storage_stake(account, &apply_state.config)
-                    .map_err(|err| StorageError::StorageInconsistentState(err))?
+                    .map_err(StorageError::StorageInconsistentState)?
                 {
                     result.merge(ActionResult {
                         result: Err(ActionError {
@@ -720,10 +720,7 @@ impl Runtime {
                 );
 
                 new_receipt.receipt_id = receipt_id;
-                let is_action = match &new_receipt.receipt {
-                    ReceiptEnum::Action(_) => true,
-                    _ => false,
-                };
+                let is_action = matches!(&new_receipt.receipt, ReceiptEnum::Action(_));
                 outgoing_receipts.push(new_receipt);
                 if is_action {
                     Some(receipt_id)
@@ -1128,16 +1125,13 @@ impl Runtime {
             && migration_flags.is_first_block_of_version
         {
             for (account_id, delta) in &migration_data.storage_usage_delta {
-                match get_account(state_update, account_id)? {
-                    Some(mut account) => {
-                        // Storage usage is saved in state, hence it is nowhere close to max value
-                        // of u64, and maximal delta is 4196, se we can add here without checking
-                        // for overflow
-                        account.set_storage_usage(account.storage_usage() + delta);
-                        set_account(state_update, account_id.clone(), &account);
-                    }
-                    // Account could have been deleted in the meantime
-                    None => {}
+                // Account could have been deleted in the meantime, so we check if it is still Some
+                if let Some(mut account) = get_account(state_update, account_id)? {
+                    // Storage usage is saved in state, hence it is nowhere close to max value
+                    // of u64, and maximal delta is 4196, se we can add here without checking
+                    // for overflow
+                    account.set_storage_usage(account.storage_usage() + delta);
+                    set_account(state_update, account_id.clone(), &account);
                 }
             }
             gas_used += migration_data.storage_usage_fix_gas;
@@ -1210,7 +1204,7 @@ impl Runtime {
                 &apply_state.migration_flags,
                 apply_state.current_protocol_version,
             )
-            .map_err(|e| RuntimeError::StorageError(e))?;
+            .map_err(RuntimeError::StorageError)?;
         // If we have receipts that need to be restored, prepend them to the list of incoming receipts
         let incoming_receipts = if receipts_to_restore.is_empty() {
             incoming_receipts

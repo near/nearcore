@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
@@ -16,16 +15,16 @@ use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::errors::InvalidTxError;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::errors::{EpochError, InvalidTxError};
+use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ChunkHash, ReceiptList, ShardChunkHeader};
+use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
+    AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, Gas,
+    MerkleHash, NumBlocks, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
@@ -36,7 +35,7 @@ use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTr
 
 use crate::DoomslugThresholdMode;
 use near_primitives::epoch_manager::ShardConfig;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_record::StateRecord;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -257,11 +256,11 @@ where
 /// Additionally handles validators.
 pub trait RuntimeAdapter: Send + Sync {
     /// Get store and genesis state roots
-    fn genesis_state(&self) -> (Arc<Store>, Vec<StateRoot>);
+    fn genesis_state(&self) -> (Store, Vec<StateRoot>);
 
     fn get_tries(&self) -> ShardTries;
 
-    fn get_store(&self) -> Arc<Store>;
+    fn get_store(&self) -> Store;
 
     /// Returns trie. Since shard layout may change from epoch to epoch, `shard_id` itself is
     /// not enough to identify the trie. `prev_hash` is used to identify the epoch the given
@@ -516,6 +515,12 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get epoch id given hash of previous block.
     fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error>;
 
+    /// Get epoch height given hash of previous block.
+    fn get_epoch_height_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<EpochHeight, Error>;
+
     /// Get next epoch id given hash of previous block.
     fn get_next_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash)
         -> Result<EpochId, Error>;
@@ -759,39 +764,10 @@ pub trait RuntimeAdapter: Send + Sync {
         prev_block_hash: &CryptoHash,
     ) -> Result<EpochId, Error>;
 
-    /// Build receipts hashes.
-    // Due to borsh serialization constraints, we have to use `&Vec<Receipt>` instead of `&[Receipt]`
-    // here.
-    fn build_receipts_hashes(
+    fn get_protocol_upgrade_block_height(
         &self,
-        receipts: &[Receipt],
-        shard_layout: &ShardLayout,
-    ) -> Vec<CryptoHash> {
-        if shard_layout.num_shards() == 1 {
-            return vec![hash(&ReceiptList(0, receipts).try_to_vec().unwrap())];
-        }
-        let mut account_id_to_shard_id_map = HashMap::new();
-        let mut shard_receipts: Vec<_> =
-            (0..shard_layout.num_shards()).map(|i| (i, Vec::new())).collect();
-        for receipt in receipts.iter() {
-            let shard_id = match account_id_to_shard_id_map.get(&receipt.receiver_id) {
-                Some(id) => *id,
-                None => {
-                    let id = account_id_to_shard_id(&receipt.receiver_id, shard_layout);
-                    account_id_to_shard_id_map.insert(receipt.receiver_id.clone(), id);
-                    id
-                }
-            };
-            shard_receipts[shard_id as usize].1.push(receipt);
-        }
-        shard_receipts
-            .into_iter()
-            .map(|(i, rs)| {
-                let bytes = (i, rs).try_to_vec().unwrap();
-                hash(&bytes)
-            })
-            .collect()
-    }
+        block_hash: CryptoHash,
+    ) -> Result<Option<BlockHeight>, EpochError>;
 }
 
 /// The last known / checked height and time when we have processed it.
@@ -815,6 +791,7 @@ mod tests {
 
     use near_crypto::KeyType;
     use near_primitives::block::{genesis_chunks, Approval};
+    use near_primitives::hash::hash;
     use near_primitives::merkle::verify_path;
     use near_primitives::transaction::{ExecutionMetadata, ExecutionOutcome, ExecutionStatus};
     use near_primitives::validator_signer::InMemoryValidatorSigner;

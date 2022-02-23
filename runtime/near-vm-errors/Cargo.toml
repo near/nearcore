@@ -15,7 +15,6 @@ Error that can occur inside Near Runtime encapsulated in a separate crate. Might
 """
 
 [dependencies]
-hex = "0.4"
 serde = { version = "1", features = ["derive"] }
 
 borsh = "0.9"
@@ -26,4 +25,7 @@ near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_alt_bn128 = []
-deepsize_feature = ["deepsize", "near-account-id/deepsize_feature"]
+deepsize_feature = [
+  "deepsize",
+  "near-account-id/deepsize_feature",
+]

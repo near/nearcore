@@ -229,7 +229,7 @@ impl<'a> TrieIterator<'a> {
         self.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0)?;
 
         let mut trie_items = vec![];
-        while let Some(item) = self.next() {
+        for item in self {
             let trie_item = item?;
             let key_encoded: Vec<_> = NibbleSlice::new(&trie_item.0).iter().collect();
             if &key_encoded[..] >= path_end {
@@ -321,7 +321,9 @@ impl<'a> Iterator for TrieIterator<'a> {
                 IterStep::Continue => {}
                 IterStep::Value(hash) => {
                     return Some(
-                        self.trie.retrieve_raw_bytes(&hash).map(|value| (self.key(), value)),
+                        self.trie
+                            .retrieve_raw_bytes(&hash)
+                            .map(|value| (self.key(), value.to_vec())),
                     )
                 }
             }
@@ -386,11 +388,11 @@ mod tests {
                 let alphabet = &b"abcdefgh"[0..rng.gen_range(2, 8)];
                 let key_length = rng.gen_range(1, 8);
                 let seek_key: Vec<u8> =
-                    (0..key_length).map(|_| alphabet.choose(&mut rng).unwrap().clone()).collect();
+                    (0..key_length).map(|_| *alphabet.choose(&mut rng).unwrap()).collect();
                 test_seek(&trie, &map, &state_root, &seek_key);
 
                 let seek_key2: Vec<u8> =
-                    (0..key_length).map(|_| alphabet.choose(&mut rng).unwrap().clone()).collect();
+                    (0..key_length).map(|_| *alphabet.choose(&mut rng).unwrap()).collect();
                 let path_begin = seek_key.clone().min(seek_key2.clone());
                 let path_end = seek_key.clone().max(seek_key2.clone());
                 test_get_trie_items(&trie, &map, &state_root, &path_begin, &path_end);

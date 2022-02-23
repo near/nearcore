@@ -1,3 +1,4 @@
+use crate::near_chain_primitives::error::BlockKnownError;
 use crate::test_utils::setup;
 use crate::{Block, ChainStoreAccess, ErrorKind};
 use chrono;
@@ -21,10 +22,11 @@ fn empty_chain() {
 
     assert_eq!(chain.head().unwrap().height, 0);
     let hash = chain.head().unwrap().last_block_hash;
+    // The hashes here will have to be modified after each change to genesis file.
     #[cfg(feature = "nightly_protocol")]
-    assert_eq!(hash, CryptoHash::from_str("3wFoFbJPPv7Jg1ZERuBWTCok4H9uRZ7Uagm1wiXdKpvV").unwrap());
+    assert_eq!(hash, CryptoHash::from_str("4iPPuWZ2BZj6i6zGCa96xFTQhp3FHkY2CzUCJFUUryt8").unwrap());
     #[cfg(not(feature = "nightly_protocol"))]
-    assert_eq!(hash, CryptoHash::from_str("7mewJ6tbV1hZBg47qaCjtRfPQG4fBHykg2mzBjEbXwv9").unwrap());
+    assert_eq!(hash, CryptoHash::from_str("8UF2TCELQ2sSqorskN5myyC7h1XfgxYm68JHJMKo5n8X").unwrap());
     assert_eq!(count_utc, 1);
 }
 
@@ -48,12 +50,12 @@ fn build_chain() {
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(
         prev_hash,
-        CryptoHash::from_str("5VroU43sRYCkttuJfpdP6iC57fsD4q2TCbWaronBWpz7").unwrap()
+        CryptoHash::from_str("zcVm8wC8eBt2b5C2uTNch2UyfXCwjs3qgYGZwyXcUAA").unwrap()
     );
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
         prev_hash,
-        CryptoHash::from_str("HdzZUsY2p3hmursbjgcG2PdYaw3UgchA9rXnFoEJLGH1").unwrap()
+        CryptoHash::from_str("BkRwcuuVjS86zNvP8DDC9FzsJfWQLV92YyX7NCAz3TNu").unwrap()
     );
 
     for i in 0..4 {
@@ -71,12 +73,12 @@ fn build_chain() {
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(
         chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("BNap11nsM7PEqYQertYU487g7gkCteQ8Fmee6QfyRdVQ").unwrap()
+        CryptoHash::from_str("CDfAT886U5up6bQZ3QNVcvxtuVM6sNyJnF6Nk6RMHnEZ").unwrap()
     );
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
         chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("3vG7bLc3AjfYKdESnu5qNX24gjD6SKB1PuiRBDpcBjWC").unwrap()
+        CryptoHash::from_str("8FkFyWKsnAvAEVAwR41GFTY9i9eQnvGCm52FCYR7qEhy").unwrap()
     );
 }
 
@@ -108,7 +110,7 @@ fn build_chain_with_orhpans() {
         vec![],
         vec![],
         &*signer,
-        last_block.header().next_bp_hash().clone(),
+        *last_block.header().next_bp_hash(),
         CryptoHash::default(),
     );
     assert_eq!(chain.process_block_test(&None, block).unwrap_err().kind(), ErrorKind::Orphan);
@@ -124,7 +126,7 @@ fn build_chain_with_orhpans() {
     assert_eq!(res.unwrap().unwrap().height, 10);
     assert_eq!(
         chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err().kind(),
-        ErrorKind::Unfit("already known in store".to_string())
+        ErrorKind::BlockKnown(BlockKnownError::KnownInStore)
     );
 }
 

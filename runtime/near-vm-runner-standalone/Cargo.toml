@@ -25,7 +25,6 @@ serde_json = "1"
 clap = "=3.0.0-beta.2"
 clap_derive = "=3.0.0-beta.2"
 base64 = "0.13"
-strum = "0.20"
 num-rational = "0.3"
 tracing-span-tree = "0.1"
 
@@ -41,6 +40,13 @@ near-test-contracts = { path = "../near-test-contracts" }
 [features]
 default = []
 no_cache = ["near-vm-runner/no_cache"]
-protocol_feature_alt_bn128 = ["near-vm-logic/protocol_feature_alt_bn128", "near-vm-runner/protocol_feature_alt_bn128"]
-nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "protocol_feature_alt_bn128"]
+protocol_feature_alt_bn128 = [
+  "near-vm-logic/protocol_feature_alt_bn128",
+  "near-vm-runner/protocol_feature_alt_bn128",
+]
+nightly_protocol_features = [
+  "nightly_protocol",
+  "near-primitives/nightly_protocol_features",
+  "protocol_feature_alt_bn128",
+]
 nightly_protocol = ["near-primitives/nightly_protocol"]

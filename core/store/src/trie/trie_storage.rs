@@ -2,42 +2,41 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use cached::{Cached, SizedCache};
-
 use near_primitives::hash::CryptoHash;
 
 use crate::db::refcount::decode_value_with_rc;
 use crate::trie::POISONED_LOCK_ERR;
 use crate::{ColState, StorageError, Store};
+use lru::LruCache;
 use near_primitives::shard_layout::ShardUId;
 use std::cell::RefCell;
 use std::io::ErrorKind;
 
 #[derive(Clone)]
-pub struct TrieCache(Arc<Mutex<SizedCache<CryptoHash, Vec<u8>>>>);
+pub struct TrieCache(Arc<Mutex<LruCache<CryptoHash, Arc<[u8]>>>>);
 
 impl TrieCache {
     pub fn new() -> Self {
-        Self(Arc::new(Mutex::new(SizedCache::with_size(TRIE_MAX_CACHE_SIZE))))
+        Self(Arc::new(Mutex::new(LruCache::new(TRIE_MAX_CACHE_SIZE))))
     }
 
     pub fn clear(&self) {
-        self.0.lock().expect(POISONED_LOCK_ERR).cache_clear()
+        self.0.lock().expect(POISONED_LOCK_ERR).clear()
     }
 
-    pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<Vec<u8>>)>) {
+    pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<&Vec<u8>>)>) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
         for (hash, opt_value_rc) in ops {
             if let Some(value_rc) = opt_value_rc {
                 if let (Some(value), _rc) = decode_value_with_rc(&value_rc) {
                     if value.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
-                        guard.cache_set(hash, value.to_vec());
+                        guard.put(hash, value.into());
                     }
                 } else {
-                    guard.cache_remove(&hash);
+                    guard.pop(&hash);
                 }
             } else {
-                guard.cache_remove(&hash);
+                guard.pop(&hash);
             }
         }
     }
@@ -47,7 +46,7 @@ pub trait TrieStorage {
     /// Get bytes of a serialized TrieNode.
     /// # Errors
     /// StorageError if the storage fails internally or the hash is not present.
-    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError>;
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError>;
 
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
         None
@@ -65,15 +64,15 @@ pub trait TrieStorage {
 /// Records every value read by retrieve_raw_bytes.
 /// Used for obtaining state parts (and challenges in the future).
 pub struct TrieRecordingStorage {
-    pub(crate) store: Arc<Store>,
+    pub(crate) store: Store,
     pub(crate) shard_uid: ShardUId,
     pub(crate) recorded: RefCell<HashMap<CryptoHash, Vec<u8>>>,
 }
 
 impl TrieStorage for TrieRecordingStorage {
-    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         if let Some(val) = self.recorded.borrow().get(hash) {
-            return Ok(val.clone());
+            return Ok(val.as_slice().into());
         }
         let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
         let val = self
@@ -82,7 +81,7 @@ impl TrieStorage for TrieRecordingStorage {
             .map_err(|_| StorageError::StorageInternalError)?;
         if let Some(val) = val {
             self.recorded.borrow_mut().insert(*hash, val.clone());
-            Ok(val)
+            Ok(val.into())
         } else {
             Err(StorageError::StorageInconsistentState("Trie node missing".to_string()))
         }
@@ -101,11 +100,11 @@ pub struct TrieMemoryPartialStorage {
 }
 
 impl TrieStorage for TrieMemoryPartialStorage {
-    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         let result = self
             .recorded_storage
             .get(hash)
-            .map_or_else(|| Err(StorageError::TrieNodeMissing), |val| Ok(val.clone()));
+            .map_or_else(|| Err(StorageError::TrieNodeMissing), |val| Ok(val.as_slice().into()));
         if result.is_ok() {
             self.visited_nodes.borrow_mut().insert(*hash);
         }
@@ -133,13 +132,13 @@ const TRIE_MAX_CACHE_SIZE: usize = 1;
 const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 4000;
 
 pub struct TrieCachingStorage {
-    pub(crate) store: Arc<Store>,
+    pub(crate) store: Store,
     pub(crate) cache: TrieCache,
     pub(crate) shard_uid: ShardUId,
 }
 
 impl TrieCachingStorage {
-    pub fn new(store: Arc<Store>, cache: TrieCache, shard_uid: ShardUId) -> TrieCachingStorage {
+    pub fn new(store: Store, cache: TrieCache, shard_uid: ShardUId) -> TrieCachingStorage {
         TrieCachingStorage { store, cache, shard_uid }
     }
 
@@ -166,9 +165,9 @@ impl TrieCachingStorage {
 }
 
 impl TrieStorage for TrieCachingStorage {
-    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
-        if let Some(val) = guard.cache_get(hash) {
+        if let Some(val) = guard.get(hash) {
             Ok(val.clone())
         } else {
             let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
@@ -177,8 +176,9 @@ impl TrieStorage for TrieCachingStorage {
                 .get(ColState, key.as_ref())
                 .map_err(|_| StorageError::StorageInternalError)?;
             if let Some(val) = val {
+                let val: Arc<[u8]> = val.into();
                 if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
-                    guard.cache_set(*hash, val.clone());
+                    guard.put(*hash, val.clone());
                 }
                 Ok(val)
             } else {

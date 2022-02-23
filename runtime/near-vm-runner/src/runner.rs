@@ -35,13 +35,12 @@ pub fn run(
     cache: Option<&dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let vm_kind = VMKind::for_protocol_version(current_protocol_version);
-    if let Some(runtime) = vm_kind.runtime() {
+    if let Some(runtime) = vm_kind.runtime(wasm_config.clone()) {
         runtime.run(
             code,
             method_name,
             ext,
             context,
-            wasm_config,
             fees_config,
             promise_results,
             current_protocol_version,
@@ -69,7 +68,6 @@ pub trait VM {
         method_name: &str,
         ext: &mut dyn External,
         context: VMContext,
-        wasm_config: &VMConfig,
         fees_config: &RuntimeFeesConfig,
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
@@ -84,7 +82,6 @@ pub trait VM {
         &self,
         code: &[u8],
         code_hash: &CryptoHash,
-        wasm_config: &VMConfig,
         cache: &dyn CompiledContractCache,
     ) -> Option<VMError>;
 
@@ -98,23 +95,14 @@ impl VMKind {
     /// Make a [`Runtime`] for this [`VMKind`].
     ///
     /// This is not intended to be used by code other than standalone-vm-runner.
-    pub fn runtime(&self) -> Option<&'static dyn VM> {
+    pub fn runtime(&self, config: VMConfig) -> Option<Box<dyn VM>> {
         match self {
-            #[cfg(feature = "wasmer0_vm")]
-            Self::Wasmer0 => {
-                use crate::wasmer_runner::Wasmer0VM;
-                Some(&Wasmer0VM as &'static dyn VM)
-            }
+            #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
+            Self::Wasmer0 => Some(Box::new(crate::wasmer_runner::Wasmer0VM::new(config))),
             #[cfg(feature = "wasmtime_vm")]
-            Self::Wasmtime => {
-                use crate::wasmtime_runner::WasmtimeVM;
-                Some(&WasmtimeVM as &'static dyn VM)
-            }
-            #[cfg(feature = "wasmer2_vm")]
-            Self::Wasmer2 => {
-                use crate::wasmer2_runner::Wasmer2VM;
-                Some(&Wasmer2VM as &'static dyn VM)
-            }
+            Self::Wasmtime => Some(Box::new(crate::wasmtime_runner::WasmtimeVM::new(config))),
+            #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
+            Self::Wasmer2 => Some(Box::new(crate::wasmer2_runner::Wasmer2VM::new(config))),
             #[allow(unreachable_patterns)] // reachable when some of the VMs are disabled.
             _ => None,
         }

@@ -96,8 +96,8 @@ pub struct StateRequestStruct {
 }
 
 /// Sanity checks that the incoming and outgoing receipts are properly sent and received
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_catchup_receipts_sync_third_epoch() {
     test_catchup_receipts_sync_common(13, 1, false)
 }
@@ -109,20 +109,20 @@ fn test_catchup_receipts_sync_third_epoch() {
 /// It will be executed 10 times faster.
 /// The reason of increasing block_prod_time in the test is to allow syncing complete.
 /// Otherwise epochs will be changing faster than state sync happen.
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_catchup_receipts_sync_hold() {
     test_catchup_receipts_sync_common(13, 1, true)
 }
 
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_catchup_receipts_sync_last_block() {
     test_catchup_receipts_sync_common(13, 5, false)
 }
 
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_catchup_receipts_sync_distant_epoch() {
     test_catchup_receipts_sync_common(35, 1, false)
 }
@@ -376,8 +376,8 @@ enum RandomSinglePartPhases {
 /// If random one parts fetched during the epoch preceding the epoch a block producer is
 /// assigned to were to have incorrect receipts, the balances in the fourth epoch would have
 /// been incorrect due to wrong receipts applied during the third epoch.
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_catchup_random_single_part_sync() {
     test_catchup_random_single_part_sync_common(false, false, 13)
 }
@@ -385,28 +385,28 @@ fn test_catchup_random_single_part_sync() {
 // Same test as `test_catchup_random_single_part_sync`, but skips the chunks on height 14 and 15
 // It causes all the receipts to be applied only on height 16, which is the next epoch.
 // It tests that the incoming receipts are property synced through epochs
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_catchup_random_single_part_sync_skip_15() {
     test_catchup_random_single_part_sync_common(true, false, 13)
 }
 
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_catchup_random_single_part_sync_send_15() {
     test_catchup_random_single_part_sync_common(false, false, 15)
 }
 
 // Make sure that transactions are at least applied.
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_catchup_random_single_part_sync_non_zero_amounts() {
     test_catchup_random_single_part_sync_common(false, true, 13)
 }
 
 // Use another height to send txs.
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_catchup_random_single_part_sync_height_6() {
     test_catchup_random_single_part_sync_common(false, false, 6)
 }
@@ -618,8 +618,8 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
 /// to be skipped)
 /// This test would fail if at any point validators got stuck with state sync, or block
 /// production stalled for any other reason.
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_catchup_sanity_blocks_produced() {
     let validator_groups = 2;
     init_integration_logger();
@@ -693,7 +693,6 @@ enum ChunkGrievingPhases {
 }
 
 // TODO(#3180): seals are disabled in single shard setting
-#[cfg(feature = "expensive_tests")]
 #[test]
 #[ignore]
 fn test_chunk_grieving() {
@@ -847,20 +846,20 @@ fn test_chunk_grieving() {
     });
 }
 
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_all_chunks_accepted_1000() {
     test_all_chunks_accepted_common(1000, 3000, 5)
 }
 
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_all_chunks_accepted_1000_slow() {
     test_all_chunks_accepted_common(1000, 6000, 5)
 }
 
-#[cfg(feature = "expensive_tests")]
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_all_chunks_accepted_1000_rare_epoch_changing() {
     test_all_chunks_accepted_common(1000, 1500, 100)
 }

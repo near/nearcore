@@ -6,14 +6,13 @@ use near_primitives::network::PeerId;
 use near_primitives::time::Utc;
 use near_primitives::utils::to_timestamp;
 use near_store::{ColPeers, Store};
-use rand::seq::SliceRandom;
+use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::collections::hash_map::{Entry, Iter};
 use std::collections::HashMap;
 use std::error::Error;
 use std::net::SocketAddr;
 use std::ops::Not;
-use std::sync::Arc;
 use tracing::{debug, error};
 
 /// Level of trust we have about a new (PeerId, Addr) pair.
@@ -44,7 +43,7 @@ impl VerifiedPeer {
 
 /// Known peers store, maintaining cache of known peers and connection to storage to save/load them.
 pub struct PeerStore {
-    store: Arc<Store>,
+    store: Store,
     peer_states: HashMap<PeerId, KnownPeerState>,
     // This is a reverse index, from physical address to peer_id
     // It can happens that some peers don't have known address, so
@@ -54,7 +53,7 @@ pub struct PeerStore {
 
 impl PeerStore {
     pub(crate) fn new(
-        store: Arc<Store>,
+        store: Store,
         boot_nodes: &[PeerInfo],
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let mut peer_states = HashMap::default();
@@ -158,7 +157,7 @@ impl PeerStore {
     }
 
     fn save_to_db(
-        store: &Arc<Store>,
+        store: &Store,
         peer_id: &[u8],
         peer_state: &KnownPeerState,
     ) -> Result<(), Box<dyn Error>> {
@@ -184,13 +183,12 @@ impl PeerStore {
     where
         F: FnMut(&&KnownPeerState) -> bool,
     {
-        let peers: Vec<_> =
-            self.peer_states.values().filter(filter).map(|p| &p.peer_info).collect();
-        if count >= peers.len() {
-            peers.iter().cloned().cloned().collect()
-        } else {
-            peers.choose_multiple(&mut thread_rng(), count).cloned().cloned().collect()
-        }
+        (self.peer_states.values())
+            .filter(filter)
+            .choose_multiple(&mut thread_rng(), count)
+            .into_iter()
+            .map(|kps| kps.peer_info.clone())
+            .collect()
     }
 
     /// Return unconnected or peers with unknown status that we can try to connect to.
@@ -245,7 +243,7 @@ impl PeerStore {
         store_update.commit().map_err(|err| err.into())
     }
 
-    fn touch(&mut self, peer_id: &PeerId) -> Result<(), Box<dyn std::error::Error>> {
+    fn touch(&self, peer_id: &PeerId) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get(peer_id) {
             Self::save_to_db(&self.store, peer_id.try_to_vec()?.as_slice(), peer_state)
         } else {
@@ -367,7 +365,7 @@ impl PeerStore {
 }
 
 /// Public method used to iterate through all peers stored in the database.
-pub fn iter_peers_from_store<F>(store: Arc<Store>, f: F)
+pub fn iter_peers_from_store<F>(store: Store, f: F)
 where
     F: Fn((&PeerId, &KnownPeerState)),
 {
@@ -380,6 +378,7 @@ mod test {
     use near_crypto::{KeyType, SecretKey};
     use near_store::create_store;
     use near_store::test_utils::create_test_store;
+    use std::net::{Ipv4Addr, SocketAddrV4};
 
     use super::*;
 
@@ -387,15 +386,15 @@ mod test {
         PeerId::new(SecretKey::from_seed(KeyType::ED25519, seed.as_str()).public_key())
     }
 
-    fn get_addr(port: u8) -> SocketAddr {
-        format!("127.0.0.1:{}", port).parse().unwrap()
+    fn get_addr(port: u16) -> SocketAddr {
+        SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port).into()
     }
 
     fn get_peer_info(peer_id: PeerId, addr: Option<SocketAddr>) -> PeerInfo {
         PeerInfo { id: peer_id, addr, account_id: None }
     }
 
-    fn gen_peer_info(port: u8) -> PeerInfo {
+    fn gen_peer_info(port: u16) -> PeerInfo {
         PeerInfo {
             id: PeerId::new(SecretKey::from_random(KeyType::ED25519).public_key()),
             addr: Some(get_addr(port)),

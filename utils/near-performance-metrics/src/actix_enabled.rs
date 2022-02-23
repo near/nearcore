@@ -1,10 +1,8 @@
-use log::warn;
+use crate::stats_enabled::{get_thread_stats_logger, MyFuture, REF_COUNTER, SLOW_CALL_THRESHOLD};
+use near_rust_allocator_proxy::get_tid;
 use std::panic::Location;
 use std::time::{Duration, Instant};
-
-use crate::stats_enabled::{get_thread_stats_logger, MyFuture, REF_COUNTER, SLOW_CALL_THRESHOLD};
-
-use near_rust_allocator_proxy::allocator::get_tid;
+use tracing::warn;
 
 #[track_caller]
 pub fn spawn<F>(class_name: &'static str, f: F)
