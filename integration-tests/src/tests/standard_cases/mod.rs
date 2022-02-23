@@ -1330,27 +1330,30 @@ pub fn test_smart_contract_free(node: impl Node) {
 
 pub fn test_contract_read_write_cost(node: impl Node) {
     let node_user = node.user();
-    let transaction_result = node_user
-        .function_call(
-            alice_account(),
-            bob_account(),
-            "write_key_value",
-            arr_u64_to_u8(&[10u64, 20u64]),
-            10u64.pow(14),
-            0,
-        )
-        .unwrap();
-    assert_matches!(transaction_result.status, FinalExecutionStatus::SuccessValue(_));
-    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+    let results: Vec<Gas> = vec![2, 4];
+    for i in 0..2 {
+        let transaction_result = node_user
+            .function_call(
+                alice_account(),
+                bob_account(),
+                "write_key_value",
+                arr_u64_to_u8(&[10u64, 20u64]),
+                10u64.pow(14),
+                0,
+            )
+            .unwrap();
+        assert_matches!(transaction_result.status, FinalExecutionStatus::SuccessValue(_));
+        assert_eq!(transaction_result.receipts_outcome.len(), 2);
 
-    let gas_profile = &transaction_result.receipts_outcome[0].outcome.metadata.gas_profile;
-    let touching_trie_node_cost: Gas = gas_profile
-        .clone()
-        .unwrap()
-        .iter()
-        .map(|cost| if cost.cost == "TOUCHING_TRIE_NODE" { cost.gas_used } else { 0 })
-        .sum();
-    let node_touches =
-        touching_trie_node_cost / RuntimeConfig::test().wasm_config.ext_costs.touching_trie_node;
-    assert_eq!(node_touches, 2);
+        let gas_profile = &transaction_result.receipts_outcome[0].outcome.metadata.gas_profile;
+        let touching_trie_node_cost: Gas = gas_profile
+            .clone()
+            .unwrap()
+            .iter()
+            .map(|cost| if cost.cost == "TOUCHING_TRIE_NODE" { cost.gas_used } else { 0 })
+            .sum();
+        let node_touches = touching_trie_node_cost
+            / RuntimeConfig::test().wasm_config.ext_costs.touching_trie_node;
+        assert_eq!(node_touches, results[i]);
+    }
 }
