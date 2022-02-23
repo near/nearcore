@@ -1,7 +1,6 @@
 use actix::{Actor, Arbiter, Context};
 use clap::{AppSettings, Clap};
 use futures::future::FutureExt;
-use futures::pin_mut;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
@@ -316,15 +315,6 @@ impl Drop for SystemStoppedActor {
     }
 }
 
-async fn system_stopped_wait(rx: oneshot::Receiver<bool>) {
-    match rx.blocking_recv() {
-        Err(err) => {
-            error!(target:"neard","Failed to listen to system stop events: {:#?}",err);
-        }
-        Ok(_) => {}
-    }
-}
-
 impl RunCmd {
     pub(super) fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
         // Load configs from home.
@@ -390,8 +380,6 @@ impl RunCmd {
         }
 
         let (tx, rx) = oneshot::channel::<bool>();
-        let rx_task = system_stopped_wait(rx).fuse();
-        pin_mut!(rx_task);
         let sys = actix::System::new();
         sys.block_on(async move {
             let nearcore::NearNode { rpc_servers, .. } =
@@ -409,7 +397,7 @@ impl RunCmd {
                 futures::select! {
                     _ = sigint .recv().fuse() => "SIGINT",
                     _ = sigterm.recv().fuse() => "SIGTERM",
-                    _ = rx_task => "DIED",
+                    _ = rx.fuse() => "DIED",
                 }
             } else {
                 tokio::signal::ctrl_c().await.unwrap();
