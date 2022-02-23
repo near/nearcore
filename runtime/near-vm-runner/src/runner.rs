@@ -34,6 +34,7 @@ pub fn run(
     current_protocol_version: ProtocolVersion,
     cache: Option<&dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
+    eprintln!("run {}", method_name);
     let vm_kind = VMKind::for_protocol_version(current_protocol_version);
     if let Some(runtime) = vm_kind.runtime(wasm_config.clone()) {
         runtime.run(

@@ -164,6 +164,7 @@ type ExtResult<T> = ::std::result::Result<T, VMLogicError>;
 impl<'a> External for RuntimeExt<'a> {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
         let _span = tracing::debug_span!(target: "runtime", "storage_set", key = ?key).entered();
+        eprintln!("storage_set {:?}", key);
         let storage_key = self.create_storage_key(key);
         self.trie_update.set(storage_key, Vec::from(value));
         Ok(())
@@ -171,6 +172,7 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn storage_get<'b>(&'b self, key: &[u8]) -> ExtResult<Option<Box<dyn ValuePtr + 'b>>> {
         let _span = tracing::debug_span!(target: "runtime", "storage_get", key = ?key).entered();
+        eprintln!("storage_get {:?}", key);
         let storage_key = self.create_storage_key(key);
         self.trie_update
             .get_ref(&storage_key)
