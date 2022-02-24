@@ -4,6 +4,8 @@ use crate::gas_cost::GasCost;
 use crate::transaction_builder::TransactionBuilder;
 
 use std::collections::HashMap;
+use std::process::Command;
+use std::{fs, io};
 
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
@@ -17,6 +19,13 @@ pub fn read_resource(path: &str) -> Vec<u8> {
     let path = std::path::Path::new(dir).join(path);
     std::fs::read(&path)
         .unwrap_or_else(|err| panic!("failed to load test resource: {}, {}", path.display(), err))
+}
+
+/// Attempts to clear OS page cache on Linux based system. Will fail on
+/// other systems. Requires write access to /proc/sys/vm/drop_caches
+pub fn clear_linux_page_cache() -> io::Result<()> {
+    Command::new("sync").output().expect("sync failed");
+    fs::write("/proc/sys/vm/drop_caches", b"1")
 }
 
 pub(crate) fn transaction_cost(

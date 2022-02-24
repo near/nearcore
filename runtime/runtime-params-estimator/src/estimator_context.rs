@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use near_primitives::transaction::SignedTransaction;
 use near_vm_logic::ExtCosts;
 
-use crate::config::Config;
+use crate::config::{Config, GasMetric};
 use crate::gas_cost::GasCost;
 use crate::testbed::RuntimeTestbed;
-use crate::utils::get_account_id;
+use crate::utils::{clear_linux_page_cache, get_account_id};
 
 use super::transaction_builder::TransactionBuilder;
 
@@ -74,6 +74,7 @@ impl<'c> Testbed<'c> {
         for block in blocks {
             node_runtime::with_ext_cost_counter(|cc| cc.clear());
             let gas_cost = {
+                self.clear_caches();
                 let start = GasCost::measure(self.config.metric);
                 self.inner.process_block(&block, allow_failures);
                 self.inner.process_blocks_until_no_receipts(allow_failures);
@@ -90,5 +91,19 @@ impl<'c> Testbed<'c> {
         }
 
         res
+    }
+
+    fn clear_caches(&mut self) {
+        // Flush out writes hanging in memtable
+        self.inner.flush_db_write_buffer();
+
+        // OS caches:
+        // - only required in time based measurements, since ICount looks at syscalls directly.
+        // - requires sudo, therefore this is executed optionally
+        if self.config.metric == GasMetric::Time && self.config.drop_os_cache {
+            clear_linux_page_cache().expect(
+                "Failed to drop OS caches. Are you root and is /proc mounted with write access?",
+            );
+        }
     }
 }
