@@ -182,7 +182,6 @@ impl TrieCachingStorage {
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        eprintln!("{}", hash);
         self.inc_counter();
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
         if let Some(val) = guard.get(hash) {
