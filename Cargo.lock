@@ -2004,6 +2004,7 @@ dependencies = [
  "base64 0.11.0",
  "borsh",
  "chrono",
+ "clap 3.0.0-beta.2",
  "futures",
  "hex",
  "hyper",

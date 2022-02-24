@@ -15,7 +15,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-#[allow(dead_code)]
 fn setup_runtime(home_dir: &Path, config: &NearConfig) -> Arc<NightshadeRuntime> {
     let path = get_store_path(home_dir);
     let store = create_store(&path);
@@ -29,7 +28,6 @@ fn setup_runtime(home_dir: &Path, config: &NearConfig) -> Arc<NightshadeRuntime>
     ))
 }
 
-#[allow(dead_code)]
 fn setup_mock_peer_manager_actor(
     runtime: Arc<NightshadeRuntime>,
     client_addr: Recipient<NetworkClientMessages>,
@@ -43,8 +41,7 @@ fn setup_mock_peer_manager_actor(
     MockPeerManagerActor::new(client_addr, genesis_config, chain, 0, block_production_delay)
 }
 
-#[allow(dead_code)]
-fn setup_mock_network(
+pub fn setup_mock_network(
     client_home_dir: &Path,
     network_home_dir: &Path,
     config: &NearConfig,

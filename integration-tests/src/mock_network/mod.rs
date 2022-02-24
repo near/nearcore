@@ -15,7 +15,7 @@ use near_primitives::types::{BlockHeight, ShardId};
 use std::collections::HashMap;
 use std::time::Duration;
 
-mod setup;
+pub mod setup;
 
 /// MockPeerManagerActor mocks PeerManagerActor and responds to messages from ClientActor.
 /// Instead of sending these messages out to other peers, it simulates a network and reads
@@ -24,7 +24,7 @@ mod setup;
 /// - Responds to BlockRequest, BlockHeadersRequest and PartialEncodedChunkRequest
 /// - Sends NetworkInfo to ClientActor periodically
 /// - Simulates block production and sends the most "recent" block to ClientActor
-struct MockPeerManagerActor {
+pub struct MockPeerManagerActor {
     /// Client address for the node that we are testing
     client_addr: Recipient<NetworkClientMessages>,
     /// Access a pre-generated chain history from storage
@@ -150,6 +150,22 @@ impl Handler<PeerManagerMessageRequest> for MockPeerManagerActor {
             }
         }
         PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
+    }
+}
+
+#[derive(actix::Message, Debug)]
+#[rtype(result = "u64")]
+pub struct GetChainHistoryFinalBlockHeight;
+
+impl Handler<GetChainHistoryFinalBlockHeight> for MockPeerManagerActor {
+    type Result = u64;
+
+    fn handle(
+        &mut self,
+        msg: GetChainHistoryFinalBlockHeight,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        self.chain_history_access.chain.head().unwrap().height
     }
 }
 
