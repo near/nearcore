@@ -289,8 +289,11 @@ fn new_test_db(
         db_config.force_compaction,
         true, // always force-flush in setup
     );
-    clear_linux_page_cache()
-        .expect("Failed to drop OS caches. Are you root and is /proc mounted with write access?");
+    if db_config.drop_os_cache {
+        clear_linux_page_cache().expect(
+            "Failed to drop OS caches. Are you root and is /proc mounted with write access?",
+        );
+    }
 
     db
 }
