@@ -28,9 +28,6 @@ struct CliArgs {
     /// to generate appropriate data.
     #[clap(long)]
     home: Option<PathBuf>,
-    /// If a home directory has been specified, set this flag if it needs to be initialized.
-    #[clap(long)]
-    init_home: bool,
     /// How many warm up iterations per block should we run.
     #[clap(long, default_value = "0")]
     warmup_iters: usize,
@@ -88,8 +85,6 @@ fn main() -> anyhow::Result<()> {
 
     let cli_args = CliArgs::parse();
 
-    let init_state = cli_args.init_home || cli_args.home.is_none();
-
     // TODO: consider implementing the same in Rust to reduce complexity.
     // Good example: runtime/near-test-contracts/build.rs
     if !cli_args.skip_build_test_contract {
@@ -110,7 +105,7 @@ fn main() -> anyhow::Result<()> {
             temp_dir.path().to_path_buf()
         }
     };
-    if init_state {
+    if state_dump_path.read_dir()?.next().is_none() {
         let contract_code = read_resource(if cfg!(feature = "nightly_protocol_features") {
             "test-contract/res/nightly_small_contract.wasm"
         } else {
