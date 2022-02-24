@@ -5,7 +5,6 @@ use clap::Clap;
 use futures::{future, FutureExt};
 use std::path::Path;
 
-use futures::executor::block_on;
 use integration_tests::mock_network::setup::setup_mock_network;
 use integration_tests::mock_network::GetChainHistoryFinalBlockHeight;
 use near_actix_test_utils::run_actix;
@@ -38,12 +37,11 @@ fn main() {
             setup_mock_network(dir1.path().clone(), home_dir, &near_config);
         let chain_height =
             async { mock_network.send(GetChainHistoryFinalBlockHeight).await }.await.unwrap();
-        println!("chain height {:?}", chain_height);
         WaitOrTimeoutActor::new(
             Box::new(move |_ctx| {
-                actix::spawn(view_client.send(GetBlock::latest()).then(|res| {
+                actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
                     if let Ok(Ok(block)) = res {
-                        if block.header.height >= 20 {
+                        if block.header.height >= chain_height {
                             System::current().stop()
                         }
                     }

@@ -41,6 +41,12 @@ fn setup_mock_peer_manager_actor(
     MockPeerManagerActor::new(client_addr, genesis_config, chain, 0, block_production_delay)
 }
 
+/// Setup up a mock network environment, including setting up
+/// a MockPeerManagerActor and a ClientActor and a ViewClientActor
+/// `client_home_dir`: home dir for the new client
+/// `network_home_dir`: home dir that contains the pre-generated chain history, will be used
+///                     to construct `MockPeerManagerActor`
+/// `config`: config for the new client
 pub fn setup_mock_network(
     client_home_dir: &Path,
     network_home_dir: &Path,
@@ -107,8 +113,10 @@ mod test {
     use near_client::GetBlock;
     use near_logger_utils::init_integration_logger;
     use near_network::test_utils::{open_port, WaitOrTimeoutActor};
+    use near_primitives::hash::CryptoHash;
     use nearcore::config::GenesisExt;
     use nearcore::{load_test_config, start_with_config};
+    use std::sync::{Arc, RwLock};
 
     // Just a test to test that the basic mocknet setup works
     // This test first starts a localnet with one validator node that generates 20 blocks
@@ -126,17 +134,22 @@ mod test {
 
         let dir = tempfile::Builder::new().prefix("test0").tempdir().unwrap();
         let path1 = dir.path().clone();
+        let last_block = Arc::new(RwLock::new(CryptoHash::default()));
+        let last_block1 = last_block.clone();
         run_actix(async move {
             let nearcore::NearNode { view_client, .. } =
                 start_with_config(path1, near_config).expect("start_with_config");
 
+            let view_client1 = view_client.clone();
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
-                    actix::spawn(view_client.send(GetBlock::latest()).then(|res| {
-                        let latest_height =
-                            if let Ok(Ok(block)) = res { block.header.height } else { 0 };
-                        if latest_height >= 20 {
-                            System::current().stop()
+                    let last_block2 = last_block1.clone();
+                    actix::spawn(view_client1.send(GetBlock::latest()).then(move |res| {
+                        if let Ok(Ok(block)) = res {
+                            if block.header.height >= 20 {
+                                *last_block2.write().unwrap() = block.header.hash;
+                                System::current().stop()
+                            }
                         }
                         future::ready(())
                     }));
@@ -156,9 +169,11 @@ mod test {
                 setup_mock_network(dir1.path().clone(), dir.path().clone(), &near_config1);
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
-                    actix::spawn(view_client.send(GetBlock::latest()).then(|res| {
+                    let last_block1 = last_block.clone();
+                    actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
                         if let Ok(Ok(block)) = res {
                             if block.header.height >= 20 {
+                                assert_eq!(*last_block1.read().unwrap(), block.header.hash);
                                 System::current().stop()
                             }
                         }

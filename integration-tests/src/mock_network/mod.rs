@@ -21,7 +21,8 @@ pub mod setup;
 /// Instead of sending these messages out to other peers, it simulates a network and reads
 /// the needed block and chunk content from storage.
 /// MockPeerManagerActor has the following responsibilities
-/// - Responds to BlockRequest, BlockHeadersRequest and PartialEncodedChunkRequest
+/// - Responds to the requests sent from ClientActor, including
+///     BlockRequest, BlockHeadersRequest and PartialEncodedChunkRequest
 /// - Sends NetworkInfo to ClientActor periodically
 /// - Simulates block production and sends the most "recent" block to ClientActor
 pub struct MockPeerManagerActor {
@@ -78,7 +79,7 @@ impl MockPeerManagerActor {
 
     /// This function gets called periodically
     /// When it is called, it increments peer heights by 1 and sends the block at that height
-    /// to ClientActor. In a way, it simulates peers that get upgraded and broadcast blocks
+    /// to ClientActor. In a way, it simulates peers that broadcast new blocks
     fn update_peers(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
         let _response =
             self.client_addr.do_send(NetworkClientMessages::NetworkInfo(self.network_info.clone()));
@@ -162,7 +163,7 @@ impl Handler<GetChainHistoryFinalBlockHeight> for MockPeerManagerActor {
 
     fn handle(
         &mut self,
-        msg: GetChainHistoryFinalBlockHeight,
+        _msg: GetChainHistoryFinalBlockHeight,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         self.chain_history_access.chain.head().unwrap().height
