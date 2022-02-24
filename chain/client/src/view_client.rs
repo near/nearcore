@@ -195,15 +195,6 @@ impl ViewClientActor {
         }
     }
 
-    fn block_maybe_garbage_collected(&self, block: &BlockHeader) -> Result<bool, Error> {
-        if self.config.archive {
-            return Ok(false);
-        }
-        let tip = self.chain.head()?;
-        let gc_stop_height = self.runtime_adapter.get_gc_stop_height(&tip.last_block_hash);
-        Ok(block.height() < gc_stop_height)
-    }
-
     fn handle_query(&mut self, msg: Query) -> Result<QueryResponse, QueryError> {
         let header = match msg.block_reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
@@ -265,19 +256,24 @@ impl ViewClientActor {
             .shard_id_to_uid(shard_id, header.epoch_id())
             .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
 
-        let block_maybe_gc = self.block_maybe_garbage_collected(&header);
+        let tip = self.chain.head();
         let chunk_extra = self.chain.get_chunk_extra(header.hash(), &shard_uid).map_err(|err| {
             match err.kind() {
-                near_chain::near_chain_primitives::ErrorKind::DBNotFoundErr(_) => {
-                    match block_maybe_gc {
-                        Ok(true) => QueryError::GarbageCollectedBlock {
-                            block_height: header.height(),
-                            block_hash: header.hash().clone(),
-                        },
-                        Ok(false) => QueryError::UnavailableShard { requested_shard_id: shard_id },
-                        Err(err) => QueryError::InternalError { error_message: err.to_string() },
+                near_chain::near_chain_primitives::ErrorKind::DBNotFoundErr(_) => match tip {
+                    Ok(tip) => {
+                        let gc_stop_height =
+                            self.runtime_adapter.get_gc_stop_height(&tip.last_block_hash);
+                        if !self.config.archive && header.height() < gc_stop_height {
+                            QueryError::GarbageCollectedBlock {
+                                block_height: header.height(),
+                                block_hash: header.hash().clone(),
+                            }
+                        } else {
+                            QueryError::UnavailableShard { requested_shard_id: shard_id }
+                        }
                     }
-                }
+                    Err(err) => QueryError::InternalError { error_message: err.to_string() },
+                },
                 near_chain::near_chain_primitives::ErrorKind::IOErr(error_message) => {
                     QueryError::InternalError { error_message }
                 }
