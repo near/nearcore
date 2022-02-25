@@ -1,14 +1,16 @@
 export CARGO_PROFILE_RELEASE_CODEGEN_UNITS = 1
 export CARGO_PROFILE_RELEASE_LTO = fat
 export DOCKER_BUILDKIT = 1
-export RUSTFLAGS = "-D warnings -Ctarget-feature=+sse4.1,+sse4.2"
 export NEAR_RELEASE_BUILD = no
 export CARGO_TARGET_DIR = target
 
+export RUSTFLAGS = -D warnings
+ifeq ($(shell uname -m),x86_64)
+  export RUSTFLAGS := ${RUSTFLAGS} -Ctarget-feature=+sse4.1,+sse4.2
+endif
 
 # By default, build a regular release
 all: release
-
 
 docker-nearcore:
 	docker build -t nearcore         -f Dockerfile --build-arg=make_target=neard-release         --progress=plain .
