@@ -14,9 +14,17 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_integration_logger;
 use near_network::test_utils::WaitOrTimeoutActor;
 
+/// Program to start a testing environment for one client and a mock network environment
+/// The mock network simulates the entire network by reading a pre-generated chain history
+/// on storage and responds to the client's network requests.
 #[derive(Clap)]
 struct Cli {
+    /// Existing home dir for the pre-generated chain history. For example, you can use
+    /// the home dir of a near node.
     chain_history_home_dir: String,
+    /// Home dir for the new client that will be started. If not specified, the binary will
+    /// generate a temporary directory
+    client_home_dir: Option<String>,
 }
 
 fn main() {
@@ -31,10 +39,12 @@ fn main() {
     near_config.network_config.public_key = signer.public_key;
     near_config.network_config.secret_key = signer.secret_key;
 
-    let dir1 = tempfile::Builder::new().prefix("mock_network_node").tempdir().unwrap();
+    let tempdir = tempfile::Builder::new().prefix("mock_network_node").tempdir().unwrap();
+    let client_home_dir =
+        args.client_home_dir.unwrap_or(String::from(tempdir.path().to_str().unwrap()));
     run_actix(async move {
         let (mock_network, _client, view_client) =
-            setup_mock_network(dir1.path().clone(), home_dir, &near_config);
+            setup_mock_network(Path::new(&client_home_dir), home_dir, &near_config);
         let chain_height =
             async { mock_network.send(GetChainHistoryFinalBlockHeight).await }.await.unwrap();
         WaitOrTimeoutActor::new(
