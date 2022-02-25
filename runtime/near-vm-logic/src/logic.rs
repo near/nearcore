@@ -5,8 +5,6 @@ use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
 use crate::ValuePtr;
 use byteorder::ByteOrder;
-#[cfg(feature = "sandbox")]
-use log::debug;
 use near_crypto::Secp256K1Signature;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
@@ -2391,6 +2389,22 @@ impl<'a> VMLogic<'a> {
         Ok(res? as u64)
     }
 
+    /// Debug print given utf-8 string to node log. It's only available in Sandbox node
+    ///
+    /// # Errors
+    ///
+    /// * If string is not UTF-8 returns `BadUtf8`
+    ///
+    /// # Cost
+    ///
+    /// 0
+    #[cfg(feature = "sandbox")]
+    pub fn debug_log(&mut self, len: u64, ptr: u64) -> Result<()> {
+        let message = self.get_utf8_string(len, ptr)?;
+        tracing::debug!(target: "sandbox", "{}", message);
+        Ok(())
+    }
+
     /// DEPRECATED
     /// Creates an iterator object inside the host. Returns the identifier that uniquely
     /// differentiates the given iterator from other iterators that can be simultaneously created.
@@ -2517,13 +2531,6 @@ impl<'a> VMLogic<'a> {
         let new_burn_gas = self.gas_counter.burnt_gas();
         let new_used_gas = self.gas_counter.used_gas();
         self.gas_counter.process_gas_limit(new_burn_gas, new_used_gas)
-    }
-
-    #[cfg(feature = "sandbox")]
-    pub fn debug_log(&mut self, len: u64, ptr: u64) -> Result<()> {
-        let message = self.get_utf8_string(len, ptr)?;
-        debug!(target: "sandbox", "{}", message);
-        Ok(())
     }
 }
 
