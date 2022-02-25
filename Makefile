@@ -1,7 +1,7 @@
 export CARGO_PROFILE_RELEASE_CODEGEN_UNITS = 1
 export CARGO_PROFILE_RELEASE_LTO = fat
 export DOCKER_BUILDKIT = 1
-export RUSTFLAGS = "-D warnings -C target-cpu=native"
+export RUSTFLAGS = "-D warnings -C target-feature=+sse2 -C target-feature=+sse4.1 -C target-feature=+sse4.2"
 export NEAR_RELEASE_BUILD = no
 export CARGO_TARGET_DIR = target
 
