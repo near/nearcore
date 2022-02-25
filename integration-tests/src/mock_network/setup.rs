@@ -34,11 +34,29 @@ fn setup_mock_peer_manager_actor(
     genesis_config: &GenesisConfig,
     chain_genesis: &ChainGenesis,
     block_production_delay: Duration,
+    sync_mode: SyncMode,
 ) -> MockPeerManagerActor {
     let chain =
         Chain::new_for_view_client(runtime, chain_genesis, DoomslugThresholdMode::NoApprovals)
             .unwrap();
-    MockPeerManagerActor::new(client_addr, genesis_config, chain, 0, block_production_delay)
+    let peers_start_height = match sync_mode {
+        SyncMode::Sync => chain.head().unwrap().height,
+        SyncMode::NoSync => chain.genesis_block().header().height(),
+    };
+    MockPeerManagerActor::new(
+        client_addr,
+        genesis_config,
+        chain,
+        peers_start_height,
+        block_production_delay,
+    )
+}
+
+pub enum SyncMode {
+    /// The mock network will simulate an environment where the peers are already at the latest height,
+    Sync,
+    /// The peers will start at the genesis block height and new blocks are produced
+    NoSync,
 }
 
 /// Setup up a mock network environment, including setting up
@@ -47,10 +65,12 @@ fn setup_mock_peer_manager_actor(
 /// `network_home_dir`: home dir that contains the pre-generated chain history, will be used
 ///                     to construct `MockPeerManagerActor`
 /// `config`: config for the new client
+/// `sync_mode`: whether the mock network will simulate that the node is syncing or not
 pub fn setup_mock_network(
     client_home_dir: &Path,
     network_home_dir: &Path,
     config: &NearConfig,
+    sync_mode: SyncMode,
 ) -> (Addr<MockPeerManagerActor>, Addr<ClientActor>, Addr<ViewClientActor>) {
     let client_runtime = setup_runtime(client_home_dir, &config);
     let mock_network_runtime = setup_runtime(network_home_dir, &config);
@@ -97,6 +117,7 @@ pub fn setup_mock_network(
                 &genesis_config,
                 &chain_genesis,
                 block_production_delay,
+                sync_mode,
             )
         });
     network_adapter.set_recipient(mock_network_actor.clone().recipient());

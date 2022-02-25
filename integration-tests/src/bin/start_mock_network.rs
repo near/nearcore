@@ -5,7 +5,7 @@ use clap::Clap;
 use futures::{future, FutureExt};
 use std::path::Path;
 
-use integration_tests::mock_network::setup::setup_mock_network;
+use integration_tests::mock_network::setup::{setup_mock_network, SyncMode};
 use integration_tests::mock_network::GetChainHistoryFinalBlockHeight;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::GenesisValidationMode;
@@ -25,6 +25,10 @@ struct Cli {
     /// Home dir for the new client that will be started. If not specified, the binary will
     /// generate a temporary directory
     client_home_dir: Option<String>,
+    /// If true, the mock network simulates the client in syncing mode, otherwise,
+    /// the client and its simulated peers will all start from the genesis block
+    #[clap(short, long)]
+    sync: bool,
 }
 
 fn main() {
@@ -42,9 +46,10 @@ fn main() {
     let tempdir = tempfile::Builder::new().prefix("mock_network_node").tempdir().unwrap();
     let client_home_dir =
         args.client_home_dir.unwrap_or(String::from(tempdir.path().to_str().unwrap()));
+    let sync_mode = if args.sync { SyncMode::Sync } else { SyncMode::NoSync };
     run_actix(async move {
         let (mock_network, _client, view_client) =
-            setup_mock_network(Path::new(&client_home_dir), home_dir, &near_config);
+            setup_mock_network(Path::new(&client_home_dir), home_dir, &near_config, sync_mode);
         let chain_height =
             async { mock_network.send(GetChainHistoryFinalBlockHeight).await }.await.unwrap();
         WaitOrTimeoutActor::new(
