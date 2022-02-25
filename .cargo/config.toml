@@ -1,2 +1,2 @@
 [build]
-rustflags = ["-C", "target-feature=+sse2", "-C", "target-feature=+sse4.1", "-C", "target-feature=+sse4.2"]
+rustflags = ["-Ctarget-feature=+sse4.1,+sse4.2"]
