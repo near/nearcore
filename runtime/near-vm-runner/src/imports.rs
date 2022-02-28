@@ -221,7 +221,7 @@ imports! {
     // #############
     // #  Sandbox  #
     // #############
-    ##["sandbox"] debug_log<[len: u64, ptr: u64] -> []>,
+    ##["sandbox"] sandbox_debug_log<[len: u64, ptr: u64] -> []>,
 }
 
 #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
