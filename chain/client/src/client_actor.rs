@@ -671,7 +671,7 @@ impl Handler<Status> for ClientActor {
             let mut last_block_hash = head.last_block_hash;
             let mut last_block_timestamp: u64 = 0;
 
-            // Fetch last 50 blocks.
+            // Fetch last 50 blocks (we can fetch more blocks in the future if needed)
             for _ in 0..50 {
                 let block = match self.client.chain.get_block(&last_block_hash) {
                     Ok(block) => block,

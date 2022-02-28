@@ -87,7 +87,12 @@
                 },
                 dataType: "json",
                 error: function (errMsg, textStatus, errorThrown) {
-                    alert("Failed: " + textStatus + " :" + errorThrown);
+                    if (errMsg.status == 405) {
+                        // Method not allowd.
+                        alert("Debugz not allowed - did you set enable_debug_rpc: true in your config?")
+                    } else {
+                        alert("Failed: " + textStatus + " :" + errorThrown);
+                    }
                 },
                 contentType: "application/json; charset=utf-8",
             })

@@ -1353,7 +1353,7 @@ fn debugz_handler(
     let response = async move {
         match handler.debugz().await {
             Ok(value) => Ok(HttpResponse::Ok().json(&value)),
-            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+            Err(_) => Ok(HttpResponse::MethodNotAllowed().finish()),
         }
     };
     response.boxed()
