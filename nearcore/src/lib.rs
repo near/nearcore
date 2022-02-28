@@ -8,6 +8,7 @@ use actix_web;
 use anyhow::Context;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
+use tokio::sync::oneshot;
 use tracing::{error, info, trace};
 
 use near_chain::ChainGenesis;
@@ -297,6 +298,14 @@ pub struct NearNode {
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> Result<NearNode, anyhow::Error> {
+    start_with_config_and_synchronization(home_dir, config, None)
+}
+
+pub fn start_with_config_and_synchronization(
+    home_dir: &Path,
+    config: NearConfig,
+    sender: Option<oneshot::Sender<()>>,
+) -> Result<NearNode, anyhow::Error> {
     let store = init_and_migrate_store(home_dir, &config);
 
     let runtime = Arc::new(NightshadeRuntime::with_config(
@@ -332,6 +341,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> Result<NearNode
         network_adapter.clone(),
         config.validator_signer,
         telemetry,
+        sender,
         #[cfg(feature = "test_features")]
         adv.clone(),
     );

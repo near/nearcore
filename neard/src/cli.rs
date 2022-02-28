@@ -1,4 +1,3 @@
-use actix::{Actor, Arbiter, Context};
 use clap::{AppSettings, Clap};
 use futures::future::FutureExt;
 use near_chain_configs::GenesisValidationMode;
@@ -286,24 +285,6 @@ pub(super) struct RunCmd {
     max_gas_burnt_view: Option<Gas>,
 }
 
-/// SystemStoppedActor is used to monitor whether the actix System was stopped.
-struct SystemStoppedActor {
-    _tx: Option<oneshot::Sender<()>>,
-}
-
-impl Actor for SystemStoppedActor {
-    type Context = Context<Self>;
-
-    // Does nothing but needs to be implemented for the Actor trait.
-    fn started(&mut self, _: &mut Self::Context) {}
-}
-
-impl Drop for SystemStoppedActor {
-    fn drop(&mut self) {
-        info!(target: "neard", "Detected that actix System got stopped");
-    }
-}
-
 impl RunCmd {
     pub(super) fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
         // Load configs from home.
@@ -372,12 +353,8 @@ impl RunCmd {
         let sys = actix::System::new();
         sys.block_on(async move {
             let nearcore::NearNode { rpc_servers, .. } =
-                nearcore::start_with_config(home_dir, near_config).expect("start_with_config");
-            let system_stopped_arbiter = Arbiter::new();
-            let _addr = SystemStoppedActor::start_in_arbiter(
-                &system_stopped_arbiter.handle(),
-                |_| -> SystemStoppedActor { SystemStoppedActor { _tx: Some(tx) } },
-            );
+                nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
+                    .expect("start_with_config");
 
             let sig = if cfg!(unix) {
                 use tokio::signal::unix::{signal, SignalKind};

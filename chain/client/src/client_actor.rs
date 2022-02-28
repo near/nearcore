@@ -51,6 +51,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
+use tokio::sync::oneshot;
 use tracing::{debug, error, info, trace, warn};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
@@ -62,6 +63,9 @@ const BLOCK_HORIZON: u64 = 500;
 const HEAD_STALL_MULTIPLIER: u32 = 4;
 
 pub struct ClientActor {
+    /// Synchronization measure to allow graceful shutdown.
+    /// Informs the system when a ClientActor gets dropped.
+    _sender: Option<oneshot::Sender<()>>,
     /// Adversarial controls
     #[cfg(feature = "test_features")]
     pub adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
@@ -124,6 +128,7 @@ impl ClientActor {
         enable_doomslug: bool,
         rng_seed: RngSeed,
         ctx: &Context<ClientActor>,
+        sender: Option<oneshot::Sender<()>>,
         #[cfg(feature = "test_features")] adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
@@ -152,6 +157,7 @@ impl ClientActor {
 
         let now = Utc::now();
         Ok(ClientActor {
+            _sender: sender,
             #[cfg(feature = "test_features")]
             adv,
             client,
@@ -1682,6 +1688,7 @@ pub fn start_client(
     network_adapter: Arc<dyn PeerManagerAdapter>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
+    sender: Option<oneshot::Sender<()>>,
     #[cfg(feature = "test_features")] adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter_handle = Arbiter::current();
@@ -1697,6 +1704,7 @@ pub fn start_client(
             true,
             random_seed_from_thread(),
             ctx,
+            sender,
             #[cfg(feature = "test_features")]
             adv,
         )
