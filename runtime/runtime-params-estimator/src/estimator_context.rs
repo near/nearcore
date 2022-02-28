@@ -101,9 +101,12 @@ impl<'c> Testbed<'c> {
         // - only required in time based measurements, since ICount looks at syscalls directly.
         // - requires sudo, therefore this is executed optionally
         if self.config.metric == GasMetric::Time && self.config.drop_os_cache {
+            #[cfg(target_os = "linux")]
             clear_linux_page_cache().expect(
                 "Failed to drop OS caches. Are you root and is /proc mounted with write access?",
             );
+            #[cfg(not(target_os = "linux"))]
+            panic!("Cannot drop OS caches on non-linux systems.");
         }
     }
 }
