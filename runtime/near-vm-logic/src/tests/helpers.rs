@@ -1,4 +1,6 @@
 use crate::{with_ext_cost_counter, VMLogic};
+#[cfg(feature = "protocol_feature_function_call_weight")]
+use near_primitives_core::types::GasWeight;
 use near_primitives_core::{config::ExtCosts, types::Gas};
 use near_vm_errors::VMLogicError;
 use std::collections::HashMap;
@@ -60,7 +62,7 @@ pub fn promise_batch_action_function_call_weight(
     promise_index: u64,
     amount: u128,
     gas: Gas,
-    ratio: u64,
+    ratio: GasWeight,
 ) -> Result<()> {
     let method_id = b"promise_batch_action";
     let args = b"promise_batch_action_args";

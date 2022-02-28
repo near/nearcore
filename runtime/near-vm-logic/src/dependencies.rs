@@ -1,6 +1,8 @@
 //! External dependencies of the near-vm-logic.
 
 use crate::types::{PublicKey, ReceiptIndex};
+#[cfg(feature = "protocol_feature_function_call_weight")]
+use near_primitives_core::types::GasWeight;
 use near_primitives_core::types::{AccountId, Balance, Gas};
 use near_vm_errors::VMLogicError;
 
@@ -318,7 +320,7 @@ pub trait External {
         arguments: Vec<u8>,
         attached_deposit: Balance,
         prepaid_gas: Gas,
-        gas_weight: u64,
+        gas_weight: GasWeight,
     ) -> Result<()>;
 
     /// Attach the [`TransferAction`] action to an existing receipt.

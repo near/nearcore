@@ -1,4 +1,6 @@
 use crate::{External, ValuePtr};
+#[cfg(feature = "protocol_feature_function_call_weight")]
+use near_primitives::types::GasWeight;
 use near_primitives_core::types::{AccountId, Balance, Gas};
 use near_vm_errors::HostError;
 use serde::{Deserialize, Serialize};
@@ -20,9 +22,6 @@ struct FunctionCallActionIndex {
     receipt_index: usize,
     action_index: usize,
 }
-
-#[derive(Clone)]
-struct GasWeight(u64);
 
 pub struct MockedValuePtr {
     value: Vec<u8>,
@@ -137,15 +136,15 @@ impl External for MockedExternal {
         method_name: Vec<u8>,
         arguments: Vec<u8>,
         attached_deposit: u128,
-        prepaid_gas: u64,
-        gas_weight: u64,
+        prepaid_gas: Gas,
+        gas_weight: GasWeight,
     ) -> Result<()> {
         let receipt_index = receipt_index as usize;
         let receipt = self.receipts.get_mut(receipt_index).unwrap();
-        if gas_weight > 0 {
+        if gas_weight.0 > 0 {
             self.gas_weights.push((
                 FunctionCallActionIndex { receipt_index, action_index: receipt.actions.len() },
-                GasWeight(gas_weight),
+                gas_weight,
             ));
         }
 

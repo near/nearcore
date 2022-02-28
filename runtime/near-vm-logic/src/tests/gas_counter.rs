@@ -104,6 +104,8 @@ fn test_hit_prepaid_gas_limit() {
 
 #[cfg(feature = "protocol_feature_function_call_weight")]
 fn function_call_weight_check(function_calls: impl IntoIterator<Item = (u64, u64)>) {
+    use near_primitives::types::GasWeight;
+
     let gas_limit = 10u64.pow(14);
 
     let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
@@ -112,7 +114,7 @@ fn function_call_weight_check(function_calls: impl IntoIterator<Item = (u64, u64
     let mut weight_sum = 0u128;
     for (static_gas, gas_weight) in function_calls {
         let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
-        promise_batch_action_function_call_weight(&mut logic, index, 0, static_gas, gas_weight)
+        promise_batch_action_function_call_weight(&mut logic, index, 0, static_gas, GasWeight(gas_weight))
             .expect("batch action function call should succeed");
 
         weight_sum += gas_weight as u128;

@@ -24,6 +24,10 @@ pub type ShardId = u64;
 pub type Balance = u128;
 /// Gas is a type for storing amount of gas.
 pub type Gas = u64;
+/// Weight of unused gas to distribute to scheduled function call actions.
+/// Used in `promise_batch_action_function_call_weight` host function.
+#[derive(Clone, Debug)]
+pub struct GasWeight(pub u64);
 
 /// Number of blocks in current group.
 pub type NumBlocks = u64;

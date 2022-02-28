@@ -14,7 +14,7 @@ use near_primitives_core::runtime::fees::{
     transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig,
 };
 use near_primitives_core::types::{
-    AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
+    AccountId, Balance, EpochHeight, Gas, GasWeight, ProtocolVersion, StorageUsage,
 };
 use near_vm_errors::InconsistentStateError;
 use near_vm_errors::{HostError, VMLogicError};
@@ -1515,7 +1515,7 @@ impl<'a> VMLogic<'a> {
             arguments_ptr,
             amount_ptr,
             gas,
-            0,
+            GasWeight(0),
         )
     }
 
@@ -1557,8 +1557,8 @@ impl<'a> VMLogic<'a> {
         arguments_len: u64,
         arguments_ptr: u64,
         amount_ptr: u64,
-        gas: u64,
-        gas_weight: u64,
+        gas: Gas,
+        gas_weight: GasWeight,
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view() {

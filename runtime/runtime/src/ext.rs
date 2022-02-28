@@ -14,7 +14,9 @@ use near_primitives::transaction::{
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider};
+#[cfg(feature = "protocol_feature_function_call_weight")]
+use near_primitives::types::GasWeight;
+use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas};
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
 use near_store::{get_code, TrieUpdate, TrieUpdateValuePtr};
@@ -45,9 +47,6 @@ struct FunctionCallActionIndex {
     receipt_index: usize,
     action_index: usize,
 }
-
-#[derive(Clone)]
-struct GasWeight(u64);
 
 /// Error used by `RuntimeExt`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -281,8 +280,8 @@ impl<'a> External for RuntimeExt<'a> {
         method_name: Vec<u8>,
         args: Vec<u8>,
         attached_deposit: u128,
-        prepaid_gas: u64,
-        gas_weight: u64,
+        prepaid_gas: Gas,
+        gas_weight: GasWeight,
     ) -> ExtResult<()> {
         let action_index = self.append_action(
             receipt_index,
@@ -295,10 +294,10 @@ impl<'a> External for RuntimeExt<'a> {
             }),
         );
 
-        if gas_weight > 0 {
+        if gas_weight.0 > 0 {
             self.gas_weights.push((
                 FunctionCallActionIndex { receipt_index: receipt_index as usize, action_index },
-                GasWeight(gas_weight),
+                gas_weight,
             ));
         }
 
@@ -311,7 +310,7 @@ impl<'a> External for RuntimeExt<'a> {
         method_name: Vec<u8>,
         args: Vec<u8>,
         attached_deposit: u128,
-        prepaid_gas: u64,
+        prepaid_gas: Gas,
     ) -> ExtResult<()> {
         self.append_action(
             receipt_index,
