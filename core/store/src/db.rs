@@ -838,13 +838,13 @@ pub static ROCKSDB_INSTANCES_COUNTER: Lazy<(Mutex<usize>, Condvar)> =
 impl RocksDB {
     /// Blocks until all RocksDB instances (usually 0 or 1) gracefully shutdown.
     pub fn block_until_all_instances_are_dropped() {
-        debug!(target:"db","Blocking until all RocksDB instances perform graceful shutdown");
+        debug!(target: "db", "Blocking until all RocksDB instances perform graceful shutdown");
         let (lock, cvar) = &*ROCKSDB_INSTANCES_COUNTER;
         let mut num_instances = lock.lock().unwrap();
         while *num_instances != 0 {
             num_instances = cvar.wait(num_instances).unwrap();
         }
-        debug!(target:"db","All RocksDB instances performed a graceful shutdown");
+        debug!(target: "db", "All RocksDB instances performed a graceful shutdown");
     }
 
     /// Returns version of the database state on disk.
@@ -928,14 +928,17 @@ impl Drop for RocksDB {
     }
 }
 
+// We've seen problems with RocksDB corruptions. InstanceCounter lets us gracefully shutdown the
+// process letting RocksDB to finish all operations and leaving the instances in a valid
+// non-corrupted state.
 struct InstanceCounter {}
 
 impl InstanceCounter {
     fn new() -> Self {
-        debug!(target:"db","Created a new RocksDB isntance");
         let (lock, cvar) = &*ROCKSDB_INSTANCES_COUNTER;
         let mut num_instances = lock.lock().unwrap();
         *num_instances += 1;
+        debug!(target: "db", "Created a new RocksDB instance. Current #instances: {}", *num_instances);
         cvar.notify_all();
         Self {}
     }
@@ -943,10 +946,10 @@ impl InstanceCounter {
 
 impl Drop for InstanceCounter {
     fn drop(&mut self) {
-        debug!(target:"db","Dropped an instance of RocksDB");
         let (lock, cvar) = &*ROCKSDB_INSTANCES_COUNTER;
         let mut num_instances = lock.lock().unwrap();
         *num_instances -= 1;
+        debug!(target: "db", "Dropped an instance of RocksDB. Remaining instances: {}", *num_instances);
         cvar.notify_all();
     }
 }

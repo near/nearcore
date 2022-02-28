@@ -6,7 +6,6 @@ use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use nearcore::get_store_path;
-use std::mem::swap;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
@@ -289,29 +288,19 @@ pub(super) struct RunCmd {
 
 /// SystemStoppedActor is used to monitor whether the actix System was stopped.
 struct SystemStoppedActor {
-    tx: Option<oneshot::Sender<bool>>,
+    _tx: Option<oneshot::Sender<()>>,
 }
 
 impl Actor for SystemStoppedActor {
     type Context = Context<Self>;
 
-    // Does nothing but needs to be implemented for the Actor trait trait.
+    // Does nothing but needs to be implemented for the Actor trait.
     fn started(&mut self, _: &mut Self::Context) {}
 }
 
 impl Drop for SystemStoppedActor {
     fn drop(&mut self) {
-        info!(target:"neard","Detected that actix System got stopped");
-        let mut swapped = None;
-        swap(&mut swapped, &mut self.tx);
-        if let Some(tx) = swapped {
-            match tx.send(true) {
-                Err(err) => {
-                    error!(target:"neard","Failed to send SystemStoppedActor message: {:#?}",err);
-                }
-                Ok(_) => {}
-            }
-        }
+        info!(target: "neard", "Detected that actix System got stopped");
     }
 }
 
@@ -379,7 +368,7 @@ impl RunCmd {
             }
         }
 
-        let (tx, rx) = oneshot::channel::<bool>();
+        let (tx, rx) = oneshot::channel::<()>();
         let sys = actix::System::new();
         sys.block_on(async move {
             let nearcore::NearNode { rpc_servers, .. } =
@@ -387,7 +376,7 @@ impl RunCmd {
             let system_stopped_arbiter = Arbiter::new();
             let _addr = SystemStoppedActor::start_in_arbiter(
                 &system_stopped_arbiter.handle(),
-                |_| -> SystemStoppedActor { SystemStoppedActor { tx: Some(tx) } },
+                |_| -> SystemStoppedActor { SystemStoppedActor { _tx: Some(tx) } },
             );
 
             let sig = if cfg!(unix) {
