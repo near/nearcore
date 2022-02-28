@@ -52,6 +52,7 @@ members = [
     "integration-tests",
     "utils/near-rate-limiter",
     "utils/near-cache",
+    "utils/near-stress-test"
 ]
 
 [workspace.metadata.workspaces]
