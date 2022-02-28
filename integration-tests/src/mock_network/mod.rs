@@ -9,6 +9,7 @@ use near_network::types::{
 use near_network_primitives::types::{
     PartialEdgeInfo, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
 };
+use near_performance_metrics::actix::run_later;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -34,6 +35,10 @@ pub struct MockPeerManagerActor {
     network_info: NetworkInfo,
     /// Block production speed for the network that we are simulating
     block_production_delay: Duration,
+    /// Simulated network delay
+    network_delay: Duration,
+    /// The simulated peers will stop producing new blocks at this height
+    target_height: BlockHeight,
 }
 
 impl MockPeerManagerActor {
@@ -42,7 +47,9 @@ impl MockPeerManagerActor {
         genesis_config: &GenesisConfig,
         chain: Chain,
         peers_start_height: BlockHeight,
+        target_height: BlockHeight,
         block_production_delay: Duration,
+        network_delay: Duration,
     ) -> Self {
         // for now, we only simulate one peer
         // we will add more complicated network config in the future
@@ -71,9 +78,11 @@ impl MockPeerManagerActor {
         };
         Self {
             client_addr,
-            chain_history_access: ChainHistoryAccess { chain },
+            chain_history_access: ChainHistoryAccess { chain, target_height },
             network_info,
             block_production_delay,
+            network_delay,
+            target_height,
         }
     }
 
@@ -85,14 +94,16 @@ impl MockPeerManagerActor {
             self.client_addr.do_send(NetworkClientMessages::NetworkInfo(self.network_info.clone()));
         for peer in self.network_info.connected_peers.iter_mut() {
             let current_height = peer.chain_info.height;
-            if let Ok(block) = self.chain_history_access.retrieve_block_by_height(current_height) {
-                let _response = self.client_addr.do_send(NetworkClientMessages::Block(
-                    block,
-                    peer.peer_info.id.clone(),
-                    false,
-                ));
-            }
-            if current_height < self.chain_history_access.chain.head().unwrap().height {
+            if current_height <= self.target_height {
+                if let Ok(block) =
+                    self.chain_history_access.retrieve_block_by_height(current_height)
+                {
+                    let _response = self.client_addr.do_send(NetworkClientMessages::Block(
+                        block,
+                        peer.peer_info.id.clone(),
+                        false,
+                    ));
+                }
                 peer.chain_info.height = current_height + 1;
             }
         }
@@ -118,28 +129,38 @@ impl Actor for MockPeerManagerActor {
 impl Handler<PeerManagerMessageRequest> for MockPeerManagerActor {
     type Result = PeerManagerMessageResponse;
 
-    fn handle(&mut self, msg: PeerManagerMessageRequest, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
         match msg {
             PeerManagerMessageRequest::NetworkRequests(request) => match request {
                 NetworkRequests::BlockRequest { hash, peer_id } => {
-                    let block = self.chain_history_access.retrieve_block(&hash).unwrap();
-                    let _response = self
-                        .client_addr
-                        .do_send(NetworkClientMessages::Block(block, peer_id, true));
+                    run_later(ctx, self.network_delay, move |act, _ctx| {
+                        let block = act.chain_history_access.retrieve_block(&hash).unwrap();
+                        let _response = act
+                            .client_addr
+                            .do_send(NetworkClientMessages::Block(block, peer_id, true));
+                    });
                 }
                 NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
-                    let headers =
-                        self.chain_history_access.retrieve_block_headers(hashes.clone()).unwrap();
-                    let _response = self
-                        .client_addr
-                        .do_send(NetworkClientMessages::BlockHeaders(headers, peer_id));
+                    run_later(ctx, self.network_delay, move |act, _ctx| {
+                        let headers = act
+                            .chain_history_access
+                            .retrieve_block_headers(hashes.clone())
+                            .unwrap();
+                        let _response = act
+                            .client_addr
+                            .do_send(NetworkClientMessages::BlockHeaders(headers, peer_id));
+                    });
                 }
                 NetworkRequests::PartialEncodedChunkRequest { request, .. } => {
-                    let response =
-                        self.chain_history_access.retrieve_partial_encoded_chunk(&request).unwrap();
-                    let _response = self
-                        .client_addr
-                        .do_send(NetworkClientMessages::PartialEncodedChunkResponse(response));
+                    run_later(ctx, self.network_delay, move |act, _ctx| {
+                        let response = act
+                            .chain_history_access
+                            .retrieve_partial_encoded_chunk(&request)
+                            .unwrap();
+                        let _response = act
+                            .client_addr
+                            .do_send(NetworkClientMessages::PartialEncodedChunkResponse(response));
+                    });
                 }
                 NetworkRequests::Block { .. } => {}
                 _ => {
@@ -156,23 +177,24 @@ impl Handler<PeerManagerMessageRequest> for MockPeerManagerActor {
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "u64")]
-pub struct GetChainHistoryFinalBlockHeight;
+pub struct GetChainTargetBlockHeight;
 
-impl Handler<GetChainHistoryFinalBlockHeight> for MockPeerManagerActor {
+impl Handler<GetChainTargetBlockHeight> for MockPeerManagerActor {
     type Result = u64;
 
     fn handle(
         &mut self,
-        _msg: GetChainHistoryFinalBlockHeight,
+        _msg: GetChainTargetBlockHeight,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        self.chain_history_access.chain.head().unwrap().height
+        self.target_height
     }
 }
 
 /// This class provides access a pre-generated chain history
 struct ChainHistoryAccess {
     chain: Chain,
+    target_height: BlockHeight,
 }
 
 impl ChainHistoryAccess {
@@ -180,7 +202,7 @@ impl ChainHistoryAccess {
         &mut self,
         hashes: Vec<CryptoHash>,
     ) -> Result<Vec<BlockHeader>, Error> {
-        self.chain.retrieve_headers(hashes, sync::MAX_BLOCK_HEADERS)
+        self.chain.retrieve_headers(hashes, sync::MAX_BLOCK_HEADERS, Some(self.target_height))
     }
 
     fn retrieve_block_by_height(&mut self, block_height: BlockHeight) -> Result<Block, Error> {
@@ -195,13 +217,20 @@ impl ChainHistoryAccess {
         &mut self,
         request: &PartialEncodedChunkRequestMsg,
     ) -> Result<PartialEncodedChunkResponseMsg, Error> {
+        let num_total_parts = self.chain.runtime_adapter.num_total_parts();
         let partial_chunk = self.chain.mut_store().get_partial_chunk(&request.chunk_hash)?;
         let present_parts: HashMap<u64, _> =
             partial_chunk.parts().iter().map(|part| (part.part_ord, part)).collect();
+        assert_eq!(
+            present_parts.len(),
+            num_total_parts,
+            "chunk {:?} doesn't have all parts",
+            request.chunk_hash
+        );
         let parts: Vec<_> = request
             .part_ords
             .iter()
-            .flat_map(|ord| present_parts.get(ord).map(|x| *x).cloned())
+            .map(|ord| present_parts.get(ord).cloned().cloned().unwrap())
             .collect();
 
         // Same process for receipts as above for parts.
@@ -213,7 +242,7 @@ impl ChainHistoryAccess {
         let receipts: Vec<_> = request
             .tracking_shards
             .iter()
-            .flat_map(|shard_id| present_receipts.get(shard_id).map(|x| *x).cloned())
+            .map(|shard_id| present_receipts.get(shard_id).cloned().cloned().unwrap())
             .collect();
 
         Ok(PartialEncodedChunkResponseMsg {
@@ -262,7 +291,7 @@ mod test {
             env.clients[0].chain.doomslug_threshold_mode,
         )
         .unwrap();
-        (ChainHistoryAccess { chain }, env)
+        (ChainHistoryAccess { chain, target_height: 21 }, env)
     }
 
     #[test]

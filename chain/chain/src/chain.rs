@@ -3026,6 +3026,7 @@ impl Chain {
         &mut self,
         hashes: Vec<CryptoHash>,
         max_headers_returned: u64,
+        max_height: Option<BlockHeight>,
     ) -> Result<Vec<BlockHeader>, Error> {
         let header = match self.find_common_header(&hashes) {
             Some(header) => header,
@@ -3033,7 +3034,8 @@ impl Chain {
         };
 
         let mut headers = vec![];
-        let max_height = self.header_head()?.height;
+        let header_head_height = self.header_head()?.height;
+        let max_height = max_height.unwrap_or(header_head_height);
         // TODO: this may be inefficient if there are a lot of skipped blocks.
         for h in header.height() + 1..=max_height {
             if let Ok(header) = self.get_header_by_height(h) {

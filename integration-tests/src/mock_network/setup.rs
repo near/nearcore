@@ -8,9 +8,11 @@ use near_client::{start_client, start_view_client, ClientActor, ViewClientActor}
 use near_network::test_utils::NetworkRecipient;
 use near_network::types::NetworkClientMessages;
 use near_primitives::network::PeerId;
+use near_primitives::types::BlockHeight;
 use near_store::create_store;
 use near_telemetry::TelemetryActor;
 use nearcore::{get_store_path, NearConfig, NightshadeRuntime};
+use std::cmp::min;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -35,12 +37,17 @@ fn setup_mock_peer_manager_actor(
     chain_genesis: &ChainGenesis,
     block_production_delay: Duration,
     sync_mode: SyncMode,
+    network_delay: Duration,
+    target_height: Option<BlockHeight>,
 ) -> MockPeerManagerActor {
     let chain =
         Chain::new_for_view_client(runtime, chain_genesis, DoomslugThresholdMode::NoApprovals)
             .unwrap();
+    let chain_height = chain.head().unwrap().height;
+    let target_height = min(target_height.unwrap_or(chain_height), chain_height);
+
     let peers_start_height = match sync_mode {
-        SyncMode::Sync => chain.head().unwrap().height,
+        SyncMode::Sync => target_height,
         SyncMode::NoSync => chain.genesis_block().header().height(),
     };
     MockPeerManagerActor::new(
@@ -48,7 +55,9 @@ fn setup_mock_peer_manager_actor(
         genesis_config,
         chain,
         peers_start_height,
+        target_height,
         block_production_delay,
+        network_delay,
     )
 }
 
@@ -66,11 +75,16 @@ pub enum SyncMode {
 ///                     to construct `MockPeerManagerActor`
 /// `config`: config for the new client
 /// `sync_mode`: whether the mock network will simulate that the node is syncing or not
+/// `network_delay`: delay for getting response from the simulated network
+/// `target_height`: height that the simulated peers will produce blocks until. If None, will
+///                  use the height from the chain head in storage
 pub fn setup_mock_network(
     client_home_dir: &Path,
     network_home_dir: &Path,
     config: &NearConfig,
     sync_mode: SyncMode,
+    network_delay: Duration,
+    target_height: Option<BlockHeight>,
 ) -> (Addr<MockPeerManagerActor>, Addr<ClientActor>, Addr<ViewClientActor>) {
     let client_runtime = setup_runtime(client_home_dir, &config);
     let mock_network_runtime = setup_runtime(network_home_dir, &config);
@@ -118,6 +132,8 @@ pub fn setup_mock_network(
                 &chain_genesis,
                 block_production_delay,
                 sync_mode,
+                network_delay,
+                target_height,
             )
         });
     network_adapter.set_recipient(mock_network_actor.clone().recipient());
@@ -126,7 +142,7 @@ pub fn setup_mock_network(
 
 #[cfg(test)]
 mod test {
-    use crate::mock_network::setup::setup_mock_network;
+    use crate::mock_network::setup::{setup_mock_network, SyncMode};
     use actix::{Actor, System};
     use futures::{future, FutureExt};
     use near_actix_test_utils::run_actix;
@@ -138,6 +154,7 @@ mod test {
     use nearcore::config::GenesisExt;
     use nearcore::{load_test_config, start_with_config};
     use std::sync::{Arc, RwLock};
+    use std::time::Duration;
 
     // Just a test to test that the basic mocknet setup works
     // This test first starts a localnet with one validator node that generates 20 blocks
@@ -185,9 +202,17 @@ mod test {
         let dir1 = tempfile::Builder::new().prefix("test1").tempdir().unwrap();
         let mut near_config1 = load_test_config("test1", open_port(), genesis);
         near_config1.client_config.min_num_peers = 1;
+        near_config1.client_config.tracked_shards =
+            (0..near_config1.genesis.config.shard_layout.num_shards()).collect();
         run_actix(async move {
-            let (_mock_network, _client, view_client) =
-                setup_mock_network(dir1.path().clone(), dir.path().clone(), &near_config1);
+            let (_mock_network, _client, view_client) = setup_mock_network(
+                dir1.path().clone(),
+                dir.path().clone(),
+                &near_config1,
+                SyncMode::Sync,
+                Duration::from_millis(10),
+                None,
+            );
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     let last_block1 = last_block.clone();
