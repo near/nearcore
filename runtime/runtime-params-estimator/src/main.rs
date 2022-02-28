@@ -105,49 +105,48 @@ fn main() -> anyhow::Result<()> {
         Some(it) => it,
         None => {
             temp_dir = tempfile::tempdir()?;
-
-            let contract_code = read_resource(if cfg!(feature = "nightly_protocol_features") {
-                "test-contract/res/nightly_small_contract.wasm"
-            } else {
-                "test-contract/res/stable_small_contract.wasm"
-            });
-
-            let state_dump_path = temp_dir.path().to_path_buf();
-            nearcore::init_configs(
-                &state_dump_path,
-                None,
-                Some("test.near".parse().unwrap()),
-                Some("alice.near"),
-                1,
-                true,
-                None,
-                false,
-                None,
-                false,
-                None,
-                None,
-                None,
-            )
-            .expect("failed to init config");
-
-            let near_config = load_config(&state_dump_path, GenesisValidationMode::Full);
-            let store = create_store(&get_store_path(&state_dump_path));
-            GenesisBuilder::from_config_and_store(
-                &state_dump_path,
-                Arc::new(near_config.genesis),
-                store,
-            )
-            .add_additional_accounts(cli_args.additional_accounts_num)
-            .add_additional_accounts_contract(contract_code)
-            .print_progress()
-            .build()
-            .unwrap()
-            .dump_state()
-            .unwrap();
-
-            state_dump_path
+            temp_dir.path().to_path_buf()
         }
     };
+    if state_dump_path.read_dir()?.next().is_none() {
+        let contract_code = read_resource(if cfg!(feature = "nightly_protocol_features") {
+            "test-contract/res/nightly_small_contract.wasm"
+        } else {
+            "test-contract/res/stable_small_contract.wasm"
+        });
+
+        nearcore::init_configs(
+            &state_dump_path,
+            None,
+            Some("test.near".parse().unwrap()),
+            Some("alice.near"),
+            1,
+            true,
+            None,
+            false,
+            None,
+            false,
+            None,
+            None,
+            None,
+        )
+        .expect("failed to init config");
+
+        let near_config = load_config(&state_dump_path, GenesisValidationMode::Full);
+        let store = create_store(&get_store_path(&state_dump_path));
+        GenesisBuilder::from_config_and_store(
+            &state_dump_path,
+            Arc::new(near_config.genesis),
+            store,
+        )
+        .add_additional_accounts(cli_args.additional_accounts_num)
+        .add_additional_accounts_contract(contract_code)
+        .print_progress()
+        .build()
+        .unwrap()
+        .dump_state()
+        .unwrap();
+    }
 
     let debug_options: Vec<_> = cli_args.debug.iter().map(String::as_str).collect();
 
