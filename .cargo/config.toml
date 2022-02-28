@@ -1,2 +1,2 @@
-[target.'cfg(target_arch="x86_64")']
+[build]
 rustflags = ["-Ctarget-feature=+sse4.1,+sse4.2"]
