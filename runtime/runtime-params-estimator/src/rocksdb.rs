@@ -5,7 +5,7 @@ use rand::{prelude::SliceRandom, Rng};
 use rand_xorshift::XorShiftRng;
 use rocksdb::DB;
 
-use crate::{config::Config, gas_cost::GasCost};
+use crate::{config::Config, gas_cost::GasCost, utils::clear_linux_page_cache};
 
 #[derive(Debug, Clone, Clap)]
 pub struct RocksDBTestConfig {
@@ -50,6 +50,9 @@ pub struct RocksDBTestConfig {
     /// (`RocksDb*` estimations only)
     #[clap(long, name = "rdb-input-data-path", long)]
     pub input_data_path: Option<PathBuf>,
+    /// Drop OS cache before measurements for better IO accuracy.
+    #[clap(skip)]
+    pub drop_os_cache: bool,
 }
 
 // These tests make use of reproducible pseud-randomness.
@@ -286,6 +289,11 @@ fn new_test_db(
         db_config.force_compaction,
         true, // always force-flush in setup
     );
+    if db_config.drop_os_cache {
+        clear_linux_page_cache().expect(
+            "Failed to drop OS caches. Are you root and is /proc mounted with write access?",
+        );
+    }
 
     db
 }
