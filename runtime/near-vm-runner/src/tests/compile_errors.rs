@@ -235,3 +235,51 @@ fn test_limit_locals() {
         );
     })
 }
+
+fn call_sandbox_debug_log() -> Vec<u8> {
+    wat::parse_str(
+        r#"
+            (module
+                (import "env" "sandbox_debug_log" (func (;0;) (param i64 i64)))
+                (func $main (export "main")
+                    (call 0 (i64.const 0) (i64.const 1)))
+            )"#,
+    )
+    .unwrap()
+}
+
+#[cfg(not(feature = "sandbox"))]
+#[test]
+fn test_sandbox_only_function() {
+    with_vm_variants(|vm_kind| {
+        let wasm = call_sandbox_debug_log();
+        let res = make_simple_contract_call_vm(&wasm, "main", vm_kind);
+        println!("{:?}", res);
+        let error_msg = match vm_kind {
+            VMKind::Wasmer0 => {
+                "link error: Import not found, namespace: env, name: sandbox_debug_log"
+            }
+            VMKind::Wasmer2 => {
+                "Error while importing \"env\".\"sandbox_debug_log\": unknown import. Expected Function(FunctionType { params: [I64, I64], results: [] })"
+            }
+            VMKind::Wasmtime => "\"unknown import: `env::sandbox_debug_log` has not been defined\"",
+        };
+        gas_and_error_match(
+            res,
+            Some(54519963),
+            Some(VMError::FunctionCallError(FunctionCallError::LinkError {
+                msg: error_msg.to_string(),
+            })),
+        );
+    })
+}
+
+#[cfg(feature = "sandbox")]
+#[test]
+fn test_sandbox_only_function_when_sandbox_feature() {
+    with_vm_variants(|vm_kind| {
+        let wasm = call_sandbox_debug_log();
+        let res = make_simple_contract_call_vm(&wasm, "main", vm_kind);
+        gas_and_error_match(res, Some(66089076), None);
+    })
+}
