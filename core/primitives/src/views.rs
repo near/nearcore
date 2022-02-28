@@ -336,7 +336,7 @@ pub struct DebugBlockStatus {
     pub block_height: u64,
     pub chunks: Vec<DebugChunkStatus>,
     pub processing_time_ms: u64,
-    pub timestamp_delta: u64
+    pub timestamp_delta: u64,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
