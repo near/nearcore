@@ -69,6 +69,9 @@ struct CliArgs {
     /// Works only with enabled docker, because precise computations without it doesn't make sense.
     #[clap(long)]
     full: bool,
+    /// Drop OS cache before measurements for better IO accuracy. Requires sudo.
+    #[clap(long)]
+    drop_os_cache: bool,
     /// Print extra debug information
     #[clap(long, multiple(true), possible_values=&["io", "rocksdb", "least-squares"])]
     debug: Vec<String>,
@@ -191,6 +194,7 @@ fn main() -> anyhow::Result<()> {
     let warmup_iters_per_block = cli_args.warmup_iters;
     let mut rocksdb_test_config = cli_args.db_test_config;
     rocksdb_test_config.debug_rocksdb = debug_options.contains(&"rocksdb");
+    rocksdb_test_config.drop_os_cache = cli_args.drop_os_cache;
     let iter_per_block = cli_args.iters;
     let active_accounts = cli_args.accounts_num;
     let metric = match cli_args.metric.as_str() {
@@ -218,6 +222,7 @@ fn main() -> anyhow::Result<()> {
         costs_to_measure,
         rocksdb_test_config,
         debug_least_squares: debug_options.contains(&"least-squares"),
+        drop_os_cache: cli_args.drop_os_cache,
     };
     let cost_table = runtime_params_estimator::run(config);
 
