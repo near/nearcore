@@ -4,6 +4,7 @@ import time
 import base58
 import requests
 from configured_logger import logger
+from key import Key
 
 LOCAL_ADDR = '127.0.0.1'
 RPC_PORT = '3030'
@@ -17,8 +18,12 @@ def get_status():
 
 def json_rpc(method, params):
     j = {'method': method, 'params': params, 'id': 'dontcare', 'jsonrpc': '2.0'}
-    r = requests.post(f'http://{LOCAL_ADDR}:{RPC_PORT}', json=j, timeout=10)
+    r = requests.post(f'http://{LOCAL_ADDR}:{RPC_PORT}', json=j, timeout=1000)
     return r.json()
+
+
+def get_nonce_for_key(key: Key) -> int:
+    return get_nonce_for_pk(key.account_id, key.pk)
 
 
 def get_nonce_for_pk(account_id, pk, finality='optimistic'):
@@ -29,6 +34,7 @@ def get_nonce_for_pk(account_id, pk, finality='optimistic'):
             'finality': finality
         })
     logger.info(f'get_nonce_for_pk {account_id}')
+    logger.info(access_keys)
     assert access_keys['result']['keys'], account_id
     for k in access_keys['result']['keys']:
         if k['public_key'] == pk:

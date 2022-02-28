@@ -717,7 +717,7 @@ def create_genesis_file(validator_node_names,
                 'version': 1
             }
         }
-        genesis_config['shard_layout']: shard_layout
+        genesis_config['shard_layout'] = shard_layout
         genesis_config['simple_nightshade_shard_layout'] = shard_layout
     else:
         genesis_config['shard_layout'] = {'V0': {'num_shards': 1, 'version': 0}}
