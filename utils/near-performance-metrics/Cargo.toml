@@ -14,7 +14,7 @@ bytes = "1"
 bytesize = "1.1"
 futures = "0.3.5"
 libc = "0.2"
-log = "0.4"
+tracing = "0.1.13"
 near-rust-allocator-proxy = { version = "0.4", optional = true }
 once_cell = "1.5.2"
 strum = "0.20"

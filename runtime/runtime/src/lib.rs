@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use log::debug;
+use tracing::debug;
 
 use near_chain_configs::Genesis;
 pub use near_crypto;
