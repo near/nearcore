@@ -9,7 +9,6 @@ use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
 use chrono::DateTime;
-use log::{debug, error, info, trace, warn};
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
     BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
@@ -52,6 +51,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
+use tracing::{debug, error, info, trace, warn};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;

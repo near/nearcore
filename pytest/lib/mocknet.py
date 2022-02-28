@@ -596,7 +596,6 @@ def create_genesis_file(validator_node_names,
             else:
                 prev_stake = prev_stake + STAKE_STEP
                 staked = prev_stake * ONE_NEAR
-            print(f'{account_id} {staked}')
         else:
             staked = MIN_STAKE
         stakes.append((staked, account_id))
@@ -950,7 +949,6 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
                     prev_stake = prev_stake + STAKE_STEP
                     staked = prev_stake * ONE_NEAR
                 stakes.append((staked, node.instance_name))
-                print(f'{node_account_name(node.instance_name)} {staked}')
 
         else:
             for node in validator_nodes:
@@ -967,15 +965,27 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
             if (seats_upgraded + seat) * 100 > 75 * num_block_producer_seats:
                 break
             schedule[instance_name] = 0
+            logger.info(
+                f'validator node {node.instance_name} will start upgraded')
             seats_upgraded += seat
 
         # Upgrade the remaining validators during 4 epochs.
         for node in validator_nodes:
             if node.instance_name not in schedule:
                 schedule[node.instance_name] = random.randint(1, 4)
+                logger.info(
+                    f'validator node {node.instance_name} will upgrade at {schedule[node.instance_name]}'
+                )
 
         for node in rpc_nodes:
             schedule[node.instance_name] = random.randint(0, 4)
+            if not schedule[node.instance_name]:
+                logger.info(
+                    f'rpc node {node.instance_name} will start upgraded')
+            else:
+                logger.info(
+                    f'rpc node {node.instance_name} will upgrade at {schedule[node.instance_name]}'
+                )
     else:
         # Start all nodes upgraded.
         for node in rpc_nodes:
