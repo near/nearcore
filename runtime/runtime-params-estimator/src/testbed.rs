@@ -137,4 +137,11 @@ impl RuntimeTestbed {
             self.process_block(&[], allow_failures);
         }
     }
+
+    /// Flushes RocksDB memtable
+    pub fn flush_db_write_buffer(&mut self) {
+        let store = self.tries.get_store();
+        let rocksdb = store.get_rocksdb().unwrap();
+        rocksdb.flush().unwrap();
+    }
 }
