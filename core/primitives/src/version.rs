@@ -152,16 +152,16 @@ pub enum ProtocolFeature {
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
 /// protocol version is lower than this.
-pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = MAIN_NET_PROTOCOL_VERSION - 2;
+pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION - 2;
 
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const MAIN_NET_PROTOCOL_VERSION: ProtocolVersion = 52;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 52;
 
 /// Version used by this binary.
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = MAIN_NET_PROTOCOL_VERSION;
+pub const PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION;
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
 pub const PROTOCOL_VERSION: ProtocolVersion = 126;
@@ -169,10 +169,10 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 126;
 /// The moment in time after which the voting for the latest client version should start on the
 /// mainnet version of the protocol.
 #[allow(dead_code)]
-const MAIN_NET_PROTOCOL_UPGRADE_VOTING_START: Option<ProtocolUpgradeVotingSchedule> = None;
+const STABLE_PROTOCOL_UPGRADE_VOTING_START: Option<ProtocolUpgradeVotingSchedule> = None;
 #[cfg(not(feature = "nightly_protocol"))]
 const PROTOCOL_UPGRADE_VOTING_START: Option<ProtocolUpgradeVotingSchedule> =
-    MAIN_NET_PROTOCOL_UPGRADE_VOTING_START;
+    STABLE_PROTOCOL_UPGRADE_VOTING_START;
 
 /// The moment in time after which the voting for the latest client version should start on the
 /// nightly version of the protocol.
@@ -278,14 +278,14 @@ macro_rules! checked_feature {
 #[cfg(test)]
 mod tests {
     use crate::version::{
-        MAIN_NET_PROTOCOL_UPGRADE_VOTING_START, NIGHTLY_PROTOCOL_UPGRADE_VOTING_START,
+        NIGHTLY_PROTOCOL_UPGRADE_VOTING_START, STABLE_PROTOCOL_UPGRADE_VOTING_START,
     };
 
     #[test]
     // This unit test ensures validity of upgrade schedule, because the validity can't be ensured
     // during `const` construction.
     fn test_upgrade_schedule_valid() {
-        if let Some(schedule) = MAIN_NET_PROTOCOL_UPGRADE_VOTING_START {
+        if let Some(schedule) = STABLE_PROTOCOL_UPGRADE_VOTING_START {
             assert!(schedule.is_valid());
         }
         if let Some(schedule) = NIGHTLY_PROTOCOL_UPGRADE_VOTING_START {
