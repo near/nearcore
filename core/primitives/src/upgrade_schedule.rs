@@ -1,22 +1,30 @@
-use chrono::{DateTime, NaiveDateTime, ParseResult, Utc};
+use chrono::{DateTime, NaiveDateTime, ParseError, Utc};
 use near_primitives_core::types::ProtocolVersion;
+use std::collections::HashMap;
+use std::str::FromStr;
 
 /// Defines the point in time after which validators are expected to vote on the new protocol version.
 /// The parameter is a `str` to allow construction as constant evaluation, i.e. at the compile-time.
-pub(crate) struct ProtocolUpgradeVotingSchedule(pub &'static str);
+pub(crate) struct ProtocolUpgradeVotingSchedule {
+    timestamp: chrono::DateTime<Utc>,
+}
+
+impl FromStr for ProtocolUpgradeVotingSchedule {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self {
+            timestamp: DateTime::<Utc>::from_utc(
+                NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")?,
+                Utc,
+            ),
+        })
+    }
+}
 
 impl ProtocolUpgradeVotingSchedule {
-    #[allow(dead_code)]
-    pub fn is_valid(&self) -> bool {
-        self.parse().is_ok()
-    }
-
-    pub fn get(&self) -> DateTime<Utc> {
-        DateTime::<Utc>::from_utc(self.parse().unwrap(), Utc)
-    }
-
-    fn parse(&self) -> ParseResult<NaiveDateTime> {
-        NaiveDateTime::parse_from_str(&self.0, "%Y-%m-%d %H:%M:%S")
+    pub fn is_in_future(&self) -> bool {
+        chrono::Utc::now() < self.timestamp
     }
 }
 
@@ -25,30 +33,29 @@ pub(crate) fn get_protocol_version_internal(
     next_epoch_protocol_version: ProtocolVersion,
     // Latest protocol version supported by this client.
     client_protocol_version: ProtocolVersion,
-    // Point in time when the client is expected to vote for upgrading to the
-    // latest protocol version.
-    // If None, the client votes for the latest protocol version immediately.
-    schedule: &[(ProtocolVersion, Option<ProtocolUpgradeVotingSchedule>)],
+    // Map of protocol versions to points in time when voting for that protocol version is expected to start.
+    // If None or missing, the client votes for the latest protocol version immediately.
+    schedule: &HashMap<ProtocolVersion, Option<ProtocolUpgradeVotingSchedule>>,
 ) -> ProtocolVersion {
     if next_epoch_protocol_version >= client_protocol_version {
         return client_protocol_version;
     }
-    for (version, voting_start) in schedule {
-        if *version != client_protocol_version {
-            continue;
-        }
-        if let Some(voting_start) = voting_start {
-            if chrono::Utc::now() < voting_start.get() {
-                // Don't announce support for the latest protocol version yet.
-                return next_epoch_protocol_version;
+    match schedule.get(&client_protocol_version) {
+        Some(voting_start) => {
+            if let Some(voting_start) = voting_start {
+                if voting_start.is_in_future() {
+                    // Don't announce support for the latest protocol version yet.
+                    next_epoch_protocol_version
+                } else {
+                    // The time has passed, announce the latest supported protocol version.
+                    client_protocol_version
+                }
             } else {
-                // The time has passed, announce the latest supported protocol version.
-                return client_protocol_version;
+                client_protocol_version
             }
         }
-        return client_protocol_version;
+        None => client_protocol_version,
     }
-    return client_protocol_version;
 }
 
 #[cfg(test)]
@@ -70,19 +77,23 @@ mod tests {
             get_protocol_version_internal(
                 client_protocol_version - 2,
                 client_protocol_version,
-                &[],
+                &HashMap::new(),
             )
         );
         assert_eq!(
             client_protocol_version,
-            get_protocol_version_internal(client_protocol_version, client_protocol_version, &[])
+            get_protocol_version_internal(
+                client_protocol_version,
+                client_protocol_version,
+                &HashMap::new()
+            )
         );
         assert_eq!(
             client_protocol_version,
             get_protocol_version_internal(
                 client_protocol_version + 2,
                 client_protocol_version,
-                &[]
+                &HashMap::new(),
             )
         );
     }
@@ -92,20 +103,15 @@ mod tests {
         // As no protocol upgrade voting schedule is set, always return the version supported by the client.
 
         let client_protocol_version = 100;
-        let schedule = &[
-            (client_protocol_version, None),
-            (
-                client_protocol_version - 1,
-                Some(ProtocolUpgradeVotingSchedule("2000-01-01 00:00:00")),
-            ),
-        ];
+        let mut schedule = HashMap::new();
+        schedule.insert(client_protocol_version, None);
 
         assert_eq!(
             client_protocol_version,
             get_protocol_version_internal(
                 client_protocol_version - 2,
                 client_protocol_version,
-                schedule,
+                &schedule,
             )
         );
         assert_eq!(
@@ -113,7 +119,7 @@ mod tests {
             get_protocol_version_internal(
                 client_protocol_version,
                 client_protocol_version,
-                schedule
+                &schedule
             )
         );
         assert_eq!(
@@ -121,7 +127,7 @@ mod tests {
             get_protocol_version_internal(
                 client_protocol_version + 2,
                 client_protocol_version,
-                schedule
+                &schedule
             )
         );
     }
@@ -129,10 +135,11 @@ mod tests {
     #[test]
     fn test_before_scheduled_time() {
         let client_protocol_version = 100;
-        let schedule = &[
-            (client_protocol_version, Some(ProtocolUpgradeVotingSchedule("2050-01-01 00:00:00"))),
-            (client_protocol_version - 10, None),
-        ];
+        let mut schedule = HashMap::new();
+        schedule.insert(
+            client_protocol_version,
+            Some(ProtocolUpgradeVotingSchedule::from_str("2050-01-01 00:00:00").unwrap()),
+        );
 
         // The client supports a newer version than the version of the next epoch.
         // Upgrade voting will start in the far future, therefore don't announce the newest supported version.
@@ -142,7 +149,7 @@ mod tests {
             get_protocol_version_internal(
                 next_epoch_protocol_version,
                 client_protocol_version,
-                schedule,
+                &schedule,
             )
         );
 
@@ -153,7 +160,7 @@ mod tests {
             get_protocol_version_internal(
                 next_epoch_protocol_version,
                 client_protocol_version,
-                schedule,
+                &schedule,
             )
         );
 
@@ -164,7 +171,7 @@ mod tests {
             get_protocol_version_internal(
                 next_epoch_protocol_version,
                 client_protocol_version,
-                schedule,
+                &schedule,
             )
         );
     }
@@ -172,10 +179,11 @@ mod tests {
     #[test]
     fn test_after_scheduled_time() {
         let client_protocol_version = 100;
-        let schedule = &[
-            (client_protocol_version, Some(ProtocolUpgradeVotingSchedule("1999-01-01 00:00:00"))),
-            (client_protocol_version - 10, None),
-        ];
+        let mut schedule = HashMap::new();
+        schedule.insert(
+            client_protocol_version,
+            Some(ProtocolUpgradeVotingSchedule::from_str("1900-01-01 00:00:00").unwrap()),
+        );
 
         // Regardless of the protocol version of the next epoch, return the version supported by the client.
         assert_eq!(
@@ -183,7 +191,7 @@ mod tests {
             get_protocol_version_internal(
                 client_protocol_version - 2,
                 client_protocol_version,
-                schedule,
+                &schedule,
             )
         );
         assert_eq!(
@@ -191,7 +199,7 @@ mod tests {
             get_protocol_version_internal(
                 client_protocol_version,
                 client_protocol_version,
-                schedule,
+                &schedule,
             )
         );
         assert_eq!(
@@ -199,14 +207,20 @@ mod tests {
             get_protocol_version_internal(
                 client_protocol_version + 2,
                 client_protocol_version,
-                schedule,
+                &schedule,
             )
         );
     }
 
     #[test]
     fn test_parse() {
-        assert!(ProtocolUpgradeVotingSchedule("2001-02-03 23:59:59").is_valid());
-        assert!(!ProtocolUpgradeVotingSchedule("123").is_valid());
+        assert!(ProtocolUpgradeVotingSchedule::from_str("2001-02-03 23:59:59").is_ok());
+        assert!(ProtocolUpgradeVotingSchedule::from_str("123").is_err());
+    }
+
+    #[test]
+    fn test_is_in_future() {
+        assert!(ProtocolUpgradeVotingSchedule::from_str("2999-02-03 23:59:59").unwrap().is_in_future());
+        assert!(!ProtocolUpgradeVotingSchedule::from_str("1999-02-03 23:59:59").unwrap().is_in_future());
     }
 }

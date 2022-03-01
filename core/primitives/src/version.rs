@@ -1,5 +1,7 @@
 use crate::types::Balance;
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Data structure for semver version and github tag or commit.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -169,8 +171,13 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 126;
 /// The points in time after which the voting for the protocol version should start.
 // The schedule is defined as a list because it needs to be a const expression. Please keep this list reverse-sorted.
 #[allow(dead_code)]
-const PROTOCOL_UPGRADE_SCHEDULE: &[(ProtocolVersion, Option<ProtocolUpgradeVotingSchedule>)] =
-    &[(52, None)];
+const PROTOCOL_UPGRADE_SCHEDULE: Lazy<
+    HashMap<ProtocolVersion, Option<ProtocolUpgradeVotingSchedule>>,
+> = Lazy::new(|| {
+    let mut schedule = HashMap::new();
+    schedule.insert(52, None);
+    schedule
+});
 
 /// Gives new clients an option to upgrade without announcing that they support the new version.
 /// This gives non-validator nodes time to upgrade. See https://github.com/near/NEPs/issues/205
@@ -178,7 +185,7 @@ pub fn get_protocol_version(next_epoch_protocol_version: ProtocolVersion) -> Pro
     get_protocol_version_internal(
         next_epoch_protocol_version,
         PROTOCOL_VERSION,
-        PROTOCOL_UPGRADE_SCHEDULE,
+        &*PROTOCOL_UPGRADE_SCHEDULE,
     )
 }
 
@@ -263,25 +270,4 @@ macro_rules! checked_feature {
             $non_feature_block
         }
     }};
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::version::PROTOCOL_UPGRADE_SCHEDULE;
-
-    #[test]
-    // This unit test ensures validity of upgrade schedule, because the validity can't be ensured
-    // during `const` construction.
-    fn test_upgrade_schedule_valid() {
-        let mut prev_version = None;
-        for (version, voting_start) in PROTOCOL_UPGRADE_SCHEDULE {
-            if let Some(voting_start) = voting_start {
-                assert!(voting_start.is_valid());
-            }
-            if let Some(prev_version) = prev_version {
-                assert!(prev_version > version);
-            }
-            prev_version = Some(version);
-        }
-    }
 }
