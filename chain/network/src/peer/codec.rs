@@ -21,7 +21,7 @@ const NETWORK_MESSAGE_MAX_SIZE_BYTES: usize = 512 * MIB as usize;
 const MAX_WRITE_BUFFER_CAPACITY_BYTES: usize = GIB as usize;
 
 #[derive(Default)]
-pub struct Codec {}
+pub(crate) struct Codec {}
 
 impl EncoderCallBack for Codec {
     #[allow(unused)]
