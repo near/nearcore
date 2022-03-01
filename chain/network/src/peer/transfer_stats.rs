@@ -29,7 +29,7 @@ struct Event {
 
 /// Represents all events which happened in last minute.
 #[derive(Default)]
-pub struct TransferStats {
+pub(crate) struct TransferStats {
     /// We keep list of entries not older than 1m.
     /// Events in the queue have timestamps in non-decreasing order.
     events: VecDeque<Event>,
@@ -39,17 +39,17 @@ pub struct TransferStats {
 
 /// Represents cumulative stats per minute.
 #[derive(Eq, PartialEq, Debug)]
-pub struct MinuteStats {
+pub(crate) struct MinuteStats {
     /// Bytes per minute.
-    pub bytes_per_min: u64,
+    pub(crate) bytes_per_min: u64,
     /// Messages per minute.
-    pub count_per_min: usize,
+    pub(crate) count_per_min: usize,
 }
 
 impl TransferStats {
     /// Record event at current time `now` with `bytes` bytes.
     /// Time in `now` should be monotonically increasing.
-    pub fn record(&mut self, bytes: u64, now: Instant) {
+    pub(crate) fn record(&mut self, bytes: u64, now: Instant) {
         self.remove_old_entries(now);
 
         debug_assert!(self.events.back().map(|e| e.instant).unwrap_or(now) <= now);
@@ -59,7 +59,7 @@ impl TransferStats {
     }
 
     /// Get stats stored in `MinuteStats` struct.
-    pub fn minute_stats(&mut self, now: Instant) -> MinuteStats {
+    pub(crate) fn minute_stats(&mut self, now: Instant) -> MinuteStats {
         self.remove_old_entries(now);
         MinuteStats { bytes_per_min: self.total_bytes_in_events, count_per_min: self.events.len() }
     }
