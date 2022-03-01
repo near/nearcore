@@ -2,10 +2,22 @@
 
 This test consists of two parts:
 
-./target/debug/neard --home ~/.near_tmp/7 init --chain-id localnet --num-shards=5
+
+Init your own localnet:
+
+```shell
+./target/debug/neard --home ~/.near_tmp init --chain-id localnet --num-shards=5
+```
 
 
+Create accounts and deploy the contract:
 
-./setup.sh / setup.py -- is creating the test (compiling the contract, creating accounts and deploying it).
+```shell
+python3 pytest/tests/loadtest/setup.py --home=~/.near_tmp --num_accounts=5
+```
 
-./loadtest.py is the test itself, that tries to schedule as many transactions  as possible.
+Run the test:
+
+```shell
+python3 pytest/tests/loadtest/loadtest.py --home=~/.near_tmp --num_accounts=5 --num_requests=1000
+```

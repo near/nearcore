@@ -1,4 +1,5 @@
 import subprocess
+from time import sleep
 import mocknet_helpers
 import account
 import key
@@ -39,11 +40,18 @@ if __name__ == '__main__':
         print(f"Created account {tx}")
         account_key = key.Key(account_name, validator_key.pk, validator_key.sk)
         base_block_hash = mocknet_helpers.get_latest_block_hash()
-        new_account = account.Account(
-            account_key,
-            mocknet_helpers.get_nonce_for_key(account_key),
-            base_block_hash=base_block_hash,
-            rpc_infos=[("localhost", "3030")])
+        while True:
+            try:
+                nonce = mocknet_helpers.get_nonce_for_key(account_key)
+                break
+            except KeyError:
+                print("Account not ready yet..")
+                sleep(3)
+
+        new_account = account.Account(account_key,
+                                      nonce,
+                                      base_block_hash=base_block_hash,
+                                      rpc_infos=[("localhost", "3030")])
 
         new_account.send_deploy_contract_tx(
             join(

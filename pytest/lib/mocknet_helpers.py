@@ -40,7 +40,8 @@ def get_nonce_for_pk(account_id,
                            port=port)
     logger.info(f'get_nonce_for_pk {account_id}')
     logger.info(access_keys)
-    assert access_keys['result']['keys'], account_id
+    if not access_keys['result']['keys']:
+        raise KeyError(account_id)
 
     nonce = next((key['access_key']['nonce']
                   for key in access_keys['result']['keys']
