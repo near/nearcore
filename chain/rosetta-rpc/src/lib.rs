@@ -102,9 +102,9 @@ async fn network_status(
     let status = check_network_identifier(&client_addr, network_identifier).await?;
 
     let genesis_height = genesis.config.genesis_height;
-    let (network_info, genesis_block, earliest_block) = tokio::try_join!(
+    let (network_info, genesis_hash, earliest_block) = tokio::try_join!(
         client_addr.send(near_client::GetNetworkInfo {}),
-        view_client_addr.send(near_client::GetBlock(
+        view_client_addr.send(near_client::GetBlockHash(
             near_primitives::types::BlockId::Height(genesis_height).into(),
         )),
         view_client_addr.send(near_client::GetBlock(
@@ -114,11 +114,12 @@ async fn network_status(
         )),
     )?;
     let network_info = network_info.map_err(errors::ErrorKind::InternalError)?;
-    let genesis_block =
-        genesis_block.map_err(|err| errors::ErrorKind::InternalInvariantError(err.to_string()))?;
-    let earliest_block = earliest_block;
-
-    let genesis_block_identifier: models::BlockIdentifier = (&genesis_block.header).into();
+    let genesis_hash =
+        genesis_hash.map_err(|err| errors::ErrorKind::InternalInvariantError(err.to_string()))?;
+    let genesis_block_identifier = models::BlockIdentifier {
+        index: genesis_height.try_into().unwrap(),
+        hash: genesis_hash.to_base(),
+    };
     let oldest_block_identifier: models::BlockIdentifier = earliest_block
         .ok()
         .map(|block| (&block.header).into())

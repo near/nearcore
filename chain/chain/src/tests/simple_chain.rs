@@ -1,3 +1,4 @@
+use crate::near_chain_primitives::error::BlockKnownError;
 use crate::test_utils::setup;
 use crate::{Block, ChainStoreAccess, ErrorKind};
 use chrono;
@@ -21,10 +22,11 @@ fn empty_chain() {
 
     assert_eq!(chain.head().unwrap().height, 0);
     let hash = chain.head().unwrap().last_block_hash;
+    // The hashes here will have to be modified after each change to genesis file.
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(hash, CryptoHash::from_str("4iPPuWZ2BZj6i6zGCa96xFTQhp3FHkY2CzUCJFUUryt8").unwrap());
     #[cfg(not(feature = "nightly_protocol"))]
-    assert_eq!(hash, CryptoHash::from_str("9w8Z2UGnC6hxn5RR7B3akP7kBw7ohqyHAw1ssiK1NzTs").unwrap());
+    assert_eq!(hash, CryptoHash::from_str("8UF2TCELQ2sSqorskN5myyC7h1XfgxYm68JHJMKo5n8X").unwrap());
     assert_eq!(count_utc, 1);
 }
 
@@ -53,7 +55,7 @@ fn build_chain() {
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
         prev_hash,
-        CryptoHash::from_str("CUcHvQVmaNdWZtSd4z2Y4eWD75orjkhF2uLBZmTQrYF9").unwrap()
+        CryptoHash::from_str("BkRwcuuVjS86zNvP8DDC9FzsJfWQLV92YyX7NCAz3TNu").unwrap()
     );
 
     for i in 0..4 {
@@ -76,7 +78,7 @@ fn build_chain() {
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
         chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("FhnRwdDssC97PaAUZpkt71sL26oqBtdzPf1SW2P8twcM").unwrap()
+        CryptoHash::from_str("8FkFyWKsnAvAEVAwR41GFTY9i9eQnvGCm52FCYR7qEhy").unwrap()
     );
 }
 
@@ -124,7 +126,7 @@ fn build_chain_with_orhpans() {
     assert_eq!(res.unwrap().unwrap().height, 10);
     assert_eq!(
         chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err().kind(),
-        ErrorKind::Unfit("already known in store".to_string())
+        ErrorKind::BlockKnown(BlockKnownError::KnownInStore)
     );
 }
 

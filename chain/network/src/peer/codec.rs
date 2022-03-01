@@ -54,7 +54,7 @@ impl Encoder<Vec<u8>> for Codec {
                 && item.len() + 4 + buf.len() > buf.capacity()
             {
                 #[cfg(feature = "performance_stats")]
-                let tid = near_rust_allocator_proxy::allocator::get_tid();
+                let tid = near_rust_allocator_proxy::get_tid();
                 #[cfg(not(feature = "performance_stats"))]
                 let tid = 0;
                 error!(target: "network", "{} throwing away message, because buffer is full item.len(): {} buf.capacity: {}", 

@@ -80,7 +80,7 @@ optional `s`, `m` or `h` suffix.  If no suffix is given, `s` is
 assumed.  The default timeout is three minutes.  For example, the
 following increases timeout for a test to four minutes:
 
-    pytest --timeout=4m sanity/restaked.py
+    pytest --timeout=4m sanity/validator_switch.py
 
 `--release` makes the build use a release profile rather than a dev
 profile.  In other words, all `cargo` invocations are passed
@@ -95,8 +95,8 @@ honest I can’t vouch whether it even works.
 Lastly, at the end of the test specification line additional features
 can be given in the form of `--features <features>` arguments.
 Similarly to `--release`, this results in given features being enabled
-in builds.  Note that the `test_features` and `rosetta_rpc` features
-are always enabled so there's no need to specify it explicitly.
+in builds.  Note that the `test_features` Cargo feature is always
+enabled so there's no need to specify it explicitly.
 
 Note that with `--skip-build` switch the `--release` and `--features`
 flags are essentially ignored since they only affect the build and are

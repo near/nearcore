@@ -56,6 +56,10 @@ mod rocksdb;
 mod transaction_builder;
 
 pub(crate) mod estimator_params;
+pub(crate) mod least_squares;
+
+// Helper functions shared between modules
+pub mod utils;
 
 // Runs a VM (Default: Wasmer) on the given contract and measures the time it takes to do a single operation.
 pub mod vm_estimator;
@@ -67,11 +71,11 @@ pub mod config;
 mod function_call;
 mod gas_metering;
 
-use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::time::Instant;
 
 use estimator_params::sha256_cost;
+use gas_cost::LeastSquaresTolerance;
 use gas_metering::gas_metering_cost;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
@@ -88,11 +92,16 @@ use near_vm_logic::{ExtCosts, VMConfig};
 use near_vm_runner::MockCompiledContractCache;
 use num_rational::Ratio;
 use rand::Rng;
-use vm_estimator::compute_compile_cost_vm;
+use utils::{
+    aggregate_per_block_measurements, fn_cost, fn_cost_count, fn_cost_with_setup,
+    generate_data_only_contract, generate_fn_name, noop_function_call_cost, read_resource,
+    transaction_cost,
+};
+use vm_estimator::{compile_single_contract_cost, compute_compile_cost_vm};
 
 use crate::config::Config;
 use crate::cost_table::format_gas;
-use crate::estimator_context::{EstimatorContext, Testbed};
+use crate::estimator_context::EstimatorContext;
 use crate::gas_cost::GasCost;
 use crate::rocksdb::{rocks_db_inserts_cost, rocks_db_read_cost};
 use crate::transaction_builder::TransactionBuilder;
@@ -168,6 +177,12 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::StorageRemoveKeyByte, storage_remove_key_byte),
     (Cost::StorageRemoveRetValueByte, storage_remove_ret_value_byte),
     (Cost::TouchingTrieNode, touching_trie_node),
+    (Cost::ApplyBlock, apply_block_cost),
+    (Cost::ContractCompileBase, contract_compile_base),
+    (Cost::ContractCompileBytes, contract_compile_bytes),
+    (Cost::ContractCompileBaseV2, contract_compile_base_v2),
+    (Cost::ContractCompileBytesV2, contract_compile_bytes_v2),
+    (Cost::DeployBytes, pure_deploy_bytes),
     (Cost::GasMeteringBase, gas_metering_base),
     (Cost::GasMeteringOp, gas_metering_op),
     (Cost::RocksDbInsertValueByte, rocks_db_insert_value_byte),
@@ -175,6 +190,18 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::CpuBenchmarkSha256, cpu_benchmark_sha256),
     (Cost::OneCPUInstruction, one_cpu_instruction),
     (Cost::OneNanosecond, one_nanosecond),
+];
+
+// We use core-contracts, e2f60b5b0930a9df2c413e1460e179c65c8876e3.
+static REAL_CONTRACTS_SAMPLE: [(&str, &str); 4] = [
+    // File 341191, code 279965, data 56627.
+    ("test-contract/res/lockup_contract.wasm", "terminate_vesting"),
+    // File 257516, code 203545, data 50419.
+    ("test-contract/res/staking_pool.wasm", "ping"),
+    // File 135358, code 113152, data 19520.
+    ("test-contract/res/voting_contract.wasm", "ping"),
+    // File 124250, code 103473, data 18176.
+    ("test-contract/res/whitelist.wasm", "add_staking_pool"),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -222,7 +249,14 @@ fn action_receipt_creation(ctx: &mut EstimatorContext) -> GasCost {
 
         tb.transaction_from_actions(sender, receiver, vec![])
     };
-    let cost = transaction_cost(testbed, &mut make_transaction);
+    let total_cost = transaction_cost(testbed, &mut make_transaction);
+
+    // Two blocks per action receipt will be processed in the measurement, so
+    // the overhead is subtracted here
+    // TODO: Move block overhead subtraction into `Testbed::measure_blocks` for
+    // all measurements to benefit from this
+    let block_overhead_cost = apply_block_cost(ctx);
+    let cost = total_cost - block_overhead_cost * 2;
 
     ctx.cached.action_receipt_creation = Some(cost.clone());
     cost
@@ -241,7 +275,10 @@ fn action_sir_receipt_creation(ctx: &mut EstimatorContext) -> GasCost {
 
         tb.transaction_from_actions(sender, receiver, vec![])
     };
-    let cost = transaction_cost(testbed, &mut make_transaction);
+    let total_cost = transaction_cost(testbed, &mut make_transaction);
+
+    let block_overhead_cost = apply_block_cost(ctx);
+    let cost = total_cost - block_overhead_cost;
 
     ctx.cached.action_sir_receipt_creation = Some(cost.clone());
     cost
@@ -441,76 +478,161 @@ fn action_stake(ctx: &mut EstimatorContext) -> GasCost {
     total_cost - base_cost
 }
 
-/// For deploy costs, the cost is the sum two components:
-///   * database-related costs which we measure by deploying a contract with
-///     dummy payload
-///   * cost of contract compilation, which we estimate using linear regression
-///     on some real contracts.
 fn action_deploy_contract_base(ctx: &mut EstimatorContext) -> GasCost {
-    let (compilation_base_cost, _) = compilation_cost_base_per_byte(ctx);
-    let base_cost = deploy_contract_base(ctx);
-    base_cost + compilation_base_cost
-}
-fn action_deploy_contract_per_byte(ctx: &mut EstimatorContext) -> GasCost {
-    let total_cost = {
-        let code = read_resource(if cfg!(feature = "nightly_protocol_features") {
-            "test-contract/res/nightly_large_contract.wasm"
-        } else {
-            "test-contract/res/stable_large_contract.wasm"
-        });
-        deploy_contract_cost(ctx, code)
-    };
-
-    let (_, compilation_per_byte_cost) = compilation_cost_base_per_byte(ctx);
-    let base_cost = deploy_contract_base(ctx);
-
-    let bytes_per_transaction = 1024 * 1024;
-
-    (total_cost - base_cost) / bytes_per_transaction + compilation_per_byte_cost
-}
-fn deploy_contract_base(ctx: &mut EstimatorContext) -> GasCost {
     if let Some(cost) = ctx.cached.deploy_contract_base.clone() {
         return cost;
     }
 
-    let total_cost = {
+    let cost = {
         let code = read_resource("test-contract/res/smallest_contract.wasm");
-        deploy_contract_cost(ctx, code)
+        deploy_contract_cost(ctx, code, Some(b"sum"))
     };
 
-    let base_cost = action_sir_receipt_creation(ctx);
-
-    let cost = total_cost - base_cost;
     ctx.cached.deploy_contract_base = Some(cost.clone());
     cost
 }
-fn deploy_contract_cost(ctx: &mut EstimatorContext, code: Vec<u8>) -> GasCost {
+fn action_deploy_contract_per_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let mut xs = vec![];
+    let mut ys = vec![];
+
+    for (contract, pivot_fn) in REAL_CONTRACTS_SAMPLE {
+        let code = read_resource(contract);
+        xs.push(code.len() as u64);
+        let cost = deploy_contract_cost(ctx, code, Some(pivot_fn.as_bytes()));
+        // The sampled contracts are about 80% code. Since the deployment cost
+        // is heavily dominated by compilation, we therefore use a multiplier of
+        // 5/4 to guess what a contract with 100% code would cost to deploy.
+        ys.push(cost * 5 / 4);
+    }
+
+    // We do linear regression on a cost curve that is mostly flat for small
+    // contracts and steeper for larger contracts. Thus, the fitted linear
+    // function usually crosses the y-axis somewhere in the negative. The
+    // tolerance is chosen, quite arbitrarily, as a full base cost from protocol
+    // v50. Values further in the negative indicate that the estimation error is
+    // out of proportion.
+    let negative_base_tolerance = 369_531_500_000u64;
+    // For icount-based measurements, since we start compilation after the full
+    // contract is already loaded into memory, it is possible that IO costs per
+    // byte are essentially 0 and sometimes negative in the fitted curve. If
+    // this negative value is small enough, this can be tolerated and the
+    // parameter is clamped to 0 without marking the result as uncertain.
+    let rel_factor_tolerance = 0.001;
+    let (_base, per_byte) = GasCost::least_squares_method_gas_cost(
+        &xs,
+        &ys,
+        &LeastSquaresTolerance::default()
+            .base_abs_nn_tolerance(negative_base_tolerance)
+            .factor_rel_nn_tolerance(rel_factor_tolerance),
+        ctx.config.debug_least_squares,
+    );
+    per_byte
+}
+
+/// Cost for deploying a specific contract.
+///
+/// This function will run however many iterations of the transaction as has
+/// been defined in the config.
+/// To avoid hitting the contract code cache, a pivot function name can be
+/// provided. This must be a name of an exported function in the WASM module. It
+/// will be dynamically modified on every iteration to a unique name. This
+/// ensures a different code hash every time, without logical changes to the
+/// contract.
+fn deploy_contract_cost(
+    ctx: &mut EstimatorContext,
+    code: Vec<u8>,
+    pivot_fn_name: Option<&[u8]>,
+) -> GasCost {
     let testbed = ctx.testbed();
+
+    let mut code_num = 0;
+    let mut code_factory = || {
+        let mut code = code.clone();
+        if let Some(pivot_fn_name) = pivot_fn_name {
+            let unique_name = generate_fn_name(code_num, pivot_fn_name.len());
+            code_num += 1;
+
+            let start =
+                code.windows(pivot_fn_name.len()).position(|slice| slice == pivot_fn_name).unwrap();
+            code[start..(start + pivot_fn_name.len())].copy_from_slice(&unique_name);
+        }
+        code
+    };
 
     let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
         let sender = tb.random_unused_account();
         let receiver = sender.clone();
 
-        let actions = vec![Action::DeployContract(DeployContractAction { code: code.clone() })];
+        let actions = vec![Action::DeployContract(DeployContractAction { code: code_factory() })];
         tb.transaction_from_actions(sender, receiver, actions)
     };
-    transaction_cost(testbed, &mut make_transaction)
+    let total_cost = transaction_cost(testbed, &mut make_transaction);
+    let base_cost = action_sir_receipt_creation(ctx) + apply_block_cost(ctx);
+    total_cost - base_cost
+}
+fn contract_compile_base(ctx: &mut EstimatorContext) -> GasCost {
+    compilation_cost_base_per_byte(ctx).0
+}
+fn contract_compile_bytes(ctx: &mut EstimatorContext) -> GasCost {
+    compilation_cost_base_per_byte(ctx).1
 }
 fn compilation_cost_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {
     if let Some(base_byte_cost) = ctx.cached.compile_cost_base_per_byte.clone() {
         return base_byte_cost;
     }
 
-    let verbose = false;
-    let (base, byte) = compute_compile_cost_vm(ctx.config.metric, ctx.config.vm_kind, verbose);
-
-    let base_byte_cost = (
-        GasCost::from_gas(base.into(), ctx.config.metric),
-        GasCost::from_gas(byte.into(), ctx.config.metric),
-    );
+    let verbose = ctx.config.debug_least_squares;
+    let base_byte_cost = compute_compile_cost_vm(ctx.config.metric, ctx.config.vm_kind, verbose);
 
     ctx.cached.compile_cost_base_per_byte = Some(base_byte_cost.clone());
     base_byte_cost
+}
+fn contract_compile_base_v2(ctx: &mut EstimatorContext) -> GasCost {
+    contract_compile_base_per_byte_v2(ctx).0
+}
+fn contract_compile_bytes_v2(ctx: &mut EstimatorContext) -> GasCost {
+    contract_compile_base_per_byte_v2(ctx).1
+}
+fn contract_compile_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {
+    if let Some(costs) = ctx.cached.compile_cost_base_per_byte_v2.clone() {
+        return costs;
+    }
+
+    let smallest_contract = read_resource("test-contract/res/smallest_contract.wasm");
+
+    let smallest_cost =
+        compile_single_contract_cost(ctx.config.metric, ctx.config.vm_kind, &smallest_contract);
+    let smallest_size = smallest_contract.len() as u64;
+
+    let mut max_bytes_cost = GasCost::zero(ctx.config.metric);
+    for (contract, _) in REAL_CONTRACTS_SAMPLE {
+        let binary = read_resource(contract);
+        let cost = compile_single_contract_cost(ctx.config.metric, ctx.config.vm_kind, &binary);
+        let bytes_cost = (cost - smallest_cost.clone()) / (binary.len() as u64 - smallest_size);
+        max_bytes_cost = std::cmp::max(bytes_cost, max_bytes_cost);
+    }
+
+    let base_cost = smallest_cost - max_bytes_cost.clone() * smallest_size;
+    let costs = (base_cost, max_bytes_cost);
+
+    ctx.cached.compile_cost_base_per_byte_v2 = Some(costs.clone());
+    costs
+}
+fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
+    let small_code = generate_data_only_contract(0);
+    let large_code = generate_data_only_contract(bytesize::mb(4u64) as usize);
+    let small_code_len = small_code.len();
+    let large_code_len = large_code.len();
+    let cost_empty = deploy_contract_cost(ctx, small_code, Some(b"main"));
+    let cost_4mb = deploy_contract_cost(ctx, large_code, Some(b"main"));
+
+    if cost_4mb < cost_empty {
+        let mut cost = GasCost::zero(ctx.config.metric);
+        cost.set_uncertain(true);
+        cost
+    } else {
+        (cost_4mb - cost_empty) / (large_code_len - small_code_len) as u64
+    }
 }
 
 fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {
@@ -588,24 +710,6 @@ fn host_function_call(ctx: &mut EstimatorContext) -> GasCost {
     let base_cost = noop_function_call_cost(ctx);
 
     (total_cost - base_cost) / count
-}
-fn noop_function_call_cost(ctx: &mut EstimatorContext) -> GasCost {
-    if let Some(cost) = ctx.cached.noop_function_call_cost.clone() {
-        return cost;
-    }
-
-    let cost = {
-        let testbed = ctx.testbed();
-
-        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
-            let sender = tb.random_unused_account();
-            tb.transaction_from_function_call(sender, "noop", Vec::new())
-        };
-        transaction_cost(testbed, &mut make_transaction)
-    };
-
-    ctx.cached.noop_function_call_cost = Some(cost.clone());
-    cost
 }
 
 fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
@@ -943,6 +1047,26 @@ fn touching_trie_node(ctx: &mut EstimatorContext) -> GasCost {
     storage_read_base(ctx) * 2 / 7
 }
 
+fn apply_block_cost(ctx: &mut EstimatorContext) -> GasCost {
+    if let Some(cost) = ctx.cached.apply_block.clone() {
+        return cost;
+    }
+
+    let mut testbed = ctx.testbed();
+
+    let n_blocks = testbed.config.warmup_iters_per_block + testbed.config.iter_per_block;
+    let blocks = vec![vec![]; n_blocks];
+
+    let measurements = testbed.measure_blocks(blocks);
+    let measurements =
+        measurements.into_iter().skip(testbed.config.warmup_iters_per_block).collect::<Vec<_>>();
+    let (gas_cost, _ext_costs) = aggregate_per_block_measurements(testbed.config, 1, measurements);
+
+    ctx.cached.apply_block = Some(gas_cost.clone());
+
+    gas_cost
+}
+
 fn gas_metering_base(ctx: &mut EstimatorContext) -> GasCost {
     gas_metering(ctx).0
 }
@@ -967,9 +1091,7 @@ fn gas_metering(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {
     if let Some(cached) = ctx.cached.gas_metering_cost_base_per_op.clone() {
         return cached;
     }
-    let (base, byte) = gas_metering_cost(ctx.config.metric, ctx.config.vm_kind);
-    let base = GasCost::from_gas(base.into(), ctx.config.metric);
-    let byte = GasCost::from_gas(byte.into(), ctx.config.metric);
+    let (base, byte) = gas_metering_cost(&ctx.config);
     ctx.cached.gas_metering_cost_base_per_op = Some((base.clone(), byte.clone()));
     (base, byte)
 }
@@ -991,181 +1113,4 @@ fn one_nanosecond(ctx: &mut EstimatorContext) -> GasCost {
     // But it would be useful to go backwards and see how expensive computation time is on specific hardware.
     eprintln!("Cannot estimate ONE_NANOSECOND like any other cost. The result will only show the constant value currently used in the estimator.");
     GasCost::from_gas(estimator_params::GAS_IN_NS, ctx.config.metric)
-}
-
-// Helpers
-
-/// Get account id from its index.
-fn get_account_id(account_index: usize) -> AccountId {
-    AccountId::try_from(format!("near_{}_{}", account_index, account_index)).unwrap()
-}
-
-fn transaction_cost(
-    testbed: Testbed,
-    make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
-) -> GasCost {
-    let block_size = 100;
-    let (gas_cost, _ext_costs) = transaction_cost_ext(testbed, block_size, make_transaction);
-    gas_cost
-}
-
-fn transaction_cost_ext(
-    mut testbed: Testbed,
-    block_size: usize,
-    make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
-) -> (GasCost, HashMap<ExtCosts, u64>) {
-    let blocks = {
-        let n_blocks = testbed.config.warmup_iters_per_block + testbed.config.iter_per_block;
-        let mut blocks = Vec::with_capacity(n_blocks);
-        for _ in 0..n_blocks {
-            let mut block = Vec::with_capacity(block_size);
-            for _ in 0..block_size {
-                let tx = make_transaction(testbed.transaction_builder());
-                block.push(tx)
-            }
-            blocks.push(block)
-        }
-        blocks
-    };
-
-    let measurements = testbed.measure_blocks(blocks);
-    let measurements =
-        measurements.into_iter().skip(testbed.config.warmup_iters_per_block).collect::<Vec<_>>();
-
-    aggregate_per_block_measurements(testbed.config, block_size, measurements)
-}
-
-fn fn_cost(ctx: &mut EstimatorContext, method: &str, ext_cost: ExtCosts, count: u64) -> GasCost {
-    let (total_cost, measured_count) = fn_cost_count(ctx, method, ext_cost);
-    assert_eq!(measured_count, count);
-
-    let base_cost = noop_function_call_cost(ctx);
-
-    (total_cost - base_cost) / count
-}
-
-fn fn_cost_count(ctx: &mut EstimatorContext, method: &str, ext_cost: ExtCosts) -> (GasCost, u64) {
-    let block_size = 2;
-    let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
-        let sender = tb.random_unused_account();
-        tb.transaction_from_function_call(sender, method, Vec::new())
-    };
-    let testbed = ctx.testbed();
-    let (gas_cost, ext_costs) = transaction_cost_ext(testbed, block_size, &mut make_transaction);
-    let ext_cost = ext_costs[&ext_cost];
-    (gas_cost, ext_cost)
-}
-
-/// Estimates the cost to call `method`, but makes sure that `setup` is called
-/// before.
-///
-/// Used for storage costs -- `setup` writes stuff into the storage, where
-/// `method` can then find it. We take care to make sure that `setup` is run in
-/// a separate block, to make sure we hit the database and not an in-memory hash
-/// map.
-fn fn_cost_with_setup(
-    ctx: &mut EstimatorContext,
-    setup: &str,
-    method: &str,
-    ext_cost: ExtCosts,
-    count: u64,
-) -> GasCost {
-    let (total_cost, measured_count) = {
-        let block_size = 2usize;
-        let n_blocks = ctx.config.warmup_iters_per_block + ctx.config.iter_per_block;
-
-        let mut testbed = ctx.testbed();
-
-        let blocks = {
-            let mut blocks = Vec::with_capacity(2 * n_blocks);
-            for _ in 0..n_blocks {
-                let tb = testbed.transaction_builder();
-                let mut setup_block = Vec::new();
-                let mut block = Vec::new();
-                for _ in 0..block_size {
-                    let sender = tb.random_unused_account();
-                    let setup_tx =
-                        tb.transaction_from_function_call(sender.clone(), setup, Vec::new());
-                    let tx = tb.transaction_from_function_call(sender, method, Vec::new());
-
-                    setup_block.push(setup_tx);
-                    block.push(tx);
-                }
-                blocks.push(setup_block);
-                blocks.push(block);
-            }
-            blocks
-        };
-
-        let measurements = testbed.measure_blocks(blocks);
-        // Filter out setup blocks.
-        let measurements: Vec<_> = measurements
-            .into_iter()
-            .skip(ctx.config.warmup_iters_per_block * 2)
-            .enumerate()
-            .filter(|(i, _)| i % 2 == 1)
-            .map(|(_, m)| m)
-            .collect();
-
-        let (gas_cost, ext_costs) =
-            aggregate_per_block_measurements(ctx.config, block_size, measurements);
-        (gas_cost, ext_costs[&ext_cost])
-    };
-    assert_eq!(measured_count, count);
-
-    let base_cost = noop_function_call_cost(ctx);
-
-    (total_cost - base_cost) / count
-}
-
-fn aggregate_per_block_measurements(
-    config: &Config,
-    block_size: usize,
-    measurements: Vec<(GasCost, HashMap<ExtCosts, u64>)>,
-) -> (GasCost, HashMap<ExtCosts, u64>) {
-    let mut block_costs = Vec::new();
-    let mut total_ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
-    let mut total = GasCost::zero(config.metric);
-    let mut n = 0;
-    for (gas_cost, ext_cost) in measurements {
-        block_costs.push(gas_cost.to_gas() as f64);
-        total += gas_cost;
-        n += block_size as u64;
-        for (c, v) in ext_cost {
-            *total_ext_costs.entry(c).or_default() += v;
-        }
-    }
-    for v in total_ext_costs.values_mut() {
-        *v /= n;
-    }
-    let mut gas_cost = total / n;
-    gas_cost.set_uncertain(is_high_variance(&block_costs));
-    (gas_cost, total_ext_costs)
-}
-
-/// We expect our cost computations to be fairly reproducible, and just flag
-/// "high-variance" measurements as suspicious. To make results easily
-/// explainable, we just require that all the samples don't deviate from the
-/// mean by more than 15%, where the number 15 is somewhat arbitrary.
-///
-/// Note that this looks at block processing times, and each block contains
-/// multiples of things we are actually measuring. As low block variance doesn't
-/// guarantee low within-block variance, this is necessary an approximate sanity
-/// check.
-fn is_high_variance(samples: &[f64]) -> bool {
-    let threshold = 0.15;
-
-    let mean = samples.iter().copied().sum::<f64>() / (samples.len() as f64);
-
-    let all_below_threshold =
-        samples.iter().copied().all(|it| (mean - it).abs() < mean * threshold);
-
-    !all_below_threshold
-}
-
-pub fn read_resource(path: &str) -> Vec<u8> {
-    let dir = env!("CARGO_MANIFEST_DIR");
-    let path = std::path::Path::new(dir).join(path);
-    std::fs::read(&path)
-        .unwrap_or_else(|err| panic!("failed to load test resource: {}, {}", path.display(), err))
 }
