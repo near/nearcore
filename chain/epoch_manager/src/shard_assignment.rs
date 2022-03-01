@@ -1,7 +1,6 @@
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{Balance, NumShards, ShardId};
-use near_primitives::utils::min_heap::MinHeap;
-use std::cmp;
+use near_primitives::utils::min_heap::{MinHeap, PeekMut};
 
 /// Assign chunk producers (a.k.a. validators) to shards.  The i-th element
 /// of the output corresponds to the validators assigned to the i-th shard.
@@ -30,83 +29,47 @@ pub fn assign_shards<T: HasStake + Eq + Clone>(
         );
     }
 
-    // Initially, sort by number of validators, then total stake
-    // (i.e. favour filling under-occupied shards first).
-    let mut shard_validator_heap: MinHeap<(usize, Balance, ShardId)> =
-        (0..num_shards).map(|s| (0, 0, s)).collect();
-
+    // If there’s not enough chunk producers to fill up a single shard there’s
+    // nothing we can do.  Return with an error.
     let num_chunk_producers = chunk_producers.len();
     if num_chunk_producers < min_validators_per_shard {
-        // Each shard must have `min_validators_per_shard` distinct validators,
-        // however there are not that many, so we cannot proceed.
         return Err(NotEnoughValidators);
     }
-    let required_validator_count =
-        cmp::max(num_chunk_producers, (num_shards as usize) * min_validators_per_shard);
 
     let mut result: Vec<Vec<T>> = (0..num_shards).map(|_| Vec::new()).collect();
 
-    // Place validators into shards while there are still some without the
-    // minimum required number.
-    if required_validator_count == num_chunk_producers {
-        // In this case there are at least enough chunk producers that no one will need
-        // to be assigned to multiple shards, so we don't need to worry about that case.
-        let mut cp_iter = chunk_producers.into_iter();
+    // Initially, sort by number of validators first so we fill shards up.
+    let mut shard_index: MinHeap<(usize, Balance, ShardId)> =
+        (0..num_shards).map(|s| (0, 0, s)).collect();
 
-        // First we assign one validator to each shard, until all have the minimum number
-        while shard_validator_heap.peek().unwrap().0 < min_validators_per_shard {
-            let cp = cp_iter
-                .next()
-                .expect("cp_iter should contain enough elements to minimally fill each shard");
-            let (least_validator_count, shard_stake, shard_id) =
-                shard_validator_heap.pop().expect("shard_index should never be empty");
+    // First, distribute chunk producers until all shards have at least the
+    // minimum requested number.  If there are not enough validators to satisfy
+    // that requirement, assign some of the validators to multiple shards.
+    let mut chunk_producers = chunk_producers.into_iter().cycle();
+    assign_with_possible_repeats(
+        &mut shard_index,
+        &mut result,
+        &mut chunk_producers,
+        min_validators_per_shard,
+    );
 
-            shard_validator_heap.push((
-                least_validator_count + 1,
-                shard_stake + cp.get_stake(),
-                shard_id,
-            ));
+    // Second, if there are any unassigned chunk producers left, distribute them
+    // between shards trying to balance total stake.
+    let remaining_producers =
+        num_chunk_producers.saturating_sub(num_shards as usize * min_validators_per_shard);
+    if remaining_producers > 0 {
+        // Re-index shards to favour lowest stake first.
+        let mut shard_index: MinHeap<(Balance, usize, ShardId)> = shard_index
+            .into_iter()
+            .map(|(count, stake, shard_id)| (stake, count, shard_id))
+            .collect();
+
+        for cp in chunk_producers.take(remaining_producers) {
+            let (least_stake, least_validator_count, shard_id) =
+                shard_index.pop().expect("shard_index should never be empty");
+            shard_index.push((least_stake + cp.get_stake(), least_validator_count + 1, shard_id));
             result[usize::try_from(shard_id).unwrap()].push(cp);
         }
-
-        let mut cp_iter = cp_iter.peekable();
-        if cp_iter.peek().is_some() {
-            // If there are still validators left to assign once the minimum is reached then
-            // we can change priorities to try and balance the total stake in each shard
-
-            // re-index shards to favour lowest stake first
-            let mut shard_index: MinHeap<(Balance, usize, ShardId)> = shard_validator_heap
-                .into_iter()
-                .map(|(count, stake, shard_id)| (stake, count, shard_id))
-                .collect();
-
-            for cp in cp_iter {
-                let (least_stake, least_validator_count, shard_id) =
-                    shard_index.pop().expect("shard_index should never be empty");
-                shard_index.push((
-                    least_stake + cp.get_stake(),
-                    least_validator_count + 1,
-                    shard_id,
-                ));
-                result[usize::try_from(shard_id).unwrap()].push(cp);
-            }
-        }
-    } else {
-        // In this case there are not enough validators to fill all shards without repeats,
-        // so we use a more complex assignment function.
-        let mut cp_iter = chunk_producers.into_iter().cycle().take(required_validator_count);
-
-        // This function assigns validators until all shards are filled. Each validator may
-        // be assigned to multiple shards. This function does not attempt to balance stakes between
-        // shards because it is expected that in production there will always be many more chunk
-        // producers than shards, so this case will never come up and thus the algorithm does not
-        // need to be tuned for this situation.
-        assign_with_possible_repeats(
-            &mut shard_validator_heap,
-            &mut result,
-            &mut cp_iter,
-            min_validators_per_shard,
-        );
     }
 
     Ok(result)
@@ -124,42 +87,48 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = T>>(
         let cp = cp_iter
             .next()
             .expect("cp_iter should contain enough elements to minimally fill each shard");
-        let (least_validator_count, shard_stake, shard_id) =
-            shard_index.pop().expect("shard_index should never be empty");
-
-        if result[usize::try_from(shard_id).unwrap()].contains(&cp) {
-            // `cp` is already assigned to this shard, need to assign elsewhere
-
-            // `buffer` tracks shards `cp` is already in, these will need to be pushed back into
-            // shard_index when we eventually assign `cp`.
-            buffer.push((least_validator_count, shard_stake, shard_id));
-            loop {
-                // We can still expect that there exists a shard cp has not been assigned to
-                // because we check above that there are at least `min_validators_per_shard` distinct
-                // chunk producers. This means the worst case scenario is in the end every chunk
-                // producer is assigned to every shard, in which case we would not be trying to
-                // assign a chunk producer right now.
-                let (least_validator_count, shard_stake, shard_id) =
-                    shard_index.pop().expect("shard_index should never be empty");
-                if result[usize::try_from(shard_id).unwrap()].contains(&cp) {
-                    buffer.push((least_validator_count, shard_stake, shard_id))
-                } else {
-                    shard_index.push((
-                        least_validator_count + 1,
-                        shard_stake + cp.get_stake(),
-                        shard_id,
-                    ));
-                    result[usize::try_from(shard_id).unwrap()].push(cp);
+        // Decide which shard to assign this chunk producer to.  We mustn’t
+        // assign producers to a single shard multiple times.
+        loop {
+            match shard_index.peek_mut() {
+                None => {
+                    // No shards left which don’t already contain this chunk
+                    // producer.  Skip it and move to another producer.
+                    break;
+                }
+                Some(top) if top.0 >= min_validators_per_shard => {
+                    // `shard_index` is sorted by number of chunk producers,
+                    // thus all remaining shards have min_validators_per_shard
+                    // producers already assigned to them.  Don’t assign current
+                    // one to any shard and move to next cp.
+                    break;
+                }
+                Some(top) if result[usize::try_from(top.2).unwrap()].contains(&cp) => {
+                    // This chunk producer is already assigned to this shard.
+                    // Pop the shard from the heap for now and try assigning the
+                    // producer to the next shard.  (We’ll look back at the
+                    // shard once we figure out what to do with current `cp`).
+                    //
+                    // TODO(mina86): The contains check in the condition makes
+                    // this an O(N^2) algorithm.  At the moment there aren’t too
+                    // many chunk producers so it should be fine but if that’s
+                    // becomes an issue we should switch to a hash set.
+                    buffer.push(PeekMut::pop(top));
+                }
+                Some(mut top) => {
+                    // Chunk producer is not yet assigned to the shard and the
+                    // shard still needs more producers.  Assign `cp` to it and
+                    // move to next one.
+                    top.0 += 1;
+                    top.1 += cp.get_stake();
+                    result[usize::try_from(top.2).unwrap()].push(cp);
                     break;
                 }
             }
-            for tuple in buffer.drain(..) {
-                shard_index.push(tuple);
-            }
-        } else {
-            shard_index.push((least_validator_count + 1, shard_stake + cp.get_stake(), shard_id));
-            result[usize::try_from(shard_id).unwrap()].push(cp);
         }
+        // Any shards we skipped over (because `cp` was already assigned to
+        // them) need to be put back into the heap.
+        shard_index.extend(buffer.drain(..));
     }
 }
 
@@ -213,18 +182,11 @@ mod tests {
     /// shards will have one validator but shard 1 will have less total stake so
     /// the code will assign validator 81 to it.  In the last step, shard 0 will
     /// have only one validator so the code will try to assign validator 100 to
-    /// it.  However, that validator is already assigned to that shard.
-    ///
-    /// Note that this case is currently broken and hence marking it as
-    /// `should_panic`.
-    ///
-    /// TODO(#5932): This needs to be fixed.
+    /// it.  However, that validator is already assigned to that shard so the
+    /// algorithm will need to discard it and try another one.
     #[test]
-    #[should_panic(
-        expected = "cp_iter should contain enough elements to minimally fill each shard"
-    )]
     fn test_duplicate_validator() {
-        test_distribution_common(&EXPONENTIAL_STAKES[..3], 2, 3);
+        test_distribution_common(&EXPONENTIAL_STAKES[..3], 2, 11);
     }
 
     /// Tests behaviour when there’s not enough validators to fill required

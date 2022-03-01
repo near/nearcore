@@ -64,11 +64,6 @@ pytest --timeout=360 sanity/block_sync_archival.py
 pytest --timeout=360 sanity/block_sync_archival.py --features nightly_protocol,nightly_protocol_features
 pytest --timeout=240 sanity/validator_switch.py
 pytest --timeout=240 sanity/validator_switch.py --features nightly_protocol,nightly_protocol_features
-pytest --timeout=240 sanity/restaked.py
-# TODO(#4618): This is currently broken (even though non-nightly
-# works).  Comment out while we’re working on a fix / deciding whether
-# to remove them.
-#pytest --timeout=240 sanity/restaked.py --features nightly_protocol,nightly_protocol_features
 pytest --timeout=240 sanity/rpc_state_changes.py
 pytest --timeout=240 sanity/rpc_state_changes.py --features nightly_protocol,nightly_protocol_features
 pytest sanity/rpc_max_gas_burnt.py
@@ -140,3 +135,6 @@ pytest sanity/rpc_hash.py --features nightly_protocol,nightly_protocol_features
 # Rosetta RPC tests
 pytest sanity/rosetta.py
 pytest sanity/rosetta.py --features nightly_protocol,nightly_protocol_features
+
+# Make sure Docker image can be build and run
+pytest --skip-build --timeout=1h sanity/docker.py

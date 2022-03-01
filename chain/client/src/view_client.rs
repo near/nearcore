@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
-use log::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use near_chain::types::ValidatorInfoIdentifier;
 use near_chain::{
@@ -18,12 +18,13 @@ use near_chain::{
 };
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_client_primitives::types::{
-    Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
-    GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
-    GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetNextLightClientBlockError,
-    GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError, GetStateChangesError,
-    GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, QueryError, TxStatus,
-    TxStatusError,
+    Error, GetBlock, GetBlockError, GetBlockHash, GetBlockProof, GetBlockProofError,
+    GetBlockProofResponse, GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome,
+    GetExecutionOutcomeError, GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError,
+    GetNextLightClientBlockError, GetProtocolConfig, GetProtocolConfigError, GetReceipt,
+    GetReceiptError, GetStateChangesError, GetStateChangesWithCauseInBlock,
+    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
+    TxStatus, TxStatusError,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 #[cfg(feature = "test_features")]
@@ -572,6 +573,31 @@ impl Handler<GetBlock> for ViewClientActor {
     }
 }
 
+/// Handles retrieving block header from the chain.
+impl Handler<GetBlockHash> for ViewClientActor {
+    type Result = Result<CryptoHash, GetBlockError>;
+
+    #[perf]
+    fn handle(&mut self, msg: GetBlockHash, _: &mut Self::Context) -> Self::Result {
+        match msg.0 {
+            BlockReference::Finality(finality) => self.get_block_hash_by_finality(&finality),
+            BlockReference::BlockId(BlockId::Height(height)) => {
+                self.chain.get_block_hash_by_height(height)
+            }
+            BlockReference::BlockId(BlockId::Hash(hash)) => {
+                // Fetch block header to confirm that the block exists.  This is
+                // only done so that we can get an error if the hash does not
+                // correspond to a known block.
+                self.chain.get_block_header(&hash).map(|_| hash)
+            }
+            BlockReference::SyncCheckpoint(sync_checkpoint) => Ok(self
+                .get_block_hash_by_sync_checkpoint(&sync_checkpoint)?
+                .ok_or(GetBlockError::NotSyncedYet)?),
+        }
+        .map_err(std::convert::Into::into)
+    }
+}
+
 impl Handler<GetBlockWithMerkleTree> for ViewClientActor {
     type Result = Result<(BlockView, PartialMerkleTree), GetBlockError>;
 
@@ -755,6 +781,43 @@ impl Handler<GetStateChangesWithCauseInBlock> for ViewClientActor {
             .into_iter()
             .map(Into::into)
             .collect())
+    }
+}
+
+/// Returns a hashmap where the key represents the ShardID and the value
+/// is the list of changes in a store with causes for a given block.
+impl Handler<GetStateChangesWithCauseInBlockForTrackedShards> for ViewClientActor {
+    type Result = Result<HashMap<ShardId, StateChangesView>, GetStateChangesError>;
+
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: GetStateChangesWithCauseInBlockForTrackedShards,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let state_changes_with_cause_in_block =
+            self.chain.store().get_state_changes_with_cause_in_block(&msg.block_hash)?;
+
+        let mut state_changes_with_cause_split_by_shard_id: HashMap<ShardId, StateChangesView> =
+            HashMap::new();
+        for state_change_with_cause in state_changes_with_cause_in_block {
+            let account_id = state_change_with_cause.value.affected_account_id();
+            let shard_id = match self
+                .runtime_adapter
+                .account_id_to_shard_id(account_id, &msg.epoch_id)
+            {
+                Ok(shard_id) => shard_id,
+                Err(err) => {
+                    return Err(GetStateChangesError::IOError { error_message: format!("{}", err) })
+                }
+            };
+
+            let state_changes =
+                state_changes_with_cause_split_by_shard_id.entry(shard_id).or_default();
+            state_changes.push(state_change_with_cause.into());
+        }
+
+        Ok(state_changes_with_cause_split_by_shard_id)
     }
 }
 
