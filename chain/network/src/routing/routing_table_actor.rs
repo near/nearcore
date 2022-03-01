@@ -257,8 +257,7 @@ impl RoutingTableActor {
 
     /// Recalculate routing table and update list of reachable peers.
     pub fn recalculate_routing_table(&mut self) {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("routing table update".into());
+        let _d = delay_detector::DelayDetector::new(|| "routing table update".into());
         let _routing_table_recalculation =
             metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
 
@@ -288,8 +287,7 @@ impl RoutingTableActor {
             return Vec::new();
         }
 
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("pruning edges".into());
+        let _d = delay_detector::DelayDetector::new(|| "pruning edges".into());
 
         let edges_to_remove = self.prune_unreachable_edges_and_save_to_db(
             prune == Prune::Now,
