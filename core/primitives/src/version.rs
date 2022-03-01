@@ -166,21 +166,11 @@ pub const PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION;
 #[cfg(feature = "nightly_protocol")]
 pub const PROTOCOL_VERSION: ProtocolVersion = 126;
 
-/// The moment in time after which the voting for the latest client version should start on the
-/// mainnet version of the protocol.
+/// The points in time after which the voting for the protocol version should start.
+// The schedule is defined as a list because it needs to be a const expression. Please keep this list reverse-sorted.
 #[allow(dead_code)]
-const STABLE_PROTOCOL_UPGRADE_VOTING_START: Option<ProtocolUpgradeVotingSchedule> = None;
-#[cfg(not(feature = "nightly_protocol"))]
-const PROTOCOL_UPGRADE_VOTING_START: Option<ProtocolUpgradeVotingSchedule> =
-    STABLE_PROTOCOL_UPGRADE_VOTING_START;
-
-/// The moment in time after which the voting for the latest client version should start on the
-/// nightly version of the protocol.
-#[allow(dead_code)]
-const NIGHTLY_PROTOCOL_UPGRADE_VOTING_START: Option<ProtocolUpgradeVotingSchedule> = None;
-#[cfg(feature = "nightly_protocol")]
-const PROTOCOL_UPGRADE_VOTING_START: Option<ProtocolUpgradeVotingSchedule> =
-    NIGHTLY_PROTOCOL_UPGRADE_VOTING_START;
+const PROTOCOL_UPGRADE_SCHEDULE: &[(ProtocolVersion, Option<ProtocolUpgradeVotingSchedule>)] =
+    &[(52, None)];
 
 /// Gives new clients an option to upgrade without announcing that they support the new version.
 /// This gives non-validator nodes time to upgrade. See https://github.com/near/NEPs/issues/205
@@ -188,7 +178,7 @@ pub fn get_protocol_version(next_epoch_protocol_version: ProtocolVersion) -> Pro
     get_protocol_version_internal(
         next_epoch_protocol_version,
         PROTOCOL_VERSION,
-        PROTOCOL_UPGRADE_VOTING_START,
+        PROTOCOL_UPGRADE_SCHEDULE,
     )
 }
 
@@ -277,19 +267,21 @@ macro_rules! checked_feature {
 
 #[cfg(test)]
 mod tests {
-    use crate::version::{
-        NIGHTLY_PROTOCOL_UPGRADE_VOTING_START, STABLE_PROTOCOL_UPGRADE_VOTING_START,
-    };
+    use crate::version::PROTOCOL_UPGRADE_SCHEDULE;
 
     #[test]
     // This unit test ensures validity of upgrade schedule, because the validity can't be ensured
     // during `const` construction.
     fn test_upgrade_schedule_valid() {
-        if let Some(schedule) = STABLE_PROTOCOL_UPGRADE_VOTING_START {
-            assert!(schedule.is_valid());
-        }
-        if let Some(schedule) = NIGHTLY_PROTOCOL_UPGRADE_VOTING_START {
-            assert!(schedule.is_valid());
+        let mut prev_version = None;
+        for (version, voting_start) in PROTOCOL_UPGRADE_SCHEDULE {
+            if let Some(voting_start) = voting_start {
+                assert!(voting_start.is_valid());
+            }
+            if let Some(prev_version) = prev_version {
+                assert!(prev_version > version);
+            }
+            prev_version = Some(version);
         }
     }
 }
