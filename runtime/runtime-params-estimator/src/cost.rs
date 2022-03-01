@@ -158,10 +158,57 @@ pub enum Cost {
     /// writes 1 MiB to a register 10'000 times. Subtract the cost of an empty
     /// function call and divide the rest by 10'000 * 1Mi.
     WriteRegisterByte,
+
+    /// Estimates `utf8_decoding_base` which is charged once for each time
+    /// something is logged in UTF8 or when panicking.
+    ///
+    /// Estimation: Execute a transaction with a single function that logs
+    /// 10'000 times a small string. Divide the cost by 10'000.
     Utf8DecodingBase,
+    /// Estimates `utf8_decoding_byte` which is charged for each byte in the
+    /// output of logging in UTF8 or panicking.
+    ///
+    /// Estimation: Execute a transaction with a single function that logs
+    /// 10'000 times a string of length 10'000. Divide the cost by total bytes
+    /// logged. One more details, to cover both null-terminated strings and
+    /// fixed-length strings, both versions are measured and the maximum is
+    /// taken.
     Utf8DecodingByte,
+    /// Estimates `utf16_decoding_base` which is charged once for each time
+    /// something is logged in UTF16.
+    ///
+    /// Estimation: Execute a transaction with a single function that logs
+    /// 10'000 times a small string. Divide the cost by 10'000.
     Utf16DecodingBase,
+    /// Estimates `utf16_decoding_byte` which is charged for each byte in the
+    /// output of logging in UTF16.
+    ///
+    /// Estimation: Execute a transaction with a single function that logs
+    /// 10'000 times a string of length 10'000. Divide the cost by total bytes
+    /// logged. One more details, to cover both null-terminated strings and
+    /// fixed-length strings, both versions are measured and the maximum is
+    /// taken.
     Utf16DecodingByte,
+    /// Estimates `log_base` which is charged once every time log output is
+    /// produced, either through logging functions (UTF8 or UTF16) or when
+    /// panicking.
+    /// 
+    /// Estimation: Execute a transaction with a single function that logs
+    /// 10'000 times a small string (using UTF16 to be pessimistic). Divide the
+    /// cost by 10'000.
+    /// 
+    /// Note: This currently uses the identical estimation as
+    /// `Utf16DecodingBase`
+    LogBase,
+    /// Estimates `log_byte` which is charged for every byte of log output
+    /// produced, either through logging functions (UTF8 or UTF16) or when
+    /// panicking.
+    /// 
+    /// Estimation: Execute a transaction with a single function that logs
+    /// 10'000 times a 10kiB string (using UTF16 to be pessimistic). Divide the
+    /// cost by total bytes of output produced, which is 3/2 * 10'000 * 10 *
+    /// 1024.
+    LogByte,
 
     // Cryptographic host functions:
     // The runtime provides host functions for sha256, keccak256, keccak512,
@@ -202,8 +249,6 @@ pub enum Cost {
     /// function `ecrecover` to verify an ECDSA signature and extract the
     /// signer.
     EcrecoverBase,
-    LogBase,
-    LogByte,
 
     // `storage_write` records a single key-value pair, initially in the
     // prospective changes in-memory hash map, and then once a full block has
