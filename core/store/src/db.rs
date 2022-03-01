@@ -878,6 +878,11 @@ impl RocksDB {
     pub fn checkpoint(&self) -> Result<Checkpoint, DBError> {
         Checkpoint::new(&self.db).map_err(|err| DBError(err))
     }
+
+    /// Synchronously flush all Memtables to SST files on disk
+    pub fn flush(&self) -> Result<(), DBError> {
+        self.db.flush().map_err(DBError::from)
+    }
 }
 
 fn available_space<P: AsRef<Path> + std::fmt::Debug>(
