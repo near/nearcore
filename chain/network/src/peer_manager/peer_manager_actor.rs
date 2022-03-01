@@ -2252,11 +2252,9 @@ impl PeerManagerActor {
         addr: Addr<PeerActor>,
         throttle_controller: Option<ThrottleController>,
     ) {
-        let mut edges: Vec<Edge> = Vec::new();
-        std::mem::swap(&mut edges, &mut ibf_msg.edges);
         self.validate_edges_and_add_to_routing_table(
             peer_id.clone(),
-            edges,
+            std::mem::take(&mut ibf_msg.edges),
             throttle_controller.clone(),
         );
         actix::spawn(
