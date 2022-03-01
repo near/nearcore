@@ -551,6 +551,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     part_request_msg,
                     route_back,
                     self.client.chain.mut_store(),
+                    &mut self.client.rs,
                 );
                 NetworkClientResponses::NoResponse
             }
