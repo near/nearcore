@@ -945,7 +945,7 @@ impl EncodedShardChunk {
         let mut bytes =
             TransactionReceipt(transactions, outgoing_receipts.to_vec()).try_to_vec()?;
 
-        let mut parts = vec![];
+        let mut parts = Vec::with_capacity(rs.total_shard_count());
         let data_parts = rs.data_shard_count();
         let total_parts = rs.total_shard_count();
         let encoded_length = bytes.len();

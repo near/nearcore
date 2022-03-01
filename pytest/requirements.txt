@@ -5,6 +5,7 @@ deepdiff
 ed25519
 numpy
 prometheus-client
+psutil
 pynacl
 python-rc==0.3.9
 requests

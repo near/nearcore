@@ -731,7 +731,7 @@ version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc38c385bfd7e444464011bb24820f40dd1c76bcdfa1b78611cb7c2e5cafab75"
 dependencies = [
- "rustc_version",
+ "rustc_version 0.2.3",
 ]
 
 [[package]]
@@ -1238,7 +1238,7 @@ name = "delay-detector"
 version = "0.0.0"
 dependencies = [
  "cpu-time",
- "log",
+ "tracing",
 ]
 
 [[package]]
@@ -1424,19 +1424,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "env_logger"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a19187fea3ac7e84da7dacf48de0c45d63c6a76f9490dae389aead16c243fce3"
-dependencies = [
- "atty",
- "humantime",
- "log",
- "regex",
- "termcolor",
 ]
 
 [[package]]
@@ -1747,28 +1734,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "git-version"
-version = "0.3.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6b0decc02f4636b9ccad390dcbe77b722a77efedfa393caf8379a51d5c61899"
-dependencies = [
- "git-version-macro",
- "proc-macro-hack",
-]
-
-[[package]]
-name = "git-version-macro"
-version = "0.3.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe69f1cbdb6e28af2bac214e943b99ce8a0a06b447d15d3e61161b0423139f3f"
-dependencies = [
- "proc-macro-hack",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "glob"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1896,12 +1861,6 @@ name = "httpdate"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6456b8a6c8f33fee7d958fcd1b60d55b11940a79e63ae87013e6d22e26034440"
-
-[[package]]
-name = "humantime"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
 name = "hyper"
@@ -2059,7 +2018,6 @@ dependencies = [
  "futures",
  "hex",
  "hyper",
- "log",
  "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
@@ -2279,6 +2237,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4da24a77a3d8a6d4862d95f72e6fdb9c09a643ecdb402d754004a557f2bec75"
 dependencies = [
  "scopeguard",
+ "serde",
 ]
 
 [[package]]
@@ -2288,7 +2247,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "712a4d093c9976e24e7dbca41db895dabcbac38eb5f4045393d17a95bdfb1109"
 dependencies = [
  "scopeguard",
- "serde",
 ]
 
 [[package]]
@@ -2578,10 +2536,10 @@ dependencies = [
  "chrono",
  "failure",
  "failure_derive",
- "log",
  "near-crypto",
  "near-primitives",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -2593,7 +2551,6 @@ dependencies = [
  "borsh",
  "chrono",
  "futures",
- "log",
  "lru",
  "near-chain",
  "near-chunks-primitives",
@@ -2606,6 +2563,7 @@ dependencies = [
  "near-store",
  "rand 0.7.3",
  "reed-solomon-erasure",
+ "tracing",
 ]
 
 [[package]]
@@ -2626,7 +2584,6 @@ dependencies = [
  "chrono",
  "delay-detector",
  "futures",
- "log",
  "lru",
  "near-actix-test-utils",
  "near-chain",
@@ -2652,6 +2609,7 @@ dependencies = [
  "strum",
  "sysinfo",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -2704,7 +2662,6 @@ version = "0.0.0"
 dependencies = [
  "borsh",
  "chrono",
- "log",
  "lru",
  "near-chain",
  "near-chain-configs",
@@ -2717,6 +2674,7 @@ dependencies = [
  "rand 0.7.3",
  "serde_json",
  "smart-default",
+ "tracing",
 ]
 
 [[package]]
@@ -2730,6 +2688,7 @@ dependencies = [
  "near-chain-configs",
  "near-client",
  "near-crypto",
+ "near-indexer-primitives",
  "near-primitives",
  "nearcore",
  "node-runtime",
@@ -2738,6 +2697,15 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "near-indexer-primitives"
+version = "0.0.0"
+dependencies = [
+ "near-primitives",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2870,8 +2838,8 @@ name = "near-metrics"
 version = "0.0.0"
 dependencies = [
  "lazy_static",
- "log",
  "prometheus",
+ "tracing",
 ]
 
 [[package]]
@@ -2925,7 +2893,6 @@ dependencies = [
  "serde",
  "strum",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -2938,12 +2905,12 @@ dependencies = [
  "bytesize",
  "futures",
  "libc",
- "log",
  "near-rust-allocator-proxy",
  "once_cell",
  "strum",
  "tokio",
  "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -3297,9 +3264,9 @@ name = "neard"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "anyhow",
  "clap 3.0.0-beta.2",
  "futures",
- "git-version",
  "near-chain-configs",
  "near-performance-metrics",
  "near-primitives",
@@ -3307,6 +3274,7 @@ dependencies = [
  "nearcore",
  "once_cell",
  "openssl-probe",
+ "rustc_version 0.4.0",
  "shell-escape",
  "state-viewer",
  "tikv-jemallocator",
@@ -3338,7 +3306,6 @@ dependencies = [
  "byteorder",
  "hex",
  "indicatif",
- "log",
  "near-chain-configs",
  "near-crypto",
  "near-metrics",
@@ -3540,7 +3507,7 @@ dependencies = [
  "paperclip-actix",
  "paperclip-core",
  "paperclip-macros",
- "parking_lot 0.11.2",
+ "parking_lot 0.10.2",
  "semver 0.9.0",
  "serde",
  "serde_derive",
@@ -3561,7 +3528,7 @@ dependencies = [
  "once_cell",
  "paperclip-core",
  "paperclip-macros",
- "parking_lot 0.11.2",
+ "parking_lot 0.10.2",
  "serde_json",
 ]
 
@@ -3574,7 +3541,7 @@ dependencies = [
  "mime",
  "once_cell",
  "paperclip-macros",
- "parking_lot 0.11.2",
+ "parking_lot 0.10.2",
  "pin-project",
  "regex",
  "serde",
@@ -4284,13 +4251,13 @@ name = "restaked"
 version = "0.0.0"
 dependencies = [
  "clap 2.33.3",
- "env_logger",
  "integration-tests",
- "log",
  "near-crypto",
  "near-jsonrpc-client",
  "near-primitives",
  "nearcore",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -4394,7 +4361,6 @@ version = "0.0.0"
 dependencies = [
  "byteorder",
  "libfuzzer-sys",
- "log",
  "near-chain",
  "near-chain-configs",
  "near-client",
@@ -4409,6 +4375,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "testlib",
+ "tracing",
 ]
 
 [[package]]
@@ -4445,6 +4412,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "138e3e0acb6c9fb258b19b67cb8abd63c00679d2851805ea151465464fe9030a"
 dependencies = [
  "semver 0.9.0",
+]
+
+[[package]]
+name = "rustc_version"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfa0f585226d2e68097d4f95d113b15b83a82e819ab25717ec0590d9584ef366"
+dependencies = [
+ "semver 1.0.4",
 ]
 
 [[package]]
@@ -4827,7 +4803,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d022496b16281348b52d0e30ae99e01a73d737b2f45d38fed4edf79f9325a1d5"
 dependencies = [
  "discard",
- "rustc_version",
+ "rustc_version 0.2.3",
  "stdweb-derive",
  "stdweb-internal-macros",
  "stdweb-internal-runtime",
@@ -4873,12 +4849,12 @@ checksum = "213701ba3370744dcd1a12960caa4843b3d68b4d1c0a5d575e0d65b2ee9d16c0"
 name = "storage-usage-delta-calculator"
 version = "0.0.0"
 dependencies = [
- "env_logger",
- "log",
  "near-chain-configs",
  "near-primitives",
  "node-runtime",
  "serde_json",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -5201,11 +5177,10 @@ checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
 
 [[package]]
 name = "tokio"
-version = "1.12.0"
+version = "1.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2c2416fdedca8443ae44b4527de1ea633af61d8f7169ffa6e72c5b53d24efcc"
+checksum = "0c27a64b625de6d309e8c57716ba93021dccf1b3b5c97edd6d3dd2d2135afc0a"
 dependencies = [
- "autocfg 1.0.1",
  "bytes",
  "libc",
  "memchr",
@@ -5221,9 +5196,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-macros"
-version = "1.6.0"
+version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9efc1aba077437943f7515666aa2b882dfabfbfdf89c819ea75a8d6e9eaba5e"
+checksum = "b557f72f448c511a979e2564e55d74e6c4432fc96ff4f6241bc6bded342643b7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5734,7 +5709,7 @@ dependencies = [
  "nix",
  "page_size",
  "parking_lot 0.10.2",
- "rustc_version",
+ "rustc_version 0.2.3",
  "serde",
  "serde-bench",
  "serde_bytes",
