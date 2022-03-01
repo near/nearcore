@@ -64,7 +64,6 @@ use crate::validate::{
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
 use actix::Message;
-#[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
@@ -773,8 +772,7 @@ impl Chain {
         tries: ShardTries,
         gc_blocks_limit: NumBlocks,
     ) -> Result<(), Error> {
-        #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("GC".into());
+        let _d = DelayDetector::new(|| "GC".into());
 
         let head = self.store.head()?;
         let tail = self.store.tail()?;
