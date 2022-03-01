@@ -91,6 +91,7 @@ pub(crate) fn apply_range(
     near_config: NearConfig,
     store: Store,
     only_contracts: bool,
+    sequential: bool,
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
@@ -111,6 +112,7 @@ pub(crate) fn apply_range(
         verbose_output,
         csv_file.as_mut(),
         only_contracts,
+        sequential,
     );
 }
 
@@ -212,7 +214,8 @@ pub(crate) fn print_chain(
             if height == 0 {
                 println!("{: >3} {}", header.height(), format_hash(*header.hash()));
             } else {
-                let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap();
+                let parent_header =
+                    chain_store.get_block_header(header.prev_hash()).unwrap().clone();
                 let epoch_id = runtime.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
                 cur_epoch_id = Some(epoch_id.clone());
                 if runtime.is_next_block_epoch_start(header.prev_hash()).unwrap() {
@@ -232,13 +235,35 @@ pub(crate) fn print_chain(
                     .entry(block_producer.clone())
                     .and_modify(|e| *e += 1)
                     .or_insert(1);
+
+                let block = chain_store.get_block(&block_hash).unwrap().clone();
+
+                let mut chunk_debug_str: Vec<String> = Vec::new();
+
+                for shard_id in 0..header.chunk_mask().len() {
+                    if header.chunk_mask()[shard_id] {
+                        let chunk = chain_store
+                            .get_chunk(&block.chunks()[shard_id as usize].chunk_hash())
+                            .unwrap()
+                            .clone();
+                        chunk_debug_str.push(format!(
+                            "{}: {} {: >3} Tgas ",
+                            shard_id,
+                            format_hash(chunk.chunk_hash().0),
+                            chunk.cloned_header().gas_used() / (1024 * 1024 * 1024 * 1024)
+                        ));
+                    }
+                }
+
                 println!(
-                    "{: >3} {} | {: >10} | parent: {: >3} {}",
+                    "{: >3} {} | {: >10} | parent: {: >3} {} | {} {}",
                     header.height(),
                     format_hash(*header.hash()),
                     block_producer,
                     parent_header.height(),
                     format_hash(*parent_header.hash()),
+                    chunk_mask_to_str(header.chunk_mask()),
+                    chunk_debug_str.join("|")
                 );
             }
         } else {
@@ -619,4 +644,8 @@ fn load_trie_stop_at_height(
 
 pub fn format_hash(h: CryptoHash) -> String {
     to_base(&h)[..7].to_string()
+}
+
+pub fn chunk_mask_to_str(mask: &[bool]) -> String {
+    mask.iter().map(|f| if *f { '.' } else { 'X' }).collect()
 }

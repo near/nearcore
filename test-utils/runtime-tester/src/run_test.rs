@@ -185,8 +185,8 @@ mod test {
     use std::path::Path;
     use std::time::{Duration, Instant};
 
-    use log::info;
     use near_logger_utils::init_test_logger;
+    use tracing::info;
 
     #[test]
     #[ignore]

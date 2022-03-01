@@ -153,6 +153,10 @@ pub enum HandshakeFailureReason {
     GenesisMismatch(GenesisId),
     InvalidTarget,
 }
+const _: () = assert!(
+    std::mem::size_of::<HandshakeFailureReason>() <= 64,
+    "HandshakeFailureReason > 64 bytes"
+);
 
 impl fmt::Display for HandshakeFailureReason {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -198,7 +202,7 @@ pub enum PeerMessage {
     Block(Block),
 
     Transaction(SignedTransaction),
-    Routed(RoutedMessage),
+    Routed(Box<RoutedMessage>),
 
     /// Gracefully disconnect from other peer.
     Disconnect,
@@ -212,6 +216,8 @@ pub enum PeerMessage {
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingTableSyncV2(RoutingSyncV2),
 }
+#[cfg(target_arch = "x86_64")] // Non-x86_64 doesn't match this requirement yet but it's not bad as it's not production-ready
+const _: () = assert!(std::mem::size_of::<PeerMessage>() <= 1144, "PeerMessage > 1144 bytes");
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -219,6 +225,8 @@ pub enum PeerMessage {
 pub enum RoutingSyncV2 {
     Version2(RoutingVersion2),
 }
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+const _: () = assert!(std::mem::size_of::<RoutingSyncV2>() <= 80, "RoutingSyncV2 > 80 bytes");
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -269,21 +277,21 @@ impl PeerMessage {
         match self {
             PeerMessage::Block(_)
             | PeerMessage::BlockHeaders(_)
-            | PeerMessage::Transaction(_)
             | PeerMessage::Challenge(_)
+            | PeerMessage::EpochSyncFinalizationResponse(_)
             | PeerMessage::EpochSyncResponse(_)
-            | PeerMessage::EpochSyncFinalizationResponse(_) => true,
+            | PeerMessage::Transaction(_) => true,
             PeerMessage::Routed(r) => matches!(
                 r.body,
                 RoutedMessageBody::BlockApproval(_)
                     | RoutedMessageBody::ForwardTx(_)
                     | RoutedMessageBody::PartialEncodedChunk(_)
+                    | RoutedMessageBody::PartialEncodedChunkForward(_)
                     | RoutedMessageBody::PartialEncodedChunkRequest(_)
                     | RoutedMessageBody::PartialEncodedChunkResponse(_)
                     | RoutedMessageBody::StateResponse(_)
                     | RoutedMessageBody::VersionedPartialEncodedChunk(_)
                     | RoutedMessageBody::VersionedStateResponse(_)
-                    | RoutedMessageBody::PartialEncodedChunkForward(_),
             ),
             _ => false,
         }
@@ -291,20 +299,20 @@ impl PeerMessage {
 
     pub(crate) fn is_view_client_message(&self) -> bool {
         match self {
+            PeerMessage::BlockHeadersRequest(_)
+            | PeerMessage::BlockRequest(_)
+            | PeerMessage::EpochSyncFinalizationRequest(_)
+            | PeerMessage::EpochSyncRequest(_) => true,
             PeerMessage::Routed(r) => matches!(
                 r.body,
                 RoutedMessageBody::QueryRequest { .. }
                     | RoutedMessageBody::QueryResponse { .. }
-                    | RoutedMessageBody::TxStatusRequest(_, _)
-                    | RoutedMessageBody::TxStatusResponse(_)
                     | RoutedMessageBody::ReceiptOutcomeRequest(_)
                     | RoutedMessageBody::StateRequestHeader(_, _)
                     | RoutedMessageBody::StateRequestPart(_, _, _)
+                    | RoutedMessageBody::TxStatusRequest(_, _)
+                    | RoutedMessageBody::TxStatusResponse(_)
             ),
-            PeerMessage::BlockHeadersRequest(_) => true,
-            PeerMessage::BlockRequest(_) => true,
-            PeerMessage::EpochSyncRequest(_) => true,
-            PeerMessage::EpochSyncFinalizationRequest(_) => true,
             _ => false,
         }
     }

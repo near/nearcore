@@ -19,10 +19,10 @@ num_cpus = "1.11"
 rand = "0.7"
 strum = { version = "0.20", features = ["derive"] }
 fs2 = "0.4"
-tracing = "0.1"
+tracing = "0.1.13"
 borsh = "0.9"
 thiserror = "1"
-lru = "0.6.5"
+lru = "0.7.2"
 
 near-crypto = { path = "../crypto" }
 near-primitives = { path = "../primitives" }
@@ -47,4 +47,7 @@ single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
 test_features = []
 protocol_feature_chunk_only_producers = []
 nightly_protocol = []
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_chunk_only_producers"]
+nightly_protocol_features = [
+  "nightly_protocol",
+  "protocol_feature_chunk_only_producers",
+]

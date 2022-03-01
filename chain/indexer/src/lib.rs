@@ -3,16 +3,16 @@
 use anyhow::Context;
 use tokio::sync::mpsc;
 
+use near_chain_configs::GenesisValidationMode;
 pub use near_primitives;
 use near_primitives::types::Gas;
 pub use nearcore::{get_default_home, init_configs, NearConfig};
 
-pub use self::streamer::{
+pub use near_indexer_primitives::{
     IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
     IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
     StreamerMessage,
 };
-use near_chain_configs::GenesisValidationMode;
 
 mod streamer;
 
@@ -113,8 +113,8 @@ impl Indexer {
     }
 
     /// Boots up `near_indexer::streamer`, so it monitors the new blocks with chunks, transactions, receipts, and execution outcomes inside. The returned stream handler should be drained and handled on the user side.
-    pub fn streamer(&self) -> mpsc::Receiver<streamer::StreamerMessage> {
-        let (sender, receiver) = mpsc::channel(16);
+    pub fn streamer(&self) -> mpsc::Receiver<StreamerMessage> {
+        let (sender, receiver) = mpsc::channel(100);
         actix::spawn(streamer::start(
             self.view_client.clone(),
             self.client.clone(),

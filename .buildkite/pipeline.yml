@@ -1,8 +1,12 @@
+env:
+  RUST_BACKTRACE: short
+  RUSTFLAGS: -D warnings
+
 steps:
   - label: "cargo test integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --locked -p 'integration-tests'
+      cargo test --locked -p 'integration-tests'
 
     timeout: 60
     agents:
@@ -12,7 +16,7 @@ steps:
   - label: "cargo test not integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --locked --workspace -p '*' --exclude 'integration-tests*'
+      cargo test --locked --workspace -p '*' --exclude 'integration-tests*'
 
     timeout: 60
     agents:
@@ -22,7 +26,7 @@ steps:
   - label: "cargo test nightly integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --features nightly_protocol,nightly_protocol_features,test_features -p 'integration-tests'
+      cargo test --features nightly_protocol,nightly_protocol_features,test_features -p 'integration-tests'
 
     timeout: 60
     agents:
@@ -32,7 +36,7 @@ steps:
   - label: "cargo test nightly not integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      RUST_BACKTRACE=1 RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features,test_features,rosetta_rpc -p '*' --exclude 'integration-tests*'
+      cargo test --workspace --features nightly_protocol,nightly_protocol_features,test_features -p '*' --exclude 'integration-tests*'
 
     timeout: 60
     agents:
@@ -43,15 +47,15 @@ steps:
     command: |
       source ~/.cargo/env && set -eux
       rustc --version && cargo --version
-      RUSTFLAGS='-D warnings' cargo run -p themis --release
+      cargo run -p themis --release
       if [ -e deny.toml ]; then
         cargo-deny --all-features check bans
       fi
-      RUSTFLAGS='-D warnings' cargo check --workspace --all-targets --all-features
-      RUSTFLAGS='-D warnings' cargo check -p neard --features test_features
-      RUSTFLAGS='-D warnings' cargo check -p neard --features sandbox
+      cargo check --workspace --all-targets --all-features
+      cargo check -p neard --features test_features
+      cargo check -p neard --features sandbox
 
-      RUSTFLAGS='-D warnings' cargo build -p neard --bin neard --features nightly_protocol,nightly_protocol_features
+      cargo build -p neard --bin neard --features nightly_protocol,nightly_protocol_features
       cd pytest
       python3 -m pip install --user -r requirements.txt
       python3 tests/sanity/spin_up_cluster.py
@@ -60,7 +64,7 @@ steps:
       # because spinning up non-nightly clusters is already covered
       # by other steps in the CI, e.g. upgradable.
 
-      RUSTFLAGS='-D warnings' cargo build -p neard --bin neard
+      cargo build -p neard --bin neard
       python3 scripts/state/update_res.py check
 
       python3 scripts/check_nightly.py
@@ -70,7 +74,7 @@ steps:
       ./scripts/formatting --check
 
       rm target/rpc_errors_schema.json
-      RUSTFLAGS='-D warnings' cargo check -p near-jsonrpc --features dump_errors_schema
+      cargo check -p near-jsonrpc --features dump_errors_schema
       if ! git --no-pager diff --no-index chain/jsonrpc/res/rpc_errors_schema.json target/rpc_errors_schema.json; then
           set +x
           echo 'The RPC errors schema reflects outdated typing structure; please run'
@@ -86,8 +90,6 @@ steps:
     command: |
       source ~/.cargo/env && set -eux
       source ~/.nvm/nvm.sh
-      rustup default nightly-2020-05-15
-      rustup target add wasm32-unknown-unknown
       scripts/test_nearlib.sh
     timeout: 20
     agents:
@@ -136,7 +138,7 @@ steps:
       cd runtime/runtime-params-estimator/test-contract
       ./build.sh
       cd ..
-      RUSTFLAGS='-D warnings' cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 --metric time
+      cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 --metric time
 
     branches: "!master !beta !stable"
     timeout: 60
