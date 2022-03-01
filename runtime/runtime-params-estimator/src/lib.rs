@@ -72,7 +72,7 @@ mod function_call;
 mod gas_metering;
 mod trie;
 
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryFrom;
 use std::time::Instant;
 
 use estimator_params::sha256_cost;
@@ -91,7 +91,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{ExtCosts, VMConfig};
 use near_vm_runner::MockCompiledContractCache;
-use num_rational::Ratio;
 use rand::Rng;
 use serde_json::json;
 use utils::{
@@ -130,8 +129,6 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ActionDeployContractPerByte, action_deploy_contract_per_byte),
     (Cost::ActionFunctionCallBase, action_function_call_base),
     (Cost::ActionFunctionCallPerByte, action_function_call_per_byte),
-    (Cost::ActionFunctionCallBaseV2, action_function_call_base_v2),
-    (Cost::ActionFunctionCallPerByteV2, action_function_call_per_byte_v2),
     (Cost::HostFunctionCall, host_function_call),
     (Cost::WasmInstruction, wasm_instruction),
     (Cost::DataReceiptCreationBase, data_receipt_creation_base),
@@ -187,6 +184,8 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ContractCompileBaseV2, contract_compile_base_v2),
     (Cost::ContractCompileBytesV2, contract_compile_bytes_v2),
     (Cost::DeployBytes, pure_deploy_bytes),
+    (Cost::ContractLoadingBase, contract_loading_base),
+    (Cost::ContractLoadingPerByte, contract_loading_per_byte),
     (Cost::GasMeteringBase, gas_metering_base),
     (Cost::GasMeteringOp, gas_metering_op),
     (Cost::RocksDbInsertValueByte, rocks_db_insert_value_byte),
@@ -683,31 +682,23 @@ fn action_function_call_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE) / bytes_per_transaction
 }
 
-fn action_function_call_base_v2(ctx: &mut EstimatorContext) -> GasCost {
-    let (base, _per_byte) = action_function_call_base_per_byte_v2(ctx);
+fn contract_loading_base(ctx: &mut EstimatorContext) -> GasCost {
+    let (base, _per_byte) = contract_loading_base_per_byte(ctx);
     base
 }
-fn action_function_call_per_byte_v2(ctx: &mut EstimatorContext) -> GasCost {
-    let (_base, per_byte) = action_function_call_base_per_byte_v2(ctx);
+fn contract_loading_per_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let (_base, per_byte) = contract_loading_base_per_byte(ctx);
     per_byte
 }
-fn action_function_call_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {
-    if let Some(base_byte_cost) = ctx.cached.action_function_call_base_per_byte_v2.clone() {
+fn contract_loading_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {
+    if let Some(base_byte_cost) = ctx.cached.contract_loading_base_per_byte.clone() {
         return base_byte_cost;
     }
 
-    let (base, byte) =
-        crate::function_call::test_function_call(ctx.config.metric, ctx.config.vm_kind);
-    let convert_ratio = |r: Ratio<i128>| -> Ratio<u64> {
-        Ratio::new((*r.numer()).try_into().unwrap(), (*r.denom()).try_into().unwrap())
-    };
-    let base_byte_cost = (
-        GasCost::from_gas(convert_ratio(base), ctx.config.metric),
-        GasCost::from_gas(convert_ratio(byte), ctx.config.metric),
-    );
-
-    ctx.cached.action_function_call_base_per_byte_v2 = Some(base_byte_cost.clone());
-    base_byte_cost
+    let (total_base, per_byte) = crate::function_call::function_call_cost_per_code_byte(ctx.config);
+    let base = total_base - action_function_call_base(ctx);
+    ctx.cached.contract_loading_base_per_byte = Some((base.clone(), per_byte.clone()));
+    (base, per_byte)
 }
 
 fn data_receipt_creation_base(ctx: &mut EstimatorContext) -> GasCost {

@@ -79,10 +79,27 @@ pub enum Cost {
     /// a transaction. Subtract base costs and apply least-squares on the
     /// results to find the per-byte costs.
     ActionDeployContractPerByte,
+    /// Estimates `action_creation_config.function_call_cost`, which is the base
+    /// cost for adding a `FunctionCallAction` to a receipt. It aims to account
+    /// for all costs of calling a function that are already known on the caller
+    /// side.
+    /// 
+    /// Estimation: Measure the cost to execute a transaction with an empty
+    /// function with no arguments. Subtract the receipt creating cost from
+    /// that, as that is already charged separately.
+    /// 
+    /// TODO[jakmeier][#6353]: Today, the estimation falsely includes the
+    /// loading cost of the estimator test contract.
     ActionFunctionCallBase,
+    /// Estimates `action_creation_config.function_call_cost_per_byte`, which is
+    /// the incremental cost for each byte of the method name and method
+    /// arguments cost for adding a `FunctionCallAction` to a receipt.
+    ///
+    /// Estimation: Measure the cost for a transaction with an empty function
+    /// call with a large argument value. Subtract the cost of an empty function
+    /// call with no argument. Divide the difference by the length of the
+    /// argument.
     ActionFunctionCallPerByte,
-    ActionFunctionCallBaseV2,
-    ActionFunctionCallPerByteV2,
     /// Estimates `action_creation_config.transfer_cost` which is charged for
     /// every `Action::Transfer`, the same value for sending and executing.
     ///
@@ -556,6 +573,26 @@ pub enum Cost {
     /// around bytes that are not code. Divide this cost by the difference of
     /// bytes.
     DeployBytes,
+    /// Estimates `contract_compile_base` which is charged once per contract
+    /// that is loaded from the database to execute a method on it.
+    /// (will be renamed to `contract_loading_base`, see
+    /// https://github.com/near/nearcore/issues/5962)
+    ///
+    /// Estimation: Measure the cost to execute an empty contract method
+    /// directly on a runtime instance, using different sizes of contracts.
+    /// Use least-squares to calculate base and per-byte cost.
+    /// The contract size is scaled by adding more methods to it. This has been
+    /// identified as a particular expensive in terms of per-byte loading time.
+    /// This makes it a better scaling strategy than, for example, adding large
+    /// constants in the data section.
+    ContractLoadingBase,
+    /// Estimates `contract_compile_byte` which is charged for each byte in a
+    /// contract when it is loaded from the database to execute a method on it.
+    /// (will be renamed to `contract_loading_base`, see
+    /// https://github.com/near/nearcore/issues/5962)
+    ///
+    /// Estimation: See `ContractLoadingBase`.
+    ContractLoadingPerByte,
     GasMeteringBase,
     GasMeteringOp,
     /// Cost of inserting a new value directly into a RocksDB instance.
