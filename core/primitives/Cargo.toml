@@ -18,7 +18,6 @@ bytesize = "1.1"
 chrono = { version = "0.4.4", features = ["serde"] }
 derive_more = "0.99.3"
 easy-ext = "0.2"
-sha2 = "0.9"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 smart-default = "0.6"
@@ -38,13 +37,29 @@ near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
-protocol_feature_alt_bn128 = ["near-primitives-core/protocol_feature_alt_bn128", "near-vm-errors/protocol_feature_alt_bn128"]
+protocol_feature_alt_bn128 = [
+  "near-primitives-core/protocol_feature_alt_bn128",
+  "near-vm-errors/protocol_feature_alt_bn128",
+]
 protocol_feature_chunk_only_producers = []
 protocol_feature_routing_exchange_algorithm = ["near-primitives-core/protocol_feature_routing_exchange_algorithm"]
 protocol_feature_access_key_nonce_for_implicit_accounts = []
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_alt_bn128", "protocol_feature_chunk_only_producers", "protocol_feature_routing_exchange_algorithm", "protocol_feature_access_key_nonce_for_implicit_accounts"]
+protocol_feature_fix_staking_threshold = []
+nightly_protocol_features = [
+  "nightly_protocol",
+  "protocol_feature_alt_bn128",
+  "protocol_feature_chunk_only_producers",
+  "protocol_feature_routing_exchange_algorithm",
+  "protocol_feature_access_key_nonce_for_implicit_accounts",
+  "protocol_feature_fix_staking_threshold",
+]
 nightly_protocol = []
-deepsize_feature = ["deepsize", "near-vm-errors/deepsize_feature", "near-primitives-core/deepsize_feature", "near-crypto/deepsize_feature"]
+deepsize_feature = [
+  "deepsize",
+  "near-vm-errors/deepsize_feature",
+  "near-primitives-core/deepsize_feature",
+  "near-crypto/deepsize_feature",
+]
 
 [dev-dependencies]
 bencher = "0.1.5"

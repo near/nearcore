@@ -1,16 +1,22 @@
-//! Tests that `CompiledContractCache` is working correctly.
+//! Tests that `CompiledContractCache` is working correctly. Currently testing only wasmer code, so disabled outside of x86_64
+#![cfg(target_arch = "x86_64")]
+
 use super::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
 use crate::internal::VMKind;
-use crate::MockCompiledContractCache;
+use crate::wasmer2_runner::Wasmer2VM;
+use crate::{prepare, MockCompiledContractCache};
 use assert_matches::assert_matches;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
+use near_stable_hasher::StableHasher;
 use near_vm_errors::VMError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMOutcome};
+use std::hash::{Hash, Hasher};
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
+use wasmer_compiler::{CpuFeature, Target};
 
 #[test]
 fn test_caches_compilation_error() {
@@ -71,19 +77,39 @@ fn make_cached_contract_call_vm(
     let promise_results = vec![];
     context.prepaid_gas = prepaid_gas;
     let code = ContractCode::new(code.to_vec(), None);
-    let runtime = vm_kind.runtime().expect("runtime has not been compiled");
-
+    let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
     runtime.run(
         &code,
         method_name,
         &mut fake_external,
         context.clone(),
-        &config,
         &fees,
         &promise_results,
         LATEST_PROTOCOL_VERSION,
         Some(cache),
     )
+}
+
+#[test]
+fn test_wasmer2_artifact_output_stability() {
+    // If this test has failed, you want to adjust the necessary constants so that `cache::vm_hash`
+    // changes (and only then the hashes here).
+    //
+    // Note that this test is a best-effort fish net. Some changes that should modify the hash will
+    // fall through the cracks here, but hopefully it should catch most of the fish just fine.
+    let mut hasher = StableHasher::new();
+    let code = near_test_contracts::trivial_contract();
+    let config = VMConfig::test();
+    let prepared_code = prepare::prepare_contract(code, &config).unwrap();
+    let mut features = CpuFeature::set();
+    features.insert(CpuFeature::AVX);
+    let triple = "x86_64-unknown-linux-gnu".parse().unwrap();
+    let target = Target::new(triple, features);
+    let vm = Wasmer2VM::new_for_target(config, target);
+    let artifact = vm.compile_uncached(&prepared_code).unwrap();
+    let serialized = artifact.artifact().serialize().unwrap();
+    serialized.hash(&mut hasher);
+    assert_eq!(hasher.finish(), 16203733374745522118, "WASMER2_CONFIG needs version change");
 }
 
 /// [`CompiledContractCache`] which simulates failures in the underlying

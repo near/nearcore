@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use near_primitives::transaction::SignedTransaction;
 use near_vm_logic::ExtCosts;
 
-use crate::config::Config;
+use crate::config::{Config, GasMetric};
 use crate::gas_cost::GasCost;
-use crate::get_account_id;
 use crate::testbed::RuntimeTestbed;
+use crate::utils::get_account_id;
 
 use super::transaction_builder::TransactionBuilder;
 
@@ -26,7 +26,9 @@ pub(crate) struct CachedCosts {
     pub(crate) storage_read_base: Option<GasCost>,
     pub(crate) action_function_call_base_per_byte_v2: Option<(GasCost, GasCost)>,
     pub(crate) compile_cost_base_per_byte: Option<(GasCost, GasCost)>,
+    pub(crate) compile_cost_base_per_byte_v2: Option<(GasCost, GasCost)>,
     pub(crate) gas_metering_cost_base_per_op: Option<(GasCost, GasCost)>,
+    pub(crate) apply_block: Option<GasCost>,
 }
 
 impl<'c> EstimatorContext<'c> {
@@ -72,6 +74,7 @@ impl<'c> Testbed<'c> {
         for block in blocks {
             node_runtime::with_ext_cost_counter(|cc| cc.clear());
             let gas_cost = {
+                self.clear_caches();
                 let start = GasCost::measure(self.config.metric);
                 self.inner.process_block(&block, allow_failures);
                 self.inner.process_blocks_until_no_receipts(allow_failures);
@@ -88,5 +91,22 @@ impl<'c> Testbed<'c> {
         }
 
         res
+    }
+
+    fn clear_caches(&mut self) {
+        // Flush out writes hanging in memtable
+        self.inner.flush_db_write_buffer();
+
+        // OS caches:
+        // - only required in time based measurements, since ICount looks at syscalls directly.
+        // - requires sudo, therefore this is executed optionally
+        if self.config.metric == GasMetric::Time && self.config.drop_os_cache {
+            #[cfg(target_os = "linux")]
+            crate::utils::clear_linux_page_cache().expect(
+                "Failed to drop OS caches. Are you root and is /proc mounted with write access?",
+            );
+            #[cfg(not(target_os = "linux"))]
+            panic!("Cannot drop OS caches on non-linux systems.");
+        }
     }
 }

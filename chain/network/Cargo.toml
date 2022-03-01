@@ -2,10 +2,10 @@
 name = "near-network"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-publish = false
+edition = "2021"
 # Please update rust-toolchain.toml as well when changing version here:
 rust-version = "1.56.0"
-edition = "2021"
+publish = false
 
 [dependencies]
 actix = "=0.11.0-beta.2"
@@ -13,18 +13,19 @@ borsh = { version = "0.9", features = ["rc"] }
 bytes = "1"
 bytesize = "1.1"
 conqueue = "0.4.0"
+deepsize = { version = "0.2.0", optional = true }
 futures = "0.3"
-lru = "0.6.5"
-near-rust-allocator-proxy = "0.3.0"
+itertools = "0.10.3"
+lru = "0.7.2"
+near-rust-allocator-proxy = { version = "0.4", optional = true }
 once_cell = "1.5.2"
 rand = "0.7"
-serde = { version = "1", features = ["derive", "rc", "alloc"], optional=true }
+serde = { version = "1", features = ["alloc", "derive", "rc"], optional = true }
 strum = { version = "0.20", features = ["derive"] }
-tokio = { version = "1.1", features = ["net", "rt-multi-thread"] }
 tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.6", features = ["codec"] }
+tokio = { version = "1.1", features = ["net", "rt-multi-thread"] }
 tracing = "0.1.13"
-deepsize = { version = "0.2.0", optional = true }
 
 delay-detector = { path = "../../tools/delay_detector", optional = true }
 near-crypto = { path = "../../core/crypto" }
@@ -38,16 +39,30 @@ near-stable-hasher = { path = "../../utils/near-stable-hasher", optional = true 
 near-store = { path = "../../core/store" }
 
 [dev-dependencies]
-bencher = "0.1.5"
+criterion = { version = "0.3.5", default_features = false, features = ["html_reports", "cargo_bench_support"] }
 tempfile = "3"
 
 [features]
+deepsize_feature = [
+    "deepsize",
+    "near-crypto/deepsize_feature",
+    "near-network-primitives/deepsize_feature",
+    "near-primitives/deepsize_feature",
+]
 delay_detector = ["delay-detector"]
-performance_stats = ["near-performance-metrics/performance_stats"]
-protocol_feature_routing_exchange_algorithm = ["near-primitives/protocol_feature_routing_exchange_algorithm", "near-stable-hasher"]
+performance_stats = [
+    "near-performance-metrics/performance_stats",
+    "near-rust-allocator-proxy",
+]
+protocol_feature_routing_exchange_algorithm = [
+    "near-primitives/protocol_feature_routing_exchange_algorithm",
+    "near-stable-hasher",
+]
 sandbox = ["near-network-primitives/sandbox"]
-test_features = ["near-network-primitives/test_features", "serde"]
-deepsize_feature = ["deepsize", "near-primitives/deepsize_feature", "near-crypto/deepsize_feature", "near-network-primitives/deepsize_feature"]
+test_features = [
+  "near-network-primitives/test_features",
+  "serde",
+]
 
 [[bench]]
 name = "graph"

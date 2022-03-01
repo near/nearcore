@@ -3,9 +3,10 @@
 /// WARNING WARNING WARNING
 /// WARNING WARNING WARNING
 /// We need to maintain backwards compatibility, all changes to this file needs to be reviews.
-pub use crate::routing::network_protocol::{Edge, EdgeState, PartialEdgeInfo, SimpleEdge};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, RoutedMessage, RoutedMessageBody};
+use near_network_primitives::types::{
+    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessage, RoutedMessageBody,
+};
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
@@ -43,21 +44,21 @@ pub struct Handshake {
 /// Struct describing the layout for Handshake.
 /// It is used to automatically derive BorshDeserialize.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub(crate) struct HandshakeAutoDes {
+struct HandshakeAutoDes {
     /// Protocol version.
-    pub(crate) version: u32,
+    protocol_version: u32,
     /// Oldest supported protocol version.
-    pub(crate) oldest_supported_version: u32,
+    oldest_supported_version: u32,
     /// Sender's peer id.
-    pub(crate) peer_id: PeerId,
+    sender_peer_id: PeerId,
     /// Receiver's peer id.
-    pub(crate) target_peer_id: PeerId,
+    target_peer_id: PeerId,
     /// Sender's listening addr.
-    pub(crate) listen_port: Option<u16>,
+    sender_listen_port: Option<u16>,
     /// Peer's chain information.
-    pub(crate) chain_info: PeerChainInfoV2,
+    sender_chain_info: PeerChainInfoV2,
     /// Info for new edge.
-    pub(crate) partial_edge_info: PartialEdgeInfo,
+    partial_edge_info: PartialEdgeInfo,
 }
 
 impl Handshake {
@@ -97,7 +98,7 @@ impl BorshDeserialize for Handshake {
 
         if PEER_MIN_ALLOWED_PROTOCOL_VERSION <= version && version <= PROTOCOL_VERSION {
             // If we support this version, then try to deserialize with custom deserializer
-            HandshakeAutoDes::deserialize(buf).map(Into::into)
+            <HandshakeAutoDes as BorshDeserialize>::deserialize(buf).map(Into::into)
         } else {
             Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -113,12 +114,12 @@ impl BorshDeserialize for Handshake {
 impl From<HandshakeAutoDes> for Handshake {
     fn from(handshake: HandshakeAutoDes) -> Self {
         Self {
-            protocol_version: handshake.version,
+            protocol_version: handshake.protocol_version,
             oldest_supported_version: handshake.oldest_supported_version,
-            sender_peer_id: handshake.peer_id,
+            sender_peer_id: handshake.sender_peer_id,
             target_peer_id: handshake.target_peer_id,
-            sender_listen_port: handshake.listen_port,
-            sender_chain_info: handshake.chain_info,
+            sender_listen_port: handshake.sender_listen_port,
+            sender_chain_info: handshake.sender_chain_info,
             partial_edge_info: handshake.partial_edge_info,
         }
     }
@@ -152,6 +153,10 @@ pub enum HandshakeFailureReason {
     GenesisMismatch(GenesisId),
     InvalidTarget,
 }
+const _: () = assert!(
+    std::mem::size_of::<HandshakeFailureReason>() <= 64,
+    "HandshakeFailureReason > 64 bytes"
+);
 
 impl fmt::Display for HandshakeFailureReason {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -197,7 +202,7 @@ pub enum PeerMessage {
     Block(Block),
 
     Transaction(SignedTransaction),
-    Routed(RoutedMessage),
+    Routed(Box<RoutedMessage>),
 
     /// Gracefully disconnect from other peer.
     Disconnect,
@@ -211,6 +216,8 @@ pub enum PeerMessage {
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingTableSyncV2(RoutingSyncV2),
 }
+#[cfg(target_arch = "x86_64")] // Non-x86_64 doesn't match this requirement yet but it's not bad as it's not production-ready
+const _: () = assert!(std::mem::size_of::<PeerMessage>() <= 1144, "PeerMessage > 1144 bytes");
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -218,6 +225,8 @@ pub enum PeerMessage {
 pub enum RoutingSyncV2 {
     Version2(RoutingVersion2),
 }
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+const _: () = assert!(std::mem::size_of::<RoutingSyncV2>() <= 80, "RoutingSyncV2 > 80 bytes");
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -268,21 +277,21 @@ impl PeerMessage {
         match self {
             PeerMessage::Block(_)
             | PeerMessage::BlockHeaders(_)
-            | PeerMessage::Transaction(_)
             | PeerMessage::Challenge(_)
+            | PeerMessage::EpochSyncFinalizationResponse(_)
             | PeerMessage::EpochSyncResponse(_)
-            | PeerMessage::EpochSyncFinalizationResponse(_) => true,
+            | PeerMessage::Transaction(_) => true,
             PeerMessage::Routed(r) => matches!(
                 r.body,
                 RoutedMessageBody::BlockApproval(_)
                     | RoutedMessageBody::ForwardTx(_)
                     | RoutedMessageBody::PartialEncodedChunk(_)
+                    | RoutedMessageBody::PartialEncodedChunkForward(_)
                     | RoutedMessageBody::PartialEncodedChunkRequest(_)
                     | RoutedMessageBody::PartialEncodedChunkResponse(_)
                     | RoutedMessageBody::StateResponse(_)
                     | RoutedMessageBody::VersionedPartialEncodedChunk(_)
                     | RoutedMessageBody::VersionedStateResponse(_)
-                    | RoutedMessageBody::PartialEncodedChunkForward(_),
             ),
             _ => false,
         }
@@ -290,20 +299,20 @@ impl PeerMessage {
 
     pub(crate) fn is_view_client_message(&self) -> bool {
         match self {
+            PeerMessage::BlockHeadersRequest(_)
+            | PeerMessage::BlockRequest(_)
+            | PeerMessage::EpochSyncFinalizationRequest(_)
+            | PeerMessage::EpochSyncRequest(_) => true,
             PeerMessage::Routed(r) => matches!(
                 r.body,
                 RoutedMessageBody::QueryRequest { .. }
                     | RoutedMessageBody::QueryResponse { .. }
-                    | RoutedMessageBody::TxStatusRequest(_, _)
-                    | RoutedMessageBody::TxStatusResponse(_)
                     | RoutedMessageBody::ReceiptOutcomeRequest(_)
                     | RoutedMessageBody::StateRequestHeader(_, _)
                     | RoutedMessageBody::StateRequestPart(_, _, _)
+                    | RoutedMessageBody::TxStatusRequest(_, _)
+                    | RoutedMessageBody::TxStatusResponse(_)
             ),
-            PeerMessage::BlockHeadersRequest(_) => true,
-            PeerMessage::BlockRequest(_) => true,
-            PeerMessage::EpochSyncRequest(_) => true,
-            PeerMessage::EpochSyncFinalizationRequest(_) => true,
             _ => false,
         }
     }

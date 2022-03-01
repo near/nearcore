@@ -1,18 +1,19 @@
 use crate::errors::ContractPrecompilatonResult;
-use crate::prepare;
 use crate::vm_kind::VMKind;
-use crate::wasmer2_runner::{default_wasmer2_store, wasmer2_vm_hash};
-use crate::wasmer_runner::wasmer0_vm_hash;
-use crate::wasmtime_runner::wasmtime_vm_hash;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::CompiledContractCache;
-use near_vm_errors::{CacheError, CompilationError, FunctionCallError, VMError};
+use near_vm_errors::{CacheError, CompilationError};
 use near_vm_logic::{ProtocolVersion, VMConfig};
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
+
+#[cfg(target_arch = "x86_64")]
+use crate::prepare;
+#[cfg(target_arch = "x86_64")]
+use near_vm_errors::{FunctionCallError, VMError};
 
 #[derive(Debug, Clone, BorshSerialize)]
 enum ContractCacheKey {
@@ -35,9 +36,18 @@ enum CacheRecord {
 
 fn vm_hash(vm_kind: VMKind) -> u64 {
     match vm_kind {
-        VMKind::Wasmer0 => wasmer0_vm_hash(),
-        VMKind::Wasmer2 => wasmer2_vm_hash(),
-        VMKind::Wasmtime => wasmtime_vm_hash(),
+        #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
+        VMKind::Wasmer0 => crate::wasmer_runner::wasmer0_vm_hash(),
+        #[cfg(not(all(feature = "wasmer0_vm", target_arch = "x86_64")))]
+        VMKind::Wasmer0 => panic!("Wasmer0 is not enabled"),
+        #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
+        VMKind::Wasmer2 => crate::wasmer2_runner::wasmer2_vm_hash(),
+        #[cfg(not(all(feature = "wasmer2_vm", target_arch = "x86_64")))]
+        VMKind::Wasmer2 => panic!("Wasmer2 is not enabled"),
+        #[cfg(feature = "wasmtime_vm")]
+        VMKind::Wasmtime => crate::wasmtime_runner::wasmtime_vm_hash(),
+        #[cfg(not(feature = "wasmtime_vm"))]
+        VMKind::Wasmtime => panic!("Wasmtime is not enabled"),
     }
 }
 
@@ -56,6 +66,7 @@ pub fn get_contract_cache_key(
     near_primitives::hash::hash(&key.try_to_vec().unwrap())
 }
 
+#[cfg(target_arch = "x86_64")]
 fn cache_error(
     error: &CompilationError,
     key: &CryptoHash,
@@ -67,6 +78,7 @@ fn cache_error(
     Ok(())
 }
 
+#[cfg(target_arch = "x86_64")]
 pub fn into_vm_result<T>(
     res: Result<Result<T, CompilationError>, CacheError>,
 ) -> Result<T, VMError> {
@@ -108,20 +120,23 @@ impl fmt::Debug for MockCompiledContractCache {
     }
 }
 
-#[cfg(not(feature = "no_cache"))]
+#[cfg(all(not(feature = "no_cache"), target_arch = "x86_64"))]
 const CACHE_SIZE: usize = 128;
 
-#[cfg(not(feature = "no_cache"))]
+#[cfg(all(feature = "wasmer0_vm", not(feature = "no_cache"), target_arch = "x86_64"))]
 static WASMER_CACHE: once_cell::sync::Lazy<
     near_cache::SyncLruCache<CryptoHash, Result<wasmer_runtime::Module, CompilationError>>,
 > = once_cell::sync::Lazy::new(|| near_cache::SyncLruCache::new(CACHE_SIZE));
 
-#[cfg(not(feature = "no_cache"))]
+#[cfg(all(feature = "wasmer2_vm", not(feature = "no_cache"), target_arch = "x86_64"))]
 static WASMER2_CACHE: once_cell::sync::Lazy<
-    near_cache::SyncLruCache<CryptoHash, Result<wasmer::Module, CompilationError>>,
+    near_cache::SyncLruCache<
+        CryptoHash,
+        Result<crate::wasmer2_runner::VMArtifact, CompilationError>,
+    >,
 > = once_cell::sync::Lazy::new(|| near_cache::SyncLruCache::new(CACHE_SIZE));
 
-#[cfg(feature = "wasmer0_vm")]
+#[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
 pub mod wasmer0_cache {
     use super::*;
     use near_vm_errors::CompilationError;
@@ -234,41 +249,21 @@ pub mod wasmer0_cache {
     }
 }
 
-#[cfg(feature = "wasmer2_vm")]
+#[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
 pub mod wasmer2_cache {
+    use crate::wasmer2_runner::{VMArtifact, Wasmer2VM};
     use near_primitives::contract::ContractCode;
 
     use super::*;
 
-    fn compile_module_wasmer2(
+    pub(crate) fn compile_module_wasmer2(
         code: &[u8],
         config: &VMConfig,
-        store: &wasmer::Store,
-    ) -> Result<wasmer::Module, CompilationError> {
+    ) -> Result<VMArtifact, CompilationError> {
         let _span = tracing::debug_span!(target: "vm", "compile_module_wasmer2").entered();
-
         let prepared_code =
             prepare::prepare_contract(code, config).map_err(CompilationError::PrepareError)?;
-        wasmer::Module::new(store, prepared_code).map_err(|err| match err {
-            wasmer::CompileError::Wasm(_) => {
-                CompilationError::WasmerCompileError { msg: err.to_string() }
-            }
-            wasmer::CompileError::Codegen(_) => {
-                CompilationError::WasmerCompileError { msg: err.to_string() }
-            }
-            wasmer::CompileError::Validate(_) => {
-                CompilationError::WasmerCompileError { msg: err.to_string() }
-            }
-            wasmer::CompileError::UnsupportedFeature(_) => {
-                CompilationError::WasmerCompileError { msg: err.to_string() }
-            }
-            wasmer::CompileError::UnsupportedTarget(_) => {
-                CompilationError::WasmerCompileError { msg: err.to_string() }
-            }
-            wasmer::CompileError::Resource(_) => {
-                CompilationError::WasmerCompileError { msg: err.to_string() }
-            }
-        })
+        Wasmer2VM::new(config.clone()).compile_uncached(&prepared_code)
     }
 
     pub(crate) fn compile_and_serialize_wasmer2(
@@ -276,11 +271,10 @@ pub mod wasmer2_cache {
         key: &CryptoHash,
         config: &VMConfig,
         cache: &dyn CompiledContractCache,
-        store: &wasmer::Store,
-    ) -> Result<Result<wasmer::Module, CompilationError>, CacheError> {
+    ) -> Result<Result<VMArtifact, CompilationError>, CacheError> {
         let _span = tracing::debug_span!(target: "vm", "compile_and_serialize_wasmer2").entered();
 
-        let module = match compile_module_wasmer2(wasm_code, config, store) {
+        let module = match compile_module_wasmer2(wasm_code, config) {
             Ok(module) => module,
             Err(err) => {
                 cache_error(&err, key, cache)?;
@@ -288,8 +282,10 @@ pub mod wasmer2_cache {
             }
         };
 
-        let code =
-            module.serialize().map_err(|_e| CacheError::SerializationError { hash: key.0 })?;
+        let code = module
+            .artifact()
+            .serialize()
+            .map_err(|_e| CacheError::SerializationError { hash: key.0 })?;
         let serialized = CacheRecord::Code(code).try_to_vec().unwrap();
         cache.put(key.as_ref(), &serialized).map_err(|_io_err| CacheError::WriteError)?;
         Ok(Ok(module))
@@ -297,8 +293,8 @@ pub mod wasmer2_cache {
 
     fn deserialize_wasmer2(
         serialized: &[u8],
-        store: &wasmer::Store,
-    ) -> Result<Result<wasmer::Module, CompilationError>, CacheError> {
+        config: &VMConfig,
+    ) -> Result<Result<VMArtifact, CompilationError>, CacheError> {
         let _span = tracing::debug_span!(target: "vm", "deserialize_wasmer2").entered();
 
         let record = CacheRecord::try_from_slice(serialized)
@@ -308,8 +304,19 @@ pub mod wasmer2_cache {
             CacheRecord::Code(code) => code,
         };
         unsafe {
-            Ok(Ok(wasmer::Module::deserialize(store, serialized_module.as_slice())
-                .map_err(|_e| CacheError::DeserializationError)?))
+            // (UN-)SAFETY: the `serialized_module` must have been produced by a prior call to
+            // `serialize`.
+            //
+            // In practice this is not necessarily true. One could have forgotten to change the
+            // cache key when upgrading the version of the wasmer library or the database could
+            // have had its data corrupted while at rest.
+            //
+            // There should definitely be some validation in wasmer to ensure we load what we think
+            // we load.
+            let artifact = Wasmer2VM::new(config.clone())
+                .deserialize(&serialized_module)
+                .map_err(|_| CacheError::DeserializationError)?;
+            Ok(Ok(artifact))
         }
     }
 
@@ -318,15 +325,14 @@ pub mod wasmer2_cache {
         code: &ContractCode,
         config: &VMConfig,
         cache: Option<&dyn CompiledContractCache>,
-        store: &wasmer::Store,
-    ) -> Result<Result<wasmer::Module, CompilationError>, CacheError> {
+    ) -> Result<Result<VMArtifact, CompilationError>, CacheError> {
         match cache {
-            None => Ok(compile_module_wasmer2(code.code(), config, store)),
+            None => Ok(compile_module_wasmer2(code.code(), config)),
             Some(cache) => {
                 let serialized = cache.get(&key.0).map_err(|_io_err| CacheError::ReadError)?;
                 match serialized {
-                    Some(serialized) => deserialize_wasmer2(serialized.as_slice(), store),
-                    None => compile_and_serialize_wasmer2(code.code(), &key, config, cache, store),
+                    Some(serialized) => deserialize_wasmer2(serialized.as_slice(), config),
+                    None => compile_and_serialize_wasmer2(code.code(), &key, config, cache),
                 }
             }
         }
@@ -336,17 +342,16 @@ pub mod wasmer2_cache {
         code: &ContractCode,
         config: &VMConfig,
         cache: Option<&dyn CompiledContractCache>,
-        store: &wasmer::Store,
-    ) -> Result<Result<wasmer::Module, CompilationError>, CacheError> {
+    ) -> Result<Result<VMArtifact, CompilationError>, CacheError> {
         let key = get_contract_cache_key(code, VMKind::Wasmer2, config);
 
         #[cfg(not(feature = "no_cache"))]
         return WASMER2_CACHE.get_or_try_put(key, |key| {
-            compile_module_cached_wasmer2_impl(*key, code, config, cache, store)
+            compile_module_cached_wasmer2_impl(*key, code, config, cache)
         });
 
         #[cfg(feature = "no_cache")]
-        return compile_module_cached_wasmer2_impl(key, code, config, cache, store);
+        return compile_module_cached_wasmer2_impl(key, code, config, cache);
     }
 }
 
@@ -367,27 +372,23 @@ pub fn precompile_contract_vm(
         Some(_) => return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache)),
         None => {}
     };
-    let res = match vm_kind {
+    match vm_kind {
+        #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
         VMKind::Wasmer0 => {
-            wasmer0_cache::compile_and_serialize_wasmer(wasm_code.code(), config, &key, cache)?
-                .map(|_module| ())
+            Ok(wasmer0_cache::compile_and_serialize_wasmer(wasm_code.code(), config, &key, cache)?
+                .map(|_| ContractPrecompilatonResult::ContractCompiled))
         }
+        #[cfg(not(all(feature = "wasmer0_vm", target_arch = "x86_64")))]
+        VMKind::Wasmer0 => panic!("Wasmer0 is not enabled!"),
+        #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
         VMKind::Wasmer2 => {
-            let store = default_wasmer2_store();
-            wasmer2_cache::compile_and_serialize_wasmer2(
-                wasm_code.code(),
-                &key,
-                config,
-                cache,
-                &store,
-            )?
-            .map(|_module| ())
+            Ok(wasmer2_cache::compile_and_serialize_wasmer2(wasm_code.code(), &key, config, cache)?
+                .map(|_| ContractPrecompilatonResult::ContractCompiled))
         }
-        VMKind::Wasmtime => {
-            panic!("Not yet supported")
-        }
-    };
-    Ok(res.map(|()| ContractPrecompilatonResult::ContractCompiled))
+        #[cfg(not(all(feature = "wasmer2_vm", target_arch = "x86_64")))]
+        VMKind::Wasmer2 => panic!("Wasmer2 is not enabled!"),
+        VMKind::Wasmtime => panic!("Not yet supported"),
+    }
 }
 
 /// Precompiles contract for the current default VM, and stores result to the cache.
@@ -399,6 +400,7 @@ pub fn precompile_contract(
     current_protocol_version: ProtocolVersion,
     cache: Option<&dyn CompiledContractCache>,
 ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError> {
+    let _span = tracing::debug_span!(target: "vm", "precompile_contract").entered();
     let vm_kind = VMKind::for_protocol_version(current_protocol_version);
     precompile_contract_vm(vm_kind, wasm_code, config, cache)
 }

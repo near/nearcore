@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use actix::Addr;
 use actix_cors::Cors;
@@ -218,12 +218,40 @@ impl JsonRpcHandler {
         }
     }
 
+    // `process_request` increments affected metrics but the request processing is done by
+    // `process_request_internal`.
     async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
-        metrics::HTTP_RPC_REQUEST_COUNT.with_label_values(&[request.method.as_ref()]).inc();
-        let _rpc_processing_time = metrics::RPC_PROCESSING_TIME
-            .with_label_values(&[request.method.as_ref()])
-            .start_timer();
+        let timer = Instant::now();
 
+        let request_method = request.method.clone();
+        let response = self.process_request_internal(request).await;
+
+        let request_method = if let Err(err) = &response {
+            if err.code == -32_601 {
+                "UNSUPPORTED_METHOD"
+            } else {
+                &request_method
+            }
+        } else {
+            &request_method
+        };
+
+        metrics::HTTP_RPC_REQUEST_COUNT.with_label_values(&[request_method]).inc();
+        metrics::RPC_PROCESSING_TIME
+            .with_label_values(&[request_method])
+            .observe(timer.elapsed().as_secs_f64());
+
+        if let Err(err) = &response {
+            metrics::RPC_ERROR_COUNT
+                .with_label_values(&[request_method, &err.code.to_string()])
+                .inc();
+        }
+
+        response
+    }
+
+    // Processes the request but doesn't update any metrics.
+    async fn process_request_internal(&self, request: Request) -> Result<Value, RpcError> {
         #[cfg(feature = "test_features")]
         {
             let params = request.params.clone();
@@ -532,14 +560,19 @@ impl JsonRpcHandler {
                 serde_json::to_value(sandbox_patch_state_response)
                     .map_err(|err| RpcError::serialization_error(err.to_string()))
             }
+            #[cfg(feature = "sandbox")]
+            "sandbox_fast_forward" => {
+                let sandbox_fast_forward_request =
+                    near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardRequest::parse(
+                        request.params,
+                    )?;
+                let sandbox_fast_forward_response =
+                    self.sandbox_fast_forward(sandbox_fast_forward_request).await?;
+                serde_json::to_value(sandbox_fast_forward_response)
+                    .map_err(|err| RpcError::serialization_error(err.to_string()))
+            }
             _ => Err(RpcError::method_not_found(request.method.clone())),
         };
-
-        if let Err(err) = &response {
-            metrics::RPC_ERROR_COUNT
-                .with_label_values(&[request.method.as_ref(), &err.code.to_string()])
-                .inc();
-        }
 
         response
     }
@@ -1110,6 +1143,23 @@ impl JsonRpcHandler {
         .expect("patch state should happen at next block, never timeout");
 
         Ok(near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateResponse {})
+    }
+
+    async fn sandbox_fast_forward(
+        &self,
+        fast_forward_request: near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardResponse,
+        near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError,
+    > {
+        self.client_addr
+            .send(NetworkClientMessages::Sandbox(
+                near_network_primitives::types::NetworkSandboxMessage::SandboxFastForward(
+                    fast_forward_request.delta_height,
+                ),
+            ))
+            .await?;
+        Ok(near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardResponse {})
     }
 }
 

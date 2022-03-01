@@ -1,6 +1,7 @@
 use crate::config::GasMetric;
 use crate::gas_cost::GasCost;
-use crate::vm_estimator::{create_context, least_squares_method};
+use crate::least_squares::least_squares_method;
+use crate::vm_estimator::create_context;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::types::{CompiledContractCache, Gas, ProtocolVersion};
@@ -19,7 +20,6 @@ pub(crate) fn test_function_call(metric: GasMetric, vm_kind: VMKind) -> (Ratio<i
     for method_count in vec![5, 20, 30, 50, 100, 200, 1000] {
         let contract = make_many_methods_contract(method_count);
         let cost = compute_function_call_cost(metric, vm_kind, REPEATS, &contract);
-        println!("{:?} {:?} {} {}", vm_kind, metric, method_count, cost / REPEATS);
         xs.push(contract.code().len() as u64);
         ys.push(cost / REPEATS);
     }
@@ -30,35 +30,7 @@ pub(crate) fn test_function_call(metric: GasMetric, vm_kind: VMKind) -> (Ratio<i
     }
 
     let (cost_base, cost_byte, _) = least_squares_method(&xs, &ys);
-    println!(
-        "{:?} {:?} function call base {} gas, per byte {} gas",
-        vm_kind, metric, cost_base, cost_byte,
-    );
     (cost_base, cost_byte)
-}
-
-#[test]
-fn test_function_call_time() {
-    // Run with
-    // cargo test --release --lib function_call::test_function_call_time
-    //    --features required  -- --exact --nocapture
-    test_function_call(GasMetric::Time, VMKind::Wasmer0);
-    test_function_call(GasMetric::Time, VMKind::Wasmer2);
-    test_function_call(GasMetric::Time, VMKind::Wasmtime);
-}
-
-#[test]
-fn test_function_call_icount() {
-    // Use smth like
-    // CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=./runner.sh \
-    // cargo test --release --features no_cpu_compatibility_checks,required  \
-    // --lib function_call::test_function_call_icount -- --exact --nocapture
-    // Where runner.sh is
-    // /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
-    // -cpu Westmere-v1 -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so $@
-    test_function_call(GasMetric::ICount, VMKind::Wasmer0);
-    test_function_call(GasMetric::ICount, VMKind::Wasmer2);
-    test_function_call(GasMetric::ICount, VMKind::Wasmtime);
 }
 
 fn make_many_methods_contract(method_count: i32) -> ContractCode {
@@ -95,7 +67,6 @@ pub fn compute_function_call_cost(
     repeats: u64,
     contract: &ContractCode,
 ) -> Gas {
-    let runtime = vm_kind.runtime().expect("runtime has not been enabled");
     let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
     let store = create_store(&get_store_path(workdir.path()));
     let cache_store = Arc::new(StoreCompiledContractCache { store });
@@ -104,6 +75,7 @@ pub fn compute_function_call_cost(
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(protocol_version).as_ref();
     let vm_config = runtime_config.wasm_config.clone();
+    let runtime = vm_kind.runtime(vm_config).expect("runtime has not been enabled");
     let fees = runtime_config.transaction_costs.clone();
     let mut fake_external = MockedExternal::new();
     let fake_context = create_context(vec![]);
@@ -116,7 +88,6 @@ pub fn compute_function_call_cost(
             "hello0",
             &mut fake_external,
             fake_context.clone(),
-            &vm_config,
             &fees,
             &promise_results,
             protocol_version,
@@ -132,7 +103,6 @@ pub fn compute_function_call_cost(
             "hello0",
             &mut fake_external,
             fake_context.clone(),
-            &vm_config,
             &fees,
             &promise_results,
             protocol_version,

@@ -41,12 +41,16 @@ implicitly set.
 
 The `expensive` tests run a test binary and execute specific test in
 it.  (Test binaries are those built via `cargo test --no-run`).  While
-this can be used to run any Rust test, the intention is to run tests
-marked with `#[cfg(feature = "expensive_tests")]`.
+this can be used to run any Rust test, the intention is to run
+expensive tests only.  Those are the tests which are ignored unless
+`expensive_tests` crate feature is enabled.  Such tests should be
+marked with a `cfg_attr` macro, e.g.:
 
-When NayDuck receives a request to run an expensive test it will build
-all test binaries with the `expensive_tests` feature enabled and then
-execute the test functions.
+    #[test]
+    #[cfg_attr(not(feature = "expensive_tests"), ignore)]
+    fn test_gc_boundaries_large() {
+        /* ... */
+    }
 
 The arguments of an expensive test specify package in which the test
 is defined, test binary name and the full path to the test function.
@@ -76,7 +80,7 @@ optional `s`, `m` or `h` suffix.  If no suffix is given, `s` is
 assumed.  The default timeout is three minutes.  For example, the
 following increases timeout for a test to four minutes:
 
-    pytest --timeout=4m sanity/restaked.py
+    pytest --timeout=4m sanity/validator_switch.py
 
 `--release` makes the build use a release profile rather than a dev
 profile.  In other words, all `cargo` invocations are passed
@@ -91,8 +95,8 @@ honest I can’t vouch whether it even works.
 Lastly, at the end of the test specification line additional features
 can be given in the form of `--features <features>` arguments.
 Similarly to `--release`, this results in given features being enabled
-in builds.  Note that the `test_features` and `rosetta_rpc` features
-are always enabled so there's no need to specify it explicitly.
+in builds.  Note that the `test_features` Cargo feature is always
+enabled so there's no need to specify it explicitly.
 
 Note that with `--skip-build` switch the `--release` and `--features`
 flags are essentially ignored since they only affect the build and are

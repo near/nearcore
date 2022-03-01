@@ -135,11 +135,6 @@ impl Actor for WaitOrTimeoutActor {
     }
 }
 
-// Converts Vec<&str> to Vec<String>
-pub fn vec_ref_to_str(values: Vec<&str>) -> Vec<String> {
-    values.into_iter().map(|x| x.to_string()).collect()
-}
-
 // Gets random PeerId
 pub fn random_peer_id() -> PeerId {
     let sk = SecretKey::from_random(KeyType::ED25519);
@@ -180,11 +175,9 @@ pub fn expected_routing_tables(
 }
 
 /// `GetInfo` gets `NetworkInfo` from `PeerManager`.
+#[derive(Message)]
+#[rtype(result = "NetworkInfo")]
 pub struct GetInfo {}
-
-impl Message for GetInfo {
-    type Result = NetworkInfo;
-}
 
 impl Handler<GetInfo> for PeerManagerActor {
     type Result = crate::types::NetworkInfo;
@@ -239,9 +232,9 @@ impl BanPeerSignal {
 impl Handler<BanPeerSignal> for PeerManagerActor {
     type Result = ();
 
-    fn handle(&mut self, msg: BanPeerSignal, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: BanPeerSignal, _ctx: &mut Self::Context) -> Self::Result {
         debug!(target: "network", "Ban peer: {:?}", msg.peer_id);
-        self.try_ban_peer(ctx, &msg.peer_id, msg.ban_reason);
+        self.try_ban_peer(&msg.peer_id, msg.ban_reason);
     }
 }
 
@@ -326,7 +319,7 @@ pub mod test_features {
     //    Arc<AtomicUsize> - shared pointer for counting the number of received
     //                       `NetworkViewClientMessages::AnnounceAccount` messages
     pub fn make_peer_manager(
-        store: Arc<Store>,
+        store: Store,
         mut config: NetworkConfig,
         boot_nodes: Vec<(&str, u16)>,
         peer_max_count: u32,
@@ -391,8 +384,6 @@ pub struct NetworkRecipient {
     peer_manager_recipient: RwLock<Option<Recipient<PeerManagerMessageRequest>>>,
 }
 
-unsafe impl Sync for NetworkRecipient {}
-
 impl PeerManagerAdapter for NetworkRecipient {
     fn send(
         &self,
@@ -418,14 +409,10 @@ impl PeerManagerAdapter for NetworkRecipient {
     }
 }
 
-#[cfg(feature = "test_features")]
-impl Message for SetAdvOptions {
-    type Result = ();
-}
-
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Clone, Debug)]
+#[derive(Message, Clone, Debug)]
 #[cfg(feature = "test_features")]
+#[rtype(result = "()")]
 pub struct SetAdvOptions {
     pub disable_edge_signature_verification: Option<bool>,
     pub disable_edge_propagation: Option<bool>,
@@ -438,7 +425,7 @@ pub struct SetAdvOptions {
 #[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub struct SetRoutingTable {
-    pub add_edges: Option<Vec<crate::network_protocol::Edge>>,
-    pub remove_edges: Option<Vec<crate::network_protocol::SimpleEdge>>,
+    pub add_edges: Option<Vec<near_network_primitives::types::Edge>>,
+    pub remove_edges: Option<Vec<near_network_primitives::types::SimpleEdge>>,
     pub prune_edges: Option<bool>,
 }

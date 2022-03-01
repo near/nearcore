@@ -1,30 +1,14 @@
+use super::gas_and_error_match;
 use crate::tests::{
-    make_simple_contract_call_vm, make_simple_contract_call_with_gas_vm, with_vm_variants,
+    make_simple_contract_call_vm, make_simple_contract_call_with_gas_vm,
+    make_simple_contract_call_with_protocol_version_vm, with_vm_variants,
 };
 use crate::vm_kind::VMKind;
+use near_primitives::version::ProtocolFeature;
 use near_vm_errors::{
     CompilationError, FunctionCallError, HostError, MethodResolveError, PrepareError, VMError,
     WasmTrap,
 };
-use near_vm_logic::VMOutcome;
-
-#[track_caller]
-fn gas_and_error_match(
-    outcome_and_error: (Option<VMOutcome>, Option<VMError>),
-    expected_gas: Option<u64>,
-    expected_error: Option<VMError>,
-) {
-    match expected_gas {
-        Some(gas) => {
-            let outcome = outcome_and_error.0.unwrap();
-            assert_eq!(outcome.used_gas, gas, "used gas differs");
-            assert_eq!(outcome.burnt_gas, gas, "burnt gas differs");
-        }
-        None => assert!(outcome_and_error.0.is_none()),
-    }
-
-    assert_eq!(outcome_and_error.1, expected_error);
-}
 
 fn infinite_initializer_contract() -> Vec<u8> {
     wat::parse_str(
@@ -475,6 +459,80 @@ fn test_stack_overflow() {
     });
 }
 
+fn stack_overflow_many_locals() -> Vec<u8> {
+    wat::parse_str(
+        r#"
+            (module
+              (func $f1 (export "f1")
+                (local i32)
+                (call $f1))
+              (func $f2 (export "f2")
+                (local i32 i32 i32 i32)
+                (call $f2))
+            )"#,
+    )
+    .unwrap()
+}
+
+#[test]
+fn test_stack_instrumentation_protocol_upgrade() {
+    with_vm_variants(|vm_kind: VMKind| {
+        match vm_kind {
+            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
+            // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
+            // Restore, once get rid of Wasmer 0.x.
+            VMKind::Wasmtime => return,
+        }
+        let code = stack_overflow_many_locals();
+
+        let res = make_simple_contract_call_with_protocol_version_vm(
+            &code,
+            "f1",
+            ProtocolFeature::CorrectStackLimit.protocol_version() - 1,
+            vm_kind,
+        );
+        gas_and_error_match(
+            res,
+            Some(6789985365),
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
+        );
+        let res = make_simple_contract_call_with_protocol_version_vm(
+            &code,
+            "f2",
+            ProtocolFeature::CorrectStackLimit.protocol_version() - 1,
+            vm_kind,
+        );
+        gas_and_error_match(
+            res,
+            Some(6789985365),
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
+        );
+
+        let res = make_simple_contract_call_with_protocol_version_vm(
+            &code,
+            "f1",
+            ProtocolFeature::CorrectStackLimit.protocol_version(),
+            vm_kind,
+        );
+        gas_and_error_match(
+            res,
+            Some(6789985365),
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
+        );
+        let res = make_simple_contract_call_with_protocol_version_vm(
+            &code,
+            "f2",
+            ProtocolFeature::CorrectStackLimit.protocol_version(),
+            vm_kind,
+        );
+        gas_and_error_match(
+            res,
+            Some(2745316869),
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
+        );
+    });
+}
+
 fn memory_grow() -> Vec<u8> {
     wat::parse_str(
         r#"
@@ -567,7 +625,7 @@ fn test_bad_import_3() {
     with_vm_variants(|vm_kind: VMKind| {
         let msg = match vm_kind {
             VMKind::Wasmer0 => "link error: Incorrect import type, namespace: env, name: input, expected type: global, found type: function",
-            VMKind::Wasmtime => "\"incompatible import type for `env::input` specified\\ndesired signature was: Global(GlobalType { content: I32, mutability: Const })\\nsignatures available:\\n\\n  * Func(FuncType { sig: WasmFuncType { params: [I64], returns: [] } })\\n\"",
+            VMKind::Wasmtime => "\"expected global, but found func\"",
             VMKind::Wasmer2 => "Error while importing \"env\".\"input\": incompatible import type. Expected Global(GlobalType { ty: I32, mutability: Const }) but received Function(FunctionType { params: [I64], results: [] })",
         }.to_string();
         gas_and_error_match(

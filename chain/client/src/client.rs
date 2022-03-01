@@ -2,13 +2,11 @@
 //! This client works completely synchronously and must be operated by some async actor outside.
 
 use std::collections::{HashMap, HashSet};
-use std::iter;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use cached::{Cached, SizedCache};
-use log::{debug, error, info, warn};
 use near_primitives::time::Clock;
+use tracing::{debug, error, info, warn};
 
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
@@ -80,7 +78,8 @@ pub struct Client {
     /// Signer for block producer (if present).
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
     /// Approvals for which we do not have the block yet
-    pub pending_approvals: SizedCache<ApprovalInner, HashMap<AccountId, (Approval, ApprovalType)>>,
+    pub pending_approvals:
+        lru::LruCache<ApprovalInner, HashMap<AccountId, (Approval, ApprovalType)>>,
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync and blocks catch up
     pub catchup_state_syncs:
@@ -98,7 +97,7 @@ pub struct Client {
     /// A ReedSolomon instance to reconstruct shard.
     pub rs: ReedSolomonWrapper,
     /// Blocks that have been re-broadcast recently. They should not be broadcast again.
-    rebroadcasted_blocks: SizedCache<CryptoHash, ()>,
+    rebroadcasted_blocks: lru::LruCache<CryptoHash, ()>,
     /// Last time the head was updated, or our head was rebroadcasted. Used to re-broadcast the head
     /// again to prevent network from stalling if a large percentage of the network missed a block
     last_time_head_progress_made: Instant,
@@ -181,7 +180,7 @@ impl Client {
             shards_mgr,
             network_adapter,
             validator_signer,
-            pending_approvals: SizedCache::with_size(num_block_producer_seats),
+            pending_approvals: lru::LruCache::new(num_block_producer_seats),
             catchup_state_syncs: HashMap::new(),
             epoch_sync,
             header_sync,
@@ -189,7 +188,7 @@ impl Client {
             state_sync,
             challenges: Default::default(),
             rs: ReedSolomonWrapper::new(data_parts, parity_parts),
-            rebroadcasted_blocks: SizedCache::with_size(NUM_REBROADCAST_BLOCKS),
+            rebroadcasted_blocks: lru::LruCache::new(NUM_REBROADCAST_BLOCKS),
             last_time_head_progress_made: Clock::instant(),
             chunks_delay_tracker: Default::default(),
         })
@@ -600,7 +599,7 @@ impl Client {
         // with merkle receipts proofs which can be checked locally
         let shard_layout = self.runtime_adapter.get_shard_layout(epoch_id)?;
         let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &shard_layout);
+            Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout);
         let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
         let protocol_version = self.runtime_adapter.get_epoch_protocol_version(epoch_id)?;
@@ -685,9 +684,9 @@ impl Client {
         Ok(transactions)
     }
 
-    pub fn send_challenges(&mut self, challenges: Arc<RwLock<Vec<ChallengeBody>>>) {
-        if let Some(validator_signer) = self.validator_signer.as_ref() {
-            for body in challenges.write().unwrap().drain(..) {
+    pub fn send_challenges(&mut self, challenges: Vec<ChallengeBody>) {
+        if let Some(validator_signer) = &self.validator_signer {
+            for body in challenges {
                 let challenge = Challenge::produce(body, &**validator_signer);
                 self.challenges.insert(challenge.hash, challenge.clone());
                 self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
@@ -721,11 +720,11 @@ impl Client {
                 Err(e) => return (vec![], Err(e)),
             }
         }
-        // TODO: replace to channels or cross beams here? we don't have multi-threading here so it's mostly to get around borrow checker.
-        let accepted_blocks = Arc::new(RwLock::new(vec![]));
-        let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
-        let orphans_missing_chunks = Arc::new(RwLock::new(vec![]));
-        let challenges = Arc::new(RwLock::new(vec![]));
+
+        let mut accepted_blocks = vec![];
+        let mut blocks_missing_chunks = vec![];
+        let mut orphans_missing_chunks = vec![];
+        let mut challenges = vec![];
 
         let result = {
             let me = self
@@ -736,14 +735,14 @@ impl Client {
                 &me,
                 block,
                 provenance,
-                |accepted_block| {
-                    accepted_blocks.write().unwrap().push(accepted_block);
+                &mut |accepted_block| {
+                    accepted_blocks.push(accepted_block);
                 },
-                |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks),
-                |orphan_missing_chunks| {
-                    orphans_missing_chunks.write().unwrap().push(orphan_missing_chunks);
+                &mut |missing_chunks| blocks_missing_chunks.push(missing_chunks),
+                &mut |orphan_missing_chunks| {
+                    orphans_missing_chunks.push(orphan_missing_chunks);
                 },
-                |challenge| challenges.write().unwrap().push(challenge),
+                &mut |challenge| challenges.push(challenge),
             )
         };
 
@@ -783,16 +782,15 @@ impl Client {
         // Request any missing chunks
         self.request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
 
-        let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
-        (unwrapped_accepted_blocks, result)
+        (accepted_blocks, result)
     }
 
     pub fn rebroadcast_block(&mut self, block: &Block) {
-        if self.rebroadcasted_blocks.cache_get(block.hash()).is_none() {
+        if self.rebroadcasted_blocks.get(block.hash()).is_none() {
             self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Block { block: block.clone() },
             ));
-            self.rebroadcasted_blocks.cache_set(*block.hash(), ());
+            self.rebroadcasted_blocks.put(*block.hash(), ());
         }
     }
 
@@ -850,66 +848,65 @@ impl Client {
         self.process_partial_encoded_chunk(MaybeValidated::from_validated(partial_chunk))
     }
 
+    /// Try to process chunks in the chunk cache whose previous block hash is `prev_block_hash` and
+    /// who are not marked as complete yet
+    /// This function is needed because chunks in chunk cache will only be marked as complete after
+    /// the previous block is accepted. So we need to check if there are any chunks can be marked as
+    /// complete when a new block is accepted.
+    pub fn check_incomplete_chunks(&mut self, prev_block_hash: &CryptoHash) -> Vec<AcceptedBlock> {
+        let mut accepted_blocks = vec![];
+        for chunk_header in self.shards_mgr.get_incomplete_chunks(prev_block_hash) {
+            debug!(target:"client", "try to process incomplete chunks {:?}, prev_block: {:?}", chunk_header.chunk_hash(), prev_block_hash);
+            let res = self.shards_mgr.try_process_chunk_parts_and_receipts(
+                &chunk_header,
+                self.chain.mut_store(),
+                &mut self.rs,
+            );
+            match res {
+                Ok(res) => accepted_blocks
+                    .extend(self.process_process_partial_encoded_chunk_result(chunk_header, res)),
+                Err(err) => {
+                    error!(target:"client", "unexpected error processing orphan chunk {:?}", err)
+                }
+            }
+        }
+        accepted_blocks
+    }
+
     pub fn process_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: MaybeValidated<PartialEncodedChunk>,
     ) -> Result<Vec<AcceptedBlock>, Error> {
-        fn missing_block_handler(
-            client: &mut Client,
-            pec: PartialEncodedChunkV2,
-        ) -> Result<Vec<AcceptedBlock>, Error> {
-            client.shards_mgr.store_partial_encoded_chunk(client.chain.head_header()?, pec);
-            Ok(vec![])
-        }
-        let block_hash = partial_encoded_chunk.prev_block();
-        match self.runtime_adapter.get_epoch_id_from_prev_block(block_hash) {
-            Ok(epoch_id) => {
-                let protocol_version =
-                    self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
+        let chunk_hash = partial_encoded_chunk.chunk_hash();
+        let pec_v2: MaybeValidated<PartialEncodedChunkV2> = partial_encoded_chunk.map(Into::into);
+        let process_result = self.shards_mgr.process_partial_encoded_chunk(
+            pec_v2.as_ref(),
+            self.chain.head().ok().as_ref(),
+            self.chain.mut_store(),
+            &mut self.rs,
+        )?;
+        debug!(target:"client", "process partial encoded chunk {:?}, result: {:?}", chunk_hash, process_result);
 
-                if !partial_encoded_chunk.version_range().contains(protocol_version) {
-                    return Err(Error::Other("Invalid chunk version".to_string()));
-                };
+        Ok(self.process_process_partial_encoded_chunk_result(
+            pec_v2.into_inner().header,
+            process_result,
+        ))
+    }
 
-                let chunk_hash = partial_encoded_chunk.chunk_hash();
-                let pec_v2: MaybeValidated<PartialEncodedChunkV2> =
-                    partial_encoded_chunk.map(Into::into);
-                let process_result = self.shards_mgr.process_partial_encoded_chunk(
-                    pec_v2.as_ref(),
-                    self.chain.mut_store(),
-                    &mut self.rs,
-                    protocol_version,
-                )?;
-
-                match process_result {
-                    ProcessPartialEncodedChunkResult::Known => Ok(vec![]),
-                    ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(_) => {
-                        self.record_receive_chunk_timestamp(
-                            pec_v2.header.height_created(),
-                            pec_v2.header.shard_id(),
-                        );
-                        self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_hash);
-                        Ok(self.process_blocks_with_missing_chunks())
-                    }
-                    ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts => {
-                        let chunk_header = pec_v2.into_inner().header;
-                        let prev_hash = chunk_header.prev_block_hash();
-                        self.shards_mgr.request_chunks(
-                            iter::once(chunk_header),
-                            prev_hash,
-                            &self.chain.header_head()?,
-                        );
-                        Ok(vec![])
-                    }
-                    ProcessPartialEncodedChunkResult::NeedBlock => {
-                        missing_block_handler(self, pec_v2.into_inner())
-                    }
-                }
+    fn process_process_partial_encoded_chunk_result(
+        &mut self,
+        header: ShardChunkHeader,
+        process_result: ProcessPartialEncodedChunkResult,
+    ) -> Vec<AcceptedBlock> {
+        match process_result {
+            ProcessPartialEncodedChunkResult::Known
+            | ProcessPartialEncodedChunkResult::NeedBlock
+            | ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts => vec![],
+            ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts => {
+                self.record_receive_chunk_timestamp(header.height_created(), header.shard_id());
+                self.chain.blocks_with_missing_chunks.accept_chunk(&header.chunk_hash());
+                self.process_blocks_with_missing_chunks()
             }
-
-            // If the epoch_id cannot be looked up then we have not processed
-            // `partial_encoded_chunk.prev_block()` yet.
-            Err(_) => missing_block_handler(self, partial_encoded_chunk.into_inner().into()),
         }
     }
 
@@ -917,9 +914,8 @@ impl Client {
         &mut self,
         headers: Vec<BlockHeader>,
     ) -> Result<(), near_chain::Error> {
-        let challenges = Arc::new(RwLock::new(vec![]));
-        self.chain
-            .sync_block_headers(headers, |challenge| challenges.write().unwrap().push(challenge))?;
+        let mut challenges = vec![];
+        self.chain.sync_block_headers(headers, &mut |challenge| challenges.push(challenge))?;
         self.send_challenges(challenges);
         Ok(())
     }
@@ -944,6 +940,22 @@ impl Client {
                 last_final_height,
             );
         }
+
+        Ok(())
+    }
+
+    #[cfg(feature = "sandbox")]
+    pub fn sandbox_update_tip(&mut self, height: BlockHeight) -> Result<(), Error> {
+        let tip = self.chain.head()?;
+
+        let last_final_hash =
+            *self.chain.get_block_header(&tip.last_block_hash)?.last_final_block();
+        let last_final_height = if last_final_hash == CryptoHash::default() {
+            self.chain.genesis().height()
+        } else {
+            self.chain.get_block_header(&last_final_hash)?.height()
+        };
+        self.doomslug.set_tip(Clock::instant(), tip.last_block_hash, height, last_final_height);
 
         Ok(())
     }
@@ -1008,11 +1020,11 @@ impl Client {
         if provenance == Provenance::NONE {
             let endorsements = self
                 .pending_approvals
-                .cache_remove(&ApprovalInner::Endorsement(block_hash))
+                .pop(&ApprovalInner::Endorsement(block_hash))
                 .unwrap_or_default();
             let skips = self
                 .pending_approvals
-                .cache_remove(&ApprovalInner::Skip(block.header().height()))
+                .pop(&ApprovalInner::Skip(block.header().height()))
                 .unwrap_or_default();
 
             for (_account_id, (approval, approval_type)) in
@@ -1166,39 +1178,22 @@ impl Client {
                 }
             }
         }
-
-        // Process stored partial encoded chunks
-        let next_height = block.header().height() + 1;
-        let mut partial_encoded_chunks =
-            self.shards_mgr.pop_stored_partial_encoded_chunks(next_height);
-        for (_shard_id, partial_encoded_chunks) in partial_encoded_chunks.drain() {
-            for partial_encoded_chunk in partial_encoded_chunks {
-                let chunk = MaybeValidated::from(PartialEncodedChunk::V2(partial_encoded_chunk));
-                if let Ok(accepted_blocks) = self.process_partial_encoded_chunk(chunk) {
-                    // Executing process_partial_encoded_chunk can unlock some blocks.
-                    // Any block that is in the blocks_with_missing_chunks which doesn't have any chunks
-                    // for which we track shards will be unblocked here.
-                    for accepted_block in accepted_blocks {
-                        self.on_block_accepted_with_optional_chunk_produce(
-                            accepted_block.hash,
-                            accepted_block.status,
-                            accepted_block.provenance,
-                            skip_produce_chunk,
-                        );
-                    }
-                }
-            }
+        for accepted_block in self.check_incomplete_chunks(block.hash()) {
+            self.on_block_accepted_with_optional_chunk_produce(
+                accepted_block.hash,
+                accepted_block.status,
+                accepted_block.provenance,
+                skip_produce_chunk,
+            );
         }
     }
 
     pub fn request_missing_chunks(
         &mut self,
-        blocks_missing_chunks: Arc<RwLock<Vec<BlockMissingChunks>>>,
-        orphans_missing_chunks: Arc<RwLock<Vec<OrphanMissingChunks>>>,
+        blocks_missing_chunks: Vec<BlockMissingChunks>,
+        orphans_missing_chunks: Vec<OrphanMissingChunks>,
     ) {
-        for BlockMissingChunks { prev_hash, missing_chunks } in
-            blocks_missing_chunks.write().unwrap().drain(..)
-        {
+        for BlockMissingChunks { prev_hash, missing_chunks } in blocks_missing_chunks {
             self.shards_mgr.request_chunks(
                 missing_chunks,
                 prev_hash,
@@ -1210,7 +1205,7 @@ impl Client {
         }
 
         for OrphanMissingChunks { missing_chunks, epoch_id, ancestor_hash } in
-            orphans_missing_chunks.write().unwrap().drain(..)
+            orphans_missing_chunks
         {
             self.shards_mgr.request_chunks_for_orphan(
                 missing_chunks,
@@ -1227,26 +1222,25 @@ impl Client {
     /// Check if any block with missing chunks is ready to be processed
     #[must_use]
     pub fn process_blocks_with_missing_chunks(&mut self) -> Vec<AcceptedBlock> {
-        let accepted_blocks = Arc::new(RwLock::new(vec![]));
-        let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
-        let orphans_missing_chunks = Arc::new(RwLock::new(vec![]));
-        let challenges = Arc::new(RwLock::new(vec![]));
+        let mut accepted_blocks = vec![];
+        let mut blocks_missing_chunks = vec![];
+        let mut orphans_missing_chunks = vec![];
+        let mut challenges = vec![];
         let me =
             self.validator_signer.as_ref().map(|validator_signer| validator_signer.validator_id());
         self.chain.check_blocks_with_missing_chunks(
             &me.map(|x| x.clone()),
-            |accepted_block| {
+            &mut |accepted_block| {
                 debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", accepted_block.hash);
-                accepted_blocks.write().unwrap().push(accepted_block);
+                accepted_blocks.push(accepted_block);
             },
-            |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks),
-            |orphan_missing_chunks| orphans_missing_chunks.write().unwrap().push(orphan_missing_chunks),
-            |challenge| challenges.write().unwrap().push(challenge));
+            &mut |missing_chunks| blocks_missing_chunks.push(missing_chunks),
+            &mut |orphan_missing_chunks| orphans_missing_chunks.push(orphan_missing_chunks),
+            &mut |challenge| challenges.push(challenge));
         self.send_challenges(challenges);
 
         self.request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
-        let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
-        unwrapped_accepted_blocks
+        accepted_blocks
     }
 
     pub fn is_validator(&self, epoch_id: &EpochId, block_hash: &CryptoHash) -> bool {
@@ -1299,12 +1293,10 @@ impl Client {
                     return;
                 }
             }
-            let mut entry = self
-                .pending_approvals
-                .cache_remove(&approval.inner)
-                .unwrap_or_else(|| HashMap::new());
+            let mut entry =
+                self.pending_approvals.pop(&approval.inner).unwrap_or_else(|| HashMap::new());
             entry.insert(approval.account_id.clone(), (approval.clone(), approval_type));
-            self.pending_approvals.cache_set(approval.inner.clone(), entry);
+            self.pending_approvals.put(approval.inner.clone(), entry);
         }
     }
 
@@ -1730,24 +1722,22 @@ impl Client {
                     )?;
 
                     if blocks_catch_up_state.is_finished() {
-                        let accepted_blocks = Arc::new(RwLock::new(vec![]));
-                        let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
-                        let orphans_missing_chunks = Arc::new(RwLock::new(vec![]));
-                        let challenges = Arc::new(RwLock::new(vec![]));
+                        let mut accepted_blocks = vec![];
+                        let mut blocks_missing_chunks = vec![];
+                        let mut orphans_missing_chunks = vec![];
+                        let mut challenges = vec![];
 
                         self.chain.finish_catchup_blocks(
                             me,
                             &sync_hash,
-                            |accepted_block| {
-                                accepted_blocks.write().unwrap().push(accepted_block);
+                            &mut |accepted_block| {
+                                accepted_blocks.push(accepted_block);
                             },
-                            |missing_chunks| {
-                                blocks_missing_chunks.write().unwrap().push(missing_chunks)
+                            &mut |missing_chunks| blocks_missing_chunks.push(missing_chunks),
+                            &mut |orphan_missing_chunks| {
+                                orphans_missing_chunks.push(orphan_missing_chunks)
                             },
-                            |orphan_missing_chunks| {
-                                orphans_missing_chunks.write().unwrap().push(orphan_missing_chunks)
-                            },
-                            |challenge| challenges.write().unwrap().push(challenge),
+                            &mut |challenge| challenges.push(challenge),
                             &blocks_catch_up_state.done_blocks,
                         )?;
 
@@ -1755,7 +1745,7 @@ impl Client {
 
                         self.request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
 
-                        return Ok(accepted_blocks.write().unwrap().drain(..).collect());
+                        return Ok(accepted_blocks);
                     }
                 }
             }

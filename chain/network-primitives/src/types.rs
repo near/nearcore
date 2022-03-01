@@ -8,11 +8,10 @@
 ///
 /// NOTE:
 /// - We also export publicly types from `crate::network_protocol`
-use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, Message};
+use actix::Message;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
-use near_crypto::{SecretKey, Signature};
+use near_crypto::SecretKey;
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -38,6 +37,8 @@ pub use crate::network_protocol::{
 
 pub use crate::config::{blacklist_from_iter, BlockedPorts, NetworkConfig};
 
+pub use crate::network_protocol::edge::{Edge, EdgeState, PartialEdgeInfo, SimpleEdge};
+
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network
 /// by different nodes.
@@ -57,16 +58,6 @@ pub enum PeerType {
     Inbound,
     /// Outbound session
     Outbound,
-}
-
-/// Account route description
-/// Unused?
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct AnnounceAccountRoute {
-    pub peer_id: PeerId,
-    pub hash: CryptoHash,
-    pub signature: Signature,
 }
 
 // Don't need Borsh ?
@@ -124,26 +115,23 @@ impl RawRoutedMessage {
         author: PeerId,
         secret_key: &SecretKey,
         routed_message_ttl: u8,
-    ) -> RoutedMessage {
+    ) -> Box<RoutedMessage> {
         let target = self.target.peer_id_or_hash().unwrap();
         let hash = RoutedMessage::build_hash(&target, &author, &self.body);
         let signature = secret_key.sign(hash.as_ref());
-        RoutedMessage { target, author, signature, ttl: routed_message_ttl, body: self.body }
+        RoutedMessage { target, author, signature, ttl: routed_message_ttl, body: self.body }.into()
     }
 }
 
 /// Routed Message wrapped with previous sender of the message.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Clone, Debug)]
+#[derive(actix::Message, Clone, Debug)]
+#[rtype(result = "bool")]
 pub struct RoutedMessageFrom {
     /// Routed messages.
-    pub msg: RoutedMessage,
+    pub msg: Box<RoutedMessage>,
     /// Previous hop in the route. Used for messages that needs routing back.
     pub from: PeerId,
-}
-
-impl Message for RoutedMessageFrom {
-    type Result = bool;
 }
 
 /// not part of protocol, probably doesn't need `borsh`
@@ -168,7 +156,8 @@ impl KnownPeerStatus {
 pub struct KnownPeerState {
     pub peer_info: PeerInfo,
     pub status: KnownPeerStatus,
-    pub first_seen: u64,
+    /// Unused
+    first_seen: u64,
     pub last_seen: u64,
 }
 
@@ -180,10 +169,6 @@ impl KnownPeerState {
             first_seen: to_timestamp(Clock::utc()),
             last_seen: to_timestamp(Clock::utc()),
         }
-    }
-
-    pub fn first_seen(&self) -> DateTime<Utc> {
-        from_timestamp(self.first_seen)
     }
 
     pub fn last_seen(&self) -> DateTime<Utc> {
@@ -220,16 +205,6 @@ impl InboundTcpConnect {
 pub struct OutboundTcpConnect {
     /// Peer information of the outbound connection
     pub peer_info: PeerInfo,
-}
-
-/// Unregister message from Peer to PeerManager.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct Unregister {
-    pub peer_id: PeerId,
-    pub peer_type: PeerType,
-    pub remove_from_peer_store: bool,
 }
 
 /// Ban reason.
@@ -270,11 +245,6 @@ pub enum PeerManagerRequest {
     UnregisterPeer,
 }
 
-/// Messages from Peer to PeerManager
-#[derive(Message, Debug)]
-#[rtype(result = "()")]
-pub enum PeerRequest {}
-
 #[derive(Debug, Clone)]
 pub struct KnownProducer {
     pub account_id: AccountId,
@@ -306,6 +276,7 @@ pub enum NetworkAdversarialMessage {
 pub enum NetworkSandboxMessage {
     SandboxPatchState(Vec<near_primitives::state_record::StateRecord>),
     SandboxPatchStateStatus,
+    SandboxFastForward(near_primitives::types::BlockHeightDelta),
 }
 
 #[cfg(feature = "sandbox")]
@@ -314,7 +285,8 @@ pub enum SandboxResponse {
     SandboxPatchStateFinished(bool),
 }
 
-#[derive(AsStaticStr)]
+#[derive(actix::Message, AsStaticStr)]
+#[rtype(result = "NetworkViewClientResponses")]
 pub enum NetworkViewClientMessages {
     #[cfg(feature = "test_features")]
     Adversarial(NetworkAdversarialMessage),
@@ -347,7 +319,7 @@ pub enum NetworkViewClientMessages {
     AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, actix::MessageResponse)]
 pub enum NetworkViewClientResponses {
     /// Transaction execution outcome
     TxStatus(Box<FinalExecutionOutcomeView>),
@@ -380,27 +352,13 @@ pub enum NetworkViewClientResponses {
     NoResponse,
 }
 
-impl<A, M> MessageResponse<A, M> for NetworkViewClientResponses
-where
-    A: Actor,
-    M: Message<Result = NetworkViewClientResponses>,
-{
-    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-        if let Some(tx) = tx {
-            tx.send(self)
-        }
-    }
-}
-
-impl Message for NetworkViewClientMessages {
-    type Result = NetworkViewClientResponses;
-}
-
 /// Peer stats query.
+#[derive(actix::Message)]
+#[rtype(result = "PeerStatsResult")]
 pub struct QueryPeerStats {}
 
 /// Peer stats result
-#[derive(Debug)]
+#[derive(Debug, actix::MessageResponse)]
 pub struct PeerStatsResult {
     /// Chain info.
     pub chain_info: PeerChainInfoV2,
@@ -411,23 +369,7 @@ pub struct PeerStatsResult {
     /// Returns if this peer is abusive and should be banned.
     pub is_abusive: bool,
     /// Counts of incoming/outgoing messages from given peer.
-    pub message_counts: (u64, u64),
-}
-
-impl<A, M> MessageResponse<A, M> for PeerStatsResult
-where
-    A: Actor,
-    M: Message<Result = PeerStatsResult>,
-{
-    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-        if let Some(tx) = tx {
-            tx.send(self)
-        }
-    }
-}
-
-impl Message for QueryPeerStats {
-    type Result = PeerStatsResult;
+    pub message_counts: (usize, usize),
 }
 
 #[cfg(test)]
@@ -463,7 +405,6 @@ mod tests {
     fn test_struct_size() {
         assert_size!(PeerInfo);
         assert_size!(PeerChainInfoV2);
-        assert_size!(AnnounceAccountRoute);
         assert_size!(AnnounceAccount);
         assert_size!(Ping);
         assert_size!(Pong);
@@ -473,7 +414,6 @@ mod tests {
         assert_size!(KnownPeerState);
         assert_size!(InboundTcpConnect);
         assert_size!(OutboundTcpConnect);
-        assert_size!(Unregister);
         assert_size!(Ban);
         assert_size!(StateResponseInfoV1);
         assert_size!(QueryPeerStats);

@@ -77,7 +77,7 @@ fn init_test_staking(
         .map(|(i, config)| {
             let genesis_hash = genesis_hash(&config.genesis);
             let nearcore::NearNode { client, view_client, .. } =
-                start_with_config(paths[i], config.clone());
+                start_with_config(paths[i], config.clone()).expect("start_with_config");
             let account_id = format!("near.{}", i).parse::<AccountId>().unwrap();
             let signer = Arc::new(InMemorySigner::from_seed(
                 account_id.clone(),
@@ -92,6 +92,7 @@ fn init_test_staking(
 /// Runs one validator network, sends staking transaction for the second node and
 /// waits until it becomes a validator.
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_stake_nodes() {
     heavy_test(|| {
         run_actix(async move {
@@ -167,6 +168,7 @@ fn test_stake_nodes() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_validator_kickout() {
     heavy_test(|| {
         run_actix(async move {
@@ -314,6 +316,7 @@ fn test_validator_kickout() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_validator_join() {
     heavy_test(|| {
         run_actix(async move {
@@ -465,6 +468,7 @@ fn test_validator_join() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_inflation() {
     heavy_test(|| {
         run_actix(async move {
@@ -550,7 +554,7 @@ fn test_inflation() {
                     }
                 }),
                 100,
-                10000,
+                20000,
             )
             .start();
         });

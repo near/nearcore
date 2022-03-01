@@ -13,13 +13,13 @@ pub enum ChunkReference {
     },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct RpcChunkRequest {
     #[serde(flatten)]
     pub chunk_reference: ChunkReference,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct RpcChunkResponse {
     #[serde(flatten)]
     pub chunk_view: near_primitives::views::ChunkView,

@@ -13,7 +13,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockReference, EpochReference, MaybeBlockId, ShardId,
+    AccountId, BlockHeight, BlockReference, EpochId, EpochReference, MaybeBlockId, ShardId,
     TransactionOrReceiptId,
 };
 use near_primitives::utils::generate_random_string;
@@ -153,9 +153,22 @@ impl SyncStatus {
             _ => true,
         }
     }
+
+    pub fn repr(&self) -> u8 {
+        match self {
+            // Represent NoSync as 0 because it is the state of a normal well-behaving node.
+            SyncStatus::NoSync => 0,
+            SyncStatus::AwaitingPeers => 1,
+            SyncStatus::EpochSync { epoch_ord: _ } => 2,
+            SyncStatus::HeaderSync { current_height: _, highest_height: _ } => 3,
+            SyncStatus::StateSync(_, _) => 4,
+            SyncStatus::StateSyncDone => 5,
+            SyncStatus::BodySync { current_height: _, highest_height: _ } => 6,
+        }
+    }
 }
 
-/// Actor message requesting block by id or hash.
+/// Actor message requesting block by id, hash or sync state.
 pub struct GetBlock(pub BlockReference);
 
 #[derive(thiserror::Error, Debug)]
@@ -196,6 +209,13 @@ impl GetBlock {
 
 impl Message for GetBlock {
     type Result = Result<BlockView, GetBlockError>;
+}
+
+/// Actor message requesting block hash by id, hash or sync state.
+pub struct GetBlockHash(pub BlockReference);
+
+impl Message for GetBlockHash {
+    type Result = Result<CryptoHash, GetBlockError>;
 }
 
 /// Get block with the block merkle tree. Used for testing
@@ -604,6 +624,15 @@ pub struct GetStateChangesWithCauseInBlock {
 
 impl Message for GetStateChangesWithCauseInBlock {
     type Result = Result<StateChangesView, GetStateChangesError>;
+}
+
+pub struct GetStateChangesWithCauseInBlockForTrackedShards {
+    pub block_hash: CryptoHash,
+    pub epoch_id: EpochId,
+}
+
+impl Message for GetStateChangesWithCauseInBlockForTrackedShards {
+    type Result = Result<HashMap<ShardId, StateChangesView>, GetStateChangesError>;
 }
 
 pub struct GetExecutionOutcome {
