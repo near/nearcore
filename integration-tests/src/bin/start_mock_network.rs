@@ -19,6 +19,15 @@ use std::time::Duration;
 /// Program to start a testing environment for one client and a mock network environment
 /// The mock network simulates the entire network by reading a pre-generated chain history
 /// on storage and responds to the client's network requests.
+/// The binary runs in two modes, Sync and NoSync, determined by flag `sync`.
+///
+/// In Sync mode, the client and mock network start from different height and client is trying
+/// to catch up. The client starts from genesis height, and the mock network starts from
+/// target height (see args.target_height) and no new blocks are produced.
+///
+/// In NoSync mode, the client and mock network start at the same height and new blocks will
+/// be produced. They both start from genesis height and the mock network will produce
+/// blocks until target height.
 #[derive(Clap)]
 struct Cli {
     /// Existing home dir for the pre-generated chain history. For example, you can use
@@ -30,8 +39,7 @@ struct Cli {
     /// Simulated network delay (in ms)
     #[clap(short = 'd', long, default_value = "100")]
     network_delay: u64,
-    /// If true, the mock network simulates the client in syncing mode, otherwise,
-    /// the client and its simulated peers will all start from the genesis block
+    /// Sync mode of the binary
     #[clap(short = 'S', long)]
     sync: bool,
     /// Target height that the client should sync to before stopping. If not specified,
