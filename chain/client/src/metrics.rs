@@ -81,6 +81,13 @@ pub static CHUNKS_RECEIVING_DELAY_US: Lazy<IntGauge> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static CHUNKS_RECEIVING_DELAY: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram(
+        "near_chunks_receiving_delay",
+        "Delay between receiving a block and its chunks",
+    )
+    .unwrap()
+});
 pub static BLOCKS_AHEAD_OF_HEAD: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_blocks_ahead_of_head",

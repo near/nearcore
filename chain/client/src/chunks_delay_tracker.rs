@@ -25,6 +25,15 @@ const CHUNKS_DELAY_TRACKER_HORIZON: u64 = 10;
 struct HeightInfo {
     block_received: Option<Instant>,
     chunks_received: HashMap<ShardId, Instant>,
+    chunks_requested: Option<Instant>,
+}
+
+impl HeightInfo {
+    pub fn get_delay(&self) -> Duration {
+        let block_received = self.block_received.unwrap();
+        let latest_chunk_received = self.chunks_received.values().max().unwrap();
+        latest_chunk_received.saturating_duration_since(block_received)
+    }
 }
 
 impl ChunksDelayTracker {
@@ -65,22 +74,10 @@ impl ChunksDelayTracker {
         metrics::CHUNKS_RECEIVING_DELAY_US.set(self.get_max_delay(head_height).as_micros() as i64);
     }
 
-    // Computes the difference between the latest block we are aware of and the current head.
-    fn get_blocks_ahead(&mut self, head_height: BlockHeight) -> u64 {
-        if let Some((&latest, _)) = self.heights.iter().next_back() {
-            latest.saturating_sub(head_height)
-        } else {
-            0
+    fn update_chunks_histogram_metric(&mut self, height: BlockHeight) {
+        if let Some(entry) = self.heights.get(&height) {
+            metrics::CHUNKS_RECEIVING_DELAY.observe(entry.get_delay().as_secs_f64());
         }
-    }
-
-    fn update_blocks_ahead_metric(&mut self, head_height: BlockHeight) {
-        metrics::BLOCKS_AHEAD_OF_HEAD.set(self.get_blocks_ahead(head_height) as i64);
-    }
-
-    fn update_metrics(&mut self, head_height: BlockHeight) {
-        self.update_chunks_metric(head_height);
-        self.update_blocks_ahead_metric(head_height);
     }
 
     pub fn add_block_timestamp(
@@ -93,7 +90,7 @@ impl ChunksDelayTracker {
         if height >= head_height {
             self.heights.entry(height).or_default().block_received.get_or_insert(timestamp);
         }
-        self.update_metrics(head_height);
+        self.update_chunks_metric(head_height);
     }
 
     pub fn add_chunk_timestamp(
@@ -112,8 +109,15 @@ impl ChunksDelayTracker {
                 .entry(shard_id)
                 .or_insert(timestamp);
         }
-        self.update_metrics(head_height);
+        self.update_chunks_metric(head_height);
     }
+
+    pub fn block_processed(&mut self, height: BlockHeight) {
+        self.update_chunks_histogram_metric(height);
+    }
+
+    pub fn requested_chunk(&mut self, height: BlockHeight, timestamp: Instant) {}
+    pub fn accepted_block(&mut self, height: BlockHeight, timestamp: Instant) {}
 }
 #[cfg(test)]
 mod test {

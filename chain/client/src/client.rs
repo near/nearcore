@@ -726,6 +726,7 @@ impl Client {
         let mut orphans_missing_chunks = vec![];
         let mut challenges = vec![];
 
+        let block_height = block.header().height();
         let result = {
             let me = self
                 .validator_signer
@@ -777,6 +778,7 @@ impl Client {
 
         if let Ok(Some(_)) = result {
             self.last_time_head_progress_made = Clock::instant();
+            self.chunks_delay_tracker.block_processed(block.header().height());
         }
 
         // Request any missing chunks
@@ -1012,6 +1014,8 @@ impl Client {
                 return;
             }
         };
+        let now = Clock::instant();
+        self.chunks_delay_tracker.accepted_block(block.header().height(), now);
 
         let _ = self.check_and_update_doomslug_tip();
 
@@ -1193,7 +1197,11 @@ impl Client {
         blocks_missing_chunks: Vec<BlockMissingChunks>,
         orphans_missing_chunks: Vec<OrphanMissingChunks>,
     ) {
+        let now = Clock::instant();
         for BlockMissingChunks { prev_hash, missing_chunks } in blocks_missing_chunks {
+            for chunk in missing_chunks {
+                self.chunks_delay_tracker.requested_chunk(chunk.height_included(), now);
+            }
             self.shards_mgr.request_chunks(
                 missing_chunks,
                 prev_hash,
@@ -1207,6 +1215,9 @@ impl Client {
         for OrphanMissingChunks { missing_chunks, epoch_id, ancestor_hash } in
             orphans_missing_chunks
         {
+            for chunk in missing_chunks {
+                self.chunks_delay_tracker.requested_chunk(chunk.height_included(), now);
+            }
             self.shards_mgr.request_chunks_for_orphan(
                 missing_chunks,
                 &epoch_id,
@@ -1783,7 +1794,7 @@ impl Client {
 
     fn record_receive_block_timestamp(&mut self, height: BlockHeight) {
         if let Ok(tip) = self.chain.head() {
-            self.chunks_delay_tracker.add_block_timestamp(height, tip.height, Instant::now());
+            self.chunks_delay_tracker.add_block_timestamp(height, tip.height, Clock::instant());
         }
     }
     fn record_receive_chunk_timestamp(&mut self, height: BlockHeight, shard_id: ShardId) {
@@ -1792,7 +1803,7 @@ impl Client {
                 height,
                 shard_id,
                 tip.height,
-                Instant::now(),
+                Clock::instant(),
             );
         }
     }
