@@ -3019,7 +3019,8 @@ impl Chain {
     }
 
     /// Retrieve the up to `max_headers_returned` headers on the main chain
-    /// `hashes`: a list of block "locators". This function will find the first block in `hashes`
+    /// `hashes`: a list of block "locators". `hashes` should be ordered from older blocks to
+    ///           more recent blocks. This function will find the first block in `hashes`
     ///           that is on the main chain and returns the blocks after this block. If none of the
     ///           blocks in `hashes` are on the main chain, the function returns an empty vector.
     pub fn retrieve_headers(

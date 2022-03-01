@@ -70,6 +70,7 @@ fn main() {
         );
         let target_height =
             async { mock_network.send(GetChainTargetBlockHeight).await }.await.unwrap();
+        // wait until the client reach target_height
         WaitOrTimeoutActor::new(
             Box::new(move |_ctx| {
                 actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
