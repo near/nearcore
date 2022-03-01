@@ -39,7 +39,7 @@ near-chunks = { path = "../chunks" }
 near-telemetry = { path = "../telemetry" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
-delay-detector = { path = "../../tools/delay_detector", optional = true }
+delay-detector = { path = "../../tools/delay_detector" }
 near-network-primitives = { path = "../network-primitives" }
 
 [dev-dependencies]
@@ -57,7 +57,7 @@ test_features = [
 delay_detector = [
   "near-chain/delay_detector",
   "near-network/delay_detector",
-  "delay-detector",
+  "delay-detector/delay_detector",
 ]
 protocol_feature_chunk_only_producers = [
   "near-primitives/protocol_feature_chunk_only_producers",
