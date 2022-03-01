@@ -6,7 +6,7 @@ use near_vm_logic::ExtCosts;
 use crate::config::{Config, GasMetric};
 use crate::gas_cost::GasCost;
 use crate::testbed::RuntimeTestbed;
-use crate::utils::{clear_linux_page_cache, get_account_id};
+use crate::utils::get_account_id;
 
 use super::transaction_builder::TransactionBuilder;
 
@@ -102,7 +102,7 @@ impl<'c> Testbed<'c> {
         // - requires sudo, therefore this is executed optionally
         if self.config.metric == GasMetric::Time && self.config.drop_os_cache {
             #[cfg(target_os = "linux")]
-            clear_linux_page_cache().expect(
+            crate::utils::clear_linux_page_cache().expect(
                 "Failed to drop OS caches. Are you root and is /proc mounted with write access?",
             );
             #[cfg(not(target_os = "linux"))]
