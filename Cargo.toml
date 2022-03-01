@@ -22,6 +22,7 @@ members = [
     "chain/client-primitives",
     "chain/network",
     "chain/indexer",
+    "chain/indexer-primitives",
     "chain/jsonrpc",
     "chain/jsonrpc/fuzz",
     "chain/jsonrpc/client",
