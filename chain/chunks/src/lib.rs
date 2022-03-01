@@ -996,7 +996,7 @@ impl ShardsManager {
         route_back: CryptoHash,
         chain_store: &mut ChainStore,
     ) {
-        debug!(target: "chunks", "Received partial encoded chunk request for {:?}, part_ordinals: {:?}, receipts: {:?}, I'm {:?}", request.chunk_hash.0, request.part_ords, request.tracking_shards, self.me);
+        debug!(target: "chunks", "Received partial encoded chunk request for {:?}, part_ordinals: {:?}, shards: {:?}, I'm {:?}", request.chunk_hash.0, request.part_ords, request.tracking_shards, self.me);
 
         let response = if let Some(entry) = self.encoded_chunks.get(&request.chunk_hash) {
             Self::prepare_partial_encoded_chunk_response_from_cache(request, entry)
@@ -1096,7 +1096,8 @@ impl ShardsManager {
         let maybe_known_parts: Option<Vec<_>> = parts_iter.collect();
         let parts = match maybe_known_parts {
             None => {
-                debug!(target:"chunks", "Not responding, some parts are missing");
+                debug!(target:"chunks", "Not sending {:?}, some parts are missing",
+                       chunk_hash.0);
                 return None;
             }
             Some(known_parts) => known_parts,
@@ -1105,7 +1106,8 @@ impl ShardsManager {
         let maybe_known_receipts: Option<Vec<_>> = receipts_iter.collect();
         let receipts = match maybe_known_receipts {
             None => {
-                debug!(target:"chunks", "Not responding, some receipts are missing");
+                debug!(target:"chunks", "Not sending {:?}, some receipts are missing",
+                       chunk_hash.0);
                 return None;
             }
             Some(known_receipts) => known_receipts,
