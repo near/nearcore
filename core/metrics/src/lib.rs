@@ -64,7 +64,7 @@ pub use prometheus::{
 };
 use prometheus::{HistogramOpts, HistogramTimer, Opts};
 
-use log::error;
+use tracing::error;
 
 /// Collect all the metrics for reporting.
 pub fn gather() -> Vec<prometheus::proto::MetricFamily> {

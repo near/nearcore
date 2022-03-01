@@ -6,11 +6,11 @@ use actix::Addr;
 use futures::stream::StreamExt;
 use tracing::warn;
 
-pub use near_primitives::hash::CryptoHash;
-pub use near_primitives::{types, views};
+use near_indexer_primitives::IndexerExecutionOutcomeWithOptionalReceipt;
+use near_primitives::hash::CryptoHash;
+use near_primitives::{types, views};
 
 use super::errors::FailedToFetchData;
-use super::types::IndexerExecutionOutcomeWithOptionalReceipt;
 use super::INDEXER;
 
 pub(crate) async fn fetch_status(
@@ -28,7 +28,9 @@ pub(crate) async fn fetch_latest_block(
     client: &Addr<near_client::ViewClientActor>,
 ) -> Result<views::BlockView, FailedToFetchData> {
     client
-        .send(near_client::GetBlock(types::BlockReference::Finality(types::Finality::Final)))
+        .send(near_client::GetBlock(near_primitives::types::BlockReference::Finality(
+            near_primitives::types::Finality::Final,
+        )))
         .await?
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
@@ -39,9 +41,7 @@ pub(crate) async fn fetch_block_by_height(
     height: u64,
 ) -> Result<views::BlockView, FailedToFetchData> {
     client
-        .send(near_client::GetBlock(near_primitives::types::BlockReference::BlockId(
-            near_primitives::types::BlockId::Height(height),
-        )))
+        .send(near_client::GetBlock(near_primitives::types::BlockId::Height(height).into()))
         .await?
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
@@ -60,9 +60,10 @@ pub(crate) async fn fetch_block_by_hash(
 pub(crate) async fn fetch_state_changes(
     client: &Addr<near_client::ViewClientActor>,
     block_hash: CryptoHash,
-) -> Result<views::StateChangesView, FailedToFetchData> {
+    epoch_id: near_primitives::types::EpochId,
+) -> Result<HashMap<near_primitives::types::ShardId, views::StateChangesView>, FailedToFetchData> {
     client
-        .send(near_client::GetStateChangesWithCauseInBlock { block_hash })
+        .send(near_client::GetStateChangesWithCauseInBlockForTrackedShards { block_hash, epoch_id })
         .await?
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }

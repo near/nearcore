@@ -1,7 +1,5 @@
 use crate::{metrics, SyncStatus};
 use actix::Addr;
-use ansi_term::Color::{Blue, Cyan, Green, White, Yellow};
-use log::info;
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_client_primitives::types::ShardSyncStatus;
 use near_network::types::NetworkInfo;
@@ -12,14 +10,18 @@ use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
 };
 use near_primitives::time::{Clock, Instant};
-use near_primitives::types::{AccountId, BlockHeight, EpochHeight, Gas, NumBlocks};
+use near_primitives::types::{AccountId, BlockHeight, EpochHeight, Gas, NumBlocks, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo, ValidatorKickoutView};
 use near_telemetry::{telemetry, TelemetryActor};
 use std::cmp::min;
+use std::fmt::Write;
 use std::sync::Arc;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
+use tracing::info;
+
+const TERAGAS: f64 = 1_000_000_000_000_f64;
 
 pub struct ValidatorInfoHelper {
     pub is_validator: bool,
@@ -71,6 +73,16 @@ impl InfoHelper {
         }
     }
 
+    pub fn chunk_processed(&mut self, shard_id: ShardId, gas_used: Gas) {
+        metrics::TGAS_USAGE_HIST
+            .with_label_values(&[&format!("{}", shard_id)])
+            .observe(gas_used as f64 / TERAGAS);
+    }
+
+    pub fn chunk_skipped(&mut self, shard_id: ShardId) {
+        metrics::CHUNK_SKIPPED_TOTAL.with_label_values(&[&format!("{}", shard_id)]).inc();
+    }
+
     pub fn block_processed(&mut self, gas_used: Gas, num_chunks: u64) {
         self.num_blocks_processed += 1;
         self.num_chunks_in_blocks_processed += num_chunks;
@@ -89,21 +101,34 @@ impl InfoHelper {
         epoch_height: EpochHeight,
         protocol_upgrade_block_height: BlockHeight,
     ) {
-        let (cpu_usage, memory_usage) = if let Some(pid) = self.pid {
-            if self.sys.refresh_process(pid) {
-                let proc = self
-                    .sys
-                    .get_process(pid)
-                    .expect("refresh_process succeeds, this should be not None");
-                (proc.cpu_usage(), proc.memory())
-            } else {
-                (0.0, 0)
-            }
-        } else {
-            (0.0, 0)
+        let use_colour = matches!(self.log_summary_style, LogSummaryStyle::Colored);
+        let paint = |colour: ansi_term::Colour, text: Option<String>| match text {
+            None => ansi_term::Style::default().paint(""),
+            Some(text) if use_colour => colour.bold().paint(text),
+            Some(text) => ansi_term::Style::default().paint(text),
         };
 
-        // Block#, Block Hash, is validator/# validators, active/max peers, traffic, blocks/sec & tx/sec
+        let s = |num| if num == 1 { "" } else { "s" };
+
+        let sync_status_log = Some(display_sync_status(sync_status, head, genesis_height));
+
+        let validator_info_log = validator_info.as_ref().map(|info| {
+            format!(
+                " {}{} validator{}",
+                if info.is_validator { "Validator | " } else { "" },
+                info.num_validators,
+                s(info.num_validators)
+            )
+        });
+
+        let network_info_log = Some(format!(
+            " {} peer{} ⬇ {} ⬆ {}",
+            network_info.num_connected_peers,
+            s(network_info.num_connected_peers),
+            pretty_bytes_per_sec(network_info.received_bytes_per_sec),
+            pretty_bytes_per_sec(network_info.sent_bytes_per_sec)
+        ));
+
         let avg_bls = (self.num_blocks_processed as f64)
             / (self.started.elapsed().as_millis() as f64)
             * 1000.0;
@@ -114,50 +139,30 @@ impl InfoHelper {
         };
         let avg_gas_used =
             ((self.gas_used as f64) / (self.started.elapsed().as_millis() as f64) * 1000.0) as u64;
+        let blocks_info_log =
+            Some(format!(" {:.2} bps {}", avg_bls, gas_used_per_sec(avg_gas_used)));
 
-        let validator_info_log = if let Some(ref validator_info) = validator_info {
-            format!(
-                "{}/{}",
-                if validator_info.is_validator { "V" } else { "-" },
-                validator_info.num_validators
-            )
-        } else {
-            String::new()
-        };
+        let proc_info = self.pid.filter(|pid| self.sys.refresh_process(*pid)).map(|pid| {
+            let proc = self
+                .sys
+                .get_process(pid)
+                .expect("refresh_process succeeds, this should be not None");
+            (proc.cpu_usage(), proc.memory())
+        });
+        let machine_info_log = proc_info
+            .as_ref()
+            .map(|(cpu, mem)| format!(" CPU: {:.0}%, Mem: {}", cpu, pretty_bytes(mem * 1024)));
 
-        let sync_status_log = display_sync_status(sync_status, head, genesis_height);
-        let network_info_log = format!(
-            "{:2}/{:?}/{:2} peers ⬇ {} ⬆ {}",
-            network_info.num_connected_peers,
-            network_info.highest_height_peers.len(),
-            network_info.peer_max_count,
-            pretty_bytes_per_sec(network_info.received_bytes_per_sec),
-            pretty_bytes_per_sec(network_info.sent_bytes_per_sec)
+        info!(
+            target: "stats", "{}{}{}{}{}",
+            paint(ansi_term::Colour::Yellow, sync_status_log),
+            paint(ansi_term::Colour::White, validator_info_log),
+            paint(ansi_term::Colour::Cyan, network_info_log),
+            paint(ansi_term::Colour::Green, blocks_info_log),
+            paint(ansi_term::Colour::Blue, machine_info_log),
         );
 
-        let blocks_info_log = format!("{:.2} bps {}", avg_bls, gas_used_per_sec(avg_gas_used));
-        let machine_info_log =
-            format!("CPU: {:.0}%, Mem: {}", cpu_usage, pretty_bytes(memory_usage * 1024));
-
-        match self.log_summary_style {
-            LogSummaryStyle::Colored => info!(
-                target: "stats", "{} {} {} {} {}",
-                Yellow.bold().paint(sync_status_log),
-                White.bold().paint(validator_info_log),
-                Cyan.bold().paint(network_info_log),
-                Green.bold().paint(blocks_info_log),
-                Blue.bold().paint(machine_info_log),
-            ),
-            LogSummaryStyle::Plain => info!(
-                target: "stats", "{} {} {} {} {}",
-                sync_status_log,
-                validator_info_log,
-                network_info_log,
-                blocks_info_log,
-                machine_info_log,
-            ),
-        };
-
+        let (cpu_usage, memory_usage) = proc_info.unwrap_or_default();
         let is_validator = validator_info.map(|v| v.is_validator).unwrap_or_default();
         (metrics::IS_VALIDATOR.set(is_validator as i64));
         (metrics::RECEIVED_BYTES_PER_SECOND.set(network_info.received_bytes_per_sec as i64));
@@ -166,8 +171,7 @@ impl InfoHelper {
         (metrics::CHUNKS_PER_BLOCK_MILLIS.set((1000. * chunks_per_block) as i64));
         (metrics::CPU_USAGE.set(cpu_usage as i64));
         (metrics::MEMORY_USAGE.set((memory_usage * 1024) as i64));
-        let teragas = 1_000_000_000_000u64;
-        (metrics::AVG_TGAS_USAGE.set((avg_gas_used as f64 / teragas as f64).round() as i64));
+        (metrics::AVG_TGAS_USAGE.set((avg_gas_used as f64 / TERAGAS).round() as i64));
         (metrics::EPOCH_HEIGHT.set(epoch_height as i64));
         (metrics::PROTOCOL_UPGRADE_BLOCK_HEIGHT.set(protocol_upgrade_block_height as i64));
         (metrics::NODE_PROTOCOL_VERSION.set(PROTOCOL_VERSION as i64));
@@ -274,22 +278,22 @@ fn display_sync_status(
             let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
             shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
             for (shard_id, shard_status) in shard_statuses {
-                res = res
-                    + format!(
-                        "[{}: {}]",
-                        shard_id,
-                        match shard_status.status {
-                            ShardSyncStatus::StateDownloadHeader => format!("header"),
-                            ShardSyncStatus::StateDownloadParts => format!("parts"),
-                            ShardSyncStatus::StateDownloadScheduling => format!("scheduling"),
-                            ShardSyncStatus::StateDownloadApplying => format!("applying"),
-                            ShardSyncStatus::StateDownloadComplete => format!("download complete"),
-                            ShardSyncStatus::StateSplitScheduling => format!("split scheduling"),
-                            ShardSyncStatus::StateSplitApplying => format!("split applying"),
-                            ShardSyncStatus::StateSyncDone => format!("done"),
-                        }
-                    )
-                    .as_str();
+                write!(
+                    res,
+                    "[{}: {}]",
+                    shard_id,
+                    match shard_status.status {
+                        ShardSyncStatus::StateDownloadHeader => "header",
+                        ShardSyncStatus::StateDownloadParts => "parts",
+                        ShardSyncStatus::StateDownloadScheduling => "scheduling",
+                        ShardSyncStatus::StateDownloadApplying => "applying",
+                        ShardSyncStatus::StateDownloadComplete => "download complete",
+                        ShardSyncStatus::StateSplitScheduling => "split scheduling",
+                        ShardSyncStatus::StateSplitApplying => "split applying",
+                        ShardSyncStatus::StateSyncDone => "done",
+                    }
+                )
+                .unwrap();
             }
             res
         }

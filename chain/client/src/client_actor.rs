@@ -5,12 +5,10 @@ use crate::info::{get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper};
 use crate::sync::{StateSync, StateSyncResult};
 use crate::StatusResponse;
 use actix::dev::SendError;
-use actix::dev::ToEnvelope;
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
 use chrono::DateTime;
-use log::{debug, error, info, trace, warn};
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
     BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
@@ -50,9 +48,10 @@ use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
+use tracing::{debug, error, info, trace, warn};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -65,7 +64,7 @@ const HEAD_STALL_MULTIPLIER: u32 = 4;
 pub struct ClientActor {
     /// Adversarial controls
     #[cfg(feature = "test_features")]
-    pub adv: Arc<RwLock<crate::AdversarialControls>>,
+    pub adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
 
     client: Client,
     network_adapter: Arc<dyn PeerManagerAdapter>,
@@ -88,6 +87,9 @@ pub struct ClientActor {
     block_catch_up_scheduler: Box<dyn Fn(BlockCatchUpRequest)>,
     state_split_scheduler: Box<dyn Fn(StateSplitRequest)>,
     state_parts_client_arbiter: Arbiter,
+
+    #[cfg(feature = "sandbox")]
+    fastforward_delta: Option<near_primitives::types::BlockHeightDelta>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -122,7 +124,7 @@ impl ClientActor {
         enable_doomslug: bool,
         rng_seed: RngSeed,
         ctx: &Context<ClientActor>,
-        #[cfg(feature = "test_features")] adv: Arc<RwLock<crate::AdversarialControls>>,
+        #[cfg(feature = "test_features")] adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
@@ -182,6 +184,9 @@ impl ClientActor {
                 sync_jobs_actor_addr,
             ),
             state_parts_client_arbiter: state_parts_arbiter,
+
+            #[cfg(feature = "sandbox")]
+            fastforward_delta: None,
         })
     }
 }
@@ -191,7 +196,6 @@ where
     M: Message + Send + 'static,
     M::Result: Send,
     SyncJobsActor: Handler<M>,
-    Context<SyncJobsActor>: ToEnvelope<SyncJobsActor, M>,
 {
     Box::new(move |msg: M| {
         if let Err(err) = address.try_send(msg) {
@@ -351,6 +355,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 !self.client.chain.patch_state_in_progress(),
                             ),
                         )
+                    }
+                    near_network_primitives::types::NetworkSandboxMessage::SandboxFastForward(delta_height) => {
+                        self.fastforward_delta = Some(delta_height);
+                        NetworkClientResponses::NoResponse
                     }
                 };
             }
@@ -764,6 +772,21 @@ impl ClientActor {
 
         let head = self.client.chain.head()?;
         let latest_known = self.client.chain.mut_store().get_latest_known()?;
+
+        #[cfg(feature = "sandbox")]
+        let latest_known = if let Some(delta_height) = self.fastforward_delta.take() {
+            let new_latest_known = near_chain::types::LatestKnown {
+                height: latest_known.height + delta_height,
+                seen: near_primitives::utils::to_timestamp(Clock::utc()),
+            };
+
+            self.client.chain.mut_store().save_latest_known(new_latest_known.clone())?;
+            self.client.sandbox_update_tip(new_latest_known.height)?;
+            new_latest_known
+        } else {
+            latest_known
+        };
+
         assert!(
             head.height <= latest_known.height,
             "Latest known height is invalid {} vs {}",
@@ -958,6 +981,15 @@ impl ClientActor {
 
             let last_final_hash = *block.header().last_final_block();
 
+            let chunks = block.chunks();
+            for (chunk, &included) in chunks.iter().zip(block.header().chunk_mask().iter()) {
+                if included {
+                    self.info_helper.chunk_processed(chunk.shard_id(), chunk.gas_used());
+                } else {
+                    self.info_helper.chunk_skipped(chunk.shard_id());
+                }
+            }
+
             self.info_helper.block_processed(gas_used, chunks_in_block as u64);
             self.check_send_announce_account(last_final_hash);
         }
@@ -982,7 +1014,7 @@ impl ClientActor {
             block.mark_as_valid();
         } else {
             let chain = &mut self.client.chain;
-            let res = chain.process_block_header(block.header(), |_| {});
+            let res = chain.process_block_header(block.header(), &mut |_| {});
             let res = res.and_then(|_| chain.validate_block(&block));
             match res {
                 Ok(_) => {
@@ -1393,31 +1425,27 @@ impl ClientActor {
                     StateSyncResult::Completed => {
                         info!(target: "sync", "State sync: all shards are done");
 
-                        let accepted_blocks = Arc::new(RwLock::new(vec![]));
-                        let orphans_missing_chunks = Arc::new(RwLock::new(vec![]));
-                        let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
-                        let challenges = Arc::new(RwLock::new(vec![]));
+                        let mut accepted_blocks = vec![];
+                        let mut orphans_missing_chunks = vec![];
+                        let mut blocks_missing_chunks = vec![];
+                        let mut challenges = vec![];
 
                         unwrap_or_run_later!(self.client.chain.reset_heads_post_state_sync(
                             &me,
                             sync_hash,
-                            |accepted_block| {
-                                accepted_blocks.write().unwrap().push(accepted_block);
+                            &mut |accepted_block| {
+                                accepted_blocks.push(accepted_block);
                             },
-                            |missing_chunks| {
-                                blocks_missing_chunks.write().unwrap().push(missing_chunks)
+                            &mut |missing_chunks| { blocks_missing_chunks.push(missing_chunks) },
+                            &mut |orphan_missing_chunks| {
+                                orphans_missing_chunks.push(orphan_missing_chunks);
                             },
-                            |orphan_missing_chunks| {
-                                orphans_missing_chunks.write().unwrap().push(orphan_missing_chunks);
-                            },
-                            |challenge| challenges.write().unwrap().push(challenge)
+                            &mut |challenge| challenges.push(challenge)
                         ));
 
                         self.client.send_challenges(challenges);
 
-                        self.process_accepted_blocks(
-                            accepted_blocks.write().unwrap().drain(..).collect(),
-                        );
+                        self.process_accepted_blocks(accepted_blocks);
 
                         self.client
                             .request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
@@ -1652,7 +1680,7 @@ pub fn start_client(
     network_adapter: Arc<dyn PeerManagerAdapter>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
-    #[cfg(feature = "test_features")] adv: Arc<RwLock<crate::AdversarialControls>>,
+    #[cfg(feature = "test_features")] adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter_handle = Arbiter::current();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {

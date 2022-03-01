@@ -3,17 +3,18 @@
 mod cache;
 mod errors;
 mod imports;
-#[cfg(feature = "wasmer0_vm")]
+#[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
 mod memory;
+#[cfg(target_arch = "x86_64")]
 mod preload;
 pub mod prepare;
 mod runner;
 #[cfg(test)]
 mod tests;
 mod vm_kind;
-#[cfg(feature = "wasmer2_vm")]
+#[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
 mod wasmer2_runner;
-#[cfg(feature = "wasmer0_vm")]
+#[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
 mod wasmer_runner;
 #[cfg(feature = "wasmtime_vm")]
 mod wasmtime_runner;
@@ -24,6 +25,7 @@ pub use near_vm_logic::with_ext_cost_counter;
 pub use cache::{
     get_contract_cache_key, precompile_contract, precompile_contract_vm, MockCompiledContractCache,
 };
+#[cfg(target_arch = "x86_64")]
 pub use preload::{ContractCallPrepareRequest, ContractCallPrepareResult, ContractCaller};
 pub use runner::{run, VM};
 
