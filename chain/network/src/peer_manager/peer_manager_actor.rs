@@ -1496,9 +1496,9 @@ impl PeerManagerActor {
         ctx: &mut Context<Self>,
         throttle_controller: Option<ThrottleController>,
     ) -> NetworkResponses {
-        #[cfg(feature = "delay_detector")]
-        let _d =
-            delay_detector::DelayDetector::new(format!("network request {}", msg.as_ref()).into());
+        let _d = delay_detector::DelayDetector::new(|| {
+            format!("network request {}", msg.as_ref()).into()
+        });
         match msg {
             NetworkRequests::Block { block } => {
                 Self::broadcast_message(
@@ -1916,10 +1916,7 @@ impl PeerManagerActor {
 
     #[perf]
     fn handle_msg_inbound_tcp_connect(&self, msg: InboundTcpConnect, ctx: &mut Context<Self>) {
-        {
-            #[cfg(feature = "delay_detector")]
-            let _d = delay_detector::DelayDetector::new("inbound tcp connect".into());
-        }
+        let _d = delay_detector::DelayDetector::new(|| "inbound tcp connect".into());
 
         if self.is_inbound_allowed() {
             self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
@@ -1940,8 +1937,7 @@ impl PeerManagerActor {
 
     #[perf]
     fn handle_msg_outbound_tcp_connect(&self, msg: OutboundTcpConnect, ctx: &mut Context<Self>) {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("outbound tcp connect".into());
+        let _d = delay_detector::DelayDetector::new(|| "outbound tcp connect".into());
         debug!(target: "network", to = ?msg.peer_info, "Trying to connect");
         if let Some(addr) = msg.peer_info.addr {
             // The `connect` may take several minutes. This happens when the
@@ -1993,8 +1989,7 @@ impl PeerManagerActor {
         msg: RegisterPeer,
         ctx: &mut Context<Self>,
     ) -> RegisterPeerResponse {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("consolidate".into());
+        let _d = delay_detector::DelayDetector::new(|| "consolidate".into());
 
         // Check if this is a blacklisted peer.
         if (msg.peer_info.addr.as_ref())
@@ -2083,30 +2078,26 @@ impl PeerManagerActor {
 
     #[perf]
     fn handle_msg_unregister(&mut self, msg: Unregister) {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("unregister".into());
+        let _d = delay_detector::DelayDetector::new(|| "unregister".into());
         self.unregister_peer(msg.peer_id, msg.peer_type, msg.remove_from_peer_store);
     }
 
     #[perf]
     fn handle_msg_ban(&mut self, msg: Ban) {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("ban".into());
+        let _d = delay_detector::DelayDetector::new(|| "ban".into());
         self.ban_peer(&msg.peer_id, msg.ban_reason);
     }
 
     #[perf]
     fn handle_msg_peers_request(&self, _msg: PeersRequest) -> PeerRequestResult {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("peers request".into());
+        let _d = delay_detector::DelayDetector::new(|| "peers request".into());
         PeerRequestResult {
             peers: self.peer_store.healthy_peers(self.config.max_send_peers as usize),
         }
     }
 
     fn handle_msg_peers_response(&mut self, msg: PeersResponse) {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("peers response".into());
+        let _d = delay_detector::DelayDetector::new(|| "peers response".into());
         if let Err(err) = self.peer_store.add_indirect_peers(
             msg.peers.into_iter().filter(|peer_info| peer_info.id != self.my_peer_id).collect(),
         ) {
@@ -2193,10 +2184,9 @@ impl PeerManagerActor {
     /// "Return" true if this message is for this peer and should be sent to the client.
     /// Otherwise try to route this message to the final receiver and return false.
     fn handle_msg_routed_from(&mut self, msg: RoutedMessageFrom) -> bool {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new(
-            format!("routed message from {}", strum::AsStaticRef::as_static(&msg.msg.body)).into(),
-        );
+        let _d = delay_detector::DelayDetector::new(|| {
+            format!("routed message from {}", strum::AsStaticRef::as_static(&msg.msg.body)).into()
+        });
         let RoutedMessageFrom { mut msg, from } = msg;
 
         if msg.expect_response() {
@@ -2225,9 +2215,8 @@ impl PeerManagerActor {
     }
 
     fn handle_msg_peer_request(&mut self, msg: PeerRequest) -> PeerResponse {
-        #[cfg(feature = "delay_detector")]
         let _d =
-            delay_detector::DelayDetector::new(format!("peer request {}", msg.as_ref()).into());
+            delay_detector::DelayDetector::new(|| format!("peer request {}", msg.as_ref()).into());
         match msg {
             PeerRequest::UpdateEdge((peer, nonce)) => {
                 PeerResponse::UpdatedEdge(self.propose_edge(&peer, Some(nonce)))
