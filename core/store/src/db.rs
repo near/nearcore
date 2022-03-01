@@ -771,7 +771,7 @@ fn set_compression_options(opts: &mut Options) {
     // We use default parameters of RocksDB here:
     //      window_bits is -14 and is unused (Zlib-specific parameter),
     //      compression_level is 32767 meaning the default compression level for ZSTD,
-    //      compression__strategy is 0 and is unused (Zlib-specific parameter).
+    //      compression_strategy is 0 and is unused (Zlib-specific parameter).
     // See: https://github.com/facebook/rocksdb/blob/main/include/rocksdb/advanced_options.h#L176:
     opts.set_bottommost_compression_options(/*window_bits */-14, /*compression_level */32767, /*compression_strategy */0, dict_size, /*enabled */true);
     opts.set_bottommost_zstd_max_train_bytes(max_train_bytes, true);
