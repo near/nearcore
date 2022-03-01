@@ -1,2 +1,2 @@
 [build]
-rustflags = ["-Ctarget-feature=+sse4.1,+sse4.2"]
+rustflags = ["-Dwarnings", "-Ctarget-feature=+sse4.1,+sse4.2"]
