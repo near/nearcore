@@ -5,8 +5,6 @@ import account
 import key
 import base64
 
-#print(sys.argv[1])
-
 validator_key = key.Key.from_json_file(
     "/Users/michalski/.near_tmp/6/validator_key.json")
 
@@ -27,8 +25,6 @@ my_account.send_call_contract_raw_tx(
 results = []
 for i in tqdm(range(100)):
     for y in range(5):
-        #s = f'{{"receiver_id": "{dest_account_id}", "amount": "3", "msg": "\\"hi\\""}}'
-
         result = my_account.send_call_contract_raw_tx(
             contract_id="shard12.test.near",  #f"shard{y}.test.near",
             method_name="do_even_more_work",

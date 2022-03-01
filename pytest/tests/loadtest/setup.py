@@ -1,9 +1,6 @@
-from tqdm import tqdm
 import mocknet_helpers
 import account
 import key
-
-#print(sys.argv[1])
 
 validator_key = key.Key.from_json_file(
     "/Users/michalski/.near_tmp/6/validator_key.json")

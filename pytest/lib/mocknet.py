@@ -361,7 +361,7 @@ def transfer_between_nodes(nodes):
 
     tx, tx_hash = sign_payment_tx_and_get_hash(alice, bob.account_id,
                                                transfer_amount, alice_nonce + 1,
-                                               last_block_hash_decoded)
+                                               last_block_hash)
     send_transaction(node, tx, tx_hash, alice.account_id)
 
     alice_final_balance = get_balance(alice)
