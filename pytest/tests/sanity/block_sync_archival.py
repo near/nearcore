@@ -5,8 +5,15 @@ Initialises a cluster with two archival nodes: one validator and one observer.
 Starts the validator and waits until several epochs worth of blocks are
 generated.  Then, starts the observer node and makes sure that it properly
 synchronises the full history.
+
+When called with --long-run the test will generate enough blocks so that entries
+in EncodedChunksCache start being evicted.  That it, it’ll generated more than
+HEIGHT_HORIZON blocks defined in chunk_cache.rs.  Since that number is 1024,
+this may take a while to run but to help with that the validator will be run
+with much shorter min_block_production_delay.
 """
 
+import datetime
 import pathlib
 import sys
 import typing
@@ -18,16 +25,31 @@ from configured_logger import logger
 import utils
 
 EPOCH_LENGTH = 5
-TARGET_HEIGHT = 20 * EPOCH_LENGTH
+SHORT_TARGET_HEIGHT = 20 * EPOCH_LENGTH
+# This must be greater than HEIGHT_HORIZON in chunk_cache.rs
+LONG_TARGET_HEIGHT = 1500
 
 
 class Cluster:
 
-    def __init__(self):
+    def __init__(self,
+                 *,
+                 min_block_production_delay: typing.Optional[
+                     datetime.timedelta] = None):
         node_config = {
             'archive': True,
             'tracked_shards': [0],
         }
+        if min_block_production_delay:
+            secs, td = divmod(min_block_production_delay,
+                              datetime.timedelta(seconds=1))
+            ns = td.microseconds
+            node_config['consensus'] = {
+                'min_block_production_delay': {
+                    'secs': secs,
+                    'nanos': td.microseconds * 1000,
+                }
+            }
         self._config = cluster.load_config()
         self._near_root, self._node_dirs = cluster.init_cluster(
             1, 1, 1, self._config, [['epoch_length', EPOCH_LENGTH],
@@ -71,22 +93,44 @@ def get_all_blocks(node: cluster.BaseNode, *,
     return list(reversed(ids))
 
 
-with Cluster() as nodes:
-    # Start the validator and wait for a few epoch’s worth of blocks to be
-    # generated.
-    boot = nodes.start_node(0)
-    latest = utils.wait_for_blocks(boot, target=TARGET_HEIGHT)
+def main(argv: typing.Sequence[str]) -> None:
+    target_height = SHORT_TARGET_HEIGHT
+    min_delay = None
+    for arg in argv[1:]:
+        if arg == '--long-run':
+            min_delay = datetime.timedelta(milliseconds=1)
+            target_height = LONG_TARGET_HEIGHT
+        else:
+            sys.exit(f'unknown argument: {arg}')
 
-    # Start the observer node and wait for it to catch up with the chain state.
-    fred = nodes.start_node(1)
-    utils.wait_for_blocks(fred, target=TARGET_HEIGHT)
+    timeout = target_height * 5
+    with Cluster(min_block_production_delay=min_delay) as cluster:
+        # Start the validator and wait for a few epoch’s worth of blocks to be
+        # generated.
+        boot = cluster.start_node(0)
+        latest = utils.wait_for_blocks(boot,
+                                       target=target_height,
+                                       poll_interval=1,
+                                       timeout=timeout)
 
-    # Verify that observer got all the blocks.  Note that get_all_blocks
-    # verifies that the node has full chain from head to genesis block.
-    boot_blocks = get_all_blocks(boot, head=latest)
-    fred_blocks = get_all_blocks(fred, head=latest)
-    if boot_blocks != fred_blocks:
-        for a, b in zip(boot_blocks, fred_blocks):
-            if a != b:
-                logger.error(f'{a} != {b}')
-        assert False
+        # Start the observer node and wait for it to catch up with the chain
+        # state.
+        fred = cluster.start_node(1)
+        utils.wait_for_blocks(fred,
+                              target=target_height,
+                              poll_interval=1,
+                              timeout=timeout)
+
+        # Verify that observer got all the blocks.  Note that get_all_blocks
+        # verifies that the node has full chain from head to genesis block.
+        boot_blocks = get_all_blocks(boot, head=latest)
+        fred_blocks = get_all_blocks(fred, head=latest)
+        if boot_blocks != fred_blocks:
+            for a, b in zip(boot_blocks, fred_blocks):
+                if a != b:
+                    logger.error(f'{a} != {b}')
+            assert False
+
+
+if __name__ == '__main__':
+    main(sys.argv)
