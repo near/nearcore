@@ -16,6 +16,7 @@ use near_primitives::version::DbVersion;
 
 use crate::db::refcount::merge_refcounted_records;
 
+use rocksdb::checkpoint::Checkpoint;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 
@@ -871,6 +872,16 @@ impl RocksDB {
         } else {
             Ok(())
         }
+    }
+
+    /// Creates a Checkpoint object that can be used to actually create a checkpoint on disk.
+    pub fn checkpoint(&self) -> Result<Checkpoint, DBError> {
+        Checkpoint::new(&self.db).map_err(|err| DBError(err))
+    }
+
+    /// Synchronously flush all Memtables to SST files on disk
+    pub fn flush(&self) -> Result<(), DBError> {
+        self.db.flush().map_err(DBError::from)
     }
 }
 

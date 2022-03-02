@@ -9,7 +9,6 @@ use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
 use chrono::DateTime;
-use log::{debug, error, info, trace, warn};
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
     BlockCatchUpResponse, CryptoHashTimer, StateSplitRequest, StateSplitResponse,
@@ -54,6 +53,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
+use tracing::{debug, error, info, trace, warn};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -241,10 +241,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
     #[perf_with_debug]
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new(
-            format!("NetworkClientMessage {}", msg.as_ref()).into(),
-        );
+        let _d = delay_detector::DelayDetector::new(|| {
+            format!("NetworkClientMessage {}", msg.as_ref()).into()
+        });
         self.check_triggers(ctx);
 
         match msg {
@@ -607,8 +606,7 @@ impl Handler<Status> for ClientActor {
 
     #[perf]
     fn handle(&mut self, msg: Status, ctx: &mut Context<Self>) -> Self::Result {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("client status".to_string().into());
+        let _d = delay_detector::DelayDetector::new(|| "client status".into());
         self.check_triggers(ctx);
 
         let head = self.client.chain.head()?;
@@ -644,6 +642,9 @@ impl Handler<Status> for ClientActor {
                 is_slashed,
             })
             .collect();
+
+        let epoch_start_height =
+            self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?;
 
         let protocol_version =
             self.client.runtime_adapter.get_epoch_protocol_version(&head.epoch_id)?;
@@ -723,6 +724,8 @@ impl Handler<Status> for ClientActor {
                 earliest_block_hash,
                 earliest_block_height,
                 earliest_block_time,
+                epoch_id: Some(head.epoch_id),
+                epoch_start_height: Some(epoch_start_height),
             },
             validator_account_id,
             detailed_debug_status,
@@ -735,8 +738,7 @@ impl Handler<GetNetworkInfo> for ClientActor {
 
     #[perf]
     fn handle(&mut self, _msg: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("client get network info".into());
+        let _d = delay_detector::DelayDetector::new(|| "client get network info".into());
         self.check_triggers(ctx);
 
         Ok(NetworkInfoResponse {
@@ -886,8 +888,7 @@ impl ClientActor {
         // will prioritize processing messages until mailbox is empty. Execution of any other task
         // scheduled with run_later will be delayed.
 
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("client triggers".into());
+        let _d = delay_detector::DelayDetector::new(|| "client triggers".into());
 
         let mut delay = Duration::from_secs(1);
         let now = Utc::now();
@@ -1293,8 +1294,7 @@ impl ClientActor {
     /// Runs catchup on repeat, if this client is a validator.
     /// Schedules itself again if it was not ran as response to state parts job result
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("client catchup".into());
+        let _d = delay_detector::DelayDetector::new(|| "client catchup".into());
         match self.client.run_catchup(
             &self.network_info.highest_height_peers,
             &self.state_parts_task_scheduler,
@@ -1342,8 +1342,7 @@ impl ClientActor {
     /// Runs itself iff it was not ran as reaction for message with results of
     /// finishing state part job
     fn sync(&mut self, ctx: &mut Context<ClientActor>) {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("client sync".into());
+        let _d = delay_detector::DelayDetector::new(|| "client sync".into());
         // Macro to schedule to call this function later if error occurred.
         macro_rules! unwrap_or_run_later (($obj: expr) => (match $obj {
             Ok(v) => v,
@@ -1515,8 +1514,7 @@ impl ClientActor {
             ctx,
             self.client.config.log_summary_period,
             move |act, ctx| {
-                #[cfg(feature = "delay_detector")]
-                let _d = delay_detector::DelayDetector::new("client log summary".into());
+                let _d = delay_detector::DelayDetector::new(|| "client log summary".into());
                 let is_syncing = act.client.sync_status.is_syncing();
                 let head = unwrap_or_return!(act.client.chain.head(), act.log_summary(ctx));
                 let validator_info = if !is_syncing {
