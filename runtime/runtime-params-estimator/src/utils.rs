@@ -4,7 +4,6 @@ use crate::gas_cost::GasCost;
 use crate::transaction_builder::TransactionBuilder;
 
 use std::collections::HashMap;
-use std::{fs, io};
 
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
@@ -23,11 +22,11 @@ pub fn read_resource(path: &str) -> Vec<u8> {
 /// Attempts to clear OS page cache on Linux based system. Will fail on
 /// other systems. Requires write access to /proc/sys/vm/drop_caches
 #[cfg(target_os = "linux")]
-pub fn clear_linux_page_cache() -> io::Result<()> {
+pub fn clear_linux_page_cache() -> std::io::Result<()> {
     unsafe {
         libc::sync();
     }
-    fs::write("/proc/sys/vm/drop_caches", b"1")
+    std::fs::write("/proc/sys/vm/drop_caches", b"1")
 }
 
 pub(crate) fn transaction_cost(

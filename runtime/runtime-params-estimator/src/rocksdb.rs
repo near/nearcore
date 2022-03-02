@@ -5,7 +5,7 @@ use rand::{prelude::SliceRandom, Rng};
 use rand_xorshift::XorShiftRng;
 use rocksdb::DB;
 
-use crate::{config::Config, gas_cost::GasCost, utils::clear_linux_page_cache};
+use crate::{config::Config, gas_cost::GasCost};
 
 #[derive(Debug, Clone, Clap)]
 pub struct RocksDBTestConfig {
@@ -289,8 +289,10 @@ fn new_test_db(
         db_config.force_compaction,
         true, // always force-flush in setup
     );
+
+    #[cfg(target_os = "linux")]
     if db_config.drop_os_cache {
-        clear_linux_page_cache().expect(
+        crate::utils::clear_linux_page_cache().expect(
             "Failed to drop OS caches. Are you root and is /proc mounted with write access?",
         );
     }
