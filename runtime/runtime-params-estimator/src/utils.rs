@@ -1,5 +1,6 @@
+use crate::apply_block_cost;
 use crate::config::Config;
-use crate::estimator_context::{EstimatorContext, Testbed};
+use crate::estimator_context::EstimatorContext;
 use crate::gas_cost::GasCost;
 use crate::transaction_builder::TransactionBuilder;
 
@@ -8,6 +9,7 @@ use std::collections::HashMap;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_vm_logic::ExtCosts;
+use num_traits::{CheckedSub, SaturatingSub};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use rand_xorshift::XorShiftRng;
@@ -30,19 +32,21 @@ pub fn clear_linux_page_cache() -> std::io::Result<()> {
 }
 
 pub(crate) fn transaction_cost(
-    testbed: Testbed,
+    ctx: &mut EstimatorContext,
     make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
 ) -> GasCost {
     let block_size = 100;
-    let (gas_cost, _ext_costs) = transaction_cost_ext(testbed, block_size, make_transaction);
+    let (gas_cost, _ext_costs) = transaction_cost_ext(ctx, block_size, make_transaction);
     gas_cost
 }
 
 pub(crate) fn transaction_cost_ext(
-    mut testbed: Testbed,
+    ctx: &mut EstimatorContext,
     block_size: usize,
     make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
 ) -> (GasCost, HashMap<ExtCosts, u64>) {
+    let block_overhead = apply_block_cost(ctx);
+    let mut testbed = ctx.testbed();
     let blocks = {
         let n_blocks = testbed.config.warmup_iters_per_block + testbed.config.iter_per_block;
         let mut blocks = Vec::with_capacity(n_blocks);
@@ -61,7 +65,7 @@ pub(crate) fn transaction_cost_ext(
     let measurements =
         measurements.into_iter().skip(testbed.config.warmup_iters_per_block).collect::<Vec<_>>();
 
-    aggregate_per_block_measurements(testbed.config, block_size, measurements)
+    aggregate_per_block_measurements(testbed.config, block_size, measurements, Some(block_overhead))
 }
 
 pub(crate) fn fn_cost(
@@ -88,8 +92,7 @@ pub(crate) fn fn_cost_count(
         let sender = tb.random_unused_account();
         tb.transaction_from_function_call(sender, method, Vec::new())
     };
-    let testbed = ctx.testbed();
-    let (gas_cost, ext_costs) = transaction_cost_ext(testbed, block_size, &mut make_transaction);
+    let (gas_cost, ext_costs) = transaction_cost_ext(ctx, block_size, &mut make_transaction);
     let ext_cost = ext_costs[&ext_cost];
     (gas_cost, ext_cost)
 }
@@ -100,13 +103,11 @@ pub(crate) fn noop_function_call_cost(ctx: &mut EstimatorContext) -> GasCost {
     }
 
     let cost = {
-        let testbed = ctx.testbed();
-
         let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let sender = tb.random_unused_account();
             tb.transaction_from_function_call(sender, "noop", Vec::new())
         };
-        transaction_cost(testbed, &mut make_transaction)
+        transaction_cost(ctx, &mut make_transaction)
     };
 
     ctx.cached.noop_function_call_cost = Some(cost.clone());
@@ -130,6 +131,8 @@ pub(crate) fn fn_cost_with_setup(
     let (total_cost, measured_count) = {
         let block_size = 2usize;
         let n_blocks = ctx.config.warmup_iters_per_block + ctx.config.iter_per_block;
+
+        let block_overhead = apply_block_cost(ctx);
 
         let mut testbed = ctx.testbed();
 
@@ -164,8 +167,12 @@ pub(crate) fn fn_cost_with_setup(
             .map(|(_, m)| m)
             .collect();
 
-        let (gas_cost, ext_costs) =
-            aggregate_per_block_measurements(ctx.config, block_size, measurements);
+        let (gas_cost, ext_costs) = aggregate_per_block_measurements(
+            ctx.config,
+            block_size,
+            measurements,
+            Some(block_overhead),
+        );
         (gas_cost, ext_costs[&ext_cost])
     };
     assert_eq!(measured_count, count);
@@ -179,12 +186,20 @@ pub(crate) fn aggregate_per_block_measurements(
     config: &Config,
     block_size: usize,
     measurements: Vec<(GasCost, HashMap<ExtCosts, u64>)>,
+    subtract_block_overhead: Option<GasCost>,
 ) -> (GasCost, HashMap<ExtCosts, u64>) {
     let mut block_costs = Vec::new();
     let mut total_ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
     let mut total = GasCost::zero(config.metric);
     let mut n = 0;
-    for (gas_cost, ext_cost) in measurements {
+    for (mut gas_cost, ext_cost) in measurements {
+        if let Some(block_overhead) = subtract_block_overhead.clone() {
+            gas_cost = gas_cost.checked_sub(&block_overhead).unwrap_or_else(|| {
+                let mut uncertain_gas_cost = gas_cost.saturating_sub(&block_overhead);
+                uncertain_gas_cost.set_uncertain(true);
+                uncertain_gas_cost
+            });
+        }
         block_costs.push(gas_cost.to_gas() as f64);
         total += gas_cost;
         n += block_size as u64;
