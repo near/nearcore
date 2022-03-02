@@ -21,7 +21,6 @@ use near_primitives::network::PeerId;
 use near_rosetta_rpc::start_rosetta_rpc;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
-use near_store::db::RocksDB;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
     migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_20_to_21,
@@ -33,6 +32,7 @@ use near_telemetry::TelemetryActor;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tokio::sync::oneshot;
 use tracing::{error, info, trace};
 
 pub mod append_only_map;
@@ -300,6 +300,8 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> Result<NearNode
 pub fn start_with_config_and_synchronization(
     home_dir: &Path,
     config: NearConfig,
+    // `sender` will notify the corresponding `oneshot::Receiver` when an instance of `ClientActor`
+    // gets dropped.
     sender: Option<oneshot::Sender<()>>,
 ) -> Result<NearNode, anyhow::Error> {
     let store = init_and_migrate_store(home_dir, &config);

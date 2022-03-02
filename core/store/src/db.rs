@@ -2,6 +2,7 @@ use crate::db::refcount::merge_refcounted_records;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::version::DbVersion;
 use once_cell::sync::Lazy;
+use rocksdb::checkpoint::Checkpoint;
 use rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, Env, IteratorMode,
     Options, ReadOptions, WriteBatch, DB,
@@ -804,7 +805,7 @@ fn rocksdb_block_based_options(cache_size: usize) -> BlockBasedOptions {
     block_opts.set_block_cache(&Cache::new_lru_cache(cache_size).unwrap());
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
     block_opts.set_cache_index_and_filter_blocks(true);
-    block_opts.set_bloom_filter(10, true);
+    block_opts.set_bloom_filter(10.0, true);
     block_opts
 }
 
@@ -888,6 +889,16 @@ impl RocksDB {
         } else {
             Ok(())
         }
+    }
+
+    /// Creates a Checkpoint object that can be used to actually create a checkpoint on disk.
+    pub fn checkpoint(&self) -> Result<Checkpoint, DBError> {
+        Checkpoint::new(&self.db).map_err(|err| DBError(err))
+    }
+
+    /// Synchronously flush all Memtables to SST files on disk
+    pub fn flush(&self) -> Result<(), DBError> {
+        self.db.flush().map_err(DBError::from)
     }
 }
 

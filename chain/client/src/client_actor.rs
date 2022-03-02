@@ -6,7 +6,7 @@ use crate::sync::{StateSync, StateSyncResult};
 use crate::StatusResponse;
 use actix::dev::SendError;
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
-use actix_rt::{ArbiterHandle, System};
+use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
 use chrono::DateTime;
 use near_chain::chain::{
