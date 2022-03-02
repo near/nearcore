@@ -1540,8 +1540,6 @@ impl ClientActor {
 impl Drop for ClientActor {
     fn drop(&mut self) {
         self.state_parts_client_arbiter.stop();
-        info!(target: "chain", "As ClientActor is dropped, initiate a graceful shutdown.");
-        System::current().stop();
     }
 }
 

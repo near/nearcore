@@ -363,13 +363,14 @@ impl RunCmd {
                 futures::select! {
                     _ = sigint .recv().fuse() => "SIGINT",
                     _ = sigterm.recv().fuse() => "SIGTERM",
-                    _ = rx.fuse() => "DIED",
+                    _ = rx.fuse() => "ClentActor died",
                 }
             } else {
+                // TODO(#6372): Support graceful shutdown on windows.
                 tokio::signal::ctrl_c().await.unwrap();
                 "Ctrl+C"
             };
-            info!(target: "neard", "Got {}, stopping...", sig);
+            info!(target: "neard", "Got '{}', stopping...", sig);
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
