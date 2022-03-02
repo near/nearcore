@@ -254,7 +254,6 @@ fn test_sandbox_only_function() {
     with_vm_variants(|vm_kind| {
         let wasm = call_sandbox_debug_log();
         let res = make_simple_contract_call_vm(&wasm, "main", vm_kind);
-        println!("{:?}", res);
         let error_msg = match vm_kind {
             VMKind::Wasmer0 => {
                 "link error: Import not found, namespace: env, name: sandbox_debug_log"

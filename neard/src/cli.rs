@@ -432,6 +432,8 @@ fn init_logging(verbose: Option<&str>) {
     }
 
     if cfg!(feature = "sandbox") {
+        // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
+        // This is hidden by default so we enable it for sandbox node.
         env_filter = env_filter.add_directive("sandbox=debug".parse().unwrap());
     }
 
