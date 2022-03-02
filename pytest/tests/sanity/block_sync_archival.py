@@ -7,7 +7,7 @@ generated.  Then, starts the observer node and makes sure that it properly
 synchronises the full history.
 
 When called with --long-run the test will generate enough blocks so that entries
-in EncodedChunksCache start being evicted.  That it, it’ll generated more than
+in EncodedChunksCache start being evicted.  That it, it’ll generate more than
 HEIGHT_HORIZON blocks defined in chunk_cache.rs.  Since that number is 1024,
 this may take a while to run but to help with that the validator will be run
 with much shorter min_block_production_delay.
