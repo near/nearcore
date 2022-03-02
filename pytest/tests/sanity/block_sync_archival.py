@@ -37,7 +37,7 @@ class Cluster:
                                     })
         self._nodes = [None] * 2
 
-    def start(self, ordinal: int) -> cluster.BaseNode:
+    def start_node(self, ordinal: int) -> cluster.BaseNode:
         assert self._nodes[ordinal] is None
         self._nodes[ordinal] = node = cluster.spin_up_node(
             self._config,
@@ -74,11 +74,11 @@ def get_all_blocks(node: cluster.BaseNode, *,
 with Cluster() as nodes:
     # Start the validator and wait for a few epoch’s worth of blocks to be
     # generated.
-    boot = nodes.start(0)
+    boot = nodes.start_node(0)
     latest = utils.wait_for_blocks(boot, target=TARGET_HEIGHT)
 
     # Start the observer node and wait for it to catch up with the chain state.
-    fred = nodes.start(1)
+    fred = nodes.start_node(1)
     utils.wait_for_blocks(fred, target=TARGET_HEIGHT)
 
     # Verify that observer got all the blocks.  Note that get_all_blocks
