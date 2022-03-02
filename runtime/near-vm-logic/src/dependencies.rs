@@ -311,8 +311,6 @@ pub trait External {
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
     #[cfg(feature = "protocol_feature_function_call_weight")]
-    // TODO: unclear if this should be a supertrait to avoid semver breaking changes
-    // TODO: or if we can just modify the existing function
     fn append_action_function_call_weight(
         &mut self,
         receipt_index: ReceiptIndex,

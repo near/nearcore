@@ -2553,9 +2553,13 @@ impl<'a> VMLogic<'a> {
         }))
     }
 
-    /// Computes the outcome of execution.
+    /// Computes the outcome of the execution.
+    ///
+    /// If `FunctionCallWeight` protocol feature (127) is enabled, unused gas will be
+    /// distributed to functions that specify a gas weight. If there are no functions with
+    /// a gas weight, the outcome will contain unused gas as usual.
     #[allow(unused_mut)]
-    pub fn outcome(mut self) -> VMOutcome {
+    pub fn compute_outcome_and_distribute_gas(mut self) -> VMOutcome {
         #[cfg(feature = "protocol_feature_function_call_weight")]
         if !self.context.is_view() {
             // Distribute unused gas to scheduled function calls

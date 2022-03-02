@@ -269,17 +269,14 @@ impl External for MockedExternal {
                 }
             };
 
-            let distributed: u64 = self
-                .gas_weights
-                .iter()
-                .map(|(action_index, GasWeight(weight))| {
-                    let assigned_gas = gas_per_weight * weight;
+            let mut distributed = 0;
+            for (action_index, GasWeight(weight)) in &self.gas_weights {
+                let assigned_gas = gas_per_weight * weight;
 
-                    distribute_gas(action_index, assigned_gas);
+                distribute_gas(action_index, assigned_gas);
 
-                    assigned_gas
-                })
-                .sum();
+                distributed += assigned_gas
+            }
 
             // Distribute remaining gas to final action.
             if let Some((last_idx, _)) = self.gas_weights.last() {

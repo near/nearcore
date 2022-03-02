@@ -166,7 +166,6 @@ const MAIN_NET_PROTOCOL_VERSION: ProtocolVersion = 52;
 pub const PROTOCOL_VERSION: ProtocolVersion = MAIN_NET_PROTOCOL_VERSION;
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-// TODO remember to update this also
 pub const PROTOCOL_VERSION: ProtocolVersion = 127;
 
 impl ProtocolFeature {
@@ -208,7 +207,6 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
             #[cfg(feature = "protocol_feature_function_call_weight")]
-            // TODO idk where this number comes from
             ProtocolFeature::FunctionCallWeight => 127,
         }
     }
