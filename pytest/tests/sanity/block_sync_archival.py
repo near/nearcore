@@ -13,6 +13,7 @@ this may take a while to run but to help with that the validator will be run
 with much shorter min_block_production_delay.
 """
 
+import argparse
 import datetime
 import pathlib
 import sys
@@ -94,14 +95,15 @@ def get_all_blocks(node: cluster.BaseNode, *,
 
 
 def main(argv: typing.Sequence[str]) -> None:
+    parser = argparse.ArgumentParser(description='Run an end-to-end test')
+    parser.add_argument('--long-run', action='store_true')
+    opts = parser.parse_args(argv[1:])
+
     target_height = SHORT_TARGET_HEIGHT
     min_delay = None
-    for arg in argv[1:]:
-        if arg == '--long-run':
-            min_delay = datetime.timedelta(milliseconds=1)
-            target_height = LONG_TARGET_HEIGHT
-        else:
-            sys.exit(f'unknown argument: {arg}')
+    if opts.long_run:
+        min_delay = datetime.timedelta(milliseconds=1)
+        target_height = LONG_TARGET_HEIGHT
 
     timeout = target_height * 5
     with Cluster(min_block_production_delay=min_delay) as cluster:
