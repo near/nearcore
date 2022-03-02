@@ -89,7 +89,7 @@ impl GasCost {
     pub(crate) fn least_squares_method_gas_cost(
         xs: &[u64],
         ys: &[Self],
-        tolerance: LeastSquaresTolerance,
+        tolerance: &LeastSquaresTolerance,
         verbose: bool,
     ) -> (Self, Self) {
         match least_squares_method_gas_cost_pos_neg(xs, ys, verbose) {
@@ -389,6 +389,45 @@ impl ops::Div<u64> for GasCost {
     }
 }
 
+impl num_traits::CheckedSub for GasCost {
+    fn checked_sub(&self, rhs: &Self) -> Option<Self> {
+        if self.metric != rhs.metric {
+            return None;
+        }
+        let uncertain = self.uncertain || rhs.uncertain;
+        Some(GasCost {
+            time_ns: self.time_ns.checked_sub(&rhs.time_ns)?,
+            instructions: self.instructions.checked_sub(&rhs.instructions)?,
+            io_r_bytes: self.io_r_bytes.checked_sub(&rhs.io_r_bytes)?,
+            io_w_bytes: self.io_w_bytes.checked_sub(&rhs.io_w_bytes)?,
+            metric: self.metric,
+            uncertain,
+        })
+    }
+}
+
+impl num_traits::SaturatingSub for GasCost {
+    fn saturating_sub(&self, rhs: &Self) -> Self {
+        assert_eq!(self.metric, rhs.metric);
+        let uncertain = self.uncertain || rhs.uncertain;
+        GasCost {
+            time_ns: saturating_sub(self.time_ns, rhs.time_ns),
+            instructions: saturating_sub(self.instructions, rhs.instructions),
+            io_r_bytes: saturating_sub(self.io_r_bytes, rhs.io_r_bytes),
+            io_w_bytes: saturating_sub(self.io_w_bytes, rhs.io_w_bytes),
+            metric: self.metric,
+            uncertain,
+        }
+    }
+}
+fn saturating_sub(a: Ratio<u64>, b: Ratio<u64>) -> Ratio<u64> {
+    if a < b {
+        0.into()
+    } else {
+        a - b
+    }
+}
+
 impl PartialOrd for GasCost {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
@@ -433,7 +472,7 @@ mod tests {
         tolerance: LeastSquaresTolerance,
         expected_uncertain: bool,
     ) {
-        let result = GasCost::least_squares_method_gas_cost(xs, ys, tolerance, true);
+        let result = GasCost::least_squares_method_gas_cost(xs, ys, &tolerance, true);
         assert_eq!(result.0.is_uncertain(), expected_uncertain);
         assert_eq!(result.1.is_uncertain(), expected_uncertain);
     }

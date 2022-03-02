@@ -20,7 +20,6 @@ pub(crate) fn test_function_call(metric: GasMetric, vm_kind: VMKind) -> (Ratio<i
     for method_count in vec![5, 20, 30, 50, 100, 200, 1000] {
         let contract = make_many_methods_contract(method_count);
         let cost = compute_function_call_cost(metric, vm_kind, REPEATS, &contract);
-        println!("{:?} {:?} {} {}", vm_kind, metric, method_count, cost / REPEATS);
         xs.push(contract.code().len() as u64);
         ys.push(cost / REPEATS);
     }
@@ -31,10 +30,6 @@ pub(crate) fn test_function_call(metric: GasMetric, vm_kind: VMKind) -> (Ratio<i
     }
 
     let (cost_base, cost_byte, _) = least_squares_method(&xs, &ys);
-    println!(
-        "{:?} {:?} function call base {} gas, per byte {} gas",
-        vm_kind, metric, cost_base, cost_byte,
-    );
     (cost_base, cost_byte)
 }
 
