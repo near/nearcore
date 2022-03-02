@@ -11,8 +11,6 @@ edition = "2021"
 actix = "=0.11.0-beta.2"
 borsh = "0.9"
 chrono = { version = "0.4.4", features = ["serde"] }
-failure = "0.1"
-failure_derive = "0.1"
 itertools = "0.10.0"
 lru = "0.7.2"
 num-rational = "0.3"
@@ -23,7 +21,7 @@ strum = "0.20"
 thiserror = "1.0"
 tracing = "0.1.13"
 
-delay-detector = { path = "../../tools/delay_detector", optional = true}
+delay-detector = { path = "../../tools/delay_detector"}
 near-chain-configs = { path = "../../core/chain-configs" }
 near-chain-primitives = { path = "../chain-primitives" }
 near-crypto = { path = "../../core/crypto" }
@@ -40,7 +38,7 @@ near-logger-utils = {path = "../../test-utils/logger"}
 byzantine_asserts = []
 expensive_tests = []
 test_features = []
-delay_detector = ["delay-detector"]
+delay_detector = ["delay-detector/delay_detector"]
 no_cache = ["near-store/no_cache"]
 protocol_feature_chunk_only_producers = [
   "near-chain-configs/protocol_feature_chunk_only_producers",

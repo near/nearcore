@@ -58,23 +58,23 @@ const MAX_PEER_MSG_PER_MIN: usize = usize::MAX;
 /// dispatching transactions when we should be focusing on consensus-related messages.
 const MAX_TRANSACTIONS_PER_BLOCK_MESSAGE: usize = 1000;
 /// Limit cache size of 1000 messages
-pub const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
+const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
-pub const DROP_DUPLICATED_MESSAGES_PERIOD: Duration = Duration::from_millis(50);
+const DROP_DUPLICATED_MESSAGES_PERIOD: Duration = Duration::from_millis(50);
 
-pub struct PeerActor {
+pub(crate) struct PeerActor {
     /// This node's id and address (either listening or socket address).
-    pub my_node_info: PeerInfo,
+    my_node_info: PeerInfo,
     /// Peer address from connection.
-    pub peer_addr: SocketAddr,
+    peer_addr: SocketAddr,
     /// Peer id and info. Present if outbound or ready.
-    pub peer_info: DisplayOption<PeerInfo>,
+    peer_info: DisplayOption<PeerInfo>,
     /// Peer type.
-    pub peer_type: PeerType,
+    peer_type: PeerType,
     /// Peer status.
-    pub peer_status: PeerStatus,
+    peer_status: PeerStatus,
     /// Protocol version to communicate with this peer.
-    pub protocol_version: ProtocolVersion,
+    protocol_version: ProtocolVersion,
     /// Framed wrapper to send messages through the TCP connection.
     framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
     /// Handshake timeout.
@@ -116,7 +116,7 @@ impl Debug for PeerActor {
 
 impl PeerActor {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub(crate) fn new(
         my_node_info: PeerInfo,
         peer_addr: SocketAddr,
         peer_info: Option<PeerInfo>,
@@ -1010,8 +1010,7 @@ impl Handler<SendMessage> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("send message".into());
+        let _d = delay_detector::DelayDetector::new(|| "send message".into());
         self.send_message(&msg.message);
     }
 }
@@ -1021,8 +1020,7 @@ impl Handler<Arc<SendMessage>> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: Arc<SendMessage>, _: &mut Self::Context) {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("send message".into());
+        let _d = delay_detector::DelayDetector::new(|| "send message".into());
         self.send_message(&msg.as_ref().message);
     }
 }
@@ -1032,8 +1030,7 @@ impl Handler<QueryPeerStats> for PeerActor {
 
     #[perf]
     fn handle(&mut self, _msg: QueryPeerStats, _: &mut Self::Context) -> Self::Result {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("query peer stats".into());
+        let _d = delay_detector::DelayDetector::new(|| "query peer stats".into());
 
         // TODO(#5218) Refactor this code to use `SystemTime`
         let now = Instant::now();
@@ -1061,9 +1058,8 @@ impl Handler<PeerManagerRequest> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: PeerManagerRequest, ctx: &mut Self::Context) -> Self::Result {
-        #[cfg(feature = "delay_detector")]
         let _d =
-            delay_detector::DelayDetector::new(format!("peer manager request {:?}", msg).into());
+            delay_detector::DelayDetector::new(|| format!("peer manager request {:?}", msg).into());
         match msg {
             PeerManagerRequest::BanPeer(ban_reason) => {
                 self.ban_peer(ctx, ban_reason);
@@ -1077,7 +1073,7 @@ impl Handler<PeerManagerRequest> for PeerActor {
 
 /// Peer status.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum PeerStatus {
+enum PeerStatus {
     /// Waiting for handshake.
     Connecting,
     /// Ready to go.
