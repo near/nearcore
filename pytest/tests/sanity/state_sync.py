@@ -89,7 +89,7 @@ for height, block_hash in utils.poll_blocks(boot_node,
         ctx.send_moar_txs(block_hash, 3, False)
         logger.info(f'Sending moar txs at height {boot_height}')
 
-boot_heights = boot_node.get_all_heights()
+boot_heights = [block_id.height for block_id in boot_node.get_all_blocks()]
 
 assert catch_up_height in boot_heights, "%s not in %s" % (catch_up_height,
                                                           boot_heights)

@@ -244,26 +244,16 @@ class BaseNode(object):
         return BlockId(height=sync_info['latest_block_height'],
                        hash=sync_info['latest_block_hash'])
 
-    def get_all_heights(self):
-        hash_ = self.get_latest_block().hash
-        heights = []
-
-        while True:
-            block = self.get_block(hash_)
-            if 'error' in block and 'data' in block[
-                    'error'] and 'DB Not Found Error: BLOCK:' in block['error'][
-                        'data']:
-                break
-            elif 'result' not in block:
-                logger.info(block)
-
-            height = block['result']['header']['height']
-            if height == 0:
-                break
-            heights.append(height)
-            hash_ = block['result']['header']['prev_hash']
-
-        return reversed(heights)
+    def get_all_blocks(self) -> typing.Sequence[BlockId]:
+        ids = []
+        block_hash = self.get_latest_block().hash
+        while block_hash != '11111111111111111111111111111111':
+            block = self.get_block(block_hash)
+            assert 'result' in block, block
+            header = block['result']['header']
+            ids.append(BlockId.from_header(header))
+            block_hash = header.get('prev_hash')
+        return reversed(ids)
 
     def get_validators(self):
         return self.json_rpc('validators', [None])
