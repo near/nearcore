@@ -96,7 +96,7 @@ use rand::Rng;
 use utils::{
     aggregate_per_block_measurements, fn_cost, fn_cost_count, fn_cost_with_setup,
     generate_data_only_contract, generate_fn_name, noop_function_call_cost, read_resource,
-    transaction_cost,
+    transaction_cost, transaction_cost_ext,
 };
 use vm_estimator::{compile_single_contract_cost, compute_compile_cost_vm};
 
@@ -569,7 +569,9 @@ fn deploy_contract_cost(
         let actions = vec![Action::DeployContract(DeployContractAction { code: code_factory() })];
         tb.transaction_from_actions(sender, receiver, actions)
     };
-    let total_cost = transaction_cost(testbed, &mut make_transaction);
+    // Use a small block size since deployments are gas heavy
+    let block_size = 5;
+    let (total_cost, _ext) = transaction_cost_ext(testbed, block_size, &mut make_transaction);
     let base_cost = action_sir_receipt_creation(ctx) + apply_block_cost(ctx);
     total_cost - base_cost
 }
