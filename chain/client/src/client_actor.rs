@@ -888,7 +888,7 @@ impl ClientActor {
             self.client.config.log_summary_period,
             self.log_summary_timer_next_attempt,
             ctx,
-            |act, ctx| act.log_summary(),
+            |act, _ctx| act.log_summary(),
         );
         delay = core::cmp::min(
             delay,
