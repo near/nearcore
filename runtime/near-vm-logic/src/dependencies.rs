@@ -533,7 +533,6 @@ pub trait External {
     fn validator_total_stake(&self) -> Result<Balance>;
 
     /// Distribute the gas among the scheduled function calls that specify a gas weight.
-    /// Returns the amount of distributed gas.
     ///
     /// # Arguments
     ///

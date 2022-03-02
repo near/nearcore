@@ -154,6 +154,7 @@ impl<'a> RuntimeExt<'a> {
             .collect()
     }
 
+    /// Appends an action and returns the index the action was inserted in the receipt
     fn append_action(&mut self, receipt_index: u64, action: Action) -> usize {
         let actions = &mut self
             .action_receipts
