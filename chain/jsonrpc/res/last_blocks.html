@@ -34,13 +34,13 @@
     <script>
         $(document).ready(function () {
             var root = $("#blocks_table_tbody");
-            root[0].innerHTML = "Loading...";
+            root.html("Loading...");
             $.ajax({
                 type: "GET",
-                url: "/debugz/api/last_blocks",
+                url: "http://localhost:3030/debugz/api/last_blocks",
                 success: function (data) {
                     var root = $("#blocks_table_tbody");
-                    root[0].innerHTML = "";
+                    root.html("");
                     var max_shard = 0;
                     data.detailed_debug_status.last_blocks.forEach(element => {
                         element.chunks.forEach(chunk => {
@@ -53,34 +53,28 @@
                     prepareTableHeader(max_shard);
                     data.detailed_debug_status.last_blocks.forEach(element => {
                         console.log(element.block_hash);
-                        var row = document.createElement("tr");
-                        var cell = document.createElement("td");
-                        cell.innerText = element.block_height;
-                        row.appendChild(cell);
-                        var cell = document.createElement("td");
-                        cell.innerText = element.block_hash;
-                        row.appendChild(cell);
-                        var cell = document.createElement("td");
-                        cell.innerText = element.processing_time_ms;
-                        row.appendChild(cell);
-                        var cell = document.createElement("td");
-                        cell.innerText = (element.timestamp_delta / 1000000000).toFixed(3);
-                        row.appendChild(cell);
+                        var row = $('<tr>');
+
+                        row.append($('<td>').text(element.block_height));
+                        row.append($('<td>').text(element.block_hash));
+                        row.append($('<td>').text(element.processing_time_ms));
+                        row.append($('<td>').text((element.timestamp_delta / 1000000000).toFixed(3)));
+
+
                         let shards_cells = []
                         for (let i = 0; i < (max_shard + 1) * 3; i += 1) {
-                            shards_cells.push(document.createElement("td"));
+                            shards_cells.push($('<td>'));
                         }
                         element.chunks.forEach(chunk => {
-                            console.log(chunk.shard_id * 3);
-                            shards_cells[chunk.shard_id * 3].innerText = chunk.chunk_hash;
-                            shards_cells[chunk.shard_id * 3 + 1].innerText = (chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1);
-                            shards_cells[chunk.shard_id * 3 + 2].innerText = chunk.processing_time_ms;
+                            shards_cells[chunk.shard_id * 3].text(chunk.chunk_hash);
+                            shards_cells[chunk.shard_id * 3 + 1].text((chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1));
+                            shards_cells[chunk.shard_id * 3 + 2].text(chunk.processing_time_ms);
                         });
 
                         for (let i = 0; i < shards_cells.length; i += 1) {
-                            row.appendChild(shards_cells[i]);
+                            row.append(shards_cells[i]);
                         }
-                        root[0].appendChild(row);
+                        root.append(row);
 
                     });
                     return;

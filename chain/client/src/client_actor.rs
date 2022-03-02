@@ -684,8 +684,7 @@ impl Handler<Status> for ClientActor {
                         shard_id: chunk.shard_id(),
                         chunk_hash: chunk.chunk_hash(),
                         gas_used: chunk.gas_used(),
-                        processing_time_ms: CryptoHashTimer::get_timer_value(chunk.chunk_hash().0)
-                            .unwrap_or(0),
+                        processing_time_ms: CryptoHashTimer::get_timer_value(chunk.chunk_hash().0),
                     })
                     .collect();
 
@@ -693,8 +692,7 @@ impl Handler<Status> for ClientActor {
                     block_hash: last_block_hash,
                     block_height: block.header().height(),
                     chunks,
-                    processing_time_ms: CryptoHashTimer::get_timer_value(last_block_hash)
-                        .unwrap_or(0),
+                    processing_time_ms: CryptoHashTimer::get_timer_value(last_block_hash),
                     timestamp_delta: if last_block_timestamp > 0 {
                         last_block_timestamp.saturating_sub(block.header().raw_timestamp())
                     } else {

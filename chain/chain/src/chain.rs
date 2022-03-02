@@ -421,10 +421,7 @@ impl CryptoHashTimer {
         CryptoHashTimer { key, start: Clock::instant() }
     }
     pub fn get_timer_value(key: CryptoHash) -> Option<u64> {
-        match CRYPTO_HASH_TIMER_RESULTS.lock().unwrap().get(&key) {
-            Some(&val) => Some(val),
-            None => None,
-        }
+        CRYPTO_HASH_TIMER_RESULTS.lock().unwrap().get(&key).cloned()
     }
 }
 

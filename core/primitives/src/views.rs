@@ -326,7 +326,8 @@ pub struct DebugChunkStatus {
     pub shard_id: u64,
     pub chunk_hash: ChunkHash,
     pub gas_used: u64,
-    pub processing_time_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processing_time_ms: Option<u64>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -335,7 +336,8 @@ pub struct DebugBlockStatus {
     pub block_hash: CryptoHash,
     pub block_height: u64,
     pub chunks: Vec<DebugChunkStatus>,
-    pub processing_time_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processing_time_ms: Option<u64>,
     pub timestamp_delta: u64,
 }
 
