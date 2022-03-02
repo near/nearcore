@@ -1832,12 +1832,6 @@ impl ShardsManager {
                 if cares_about_shard || self.need_part(&prev_block_hash, *part_ord).unwrap_or(false)
                 {
                     Some(part_entry.clone())
-                } else if let Ok(need_part) = self.need_part(&prev_block_hash, *part_ord) {
-                    if need_part {
-                        Some(part_entry.clone())
-                    } else {
-                        None
-                    }
                 } else {
                     None
                 }
@@ -1848,8 +1842,6 @@ impl ShardsManager {
             .iter()
             .filter_map(|(shard_id, receipt)| {
                 if cares_about_shard || self.need_receipt(&prev_block_hash, *shard_id) {
-                    Some(receipt.clone())
-                } else if self.need_receipt(&prev_block_hash, *shard_id) {
                     Some(receipt.clone())
                 } else {
                     None
