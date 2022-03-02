@@ -134,6 +134,10 @@ class BlockId(typing.NamedTuple):
     def __str__(self) -> str:
         return f'#{self.height} {self.hash}'
 
+    def __eq__(self, rhs) -> bool:
+        return (isinstance(rhs, BlockId) and self.height == rhs.height and
+                self.hash == rhs.hash)
+
 
 class BaseNode(object):
 
