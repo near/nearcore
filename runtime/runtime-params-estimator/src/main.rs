@@ -9,9 +9,10 @@ use near_store::create_store;
 use near_vm_runner::internal::VMKind;
 use nearcore::{get_store_path, load_config};
 use runtime_params_estimator::config::{Config, GasMetric};
-use runtime_params_estimator::CostTable;
-use runtime_params_estimator::{costs_to_runtime_config, QemuCommandBuilder};
-use runtime_params_estimator::{read_resource, RocksDBTestConfig};
+use runtime_params_estimator::utils::read_resource;
+use runtime_params_estimator::{
+    costs_to_runtime_config, CostTable, QemuCommandBuilder, RocksDBTestConfig,
+};
 use std::env;
 use std::fmt::Write;
 use std::fs;
@@ -68,6 +69,9 @@ struct CliArgs {
     /// Works only with enabled docker, because precise computations without it doesn't make sense.
     #[clap(long)]
     full: bool,
+    /// Drop OS cache before measurements for better IO accuracy. Requires sudo.
+    #[clap(long)]
+    drop_os_cache: bool,
     /// Print extra debug information
     #[clap(long, multiple(true), possible_values=&["io", "rocksdb", "least-squares"])]
     debug: Vec<String>,
@@ -101,49 +105,48 @@ fn main() -> anyhow::Result<()> {
         Some(it) => it,
         None => {
             temp_dir = tempfile::tempdir()?;
-
-            let contract_code = read_resource(if cfg!(feature = "nightly_protocol_features") {
-                "test-contract/res/nightly_small_contract.wasm"
-            } else {
-                "test-contract/res/stable_small_contract.wasm"
-            });
-
-            let state_dump_path = temp_dir.path().to_path_buf();
-            nearcore::init_configs(
-                &state_dump_path,
-                None,
-                Some("test.near".parse().unwrap()),
-                Some("alice.near"),
-                1,
-                true,
-                None,
-                false,
-                None,
-                false,
-                None,
-                None,
-                None,
-            )
-            .expect("failed to init config");
-
-            let near_config = load_config(&state_dump_path, GenesisValidationMode::Full);
-            let store = create_store(&get_store_path(&state_dump_path));
-            GenesisBuilder::from_config_and_store(
-                &state_dump_path,
-                Arc::new(near_config.genesis),
-                store,
-            )
-            .add_additional_accounts(cli_args.additional_accounts_num)
-            .add_additional_accounts_contract(contract_code)
-            .print_progress()
-            .build()
-            .unwrap()
-            .dump_state()
-            .unwrap();
-
-            state_dump_path
+            temp_dir.path().to_path_buf()
         }
     };
+    if state_dump_path.read_dir()?.next().is_none() {
+        let contract_code = read_resource(if cfg!(feature = "nightly_protocol_features") {
+            "test-contract/res/nightly_small_contract.wasm"
+        } else {
+            "test-contract/res/stable_small_contract.wasm"
+        });
+
+        nearcore::init_configs(
+            &state_dump_path,
+            None,
+            Some("test.near".parse().unwrap()),
+            Some("alice.near"),
+            1,
+            true,
+            None,
+            false,
+            None,
+            false,
+            None,
+            None,
+            None,
+        )
+        .expect("failed to init config");
+
+        let near_config = load_config(&state_dump_path, GenesisValidationMode::Full);
+        let store = create_store(&get_store_path(&state_dump_path));
+        GenesisBuilder::from_config_and_store(
+            &state_dump_path,
+            Arc::new(near_config.genesis),
+            store,
+        )
+        .add_additional_accounts(cli_args.additional_accounts_num)
+        .add_additional_accounts_contract(contract_code)
+        .print_progress()
+        .build()
+        .unwrap()
+        .dump_state()
+        .unwrap();
+    }
 
     let debug_options: Vec<_> = cli_args.debug.iter().map(String::as_str).collect();
 
@@ -191,6 +194,7 @@ fn main() -> anyhow::Result<()> {
     let warmup_iters_per_block = cli_args.warmup_iters;
     let mut rocksdb_test_config = cli_args.db_test_config;
     rocksdb_test_config.debug_rocksdb = debug_options.contains(&"rocksdb");
+    rocksdb_test_config.drop_os_cache = cli_args.drop_os_cache;
     let iter_per_block = cli_args.iters;
     let active_accounts = cli_args.accounts_num;
     let metric = match cli_args.metric.as_str() {
@@ -218,6 +222,7 @@ fn main() -> anyhow::Result<()> {
         costs_to_measure,
         rocksdb_test_config,
         debug_least_squares: debug_options.contains(&"least-squares"),
+        drop_os_cache: cli_args.drop_os_cache,
     };
     let cost_table = runtime_params_estimator::run(config);
 
@@ -329,7 +334,7 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         cmd.args(&["--env", "CARGO_PROFILE_RELEASE_LTO=fat"])
             .args(&["--env", "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1"]);
     }
-    cmd.arg("rust-emu");
+    cmd.arg(tagged_image);
 
     if debug_shell {
         cmd.args(&["/usr/bin/env", "bash"]);

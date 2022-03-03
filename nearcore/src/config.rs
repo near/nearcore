@@ -2,6 +2,7 @@ use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,6 +12,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 use near_primitives::time::Clock;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use tempfile::tempdir;
 use tokio::io::AsyncWriteExt;
 use tracing::{error, info};
 
@@ -26,6 +29,8 @@ use near_network_primitives::types::blacklist_from_iter;
 use near_network_primitives::types::{NetworkConfig, ROUTED_MESSAGE_TTL};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
+#[cfg(test)]
+use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
@@ -322,6 +327,10 @@ fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
 }
 
+fn default_use_checkpoints_for_db_migration() -> bool {
+    true
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -435,6 +444,15 @@ pub struct Config {
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gas_burnt_view: Option<Gas>,
+    /// Checkpoints let the user recover from interrupted DB migrations.
+    #[serde(default = "default_use_checkpoints_for_db_migration")]
+    pub use_db_migration_snapshot: bool,
+    /// Location of the DB checkpoint for the DB migrations. This can be one of the following:
+    /// * Empty, the checkpoint will be created in the database location, i.e. '$home/data'.
+    /// * Absolute path that points to an existing directory. The checkpoint will be a sub-directory in that directory.
+    /// For example, setting "use_db_migration_snapshot" to "/tmp/" will create a directory "/tmp/db_migration_snapshot" and populate it with the database files.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub db_migration_snapshot_path: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -461,6 +479,8 @@ impl Default for Config {
             view_client_throttle_period: default_view_client_throttle_period(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
+            db_migration_snapshot_path: None,
+            use_db_migration_snapshot: true,
         }
     }
 }
@@ -1058,6 +1078,20 @@ pub fn init_configs(
                 CryptoHash::default(),
             );
             add_protocol_account(&mut records);
+            let shards = if num_shards > 1 {
+                ShardLayout::v1(
+                    (0..num_shards - 1)
+                        .map(|f| {
+                            AccountId::from_str(format!("shard{}.test.near", f).as_str()).unwrap()
+                        })
+                        .collect(),
+                    vec![],
+                    None,
+                    1,
+                )
+            } else {
+                ShardLayout::v0_single_shard()
+            };
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
@@ -1092,6 +1126,7 @@ pub fn init_configs(
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
                 protocol_treasury_account: signer.account_id.clone(),
                 fishermen_threshold: FISHERMEN_THRESHOLD,
+                shard_layout: shards,
                 min_gas_price: MIN_GAS_PRICE,
                 ..Default::default()
             };
@@ -1639,4 +1674,51 @@ pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
         (signer, Some(validator_signer))
     };
     NearConfig::new(config, genesis, signer.into(), validator_signer)
+}
+
+#[test]
+fn test_init_config_localnet() {
+    // Check that we can initialize the config with multiple shards.
+    let temp_dir = tempdir().unwrap();
+    init_configs(
+        &temp_dir.path(),
+        Some("localnet"),
+        None,
+        Some("seed1"),
+        3,
+        false,
+        None,
+        false,
+        None,
+        false,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    let genesis =
+        Genesis::from_file(temp_dir.path().join("genesis.json"), GenesisValidationMode::UnsafeFast);
+    assert_eq!(genesis.config.chain_id, "localnet");
+    assert_eq!(genesis.config.shard_layout.num_shards(), 3);
+    assert_eq!(
+        account_id_to_shard_id(
+            &AccountId::from_str("shard0.test.near").unwrap(),
+            &genesis.config.shard_layout
+        ),
+        0
+    );
+    assert_eq!(
+        account_id_to_shard_id(
+            &AccountId::from_str("shard1.test.near").unwrap(),
+            &genesis.config.shard_layout
+        ),
+        1
+    );
+    assert_eq!(
+        account_id_to_shard_id(
+            &AccountId::from_str("foobar.near").unwrap(),
+            &genesis.config.shard_layout
+        ),
+        2
+    );
 }

@@ -1,4 +1,3 @@
-use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION};
 use clap::{AppSettings, Clap};
 use futures::future::FutureExt;
 use near_chain_configs::GenesisValidationMode;
@@ -14,7 +13,7 @@ use tracing_subscriber::EnvFilter;
 
 /// NEAR Protocol Node
 #[derive(Clap)]
-#[clap(version = NEARD_VERSION_STRING.as_str())]
+#[clap(version = crate::NEARD_VERSION_STRING.as_str())]
 #[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
 pub(super) struct NeardCmd {
     #[clap(flatten)]
@@ -27,7 +26,7 @@ impl NeardCmd {
     pub(super) fn parse_and_run() {
         let neard_cmd = Self::parse();
         neard_cmd.opts.init();
-        info!(target: "neard", "Version: {}, Build: {}, Latest Protocol: {}", NEARD_VERSION.version, NEARD_VERSION.build, PROTOCOL_VERSION);
+        info!(target: "neard", "Version: {}, Build: {}, Latest Protocol: {}", crate::NEARD_VERSION, crate::NEARD_BUILD, near_primitives::version::PROTOCOL_VERSION);
 
         #[cfg(feature = "test_features")]
         {
@@ -88,7 +87,7 @@ struct NeardOpts {
     #[clap(long, name = "target")]
     verbose: Option<String>,
     /// Directory for config and data.
-    #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
+    #[clap(long, parse(from_os_str), default_value_os = crate::DEFAULT_HOME.as_os_str())]
     home: PathBuf,
     /// Skips consistency checks of the 'genesis.json' file upon startup.
     /// Let's you start `neard` slightly faster.
@@ -292,7 +291,7 @@ impl RunCmd {
         check_release_build(&near_config.client_config.chain_id);
 
         // Set current version in client config.
-        near_config.client_config.version = super::NEARD_VERSION.clone();
+        near_config.client_config.version = crate::neard_version();
         // Override some parameters from command line.
         if let Some(produce_empty_blocks) = self.produce_empty_blocks {
             near_config.client_config.produce_empty_blocks = produce_empty_blocks;

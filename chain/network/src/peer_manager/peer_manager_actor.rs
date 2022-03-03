@@ -299,7 +299,7 @@ impl PeerManagerActor {
     }
 
     fn update_routing_table_and_prune_edges(
-        &mut self,
+        &self,
         ctx: &mut Context<Self>,
         prune: Prune,
         prune_edges_not_reachable_for: Duration,
@@ -370,7 +370,7 @@ impl PeerManagerActor {
     /// - there are edges, that were supposed to be added, but are still in EdgeValidatorActor,
     ///   waiting to have their signatures checked.
     /// - edge pruning may be disabled for unit testing.
-    fn update_routing_table_trigger(&mut self, ctx: &mut Context<Self>, interval: Duration) {
+    fn update_routing_table_trigger(&self, ctx: &mut Context<Self>, interval: Duration) {
         let can_prune_edges = !self.adv_helper.adv_disable_edge_pruning();
 
         self.update_routing_table_and_prune_edges(
@@ -785,7 +785,7 @@ impl PeerManagerActor {
     /// Connects peer with given TcpStream and optional information if it's outbound.
     /// This might fail if the other peers drop listener at its endpoint while establishing connection.
     fn try_connect_peer(
-        &mut self,
+        &self,
         recipient: Addr<Self>,
         stream: TcpStream,
         peer_type: PeerType,
@@ -1023,7 +1023,7 @@ impl PeerManagerActor {
     }
 
     /// Periodically query peer actors for latest weight and traffic info.
-    fn monitor_peer_stats_trigger(&mut self, ctx: &mut Context<Self>, interval: Duration) {
+    fn monitor_peer_stats_trigger(&self, ctx: &mut Context<Self>, interval: Duration) {
         for (peer_id, connected_peer) in self.connected_peers.iter() {
             let peer_id1 = peer_id.clone();
             (connected_peer.addr.send(QueryPeerStats {}).into_actor(self))
@@ -1177,9 +1177,6 @@ impl PeerManagerActor {
         for peer_id in to_unban {
             if let Err(err) = self.peer_store.peer_unban(&peer_id) {
                 error!(target: "network", ?err, "Failed to unban a peer");
-                // TODO: Do we really want to return?
-                // Doesn't this stop the trigger?
-                return;
             }
         }
 
@@ -1213,8 +1210,6 @@ impl PeerManagerActor {
 
         if let Err(err) = self.peer_store.remove_expired(&self.config) {
             error!(target: "network", ?err, "Failed to remove expired peers");
-            // TODO: Do we really want to return?
-            return;
         };
 
         let new_interval = min(
@@ -1232,7 +1227,7 @@ impl PeerManagerActor {
     /// `PeerManagerActor` periodically runs `broadcast_validated_edges_trigger`, which gets edges
     /// from `EdgeValidatorActor` concurrent queue and sends edges to be added to `RoutingTableActor`.
     fn validate_edges_and_add_to_routing_table(
-        &mut self,
+        &self,
         peer_id: PeerId,
         edges: Vec<Edge>,
         throttle_controller: Option<ThrottleController>,
@@ -1453,7 +1448,7 @@ impl PeerManagerActor {
         self.routing_table_view.add_pong(pong);
     }
 
-    pub(crate) fn get_network_info(&mut self) -> NetworkInfo {
+    pub(crate) fn get_network_info(&self) -> NetworkInfo {
         NetworkInfo {
             connected_peers: (self.connected_peers.values())
                 .map(|cp| cp.full_peer_info.clone())
@@ -1479,7 +1474,7 @@ impl PeerManagerActor {
         }
     }
 
-    fn push_network_info_trigger(&mut self, ctx: &mut Context<Self>, interval: Duration) {
+    fn push_network_info_trigger(&self, ctx: &mut Context<Self>, interval: Duration) {
         let network_info = self.get_network_info();
 
         let _ = self.client_addr.do_send(NetworkClientMessages::NetworkInfo(network_info));
@@ -1496,9 +1491,9 @@ impl PeerManagerActor {
         ctx: &mut Context<Self>,
         throttle_controller: Option<ThrottleController>,
     ) -> NetworkResponses {
-        #[cfg(feature = "delay_detector")]
-        let _d =
-            delay_detector::DelayDetector::new(format!("network request {}", msg.as_ref()).into());
+        let _d = delay_detector::DelayDetector::new(|| {
+            format!("network request {}", msg.as_ref()).into()
+        });
         match msg {
             NetworkRequests::Block { block } => {
                 Self::broadcast_message(
@@ -1858,7 +1853,7 @@ impl PeerManagerActor {
     #[cfg(all(feature = "test_features", feature = "protocol_feature_routing_exchange_algorithm"))]
     #[perf]
     fn handle_msg_start_routing_table_sync(
-        &mut self,
+        &self,
         msg: crate::private_actix::StartRoutingTableSync,
         ctx: &mut Context<Self>,
         throttle_controller: Option<ThrottleController>,
@@ -1915,11 +1910,8 @@ impl PeerManagerActor {
     }
 
     #[perf]
-    fn handle_msg_inbound_tcp_connect(&mut self, msg: InboundTcpConnect, ctx: &mut Context<Self>) {
-        {
-            #[cfg(feature = "delay_detector")]
-            let _d = delay_detector::DelayDetector::new("inbound tcp connect".into());
-        }
+    fn handle_msg_inbound_tcp_connect(&self, msg: InboundTcpConnect, ctx: &mut Context<Self>) {
+        let _d = delay_detector::DelayDetector::new(|| "inbound tcp connect".into());
 
         if self.is_inbound_allowed() {
             self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
@@ -1932,20 +1924,15 @@ impl PeerManagerActor {
     #[cfg(feature = "test_features")]
     #[perf]
     fn handle_msg_get_peer_id(
-        &mut self,
+        &self,
         _msg: crate::private_actix::GetPeerId,
     ) -> crate::private_actix::GetPeerIdResult {
         crate::private_actix::GetPeerIdResult { peer_id: self.my_peer_id.clone() }
     }
 
     #[perf]
-    fn handle_msg_outbound_tcp_connect(
-        &mut self,
-        msg: OutboundTcpConnect,
-        ctx: &mut Context<Self>,
-    ) {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("outbound tcp connect".into());
+    fn handle_msg_outbound_tcp_connect(&self, msg: OutboundTcpConnect, ctx: &mut Context<Self>) {
+        let _d = delay_detector::DelayDetector::new(|| "outbound tcp connect".into());
         debug!(target: "network", to = ?msg.peer_info, "Trying to connect");
         if let Some(addr) = msg.peer_info.addr {
             // The `connect` may take several minutes. This happens when the
@@ -1997,8 +1984,7 @@ impl PeerManagerActor {
         msg: RegisterPeer,
         ctx: &mut Context<Self>,
     ) -> RegisterPeerResponse {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("consolidate".into());
+        let _d = delay_detector::DelayDetector::new(|| "consolidate".into());
 
         // Check if this is a blacklisted peer.
         if (msg.peer_info.addr.as_ref())
@@ -2087,30 +2073,26 @@ impl PeerManagerActor {
 
     #[perf]
     fn handle_msg_unregister(&mut self, msg: Unregister) {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("unregister".into());
+        let _d = delay_detector::DelayDetector::new(|| "unregister".into());
         self.unregister_peer(msg.peer_id, msg.peer_type, msg.remove_from_peer_store);
     }
 
     #[perf]
     fn handle_msg_ban(&mut self, msg: Ban) {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("ban".into());
+        let _d = delay_detector::DelayDetector::new(|| "ban".into());
         self.ban_peer(&msg.peer_id, msg.ban_reason);
     }
 
     #[perf]
-    fn handle_msg_peers_request(&mut self, _msg: PeersRequest) -> PeerRequestResult {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("peers request".into());
+    fn handle_msg_peers_request(&self, _msg: PeersRequest) -> PeerRequestResult {
+        let _d = delay_detector::DelayDetector::new(|| "peers request".into());
         PeerRequestResult {
             peers: self.peer_store.healthy_peers(self.config.max_send_peers as usize),
         }
     }
 
     fn handle_msg_peers_response(&mut self, msg: PeersResponse) {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("peers response".into());
+        let _d = delay_detector::DelayDetector::new(|| "peers response".into());
         if let Err(err) = self.peer_store.add_indirect_peers(
             msg.peers.into_iter().filter(|peer_info| peer_info.id != self.my_peer_id).collect(),
         ) {
@@ -2197,10 +2179,9 @@ impl PeerManagerActor {
     /// "Return" true if this message is for this peer and should be sent to the client.
     /// Otherwise try to route this message to the final receiver and return false.
     fn handle_msg_routed_from(&mut self, msg: RoutedMessageFrom) -> bool {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new(
-            format!("routed message from {}", strum::AsStaticRef::as_static(&msg.msg.body)).into(),
-        );
+        let _d = delay_detector::DelayDetector::new(|| {
+            format!("routed message from {}", strum::AsStaticRef::as_static(&msg.msg.body)).into()
+        });
         let RoutedMessageFrom { mut msg, from } = msg;
 
         if msg.expect_response() {
@@ -2229,9 +2210,8 @@ impl PeerManagerActor {
     }
 
     fn handle_msg_peer_request(&mut self, msg: PeerRequest) -> PeerResponse {
-        #[cfg(feature = "delay_detector")]
         let _d =
-            delay_detector::DelayDetector::new(format!("peer request {}", msg.as_ref()).into());
+            delay_detector::DelayDetector::new(|| format!("peer request {}", msg.as_ref()).into());
         match msg {
             PeerRequest::UpdateEdge((peer, nonce)) => {
                 PeerResponse::UpdatedEdge(self.propose_edge(&peer, Some(nonce)))
@@ -2261,17 +2241,15 @@ impl PeerManagerActor {
 
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     fn process_ibf_msg(
-        &mut self,
+        &self,
         peer_id: &PeerId,
         mut ibf_msg: crate::network_protocol::RoutingVersion2,
         addr: Addr<PeerActor>,
         throttle_controller: Option<ThrottleController>,
     ) {
-        let mut edges: Vec<Edge> = Vec::new();
-        std::mem::swap(&mut edges, &mut ibf_msg.edges);
         self.validate_edges_and_add_to_routing_table(
             peer_id.clone(),
-            edges,
+            std::mem::take(&mut ibf_msg.edges),
             throttle_controller.clone(),
         );
         actix::spawn(

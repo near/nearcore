@@ -61,11 +61,18 @@ rosetta-cli check:construction --configuration-file=./rosetta.cfg
 
 ## How to Compile
 
-Follow [the standard nearcore procedures to run a node compiled from the source code](https://docs.near.org/docs/community/contribute/contribute-nearcore)
-enabling `rosetta_rpc` feature:
+To compile the `neard` executable you’ll need Rust and make installed.
+With those dependencies fulfilled, simply invoke `make neard` to build
+fully optimised executable.  Such executable is adequate for running
+in production and will be located at `./target/release/neard`.
+
+Alternatively, during development and testing it may be better to
+follow the method recommended when [contributing to
+nearcore](https://docs.near.org/docs/community/contribute/contribute-nearcore)
+which creates a slightly less optimised executable but does it faster:
 
 ```bash
-cargo build --release --package neard --bin neard --features rosetta_rpc
+cargo build --release --package neard --bin neard
 ```
 
 ## How to Configure

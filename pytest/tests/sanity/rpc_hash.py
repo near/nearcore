@@ -113,11 +113,9 @@ def compute_block_hash(header: typing.Dict[str, typing.Any],
 
 
 class HashTestCase(unittest.TestCase):
-    _nodes: typing.Sequence[cluster.BaseNode]
 
     def __init__(self, *args, **kw) -> None:
         super().__init__(*args, **kw)
-        self._nodes = ()
         self.maxDiff = None
 
     def test_compute_block_hash(self):
