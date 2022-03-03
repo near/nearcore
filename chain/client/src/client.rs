@@ -726,7 +726,6 @@ impl Client {
         let mut orphans_missing_chunks = vec![];
         let mut challenges = vec![];
 
-        let block_height = block.header().height();
         let result = {
             let me = self
                 .validator_signer
@@ -778,7 +777,6 @@ impl Client {
 
         if let Ok(Some(_)) = result {
             self.last_time_head_progress_made = Clock::instant();
-            self.chunks_delay_tracker.block_processed(block_height);
         }
 
         // Request any missing chunks
@@ -993,6 +991,10 @@ impl Client {
         provenance: Provenance,
     ) {
         self.on_block_accepted_with_optional_chunk_produce(block_hash, status, provenance, false);
+    }
+
+    pub fn record_accepted_block(&mut self, height: BlockHeight) {
+        self.chunks_delay_tracker.processed_block(height);
     }
 
     /// Gets called when block got accepted.

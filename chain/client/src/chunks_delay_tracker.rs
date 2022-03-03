@@ -26,10 +26,10 @@ struct HeightInfo {
 }
 
 impl HeightInfo {
-    pub fn get_block_chunk_delay(&self) -> Duration {
+    pub fn get_block_chunk_delay(&self) -> Option<Duration> {
         let block_received = self.block_received.unwrap();
-        let latest_chunk_received = self.chunks_received.values().max().unwrap();
-        latest_chunk_received.saturating_duration_since(block_received)
+        let latest_chunk_received = self.chunks_received.values().max();
+        latest_chunk_received.map(|t| t.saturating_duration_since(block_received))
     }
 }
 
@@ -44,7 +44,9 @@ impl ChunksDelayTracker {
 
     fn update_block_chunks_metric(&mut self, height: BlockHeight) {
         if let Some(entry) = self.heights.get(&height) {
-            metrics::BLOCK_CHUNKS_DELAY.observe(entry.get_block_chunk_delay().as_secs_f64());
+            if let Some(delay) = entry.get_block_chunk_delay() {
+                metrics::BLOCK_CHUNKS_DELAY.observe(delay.as_secs_f64());
+            }
         }
     }
 
@@ -77,7 +79,7 @@ impl ChunksDelayTracker {
             .or_insert(timestamp);
     }
 
-    pub fn block_processed(&mut self, height: BlockHeight) {
+    pub fn processed_block(&mut self, height: BlockHeight) {
         self.update_block_chunks_metric(height);
         self.update_chunks_metric(height);
         self.remove_old_entries(height);

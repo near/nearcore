@@ -82,7 +82,7 @@ pub static BLOCK_CHUNKS_DELAY: Lazy<Histogram> = Lazy::new(|| {
     .unwrap()
 });
 pub static CHUNK_DELAY: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram("near_chunk_delay", "Delay between requesting and receving a chunk")
+    try_create_histogram("near_chunk_delay", "Delay between requesting and receving a chunk. Recorded only if the chunk was explicitly requested.")
         .unwrap()
 });
 pub static VALIDATORS_CHUNKS_PRODUCED: Lazy<IntGaugeVec> = Lazy::new(|| {

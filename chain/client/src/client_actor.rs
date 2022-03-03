@@ -991,7 +991,9 @@ impl ClientActor {
             }
 
             self.info_helper.block_processed(gas_used, chunks_in_block as u64);
+            let height = block.header().height();
             self.check_send_announce_account(last_final_hash);
+            self.client.record_accepted_block(height);
         }
     }
 
