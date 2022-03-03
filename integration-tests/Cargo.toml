@@ -7,12 +7,17 @@ publish = false
 rust-version = "1.56.0"
 edition = "2021"
 
+[[bin]]
+path = "src/bin/start_mock_network.rs"
+name = "start_mock_network"
+
 [dependencies]
 actix = "=0.11.0-beta.2"
 actix-rt = "2"
 base64 = "0.11"
 borsh = "0.9"
 chrono = { version = "0.4.4", features = ["serde"] }
+clap = "=3.0.0-beta.2"
 futures = "0.3"
 hex = "0.4"
 hyper = { version = "0.14", features = ["full"] }
@@ -42,11 +47,13 @@ near-primitives = { path = "../core/primitives" }
 near-store = { path = "../core/store" }
 near-telemetry = { path = "../chain/telemetry" }
 near-test-contracts = { path = "../runtime/near-test-contracts" }
+near-performance-metrics = { path = "../utils/near-performance-metrics" }
 near-vm-errors = { path = "../runtime/near-vm-errors" }
 near-vm-runner = { path = "../runtime/near-vm-runner" }
 nearcore = { path = "../nearcore" }
 node-runtime = { path = "../runtime/runtime" }
 testlib = { path = "../test-utils/testlib" }
+near-logger-utils = { path = "../test-utils/logger" }
 
 [dev-dependencies]
 assert_matches = "1.3"
