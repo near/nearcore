@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 /// Defines the point in time after which validators are expected to vote on the new protocol version.
-/// The parameter is a `str` to allow construction as constant evaluation, i.e. at the compile-time.
 pub(crate) struct ProtocolUpgradeVotingSchedule {
     timestamp: chrono::DateTime<Utc>,
 }
@@ -41,20 +40,16 @@ pub(crate) fn get_protocol_version_internal(
         return client_protocol_version;
     }
     match schedule.get(&client_protocol_version) {
-        Some(voting_start) => {
-            if let Some(voting_start) = voting_start {
-                if voting_start.is_in_future() {
-                    // Don't announce support for the latest protocol version yet.
-                    next_epoch_protocol_version
-                } else {
-                    // The time has passed, announce the latest supported protocol version.
-                    client_protocol_version
-                }
+        Some(Some(voting_start)) => {
+            if voting_start.is_in_future() {
+                // Don't announce support for the latest protocol version yet.
+                next_epoch_protocol_version
             } else {
+                // The time has passed, announce the latest supported protocol version.
                 client_protocol_version
             }
         }
-        None => client_protocol_version,
+        _ => client_protocol_version,
     }
 }
 

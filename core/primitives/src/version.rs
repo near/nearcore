@@ -169,7 +169,6 @@ pub const PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION;
 pub const PROTOCOL_VERSION: ProtocolVersion = 126;
 
 /// The points in time after which the voting for the protocol version should start.
-// The schedule is defined as a list because it needs to be a const expression. Please keep this list reverse-sorted.
 #[allow(dead_code)]
 const PROTOCOL_UPGRADE_SCHEDULE: Lazy<
     HashMap<ProtocolVersion, Option<ProtocolUpgradeVotingSchedule>>,
