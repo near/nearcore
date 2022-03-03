@@ -82,14 +82,35 @@ pub enum Cost {
     Utf8DecodingByte,
     Utf16DecodingBase,
     Utf16DecodingByte,
+
+    // Cryptographic host functions:
+    // The runtime provides host functions for sha256, keccak256, keccak512,
+    // ripemd160 hashes. Plus, there is a ECDSA signature verification host
+    // function.
+    // All these host functions are estimated by executing a transaction with a
+    // single function call in them, that just invokes the given host function.
+    // To measure the cost of additional bytes or blocks, a function call with a
+    // large argument is measured and the total cost divided by total bytes or
+    // blocks
+    /// Estimates `sha256_base`.
     Sha256Base,
+    /// Estimates `sha256_byte`.
     Sha256Byte,
+    /// Estimates `keccak256_base`.
     Keccak256Base,
+    /// Estimates `keccak256_byte`.
     Keccak256Byte,
+    /// Estimates `keccak512_base`.
     Keccak512Base,
+    /// Estimates `keccak512_byte`.
     Keccak512Byte,
+    /// Estimates `ripemd160_base`.
     Ripemd160Base,
+    /// Estimates `ripemd160_block`.
     Ripemd160Block,
+    /// Estimates `ecrecover_base`, which covers the full cost of the host
+    /// function `ecrecover` to verify an ECDSA signature and extract the
+    /// signer.
     EcrecoverBase,
     LogBase,
     LogByte,
@@ -198,10 +219,37 @@ pub enum Cost {
     /// DEPRECATED: Was charged in `storage_iter_next`
     StorageIterNextValueByte,
     TouchingTrieNode,
+    /// Estimates `promise_and_base` which is charged for every call to
+    /// `promise_and`. This should cover the base cost for creating receipt
+    /// dependencies.
+    ///
+    /// Estimation: Currently not estimated
     PromiseAndBase,
+    /// Estimates `promise_and_per_promise` which is charged for every promise in
+    /// calls to `promise_and`. This should cover the additional cost for each
+    /// extra receipt in the dependency.
+    ///
+    /// Estimation: Currently not estimated
     PromiseAndPerPromise,
+    /// Estimates `promise_return` which is charged when calling
+    /// `promise_return`. This should cover the cost of the dependency between a
+    /// promise and the current function call return value.
+    ///
+    /// Estimation: Currently not estimated
     PromiseReturn,
+    /// Estimates `validator_stake_base` which is charged for each call to
+    /// `validator_stake`, covering the cost for looking up if an account is a
+    /// validator and if so, how much it has staked. This information is
+    /// available from the local EpochManager.
+    ///
+    /// Estimation: Currently not estimated
     ValidatorStakeBase,
+    /// Estimates `validator_total_stake_base` which is charged for each call to
+    /// `validator_total_stake`, covering the cost for looking up the total
+    /// staked tokens for the current epoch. This information is
+    /// available from the local EpochManager.
+    ///
+    /// Estimation: Currently not estimated
     ValidatorTotalStakeBase,
 
     AltBn128G1MultiexpBase,
