@@ -13,8 +13,10 @@ use near_primitives_core::profile::ProfileData;
 use near_primitives_core::runtime::fees::{
     transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig,
 };
+#[cfg(feature = "protocol_feature_function_call_weight")]
+use near_primitives_core::types::GasWeight;
 use near_primitives_core::types::{
-    AccountId, Balance, EpochHeight, Gas, GasWeight, ProtocolVersion, StorageUsage,
+    AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
 use near_vm_errors::InconsistentStateError;
 use near_vm_errors::{HostError, VMLogicError};
