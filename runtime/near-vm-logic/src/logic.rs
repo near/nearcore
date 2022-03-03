@@ -2414,7 +2414,7 @@ impl<'a> VMLogic<'a> {
     #[cfg(feature = "sandbox")]
     pub fn sandbox_debug_log(&mut self, len: u64, ptr: u64) -> Result<()> {
         let message = self.sandbox_get_utf8_string(len, ptr)?;
-        tracing::debug!(target: "sandbox", "{}", message);
+        tracing::debug!(target: "sandbox", message = &message[..]);
         Ok(())
     }
 
