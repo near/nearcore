@@ -1,12 +1,18 @@
+use std::collections::HashMap;
 use std::string::ToString;
-
-use near_primitives::hash::CryptoHash;
 
 use actix::Addr;
 
-/// Mapping from NEAR transaction or receipt hash to list of receipts.
+use near_primitives::hash::CryptoHash;
+use near_primitives::views::SignedTransactionView;
+
+/// A mapping from NEAR transaction or receipt hash to list of receipts.
+/// and a mapping from transaction hashes to transactions.
+/// The latter map is needed to determine the amount of deposit in a single transaction when
+/// converting blocks to Rosetta transactions.
 pub(crate) struct ExecutionToReceipts {
-    map: std::collections::HashMap<CryptoHash, Vec<CryptoHash>>,
+    map: HashMap<CryptoHash, Vec<CryptoHash>>,
+    transactions: HashMap<CryptoHash, SignedTransactionView>,
 }
 
 impl ExecutionToReceipts {
@@ -17,6 +23,22 @@ impl ExecutionToReceipts {
         view_client_addr: Addr<near_client::ViewClientActor>,
         block_hash: CryptoHash,
     ) -> crate::errors::Result<Self> {
+        let block = view_client_addr
+            .send(near_client::GetBlock(near_primitives::types::BlockId::Hash(block_hash).into()))
+            .await?
+            .map_err(|e| crate::errors::ErrorKind::InternalError(e.to_string()))?;
+        let mut transactions = HashMap::new();
+        for (shard_id, contained) in block.header.chunk_mask.iter().enumerate() {
+            if *contained {
+                let chunk = view_client_addr
+                    .send(near_client::GetChunk::ChunkHash(near_primitives::sharding::ChunkHash(
+                        block.chunks[shard_id].chunk_hash,
+                    )))
+                    .await?
+                    .map_err(|e| crate::errors::ErrorKind::InternalInvariantError(e.to_string()))?;
+                transactions.extend(chunk.transactions.into_iter().map(|t| (t.hash, t)));
+            }
+        }
         let map = view_client_addr
             .send(near_client::GetExecutionOutcomesForBlock { block_hash })
             .await?
@@ -26,13 +48,13 @@ impl ExecutionToReceipts {
             .filter(|exec| !exec.outcome.receipt_ids.is_empty())
             .map(|exec| (exec.id, exec.outcome.receipt_ids))
             .collect();
-        Ok(Self { map })
+        Ok(Self { map, transactions })
     }
 
     /// Creates an empty mapping.  This is useful for tests.
     #[cfg(test)]
     pub(crate) fn empty() -> Self {
-        Self { map: Default::default() }
+        Self { map: Default::default(), transactions: Default::default() }
     }
 
     /// Returns list of related transactions for given NEAR transaction or
@@ -64,20 +86,20 @@ impl ExecutionToReceipts {
 /// Returns error if unexpected cause was encountered.
 fn convert_cause_to_transaction_id(
     block_hash: &CryptoHash,
-    cause: near_primitives::views::StateChangeCauseView,
+    cause: &near_primitives::views::StateChangeCauseView,
 ) -> crate::errors::Result<(crate::models::TransactionIdentifier, Option<CryptoHash>)> {
     use crate::models::TransactionIdentifier;
     use near_primitives::views::StateChangeCauseView;
 
     match cause {
         StateChangeCauseView::TransactionProcessing { tx_hash } => {
-            Ok((TransactionIdentifier::transaction(&tx_hash), Some(tx_hash)))
+            Ok((TransactionIdentifier::transaction(&tx_hash), Some(*tx_hash)))
         }
         StateChangeCauseView::ActionReceiptProcessingStarted { receipt_hash }
         | StateChangeCauseView::ActionReceiptGasReward { receipt_hash }
         | StateChangeCauseView::ReceiptProcessing { receipt_hash }
         | StateChangeCauseView::PostponedReceipt { receipt_hash } => {
-            Ok((TransactionIdentifier::receipt(&receipt_hash), Some(receipt_hash)))
+            Ok((TransactionIdentifier::receipt(&receipt_hash), Some(*receipt_hash)))
         }
         StateChangeCauseView::InitialState => {
             Ok((TransactionIdentifier::block_event("block", block_hash), None))
@@ -122,7 +144,7 @@ impl<'a> RosettaTransactions<'a> {
     /// vector.  It’s caller’s responsibility to fill it out as required.
     fn get_for_cause(
         &mut self,
-        cause: near_primitives::views::StateChangeCauseView,
+        cause: &near_primitives::views::StateChangeCauseView,
     ) -> crate::errors::Result<&mut crate::models::Transaction> {
         let (id, exec_hash) = convert_cause_to_transaction_id(&self.block_hash, cause)?;
         let tx = self.map.entry(id.hash).or_insert_with_key(|hash| {
@@ -132,7 +154,7 @@ impl<'a> RosettaTransactions<'a> {
             crate::models::Transaction {
                 transaction_identifier: crate::models::TransactionIdentifier { hash: hash.clone() },
                 operations: Vec::new(),
-                related_transactions: related_transactions,
+                related_transactions,
                 metadata: crate::models::TransactionMetadata {
                     type_: crate::models::TransactionType::Transaction,
                 },
@@ -155,17 +177,42 @@ pub(crate) fn convert_block_changes_to_transactions(
 ) -> crate::errors::Result<RosettaTransactionsMap> {
     let mut transactions = RosettaTransactions::new(exec_to_rx, block_hash);
     for account_change in accounts_changes {
-        let transaction = transactions.get_for_cause(account_change.cause)?;
-        let operations = &mut transaction.operations;
+        let transactions_in_block = &transactions.exec_to_rx.transactions;
         match account_change.value {
             near_primitives::views::StateChangeValueView::AccountUpdate { account_id, account } => {
+                // Calculate the total amount of deposit from transfer actions.
+                // This is needed to separate transfers into a separate operation
+                // to pass the rosetta cli check
+                let deposit = match &account_change.cause {
+                    near_primitives::views::StateChangeCauseView::TransactionProcessing {
+                        tx_hash,
+                    } => transactions_in_block.get(tx_hash).and_then(|t| {
+                        let total_sum = t
+                            .actions
+                            .iter()
+                            .map(|action| match action {
+                                near_primitives::views::ActionView::Transfer { deposit } => {
+                                    *deposit
+                                }
+                                _ => 0,
+                            })
+                            .sum::<u128>();
+                        if total_sum == 0 {
+                            None
+                        } else {
+                            Some(total_sum)
+                        }
+                    }),
+                    _ => None,
+                };
                 let previous_account_state = accounts_previous_state.get(&account_id);
                 convert_account_update_to_operations(
                     runtime_config,
-                    operations,
+                    &mut transactions.get_for_cause(&account_change.cause)?.operations,
                     &account_id,
                     previous_account_state,
                     &account,
+                    deposit,
                 );
                 accounts_previous_state.insert(account_id, account);
             }
@@ -173,7 +220,7 @@ pub(crate) fn convert_block_changes_to_transactions(
                 let previous_account_state = accounts_previous_state.remove(&account_id);
                 convert_account_delete_to_operations(
                     runtime_config,
-                    operations,
+                    &mut transactions.get_for_cause(&account_change.cause)?.operations,
                     &account_id,
                     previous_account_state,
                 );
@@ -196,6 +243,7 @@ fn convert_account_update_to_operations(
     account_id: &near_primitives::types::AccountId,
     previous_account_state: Option<&near_primitives::views::AccountView>,
     account: &near_primitives::views::AccountView,
+    deposit: Option<near_primitives::types::Balance>,
 ) {
     let previous_account_balances = previous_account_state
         .map(|account| crate::utils::RosettaAccountBalances::from_account(account, runtime_config))
@@ -205,23 +253,59 @@ fn convert_account_update_to_operations(
         crate::utils::RosettaAccountBalances::from_account(account, runtime_config);
 
     if previous_account_balances.liquid != new_account_balances.liquid {
-        operations.push(crate::models::Operation {
-            operation_identifier: crate::models::OperationIdentifier::new(operations),
-            related_operations: None,
-            account: crate::models::AccountIdentifier {
-                address: account_id.clone().into(),
-                sub_account: None,
-            },
-            amount: Some(crate::models::Amount::from_yoctonear_diff(
-                crate::utils::SignedDiff::cmp(
-                    previous_account_balances.liquid,
-                    new_account_balances.liquid,
-                ),
-            )),
-            type_: crate::models::OperationType::Transfer,
-            status: Some(crate::models::OperationStatusKind::Success),
-            metadata: None,
-        });
+        // Transfers would only lead to change in liquid balance, so it is sufficient to
+        // have the check here only. If deposit is not `None` then we separate it into its own
+        // operation to make Rosetta cli check happy.
+        if let Some(deposit) = deposit {
+            operations.push(crate::models::Operation {
+                operation_identifier: crate::models::OperationIdentifier::new(operations),
+                related_operations: None,
+                account: crate::models::AccountIdentifier {
+                    address: account_id.clone().into(),
+                    sub_account: None,
+                },
+                amount: Some(-crate::models::Amount::from_yoctonear(deposit)),
+                type_: crate::models::OperationType::Transfer,
+                status: Some(crate::models::OperationStatusKind::Success),
+                metadata: None,
+            });
+            operations.push(crate::models::Operation {
+                operation_identifier: crate::models::OperationIdentifier::new(operations),
+                related_operations: None,
+                account: crate::models::AccountIdentifier {
+                    address: account_id.clone().into(),
+                    sub_account: None,
+                },
+                amount: Some(crate::models::Amount::from_yoctonear_diff(
+                    crate::utils::SignedDiff::cmp(
+                        // this operation is guaranteed to not underflow. Otherwise the transaction is invalid
+                        previous_account_balances.liquid - deposit,
+                        new_account_balances.liquid,
+                    ),
+                )),
+                type_: crate::models::OperationType::Transfer,
+                status: Some(crate::models::OperationStatusKind::Success),
+                metadata: None,
+            });
+        } else {
+            operations.push(crate::models::Operation {
+                operation_identifier: crate::models::OperationIdentifier::new(operations),
+                related_operations: None,
+                account: crate::models::AccountIdentifier {
+                    address: account_id.clone().into(),
+                    sub_account: None,
+                },
+                amount: Some(crate::models::Amount::from_yoctonear_diff(
+                    crate::utils::SignedDiff::cmp(
+                        previous_account_balances.liquid,
+                        new_account_balances.liquid,
+                    ),
+                )),
+                type_: crate::models::OperationType::Transfer,
+                status: Some(crate::models::OperationStatusKind::Success),
+                metadata: None,
+            });
+        }
     }
 
     if previous_account_balances.liquid_for_storage != new_account_balances.liquid_for_storage {
