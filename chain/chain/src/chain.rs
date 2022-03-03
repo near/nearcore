@@ -397,6 +397,8 @@ pub fn check_known(
     check_known_store(chain, block_hash)
 }
 
+// Cache with the mappint from CryptoHash (blocks, chunks) to the number milliseconds that it took to process them.
+// Used only for debugging purposes.
 pub static CRYPTO_HASH_TIMER_RESULTS: Lazy<Mutex<LruCache<CryptoHash, u64>>> =
     Lazy::new(|| Mutex::new(LruCache::new(10000)));
 

@@ -336,8 +336,10 @@ pub struct DebugBlockStatus {
     pub block_hash: CryptoHash,
     pub block_height: u64,
     pub chunks: Vec<DebugChunkStatus>,
+    // Time that was spent processing a given block.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub processing_time_ms: Option<u64>,
+    // Time between this block and the next one in chain.
     pub timestamp_delta: u64,
 }
 
