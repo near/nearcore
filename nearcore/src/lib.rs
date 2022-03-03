@@ -300,7 +300,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> Result<NearNode
 pub fn start_with_config_and_synchronization(
     home_dir: &Path,
     config: NearConfig,
-    // `sender` will notify the corresponding `oneshot::Receiver` when an instance of `ClientActor`
+    // 'sender' will notify the corresponding `oneshot::Receiver` when an instance of `ClientActor`
     // gets dropped.
     sender: Option<oneshot::Sender<()>>,
 ) -> Result<NearNode, anyhow::Error> {
