@@ -364,6 +364,18 @@ impl<'a> VMLogic<'a> {
         String::from_utf8(buf).map_err(|_| HostError::BadUTF8.into())
     }
 
+    /// Helper function to get utf8 string, for sandbox debug log. The difference with `get_utf8_string`:
+    /// * It's only available on sandbox node
+    /// * The cost is 0
+    /// * It's up to the caller to set correct len
+    #[cfg(feature = "sandbox")]
+    fn sandbox_get_utf8_string(&mut self, len: u64, ptr: u64) -> Result<String> {
+        self.try_fit_mem(ptr, len)?;
+        let mut buf = vec![0; len as usize];
+        self.memory.read_memory(ptr, &mut buf);
+        String::from_utf8(buf).map_err(|_| HostError::BadUTF8.into())
+    }
+
     /// Helper function to read UTF-16 formatted string from guest memory.
     /// # Errors
     ///
@@ -2476,6 +2488,23 @@ impl<'a> VMLogic<'a> {
         self.gas_counter
             .pay_per(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
         Ok(res? as u64)
+    }
+
+    /// Debug print given utf-8 string to node log. It's only available in Sandbox node
+    ///
+    /// # Errors
+    ///
+    /// * If string is not UTF-8 returns `BadUtf8`
+    /// * If the log is over available memory in wasm runner, returns `MemoryAccessViolation`
+    ///
+    /// # Cost
+    ///
+    /// 0
+    #[cfg(feature = "sandbox")]
+    pub fn sandbox_debug_log(&mut self, len: u64, ptr: u64) -> Result<()> {
+        let message = self.sandbox_get_utf8_string(len, ptr)?;
+        tracing::debug!(target: "sandbox", message = &message[..]);
+        Ok(())
     }
 
     /// DEPRECATED

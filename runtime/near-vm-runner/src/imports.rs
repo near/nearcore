@@ -50,11 +50,12 @@
 
 macro_rules! imports {
     (
-      $($(#[$stable_feature:ident])? $(#[$feature_name:literal, $feature:ident])*
+      $($(#[$stable_feature:ident])? $(#[$feature_name:literal, $feature:ident])* $(##[$feature_name2:literal])?
         $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >,)*
     ) => {
         macro_rules! for_each_available_import {
             ($protocol_version:expr, $M:ident) => {$(
+                $(#[cfg(feature = $feature_name2)])?
                 $(#[cfg(feature = $feature_name)])*
                 if true
                     $(&& near_primitives::checked_feature!($feature_name, $feature, $protocol_version))*
@@ -227,6 +228,10 @@ imports! {
     #["protocol_feature_alt_bn128", AltBn128] alt_bn128_g1_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     #["protocol_feature_alt_bn128", AltBn128] alt_bn128_g1_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     #["protocol_feature_alt_bn128", AltBn128] alt_bn128_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
+    // #############
+    // #  Sandbox  #
+    // #############
+    ##["sandbox"] sandbox_debug_log<[len: u64, ptr: u64] -> []>,
 }
 
 #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
