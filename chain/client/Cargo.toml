@@ -24,6 +24,7 @@ once_cell = "1.5.2"
 borsh = "0.9"
 reed-solomon-erasure = "4"
 num-rational = "0.3"
+prometheus = "0.11"
 thiserror = "1.0"
 
 near-crypto = { path = "../../core/crypto" }

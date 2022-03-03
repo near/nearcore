@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use near_primitives::types::{BlockHeight, ShardId};
 
@@ -25,27 +25,25 @@ struct HeightInfo {
     chunks_requested: HashMap<ShardId, Instant>,
 }
 
-impl HeightInfo {
-    pub fn get_block_chunk_delay(&self) -> Option<Duration> {
-        let block_received = self.block_received.unwrap();
-        let latest_chunk_received = self.chunks_received.values().max();
-        latest_chunk_received.map(|t| t.saturating_duration_since(block_received))
-    }
-}
-
 impl ChunksDelayTracker {
     fn remove_old_entries(&mut self, head_height: BlockHeight) {
         let heights_to_drop: Vec<BlockHeight> =
             self.heights.range(..head_height).map(|(&k, _v)| k).collect();
-        for h in heights_to_drop {
-            self.heights.remove(&h);
+        for height in heights_to_drop {
+            self.update_block_chunks_metric(height);
+            self.update_chunks_metric(height);
+            self.heights.remove(&height);
         }
     }
 
     fn update_block_chunks_metric(&mut self, height: BlockHeight) {
         if let Some(entry) = self.heights.get(&height) {
-            if let Some(delay) = entry.get_block_chunk_delay() {
-                metrics::BLOCK_CHUNKS_DELAY.observe(delay.as_secs_f64());
+            if let Some(block_received) = entry.block_received {
+                for (shard_id, received) in &entry.chunks_received {
+                    metrics::BLOCK_CHUNKS_DELAY
+                        .with_label_values(&[&format!("{}", shard_id)])
+                        .observe(received.saturating_duration_since(block_received).as_secs_f64());
+                }
             }
         }
     }
@@ -55,6 +53,7 @@ impl ChunksDelayTracker {
             for (shard_id, requested) in &entry.chunks_requested {
                 if let Some(received) = entry.chunks_received.get(&shard_id) {
                     metrics::CHUNK_DELAY
+                        .with_label_values(&[&format!("{}", shard_id)])
                         .observe(received.saturating_duration_since(*requested).as_secs_f64());
                 }
             }
@@ -80,8 +79,6 @@ impl ChunksDelayTracker {
     }
 
     pub fn processed_block(&mut self, height: BlockHeight) {
-        self.update_block_chunks_metric(height);
-        self.update_chunks_metric(height);
         self.remove_old_entries(height);
     }
 

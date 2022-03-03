@@ -2572,6 +2572,7 @@ dependencies = [
  "near-telemetry",
  "num-rational",
  "once_cell",
+ "prometheus",
  "rand 0.7.3",
  "reed-solomon-erasure",
  "serde_json",
