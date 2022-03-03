@@ -92,5 +92,9 @@ skip = [
     { name = "arrayvec", version = "=0.5.2" },
 
     # borsh uses a very old version of proc-macro-crate
-    { name = "proc-macro-crate", version = "=0.1.5" }
+    { name = "proc-macro-crate", version = "=0.1.5" },
+
+    # criterion and wasmer-runtime-core-near depend on this older
+    # version of the crate.
+    { name = "rustc_version", version = "=0.2.3" }
 ]

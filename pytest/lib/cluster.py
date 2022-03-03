@@ -123,12 +123,20 @@ class BlockId(typing.NamedTuple):
     height: int
     hash: str
 
+    @classmethod
+    def from_header(cls, header: typing.Dict[str, typing.Any]) -> 'BlockId':
+        return cls(height=int(header['height']), hash=header['hash'])
+
     @property
     def hash_bytes(self) -> bytes:
         return base58.b58decode(self.hash.encode('ascii'))
 
     def __str__(self) -> str:
         return f'#{self.height} {self.hash}'
+
+    def __eq__(self, rhs) -> bool:
+        return (isinstance(rhs, BlockId) and self.height == rhs.height and
+                self.hash == rhs.hash)
 
 
 class BaseNode(object):

@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 
 use actix::{Addr, System};
 use futures::{future, FutureExt};
-use log::info;
+use tracing::info;
 
 use crate::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;

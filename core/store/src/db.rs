@@ -16,6 +16,7 @@ use near_primitives::version::DbVersion;
 
 use crate::db::refcount::merge_refcounted_records;
 
+use rocksdb::checkpoint::Checkpoint;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 
@@ -758,10 +759,32 @@ impl Database for TestDB {
     }
 }
 
+fn set_compression_options(opts: &mut Options) {
+    opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
+    opts.set_bottommost_compression_type(rocksdb::DBCompressionType::Zstd);
+    // RocksDB documenation says that 16KB is a typical dictionary size.
+    // We've empirically tuned the dicionary size to twice of that 'typical' size.
+    // Having train data size x100 from dictionary size is a recommendation from RocksDB.
+    // See: https://rocksdb.org/blog/2021/05/31/dictionary-compression.html?utm_source=dbplatz
+    let dict_size = 2 * 16384;
+    let max_train_bytes = dict_size * 100;
+    // We use default parameters of RocksDB here:
+    //      window_bits is -14 and is unused (Zlib-specific parameter),
+    //      compression_level is 32767 meaning the default compression level for ZSTD,
+    //      compression_strategy is 0 and is unused (Zlib-specific parameter).
+    // See: https://github.com/facebook/rocksdb/blob/main/include/rocksdb/advanced_options.h#L176:
+    opts.set_bottommost_compression_options(
+        /*window_bits */ -14, /*compression_level */ 32767,
+        /*compression_strategy */ 0, dict_size, /*enabled */ true,
+    );
+    opts.set_bottommost_zstd_max_train_bytes(max_train_bytes, true);
+}
+
 /// DB level options
 fn rocksdb_options() -> Options {
     let mut opts = Options::default();
 
+    set_compression_options(&mut opts);
     opts.create_missing_column_families(true);
     opts.create_if_missing(true);
     opts.set_use_fsync(false);
@@ -816,12 +839,12 @@ fn choose_cache_size(col: DBCol) -> usize {
 
 fn rocksdb_column_options(col: DBCol) -> Options {
     let mut opts = Options::default();
+    set_compression_options(&mut opts);
     opts.set_level_compaction_dynamic_level_bytes(true);
     let cache_size = choose_cache_size(col);
     opts.set_block_based_table_factory(&rocksdb_block_based_options(cache_size));
     opts.optimize_level_style_compaction(128 * bytesize::MIB as usize);
     opts.set_target_file_size_base(64 * bytesize::MIB);
-    opts.set_compression_per_level(&[]);
     if col.is_rc() {
         opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
@@ -871,6 +894,16 @@ impl RocksDB {
         } else {
             Ok(())
         }
+    }
+
+    /// Creates a Checkpoint object that can be used to actually create a checkpoint on disk.
+    pub fn checkpoint(&self) -> Result<Checkpoint, DBError> {
+        Checkpoint::new(&self.db).map_err(|err| DBError(err))
+    }
+
+    /// Synchronously flush all Memtables to SST files on disk
+    pub fn flush(&self) -> Result<(), DBError> {
+        self.db.flush().map_err(DBError::from)
     }
 }
 

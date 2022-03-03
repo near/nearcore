@@ -310,6 +310,8 @@ pub struct StatusSyncInfo {
     pub earliest_block_hash: Option<CryptoHash>,
     pub earliest_block_height: Option<BlockHeight>,
     pub earliest_block_time: Option<DateTime<chrono::Utc>>,
+    pub epoch_id: Option<EpochId>,
+    pub epoch_start_height: Option<BlockHeight>,
 }
 
 // TODO: add more information to ValidatorInfo
