@@ -1047,12 +1047,16 @@ impl Client {
                 self.chain.get_block_header(last_final_block).map_or(0, |header| header.height())
             };
             self.chain.blocks_with_missing_chunks.prune_blocks_below_height(last_finalized_height);
-            if !self.config.archive {
+            if !self.config.archive || self.config.archive_gc_partial_chunks {
                 let timer = metrics::GC_TIME.start_timer();
-                if let Err(err) = self
-                    .chain
-                    .clear_data(self.runtime_adapter.get_tries(), self.config.gc_blocks_limit)
-                {
+                let gc_blocks_limit = self.config.gc_blocks_limit;
+                let result = if !self.config.archive {
+                    let tries = self.runtime_adapter.get_tries();
+                    self.chain.clear_data(tries, gc_blocks_limit)
+                } else {
+                    self.chain.clear_archive_data(gc_blocks_limit)
+                };
+                if let Err(err) = result {
                     error!(target: "client", "Can't clear old data, {:?}", err);
                     debug_assert!(false);
                 };

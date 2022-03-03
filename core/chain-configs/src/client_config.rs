@@ -89,6 +89,10 @@ pub struct ClientConfig {
     pub tracked_shards: Vec<ShardId>,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
+    /// Whether archive nodes should garbage collect partial chunks from the
+    /// storage.  TODO(#6242): Eventually remove this field and make it always
+    /// true.
+    pub archive_gc_partial_chunks: bool,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
     /// Run Epoch Sync on the start.
@@ -153,6 +157,7 @@ impl ClientConfig {
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive,
+            archive_gc_partial_chunks: true,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
             epoch_sync_enabled,

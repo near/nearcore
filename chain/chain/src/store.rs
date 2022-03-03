@@ -27,9 +27,9 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, EpochId, GCCount, NumBlocks, ShardId, StateChanges,
-    StateChangesExt, StateChangesForSplitStates, StateChangesKinds, StateChangesKindsExt,
-    StateChangesRequest,
+    AccountId, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, GCCount, NumBlocks, ShardId,
+    StateChanges, StateChangesExt, StateChangesForSplitStates, StateChangesKinds,
+    StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
@@ -1983,39 +1983,50 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn clear_chunk_data_and_headers(
         &mut self,
         min_chunk_height: BlockHeight,
+        gc_limit: BlockHeightDelta,
+        archival: bool,
     ) -> Result<(), Error> {
         let chunk_tail = self.chunk_tail()?;
+        let min_chunk_height = std::cmp::min(min_chunk_height, chunk_tail.saturating_add(gc_limit));
         for height in chunk_tail..min_chunk_height {
             let chunk_hashes = self.chain_store.get_all_chunk_hashes_by_height(height)?;
             for chunk_hash in chunk_hashes {
                 // 1. Delete chunk-related data
-                let chunk = self.get_chunk(&chunk_hash)?.clone();
-                debug_assert_eq!(chunk.cloned_header().height_created(), height);
-                for transaction in chunk.transactions() {
-                    self.gc_col(ColTransactions, &transaction.get_hash().into());
-                }
-                for receipt in chunk.receipts() {
-                    self.gc_col(ColReceipts, &receipt.get_hash().into());
+                if !archival {
+                    let chunk = self.get_chunk(&chunk_hash)?.clone();
+                    debug_assert_eq!(chunk.cloned_header().height_created(), height);
+                    for transaction in chunk.transactions() {
+                        self.gc_col(ColTransactions, &transaction.get_hash().into());
+                    }
+                    for receipt in chunk.receipts() {
+                        self.gc_col(ColReceipts, &receipt.get_hash().into());
+                    }
                 }
 
                 // 2. Delete chunk_hash-indexed data
-                let chunk_header_hash = chunk_hash.clone().into();
-                self.gc_col(ColChunks, &chunk_header_hash);
+                let chunk_header_hash = chunk_hash.into();
+                if !archival {
+                    self.gc_col(ColChunks, &chunk_header_hash);
+                }
                 self.gc_col(ColPartialChunks, &chunk_header_hash);
                 self.gc_col(ColInvalidChunks, &chunk_header_hash);
             }
 
-            let header_hashes = self.chain_store.get_all_header_hashes_by_height(height)?;
-            for _header_hash in header_hashes {
-                // 3. Delete header_hash-indexed data
+            if !archival {
                 // TODO #3488: enable
-                //self.gc_col(ColBlockHeader, &header_hash.into());
+                // let header_hashes = self.chain_store.get_all_header_hashes_by_height(height)?;
+                // for _header_hash in header_hashes {
+                //     // 3. Delete header_hash-indexed data
+                //     self.gc_col(ColBlockHeader, &header_hash.into());
+                // }
             }
 
             // 4. Delete chunks_tail-related data
-            let key = &index_to_bytes(height).to_vec();
-            self.gc_col(ColChunkHashesByHeight, key);
-            self.gc_col(ColHeaderHashesByHeight, key);
+            if !archival {
+                let key = &index_to_bytes(height).to_vec();
+                self.gc_col(ColChunkHashesByHeight, key);
+                self.gc_col(ColHeaderHashesByHeight, key);
+            }
         }
         self.update_chunk_tail(min_chunk_height);
         Ok(())
@@ -2187,7 +2198,7 @@ impl<'a> ChainStoreUpdate<'a> {
                         min_chunk_height = chunk_header.height_created();
                     }
                 }
-                self.clear_chunk_data_and_headers(min_chunk_height)?;
+                self.clear_chunk_data_and_headers(min_chunk_height, BlockHeightDelta::MAX, false)?;
             }
             GCMode::StateSync { .. } => {
                 // 7. State Sync clearing
