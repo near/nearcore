@@ -220,7 +220,11 @@ mod tests {
 
     #[test]
     fn test_is_in_future() {
-        assert!(ProtocolUpgradeVotingSchedule::from_str("2999-02-03 23:59:59").unwrap().is_in_future());
-        assert!(!ProtocolUpgradeVotingSchedule::from_str("1999-02-03 23:59:59").unwrap().is_in_future());
+        assert!(ProtocolUpgradeVotingSchedule::from_str("2999-02-03 23:59:59")
+            .unwrap()
+            .is_in_future());
+        assert!(!ProtocolUpgradeVotingSchedule::from_str("1999-02-03 23:59:59")
+            .unwrap()
+            .is_in_future());
     }
 }
