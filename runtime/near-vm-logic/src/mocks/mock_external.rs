@@ -1,6 +1,6 @@
 use crate::{External, ValuePtr};
 #[cfg(feature = "protocol_feature_function_call_weight")]
-use near_primitives::types::GasWeight;
+use near_primitives::types::{GasDistribution, GasWeight};
 use near_primitives_core::types::{AccountId, Balance, Gas};
 use near_vm_errors::HostError;
 use serde::{Deserialize, Serialize};
@@ -250,7 +250,7 @@ impl External for MockedExternal {
     }
 
     #[cfg(feature = "protocol_feature_function_call_weight")]
-    fn distribute_unused_gas(&mut self, gas: Gas) -> bool {
+    fn distribute_unused_gas(&mut self, gas: Gas) -> GasDistribution {
         let gas_weight_sum: u128 =
             self.gas_weights.iter().map(|(_, GasWeight(weight))| *weight as u128).sum();
         if gas_weight_sum != 0 {
@@ -283,9 +283,9 @@ impl External for MockedExternal {
                 distribute_gas(last_idx, gas - distributed);
             }
             self.gas_weights.clear();
-            true
+            GasDistribution::All
         } else {
-            false
+            GasDistribution::NoRatios
         }
     }
 }

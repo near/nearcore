@@ -14,9 +14,9 @@ use near_primitives::transaction::{
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-#[cfg(feature = "protocol_feature_function_call_weight")]
-use near_primitives::types::GasWeight;
 use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas};
+#[cfg(feature = "protocol_feature_function_call_weight")]
+use near_primitives::types::{GasDistribution, GasWeight};
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
 use near_store::{get_code, TrieUpdate, TrieUpdateValuePtr};
@@ -442,7 +442,7 @@ impl<'a> External for RuntimeExt<'a> {
     }
 
     #[cfg(feature = "protocol_feature_function_call_weight")]
-    fn distribute_unused_gas(&mut self, gas: u64) -> bool {
+    fn distribute_unused_gas(&mut self, gas: u64) -> GasDistribution {
         let gas_weight_sum: u128 =
             self.gas_weights.iter().map(|(_, GasWeight(weight))| *weight as u128).sum();
         if gas_weight_sum != 0 {
@@ -475,9 +475,9 @@ impl<'a> External for RuntimeExt<'a> {
                 distribute_gas(last_idx, gas - distributed);
             }
             self.gas_weights.clear();
-            true
+            GasDistribution::All
         } else {
-            false
+            GasDistribution::NoRatios
         }
     }
 }

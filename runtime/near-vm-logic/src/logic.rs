@@ -13,11 +13,11 @@ use near_primitives_core::profile::ProfileData;
 use near_primitives_core::runtime::fees::{
     transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig,
 };
-#[cfg(feature = "protocol_feature_function_call_weight")]
-use near_primitives_core::types::GasWeight;
 use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
+#[cfg(feature = "protocol_feature_function_call_weight")]
+use near_primitives_core::types::{GasDistribution, GasWeight};
 use near_vm_errors::InconsistentStateError;
 use near_vm_errors::{HostError, VMLogicError};
 use std::collections::HashMap;
@@ -2613,7 +2613,7 @@ impl<'a> VMLogic<'a> {
             let unused_gas = self.context.prepaid_gas - self.gas_counter.used_gas();
 
             // Distribute the unused gas and prepay for the gas.
-            if self.ext.distribute_unused_gas(unused_gas) {
+            if matches!(self.ext.distribute_unused_gas(unused_gas), GasDistribution::All) {
                 self.gas_counter.prepay_gas(unused_gas).unwrap();
             }
         }

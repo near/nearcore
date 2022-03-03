@@ -2,7 +2,7 @@
 
 use crate::types::{PublicKey, ReceiptIndex};
 #[cfg(feature = "protocol_feature_function_call_weight")]
-use near_primitives_core::types::GasWeight;
+use near_primitives_core::types::{GasWeight, GasDistribution};
 use near_primitives_core::types::{AccountId, Balance, Gas};
 use near_vm_errors::VMLogicError;
 
@@ -540,7 +540,7 @@ pub trait External {
     ///
     /// # Returns
     ///
-    /// Function returns true if gas was distributed, false if no ratios existed to distribute to.
+    /// Function returns a [GasDistribution] that indicates how the gas was distributed.
     #[cfg(feature = "protocol_feature_function_call_weight")]
-    fn distribute_unused_gas(&mut self, gas: Gas) -> bool;
+    fn distribute_unused_gas(&mut self, gas: Gas) -> GasDistribution;
 }
