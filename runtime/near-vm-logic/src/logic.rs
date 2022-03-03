@@ -1507,7 +1507,10 @@ impl<'a> VMLogic<'a> {
         amount_ptr: u64,
         gas: Gas,
     ) -> Result<()> {
-        self.promise_batch_action_function_call_weight(
+        let append_action_fn = |vm: &mut Self, receipt_idx, method_name, arguments, amount, gas| {
+            vm.ext.append_action_function_call(receipt_idx, method_name, arguments, amount, gas)
+        };
+        self.internal_promise_batch_action_function_call(
             promise_idx,
             method_name_len,
             method_name_ptr,
@@ -1515,7 +1518,7 @@ impl<'a> VMLogic<'a> {
             arguments_ptr,
             amount_ptr,
             gas,
-            GasWeight(0),
+            append_action_fn,
         )
     }
 
@@ -1549,6 +1552,7 @@ impl<'a> VMLogic<'a> {
     /// `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
     /// - If `0` is passed for both `gas` and `gas_weight` parameters
+    #[cfg(feature = "protocol_feature_function_call_weight")]
     pub fn promise_batch_action_function_call_weight(
         &mut self,
         promise_idx: u64,
@@ -1559,6 +1563,39 @@ impl<'a> VMLogic<'a> {
         amount_ptr: u64,
         gas: Gas,
         gas_weight: GasWeight,
+    ) -> Result<()> {
+        let append_action_fn = |vm: &mut Self, receipt_idx, method_name, arguments, amount, gas| {
+            vm.ext.append_action_function_call_weight(
+                receipt_idx,
+                method_name,
+                arguments,
+                amount,
+                gas,
+                gas_weight,
+            )
+        };
+        self.internal_promise_batch_action_function_call(
+            promise_idx,
+            method_name_len,
+            method_name_ptr,
+            arguments_len,
+            arguments_ptr,
+            amount_ptr,
+            gas,
+            append_action_fn,
+        )
+    }
+
+    fn internal_promise_batch_action_function_call(
+        &mut self,
+        promise_idx: u64,
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        amount_ptr: u64,
+        gas: Gas,
+        append_action_fn: impl FnOnce(&mut Self, u64, Vec<u8>, Vec<u8>, u128, u64) -> Result<()>,
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view() {
@@ -1594,28 +1631,7 @@ impl<'a> VMLogic<'a> {
 
         self.deduct_balance(amount)?;
 
-        #[cfg(feature = "protocol_feature_function_call_weight")]
-        self.ext.append_action_function_call_weight(
-            receipt_idx,
-            method_name,
-            arguments,
-            amount,
-            gas,
-            gas_weight,
-        )?;
-
-        #[cfg(not(feature = "protocol_feature_function_call_weight"))]
-        {
-            let _ = gas_weight;
-            self.ext.append_action_function_call(
-                receipt_idx,
-                method_name,
-                arguments,
-                amount,
-                gas,
-            )?;
-        }
-        Ok(())
+        append_action_fn(self, receipt_idx, method_name, arguments, amount, gas)
     }
 
     /// Appends `Transfer` action to the batch of actions for the given promise pointed by
