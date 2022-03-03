@@ -74,26 +74,16 @@ pub static TGAS_USAGE_HIST: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static CHUNKS_RECEIVING_DELAY_US: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge(
-        "near_chunks_receiving_delay_us",
-        "Max delay between receiving a block and its chunks for several most recent blocks",
-    )
-    .unwrap()
-});
-pub static CHUNKS_RECEIVING_DELAY: Lazy<Histogram> = Lazy::new(|| {
+pub static BLOCK_CHUNKS_DELAY: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram(
-        "near_chunks_receiving_delay",
-        "Delay between receiving a block and its chunks",
+        "near_block_chunks_delay",
+        "Delay between receiving a block and all its chunks",
     )
     .unwrap()
 });
-pub static BLOCKS_AHEAD_OF_HEAD: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge(
-        "near_blocks_ahead_of_head",
-        "Height difference between the current head and the newest block or chunk received",
-    )
-    .unwrap()
+pub static CHUNK_DELAY: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram("near_chunk_delay", "Delay between requesting and receving a chunk")
+        .unwrap()
 });
 pub static VALIDATORS_CHUNKS_PRODUCED: Lazy<IntGaugeVec> = Lazy::new(|| {
     near_metrics::try_create_int_gauge_vec(

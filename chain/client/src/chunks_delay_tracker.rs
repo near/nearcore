@@ -1,4 +1,3 @@
-use std::cmp::max;
 use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
 
@@ -19,17 +18,15 @@ pub(crate) struct ChunksDelayTracker {
     heights: BTreeMap<BlockHeight, HeightInfo>,
 }
 
-const CHUNKS_DELAY_TRACKER_HORIZON: u64 = 10;
-
 #[derive(Debug, Default)]
 struct HeightInfo {
     block_received: Option<Instant>,
     chunks_received: HashMap<ShardId, Instant>,
-    chunks_requested: Option<Instant>,
+    chunks_requested: HashMap<ShardId, Instant>,
 }
 
 impl HeightInfo {
-    pub fn get_delay(&self) -> Duration {
+    pub fn get_block_chunk_delay(&self) -> Duration {
         let block_received = self.block_received.unwrap();
         let latest_chunk_received = self.chunks_received.values().max().unwrap();
         latest_chunk_received.saturating_duration_since(block_received)
@@ -37,160 +34,61 @@ impl HeightInfo {
 }
 
 impl ChunksDelayTracker {
-    // Blocks below this heights are not tracked.
-    fn lowest_height(head_height: BlockHeight) -> BlockHeight {
-        head_height.saturating_sub(CHUNKS_DELAY_TRACKER_HORIZON)
-    }
-
     fn remove_old_entries(&mut self, head_height: BlockHeight) {
-        let heights_to_drop: Vec<BlockHeight> = self
-            .heights
-            .range(..ChunksDelayTracker::lowest_height(head_height))
-            .map(|(&k, _v)| k)
-            .collect();
+        let heights_to_drop: Vec<BlockHeight> =
+            self.heights.range(..head_height).map(|(&k, _v)| k).collect();
         for h in heights_to_drop {
             self.heights.remove(&h);
         }
     }
 
-    // Computes the delay between receiving a block and receiving the latest of its chunks.
-    // Updates the metric to the max delay across the most recently processed blocks.
-    fn get_max_delay(&mut self, head_height: BlockHeight) -> Duration {
-        let mut max_delay = Duration::ZERO;
-        for (_, v) in self.heights.range(..=head_height) {
-            if let Some(block_received) = v.block_received {
-                if let Some(latest_chunk) = v.chunks_received.values().max() {
-                    if latest_chunk > &block_received {
-                        let delay = latest_chunk.duration_since(block_received);
-                        max_delay = max(max_delay, delay);
-                    }
+    fn update_block_chunks_metric(&mut self, height: BlockHeight) {
+        if let Some(entry) = self.heights.get(&height) {
+            metrics::BLOCK_CHUNKS_DELAY.observe(entry.get_block_chunk_delay().as_secs_f64());
+        }
+    }
+
+    fn update_chunks_metric(&mut self, height: BlockHeight) {
+        if let Some(entry) = self.heights.get(&height) {
+            for (shard_id, requested) in &entry.chunks_requested {
+                if let Some(received) = entry.chunks_received.get(&shard_id) {
+                    metrics::CHUNK_DELAY
+                        .observe(received.saturating_duration_since(*requested).as_secs_f64());
                 }
             }
         }
-        max_delay
     }
 
-    fn update_chunks_metric(&mut self, head_height: BlockHeight) {
-        metrics::CHUNKS_RECEIVING_DELAY_US.set(self.get_max_delay(head_height).as_micros() as i64);
-    }
-
-    fn update_chunks_histogram_metric(&mut self, height: BlockHeight) {
-        if let Some(entry) = self.heights.get(&height) {
-            metrics::CHUNKS_RECEIVING_DELAY.observe(entry.get_delay().as_secs_f64());
-        }
-    }
-
-    pub fn add_block_timestamp(
-        &mut self,
-        height: BlockHeight,
-        head_height: BlockHeight,
-        timestamp: Instant,
-    ) {
-        self.remove_old_entries(head_height);
-        if height >= head_height {
-            self.heights.entry(height).or_default().block_received.get_or_insert(timestamp);
-        }
-        self.update_chunks_metric(head_height);
+    pub fn add_block_timestamp(&mut self, height: BlockHeight, timestamp: Instant) {
+        self.heights.entry(height).or_default().block_received.get_or_insert(timestamp);
     }
 
     pub fn add_chunk_timestamp(
         &mut self,
         height: BlockHeight,
         shard_id: ShardId,
-        head_height: BlockHeight,
         timestamp: Instant,
     ) {
-        self.remove_old_entries(head_height);
-        if height >= head_height {
-            self.heights
-                .entry(height)
-                .or_default()
-                .chunks_received
-                .entry(shard_id)
-                .or_insert(timestamp);
-        }
-        self.update_chunks_metric(head_height);
+        self.heights
+            .entry(height)
+            .or_default()
+            .chunks_received
+            .entry(shard_id)
+            .or_insert(timestamp);
     }
 
     pub fn block_processed(&mut self, height: BlockHeight) {
-        self.update_chunks_histogram_metric(height);
+        self.update_block_chunks_metric(height);
+        self.update_chunks_metric(height);
+        self.remove_old_entries(height);
     }
 
-    pub fn requested_chunk(&mut self, height: BlockHeight, timestamp: Instant) {}
-    pub fn accepted_block(&mut self, height: BlockHeight, timestamp: Instant) {}
-}
-#[cfg(test)]
-mod test {
-    use super::*;
-    use std::time::Duration;
-
-    #[test]
-    fn test_blocks_ahead_of_head() {
-        let mut tracker = ChunksDelayTracker::default();
-        let now = Instant::now();
-
-        let mut head_height = 1;
-        tracker.add_block_timestamp(3, head_height, now);
-        assert_eq!(tracker.get_blocks_ahead(head_height), 2);
-        tracker.add_block_timestamp(4, head_height, now);
-        assert_eq!(tracker.get_blocks_ahead(head_height), 3);
-
-        head_height = 3;
-        tracker.add_block_timestamp(4, head_height, now);
-        assert_eq!(tracker.get_blocks_ahead(head_height), 1);
-
-        head_height = 5;
-        tracker.add_block_timestamp(4, head_height, now);
-        assert_eq!(tracker.get_blocks_ahead(head_height), 0);
-
-        head_height = 999;
-        tracker.add_block_timestamp(4, head_height, now);
-        assert_eq!(tracker.get_blocks_ahead(head_height), 0);
-    }
-
-    #[test]
-    fn test_timestamps() {
-        let start = Instant::now();
-        let mut tracker = ChunksDelayTracker::default();
-
-        // Multiple chunks.
-        let mut head_height = 1;
-        tracker.add_block_timestamp(3, head_height, start);
-        tracker.add_chunk_timestamp(3, 0, head_height, start + Duration::from_secs(1));
-        tracker.add_chunk_timestamp(3, 1, head_height, start + Duration::from_secs(2));
-
-        // No chunks.
-        head_height = 3;
-        tracker.add_block_timestamp(4, head_height, start + Duration::from_secs(5));
-
-        // Block and chunk from the past.
-        head_height = 4;
-        tracker.add_block_timestamp(1, head_height, start + Duration::from_secs(7));
-        tracker.add_chunk_timestamp(1, 0, head_height, start + Duration::from_secs(7));
-
-        assert_eq!(tracker.get_max_delay(head_height), Duration::from_secs(2));
-
-        // New block with a smaller delay between receiving chunks.
-        tracker.add_block_timestamp(5, head_height, start + Duration::from_secs(10));
-        head_height = 5;
-        tracker.add_chunk_timestamp(5, 0, head_height, start + Duration::from_secs(11));
-        assert_eq!(tracker.get_max_delay(head_height), Duration::from_secs(2));
-
-        // New block with a smaller delay between receiving chunks but far in the future, the old block should be forgotten.
-        tracker.add_block_timestamp(105, head_height, start + Duration::from_secs(20));
-        head_height = 105;
-        tracker.add_chunk_timestamp(105, 0, head_height, start + Duration::from_secs(21));
-        assert_eq!(tracker.get_max_delay(head_height), Duration::from_secs(1));
-
-        // New block with a larger delay between receiving chunks.
-        tracker.add_block_timestamp(106, head_height, start + Duration::from_secs(23));
-        head_height = 106;
-        tracker.add_chunk_timestamp(106, 0, head_height, start + Duration::from_secs(28));
-        assert_eq!(tracker.get_max_delay(head_height), Duration::from_secs(5));
-
-        // A block in the future doesn't matter for the metric.
-        tracker.add_block_timestamp(206, head_height, start + Duration::from_secs(100));
-        tracker.add_chunk_timestamp(206, 0, head_height, start + Duration::from_secs(999));
-        assert_eq!(tracker.get_max_delay(head_height), Duration::from_secs(5));
+    pub fn requested_chunk(&mut self, height: BlockHeight, shard_id: ShardId, timestamp: Instant) {
+        self.heights
+            .entry(height)
+            .or_default()
+            .chunks_requested
+            .entry(shard_id)
+            .or_insert(timestamp);
     }
 }

@@ -778,7 +778,7 @@ impl Client {
 
         if let Ok(Some(_)) = result {
             self.last_time_head_progress_made = Clock::instant();
-            self.chunks_delay_tracker.block_processed(block.header().height());
+            self.chunks_delay_tracker.block_processed(block_height);
         }
 
         // Request any missing chunks
@@ -1014,8 +1014,6 @@ impl Client {
                 return;
             }
         };
-        let now = Clock::instant();
-        self.chunks_delay_tracker.accepted_block(block.header().height(), now);
 
         let _ = self.check_and_update_doomslug_tip();
 
@@ -1199,8 +1197,12 @@ impl Client {
     ) {
         let now = Clock::instant();
         for BlockMissingChunks { prev_hash, missing_chunks } in blocks_missing_chunks {
-            for chunk in missing_chunks {
-                self.chunks_delay_tracker.requested_chunk(chunk.height_included(), now);
+            for chunk in &missing_chunks {
+                self.chunks_delay_tracker.requested_chunk(
+                    chunk.height_included(),
+                    chunk.shard_id(),
+                    now,
+                );
             }
             self.shards_mgr.request_chunks(
                 missing_chunks,
@@ -1215,8 +1217,12 @@ impl Client {
         for OrphanMissingChunks { missing_chunks, epoch_id, ancestor_hash } in
             orphans_missing_chunks
         {
-            for chunk in missing_chunks {
-                self.chunks_delay_tracker.requested_chunk(chunk.height_included(), now);
+            for chunk in &missing_chunks {
+                self.chunks_delay_tracker.requested_chunk(
+                    chunk.height_included(),
+                    chunk.shard_id(),
+                    now,
+                );
             }
             self.shards_mgr.request_chunks_for_orphan(
                 missing_chunks,
@@ -1793,18 +1799,10 @@ impl Client {
     }
 
     fn record_receive_block_timestamp(&mut self, height: BlockHeight) {
-        if let Ok(tip) = self.chain.head() {
-            self.chunks_delay_tracker.add_block_timestamp(height, tip.height, Clock::instant());
-        }
+        self.chunks_delay_tracker.add_block_timestamp(height, Clock::instant());
     }
+
     fn record_receive_chunk_timestamp(&mut self, height: BlockHeight, shard_id: ShardId) {
-        if let Ok(tip) = self.chain.head() {
-            self.chunks_delay_tracker.add_chunk_timestamp(
-                height,
-                shard_id,
-                tip.height,
-                Clock::instant(),
-            );
-        }
+        self.chunks_delay_tracker.add_chunk_timestamp(height, shard_id, Clock::instant());
     }
 }
