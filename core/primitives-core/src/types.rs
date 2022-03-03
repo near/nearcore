@@ -34,6 +34,7 @@ pub struct GasWeight(pub u64);
 /// Result from a gas distribution among function calls with ratios.
 #[cfg(feature = "protocol_feature_function_call_weight")]
 #[must_use]
+#[non_exhaustive]
 #[derive(Debug, PartialEq)]
 pub enum GasDistribution {
     /// All remaining gas was distributed to functions.
