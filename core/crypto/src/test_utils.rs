@@ -1,9 +1,11 @@
 use ed25519_dalek::ed25519::signature::Signature as _;
+#[cfg(feature = "secp256k1")]
 use rand::rngs::StdRng;
 
-use crate::signature::{
-    ED25519PublicKey, ED25519SecretKey, KeyType, PublicKey, SecretKey, SECP256K1,
-};
+#[cfg(feature = "secp256k1")]
+use crate::signature::SECP256K1;
+use crate::signature::{ED25519PublicKey, ED25519SecretKey, KeyType, PublicKey, SecretKey};
+
 use crate::{InMemorySigner, Signature};
 use near_account_id::AccountId;
 
@@ -16,7 +18,7 @@ fn ed25519_key_pair_from_seed(seed: &str) -> ed25519_dalek::Keypair {
     let public = ed25519_dalek::PublicKey::from(&secret);
     ed25519_dalek::Keypair { secret, public }
 }
-
+#[cfg(feature = "secp256k1")]
 fn secp256k1_secret_key_from_seed(seed: &str) -> secp256k1::key::SecretKey {
     let seed_bytes = seed.as_bytes();
     let len = std::cmp::min(32, seed_bytes.len());
@@ -45,7 +47,10 @@ impl SecretKey {
                 let keypair = ed25519_key_pair_from_seed(seed);
                 SecretKey::ED25519(ED25519SecretKey(keypair.to_bytes()))
             }
+            #[cfg(feature = "secp256k1")]
             _ => SecretKey::SECP256K1(secp256k1_secret_key_from_seed(seed)),
+            #[cfg(not(feature = "secp256k1"))]
+            _ => unimplemented!(),
         }
     }
 }

@@ -7,12 +7,14 @@ use std::str::FromStr;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signature as _, Signer, Verifier};
+#[cfg(feature = "secp256k1")]
 use once_cell::sync::Lazy;
 use primitive_types::U256;
 use rand_core::OsRng;
+#[cfg(feature = "secp256k1")]
 use secp256k1::Message;
 use serde::{Deserialize, Serialize};
-
+#[cfg(feature = "secp256k1")]
 pub static SECP256K1: Lazy<secp256k1::Secp256k1> = Lazy::new(secp256k1::Secp256k1::new);
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
@@ -419,6 +421,7 @@ impl Eq for ED25519SecretKey {}
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub enum SecretKey {
     ED25519(ED25519SecretKey),
+    #[cfg(feature = "secp256k1")]
     SECP256K1(secp256k1::key::SecretKey),
 }
 
@@ -426,7 +429,10 @@ impl SecretKey {
     pub fn key_type(&self) -> KeyType {
         match self {
             SecretKey::ED25519(_) => KeyType::ED25519,
+            #[cfg(feature = "secp256k1")]
             SecretKey::SECP256K1(_) => KeyType::SECP256K1,
+            #[cfg(not(feature = "secp256k1"))]
+            _ => unimplemented!(),
         }
     }
 
@@ -436,8 +442,13 @@ impl SecretKey {
                 let keypair = ed25519_dalek::Keypair::generate(&mut OsRng);
                 SecretKey::ED25519(ED25519SecretKey(keypair.to_bytes()))
             }
+            #[cfg(feature = "secp256k1")]
             KeyType::SECP256K1 => {
                 SecretKey::SECP256K1(secp256k1::key::SecretKey::new(&SECP256K1, &mut OsRng))
+            }
+            #[cfg(not(feature = "secp256k1"))]
+            _ => {
+                unimplemented!();
             }
         }
     }
@@ -448,7 +459,7 @@ impl SecretKey {
                 let keypair = ed25519_dalek::Keypair::from_bytes(&secret_key.0).unwrap();
                 Signature::ED25519(keypair.sign(data))
             }
-
+            #[cfg(feature = "secp256k1")]
             SecretKey::SECP256K1(secret_key) => {
                 let signature = SECP256K1
                     .sign_recoverable(
@@ -462,6 +473,8 @@ impl SecretKey {
                 buf[64] = rec_id.to_i32() as u8;
                 Signature::SECP256K1(Secp256K1Signature(buf))
             }
+            #[cfg(not(feature = "secp256k1"))]
+            _ => unimplemented!(),
         }
     }
 
@@ -470,6 +483,7 @@ impl SecretKey {
             SecretKey::ED25519(secret_key) => PublicKey::ED25519(ED25519PublicKey(
                 secret_key.0[ed25519_dalek::SECRET_KEY_LENGTH..].try_into().unwrap(),
             )),
+            #[cfg(feature = "secp256k1")]
             SecretKey::SECP256K1(secret_key) => {
                 let pk =
                     secp256k1::key::PublicKey::from_secret_key(&SECP256K1, secret_key).unwrap();
@@ -478,12 +492,15 @@ impl SecretKey {
                 public_key.0.copy_from_slice(&serialized[1..65]);
                 PublicKey::SECP256K1(public_key)
             }
+            #[cfg(not(feature = "secp256k1"))]
+            _ => unimplemented!(),
         }
     }
 
     pub fn unwrap_as_ed25519(&self) -> &ED25519SecretKey {
         match self {
             SecretKey::ED25519(key) => key,
+            #[cfg(feature = "secp256k1")]
             SecretKey::SECP256K1(_) => panic!(),
         }
     }
@@ -493,6 +510,7 @@ impl std::fmt::Display for SecretKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         let data = match self {
             SecretKey::ED25519(secret_key) => bs58::encode(&secret_key.0[..]).into_string(),
+            #[cfg(feature = "secp256k1")]
             SecretKey::SECP256K1(secret_key) => bs58::encode(&secret_key[..]).into_string(),
         };
         write!(f, "{}:{}", self.key_type(), data)
@@ -518,6 +536,7 @@ impl FromStr for SecretKey {
                 }
                 Ok(Self::ED25519(ED25519SecretKey(array)))
             }
+            #[cfg(feature = "secp256k1")]
             KeyType::SECP256K1 => {
                 let mut array = [0; secp256k1::constants::SECRET_KEY_SIZE];
                 let length = bs58::decode(key_data)
@@ -534,6 +553,8 @@ impl FromStr for SecretKey {
                         .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?,
                 ))
             }
+            #[cfg(not(feature = "secp256k1"))]
+            _ => unimplemented!(),
         }
     }
 }
@@ -548,6 +569,7 @@ impl serde::Serialize for SecretKey {
     {
         let data = match self {
             SecretKey::ED25519(secret_key) => bs58::encode(&secret_key.0[..]).into_string(),
+            #[cfg(feature = "secp256k1")]
             SecretKey::SECP256K1(secret_key) => bs58::encode(&secret_key[..]).into_string(),
         };
         serializer.serialize_str(&format!("{}:{}", self.key_type(), data))
@@ -595,7 +617,7 @@ impl Secp256K1Signature {
 
         r < SECP256K1_N && s < s_check
     }
-
+    #[cfg(feature = "secp256k1")]
     pub fn recover(
         &self,
         msg: [u8; 32],
@@ -732,6 +754,7 @@ impl Signature {
                     Ok(public_key) => public_key.verify(data, signature).is_ok(),
                 }
             }
+            #[cfg(feature = "secp256k1")]
             (Signature::SECP256K1(signature), PublicKey::SECP256K1(public_key)) => {
                 let rsig = secp256k1::RecoverableSignature::from_compact(
                     &SECP256K1,
