@@ -1,12 +1,21 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
+use near_primitives::contract::ContractCode;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::SignedTransaction;
-use near_vm_logic::ExtCosts;
+use near_primitives::types::CompiledContractCache;
+use near_store::{create_store, StoreCompiledContractCache};
+use near_vm_logic::mocks::mock_external::MockedExternal;
+use near_vm_logic::{ExtCosts, ProtocolVersion};
+use nearcore::get_store_path;
+use tempfile::TempDir;
 
 use crate::config::{Config, GasMetric};
 use crate::gas_cost::GasCost;
 use crate::testbed::RuntimeTestbed;
 use crate::utils::get_account_id;
+use crate::vm_estimator::create_context;
 
 use super::transaction_builder::TransactionBuilder;
 
@@ -31,6 +40,20 @@ pub(crate) struct CachedCosts {
     pub(crate) apply_block: Option<GasCost>,
 }
 
+/// A raw runtime to estimate costs that don't need anything external. Also
+/// allows to compare VMs using the --vm-kind option.
+pub(crate) struct EstimatorRuntime {
+    #[allow(dead_code)]
+    workdir: TempDir,
+    runner: Box<dyn Fn(&ContractCode, &str) -> GasCost>,
+}
+
+impl EstimatorRuntime {
+    pub fn run(&self, contract: &ContractCode, method: &str) -> GasCost {
+        (self.runner)(contract, method)
+    }
+}
+
 impl<'c> EstimatorContext<'c> {
     pub(crate) fn new(config: &'c Config) -> Self {
         let cached = CachedCosts::default();
@@ -46,6 +69,46 @@ impl<'c> EstimatorContext<'c> {
                 (0..self.config.active_accounts).map(get_account_id).collect(),
             ),
         }
+    }
+
+    pub(crate) fn raw_runtime(&mut self) -> EstimatorRuntime {
+        let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
+        let store = create_store(&get_store_path(workdir.path()));
+        let cache_store = Arc::new(StoreCompiledContractCache { store });
+        let protocol_version = ProtocolVersion::MAX;
+        let config_store = RuntimeConfigStore::new(None);
+        let runtime_config = config_store.get_config(protocol_version).as_ref();
+        let fees = runtime_config.transaction_costs.clone();
+        let mut vm_config = runtime_config.wasm_config.clone();
+        let gas_metric = self.config.metric;
+        vm_config.limit_config.max_gas_burnt = u64::MAX;
+        let runtime = self.config.vm_kind.runtime(vm_config).expect("runtime has not been enabled");
+
+        let runner = Box::new(move |contract: &ContractCode, method_name: &str| {
+            let mut fake_external = MockedExternal::new();
+            let fake_context = create_context(vec![]);
+            let promise_results = vec![];
+            let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
+
+            let start = GasCost::measure(gas_metric);
+            let result = runtime.run(
+                contract,
+                method_name,
+                &mut fake_external,
+                fake_context.clone(),
+                &fees,
+                &promise_results,
+                protocol_version,
+                cache,
+            );
+            let cost = start.elapsed();
+            if let Some(err) = result.1 {
+                panic!("Error executing function {}", err);
+            }
+            cost
+        });
+
+        EstimatorRuntime { workdir, runner }
     }
 }
 

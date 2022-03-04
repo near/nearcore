@@ -70,6 +70,7 @@ pub enum Cost {
 
     HostFunctionCall,
     WasmInstruction,
+    WasmInstructionV2,
     ReadMemoryBase,
     ReadMemoryByte,
     WriteMemoryBase,

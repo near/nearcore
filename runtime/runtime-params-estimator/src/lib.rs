@@ -54,6 +54,7 @@ mod gas_cost;
 mod qemu;
 mod rocksdb;
 mod transaction_builder;
+mod wasm_instruction;
 
 pub(crate) mod estimator_params;
 pub(crate) mod least_squares;
@@ -112,6 +113,7 @@ pub use crate::cost_table::CostTable;
 pub use crate::costs_to_runtime_config::costs_to_runtime_config;
 pub use crate::qemu::QemuCommandBuilder;
 pub use crate::rocksdb::RocksDBTestConfig;
+use crate::wasm_instruction::op_loop_cost;
 
 static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ActionReceiptCreation, action_receipt_creation),
@@ -132,6 +134,7 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ActionFunctionCallPerByteV2, action_function_call_per_byte_v2),
     (Cost::HostFunctionCall, host_function_call),
     (Cost::WasmInstruction, wasm_instruction),
+    (Cost::WasmInstructionV2, wasm_instruction_v2),
     (Cost::DataReceiptCreationBase, data_receipt_creation_base),
     (Cost::DataReceiptCreationPerByte, data_receipt_creation_per_byte),
     (Cost::ReadMemoryBase, read_memory_base),
@@ -765,6 +768,35 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
 
     let per_instruction = total / (instructions_per_iter * n_iters);
     per_instruction
+}
+
+fn wasm_instruction_v2(ctx: &mut EstimatorContext) -> GasCost {
+    let runner = ctx.raw_runtime();
+    let repeats = ctx.config.iter_per_block as u64;
+    let warmup_repeats = ctx.config.warmup_iters_per_block as u64;
+
+    let div = op_loop_cost(&runner, repeats, warmup_repeats, "i64.div_s", "i64", "i64.const 77");
+    let rem = op_loop_cost(&runner, repeats, warmup_repeats, "i64.rem_s", "i64", "i64.const 77");
+    let add = op_loop_cost(&runner, repeats, warmup_repeats, "i64.add", "i64", "i64.const 77");
+    let mul = op_loop_cost(&runner, repeats, warmup_repeats, "i64.mul", "i64", "i64.const 77");
+
+    let f_div = op_loop_cost(&runner, repeats, warmup_repeats, "f64.div", "f64", "f64.const 77");
+    let f_add = op_loop_cost(&runner, repeats, warmup_repeats, "f64.add", "f64", "f64.const 77");
+    let f_mul = op_loop_cost(&runner, repeats, warmup_repeats, "f64.mul", "f64", "f64.const 77");
+    let f_sqrt = op_loop_cost(&runner, repeats, warmup_repeats, "f64.sqrt", "f64", "");
+
+    // if config.debug_wasm
+    eprintln!("i64 div {div:?}");
+    eprintln!("i64 rem {rem:?}");
+    eprintln!("i64 add {add:?}");
+    eprintln!("i64 mul {mul:?}");
+
+    eprintln!("f64 div {f_div:?}");
+    eprintln!("f64 add {f_add:?}");
+    eprintln!("f64 mul {f_mul:?}");
+    eprintln!("f64 sqrt {f_sqrt:?}");
+
+    div.max(rem).max(add).max(mul).max(f_div).max(f_add).max(f_mul).max(f_sqrt)
 }
 
 fn read_memory_base(ctx: &mut EstimatorContext) -> GasCost {
