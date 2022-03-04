@@ -43,7 +43,6 @@ sha2 = ">=0.8,<0.10"
 
 [features]
 secp256k1 = []
-wasm_feature = []
 deepsize_feature = [
   "deepsize",
   "near-account-id/deepsize_feature",
