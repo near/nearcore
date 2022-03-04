@@ -4764,6 +4764,7 @@ dependencies = [
  "near-logger-utils",
  "near-network",
  "near-primitives",
+ "near-primitives-core",
  "near-store",
  "nearcore",
  "node-runtime",

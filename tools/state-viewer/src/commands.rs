@@ -18,6 +18,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
+use near_primitives_core::types::Gas;
 use near_store::test_utils::create_test_store;
 use near_store::{Store, TrieIterator};
 use nearcore::{NearConfig, NightshadeRuntime};
@@ -314,6 +315,18 @@ pub(crate) fn replay_chain(
     }
 }
 
+fn resulting_chunk_extra(result: ApplyTransactionResult, gas_limit: Gas) -> ChunkExtra {
+    let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(&result.outcomes);
+    ChunkExtra::new(
+        &result.new_root,
+        outcome_root,
+        result.validator_proposals,
+        result.total_gas_burnt,
+        gas_limit,
+        result.total_balance_burnt,
+    )
+}
+
 pub(crate) fn apply_block_at_height(
     height: BlockHeight,
     shard_id: ShardId,
@@ -399,19 +412,11 @@ pub(crate) fn apply_block_at_height(
             )
             .unwrap()
     };
-    let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
-    let chunk_extra = ChunkExtra::new(
-        &apply_result.new_root,
-        outcome_root,
-        apply_result.validator_proposals,
-        apply_result.total_gas_burnt,
-        near_config.genesis.config.gas_limit,
-        apply_result.total_balance_burnt,
-    );
-
     println!(
         "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
-        shard_id, height, chunk_extra
+        shard_id,
+        height,
+        resulting_chunk_extra(apply_result, near_config.genesis.config.gas_limit)
     );
     if block.chunks()[shard_id as usize].height_included() == height {
         if let Ok(chunk_extra) = chain_store.get_chunk_extra(&block_hash, &shard_uid) {
