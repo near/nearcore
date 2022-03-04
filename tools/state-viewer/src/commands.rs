@@ -2,6 +2,7 @@ use crate::apply_chain_range::apply_chain_range;
 use crate::epoch_info;
 use crate::state_dump::state_dump;
 use ansi_term::Color::Red;
+use anyhow::{anyhow, Context};
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
@@ -11,18 +12,23 @@ use near_network::iter_peers_from_store;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::combine_hash;
+use near_primitives::receipt::Receipt;
 use near_primitives::serialize::to_base;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::ChunkHash;
+use near_primitives::sharding::{ChunkHash, ShardChunk};
 use near_primitives::state_record::StateRecord;
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
+use near_primitives_core::hash::hash;
 use near_primitives_core::types::Gas;
 use near_store::test_utils::create_test_store;
 use near_store::{Store, TrieIterator};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
@@ -653,4 +659,119 @@ pub fn format_hash(h: CryptoHash) -> String {
 
 pub fn chunk_mask_to_str(mask: &[bool]) -> String {
     mask.iter().map(|f| if *f { '.' } else { 'X' }).collect()
+}
+
+fn filter_hashes<T: Clone, F: Fn(&T) -> CryptoHash>(
+    items: &Vec<T>,
+    item_hash: F,
+    hashes: Option<Vec<CryptoHash>>,
+) -> Result<Vec<T>, CryptoHash> {
+    match hashes {
+        Some(hashes) => {
+            let mut hashes_seen =
+                hashes.iter().map(|h| (h.clone(), false)).collect::<HashMap<_, _>>();
+
+            let filtered = items
+                .iter()
+                .filter_map(|x| {
+                    let hash = item_hash(x);
+                    match hashes_seen.entry(hash) {
+                        Entry::Occupied(mut e) => {
+                            *e.get_mut() = true;
+                            Some(x.clone())
+                        }
+                        Entry::Vacant(_) => None,
+                    }
+                })
+                .collect();
+            for (hash, seen) in hashes_seen.iter() {
+                if !*seen {
+                    return Err(*hash);
+                }
+            }
+            Ok(filtered)
+        }
+        None => Ok(items.clone()),
+    }
+}
+
+fn filter_txs(
+    chunk: &ShardChunk,
+    tx_hashes: Option<Vec<CryptoHash>>,
+) -> anyhow::Result<Vec<SignedTransaction>> {
+    filter_hashes(chunk.transactions(), |tx| tx.get_hash(), tx_hashes).map_err(|hash| {
+        anyhow!("transaction with hash {} not found in chunk {:?}", hash, chunk.chunk_hash())
+    })
+}
+
+fn filter_receipts(
+    chunk: &ShardChunk,
+    receipt_hashes: Option<Vec<CryptoHash>>,
+) -> anyhow::Result<Vec<Receipt>> {
+    filter_hashes(chunk.receipts(), |r| r.receipt_id, receipt_hashes).map_err(|hash| {
+        anyhow!("receipt with ID {} not found in chunk {:?}", hash, chunk.chunk_hash())
+    })
+}
+
+pub(crate) fn apply_chunk(
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+    chunk_hash: ChunkHash,
+    tx_hashes: Option<Vec<CryptoHash>>,
+    receipt_hashes: Option<Vec<CryptoHash>>,
+) -> anyhow::Result<()> {
+    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+    let runtime = Arc::new(NightshadeRuntime::with_config(
+        home_dir,
+        store,
+        &near_config,
+        None,
+        near_config.client_config.max_gas_burnt_view,
+    ));
+    let chunk = chain_store.get_chunk(&chunk_hash)?;
+    let chunk_header = chunk.cloned_header();
+
+    let prev_block_hash = chunk_header.prev_block_hash();
+    let shard_id = chunk.shard_id();
+    let prev_state_root = chunk.prev_state_root();
+
+    let transactions = filter_txs(chunk, tx_hashes)?;
+    let receipts = filter_receipts(chunk, receipt_hashes)?;
+
+    let prev_block =
+        chain_store.get_block(&prev_block_hash).context("Failed getting chunk's prev block")?;
+    let prev_height = prev_block.header().height();
+    let prev_timestamp = prev_block.header().raw_timestamp();
+    let gas_price = prev_block.header().gas_price();
+    let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
+        &mut chain_store,
+        runtime.as_ref(),
+        &prev_block_hash,
+        shard_id,
+    )?;
+
+    let apply_result = runtime.apply_transactions(
+        shard_id,
+        &prev_state_root,
+        prev_height + 1,
+        prev_timestamp + 1_000_000_000,
+        &prev_block_hash,
+        &combine_hash(&prev_block_hash, &hash("nonsense block hash for testing purposes".as_ref())),
+        &receipts,
+        &transactions,
+        chunk_header.validator_proposals(),
+        gas_price,
+        chunk_header.gas_limit(),
+        &vec![],
+        hash("random seed".as_ref()),
+        true,
+        is_first_block_with_chunk_of_version,
+        None,
+    )?;
+    println!(
+        "resulting chunk extra:\n{:?}",
+        resulting_chunk_extra(apply_result, chunk_header.gas_limit())
+    );
+    Ok(())
 }
