@@ -368,6 +368,8 @@ pub struct ApplyChunkCmd {
     #[clap(long)]
     chunk_hash: String,
     #[clap(long)]
+    target_height: Option<u64>,
+    #[clap(long)]
     txs: Option<Vec<String>>,
     #[clap(long)]
     receipts: Option<Vec<String>>,
@@ -382,6 +384,6 @@ impl ApplyChunkCmd {
         let txs = self
             .txs
             .map(|v| v.iter().map(|h| CryptoHash::from_str(h).unwrap()).collect::<Vec<_>>());
-        apply_chunk(home_dir, near_config, store, hash, txs, receipts).unwrap()
+        apply_chunk(home_dir, near_config, store, hash, self.target_height, txs, receipts).unwrap()
     }
 }

@@ -16,9 +16,9 @@ use near_primitives::merkle::combine_hash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::to_base;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::{ChunkHash, ShardChunk};
+use near_primitives::sharding::{ChunkHash, ReceiptProof};
 use near_primitives::state_record::StateRecord;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::syncing::ReceiptProofResponse;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
@@ -28,8 +28,7 @@ use near_store::test_utils::create_test_store;
 use near_store::{Store, TrieIterator};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -661,56 +660,89 @@ pub fn chunk_mask_to_str(mask: &[bool]) -> String {
     mask.iter().map(|f| if *f { '.' } else { 'X' }).collect()
 }
 
-fn filter_hashes<T: Clone, F: Fn(&T) -> CryptoHash>(
-    items: &Vec<T>,
+// like ChainStoreUpdate::get_incoming_receipts_for_shard(), but for the case when we don't
+// know of a block containing the target chunk
+fn get_incoming_receipts(
+    chain_store: &mut ChainStore,
+    chunk_hash: &ChunkHash,
+    shard_id: u64,
+    target_height: u64,
+    prev_hash: &CryptoHash,
+    prev_height_included: u64,
+) -> anyhow::Result<Vec<Receipt>> {
+    let mut receipt_proofs = vec![];
+
+    let chunk_hashes = chain_store.get_all_chunk_hashes_by_height(target_height)?;
+    if !chunk_hashes.contains(chunk_hash) {
+        return Err(anyhow!(
+            "given chunk hash is not listed in ColChunkHashesByHeight[{}]",
+            target_height
+        ));
+    }
+
+    let chunks =
+        chunk_hashes.iter().map(|h| chain_store.get_chunk(h).unwrap().clone()).collect::<Vec<_>>();
+
+    for chunk in chunks {
+        let partial_encoded_chunk = chain_store.get_partial_chunk(&chunk.chunk_hash()).unwrap();
+        for receipt in partial_encoded_chunk.receipts().iter() {
+            let ReceiptProof(_, shard_proof) = receipt;
+            if shard_proof.to_shard_id == shard_id {
+                receipt_proofs.push(receipt.clone());
+            }
+        }
+    }
+    let mut responses = vec![ReceiptProofResponse(CryptoHash::default(), receipt_proofs)];
+    responses.extend_from_slice(&chain_store.store_update().get_incoming_receipts_for_shard(
+        shard_id,
+        *prev_hash,
+        prev_height_included,
+    )?);
+    Ok(collect_receipts_from_response(&responses))
+}
+
+fn print_apply_chunk_result(
+    result: ApplyTransactionResult,
+    gas_limit: Gas,
+    tx_hashes: Option<Vec<CryptoHash>>,
+    receipt_hashes: Option<Vec<CryptoHash>>,
+) {
+    if tx_hashes.is_some() || receipt_hashes.is_some() {
+        let mut hashes = HashSet::new();
+        if let Some(tx_hashes) = tx_hashes {
+            hashes.extend(tx_hashes);
+        }
+        if let Some(receipt_hashes) = receipt_hashes {
+            hashes.extend(receipt_hashes);
+        }
+
+        println!("outcomes:");
+        for outcome in result.outcomes.iter() {
+            if hashes.contains(&outcome.id) {
+                println!("{:?}", outcome);
+            }
+        }
+    }
+    println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(result, gas_limit));
+}
+
+fn check_hashes_exist<T, F: Fn(&T) -> CryptoHash>(
+    hashes: &Option<Vec<CryptoHash>>,
+    items: &[T],
     item_hash: F,
-    hashes: Option<Vec<CryptoHash>>,
-) -> Result<Vec<T>, CryptoHash> {
+) -> Result<(), CryptoHash> {
     match hashes {
         Some(hashes) => {
-            let mut hashes_seen =
-                hashes.iter().map(|h| (h.clone(), false)).collect::<HashMap<_, _>>();
-
-            let filtered = items
-                .iter()
-                .filter_map(|x| {
-                    let hash = item_hash(x);
-                    match hashes_seen.entry(hash) {
-                        Entry::Occupied(mut e) => {
-                            *e.get_mut() = true;
-                            Some(x.clone())
-                        }
-                        Entry::Vacant(_) => None,
-                    }
-                })
-                .collect();
-            for (hash, seen) in hashes_seen.iter() {
-                if !*seen {
+            let hashes_seen = items.iter().map(item_hash).collect::<HashSet<_>>();
+            for hash in hashes.iter() {
+                if !hashes_seen.contains(hash) {
                     return Err(*hash);
                 }
             }
-            Ok(filtered)
+            Ok(())
         }
-        None => Ok(items.clone()),
+        None => Ok(()),
     }
-}
-
-fn filter_txs(
-    chunk: &ShardChunk,
-    tx_hashes: Option<Vec<CryptoHash>>,
-) -> anyhow::Result<Vec<SignedTransaction>> {
-    filter_hashes(chunk.transactions(), |tx| tx.get_hash(), tx_hashes).map_err(|hash| {
-        anyhow!("transaction with hash {} not found in chunk {:?}", hash, chunk.chunk_hash())
-    })
-}
-
-fn filter_receipts(
-    chunk: &ShardChunk,
-    receipt_hashes: Option<Vec<CryptoHash>>,
-) -> anyhow::Result<Vec<Receipt>> {
-    filter_hashes(chunk.receipts(), |r| r.receipt_id, receipt_hashes).map_err(|hash| {
-        anyhow!("receipt with ID {} not found in chunk {:?}", hash, chunk.chunk_hash())
-    })
 }
 
 pub(crate) fn apply_chunk(
@@ -718,6 +750,7 @@ pub(crate) fn apply_chunk(
     near_config: NearConfig,
     store: Store,
     chunk_hash: ChunkHash,
+    target_height: Option<u64>,
     tx_hashes: Option<Vec<CryptoHash>>,
     receipt_hashes: Option<Vec<CryptoHash>>,
 ) -> anyhow::Result<()> {
@@ -736,14 +769,33 @@ pub(crate) fn apply_chunk(
     let shard_id = chunk.shard_id();
     let prev_state_root = chunk.prev_state_root();
 
-    let transactions = filter_txs(chunk, tx_hashes)?;
-    let receipts = filter_receipts(chunk, receipt_hashes)?;
+    let transactions = chunk.transactions().clone();
+    check_hashes_exist(&tx_hashes, &transactions, |tx| tx.get_hash()).map_err(|hash| {
+        anyhow!("transaction with hash {} not found in chunk {:?}", hash, &chunk_hash)
+    })?;
 
     let prev_block =
         chain_store.get_block(&prev_block_hash).context("Failed getting chunk's prev block")?;
+    let prev_height_included = prev_block.chunks()[shard_id as usize].height_included();
     let prev_height = prev_block.header().height();
+    let target_height = match target_height {
+        Some(h) => h,
+        None => prev_height + 1,
+    };
     let prev_timestamp = prev_block.header().raw_timestamp();
     let gas_price = prev_block.header().gas_price();
+    let receipts = get_incoming_receipts(
+        &mut chain_store,
+        &chunk_hash,
+        shard_id,
+        target_height,
+        &prev_block_hash,
+        prev_height_included,
+    )
+    .context("Failed collecting incoming receipts")?;
+    check_hashes_exist(&receipt_hashes, &receipts, |r| r.receipt_id).map_err(|hash| {
+        anyhow!("receipt with ID {} not found in any incoming receipt for shard {}", hash, shard_id)
+    })?;
     let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
         &mut chain_store,
         runtime.as_ref(),
@@ -754,7 +806,7 @@ pub(crate) fn apply_chunk(
     let apply_result = runtime.apply_transactions(
         shard_id,
         &prev_state_root,
-        prev_height + 1,
+        target_height,
         prev_timestamp + 1_000_000_000,
         &prev_block_hash,
         &combine_hash(&prev_block_hash, &hash("nonsense block hash for testing purposes".as_ref())),
@@ -769,9 +821,6 @@ pub(crate) fn apply_chunk(
         is_first_block_with_chunk_of_version,
         None,
     )?;
-    println!(
-        "resulting chunk extra:\n{:?}",
-        resulting_chunk_extra(apply_result, chunk_header.gas_limit())
-    );
+    print_apply_chunk_result(apply_result, chunk_header.gas_limit(), tx_hashes, receipt_hashes);
     Ok(())
 }
