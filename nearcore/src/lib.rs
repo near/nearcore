@@ -33,6 +33,7 @@ use near_telemetry::TelemetryActor;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tokio::sync::oneshot;
 use tracing::{error, info, trace};
 
 pub mod append_only_map;
@@ -380,6 +381,16 @@ pub struct NearNode {
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> Result<NearNode, anyhow::Error> {
+    start_with_config_and_synchronization(home_dir, config, None)
+}
+
+pub fn start_with_config_and_synchronization(
+    home_dir: &Path,
+    config: NearConfig,
+    // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
+    // `ClientActor` gets dropped.
+    shutdown_signal: Option<oneshot::Sender<()>>,
+) -> Result<NearNode, anyhow::Error> {
     let store = init_and_migrate_store(home_dir, &config);
 
     let runtime = Arc::new(NightshadeRuntime::with_config(
@@ -415,6 +426,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> Result<NearNode
         network_adapter.clone(),
         config.validator_signer,
         telemetry,
+        shutdown_signal,
         #[cfg(feature = "test_features")]
         adv.clone(),
     );

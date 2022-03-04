@@ -1774,7 +1774,6 @@ impl ShardsManager {
     }
 
     pub fn create_encoded_shard_chunk(
-        &mut self,
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
         outcome_root: CryptoHash,
@@ -2147,26 +2146,25 @@ mod test {
             InMemoryValidatorSigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
         let mut rs = ReedSolomonWrapper::new(4, 10);
         let shard_layout = runtime_adapter.get_shard_layout(&EpochId::default()).unwrap();
-        let (encoded_chunk, proof) = shards_manager
-            .create_encoded_shard_chunk(
-                CryptoHash::default(),
-                CryptoHash::default(),
-                CryptoHash::default(),
-                1,
-                0,
-                0,
-                0,
-                0,
-                vec![],
-                vec![],
-                &vec![],
-                merklize(&Chain::build_receipts_hashes(&vec![], &shard_layout)).0,
-                CryptoHash::default(),
-                &signer,
-                &mut rs,
-                PROTOCOL_VERSION,
-            )
-            .unwrap();
+        let (encoded_chunk, proof) = ShardsManager::create_encoded_shard_chunk(
+            CryptoHash::default(),
+            CryptoHash::default(),
+            CryptoHash::default(),
+            1,
+            0,
+            0,
+            0,
+            0,
+            vec![],
+            vec![],
+            &vec![],
+            merklize(&Chain::build_receipts_hashes(&vec![], &shard_layout)).0,
+            CryptoHash::default(),
+            &signer,
+            &mut rs,
+            PROTOCOL_VERSION,
+        )
+        .unwrap();
         let header = encoded_chunk.cloned_header();
         shards_manager.requested_partial_encoded_chunks.insert(
             header.chunk_hash(),
