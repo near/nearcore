@@ -15,7 +15,7 @@ use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::{Condvar, Mutex, RwLock};
 use strum::EnumIter;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 pub(crate) mod refcount;
 pub(crate) mod v6_to_v7;
@@ -833,19 +833,19 @@ fn rocksdb_column_options(col: DBCol) -> Options {
 }
 
 // Number of RocksDB instances in the process.
-pub static ROCKSDB_INSTANCES_COUNTER: Lazy<(Mutex<usize>, Condvar)> =
+pub(crate) static ROCKSDB_INSTANCES_COUNTER: Lazy<(Mutex<usize>, Condvar)> =
     Lazy::new(|| (Mutex::new(0), Condvar::new()));
 
 impl RocksDB {
     /// Blocks until all RocksDB instances (usually 0 or 1) gracefully shutdown.
     pub fn block_until_all_instances_are_dropped() {
-        debug!(target: "db", "Blocking until all RocksDB instances perform graceful shutdown");
         let (lock, cvar) = &*ROCKSDB_INSTANCES_COUNTER;
         let mut num_instances = lock.lock().unwrap();
         while *num_instances != 0 {
+            info!(target: "db", "Waiting for the {} remaining RocksDB instances to gracefully shutdown", *num_instances);
             num_instances = cvar.wait(num_instances).unwrap();
         }
-        debug!(target: "db", "All RocksDB instances performed a graceful shutdown");
+        info!(target: "db", "All RocksDB instances performed a graceful shutdown");
     }
 
     /// Returns version of the database state on disk.

@@ -21,6 +21,7 @@ use near_primitives::network::PeerId;
 use near_rosetta_rpc::start_rosetta_rpc;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
+use near_store::db::RocksDB;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
     migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_20_to_21,
@@ -71,6 +72,46 @@ pub fn get_default_home() -> PathBuf {
     PathBuf::default()
 }
 
+/// Returns the path of the DB checkpoint.
+/// Default location is the same as the database location: `path`.
+fn db_checkpoint_path(path: &Path, near_config: &NearConfig) -> PathBuf {
+    let root_path =
+        if let Some(db_migration_snapshot_path) = &near_config.config.db_migration_snapshot_path {
+            assert!(
+                db_migration_snapshot_path.is_absolute(),
+                "'db_migration_snapshot_path' must be an absolute path to an existing directory."
+            );
+            db_migration_snapshot_path.clone()
+        } else {
+            path.to_path_buf()
+        };
+    root_path.join(DB_CHECKPOINT_NAME)
+}
+
+const DB_CHECKPOINT_NAME: &str = "db_migration_snapshot";
+
+/// Creates a consistent DB checkpoint and returns its path.
+/// By default it creates checkpoints in the DB directory, but can be overridden by the config.
+fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf, anyhow::Error> {
+    let checkpoint_path = db_checkpoint_path(path, near_config);
+    if checkpoint_path.exists() {
+        return Err(anyhow::anyhow!(
+            "Detected an existing database migration snapshot: '{}'.\n\
+             Probably a database migration got interrupted and your database is corrupted.\n\
+             Please replace the contents of '{}' with data from that checkpoint, delete the checkpoint and try again.",
+            checkpoint_path.display(),
+            path.display()));
+    }
+
+    let db = RocksDB::new(path)?;
+    let checkpoint = db.checkpoint()?;
+    info!(target: "near", "Creating a database migration snapshot in '{}'", checkpoint_path.display());
+    checkpoint.create_checkpoint(&checkpoint_path)?;
+    info!(target: "near", "Created a database migration snapshot in '{}'", checkpoint_path.display());
+
+    Ok(checkpoint_path)
+}
+
 /// Function checks current version of the database and applies migrations to the database.
 pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
     let db_version = get_store_version(path);
@@ -78,9 +119,36 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         error!(target: "near", "DB version {} is created by a newer version of neard, please update neard or delete data", db_version);
         std::process::exit(1);
     }
+
     if db_version == near_primitives::version::DB_VERSION {
         return;
     }
+
+    // Before starting a DB migration, create a consistent snapshot of the database. If a migration
+    // fails, it can be used to quickly restore the database to its original state.
+    let checkpoint_path = if near_config.config.use_db_migration_snapshot {
+        match create_db_checkpoint(path, near_config) {
+            Ok(checkpoint_path) => {
+                info!(target: "near", "Created a DB checkpoint before a DB migration: '{}'. Please recover from this checkpoint if the migration gets interrupted.", checkpoint_path.display());
+                Some(checkpoint_path)
+            }
+            Err(err) => {
+                panic!(
+                    "Failed to create a database migration snapshot:\n\
+                     {}\n\
+                     Please consider fixing this issue and retrying.\n\
+                     You can change the location of database migration snapshots by adjusting `config.json`:\n\
+                     \t\"db_migration_snapshot_path\": \"/absolute/path/to/existing/dir\",\n\
+                     Alternatively, you can disable database migration snapshots in `config.json`:\n\
+                     \t\"use_db_migration_snapshot\": false,\n\
+                     ",
+                    err
+                );
+            }
+        }
+    } else {
+        None
+    };
 
     // Add migrations here based on `db_version`.
     if db_version <= 1 {
@@ -271,6 +339,25 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         let db_version = get_store_version(path);
         debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
     }
+
+    // DB migration was successful, remove the checkpoint to avoid it taking up precious disk space.
+    if let Some(checkpoint_path) = checkpoint_path {
+        info!(target: "near", "Deleting the database migration snapshot at '{}'", checkpoint_path.display());
+        match std::fs::remove_dir_all(&checkpoint_path) {
+            Ok(_) => {
+                info!(target: "near", "Deleted the database migration snapshot at '{}'", checkpoint_path.display());
+            }
+            Err(err) => {
+                error!(
+                    "Failed to delete the database migration snapshot at '{}'.\n\
+                    \tError: {:#?}.\n\
+                    \n\
+                    Please delete the database migration snapshot manually before the next start of the node.",
+                    checkpoint_path.display(),
+                    err);
+            }
+        }
+    }
 }
 
 pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Store {
@@ -300,9 +387,9 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> Result<NearNode
 pub fn start_with_config_and_synchronization(
     home_dir: &Path,
     config: NearConfig,
-    // 'sender' will notify the corresponding `oneshot::Receiver` when an instance of `ClientActor`
-    // gets dropped.
-    sender: Option<oneshot::Sender<()>>,
+    // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
+    // `ClientActor` gets dropped.
+    shutdown_signal: Option<oneshot::Sender<()>>,
 ) -> Result<NearNode, anyhow::Error> {
     let store = init_and_migrate_store(home_dir, &config);
 
@@ -339,7 +426,7 @@ pub fn start_with_config_and_synchronization(
         network_adapter.clone(),
         config.validator_signer,
         telemetry,
-        sender,
+        shutdown_signal,
         #[cfg(feature = "test_features")]
         adv.clone(),
     );

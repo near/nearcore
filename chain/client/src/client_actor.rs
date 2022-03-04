@@ -63,9 +63,6 @@ const BLOCK_HORIZON: u64 = 500;
 const HEAD_STALL_MULTIPLIER: u32 = 4;
 
 pub struct ClientActor {
-    /// Synchronization measure to allow graceful shutdown.
-    /// Informs the system when a ClientActor gets dropped.
-    _sender: Option<oneshot::Sender<()>>,
     /// Adversarial controls
     #[cfg(feature = "test_features")]
     pub adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
@@ -94,6 +91,10 @@ pub struct ClientActor {
 
     #[cfg(feature = "sandbox")]
     fastforward_delta: Option<near_primitives::types::BlockHeightDelta>,
+
+    /// Synchronization measure to allow graceful shutdown.
+    /// Informs the system when a ClientActor gets dropped.
+    _shutdown_signal: Option<oneshot::Sender<()>>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -128,7 +129,7 @@ impl ClientActor {
         enable_doomslug: bool,
         rng_seed: RngSeed,
         ctx: &Context<ClientActor>,
-        sender: Option<oneshot::Sender<()>>,
+        shutdown_signal: Option<oneshot::Sender<()>>,
         #[cfg(feature = "test_features")] adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
@@ -157,7 +158,6 @@ impl ClientActor {
 
         let now = Utc::now();
         Ok(ClientActor {
-            _sender: sender,
             #[cfg(feature = "test_features")]
             adv,
             client,
@@ -193,6 +193,7 @@ impl ClientActor {
 
             #[cfg(feature = "sandbox")]
             fastforward_delta: None,
+            _shutdown_signal: shutdown_signal,
         })
     }
 }
