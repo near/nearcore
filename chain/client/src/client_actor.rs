@@ -1480,8 +1480,7 @@ impl ClientActor {
 
     /// Print current summary.
     fn log_summary(&mut self) {
-        #[cfg(feature = "delay_detector")]
-        let _d = delay_detector::DelayDetector::new("client log summary".into());
+        let _d = delay_detector::DelayDetector::new(|| "client log summary".into());
         let is_syncing = self.client.sync_status.is_syncing();
         let head = unwrap_or_return!(self.client.chain.head());
         let validator_info = if !is_syncing {
