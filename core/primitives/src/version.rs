@@ -1,6 +1,7 @@
-use serde::{Deserialize, Serialize};
-
 use crate::types::Balance;
+use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Data structure for semver version and github tag or commit.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -18,6 +19,7 @@ pub type DbVersion = u32;
 /// Current version of the database.
 pub const DB_VERSION: DbVersion = 31;
 
+use crate::upgrade_schedule::{get_protocol_version_internal, ProtocolUpgradeVotingSchedule};
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
 
@@ -152,19 +154,39 @@ pub enum ProtocolFeature {
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
 /// protocol version is lower than this.
-pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = MAIN_NET_PROTOCOL_VERSION - 2;
+pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION - 2;
 
-/// Current protocol version used on the main net.
+/// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const MAIN_NET_PROTOCOL_VERSION: ProtocolVersion = 52;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 52;
 
 /// Version used by this binary.
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = MAIN_NET_PROTOCOL_VERSION;
+pub const PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION;
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
 pub const PROTOCOL_VERSION: ProtocolVersion = 126;
+
+/// The points in time after which the voting for the protocol version should start.
+#[allow(dead_code)]
+const PROTOCOL_UPGRADE_SCHEDULE: Lazy<
+    HashMap<ProtocolVersion, Option<ProtocolUpgradeVotingSchedule>>,
+> = Lazy::new(|| {
+    let mut schedule = HashMap::new();
+    schedule.insert(52, None);
+    schedule
+});
+
+/// Gives new clients an option to upgrade without announcing that they support the new version.
+/// This gives non-validator nodes time to upgrade. See https://github.com/near/NEPs/issues/205
+pub fn get_protocol_version(next_epoch_protocol_version: ProtocolVersion) -> ProtocolVersion {
+    get_protocol_version_internal(
+        next_epoch_protocol_version,
+        PROTOCOL_VERSION,
+        &*PROTOCOL_UPGRADE_SCHEDULE,
+    )
+}
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
