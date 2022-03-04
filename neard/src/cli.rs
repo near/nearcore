@@ -3,10 +3,12 @@ use futures::future::FutureExt;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
+use near_store::db::RocksDB;
 use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
+use tokio::sync::oneshot;
 use tracing::metadata::LevelFilter;
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
@@ -347,10 +349,12 @@ impl RunCmd {
             }
         }
 
+        let (tx, rx) = oneshot::channel::<()>();
         let sys = actix::System::new();
         sys.block_on(async move {
             let nearcore::NearNode { rpc_servers, .. } =
-                nearcore::start_with_config(home_dir, near_config).expect("start_with_config");
+                nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
+                    .expect("start_with_config");
 
             let sig = if cfg!(unix) {
                 use tokio::signal::unix::{signal, SignalKind};
@@ -358,13 +362,15 @@ impl RunCmd {
                 let mut sigterm = signal(SignalKind::terminate()).unwrap();
                 futures::select! {
                     _ = sigint .recv().fuse() => "SIGINT",
-                    _ = sigterm.recv().fuse() => "SIGTERM"
+                    _ = sigterm.recv().fuse() => "SIGTERM",
+                    _ = rx.fuse() => "ClentActor died",
                 }
             } else {
+                // TODO(#6372): Support graceful shutdown on windows.
                 tokio::signal::ctrl_c().await.unwrap();
                 "Ctrl+C"
             };
-            info!(target: "neard", "Got {}, stopping...", sig);
+            info!(target: "neard", "Got '{}', stopping...", sig);
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
@@ -373,6 +379,8 @@ impl RunCmd {
             actix::System::current().stop();
         });
         sys.run().unwrap();
+        info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
+        RocksDB::block_until_all_instances_are_dropped();
     }
 }
 
