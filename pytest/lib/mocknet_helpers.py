@@ -105,3 +105,17 @@ def get_amount_yoctonear(account_id, addr=LOCAL_ADDR, port=RPC_PORT):
                  addr=addr,
                  port=port)
     return int(j.get('result', {}).get('amount', 0))
+
+
+# Returns the transaction result for the given txn_id.
+# Might return None - if transaction is not present and wait_for_success is false.
+def tx_result(txn_id, account_id, wait_for_success=False):
+    while True:
+        status = json_rpc("EXPERIMENTAL_tx_status", [txn_id, account_id])
+        if 'error' in status:
+            print("tx error: tx not ready yet")
+            if not wait_for_success:
+                return None
+            time.sleep(3)
+        else:
+            return status['result']

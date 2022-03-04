@@ -35,14 +35,17 @@ impl Counter {
         self.val = 0;
     }
 
+    fn get_previous_val(&self, i: u64) -> u64 {
+        match self.records.get(&i.to_string()) {
+            Some(value) => value.parse::<u64>().unwrap(),
+            None => 0,
+        }
+    }
+
     // Similar to the methods above, but updating many fields (therefore using a lot more gas).
     pub fn increment_many(&mut self, how_many: u64) {
         for i in 1..how_many {
-            let previous_val = match self.records.get(&i.to_string()) {
-                Some(value) => value.parse::<i32>().unwrap(),
-                None => 0,
-            };
-
+            let previous_val = self.get_previous_val(i);
             self.records.insert(&i.to_string(), &(previous_val + 1).to_string());
         }
     }
@@ -53,11 +56,6 @@ impl Counter {
         }
     }
     pub fn get_increment_many(&self) -> u64 {
-        let i: i32 = 1;
-        let previous_val = match self.records.get(&i.to_string()) {
-            Some(value) => value.parse::<u64>().unwrap(),
-            None => 0,
-        };
-        return previous_val;
+        self.get_previous_val(1)
     }
 }

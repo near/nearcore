@@ -24,7 +24,7 @@ if __name__ == '__main__':
     my_account = account.Account(validator_key,
                                  init_nonce=nonce,
                                  base_block_hash=base_block_hash,
-                                 rpc_infos=[("localhost", "3030")])
+                                 rpc_infos=[("127.0.0.1", "3030")])
 
     # First - 'reset' the counters in the contract.
     for y in range(args.num_accounts):
@@ -52,19 +52,12 @@ if __name__ == '__main__':
             args='',
             deposit=0)
         print(f"Shard {y} asking for result: {res}")
-        while True:
-            tx_status = mocknet_helpers.json_rpc(
-                "EXPERIMENTAL_tx_status",
-                [res["result"], validator_key.account_id])
-            #print(tx_status)
-            if 'error' in tx_status:
-                print("tx error: tx not ready yet")
-                sleep(3)
-            else:
-                outcome = base64.b64decode(
-                    tx_status['result']['status']['SuccessValue'])
-                if int(outcome) == args.num_requests:
-                    print(f"Shard {y}: PASS")
-                else:
-                    print(f"Shard {y} : FAIL {outcome} vs {args.num_accounts}")
-                break
+        result = mocknet_helpers.tx_result(res["result"],
+                                           validator_key.account_id,
+                                           wait_for_success=True)
+        outcome = base64.b64decode(result['status']['SuccessValue'])
+        if int(outcome) == args.num_requests:
+            print(f"Shard {y}: PASS")
+        else:
+            print(f"Shard {y} : FAIL {outcome} vs {args.num_accounts}")
+        break
