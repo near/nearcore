@@ -39,15 +39,15 @@ fn genesis_hash(chain_id: &str) -> CryptoHash {
 
 #[derive(Default, Debug)]
 pub struct Stats {
-    msgs_sent: AtomicU64,
-    msgs_recv: AtomicU64,
+    pub msgs_sent: AtomicU64,
+    pub msgs_recv: AtomicU64,
 
-    header_start: AtomicU64,
-    header_done: AtomicU64,
-    block_start: AtomicU64,
-    block_done: AtomicU64,
-    chunk_start: AtomicU64,
-    chunk_done: AtomicU64,
+    pub header_start: AtomicU64,
+    pub header_done: AtomicU64,
+    pub block_start: AtomicU64,
+    pub block_done: AtomicU64,
+    pub chunk_start: AtomicU64,
+    pub chunk_done: AtomicU64,
 }
 
 // NetworkData contains the mutable private data of the Network struct.

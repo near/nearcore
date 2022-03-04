@@ -79,6 +79,8 @@ struct Cmd {
     pub start_block_hash: String,
     #[clap(long, default_value = "200")]
     pub qps_limit: u32,
+    #[clap(long, default_value = "2000")]
+    pub block_limit: u64,
 }
 
 impl Cmd {
@@ -117,7 +119,8 @@ impl Cmd {
                         info!("Got CTRL+C, stopping...");
                         return Err(anyhow!("Got CTRL+C"));
                     });
-                    fetch_chain::run(ctx.clone(), network, start_block_hash).await?;
+                    fetch_chain::run(ctx.clone(), network, start_block_hash, cmd.block_limit)
+                        .await?;
                     info!("Fetch completed");
                     anyhow::Ok(())
                 })
