@@ -1416,15 +1416,11 @@ impl TestEnv {
         request: PartialEncodedChunkRequestMsg,
     ) -> PartialEncodedChunkResponseMsg {
         let client = &mut self.clients[id];
-        let total_parts = client.chain.runtime_adapter.num_total_parts();
-        let data_parts = client.chain.runtime_adapter.num_data_parts();
-        let parity_parts = total_parts - data_parts;
-        let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
         client.shards_mgr.process_partial_encoded_chunk_request(
             request,
             CryptoHash::default(),
             client.chain.mut_store(),
-            &mut rs,
+            &mut client.rs,
         );
         let response = self.network_adapters[id].pop().unwrap();
         if let PeerManagerMessageRequest::NetworkRequests(
