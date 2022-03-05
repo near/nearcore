@@ -5,3 +5,4 @@ mod runtimes;
 #[cfg(feature = "sandbox")]
 mod sandbox;
 mod sharding_upgrade;
+mod shards_manager;

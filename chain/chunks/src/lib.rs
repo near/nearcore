@@ -1027,11 +1027,12 @@ impl ShardsManager {
         }
     }
 
-    /// Prepares response to a partial encoded chunk request from
-    /// a corresponding encoded_chunks cache entry.  If the entry can satisfy
-    /// the requests (i.e. contains all necessary parts and shards) the method
-    /// returns a [`PartialEncodedChunkResponseMsg`] object; otherwise returns
-    /// `None`.
+    /// Prepares response to a partial encoded chunk request from an entry in
+    /// a encoded_chunks in-memory cache.
+    ///
+    /// If the entry can satisfy the requests (i.e. contains all necessary parts
+    /// and shards) the method returns a [`PartialEncodedChunkResponseMsg`]
+    /// object; otherwise returns `None`.
     fn prepare_partial_encoded_chunk_response_from_cache(
         request: PartialEncodedChunkRequestMsg,
         entry: &EncodedChunksCacheEntry,
@@ -1051,11 +1052,13 @@ impl ShardsManager {
         )
     }
 
-    /// Prepares response to a partial encoded chunk request from
-    /// a corresponding partial chunk read from the storage.  If the partial
-    /// chunk can satisfy the requests (i.e. contains all necessary parts and
-    /// shards) the method returns a [`PartialEncodedChunkResponseMsg`] object;
-    /// otherwise returns `None`.
+    /// Prepares response to a partial encoded chunk request from a partial
+    /// chunk read from the storage.
+    ///
+    /// If the partial chunk can satisfy the requests (i.e. contains all
+    /// necessary parts and shards) the method returns
+    /// a [`PartialEncodedChunkResponseMsg`] object; otherwise returns `None`.
+    #[cfg_attr(feature = "test_features", visibility::make(pub))]
     fn prepare_partial_encoded_chunk_response_from_partial(
         request: PartialEncodedChunkRequestMsg,
         partial_chunk: &PartialEncodedChunk,
@@ -1089,6 +1092,13 @@ impl ShardsManager {
         )
     }
 
+    /// Prepares response to a partial encoded chunk request from a chunk read
+    /// from the storage.
+    ///
+    /// This requires encoding the chunk and as such is computationally
+    /// expensive operation.  If possible, the request should be served from
+    /// EncodedChunksCacheEntry or PartialEncodedChunk instead.
+    #[cfg_attr(feature = "test_features", visibility::make(pub))]
     fn prepare_partial_encoded_chunk_response_from_chunk(
         &mut self,
         request: PartialEncodedChunkRequestMsg,
