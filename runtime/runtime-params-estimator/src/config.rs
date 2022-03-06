@@ -34,4 +34,6 @@ pub struct Config {
     pub rocksdb_test_config: RocksDBTestConfig,
     /// Print extra details on least-squares computation
     pub debug_least_squares: bool,
+    /// Clear all OS caches between measured blocks
+    pub drop_os_cache: bool,
 }

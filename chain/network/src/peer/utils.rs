@@ -56,7 +56,7 @@ pub(crate) fn is_forward_transaction(bytes: &[u8]) -> Option<bool> {
     let ttl_idx = {
         let signature_variant = *bytes.get(signature_variant_idx)?;
 
-        // pub signature: Signature
+        // signature: Signature
         let signature_field_len = match signature_variant {
             0 => 1 + 64, // Signature::ED25519
             1 => 1 + 65, // Signature::SECP256K1
@@ -67,7 +67,7 @@ pub(crate) fn is_forward_transaction(bytes: &[u8]) -> Option<bool> {
         signature_variant_idx + signature_field_len
     };
 
-    // pub ttl: u8
+    // ttl: u8
     let message_body_idx = ttl_idx + 1;
 
     // check if type is `RoutedMessageBody::ForwardTx`

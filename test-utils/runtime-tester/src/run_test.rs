@@ -1,7 +1,7 @@
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use near_chain::{Block, ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
@@ -84,7 +84,7 @@ impl Scenario {
                 env.clients[0].process_tx(signed_tx, false, false);
             }
 
-            let start_time = Instant::now();
+            let start_time = cpu_time::ProcessTime::now();
 
             last_block = env.clients[0]
                 .produce_block(block.height)?

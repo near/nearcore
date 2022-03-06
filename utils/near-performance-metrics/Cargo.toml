@@ -11,7 +11,7 @@ publish = false
 actix = "=0.11.0-beta.2"
 bitflags = "1.2"
 bytes = "1"
-bytesize = "1.1"
+bytesize = { version = "1.1", optional = true }
 futures = "0.3.5"
 libc = "0.2"
 tracing = "0.1.13"
@@ -24,4 +24,4 @@ tokio-util = { version = "0.6", features = ["codec"] }
 [features]
 c_memory_stats = []
 memory_stats = []
-performance_stats = ["near-rust-allocator-proxy"]
+performance_stats = ["bytesize", "near-rust-allocator-proxy"]
