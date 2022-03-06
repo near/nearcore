@@ -21,9 +21,13 @@ use near_store::{
 
 use crate::config::RuntimeConfig;
 use crate::Runtime;
-
+/// Computes the expected storage per account for a given stream of StateRecord(s).
+/// For example: the storage for Contract depends on its length, we don't charge storage for receipts
+/// and we compute a fixed (config-configured) number of bytes for each account (to store account id).
 pub struct StorageComputer<'a> {
+    /// Map from account id to number of storage bytes used.
     result: HashMap<AccountId, u64>,
+    /// Configuration that keeps information like 'how many bytes should accountId consume' etc.
     config: &'a StorageUsageConfig,
 }
 
@@ -32,7 +36,10 @@ impl<'a> StorageComputer<'a> {
         Self { result: HashMap::new(), config: &config.transaction_costs.storage_usage_config }
     }
 
+    /// Updates user's storage info based on the StateRecord.
     pub fn process_record(&mut self, record: &StateRecord) {
+        // Note: It's okay to use unsafe math here, because this method should only be called on the trusted
+        // state records (e.g. at launch from genesis)
         let account_and_storage = match record {
             StateRecord::Account { account_id, .. } => {
                 Some((account_id.clone(), self.config.num_bytes_account))
@@ -62,12 +69,14 @@ impl<'a> StorageComputer<'a> {
         }
     }
 
+    /// Adds multiple StateRecords to the users' storage info.
     pub fn process_records(&mut self, records: &[StateRecord]) {
         for record in records {
             self.process_record(record);
         }
     }
 
+    /// Returns the current storage use for each user.
     pub fn finalize(self) -> HashMap<AccountId, u64> {
         self.result
     }
