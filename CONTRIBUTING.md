@@ -25,8 +25,7 @@ If you have never contributed to nearcore before, take a look at the work items 
 Keep in mind the following:
 
 1. The changes need to be thoroughly tested. Refer to [this document](https://github.com/nearprotocol/nearcore/wiki/Writing-tests-for-nearcore) for our testing guidelines and overview of the testing infrastructure.
-2. Because of (1), starting with a `good first test` task is a good idea, since it helps you familiarize yourself with the testing infrastructure.
-3. If you get an issue assigned to you, please post updates at least once a week. It is also preferred for you to send a draft PR as early as you have something working, before it is ready.
+2. If you get an issue assigned to you, please post updates at least once a week. It is also preferred for you to send a draft PR as early as you have something working, before it is ready.
 
 ### Submitting the PR
 
