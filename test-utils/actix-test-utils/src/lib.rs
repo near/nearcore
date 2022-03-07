@@ -101,4 +101,5 @@ pub fn run_actix<F: std::future::Future>(f: F) {
     let sys = actix_rt::System::new();
     sys.block_on(handle_interrupt!(f));
     sys.run().unwrap();
+    near_store::db::RocksDB::block_until_all_instances_are_dropped();
 }
