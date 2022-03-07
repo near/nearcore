@@ -7,8 +7,10 @@ use tokio::time;
 // CtxErr represents an error that Context can return.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CtxErr {
-    Timeout,   // context (or one of the ancestors) has timed out.
-    Cancelled, // context (or one of the ancestors) has been manually cancelled.
+    /// Context (or one of the ancestors) has timed out.
+    Timeout,   
+    /// Context (or one of the ancestors) has been manually cancelled.
+    Cancelled,
 }
 
 impl fmt::Display for CtxErr {
