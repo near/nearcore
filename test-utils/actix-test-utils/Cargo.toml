@@ -10,3 +10,4 @@ edition = "2021"
 [dependencies]
 actix-rt = "2"
 futures = "0.3"
+near-store = { path "../../core/store" }
