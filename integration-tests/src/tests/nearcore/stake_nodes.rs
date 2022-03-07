@@ -136,7 +136,7 @@ fn test_stake_nodes() {
                     actix::spawn(
                         test_nodes[0]
                             .client
-                            .send(Status { is_health_check: false, get_detailed_info: false })
+                            .send(Status { is_health_check: false, detailed: false })
                             .then(|res| {
                                 let res = res.unwrap();
                                 if res.is_err() {
@@ -237,7 +237,7 @@ fn test_validator_kickout() {
                     actix::spawn(
                         test_node1
                             .client
-                            .send(Status { is_health_check: false, get_detailed_info: false })
+                            .send(Status { is_health_check: false, detailed: false })
                             .then(move |res| {
                                 let expected: Vec<_> = (num_nodes / 2..num_nodes)
                                     .map(|i| ValidatorInfo {
@@ -416,7 +416,7 @@ fn test_validator_join() {
                     actix::spawn(
                         test_node1
                             .client
-                            .send(Status { is_health_check: false, get_detailed_info: false })
+                            .send(Status { is_health_check: false, detailed: false })
                             .then(move |res| {
                                 let expected = vec![
                                     ValidatorInfo {

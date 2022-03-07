@@ -874,11 +874,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::status::RpcHealthResponse,
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
-        Ok(self
-            .client_addr
-            .send(Status { is_health_check: true, get_detailed_info: false })
-            .await??
-            .into())
+        Ok(self.client_addr.send(Status { is_health_check: true, detailed: false }).await??.into())
     }
 
     pub async fn status(
@@ -887,29 +883,24 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::status::RpcStatusResponse,
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
-        Ok(self
-            .client_addr
-            .send(Status { is_health_check: false, get_detailed_info: false })
-            .await??
-            .into())
+        Ok(self.client_addr.send(Status { is_health_check: false, detailed: false }).await??.into())
     }
 
-    pub async fn debugz(
+    pub async fn debug(
         &self,
     ) -> Result<
-        near_jsonrpc_primitives::types::status::RpcStatusResponse,
+        Option<near_jsonrpc_primitives::types::status::RpcStatusResponse>,
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
         if self.enable_debug_rpc {
-            Ok(self
-                .client_addr
-                .send(Status { is_health_check: false, get_detailed_info: true })
-                .await??
-                .into())
+            Ok(Some(
+                self.client_addr
+                    .send(Status { is_health_check: false, detailed: true })
+                    .await??
+                    .into(),
+            ))
         } else {
-            Err(near_jsonrpc_primitives::types::status::RpcStatusError::InternalError {
-                error_message: "Debug not enabled in configuration.".to_string(),
-            })
+            return Ok(None);
         }
     }
 
@@ -1347,16 +1338,12 @@ fn status_handler(
     response.boxed()
 }
 
-fn debugz_handler(
-    handler: web::Data<JsonRpcHandler>,
-) -> impl Future<Output = Result<HttpResponse, HttpError>> {
-    let response = async move {
-        match handler.debugz().await {
-            Ok(value) => Ok(HttpResponse::Ok().json(&value)),
-            Err(_) => Ok(HttpResponse::MethodNotAllowed().finish()),
-        }
-    };
-    response.boxed()
+async fn debug_handler(handler: web::Data<JsonRpcHandler>) -> Result<HttpResponse, HttpError> {
+    match handler.debug().await {
+        Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
+        Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
+        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+    }
 }
 
 fn health_handler(
@@ -1411,15 +1398,15 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
 
 lazy_static_include::lazy_static_include_str! {
     LAST_BLOCKS_HTML => "res/last_blocks.html",
-    DEBUGZ_HTML => "res/debugz.html",
+    DEBUG_HTML => "res/debug.html",
 }
 
-#[get("/debugz")]
-async fn debugz_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*DEBUGZ_HTML))
+#[get("/debug")]
+async fn debug_html() -> actix_web::Result<impl actix_web::Responder> {
+    Ok(HttpResponse::Ok().body(*DEBUG_HTML))
 }
 
-#[get("/debugz/last_blocks")]
+#[get("/debug/last_blocks")]
 async fn last_blocks_html() -> actix_web::Result<impl actix_web::Responder> {
     Ok(HttpResponse::Ok().body(*LAST_BLOCKS_HTML))
 }
@@ -1484,8 +1471,8 @@ pub fn start_http(
             )
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
-            .service(web::resource("/debugz/api/last_blocks").route(web::get().to(debugz_handler)))
-            .service(debugz_html)
+            .service(web::resource("/debug/api/last_blocks").route(web::get().to(debug_handler)))
+            .service(debug_html)
             .service(last_blocks_html)
     })
     .bind(addr)

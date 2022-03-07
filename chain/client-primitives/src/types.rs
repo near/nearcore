@@ -359,7 +359,7 @@ pub enum QueryError {
 pub struct Status {
     pub is_health_check: bool,
     // If true - return more detailed information about the current status (recent blocks etc).
-    pub get_detailed_info: bool,
+    pub detailed: bool,
 }
 
 #[derive(thiserror::Error, Debug)]

@@ -37,7 +37,7 @@
             root.html("Loading...");
             $.ajax({
                 type: "GET",
-                url: "http://localhost:3030/debugz/api/last_blocks",
+                url: "/debug/api/last_blocks",
                 success: function (data) {
                     var root = $("#blocks_table_tbody");
                     root.html("");
@@ -83,7 +83,7 @@
                 error: function (errMsg, textStatus, errorThrown) {
                     if (errMsg.status == 405) {
                         // Method not allowd.
-                        alert("Debugz not allowed - did you set enable_debug_rpc: true in your config?")
+                        alert("debug not allowed - did you set enable_debug_rpc: true in your config?")
                     } else {
                         alert("Failed: " + textStatus + " :" + errorThrown);
                     }
@@ -96,7 +96,7 @@
         function prepareTableHeader(max_shard) {
             var headers = '<th>Block id</th> <th>Block hash</th><th>Processing Time(ms)</th><th>Next block time(s)</th>';
             for (let i = 0; i < max_shard + 1; i += 1) {
-                headers += '<th colspan=3>Shard ' + i + ' (hash/gas/time)</th>';
+                headers += '<th colspan=3>Shard ${i} (hash/gas/time)</th>';
             }
             $("#blocks_table_thead")[0].innerHTML = headers;
         }

@@ -1,6 +1,4 @@
 use std::collections::{HashMap, HashSet};
-#[cfg(test)]
-use std::str::FromStr;
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration as TimeDuration, Instant};
@@ -398,7 +396,7 @@ pub fn check_known(
 
 // Cache with the mappint from CryptoHash (blocks, chunks) to the number milliseconds that it took to process them.
 // Used only for debugging purposes.
-pub static CRYPTO_HASH_TIMER_RESULTS: Lazy<Mutex<LruCache<CryptoHash, u64>>> =
+pub static CRYPTO_HASH_TIMER_RESULTS: Lazy<Mutex<LruCache<CryptoHash, TimeDuration>>> =
     Lazy::new(|| Mutex::new(LruCache::new(10000)));
 
 /// Struct to measure computation times related to different CryptoHashes (for example chunk or block computations).
@@ -412,6 +410,7 @@ pub static CRYPTO_HASH_TIMER_RESULTS: Lazy<Mutex<LruCache<CryptoHash, u64>>> =
 ///     // timer gets released at the end of this block
 /// }
 /// ```
+#[must_use]
 pub struct CryptoHashTimer {
     key: CryptoHash,
     start: Instant,
@@ -421,23 +420,21 @@ impl CryptoHashTimer {
     pub fn new(key: CryptoHash) -> Self {
         CryptoHashTimer { key, start: Clock::instant() }
     }
-    pub fn get_timer_value(key: CryptoHash) -> Option<u64> {
+    pub fn get_timer_value(key: CryptoHash) -> Option<TimeDuration> {
         CRYPTO_HASH_TIMER_RESULTS.lock().unwrap().get(&key).cloned()
     }
 }
 
 impl Drop for CryptoHashTimer {
     fn drop(&mut self) {
-        CRYPTO_HASH_TIMER_RESULTS
-            .lock()
-            .unwrap()
-            .put(self.key, (Clock::instant() - self.start).as_millis() as u64);
+        let time_passed = Clock::instant() - self.start;
+        CRYPTO_HASH_TIMER_RESULTS.lock().unwrap().put(self.key, time_passed);
     }
 }
 
 #[test]
 fn test_crypto_hash_timer() {
-    let crypto_hash = CryptoHash::from_str("s3N6V7CNAN2Eg6vfivMVHR4hbMZeh72fTmYbrC6dXBT").unwrap();
+    let crypto_hash: CryptoHash = "s3N6V7CNAN2Eg6vfivMVHR4hbMZeh72fTmYbrC6dXBT".parse().unwrap();
     // Timer should be missing.
     assert_eq!(CryptoHashTimer::get_timer_value(crypto_hash), None);
     let mock_clock_guard = near_primitives::time::MockClockGuard::default();
@@ -447,7 +444,10 @@ fn test_crypto_hash_timer() {
         let _timer = CryptoHashTimer::new(crypto_hash);
     }
     // Timer should show exactly 1 second (1000 ms).
-    assert_eq!(CryptoHashTimer::get_timer_value(crypto_hash), Some(1000));
+    assert_eq!(
+        CryptoHashTimer::get_timer_value(crypto_hash),
+        Some(TimeDuration::from_millis(1000))
+    );
 }
 
 /// Facade to the blockchain block processing and storage.

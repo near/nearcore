@@ -666,7 +666,7 @@ impl Handler<Status> for ClientActor {
         }
         // Provide more detailed information about the current state of chain.
         // For now - provide info about last 50 blocks.
-        let detailed_debug_status = if msg.get_detailed_info {
+        let detailed_debug_status = if msg.detailed {
             let mut blocks_debug: Vec<DebugBlockStatus> = Vec::new();
 
             let mut last_block_hash = head.last_block_hash;
@@ -685,7 +685,8 @@ impl Handler<Status> for ClientActor {
                         shard_id: chunk.shard_id(),
                         chunk_hash: chunk.chunk_hash(),
                         gas_used: chunk.gas_used(),
-                        processing_time_ms: CryptoHashTimer::get_timer_value(chunk.chunk_hash().0),
+                        processing_time_ms: CryptoHashTimer::get_timer_value(chunk.chunk_hash().0)
+                            .map(|s| s.as_millis() as u64),
                     })
                     .collect();
 
@@ -693,7 +694,8 @@ impl Handler<Status> for ClientActor {
                     block_hash: last_block_hash,
                     block_height: block.header().height(),
                     chunks,
-                    processing_time_ms: CryptoHashTimer::get_timer_value(last_block_hash),
+                    processing_time_ms: CryptoHashTimer::get_timer_value(last_block_hash)
+                        .map(|s| s.as_millis() as u64),
                     timestamp_delta: if last_block_timestamp > 0 {
                         last_block_timestamp.saturating_sub(block.header().raw_timestamp())
                     } else {
