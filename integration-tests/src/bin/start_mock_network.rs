@@ -42,6 +42,8 @@ struct Cli {
     /// Sync mode of the binary
     #[clap(short = 'S', long)]
     sync: bool,
+    #[clap(short = 's', long)]
+    client_start_height: Option<BlockHeight>,
     /// Target height that the client should sync to before stopping. If not specified,
     /// use the height of the last block in chain history
     #[clap(short = 'h', long)]
@@ -74,6 +76,7 @@ fn main() {
             &near_config,
             sync_mode,
             network_delay,
+            args.client_start_height,
             args.target_height,
         );
         let target_height =

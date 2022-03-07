@@ -29,6 +29,7 @@ pub use crate::types::RngSeed;
 
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 use near_chain::types::{BlockHeaderInfo, ValidatorInfoIdentifier};
+use near_chain::BlockHeader;
 use near_chain_configs::GenesisConfig;
 use near_primitives::shard_layout::ShardLayout;
 use near_store::db::DBCol::ColEpochValidatorInfo;
@@ -139,6 +140,57 @@ impl EpochManager {
             store_update.commit()?;
         }
         Ok(epoch_manager)
+    }
+
+    pub fn copy_epoch_info_as_of_block(
+        &mut self,
+        block_header: &BlockHeader,
+        source_epoch_manager: &mut EpochManager,
+    ) -> Result<(), EpochError> {
+        let block_hash = block_header.hash();
+        let mut store_update = self.store.store_update();
+        let epoch_id = block_header.epoch_id();
+        self.save_epoch_info(
+            &mut store_update,
+            epoch_id,
+            source_epoch_manager.get_epoch_info(epoch_id)?.clone(),
+        )?;
+        // save next epoch info too
+        let next_epoch_id = block_header.next_epoch_id();
+        self.save_epoch_info(
+            &mut store_update,
+            next_epoch_id,
+            source_epoch_manager.get_epoch_info(next_epoch_id)?.clone(),
+        )?;
+        // save next next epoch info if the block is the last block
+        if source_epoch_manager.is_next_block_epoch_start(block_hash)? {
+            let next_next_epoch_id =
+                source_epoch_manager.get_next_epoch_id_from_prev_block(block_hash)?;
+            self.save_epoch_info(
+                &mut store_update,
+                &next_next_epoch_id,
+                source_epoch_manager.get_epoch_info(&next_next_epoch_id)?.clone(),
+            )?;
+        }
+
+        let block_info = source_epoch_manager.get_block_info(block_hash)?.clone();
+        // save block info for the first block in the epoch
+        let epoch_first_block = block_info.epoch_first_block();
+        self.save_block_info(
+            &mut store_update,
+            source_epoch_manager.get_block_info(epoch_first_block)?.clone(),
+        )?;
+
+        self.save_block_info(&mut store_update, block_info)?;
+
+        self.save_epoch_start(
+            &mut store_update,
+            epoch_id,
+            source_epoch_manager.get_epoch_start_from_epoch_id(epoch_id)?,
+        )?;
+
+        store_update.commit()?;
+        Ok(())
     }
 
     pub fn init_after_epoch_sync(

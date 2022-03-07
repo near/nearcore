@@ -83,7 +83,9 @@ impl TrieStorage for TrieRecordingStorage {
             self.recorded.borrow_mut().insert(*hash, val.clone());
             Ok(val.into())
         } else {
-            Err(StorageError::StorageInconsistentState("Trie node missing".to_string()))
+            Err(StorageError::StorageInconsistentState(
+                format!("Trie node missing {:?} {:?}", self.shard_uid, hash).to_string(),
+            ))
         }
     }
 

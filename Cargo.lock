@@ -2007,6 +2007,7 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-crypto",
+ "near-epoch-manager",
  "near-jsonrpc",
  "near-jsonrpc-client",
  "near-jsonrpc-primitives",

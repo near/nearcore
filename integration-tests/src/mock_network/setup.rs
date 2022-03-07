@@ -1,10 +1,14 @@
 use crate::mock_network::MockPeerManagerActor;
 use actix::{Actor, Addr, Arbiter, Recipient};
-use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
+use near_chain::{
+    Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate, DoomslugThresholdMode,
+    RuntimeAdapter,
+};
 use near_chain_configs::GenesisConfig;
 #[cfg(feature = "test_features")]
 use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
+use near_epoch_manager::EpochManager;
 use near_network::test_utils::NetworkRecipient;
 use near_network::types::NetworkClientMessages;
 use near_primitives::network::PeerId;
@@ -76,6 +80,7 @@ pub enum SyncMode {
 /// `config`: config for the new client
 /// `sync_mode`: whether the mock network will simulate that the node is syncing or not
 /// `network_delay`: delay for getting response from the simulated network
+/// `client_start_height`: start height for client
 /// `target_height`: height that the simulated peers will produce blocks until. If None, will
 ///                  use the height from the chain head in storage
 pub fn setup_mock_network(
@@ -84,6 +89,7 @@ pub fn setup_mock_network(
     config: &NearConfig,
     sync_mode: SyncMode,
     network_delay: Duration,
+    client_start_height: Option<BlockHeight>,
     target_height: Option<BlockHeight>,
 ) -> (Addr<MockPeerManagerActor>, Addr<ClientActor>, Addr<ViewClientActor>) {
     let client_runtime = setup_runtime(client_home_dir, &config);
@@ -96,6 +102,58 @@ pub fn setup_mock_network(
     let network_adapter = Arc::new(NetworkRecipient::default());
     #[cfg(feature = "test_features")]
     let adv = Arc::new(std::sync::RwLock::new(AdversarialControls::default()));
+
+    // set up client dir to be ready to process blocks from client_start_height
+    if let Some(start_height) = client_start_height {
+        let mut chain_store =
+            ChainStore::new(client_runtime.get_store(), config.genesis.config.genesis_height);
+        let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
+        let mut network_chain_store =
+            ChainStore::new(mock_network_runtime.get_store(), config.genesis.config.genesis_height);
+
+        let hash = network_chain_store.get_block_hash_by_height(start_height).unwrap();
+        chain_store_update
+            .copy_chain_state_as_of_sudo journalctl -u neard -n 1000block(
+                &hash,
+                mock_network_runtime.clone(),
+                &mut network_chain_store,
+            )
+            .unwrap();
+        chain_store_update.commit().unwrap();
+
+        let mut epoch_manager = EpochManager::new_from_genesis_config(
+            client_runtime.get_store(),
+            &config.genesis.config,
+        )
+        .unwrap();
+        let mut mock_epoch_manager = EpochManager::new_from_genesis_config(
+            mock_network_runtime.get_store(),
+            &config.genesis.config,
+        )
+        .unwrap();
+        let header = network_chain_store.get_block(&hash).unwrap().header();
+        epoch_manager.copy_epoch_info_as_of_block(header, &mut mock_epoch_manager).unwrap();
+
+        let next_hash = *network_chain_store.get_next_block_hash(&hash).unwrap();
+        let next_block = network_chain_store.get_block(&next_hash).unwrap();
+        for (shard_id, chunk_header) in next_block.chunks().iter().enumerate() {
+            let shard_id = shard_id as u64;
+            let state_root = &chunk_header.prev_state_root();
+            let state_part = mock_network_runtime
+                .obtain_state_part(shard_id, &next_hash, state_root, 0, 1)
+                .unwrap();
+            client_runtime
+                .apply_state_part(
+                    shard_id,
+                    state_root,
+                    0,
+                    1,
+                    &state_part,
+                    &mock_network_runtime.get_epoch_id_from_prev_block(&hash).unwrap(),
+                )
+                .unwrap();
+        }
+    }
 
     let block_production_delay = config.client_config.min_block_production_delay;
     let (client_actor, _) = start_client(
@@ -146,14 +204,19 @@ mod test {
     use crate::mock_network::setup::{setup_mock_network, SyncMode};
     use actix::{Actor, System};
     use futures::{future, FutureExt};
-    use near_actix_test_utils::run_actix;
+    use near_actix_test_utils::{run_actix, spawn_interruptible};
     use near_chain_configs::Genesis;
     use near_client::GetBlock;
+    use near_crypto::{InMemorySigner, KeyType};
     use near_logger_utils::init_integration_logger;
     use near_network::test_utils::{open_port, WaitOrTimeoutActor};
+    use near_network::types::NetworkClientMessages;
     use near_primitives::hash::CryptoHash;
+    use near_primitives::transaction::SignedTransaction;
+    use near_store::test_utils::gen_account;
     use nearcore::config::GenesisExt;
-    use nearcore::{load_test_config, start_with_config};
+    use nearcore::{load_test_config, start_with_config, NEAR_BASE};
+    use rand::thread_rng;
     use std::sync::{Arc, RwLock};
     use std::time::Duration;
 
@@ -167,7 +230,9 @@ mod test {
         init_integration_logger();
 
         // first set up a network with only one validator and generate some blocks
-        let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        genesis.config.epoch_length = 10;
         let mut near_config = load_test_config("test0", open_port(), genesis.clone());
         near_config.client_config.min_num_peers = 0;
 
@@ -176,15 +241,56 @@ mod test {
         let last_block = Arc::new(RwLock::new(CryptoHash::default()));
         let last_block1 = last_block.clone();
         run_actix(async move {
-            let nearcore::NearNode { view_client, .. } =
+            let nearcore::NearNode { view_client, client, .. } =
                 start_with_config(path1, near_config).expect("start_with_config");
 
             let view_client1 = view_client.clone();
+            let nonce = Arc::new(RwLock::new(10));
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     let last_block2 = last_block1.clone();
-                    actix::spawn(view_client1.send(GetBlock::latest()).then(move |res| {
+                    let nonce = nonce.clone();
+                    let client1 = client.clone();
+                    spawn_interruptible(view_client1.send(GetBlock::latest()).then(move |res| {
                         if let Ok(Ok(block)) = res {
+                            let next_nonce = *nonce.read().unwrap();
+                            if next_nonce < 100 {
+                                WaitOrTimeoutActor::new(
+                                    Box::new(move |_ctx| {
+                                        let signer0 = InMemorySigner::from_seed(
+                                            "test1".parse().unwrap(),
+                                            KeyType::ED25519,
+                                            "test1",
+                                        );
+                                        let mut rng = thread_rng();
+                                        let transaction = SignedTransaction::create_account(
+                                            next_nonce,
+                                            "test1".parse().unwrap(),
+                                            gen_account(&mut rng, b"abcdefghijklmn")
+                                                .parse()
+                                                .unwrap(),
+                                            5 * NEAR_BASE,
+                                            signer0.public_key.clone(),
+                                            &signer0,
+                                            block.header.hash,
+                                        );
+                                        spawn_interruptible(
+                                            client1
+                                                .send(NetworkClientMessages::Transaction {
+                                                    transaction,
+                                                    is_forwarded: false,
+                                                    check_only: false,
+                                                })
+                                                .then(move |_res| future::ready(())),
+                                        );
+                                    }),
+                                    100,
+                                    30000,
+                                )
+                                .start();
+                                *nonce.write().unwrap() = next_nonce + 1;
+                            }
+
                             if block.header.height >= 20 {
                                 *last_block2.write().unwrap() = block.header.hash;
                                 System::current().stop()
@@ -200,8 +306,9 @@ mod test {
         });
 
         // start the mock network to simulate a new node "test1" to sync up
+        // start the client at height 10 (end of the first epoch)
         let dir1 = tempfile::Builder::new().prefix("test1").tempdir().unwrap();
-        let mut near_config1 = load_test_config("test1", open_port(), genesis);
+        let mut near_config1 = load_test_config("", open_port(), genesis);
         near_config1.client_config.min_num_peers = 1;
         near_config1.client_config.tracked_shards =
             (0..near_config1.genesis.config.shard_layout.num_shards()).collect();
@@ -212,6 +319,7 @@ mod test {
                 &near_config1,
                 SyncMode::Sync,
                 Duration::from_millis(10),
+                Some(10),
                 None,
             );
             WaitOrTimeoutActor::new(
