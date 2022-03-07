@@ -131,7 +131,7 @@ pub enum Cost {
     // Instead of relying on WASM memory, some host functions operate on
     // registers. These registers are allocated outside the WASM memory but need
     // to be copied in and out of WASM memory if a contract want to access them.
-    // This coping is done through `read_register` and `write_register`.
+    // This copying is done through `read_register` and `write_register`.
     /// Estimates `read_register_base` which is charged once for every reading access to a register.
     ///
     /// Estimation: Execute a transaction with a single function call that
