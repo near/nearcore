@@ -1,12 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 
 use borsh::BorshSerialize;
 use chrono::Duration;
 use itertools::Itertools;
-use lru::LruCache;
 use near_primitives::time::Clock;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
@@ -50,6 +49,7 @@ use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpda
 
 use near_primitives::state_record::StateRecord;
 
+use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
@@ -70,7 +70,6 @@ use delay_detector::DelayDetector;
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
-use once_cell::sync::Lazy;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 /// Maximum number of orphans chain can store.
@@ -392,62 +391,6 @@ pub fn check_known(
         return Ok(Err(BlockKnownError::KnownInMissingChunks));
     }
     check_known_store(chain, block_hash)
-}
-
-// Cache with the mappint from CryptoHash (blocks, chunks) to the number milliseconds that it took to process them.
-// Used only for debugging purposes.
-pub static CRYPTO_HASH_TIMER_RESULTS: Lazy<Mutex<LruCache<CryptoHash, TimeDuration>>> =
-    Lazy::new(|| Mutex::new(LruCache::new(10000)));
-
-/// Struct to measure computation times related to different CryptoHashes (for example chunk or block computations).
-/// It stores the data in the global LRU cache, which allows it to be read afterwards.
-///
-/// Example use:
-/// ```rust, ignore
-/// {
-///     let _timer = CryptoHashTime(block.hash);
-///     // Do stuff with the block
-///     // timer gets released at the end of this block
-/// }
-/// ```
-#[must_use]
-pub struct CryptoHashTimer {
-    key: CryptoHash,
-    start: Instant,
-}
-
-impl CryptoHashTimer {
-    pub fn new(key: CryptoHash) -> Self {
-        CryptoHashTimer { key, start: Clock::instant() }
-    }
-    pub fn get_timer_value(key: CryptoHash) -> Option<TimeDuration> {
-        CRYPTO_HASH_TIMER_RESULTS.lock().unwrap().get(&key).cloned()
-    }
-}
-
-impl Drop for CryptoHashTimer {
-    fn drop(&mut self) {
-        let time_passed = Clock::instant() - self.start;
-        CRYPTO_HASH_TIMER_RESULTS.lock().unwrap().put(self.key, time_passed);
-    }
-}
-
-#[test]
-fn test_crypto_hash_timer() {
-    let crypto_hash: CryptoHash = "s3N6V7CNAN2Eg6vfivMVHR4hbMZeh72fTmYbrC6dXBT".parse().unwrap();
-    // Timer should be missing.
-    assert_eq!(CryptoHashTimer::get_timer_value(crypto_hash), None);
-    let mock_clock_guard = near_primitives::time::MockClockGuard::default();
-    mock_clock_guard.add_instant(Instant::now());
-    mock_clock_guard.add_instant(Instant::now() + std::time::Duration::from_secs(1));
-    {
-        let _timer = CryptoHashTimer::new(crypto_hash);
-    }
-    // Timer should show exactly 1 second (1000 ms).
-    assert_eq!(
-        CryptoHashTimer::get_timer_value(crypto_hash),
-        Some(TimeDuration::from_millis(1000))
-    );
 }
 
 /// Facade to the blockchain block processing and storage.
