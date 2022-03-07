@@ -154,6 +154,7 @@ pub fn setup(
         enable_doomslug,
         TEST_SEED,
         ctx,
+        None,
         #[cfg(feature = "test_features")]
         adv,
     )

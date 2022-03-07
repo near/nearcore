@@ -64,7 +64,6 @@ use crate::validate::{
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
 use actix::Message;
-#[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
@@ -80,7 +79,7 @@ const MAX_ORPHAN_AGE_SECS: u64 = 300;
 // Number of orphan ancestors should be checked to request chunks
 // Orphans for which we will request for missing chunks must satisfy,
 // its NUM_ORPHAN_ANCESTORS_CHECK'th ancestor has been accepted
-pub const NUM_ORPHAN_ANCESTORS_CHECK: u64 = 1;
+pub const NUM_ORPHAN_ANCESTORS_CHECK: u64 = 3;
 
 // Maximum number of orphans that we can request missing chunks
 // Note that if there are no forks, the maximum number of orphans we would
@@ -773,8 +772,7 @@ impl Chain {
         tries: ShardTries,
         gc_blocks_limit: NumBlocks,
     ) -> Result<(), Error> {
-        #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("GC".into());
+        let _d = DelayDetector::new(|| "GC".into());
 
         let head = self.store.head()?;
         let tail = self.store.tail()?;
@@ -3016,6 +3014,37 @@ impl Chain {
                 Err(_) => false,
             })
             .ok_or_else(|| ErrorKind::DBNotFoundErr(format!("EXECUTION OUTCOME: {}", id)).into())
+    }
+
+    /// Retrieve the up to `max_headers_returned` headers on the main chain
+    /// `hashes`: a list of block "locators". `hashes` should be ordered from older blocks to
+    ///           more recent blocks. This function will find the first block in `hashes`
+    ///           that is on the main chain and returns the blocks after this block. If none of the
+    ///           blocks in `hashes` are on the main chain, the function returns an empty vector.
+    pub fn retrieve_headers(
+        &mut self,
+        hashes: Vec<CryptoHash>,
+        max_headers_returned: u64,
+        max_height: Option<BlockHeight>,
+    ) -> Result<Vec<BlockHeader>, Error> {
+        let header = match self.find_common_header(&hashes) {
+            Some(header) => header,
+            None => return Ok(vec![]),
+        };
+
+        let mut headers = vec![];
+        let header_head_height = self.header_head()?.height;
+        let max_height = max_height.unwrap_or(header_head_height);
+        // TODO: this may be inefficient if there are a lot of skipped blocks.
+        for h in header.height() + 1..=max_height {
+            if let Ok(header) = self.get_header_by_height(h) {
+                headers.push(header.clone());
+                if headers.len() >= max_headers_returned as usize {
+                    break;
+                }
+            }
+        }
+        Ok(headers)
     }
 
     /// Returns a vector of chunk headers, each of which corresponds to the previous chunk of

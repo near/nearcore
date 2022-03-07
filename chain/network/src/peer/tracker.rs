@@ -6,24 +6,24 @@ use std::time::Instant;
 const MAX_TRACK_SIZE: usize = 30;
 
 /// Internal structure to keep a circular queue within a tracker with unique hashes.
-pub(crate) struct CircularUniqueQueue {
+struct CircularUniqueQueue {
     v: Vec<CryptoHash>,
     index: usize,
     limit: usize,
 }
 
 impl CircularUniqueQueue {
-    pub fn new(limit: usize) -> Self {
+    fn new(limit: usize) -> Self {
         assert!(limit > 0);
         Self { v: Vec::with_capacity(limit), index: 0, limit }
     }
 
-    pub fn contains(&self, hash: &CryptoHash) -> bool {
+    fn contains(&self, hash: &CryptoHash) -> bool {
         self.v.contains(hash)
     }
 
     /// Pushes an element if it's not in the queue already. The queue will pop the oldest element.
-    pub fn push(&mut self, hash: CryptoHash) {
+    fn push(&mut self, hash: CryptoHash) {
         if !self.contains(&hash) {
             if self.v.len() < self.limit {
                 self.v.push(hash);
@@ -40,7 +40,7 @@ impl CircularUniqueQueue {
 
 /// Keeps track of requests and received hashes of transactions and blocks.
 /// Also keeps track of number of bytes sent and received from this peer to prevent abuse.
-pub struct Tracker {
+pub(crate) struct Tracker {
     /// Bytes we've sent.
     pub(crate) sent_bytes: TransferStats,
     /// Bytes we've received.
