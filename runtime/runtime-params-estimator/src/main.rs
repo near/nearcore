@@ -73,7 +73,7 @@ struct CliArgs {
     #[clap(long)]
     drop_os_cache: bool,
     /// Print extra debug information
-    #[clap(long, multiple(true), possible_values=&["io", "rocksdb", "least-squares"])]
+    #[clap(long, multiple(true), possible_values=&["io", "rocksdb", "least-squares", "wasm-op"])]
     debug: Vec<String>,
     /// Prints hierarchical execution-timing information using the tracing-span-tree crate.
     #[clap(long)]
@@ -222,6 +222,7 @@ fn main() -> anyhow::Result<()> {
         costs_to_measure,
         rocksdb_test_config,
         debug_least_squares: debug_options.contains(&"least-squares"),
+        debug_wasm_op: debug_options.contains(&"wasm-op"),
         drop_os_cache: cli_args.drop_os_cache,
     };
     let cost_table = runtime_params_estimator::run(config);

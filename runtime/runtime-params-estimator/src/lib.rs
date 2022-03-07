@@ -107,13 +107,13 @@ use crate::gas_cost::GasCost;
 use crate::rocksdb::{rocks_db_inserts_cost, rocks_db_read_cost};
 use crate::transaction_builder::TransactionBuilder;
 use crate::vm_estimator::create_context;
+use crate::wasm_instruction::{binary_op_cost, unary_op_cost};
 
 pub use crate::cost::Cost;
 pub use crate::cost_table::CostTable;
 pub use crate::costs_to_runtime_config::costs_to_runtime_config;
 pub use crate::qemu::QemuCommandBuilder;
 pub use crate::rocksdb::RocksDBTestConfig;
-use crate::wasm_instruction::op_loop_cost;
 
 static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ActionReceiptCreation, action_receipt_creation),
@@ -775,26 +775,27 @@ fn wasm_instruction_v2(ctx: &mut EstimatorContext) -> GasCost {
     let repeats = ctx.config.iter_per_block as u64;
     let warmup_repeats = ctx.config.warmup_iters_per_block as u64;
 
-    let div = op_loop_cost(&runner, repeats, warmup_repeats, "i64.div_s", "i64", "i64.const 77");
-    let rem = op_loop_cost(&runner, repeats, warmup_repeats, "i64.rem_s", "i64", "i64.const 77");
-    let add = op_loop_cost(&runner, repeats, warmup_repeats, "i64.add", "i64", "i64.const 77");
-    let mul = op_loop_cost(&runner, repeats, warmup_repeats, "i64.mul", "i64", "i64.const 77");
+    let div = binary_op_cost(&runner, repeats, warmup_repeats, "i64", "div_s");
+    let rem = binary_op_cost(&runner, repeats, warmup_repeats, "i64", "rem_s");
+    let add = binary_op_cost(&runner, repeats, warmup_repeats, "i64", "add");
+    let mul = binary_op_cost(&runner, repeats, warmup_repeats, "i64", "mul");
 
-    let f_div = op_loop_cost(&runner, repeats, warmup_repeats, "f64.div", "f64", "f64.const 77");
-    let f_add = op_loop_cost(&runner, repeats, warmup_repeats, "f64.add", "f64", "f64.const 77");
-    let f_mul = op_loop_cost(&runner, repeats, warmup_repeats, "f64.mul", "f64", "f64.const 77");
-    let f_sqrt = op_loop_cost(&runner, repeats, warmup_repeats, "f64.sqrt", "f64", "");
+    let f_div = binary_op_cost(&runner, repeats, warmup_repeats, "f64", "div");
+    let f_add = binary_op_cost(&runner, repeats, warmup_repeats, "f64", "add");
+    let f_mul = binary_op_cost(&runner, repeats, warmup_repeats, "f64", "mul");
+    let f_sqrt = unary_op_cost(&runner, repeats, warmup_repeats, "f64", "sqrt");
 
-    // if config.debug_wasm
-    eprintln!("i64 div {div:?}");
-    eprintln!("i64 rem {rem:?}");
-    eprintln!("i64 add {add:?}");
-    eprintln!("i64 mul {mul:?}");
+    if ctx.config.debug_wasm_op {
+        eprintln!("i64 div {div:?}");
+        eprintln!("i64 rem {rem:?}");
+        eprintln!("i64 add {add:?}");
+        eprintln!("i64 mul {mul:?}");
 
-    eprintln!("f64 div {f_div:?}");
-    eprintln!("f64 add {f_add:?}");
-    eprintln!("f64 mul {f_mul:?}");
-    eprintln!("f64 sqrt {f_sqrt:?}");
+        eprintln!("f64 div {f_div:?}");
+        eprintln!("f64 add {f_add:?}");
+        eprintln!("f64 mul {f_mul:?}");
+        eprintln!("f64 sqrt {f_sqrt:?}");
+    }
 
     div.max(rem).max(add).max(mul).max(f_div).max(f_add).max(f_mul).max(f_sqrt)
 }
