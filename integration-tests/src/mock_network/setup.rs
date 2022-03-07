@@ -12,6 +12,7 @@ use near_epoch_manager::EpochManager;
 use near_network::test_utils::NetworkRecipient;
 use near_network::types::NetworkClientMessages;
 use near_primitives::network::PeerId;
+use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::BlockHeight;
 use near_store::create_store;
 use near_telemetry::TelemetryActor;
@@ -158,20 +159,25 @@ pub fn setup_mock_network(
             info!(target:"mock_network", "Preparing state for shard {}", shard_id);
             let shard_id = shard_id as u64;
             let state_root = &chunk_header.prev_state_root();
-            let state_part = mock_network_runtime
-                .obtain_state_part(shard_id, &next_hash, state_root, 0, 1)
-                .unwrap();
-            client_runtime
-                .apply_state_part(
-                    shard_id,
-                    state_root,
-                    0,
-                    1,
-                    &state_part,
-                    &mock_network_runtime.get_epoch_id_from_prev_block(&hash).unwrap(),
-                )
-                .unwrap();
-            info!(target:"mock_network", "Done preparing state for shard {}", shard_id);
+            let state_root_node =
+                mock_network_runtime.get_state_root_node(shard_id, &hash, &state_root).unwrap();
+            let num_parts = get_num_state_parts(state_root_node.memory_usage);
+            for part_id in 0..num_parts {
+                info!(target:"mock_network", "Copying part {}/{}", part_id, num_parts);
+                let state_part = mock_network_runtime
+                    .obtain_state_part(shard_id, &next_hash, state_root, part_id, num_parts)
+                    .unwrap();
+                client_runtime
+                    .apply_state_part(
+                        shard_id,
+                        state_root,
+                        part_id,
+                        num_parts,
+                        &state_part,
+                        &mock_network_runtime.get_epoch_id_from_prev_block(&hash).unwrap(),
+                    )
+                    .unwrap();
+            }
         }
     }
 
