@@ -20,7 +20,7 @@ If you see an obvious typo, or an obvious bug that can be fixed with a small cha
 
 ## Working on current tasks
 
-If you have never contributed to nearcore before, take a look at the work items in the issue tracker labeled with `good first issue` [here](https://github.com/nearprotocol/nearcore/labels/good%20first%20issue) and `good first test` [here](https://github.com/nearprotocol/nearcore/labels/good%20first%20test). If you see one that looks interesting, and is not claimed, please comment on the issue that you would like to start working on it, and someone from the team will assign it to you.
+If you have never contributed to nearcore before, take a look at the work items in the issue tracker labeled with `C-good-first-issue` [here](https://github.com/near/nearcore/labels/C-good-first-issue). If you see one that looks interesting, and is not claimed, please comment on the issue that you would like to start working on it, and someone from the team will assign it to you.
 
 Keep in mind the following:
 
