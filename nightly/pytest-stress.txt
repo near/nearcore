@@ -24,6 +24,6 @@ pytest --timeout=300 stress/saturate_routing_table.py --features nightly_protoco
 # pytest stress/network_stress.py
 # pytest stress/network_stress.py --features nightly_protocol,nightly_protocol_features
 
-# The files below (loadtest) should be run only manually (and not automatically)
-# pytest pytest/tests/loadtest/loadtest.py
-# pytest pytest/tests/loadtest/setup.py
+# TODO(#0000): The files below (loadtest) should be run only manually (and not automatically)
+# pytest loadtest/loadtest.py
+# pytest loadtest/setup.py
