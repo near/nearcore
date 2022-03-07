@@ -1,4 +1,4 @@
-use crate::concurrency::{Ctx, CtxErr};
+use crate::concurrency::{ctx, Ctx};
 
 use futures::task;
 use std::future::Future;
@@ -37,9 +37,9 @@ async fn test_cancel_propagation() {
     assert!(ctx2.err().is_none());
     assert_eq!(None, try_await(h1.as_mut()));
     assert_eq!(None, try_await(h2.as_mut()));
-    assert_eq!(CtxErr::Cancelled, h3.await);
+    assert_eq!(ctx::Error::Cancelled, h3.await);
 
     ctx1.cancel();
-    assert_eq!(CtxErr::Cancelled, h1.await);
-    assert_eq!(CtxErr::Cancelled, h2.await);
+    assert_eq!(ctx::Error::Cancelled, h1.await);
+    assert_eq!(ctx::Error::Cancelled, h2.await);
 }

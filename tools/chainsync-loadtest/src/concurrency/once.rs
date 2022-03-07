@@ -23,17 +23,17 @@ impl<T: Clone + Send + Sync> Once<T> {
         return Once { value: RwLock::new(None), notify: tokio::sync::Notify::new() };
     }
 
-    // set() sets the value of Once to x and returns true.
-    // If the value was already set, it just returns false.
-    pub fn set(&self, x: T) -> bool {
+    // set() sets the value of Once to x.
+    // Returns x back to the caller, in case Once has already been set.
+    pub fn set(&self, x: T) -> Result<(), T> {
         let mut v = self.value.write();
         if v.is_some() {
-            return false;
+            return Err(x);
         }
         *v = Some(x.clone());
         self.notify.notify_waiters();
         drop(v);
-        return true;
+        return Ok(());
     }
 
     // get() gets a clone of the value, or returns None if not set yet.

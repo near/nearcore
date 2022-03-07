@@ -1,4 +1,4 @@
-use crate::concurrency::{Ctx, CtxErr, CtxWithCancel};
+use crate::concurrency::{ctx, Ctx, CtxWithCancel};
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
@@ -74,7 +74,7 @@ impl Scope {
         }
         // Ignore Cancelled errors after the whole scope has been cancelled.
         if s.cancelled
-            && e.downcast_ref::<CtxErr>().map(|e| e == &CtxErr::Cancelled).unwrap_or(false)
+            && e.downcast_ref::<ctx::Error>().map(|e| e == &ctx::Error::Cancelled).unwrap_or(false)
         {
             return;
         }
