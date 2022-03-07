@@ -2,9 +2,7 @@ pub use prometheus::{
     Encoder, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Result,
     TextEncoder,
 };
-use prometheus::{HistogramOpts, HistogramTimer, Opts};
-
-use tracing::error;
+use prometheus::{HistogramOpts, Opts};
 
 /// Collect all the metrics for reporting.
 pub fn gather() -> Vec<prometheus::proto::MetricFamily> {

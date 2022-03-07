@@ -112,7 +112,8 @@ impl NetworkMetrics {
                     ]
                     .map(|method| {
                         let counter_name = method(name);
-                        let counter = try_create_int_counter(&counter_name, &counter_name).ok();
+                        let counter =
+                            try_create_int_counter(&counter_name, &counter_name).ok().unwrap();
                         (counter_name, counter)
                     })
                 })
