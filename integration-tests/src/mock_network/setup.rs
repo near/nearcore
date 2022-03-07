@@ -106,6 +106,7 @@ pub fn setup_mock_network(
         network_adapter.clone(),
         config.validator_signer.clone(),
         telemetry,
+        None,
         #[cfg(feature = "test_features")]
         adv.clone(),
     );
