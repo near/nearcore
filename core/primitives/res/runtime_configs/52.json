@@ -32,7 +32,7 @@
       "deploy_contract_cost_per_byte": {
         "send_sir": 6812999,
         "send_not_sir": 6812999,
-        "execution": 6812999
+        "execution": 64572944
       },
       "function_call_cost": {
         "send_sir": 2319861500000,
