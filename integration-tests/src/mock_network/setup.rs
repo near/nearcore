@@ -20,6 +20,7 @@ use std::cmp::min;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::info;
 
 fn setup_runtime(home_dir: &Path, config: &NearConfig) -> Arc<NightshadeRuntime> {
     let path = get_store_path(home_dir);
@@ -105,12 +106,27 @@ pub fn setup_mock_network(
 
     // set up client dir to be ready to process blocks from client_start_height
     if let Some(start_height) = client_start_height {
+        info!(target:"mock_network", "Preparing client data dir to be able to start at the specified start height {}", start_height);
         let mut chain_store =
             ChainStore::new(client_runtime.get_store(), config.genesis.config.genesis_height);
         let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
         let mut network_chain_store =
             ChainStore::new(mock_network_runtime.get_store(), config.genesis.config.genesis_height);
 
+        let network_tail_height = network_chain_store.tail().unwrap();
+        let network_head_height = network_chain_store.head().unwrap().height;
+        info!(target:"mock_network",
+              "network data chain tail height {} head height {}",
+              network_tail_height,
+              network_head_height,
+        );
+        assert!(
+            start_height <= network_head_height && start_height >= network_tail_height,
+            "client start height {} is not within the network chain range [{}, {}]",
+            start_height,
+            network_tail_height,
+            network_head_height
+        );
         let hash = network_chain_store.get_block_hash_by_height(start_height).unwrap();
         chain_store_update
             .copy_chain_state_as_of_block(
@@ -120,6 +136,7 @@ pub fn setup_mock_network(
             )
             .unwrap();
         chain_store_update.commit().unwrap();
+        info!(target:"mock_network", "Done preparing chain state");
 
         let mut epoch_manager = EpochManager::new_from_genesis_config(
             client_runtime.get_store(),
@@ -133,10 +150,12 @@ pub fn setup_mock_network(
         .unwrap();
         let header = network_chain_store.get_block(&hash).unwrap().header();
         epoch_manager.copy_epoch_info_as_of_block(header, &mut mock_epoch_manager).unwrap();
+        info!(target:"mock_network", "Done preparing epoch info");
 
         let next_hash = *network_chain_store.get_next_block_hash(&hash).unwrap();
         let next_block = network_chain_store.get_block(&next_hash).unwrap();
         for (shard_id, chunk_header) in next_block.chunks().iter().enumerate() {
+            info!(target:"mock_network", "Preparing state for shard {}", shard_id);
             let shard_id = shard_id as u64;
             let state_root = &chunk_header.prev_state_root();
             let state_part = mock_network_runtime
@@ -152,6 +171,7 @@ pub fn setup_mock_network(
                     &mock_network_runtime.get_epoch_id_from_prev_block(&hash).unwrap(),
                 )
                 .unwrap();
+            info!(target:"mock_network", "Done preparing state for shard {}", shard_id);
         }
     }
 
