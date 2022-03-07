@@ -113,7 +113,7 @@ pub fn setup_mock_network(
 
         let hash = network_chain_store.get_block_hash_by_height(start_height).unwrap();
         chain_store_update
-            .copy_chain_state_as_of_sudo journalctl -u neard -n 1000block(
+            .copy_chain_state_as_of_block(
                 &hash,
                 mock_network_runtime.clone(),
                 &mut network_chain_store,
