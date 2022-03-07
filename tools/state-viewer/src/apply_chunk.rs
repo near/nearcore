@@ -10,10 +10,11 @@ use near_primitives::sharding::{ChunkHash, ReceiptProof};
 use near_primitives::syncing::ReceiptProofResponse;
 use near_primitives_core::hash::hash;
 use near_primitives_core::types::Gas;
-use near_store::Store;
-use nearcore::{NearConfig, NightshadeRuntime};
+use nearcore::NightshadeRuntime;
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+use std::cmp::Ord;
 use std::collections::HashSet;
-use std::path::Path;
 use std::sync::Arc;
 
 // like ChainStoreUpdate::get_incoming_receipts_for_shard(), but for the case when we don't
@@ -25,6 +26,7 @@ fn get_incoming_receipts(
     target_height: u64,
     prev_hash: &CryptoHash,
     prev_height_included: u64,
+    rng: Option<StdRng>,
 ) -> anyhow::Result<Vec<Receipt>> {
     let mut receipt_proofs = vec![];
 
@@ -36,8 +38,9 @@ fn get_incoming_receipts(
         ));
     }
 
-    let chunks =
+    let mut chunks =
         chunk_hashes.iter().map(|h| chain_store.get_chunk(h).unwrap().clone()).collect::<Vec<_>>();
+    chunks.sort_by(|left, right| left.shard_id().cmp(&right.shard_id()));
 
     for chunk in chunks {
         let partial_encoded_chunk = chain_store.get_partial_chunk(&chunk.chunk_hash()).unwrap();
@@ -47,6 +50,11 @@ fn get_incoming_receipts(
                 receipt_proofs.push(receipt.clone());
             }
         }
+    }
+
+    if let Some(mut rng) = rng {
+        // for testing purposes, shuffle the receipts the same way it's done normally so we can compare the state roots
+        receipt_proofs.shuffle(&mut rng);
     }
     let mut responses = vec![ReceiptProofResponse(CryptoHash::default(), receipt_proofs)];
     responses.extend_from_slice(&chain_store.store_update().get_incoming_receipts_for_shard(
@@ -78,22 +86,14 @@ fn check_hashes_exist<T, F: Fn(&T) -> CryptoHash>(
 
 // returns (apply_result, gas limit)
 pub(crate) fn apply_chunk(
-    home_dir: &Path,
-    near_config: NearConfig,
-    store: Store,
+    runtime: Arc<NightshadeRuntime>,
+    chain_store: &mut ChainStore,
     chunk_hash: ChunkHash,
     target_height: Option<u64>,
     tx_hashes: &Option<Vec<CryptoHash>>,
     receipt_hashes: &Option<Vec<CryptoHash>>,
+    rng: Option<StdRng>,
 ) -> anyhow::Result<(ApplyTransactionResult, Gas)> {
-    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
-    let runtime = Arc::new(NightshadeRuntime::with_config(
-        home_dir,
-        store,
-        &near_config,
-        None,
-        near_config.client_config.max_gas_burnt_view,
-    ));
     let chunk = chain_store.get_chunk(&chunk_hash)?;
     let chunk_header = chunk.cloned_header();
 
@@ -117,19 +117,20 @@ pub(crate) fn apply_chunk(
     let prev_timestamp = prev_block.header().raw_timestamp();
     let gas_price = prev_block.header().gas_price();
     let receipts = get_incoming_receipts(
-        &mut chain_store,
+        chain_store,
         &chunk_hash,
         shard_id,
         target_height,
         &prev_block_hash,
         prev_height_included,
+        rng,
     )
     .context("Failed collecting incoming receipts")?;
     check_hashes_exist(&receipt_hashes, &receipts, |r| r.receipt_id).map_err(|hash| {
         anyhow!("receipt with ID {} not found in any incoming receipt for shard {}", hash, shard_id)
     })?;
     let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
-        &mut chain_store,
+        chain_store,
         runtime.as_ref(),
         &prev_block_hash,
         shard_id,
@@ -159,4 +160,124 @@ pub(crate) fn apply_chunk(
         )?,
         chunk_header.gas_limit(),
     ))
+}
+
+#[cfg(test)]
+mod test {
+    use near_chain::{ChainGenesis, ChainStore, ChainStoreAccess, Provenance, RuntimeAdapter};
+    use near_chain_configs::Genesis;
+    use near_client::test_utils::TestEnv;
+    use near_crypto::{InMemorySigner, KeyType};
+    use near_network::types::NetworkClientResponses;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::runtime::config_store::RuntimeConfigStore;
+    use near_primitives::transaction::SignedTransaction;
+    use near_primitives::utils::get_num_seats_per_shard;
+    use near_store::test_utils::create_test_store;
+    use nearcore::config::GenesisExt;
+    use nearcore::NightshadeRuntime;
+    use nearcore::TrackedConfig;
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
+    use std::path::Path;
+    use std::sync::Arc;
+
+    fn send_txs(env: &mut TestEnv, signers: &[InMemorySigner], height: u64, hash: CryptoHash) {
+        for (i, signer) in signers.iter().enumerate() {
+            let from = format!("test{}", i);
+            let to = format!("test{}", (i + 1) % signers.len());
+            let tx = SignedTransaction::send_money(
+                height,
+                from.parse().unwrap(),
+                to.parse().unwrap(),
+                signer,
+                100,
+                hash,
+            );
+            let response = env.clients[0].process_tx(tx, false, false);
+            assert_eq!(response, NetworkClientResponses::ValidTx);
+        }
+    }
+
+    #[test]
+    fn test_apply_chunk() {
+        let genesis = Genesis::test_sharded(
+            vec![
+                "test0".parse().unwrap(),
+                "test1".parse().unwrap(),
+                "test2".parse().unwrap(),
+                "test3".parse().unwrap(),
+            ],
+            1,
+            get_num_seats_per_shard(4, 1),
+        );
+
+        let store = create_test_store();
+        let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height);
+        let runtime = Arc::new(NightshadeRuntime::test_with_runtime_config_store(
+            Path::new("."),
+            store,
+            &genesis,
+            TrackedConfig::AllShards,
+            RuntimeConfigStore::test(),
+        ));
+        let chain_genesis = ChainGenesis::test();
+
+        let signers = (0..4)
+            .map(|i| {
+                let acc = format!("test{}", i);
+                InMemorySigner::from_seed(acc.parse().unwrap(), KeyType::ED25519, &acc)
+            })
+            .collect::<Vec<_>>();
+
+        let mut env =
+            TestEnv::builder(chain_genesis).runtime_adapters(vec![runtime.clone()]).build();
+        let genesis_hash = *env.clients[0].chain.genesis().hash();
+
+        for height in 1..10 {
+            send_txs(&mut env, &signers, height, genesis_hash);
+
+            // assert!(response == NetworkClientResponses::RequestRouted || response == NetworkClientResponses::ValidTx);
+            // let (e, _, _) = create_chunk_on_height_for_shard(&mut env.clients[0], height, 0);
+            // let chunk = e.decode_chunk(runtime.num_data_parts()).unwrap();
+            let block = env.clients[0].produce_block(height).unwrap().unwrap();
+
+            let hash = *block.hash();
+            let chunk_hashes = block.chunks().iter().map(|c| c.chunk_hash()).collect::<Vec<_>>();
+            let epoch_id = block.header().epoch_id().clone();
+
+            env.process_block(0, block, Provenance::PRODUCED);
+
+            let new_roots = (0..4)
+                .map(|i| {
+                    let shard_uid = runtime.shard_id_to_uid(i, &epoch_id).unwrap();
+                    chain_store.get_chunk_extra(&hash, &shard_uid).unwrap().state_root().clone()
+                })
+                .collect::<Vec<_>>();
+
+            if height >= 2 {
+                for shard in 0..4 {
+                    // we will shuffle receipts the same as in production, otherwise the state roots don't match
+                    let mut slice = [0u8; 32];
+                    slice.copy_from_slice(hash.as_ref());
+                    let rng: StdRng = SeedableRng::from_seed(slice);
+
+                    let chunk_hash = &chunk_hashes[shard];
+                    let new_root = new_roots[shard];
+
+                    let (apply_result, _) = crate::apply_chunk::apply_chunk(
+                        runtime.clone(),
+                        &mut chain_store,
+                        chunk_hash.clone(),
+                        None,
+                        &None,
+                        &None,
+                        Some(rng),
+                    )
+                    .unwrap();
+                    assert_eq!(apply_result.new_root, new_root);
+                }
+            }
+        }
+    }
 }

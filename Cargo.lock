@@ -4769,6 +4769,7 @@ dependencies = [
  "nearcore",
  "node-runtime",
  "once_cell",
+ "rand 0.7.3",
  "rayon",
  "serde",
  "serde_json",

@@ -689,14 +689,22 @@ pub(crate) fn apply_chunk(
     tx_hashes: Option<Vec<CryptoHash>>,
     receipt_hashes: Option<Vec<CryptoHash>>,
 ) -> anyhow::Result<()> {
-    let (apply_result, gas_limit) = apply_chunk::apply_chunk(
+    let runtime = Arc::new(NightshadeRuntime::with_config(
         home_dir,
-        near_config,
-        store,
+        store.clone(),
+        &near_config,
+        None,
+        near_config.client_config.max_gas_burnt_view,
+    ));
+    let mut chain_store = ChainStore::new(store, near_config.genesis.config.genesis_height);
+    let (apply_result, gas_limit) = apply_chunk::apply_chunk(
+        runtime,
+        &mut chain_store,
         chunk_hash,
         target_height,
         &tx_hashes,
         &receipt_hashes,
+        None,
     )?;
     print_apply_chunk_result(apply_result, gas_limit, tx_hashes, receipt_hashes);
     Ok(())
