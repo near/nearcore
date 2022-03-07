@@ -1015,7 +1015,7 @@ impl ShardsManager {
             //
             // TODO(#6242): This is currently not implemented and effectively
             // this is dead code.
-            self.prepare_partial_encoded_chunk_response_from_chunk(request, chain_store, rs, chunk)
+            self.prepare_partial_encoded_chunk_response_from_chunk(request, rs, chunk)
         } else {
             None
         };
@@ -1092,6 +1092,47 @@ impl ShardsManager {
         )
     }
 
+    /// Constructs a vector of [`ReceiptsProof`]s for specified chunk.
+    fn make_outgoing_receipts_proofs<T>(
+        &self,
+        chunk_header: &ShardChunkHeader,
+        outgoing_receipts: &Vec<Receipt>,
+        make_elem: impl Fn(ReceiptProof) -> T,
+    ) -> Result<Vec<T>, near_chunks_primitives::Error> {
+        let shard_id = chunk_header.shard_id();
+        let shard_layout = self
+            .runtime_adapter
+            .get_shard_layout_from_prev_block(chunk_header.prev_block_hash_ref())?;
+
+        let hashes = Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout);
+        let (root, proofs) = merklize(&hashes);
+        if chunk_header.outgoing_receipts_root() != root {
+            return Err(near_chunks_primitives::Error::Other(format!(
+                "unexpected outgoing receipts root; want: {}, but got: {}",
+                chunk_header.outgoing_receipts_root(),
+                root
+            )));
+        }
+
+        let mut receipts_by_shard =
+            Chain::group_receipts_by_shard(outgoing_receipts.clone(), &shard_layout);
+        let proofs = proofs
+            .into_iter()
+            .enumerate()
+            .map(|(proof_shard_id, proof)| {
+                let proof_shard_id = proof_shard_id as u64;
+                let receipts = receipts_by_shard.remove(&proof_shard_id).unwrap_or_else(Vec::new);
+                let shard_proof = ShardProof {
+                    from_shard_id: shard_id,
+                    to_shard_id: proof_shard_id,
+                    proof: proof,
+                };
+                make_elem(ReceiptProof(receipts, shard_proof))
+            })
+            .collect();
+        Ok(proofs)
+    }
+
     /// Prepares response to a partial encoded chunk request from a chunk read
     /// from the storage.
     ///
@@ -1102,75 +1143,30 @@ impl ShardsManager {
     fn prepare_partial_encoded_chunk_response_from_chunk(
         &mut self,
         request: PartialEncodedChunkRequestMsg,
-        chain_store: &mut ChainStore,
         rs: &mut ReedSolomonWrapper,
         chunk: ShardChunk,
     ) -> Option<PartialEncodedChunkResponseMsg> {
-        // TODO(mina86): Is it correct to use rs.data_shard_count() and
-        // rs.total_shard_count() here?  Can those values change over time?
         let total_parts = rs.total_shard_count();
         for ord in request.part_ords.iter() {
             let ord: usize = (*ord).try_into().unwrap();
             if ord >= total_parts {
-                debug!(target:"chunks", "Not sending {:?}, requested part_ord {} but we only expect {} total",
+                warn!(target:"chunks", "Not sending {}, requested part_ord {} but we only expect {} total",
                        request.chunk_hash.0, ord, total_parts);
                 return None;
             }
         }
 
-        // Figure out basic parameters such as shard id, epoch id, protocol
-        // version and shard layout.  Those will be needed later when fetching
-        // other data and constructing encoded shard chunk.
         let header = chunk.cloned_header();
-        let prev_block_hash = header.prev_block_hash_ref();
-        let shard_id = header.shard_id();
-        let shard_layout = self
-            .runtime_adapter
-            .get_shard_layout_from_prev_block(prev_block_hash)
-            .map_err(|err| {
-                debug!(target: "chunks", "Not sending {:?}, failed to get shard layout: {}", request.chunk_hash.0, err);
-            })
-            .ok()?;
 
         // Get outgoing receipts for the chunk and construct vector of their
         // proofs.
-        let outgoing_receipts = chain_store
-            .get_outgoing_receipts_for_shard(
-                &*self.runtime_adapter,
-                *chunk.prev_block(),
-                shard_id,
-                chunk.height_included(),
-            )
+        let outgoing_receipts = chunk.receipts();
+        let receipt_proofs = self
+            .make_outgoing_receipts_proofs(&header, &outgoing_receipts, |p| p)
             .map_err(|err| {
-                debug!(target: "chunks", "Not sending {:?}, failed to get outgoing receipts: {}", request.chunk_hash.0, err);
-            }).ok()?;
-        let outgoing_receipts_hashes =
-            Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout);
-        let (outgoing_receipts_root, outgoing_receipts_proofs) =
-            merklize(&outgoing_receipts_hashes);
-        if header.outgoing_receipts_root() != outgoing_receipts_root {
-            error!(target: "chunks",
-                   "Not sending {:?}, expected outgoing receipts root doesn’t match calculated: {} != {}",
-                   request.chunk_hash.0, header.outgoing_receipts_root(), outgoing_receipts_root);
-            return None;
-        }
-
-        let mut receipts_by_shard =
-            Chain::group_receipts_by_shard(outgoing_receipts.clone(), &shard_layout);
-        let receipt_proofs: Vec<_> = outgoing_receipts_proofs
-            .iter()
-            .enumerate()
-            .map(|(proof_shard_id, proof)| {
-                let proof_shard_id = proof_shard_id as u64;
-                let receipts = receipts_by_shard.remove(&proof_shard_id).unwrap_or_else(Vec::new);
-                let shard_proof = ShardProof {
-                    from_shard_id: shard_id,
-                    to_shard_id: proof_shard_id,
-                    proof: proof.clone(),
-                };
-                ReceiptProof(receipts, shard_proof)
+                warn!(target: "chunks", "Not sending {}, {}", request.chunk_hash.0, err);
             })
-            .collect();
+            .ok()?;
 
         // Construct EncodedShardChunk.  If we earlier determined that we will
         // need parity parts, instruct the constructor to calculate them as
@@ -1179,27 +1175,27 @@ impl ShardsManager {
             rs,
             chunk.transactions().to_vec(),
             &outgoing_receipts).map_err(|err| {
-                debug!(target: "chunks", "Not sending {:?}, failed to encode transaction receipts: {}", request.chunk_hash.0, err);
+                warn!(target: "chunks", "Not sending {}, failed to encode transaction receipts: {}", request.chunk_hash.0, err);
             }).ok()?;
         if header.encoded_length() != encoded_length {
-            error!(target: "chunks",
-                   "Not sending {:?}, expected encoded length doesn’t match calculated: {} != {}",
+            warn!(target: "chunks",
+                   "Not sending {}, expected encoded length doesn’t match calculated: {} != {}",
                    request.chunk_hash.0, header.encoded_length(), encoded_length);
             return None;
         }
 
         let mut content = EncodedShardChunkBody { parts };
         if let Err(err) = content.reconstruct(rs) {
-            error!(target: "chunks",
-                   "Not sending {:?}, failed to reconstruct RS parity parts: {}",
+            warn!(target: "chunks",
+                   "Not sending {}, failed to reconstruct RS parity parts: {}",
                    request.chunk_hash.0, err);
             return None;
         }
 
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
         if header.encoded_merkle_root() != encoded_merkle_root {
-            error!(target: "chunks",
-                   "Not sending {:?}, expected encoded Merkle root doesn’t match calculated: {} != {}",
+            warn!(target: "chunks",
+                   "Not sending {}, expected encoded Merkle root doesn’t match calculated: {} != {}",
                    request.chunk_hash.0, header.encoded_merkle_root(), encoded_merkle_root);
             return None;
         }
@@ -1250,7 +1246,7 @@ impl ShardsManager {
         let maybe_known_parts: Option<Vec<_>> = parts_iter.collect();
         let parts = match maybe_known_parts {
             None => {
-                debug!(target:"chunks", "Not sending {:?}, some parts are missing",
+                debug!(target:"chunks", "Not sending {}, some parts are missing",
                        chunk_hash.0);
                 return None;
             }
@@ -1260,7 +1256,7 @@ impl ShardsManager {
         let maybe_known_receipts: Option<Vec<_>> = receipts_iter.collect();
         let receipts = match maybe_known_receipts {
             None => {
-                debug!(target:"chunks", "Not sending {:?}, some receipts are missing",
+                debug!(target:"chunks", "Not sending {}, some receipts are missing",
                        chunk_hash.0);
                 return None;
             }
@@ -2065,28 +2061,7 @@ impl ShardsManager {
         store_update: &mut ChainStoreUpdate<'_>,
     ) -> Result<(), Error> {
         let header = encoded_chunk.cloned_header();
-        let shard_id = header.shard_id();
-        let shard_layout =
-            self.runtime_adapter.get_shard_layout_from_prev_block(&header.prev_block_hash())?;
-        let outgoing_receipts_hashes =
-            Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout);
-        let (outgoing_receipts_root, outgoing_receipts_proofs) =
-            merklize(&outgoing_receipts_hashes);
-        assert_eq!(header.outgoing_receipts_root(), outgoing_receipts_root);
-
-        // Save this chunk into encoded_chunks & process encoded chunk to add to the store.
-        let mut receipts_by_shard =
-            Chain::group_receipts_by_shard(outgoing_receipts, &shard_layout);
-        let receipts = outgoing_receipts_proofs
-            .into_iter()
-            .enumerate()
-            .map(|(to_shard_id, proof)| {
-                let to_shard_id = to_shard_id as u64;
-                let receipts = receipts_by_shard.remove(&to_shard_id).unwrap_or_else(Vec::new);
-                let shard_proof = ShardProof { from_shard_id: shard_id, to_shard_id, proof };
-                ReceiptProof(receipts, shard_proof)
-            })
-            .collect();
+        let receipts = self.make_outgoing_receipts_proofs(&header, &outgoing_receipts, |p| p)?;
         let partial_chunk = PartialEncodedChunkV2 {
             header,
             parts: encoded_chunk
@@ -2127,16 +2102,8 @@ impl ShardsManager {
         let chunk_header = encoded_chunk.cloned_header();
         let prev_block_hash = chunk_header.prev_block_hash();
         let shard_id = chunk_header.shard_id();
-        let shard_layout =
-            self.runtime_adapter.get_shard_layout_from_prev_block(&prev_block_hash)?;
-        let outgoing_receipts_hashes =
-            Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout);
-        let (outgoing_receipts_root, outgoing_receipts_proofs) =
-            merklize(&outgoing_receipts_hashes);
-        assert_eq!(chunk_header.outgoing_receipts_root(), outgoing_receipts_root);
 
         let mut block_producer_mapping = HashMap::new();
-
         for part_ord in 0..self.runtime_adapter.num_total_parts() {
             let part_ord = part_ord as u64;
             let to_whom = self.runtime_adapter.get_part_owner(&prev_block_hash, part_ord).unwrap();
@@ -2145,20 +2112,8 @@ impl ShardsManager {
             entry.push(part_ord);
         }
 
-        let mut receipts_by_shard =
-            Chain::group_receipts_by_shard(outgoing_receipts, &shard_layout);
-        let receipt_proofs: Vec<_> = outgoing_receipts_proofs
-            .into_iter()
-            .enumerate()
-            .map(|(proof_shard_id, proof)| {
-                let proof_shard_id = proof_shard_id as u64;
-                let receipts = receipts_by_shard.remove(&proof_shard_id).unwrap_or_else(Vec::new);
-                let shard_proof =
-                    ShardProof { from_shard_id: shard_id, to_shard_id: proof_shard_id, proof };
-                Arc::new(ReceiptProof(receipts, shard_proof))
-            })
-            .collect();
-
+        let receipt_proofs =
+            self.make_outgoing_receipts_proofs(&chunk_header, &outgoing_receipts, Arc::new)?;
         for (to_whom, part_ords) in block_producer_mapping {
             let part_receipt_proofs = receipt_proofs
                 .iter()

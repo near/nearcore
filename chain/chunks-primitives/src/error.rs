@@ -14,6 +14,7 @@ pub enum Error {
     KnownPart,
     ChainError(near_chain_primitives::Error),
     IOError(std::io::Error),
+    Other(String),
 }
 
 impl fmt::Display for Error {

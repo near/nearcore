@@ -54,7 +54,6 @@ fn test_prepare_partial_encoded_chunk_response() {
     let client = &mut env.clients[0];
     let res_from_chunk = client.shards_mgr.prepare_partial_encoded_chunk_response_from_chunk(
         request.clone(),
-        client.chain.mut_store(),
         &mut client.rs,
         chunk,
     );
