@@ -28,6 +28,9 @@ pub struct RateLimiter(Arc<tokio::sync::Mutex<RateLimiter_>>);
 
 impl RateLimiter {
     pub fn new(interval: time::Duration, burst: u64) -> RateLimiter {
+        if interval.is_zero() {
+            panic!("interval has to be non-zero");
+        }
         return RateLimiter(Arc::new(tokio::sync::Mutex::new(RateLimiter_ {
             interval,
             burst,
@@ -41,7 +44,10 @@ impl RateLimiter {
     pub async fn allow(&self, ctx: &Ctx) -> anyhow::Result<()> {
         let mut rl = ctx.wrap(self.0.lock()).await?;
         let ticks_now = rl.ticks(time::Instant::now());
-        rl.tokens = std::cmp::min(rl.burst, rl.tokens + (ticks_now - rl.ticks_processed));
+        rl.tokens = std::cmp::min(
+            rl.burst,
+            rl.tokens.wrapping_add(ticks_now.wrapping_sub(rl.ticks_processed)),
+        );
         rl.ticks_processed = ticks_now;
         if rl.tokens > 0 {
             rl.tokens -= 1;

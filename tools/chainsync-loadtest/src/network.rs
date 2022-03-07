@@ -333,6 +333,8 @@ impl Handler<NetworkViewClientMessages> for FakeClientActor {
             NetworkViewClientMessages::AnnounceAccount(_) => {
                 return NetworkViewClientResponses::NoResponse;
             }
+            #[allow(unreachable_patterns)]
+            _ => "unknown",
         };
         info!("view_request: {}", name);
         return NetworkViewClientResponses::NoResponse;

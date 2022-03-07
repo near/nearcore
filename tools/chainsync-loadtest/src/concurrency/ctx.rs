@@ -8,7 +8,7 @@ use tokio::time;
 #[derive(Debug, Clone, PartialEq)]
 pub enum CtxErr {
     /// Context (or one of the ancestors) has timed out.
-    Timeout,   
+    Timeout,
     /// Context (or one of the ancestors) has been manually cancelled.
     Cancelled,
 }

@@ -1,5 +1,5 @@
+use parking_lot::RwLock;
 use std::future::Future;
-use std::sync::RwLock;
 
 fn is_send<T: Send>() {}
 fn is_sync<T: Sync>() {}
@@ -25,8 +25,8 @@ impl<T: Clone + Send + Sync> Once<T> {
 
     // set() sets the value of Once to x and returns true.
     // If the value was already set, it just returns false.
-    pub fn set(self: &Self, x: T) -> bool {
-        let mut v = self.value.write().unwrap();
+    pub fn set(&self, x: T) -> bool {
+        let mut v = self.value.write();
         if v.is_some() {
             return false;
         }
@@ -37,13 +37,13 @@ impl<T: Clone + Send + Sync> Once<T> {
     }
 
     // get() gets a clone of the value, or returns None if not set yet.
-    pub fn get(self: &Self) -> Option<T> {
-        self.value.read().unwrap().clone()
+    pub fn get(&self) -> Option<T> {
+        self.value.read().clone()
     }
 
     // wait() waits for Once to be set, then returns a clone of the value.
-    pub fn wait(self: &Self) -> impl Future<Output = T> + Send + '_ {
-        let l = self.value.read().unwrap();
+    pub fn wait(&self) -> impl Future<Output = T> + Send + '_ {
+        let l = self.value.read();
         let v = (*l).clone();
         let n = self.notify.notified();
         drop(l);

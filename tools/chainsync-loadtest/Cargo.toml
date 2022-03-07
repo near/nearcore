@@ -15,6 +15,7 @@ name = "chainsync-loadtest"
 [dependencies]
 clap = "=3.0.0-beta.2"
 actix = "=0.11.0-beta.2"
+parking_lot = "0.11.2"
 tracing = "0.1.13"
 tracing-subscriber = "0.2.4"
 openssl-probe = "0.1.4"
