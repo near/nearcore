@@ -15,6 +15,12 @@ mod disabled {
     }
 }
 
+/// Object that can be used to measure elapsed time between its creation and destruction.
+///
+/// It will print into the log, the amount of elapsed time.
+/// Moreover if you use the 'snapshot' calls to mark important pieces of the computation,
+/// you'll get a nice summary of where the time was spent.
+
 #[cfg(feature = "delay_detector")]
 mod enabled {
     use cpu_time::ProcessTime;
@@ -51,12 +57,14 @@ mod enabled {
                 min_delay: Duration::from_millis(50),
             }
         }
-
+        /// Set the 'expected' amount of time that the computation should take.
         pub fn min_delay(mut self, min_delay: Duration) -> Self {
             self.min_delay = min_delay;
             self
         }
 
+        /// Marks that the part of the computation was finished. This allows DelayDetector
+        /// to measure (and then display) more detailed time breakdown.
         pub fn snapshot(&mut self, msg: &str) {
             let now = Instant::now();
             let cpu_time = ProcessTime::now();
