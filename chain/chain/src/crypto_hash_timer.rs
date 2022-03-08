@@ -42,7 +42,7 @@ impl Drop for CryptoHashTimer {
     fn drop(&mut self) {
         let time_passed = Clock::instant() - self.start;
         let mut guard_ = CRYPTO_HASH_TIMER_RESULTS.lock().unwrap();
-        let previous = guard_.get(&self.key).unwrap_or(&(Duration::ZERO.clone())).clone();
+        let previous = guard_.get(&self.key).copied().unwrap_or_default();
         guard_.put(self.key, time_passed + previous);
     }
 }
