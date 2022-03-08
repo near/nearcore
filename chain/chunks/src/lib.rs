@@ -1058,8 +1058,8 @@ impl ShardsManager {
     /// If the partial chunk can satisfy the requests (i.e. contains all
     /// necessary parts and shards) the method returns
     /// a [`PartialEncodedChunkResponseMsg`] object; otherwise returns `None`.
-    #[cfg_attr(feature = "test_features", visibility::make(pub))]
-    fn prepare_partial_encoded_chunk_response_from_partial(
+    // pub for testing
+    pub fn prepare_partial_encoded_chunk_response_from_partial(
         request: PartialEncodedChunkRequestMsg,
         partial_chunk: &PartialEncodedChunk,
     ) -> Option<PartialEncodedChunkResponseMsg> {
@@ -1092,7 +1092,11 @@ impl ShardsManager {
         )
     }
 
-    /// Constructs a vector of [`ReceiptsProof`]s for specified chunk.
+    /// Constructs a vector of receipt proofs for specified chunk.
+    ///
+    /// The `make_elem` argument converts `ReceiptsProof` values into objects
+    /// which are returned from this function.  In practice this is used to
+    /// either return `ReceiptProof` directly or wrap the object into `Arc`.
     fn make_outgoing_receipts_proofs<T>(
         &self,
         chunk_header: &ShardChunkHeader,
@@ -1107,15 +1111,14 @@ impl ShardsManager {
         let hashes = Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout);
         let (root, proofs) = merklize(&hashes);
         if chunk_header.outgoing_receipts_root() != root {
-            return Err(near_chunks_primitives::Error::Other(format!(
-                "unexpected outgoing receipts root; want: {}, but got: {}",
-                chunk_header.outgoing_receipts_root(),
-                root
-            )));
+            return Err(near_chunks_primitives::Error::UnexpectedOutgoingRemeiptsRoot {
+                want: chunk_header.outgoing_receipts_root(),
+                got: root
+            });
         }
 
         let mut receipts_by_shard =
-            Chain::group_receipts_by_shard(outgoing_receipts.clone(), &shard_layout);
+            Chain::group_receipts_by_shard(outgoing_receipts.to_vec(), &shard_layout);
         let proofs = proofs
             .into_iter()
             .enumerate()
@@ -1139,16 +1142,16 @@ impl ShardsManager {
     /// This requires encoding the chunk and as such is computationally
     /// expensive operation.  If possible, the request should be served from
     /// EncodedChunksCacheEntry or PartialEncodedChunk instead.
-    #[cfg_attr(feature = "test_features", visibility::make(pub))]
-    fn prepare_partial_encoded_chunk_response_from_chunk(
+    // pub for testing
+    pub fn prepare_partial_encoded_chunk_response_from_chunk(
         &mut self,
         request: PartialEncodedChunkRequestMsg,
         rs: &mut ReedSolomonWrapper,
         chunk: ShardChunk,
     ) -> Option<PartialEncodedChunkResponseMsg> {
         let total_parts = rs.total_shard_count();
-        for ord in request.part_ords.iter() {
-            let ord: usize = (*ord).try_into().unwrap();
+        for &ord in request.part_ords.iter() {
+            let ord: usize = ord.try_into().unwrap();
             if ord >= total_parts {
                 warn!(target:"chunks", "Not sending {}, requested part_ord {} but we only expect {} total",
                        request.chunk_hash.0, ord, total_parts);

@@ -66,7 +66,7 @@ performance_stats = [
   "near-network/performance_stats",
 ]
 expensive_tests = []
-test_features = ["nearcore/test_features", "near-chunks/test_features"]
+test_features = ["nearcore/test_features"]
 protocol_feature_alt_bn128 = [
     "near-primitives/protocol_feature_alt_bn128",
     "node-runtime/protocol_feature_alt_bn128",

@@ -1,5 +1,7 @@
 use std::fmt;
 
+use near_primitives::hash::CryptoHash;
+
 #[derive(Debug)]
 pub enum Error {
     InvalidPartMessage,
@@ -14,7 +16,10 @@ pub enum Error {
     KnownPart,
     ChainError(near_chain_primitives::Error),
     IOError(std::io::Error),
-    Other(String),
+    UnexpectedOutgoingRemeiptsRoot {
+        want: CryptoHash,
+        got: CryptoHash,
+    }
 }
 
 impl fmt::Display for Error {
