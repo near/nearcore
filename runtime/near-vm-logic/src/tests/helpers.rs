@@ -3,10 +3,8 @@ use near_primitives_core::{config::ExtCosts, types::Gas};
 use near_vm_errors::VMLogicError;
 use std::collections::HashMap;
 
-#[allow(dead_code)]
 type Result<T> = ::std::result::Result<T, VMLogicError>;
 
-#[allow(dead_code)]
 pub fn promise_create(
     logic: &mut crate::VMLogic<'_>,
     account_id: &[u8],
@@ -27,7 +25,6 @@ pub fn promise_create(
     )
 }
 
-#[allow(dead_code)]
 pub fn promise_batch_action_function_call(
     logic: &mut VMLogic<'_>,
     promise_index: u64,
@@ -48,7 +45,6 @@ pub fn promise_batch_action_function_call(
     )
 }
 
-#[allow(dead_code)]
 pub fn promise_batch_action_add_key_with_function_call(
     logic: &mut VMLogic<'_>,
     promise_index: u64,
@@ -84,19 +80,10 @@ macro_rules! map(
      };
 );
 
-#[allow(dead_code)]
-pub fn print_costs() {
-    with_ext_cost_counter(|cc| {
-        println!("{:#?}", cc.iter().collect::<std::collections::BTreeMap<_, _>>())
-    });
-    reset_costs_counter();
-}
-
 pub fn reset_costs_counter() {
     with_ext_cost_counter(|cc| cc.clear())
 }
 
-#[allow(dead_code)]
 pub fn assert_costs(expected: HashMap<ExtCosts, u64>) {
     with_ext_cost_counter(|cc| assert_eq!(*cc, expected));
     reset_costs_counter();
