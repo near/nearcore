@@ -15,7 +15,12 @@ pub enum Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        return write!(f, "{:?}", self);
+        f.write_str(match self {
+            Self::Timeout => "ctx::Error::Timeout: context or one of the ancestors has timed out",
+            Self::Cancelled => {
+                "ctx::Error::Cancelled: context or one of the ancestors has been cancelled"
+            }
+        })
     }
 }
 
