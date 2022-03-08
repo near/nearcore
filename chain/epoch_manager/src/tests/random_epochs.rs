@@ -21,35 +21,6 @@ fn test_random_epochs() {
     run_with_seed_range(2, 10, 1000);
 }
 
-#[allow(dead_code)]
-fn minimal_repro(epoch_length: u64, num_heights: u64, max_seed: u64) {
-    let mut epoch_length = epoch_length;
-    let mut num_heights = num_heights;
-    if !std::panic::catch_unwind(move || run_with_seed_range(epoch_length, num_heights, max_seed))
-        .is_err()
-    {
-        println!("PASS");
-        return;
-    }
-    while epoch_length > 1
-        && std::panic::catch_unwind(move || {
-            run_with_seed_range(epoch_length - 1, num_heights, max_seed)
-        })
-        .is_err()
-    {
-        epoch_length -= 1;
-    }
-    while num_heights > 1
-        && std::panic::catch_unwind(move || {
-            run_with_seed_range(epoch_length, num_heights * 4 / 5, max_seed)
-        })
-        .is_err()
-    {
-        num_heights = num_heights * 4 / 5;
-    }
-    panic!("Found! run_with_seed_range({}, {}, {})", epoch_length, num_heights, max_seed);
-}
-
 fn run_with_seed_range(epoch_length: u64, num_heights: u64, max_seed: u64) {
     for test_seed in 0..max_seed {
         if let Err(e) =
