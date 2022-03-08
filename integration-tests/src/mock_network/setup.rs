@@ -134,6 +134,7 @@ pub fn setup_mock_network(
             panic!("start height must be the last block of an epoch");
         }
 
+        // copy chain info
         chain_store_update
             .copy_chain_state_as_of_block(
                 &hash,
@@ -144,6 +145,7 @@ pub fn setup_mock_network(
         chain_store_update.commit().unwrap();
         info!(target:"mock_network", "Done preparing chain state");
 
+        // copy epoch info
         let mut epoch_manager = EpochManager::new_from_genesis_config(
             client_runtime.get_store(),
             &config.genesis.config,
@@ -155,9 +157,17 @@ pub fn setup_mock_network(
         )
         .unwrap();
         let header = network_chain_store.get_block(&hash).unwrap().header();
-        epoch_manager.copy_epoch_info_as_of_block(header, &mut mock_epoch_manager).unwrap();
+        epoch_manager
+            .copy_epoch_info_as_of_block(
+                &hash,
+                header.epoch_id(),
+                header.next_epoch_id(),
+                &mut mock_epoch_manager,
+            )
+            .unwrap();
         info!(target:"mock_network", "Done preparing epoch info");
 
+        // copy state for all shards
         let next_hash = *network_chain_store.get_next_block_hash(&hash).unwrap();
         let next_block = network_chain_store.get_block(&next_hash).unwrap();
         for (shard_id, chunk_header) in next_block.chunks().iter().enumerate() {

@@ -142,21 +142,26 @@ impl EpochManager {
         Ok(epoch_manager)
     }
 
+    /// Only used in mock network
+    /// Copy the necessary epoch info related to `block_hash` from `source_epoch_manager` to
+    /// the current epoch manager.
+    /// Note that this function doesn't copy info stored in EpochInfoAggregator, so `block_hash` must be
+    /// the last block in an epoch in order for the epoch manager to work properly after this function
+    /// is called
     pub fn copy_epoch_info_as_of_block(
         &mut self,
-        block_header: &BlockHeader,
+        block_hash: &CryptoHash,
+        epoch_id: &EpochId,
+        next_epoch_id: &EpochId,
         source_epoch_manager: &mut EpochManager,
     ) -> Result<(), EpochError> {
-        let block_hash = block_header.hash();
         let mut store_update = self.store.store_update();
-        let epoch_id = block_header.epoch_id();
         self.save_epoch_info(
             &mut store_update,
             epoch_id,
             source_epoch_manager.get_epoch_info(epoch_id)?.clone(),
         )?;
         // save next epoch info too
-        let next_epoch_id = block_header.next_epoch_id();
         self.save_epoch_info(
             &mut store_update,
             next_epoch_id,

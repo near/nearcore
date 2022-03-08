@@ -42,7 +42,8 @@ struct Cli {
     /// Sync mode of the binary
     #[clap(short = 'S', long)]
     sync: bool,
-    /// Start running the client from this specified height
+    /// If specified, the binary will set up client home dir before starting the client node
+    /// so head of the client chain will be the specified height when the client starts
     #[clap(short = 's', long)]
     client_start_height: Option<BlockHeight>,
     /// Target height that the client should sync to before stopping. If not specified,
