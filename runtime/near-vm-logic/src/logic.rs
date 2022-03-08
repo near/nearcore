@@ -1555,11 +1555,11 @@ impl<'a> VMLogic<'a> {
     /// For example, if 40 gas is leftover from the current method call and three functions specify
     /// the weights 1, 5, 2 then 5, 25, 10 gas will be added to each function call respectively,
     /// using up all remaining available gas.
-    /// 
+    ///
     /// If the `gas_weight` parameter is set as a large value, the amount of distributed gas
     /// to each action can be 0 or a very low value because the amount of gas per weight is
     /// based on the floor division of the amount of gas by the sum of weights.
-    /// 
+    ///
     /// Any remaining gas will be distributed to the last scheduled function call with a weight
     /// specified.
     ///
