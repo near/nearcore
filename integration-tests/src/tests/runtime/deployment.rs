@@ -62,8 +62,10 @@ fn test_deploy_max_size_contract() {
         node_user.deploy_contract(test_contract_id, wasm_binary.to_vec()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
-    assert!(
-        transaction_result.receipts_outcome[0].outcome.gas_burnt
-            <= config.wasm_config.limit_config.max_gas_burnt,
-    );
+
+    // Check total TX gas is in limit
+    let tx_conversion_gas_burnt = transaction_result.transaction_outcome.outcome.gas_burnt;
+    let deployment_gas_burnt = transaction_result.receipts_outcome[0].outcome.gas_burnt;
+    let total_gas_burnt = tx_conversion_gas_burnt + deployment_gas_burnt;
+    assert!(total_gas_burnt <= config.wasm_config.limit_config.max_gas_burnt,);
 }
