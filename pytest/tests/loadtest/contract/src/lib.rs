@@ -10,7 +10,7 @@ near_sdk::setup_alloc!();
 #[near_bindgen]
 #[derive(BorshDeserialize, BorshSerialize)]
 pub struct Counter {
-    val: i8,
+    val: u64,
     records: LookupMap<String, String>,
 }
 
@@ -21,7 +21,7 @@ impl Default for Counter {
 }
 #[near_bindgen]
 impl Counter {
-    pub fn get_num(&self) -> i8 {
+    pub fn get_num(&self) -> u64 {
         return self.val;
     }
 

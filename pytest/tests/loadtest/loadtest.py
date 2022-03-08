@@ -41,7 +41,7 @@ if __name__ == '__main__':
             result = my_account.send_call_contract_raw_tx(
                 contract_id=f"shard{y}.test.near",
                 method_name="increment_many",
-                args=f'{{"how_many": {max(400 + i, 450)}}}'.encode("utf-8"),
+                args=f'{{"how_many": {min(400 + i, 450)}}}'.encode("utf-8"),
                 deposit=0)
             results.append(result)
 
