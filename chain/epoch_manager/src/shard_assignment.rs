@@ -82,14 +82,15 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = (usize, T)>
     min_validators_per_shard: usize,
 ) {
     let mut buffer = Vec::with_capacity(shard_index.len());
+    // Stores (shard_id, cp_index) meaning that cp at cp_index has already been
+    // added to shard shard_id.  Used to make sure we don’t add a cp to the same
+    // shard multiple times.
     let mut seen = std::collections::HashSet::<(ShardId, usize)>::with_capacity(
         result.len() * min_validators_per_shard,
     );
 
     while shard_index.peek().unwrap().0 < min_validators_per_shard {
-        let (cp_index, cp) = cp_iter
-            .next()
-            .expect("cp_iter should contain enough elements to minimally fill each shard");
+        let (cp_index, cp) = cp_iter.next().unwrap();
         // Decide which shard to assign this chunk producer to.  We mustn’t
         // assign producers to a single shard multiple times.
         loop {
