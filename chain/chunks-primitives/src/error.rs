@@ -16,10 +16,7 @@ pub enum Error {
     KnownPart,
     ChainError(near_chain_primitives::Error),
     IOError(std::io::Error),
-    UnexpectedOutgoingRemeiptsRoot {
-        want: CryptoHash,
-        got: CryptoHash,
-    }
+    UnexpectedOutgoingRemeiptsRoot { want: CryptoHash, got: CryptoHash },
 }
 
 impl fmt::Display for Error {

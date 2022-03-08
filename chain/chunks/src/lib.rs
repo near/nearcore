@@ -1113,7 +1113,7 @@ impl ShardsManager {
         if chunk_header.outgoing_receipts_root() != root {
             return Err(near_chunks_primitives::Error::UnexpectedOutgoingRemeiptsRoot {
                 want: chunk_header.outgoing_receipts_root(),
-                got: root
+                got: root,
             });
         }
 
