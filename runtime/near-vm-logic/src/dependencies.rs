@@ -278,7 +278,13 @@ pub trait External {
         prepaid_gas: Gas,
     ) -> Result<()>;
 
-    /// Attach the [`FunctionCallAction`] action to an existing receipt.
+    /// Attach the [`FunctionCallAction`] action to an existing receipt. This method has similar
+    /// functionality to [`append_action_function_call`](Self::append_action_function_call) except
+    /// that it allows specifying a weight to use leftover gas from the current execution.
+    ///
+    /// `prepaid_gas` and `gas_weight` can either be specified or both. If a `gas_weight` is
+    /// specified, the action should be allocated gas in
+    /// [`distribute_unused_gas`](Self::distribute_unused_gas).
     ///
     /// # Arguments
     ///

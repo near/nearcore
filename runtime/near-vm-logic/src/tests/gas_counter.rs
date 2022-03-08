@@ -111,7 +111,6 @@ fn function_call_weight_check(function_calls: impl IntoIterator<Item = (u64, u64
     let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
     let mut logic = logic_builder.build_with_prepaid_gas(gas_limit);
 
-    let mut weight_sum = 0u128;
     for (static_gas, gas_weight) in function_calls {
         let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
         promise_batch_action_function_call_weight(
@@ -122,14 +121,11 @@ fn function_call_weight_check(function_calls: impl IntoIterator<Item = (u64, u64
             GasWeight(gas_weight),
         )
         .expect("batch action function call should succeed");
-
-        weight_sum += gas_weight as u128;
     }
     let outcome = logic.compute_outcome_and_distribute_gas();
 
-    // Verify that all gas is used when only one ratio is specified
-    println!("{} {} {}", outcome.used_gas, gas_limit, weight_sum);
-    assert!(outcome.used_gas as u128 + weight_sum - 1 >= gas_limit as u128);
+    // Verify that all gas was consumed (assumes at least one ratio is provided)
+    assert!(outcome.used_gas == gas_limit);
 }
 
 #[cfg(feature = "protocol_feature_function_call_weight")]

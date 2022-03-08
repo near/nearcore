@@ -463,6 +463,8 @@ impl<'a> External for RuntimeExt<'a> {
 
             let mut distributed = 0;
             for (action_index, GasWeight(weight)) in &self.gas_weights {
+                // This can't overflow because the gas_per_weight is floor division
+                // of the weight sum.
                 let assigned_gas = gas_per_weight * weight;
 
                 distribute_gas(action_index, assigned_gas);
