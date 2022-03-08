@@ -1,7 +1,6 @@
 use crate::{VMContext, VMLimitConfig};
 use near_primitives_core::config::ViewConfig;
 
-#[allow(dead_code)]
 pub fn get_context(input: Vec<u8>, is_view: bool) -> VMContext {
     VMContext {
         current_account_id: "alice.near".parse().unwrap(),
