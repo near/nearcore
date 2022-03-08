@@ -237,9 +237,6 @@ mod test {
         for height in 1..10 {
             send_txs(&mut env, &signers, height, genesis_hash);
 
-            // assert!(response == NetworkClientResponses::RequestRouted || response == NetworkClientResponses::ValidTx);
-            // let (e, _, _) = create_chunk_on_height_for_shard(&mut env.clients[0], height, 0);
-            // let chunk = e.decode_chunk(runtime.num_data_parts()).unwrap();
             let block = env.clients[0].produce_block(height).unwrap().unwrap();
 
             let hash = *block.hash();
