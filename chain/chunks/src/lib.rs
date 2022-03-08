@@ -1096,7 +1096,7 @@ impl ShardsManager {
     fn make_outgoing_receipts_proofs<T>(
         &self,
         chunk_header: &ShardChunkHeader,
-        outgoing_receipts: &Vec<Receipt>,
+        outgoing_receipts: &[Receipt],
         make_elem: impl Fn(ReceiptProof) -> T,
     ) -> Result<Vec<T>, near_chunks_primitives::Error> {
         let shard_id = chunk_header.shard_id();
