@@ -9,11 +9,10 @@ use near_primitives::{
 };
 use nearcore::config::GenesisExt;
 
-/// One NEAR, divisible by 10^24.
-const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
+const ONE_NEAR: u128 = 10u128.pow(24);
 
-#[test]
 /// Tests if the maximum allowed contract can be deployed with current gas limits
+#[test]
 fn test_deploy_max_size_contract() {
     let account_id: AccountId = "alice.near".parse().unwrap();
     let test_contract_id: AccountId = "test_contract.alice.near".parse().unwrap();
@@ -42,7 +41,7 @@ fn test_deploy_max_size_contract() {
     let max_transaction_size = config.wasm_config.limit_config.max_transaction_size;
     let contract_size = max_contract_size.min(max_transaction_size - tx_overhead);
     // Enough token to store contract + 1 NEAR for account
-    let token_balance = config.storage_amount_per_byte * contract_size as u128 + NEAR_BASE;
+    let token_balance = config.storage_amount_per_byte * contract_size as u128 + ONE_NEAR;
 
     // Create test account
     let transaction_result = node_user
