@@ -11,8 +11,9 @@ use borsh::BorshSerialize;
 use chrono::DateTime;
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse, CryptoHashTimer, StateSplitRequest, StateSplitResponse,
+    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
 };
+use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, ValidatorInfoIdentifier};
 use near_chain::{
