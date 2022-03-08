@@ -125,7 +125,7 @@ fn function_call_weight_check(function_calls: impl IntoIterator<Item = (u64, u64
     let outcome = logic.compute_outcome_and_distribute_gas();
 
     // Verify that all gas was consumed (assumes at least one ratio is provided)
-    assert!(outcome.used_gas == gas_limit);
+    assert_eq!(outcome.used_gas, gas_limit);
 }
 
 #[cfg(feature = "protocol_feature_function_call_weight")]
