@@ -19,7 +19,8 @@ use near_telemetry::TelemetryActor;
 use nearcore::{get_store_path, NearConfig, NightshadeRuntime};
 use std::cmp::min;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
+use std::thread;
 use std::time::Duration;
 use tracing::info;
 
@@ -158,25 +159,45 @@ pub fn setup_mock_network(
         for (shard_id, chunk_header) in next_block.chunks().iter().enumerate() {
             info!(target:"mock_network", "Preparing state for shard {}", shard_id);
             let shard_id = shard_id as u64;
-            let state_root = &chunk_header.prev_state_root();
+            let state_root = chunk_header.prev_state_root();
             let state_root_node =
                 mock_network_runtime.get_state_root_node(shard_id, &hash, &state_root).unwrap();
             let num_parts = get_num_state_parts(state_root_node.memory_usage);
+            let mut handlers = vec![];
+            let finished_parts_count = Arc::new(RwLock::new(0));
             for part_id in 0..num_parts {
-                info!(target:"mock_network", "Copying part {}/{}", part_id, num_parts);
-                let state_part = mock_network_runtime
-                    .obtain_state_part(shard_id, &next_hash, state_root, part_id, num_parts)
-                    .unwrap();
-                client_runtime
-                    .apply_state_part(
-                        shard_id,
-                        state_root,
-                        part_id,
-                        num_parts,
-                        &state_part,
-                        &mock_network_runtime.get_epoch_id_from_prev_block(&hash).unwrap(),
-                    )
-                    .unwrap();
+                let mock_network_runtime1 = mock_network_runtime.clone();
+                let client_runtime1 = client_runtime.clone();
+                let finished_parts_count1 = finished_parts_count.clone();
+                let hash1 = hash.clone();
+                let state_root1 = state_root.clone();
+                let next_hash1 = next_hash.clone();
+                handlers.push(thread::spawn(move || {
+                    let state_part = mock_network_runtime1
+                        .obtain_state_part(shard_id, &next_hash1, &state_root1, part_id, num_parts)
+                        .unwrap();
+                    client_runtime1
+                        .apply_state_part(
+                            shard_id,
+                            &state_root1,
+                            part_id,
+                            num_parts,
+                            &state_part,
+                            &mock_network_runtime1.get_epoch_id_from_prev_block(&hash1).unwrap(),
+                        )
+                        .unwrap();
+                    let finished_parts_count_num = *finished_parts_count1.read().expect("");
+                    *finished_parts_count1.write().expect("") = finished_parts_count_num + 1;
+                    info!(
+                        target: "mock_network",
+                        "Done {}/{} parts",
+                        finished_parts_count_num + 1,
+                        num_parts
+                    );
+                }));
+            }
+            for handler in handlers {
+                handler.join().expect("Problem in copying state parts");
             }
         }
     }
