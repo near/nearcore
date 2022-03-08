@@ -130,6 +130,10 @@ pub fn setup_mock_network(
             network_head_height
         );
         let hash = network_chain_store.get_block_hash_by_height(start_height).unwrap();
+        if !mock_network_runtime.is_next_block_epoch_start(&hash).unwrap() {
+            panic!("start height must be the last block of an epoch");
+        }
+
         chain_store_update
             .copy_chain_state_as_of_block(
                 &hash,
