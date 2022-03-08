@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{env, thread};
 
-use log::error;
 use rand::Rng;
+use tracing::error;
 
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};

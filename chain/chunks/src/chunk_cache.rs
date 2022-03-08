@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
-use log::warn;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ShardChunkHeader,
 };
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 use std::collections::hash_map::Entry::Occupied;
+use tracing::warn;
 
 // This file implements EncodedChunksCache, which provides three main functionalities:
 // 1) It stores a map from a chunk hash to all the parts and receipts received so far for the chunk.
@@ -25,6 +25,8 @@ use std::collections::hash_map::Entry::Occupied;
 //    Users of the data structure are responsible for adding chunk to this map at the right time.
 
 /// A chunk is out of horizon if its height + HEIGHT_HORIZON < largest_seen_height
+// Note: If this number increases, make sure `LONG_TARGET_HEIGHT` in
+// block_sync_archival.py is updated as well.
 const HEIGHT_HORIZON: BlockHeightDelta = 1024;
 /// A chunk is out of horizon if its height > HEIGHT_HORIZON + largest_seen_height
 const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;

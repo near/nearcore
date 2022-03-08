@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
-use log::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use near_chain::types::ValidatorInfoIdentifier;
 use near_chain::{
@@ -256,11 +256,24 @@ impl ViewClientActor {
             .shard_id_to_uid(shard_id, header.epoch_id())
             .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
 
+        let tip = self.chain.head();
         let chunk_extra = self.chain.get_chunk_extra(header.hash(), &shard_uid).map_err(|err| {
             match err.kind() {
-                near_chain::near_chain_primitives::ErrorKind::DBNotFoundErr(_) => {
-                    QueryError::UnavailableShard { requested_shard_id: shard_id }
-                }
+                near_chain::near_chain_primitives::ErrorKind::DBNotFoundErr(_) => match tip {
+                    Ok(tip) => {
+                        let gc_stop_height =
+                            self.runtime_adapter.get_gc_stop_height(&tip.last_block_hash);
+                        if !self.config.archive && header.height() < gc_stop_height {
+                            QueryError::GarbageCollectedBlock {
+                                block_height: header.height(),
+                                block_hash: header.hash().clone(),
+                            }
+                        } else {
+                            QueryError::UnavailableShard { requested_shard_id: shard_id }
+                        }
+                    }
+                    Err(err) => QueryError::InternalError { error_message: err.to_string() },
+                },
                 near_chain::near_chain_primitives::ErrorKind::IOErr(error_message) => {
                     QueryError::InternalError { error_message }
                 }
@@ -459,23 +472,7 @@ impl ViewClientActor {
         &mut self,
         hashes: Vec<CryptoHash>,
     ) -> Result<Vec<BlockHeader>, near_chain::Error> {
-        let header = match self.chain.find_common_header(&hashes) {
-            Some(header) => header,
-            None => return Ok(vec![]),
-        };
-
-        let mut headers = vec![];
-        let max_height = self.chain.header_head()?.height;
-        // TODO: this may be inefficient if there are a lot of skipped blocks.
-        for h in header.height() + 1..=max_height {
-            if let Ok(header) = self.chain.get_header_by_height(h) {
-                headers.push(header.clone());
-                if headers.len() >= sync::MAX_BLOCK_HEADERS as usize {
-                    break;
-                }
-            }
-        }
-        Ok(headers)
+        self.chain.retrieve_headers(hashes, sync::MAX_BLOCK_HEADERS, None)
     }
 
     fn check_signature_account_announce(
