@@ -90,23 +90,33 @@ pub enum Cost {
     // All these host functions are estimated by executing a transaction with a
     // single function call in them, that just invokes the given host function.
     // To measure the cost of additional bytes or blocks, a function call with a
-    // large argument is measured and the total cost divided by total bytes or
-    // blocks
-    /// Estimates `sha256_base`.
+    // large argument is measured and the total cost divided by total input
+    // bytes (or blocks in the case of the RIPEMD hash).
+    /// Estimates `sha256_base`, the cost charged once per call to the
+    /// sha256-hash host function.
     Sha256Base,
-    /// Estimates `sha256_byte`.
+    /// Estimates `sha256_byte`, the cost charged per input byte in calls to the
+    /// sha256-hash host function.
     Sha256Byte,
-    /// Estimates `keccak256_base`.
+    /// Estimates `keccak256_base`, the cost charged once per call to the
+    /// keccak256-hash host function.
     Keccak256Base,
-    /// Estimates `keccak256_byte`.
+    /// Estimates `keccak256_byte`, the cost charged per input byte in calls to the
+    /// keccak256-hash host function.
     Keccak256Byte,
-    /// Estimates `keccak512_base`.
+    /// Estimates `keccak512_base`, the cost charged once per call to the
+    /// keccak512-hash host function.
     Keccak512Base,
-    /// Estimates `keccak512_byte`.
+    /// Estimates `keccak512_byte`, the cost charged per input byte in calls to the
+    /// keccak512-hash host function.
     Keccak512Byte,
-    /// Estimates `ripemd160_base`.
+    /// Estimates `ripemd160_base`, the cost charged once per call to the
+    /// ripemd160-hash host function.
     Ripemd160Base,
-    /// Estimates `ripemd160_block`.
+    /// Estimates `ripemd160_block`, the cost charged per input block in calls
+    /// to the ripemd160-hash host function. Blocks are 64 bytes, except for the
+    /// last which may be smaller. The exact number of blocks charged as a
+    /// function of input bytes `n` is `blocks(n) = (n + 9).div_ceil(64)`.
     Ripemd160Block,
     /// Estimates `ecrecover_base`, which covers the full cost of the host
     /// function `ecrecover` to verify an ECDSA signature and extract the
