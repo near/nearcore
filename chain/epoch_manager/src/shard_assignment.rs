@@ -1,6 +1,6 @@
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{Balance, NumShards, ShardId};
-use near_primitives::utils::min_heap::MinHeap;
+use near_primitives::utils::min_heap::{MinHeap, PeekMut};
 
 /// Assign chunk producers (a.k.a. validators) to shards.  The i-th element
 /// of the output corresponds to the validators assigned to the i-th shard.
@@ -45,7 +45,7 @@ pub fn assign_shards<T: HasStake + Eq + Clone>(
     // First, distribute chunk producers until all shards have at least the
     // minimum requested number.  If there are not enough validators to satisfy
     // that requirement, assign some of the validators to multiple shards.
-    let mut chunk_producers = chunk_producers.into_iter().cycle();
+    let mut chunk_producers = chunk_producers.into_iter().enumerate().cycle();
     assign_with_possible_repeats(
         &mut shard_index,
         &mut result,
@@ -64,7 +64,7 @@ pub fn assign_shards<T: HasStake + Eq + Clone>(
             .map(|(count, stake, shard_id)| (stake, count, shard_id))
             .collect();
 
-        for cp in chunk_producers.take(remaining_producers) {
+        for (_, cp) in chunk_producers.take(remaining_producers) {
             let (least_stake, least_validator_count, shard_id) =
                 shard_index.pop().expect("shard_index should never be empty");
             shard_index.push((least_stake + cp.get_stake(), least_validator_count + 1, shard_id));
@@ -75,67 +75,63 @@ pub fn assign_shards<T: HasStake + Eq + Clone>(
     Ok(result)
 }
 
-fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = T>>(
+fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = (usize, T)>>(
     shard_index: &mut MinHeap<(usize, Balance, ShardId)>,
     result: &mut Vec<Vec<T>>,
     cp_iter: &mut I,
     min_validators_per_shard: usize,
 ) {
     let mut buffer = Vec::with_capacity(shard_index.len());
+    // Stores (shard_id, cp_index) meaning that cp at cp_index has already been
+    // added to shard shard_id.  Used to make sure we don’t add a cp to the same
+    // shard multiple times.
+    let mut seen = std::collections::HashSet::<(ShardId, usize)>::with_capacity(
+        result.len() * min_validators_per_shard,
+    );
 
     while shard_index.peek().unwrap().0 < min_validators_per_shard {
-        let cp = cp_iter
-            .next()
-            .expect("cp_iter should contain enough elements to minimally fill each shard");
-        let (least_validator_count, shard_stake, shard_id) =
-            shard_index.pop().expect("shard_index should never be empty");
-
-        if result[usize::try_from(shard_id).unwrap()].contains(&cp) {
-            // `cp` is already assigned to this shard, need to assign elsewhere
-
-            // `buffer` tracks shards `cp` is already in, these will need to be pushed back into
-            // shard_index when we eventually assign `cp`.
-            buffer.push((least_validator_count, shard_stake, shard_id));
-            loop {
-                // We can still expect that there exists a shard cp has not been assigned to
-                // because we check above that there are at least `min_validators_per_shard` distinct
-                // chunk producers. This means the worst case scenario is in the end every chunk
-                // producer is assigned to every shard, in which case we would not be trying to
-                // assign a chunk producer right now.
-                let (least_validator_count, shard_stake, shard_id) =
-                    shard_index.pop().expect("shard_index should never be empty");
-                if least_validator_count >= min_validators_per_shard {
-                    // All remaining shards have min_validators_per_shard chunk
-                    // producers assigned to them.  Don’t assign current cp to
-                    // any shard and move to next cp.
-                    buffer.push((least_validator_count, shard_stake, shard_id));
-                    break;
-                } else if result[usize::try_from(shard_id).unwrap()].contains(&cp) {
-                    // TODO: The contains check in the condition makes this an
-                    // O(N^2) algorithm.  At the moment there aren’t too many
-                    // validators so it should be fine but if that’s becomes an
-                    // issue we should switch to a hash set.
-                    buffer.push((least_validator_count, shard_stake, shard_id))
-                } else {
-                    // `cp` is not yet assigned to the shard and the shard still
-                    // needs more validators.  Assign `cp` to it and move to
-                    // next cp.
-                    buffer.push((
-                        least_validator_count + 1,
-                        shard_stake + cp.get_stake(),
-                        shard_id,
-                    ));
-                    result[usize::try_from(shard_id).unwrap()].push(cp);
+        // cp_iter is an infinite cycle iterator so getting next value can never
+        // fail.  cp_index is index of each element in the iterator but the
+        // indexing is done before cycling thus the same cp always gets the same
+        // cp_index.
+        let (cp_index, cp) = cp_iter.next().unwrap();
+        // Decide which shard to assign this chunk producer to.  We mustn’t
+        // assign producers to a single shard multiple times.
+        loop {
+            match shard_index.peek_mut() {
+                None => {
+                    // No shards left which don’t already contain this chunk
+                    // producer.  Skip it and move to another producer.
                     break;
                 }
+                Some(top) if top.0 >= min_validators_per_shard => {
+                    // `shard_index` is sorted by number of chunk producers,
+                    // thus all remaining shards have min_validators_per_shard
+                    // producers already assigned to them.  Don’t assign current
+                    // one to any shard and move to next cp.
+                    break;
+                }
+                Some(mut top) if seen.insert((top.2, cp_index)) => {
+                    // Chunk producer is not yet assigned to the shard and the
+                    // shard still needs more producers.  Assign `cp` to it and
+                    // move to next one.
+                    top.0 += 1;
+                    top.1 += cp.get_stake();
+                    result[usize::try_from(top.2).unwrap()].push(cp);
+                    break;
+                }
+                Some(top) => {
+                    // This chunk producer is already assigned to this shard.
+                    // Pop the shard from the heap for now and try assigning the
+                    // producer to the next shard.  (We’ll look back at the
+                    // shard once we figure out what to do with current `cp`).
+                    buffer.push(PeekMut::pop(top));
+                }
             }
-            for tuple in buffer.drain(..) {
-                shard_index.push(tuple);
-            }
-        } else {
-            shard_index.push((least_validator_count + 1, shard_stake + cp.get_stake(), shard_id));
-            result[usize::try_from(shard_id).unwrap()].push(cp);
         }
+        // Any shards we skipped over (because `cp` was already assigned to
+        // them) need to be put back into the heap.
+        shard_index.extend(buffer.drain(..));
     }
 }
 

@@ -55,7 +55,7 @@ near-performance-metrics = { path = "../utils/near-performance-metrics" }
 near-vm-runner = { path = "../runtime/near-vm-runner"}
 near-network-primitives = { path = "../chain/network-primitives" }
 
-delay-detector = { path = "../tools/delay_detector", optional = true }
+delay-detector = { path = "../tools/delay_detector" }
 
 [dev-dependencies]
 near-logger-utils = { path = "../test-utils/logger" }
@@ -90,7 +90,7 @@ no_cache = [
   "near-chain/no_cache",
   "near-epoch-manager/no_cache",
 ]
-delay_detector = ["near-client/delay_detector"]
+delay_detector = ["near-client/delay_detector", "delay-detector/delay_detector"]
 rosetta_rpc = ["near-rosetta-rpc"]
 json_rpc = ["near-jsonrpc"]
 protocol_feature_alt_bn128 = [

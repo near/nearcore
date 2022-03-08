@@ -1,7 +1,7 @@
 export CARGO_PROFILE_RELEASE_CODEGEN_UNITS = 1
 export CARGO_PROFILE_RELEASE_LTO = fat
 export DOCKER_BUILDKIT = 1
-export RUSTFLAGS = -D warnings
+export CARGO_BUILD_RUSTFLAGS = -D warnings
 export NEAR_RELEASE_BUILD = no
 export CARGO_TARGET_DIR = target
 
@@ -44,6 +44,7 @@ debug: neard-debug
 	$(MAKE) sandbox
 
 
+perf-release: NEAR_RELEASE_BUILD=release
 perf-release:
 	CARGO_PROFILE_RELEASE_DEBUG=true cargo build -p neard --release --features performance_stats,memory_stats
 	cargo build -p store-validator --release --features nearcore/performance_stats,nearcore/memory_stats

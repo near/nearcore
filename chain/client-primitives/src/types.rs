@@ -13,7 +13,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockReference, EpochReference, MaybeBlockId, ShardId,
+    AccountId, BlockHeight, BlockReference, EpochId, EpochReference, MaybeBlockId, ShardId,
     TransactionOrReceiptId,
 };
 use near_primitives::utils::generate_random_string;
@@ -346,6 +346,13 @@ pub enum QueryError {
     },
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
+    #[error(
+        "The data for block #{block_height} is garbage collected on this node, use an archival node to fetch historical data"
+    )]
+    GarbageCollectedBlock {
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error("Block either has never been observed on the node or has been garbage collected: {block_reference:?}")]
     UnknownBlock { block_reference: near_primitives::types::BlockReference },
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
@@ -624,6 +631,15 @@ pub struct GetStateChangesWithCauseInBlock {
 
 impl Message for GetStateChangesWithCauseInBlock {
     type Result = Result<StateChangesView, GetStateChangesError>;
+}
+
+pub struct GetStateChangesWithCauseInBlockForTrackedShards {
+    pub block_hash: CryptoHash,
+    pub epoch_id: EpochId,
+}
+
+impl Message for GetStateChangesWithCauseInBlockForTrackedShards {
+    type Result = Result<HashMap<ShardId, StateChangesView>, GetStateChangesError>;
 }
 
 pub struct GetExecutionOutcome {

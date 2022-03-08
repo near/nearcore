@@ -1,11 +1,11 @@
 use actix::Addr;
 
+use near_indexer_primitives::IndexerTransactionWithOutcome;
 use near_primitives::views;
 use node_runtime::config::tx_cost;
 
 use super::errors::FailedToFetchData;
 use super::fetchers::fetch_block_by_hash;
-use super::IndexerTransactionWithOutcome;
 
 pub(crate) async fn convert_transactions_sir_into_local_receipts(
     client: &Addr<near_client::ViewClientActor>,
