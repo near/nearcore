@@ -300,7 +300,9 @@ pub fn create_store(path: &Path) -> Store {
     Store::new(db)
 }
 
-pub fn create_read_only_store(path: &Path) -> Store {
+/// Creates a store which is unable to modify an existing RocksDB instance.
+/// Panics if a write operation is attempted.
+pub fn open_read_only_store(path: &Path) -> Store {
     let db = Arc::new(RocksDB::new_read_only(path).expect("Failed to open the database"));
     Store::new(db)
 }
