@@ -9,7 +9,7 @@ use once_cell::sync::Lazy;
 
 // Cache with the mapping from CryptoHash (blocks, chunks) to the number milliseconds that it took to process them.
 // Used only for debugging purposes.
-pub static CRYPTO_HASH_TIMER_RESULTS: Lazy<Mutex<LruCache<CryptoHash, Duration>>> =
+static CRYPTO_HASH_TIMER_RESULTS: Lazy<Mutex<LruCache<CryptoHash, Duration>>> =
     Lazy::new(|| Mutex::new(LruCache::new(10000)));
 
 /// Struct to measure computation times related to different CryptoHashes (for example chunk or block computations).
