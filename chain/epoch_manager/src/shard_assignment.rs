@@ -90,6 +90,10 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = (usize, T)>
     );
 
     while shard_index.peek().unwrap().0 < min_validators_per_shard {
+        // cp_iter is an infinite cycle iterator so getting next value can never
+        // fail.  cp_index is index of each element in the iterator but the
+        // indexing is done before cycling thus the same cp always gets the same
+        // cp_index.
         let (cp_index, cp) = cp_iter.next().unwrap();
         // Decide which shard to assign this chunk producer to.  We mustn’t
         // assign producers to a single shard multiple times.
