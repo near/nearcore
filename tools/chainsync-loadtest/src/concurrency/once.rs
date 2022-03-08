@@ -13,7 +13,7 @@ fn test<T: Clone + Send + Sync>() {
 // Once is a synchronization primitive, which stores a single value.
 // This value can be set at most once, and multiple consumers are
 // allowed to wait for that value.
-pub struct Once<T: Clone + Send + Sync> {
+pub struct Once<T> {
     value: RwLock<Option<T>>,
     notify: tokio::sync::Notify,
 }
@@ -30,7 +30,7 @@ impl<T: Clone + Send + Sync> Once<T> {
         if v.is_some() {
             return Err(x);
         }
-        *v = Some(x.clone());
+        *v = Some(x);
         self.notify.notify_waiters();
         drop(v);
         return Ok(());
