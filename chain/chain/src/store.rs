@@ -50,6 +50,7 @@ use near_store::{
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeAdapter};
 use near_store::db::DBCol::ColStateChangesForSplitStates;
+#[cfg(feature = "mock_network")]
 use std::sync::Arc;
 
 /// lru cache size
