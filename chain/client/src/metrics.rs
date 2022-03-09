@@ -83,8 +83,8 @@ pub static BLOCK_CHUNKS_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static CHUNK_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec("near_chunk_delay", "Delay between requesting and receving a chunk. Recorded only if the chunk was explicitly requested.",
+pub static CHUNK_REQUEST_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec("near_chunk_request_delay", "Delay between requesting and receiving a chunk. Recorded only if the chunk was explicitly requested.",
                              &["shard_id"],
                              Some(prometheus::exponential_buckets(0.001, 1.6, 20).unwrap()),
     )

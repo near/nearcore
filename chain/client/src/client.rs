@@ -29,7 +29,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReedSolomonWrapper,
+    ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReedSolomonWrapper,
     ShardChunkHeader, ShardInfo,
 };
 use near_primitives::transaction::SignedTransaction;
@@ -701,7 +701,7 @@ impl Client {
         block: MaybeValidated<Block>,
         provenance: Provenance,
     ) -> (Vec<AcceptedBlock>, Result<Option<Tip>, near_chain::Error>) {
-        self.record_receive_block_timestamp(block.header().prev_hash());
+        self.record_receive_block_timestamp(block.header().hash());
         let is_requested = match provenance {
             Provenance::PRODUCED | Provenance::SYNC => true,
             Provenance::NONE => false,
@@ -903,7 +903,7 @@ impl Client {
             | ProcessPartialEncodedChunkResult::NeedBlock
             | ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts => vec![],
             ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts => {
-                self.record_receive_chunk_timestamp(&header.prev_block_hash(), header.shard_id());
+                self.record_receive_chunk_timestamp(&header.chunk_hash());
                 self.chain.blocks_with_missing_chunks.accept_chunk(&header.chunk_hash());
                 self.process_blocks_with_missing_chunks()
             }
@@ -993,8 +993,12 @@ impl Client {
         self.on_block_accepted_with_optional_chunk_produce(block_hash, status, provenance, false);
     }
 
-    pub fn record_accepted_block(&mut self, block_hash: &CryptoHash) {
-        self.chunks_delay_tracker.finish_block_processing(block_hash);
+    pub fn record_accepted_block(
+        &mut self,
+        block_hash: &CryptoHash,
+        chunks: &[(ChunkHash, ShardId)],
+    ) {
+        self.chunks_delay_tracker.finish_block_processing(block_hash, chunks);
     }
 
     /// Gets called when block got accepted.
@@ -1200,11 +1204,7 @@ impl Client {
         let now = Clock::instant();
         for BlockMissingChunks { prev_hash, missing_chunks } in blocks_missing_chunks {
             for chunk in &missing_chunks {
-                self.chunks_delay_tracker.requested_chunk(
-                    &chunk.prev_block_hash(),
-                    chunk.shard_id(),
-                    now,
-                );
+                self.chunks_delay_tracker.requested_chunk(&chunk.chunk_hash(), now);
             }
             self.shards_mgr.request_chunks(
                 missing_chunks,
@@ -1220,11 +1220,7 @@ impl Client {
             orphans_missing_chunks
         {
             for chunk in &missing_chunks {
-                self.chunks_delay_tracker.requested_chunk(
-                    &chunk.prev_block_hash(),
-                    chunk.shard_id(),
-                    now,
-                );
+                self.chunks_delay_tracker.requested_chunk(&chunk.chunk_hash(), now);
             }
             self.shards_mgr.request_chunks_for_orphan(
                 missing_chunks,
@@ -1800,11 +1796,11 @@ impl Client {
         Ok(())
     }
 
-    fn record_receive_block_timestamp(&mut self, prev_block_hash: &CryptoHash) {
-        self.chunks_delay_tracker.add_block_timestamp(prev_block_hash, Clock::instant());
+    fn record_receive_block_timestamp(&mut self, block_hash: &CryptoHash) {
+        self.chunks_delay_tracker.add_block_timestamp(block_hash, Clock::instant());
     }
 
-    fn record_receive_chunk_timestamp(&mut self, prev_block_hash: &CryptoHash, shard_id: ShardId) {
-        self.chunks_delay_tracker.add_chunk_timestamp(prev_block_hash, shard_id, Clock::instant());
+    fn record_receive_chunk_timestamp(&mut self, chunk_hash: &ChunkHash) {
+        self.chunks_delay_tracker.add_chunk_timestamp(chunk_hash, Clock::instant());
     }
 }

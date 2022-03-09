@@ -1,5 +1,6 @@
 //! Client actor orchestrates Client and facilitates network connection.
 
+use crate::chunks_delay_tracker::ChunksDelayTracker;
 use crate::client::Client;
 use crate::info::{get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper};
 use crate::sync::{StateSync, StateSyncResult};
@@ -1016,9 +1017,10 @@ impl ClientActor {
             }
 
             self.info_helper.block_processed(gas_used, chunks_in_block as u64);
-            let prev_block_hash = block.header().prev_hash().clone();
+            let block_hash = block.header().hash().clone();
+            let chunks = ChunksDelayTracker::get_chunks(block);
             self.check_send_announce_account(last_final_hash);
-            self.client.record_accepted_block(&prev_block_hash);
+            self.client.record_accepted_block(&block_hash, &chunks);
         }
     }
 
