@@ -1,3 +1,4 @@
+use itertools::zip;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::mem::swap;
@@ -622,20 +623,22 @@ pub fn setup_mock_all_validators(
                                 .unwrap()
                                 .insert(*block.header().hash(), block.header().height());
                         }
-                        NetworkRequests::PartialEncodedChunkRequest { target, request } => {
-                            let create_msg = || {
-                                NetworkClientMessages::PartialEncodedChunkRequest(
-                                    request.clone(),
-                                    my_address,
-                                )
-                            };
-                            send_chunks(
-                                Arc::clone(&connectors1),
-                                validators_clone2.iter().flatten().map(|s| Some(s.clone())).enumerate(),
-                                target.account_id.as_ref().map(|s| s.clone()),
-                                drop_chunks,
-                                create_msg,
-                            );
+                        NetworkRequests::PartialEncodedChunkRequest { targets, requests } => {
+                            for (target, request) in zip(targets, requests) {
+                                let create_msg = || {
+                                    NetworkClientMessages::PartialEncodedChunkRequest(
+                                        request.clone(),
+                                        my_address,
+                                    )
+                                };
+                                send_chunks(
+                                    Arc::clone(&connectors1),
+                                    validators_clone2.iter().flatten().map(|s| Some(s.clone())).enumerate(),
+                                    target.account_id.as_ref().map(|s| s.clone()),
+                                    drop_chunks,
+                                    create_msg,
+                                );
+                            }
                         }
                         NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
                             let create_msg = || {
@@ -1395,15 +1398,17 @@ impl TestEnv {
         request: PeerManagerMessageRequest,
     ) {
         if let PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::PartialEncodedChunkRequest { target, request },
+            NetworkRequests::PartialEncodedChunkRequest { targets, requests },
         ) = request
         {
-            let target_id = self.account_to_client_index[&target.account_id.unwrap()];
-            let response = self.get_partial_encoded_chunk_response(target_id, request);
-            let accepted_blocks =
-                self.clients[id].process_partial_encoded_chunk_response(response).unwrap();
-            for block in accepted_blocks {
-                self.clients[id].on_block_accepted(block.hash, block.status, block.provenance);
+            for (target, request) in zip(targets, requests) {
+                let target_id = self.account_to_client_index[&target.account_id.unwrap()];
+                let response = self.get_partial_encoded_chunk_response(target_id, request);
+                let accepted_blocks =
+                    self.clients[id].process_partial_encoded_chunk_response(response).unwrap();
+                for block in accepted_blocks {
+                    self.clients[id].on_block_accepted(block.hash, block.status, block.provenance);
+                }
             }
         } else {
             panic!("The request is not a PartialEncodedChunk request {:?}", request);

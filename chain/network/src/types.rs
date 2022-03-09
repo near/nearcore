@@ -258,8 +258,8 @@ pub enum NetworkRequests {
 
     /// Request chunk parts and/or receipts
     PartialEncodedChunkRequest {
-        target: AccountIdOrPeerTrackingShard,
-        request: PartialEncodedChunkRequestMsg,
+        targets: Vec<AccountIdOrPeerTrackingShard>,
+        requests: Vec<PartialEncodedChunkRequestMsg>,
     },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunkResponse {

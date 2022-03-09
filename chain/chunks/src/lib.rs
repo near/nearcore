@@ -634,6 +634,8 @@ impl ShardsManager {
         }
 
         let no_account_id = me.is_none();
+        let mut targets = vec![];
+        let mut requests = vec![];
         for (target_account, part_ords) in bp_to_parts {
             // extra check that we are not sending request to ourselves.
             if no_account_id || me != target_account.as_ref() {
@@ -653,16 +655,17 @@ impl ShardsManager {
                     only_archival: request_from_archival,
                     min_height: height.saturating_sub(CHUNK_REQUEST_PEER_HORIZON),
                 };
-
-                self.peer_manager_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::PartialEncodedChunkRequest { target, request },
-                ));
+                targets.push(target);
+                requests.push(request);
             } else {
                 warn!(target: "client", "{:?} requests parts {:?} for chunk {:?} from self",
                     me, part_ords, chunk_hash
                 );
             }
         }
+        self.peer_manager_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::PartialEncodedChunkRequest { targets, requests },
+        ));
 
         Ok(())
     }
@@ -2110,8 +2113,9 @@ mod test {
         // sent to any peer tracking shard
 
         let msg = network_adapter.requests.read().unwrap()[0].as_network_requests_ref().clone();
-        if let NetworkRequests::PartialEncodedChunkRequest { target, .. } = msg {
-            assert!(target.account_id == None);
+        if let NetworkRequests::PartialEncodedChunkRequest { targets, .. } = msg {
+            assert_eq!(targets.len(), 1);
+            assert!(targets[0].account_id == None);
         } else {
             println!("{:?}", network_adapter.requests.read().unwrap());
             assert!(false);
@@ -2331,9 +2335,11 @@ mod test {
             let mut parts = HashSet::new();
             while let Some(r) = fixture.mock_network.pop() {
                 match r.as_network_requests_ref() {
-                    NetworkRequests::PartialEncodedChunkRequest { target: _, request } => {
-                        for part_ord in &request.part_ords {
-                            parts.insert(*part_ord);
+                    NetworkRequests::PartialEncodedChunkRequest { targets: _, requests } => {
+                        for request in requests {
+                            for part_ord in &request.part_ords {
+                                parts.insert(*part_ord);
+                            }
                         }
                     }
                     _ => {}

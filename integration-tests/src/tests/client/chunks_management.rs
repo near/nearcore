@@ -186,10 +186,8 @@ fn chunks_produced_and_distributed_common(
                     NetworkRequests::PartialEncodedChunkResponse { route_back: _, response: _ } => {
                         partial_chunk_msgs += 1;
                     }
-                    NetworkRequests::PartialEncodedChunkRequest {
-                        target: AccountIdOrPeerTrackingShard { account_id: Some(to_whom), .. },
-                        request: _,
-                    } => {
+                    NetworkRequests::PartialEncodedChunkRequest { .. } => {
+                        /*
                         if drop_from_1_to_4
                             && from_whom.as_ref() == "test4"
                             && to_whom.as_ref() == "test1"
@@ -203,6 +201,7 @@ fn chunks_produced_and_distributed_common(
                         {
                             info!("Observed Partial Encoded Chunk Request from test4 to test2");
                         }
+                         */
                         partial_chunk_request_msgs += 1;
                     }
                     _ => {}

@@ -23,6 +23,7 @@ use actix::{
 };
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use futures::FutureExt;
+use itertools::zip;
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Ban, BlockedPorts, Edge, InboundTcpConnect, KnownPeerStatus,
     KnownProducer, NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
@@ -1597,59 +1598,53 @@ impl PeerManagerActor {
                 self.announce_account(announce_account);
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::PartialEncodedChunkRequest { target, request } => {
-                let mut success = false;
-
-                // Make two attempts to send the message. First following the preference of `prefer_peer`,
-                // and if it fails, against the preference.
-                for prefer_peer in &[target.prefer_peer, !target.prefer_peer] {
-                    if !prefer_peer {
-                        if let Some(account_id) = target.account_id.as_ref() {
-                            if self.send_message_to_account(
-                                account_id,
-                                RoutedMessageBody::PartialEncodedChunkRequest(request.clone()),
-                            ) {
-                                success = true;
-                                break;
+            NetworkRequests::PartialEncodedChunkRequest { targets, requests } => {
+                for (target, request) in zip(targets, requests) {
+                    // Make two attempts to send the message. First following the preference of `prefer_peer`,
+                    // and if it fails, against the preference.
+                    for prefer_peer in &[target.prefer_peer, !target.prefer_peer] {
+                        if !prefer_peer {
+                            if let Some(account_id) = target.account_id.as_ref() {
+                                if self.send_message_to_account(
+                                    account_id,
+                                    RoutedMessageBody::PartialEncodedChunkRequest(request.clone()),
+                                ) {
+                                    break;
+                                }
                             }
-                        }
-                    } else {
-                        let mut matching_peers = vec![];
-                        for (peer_id, connected_peer) in self.connected_peers.iter() {
-                            if (connected_peer.full_peer_info.chain_info.archival
-                                || !target.only_archival)
-                                && connected_peer.full_peer_info.chain_info.height
-                                    >= target.min_height
-                                && connected_peer
-                                    .full_peer_info
-                                    .chain_info
-                                    .tracked_shards
-                                    .contains(&target.shard_id)
+                        } else {
+                            let mut matching_peers = vec![];
+                            for (peer_id, connected_peer) in self.connected_peers.iter() {
+                                if (connected_peer.full_peer_info.chain_info.archival
+                                    || !target.only_archival)
+                                    && connected_peer.full_peer_info.chain_info.height
+                                        >= target.min_height
+                                    && connected_peer
+                                        .full_peer_info
+                                        .chain_info
+                                        .tracked_shards
+                                        .contains(&target.shard_id)
+                                {
+                                    matching_peers.push(peer_id.clone());
+                                }
+                            }
+
+                            if let Some(matching_peer) =
+                                matching_peers.iter().choose(&mut thread_rng())
                             {
-                                matching_peers.push(peer_id.clone());
-                            }
-                        }
-
-                        if let Some(matching_peer) = matching_peers.iter().choose(&mut thread_rng())
-                        {
-                            if self.send_message_to_peer(RawRoutedMessage {
-                                target: AccountOrPeerIdOrHash::PeerId(matching_peer.clone()),
-                                body: RoutedMessageBody::PartialEncodedChunkRequest(
-                                    request.clone(),
-                                ),
-                            }) {
-                                success = true;
-                                break;
+                                if self.send_message_to_peer(RawRoutedMessage {
+                                    target: AccountOrPeerIdOrHash::PeerId(matching_peer.clone()),
+                                    body: RoutedMessageBody::PartialEncodedChunkRequest(
+                                        request.clone(),
+                                    ),
+                                }) {
+                                    break;
+                                }
                             }
                         }
                     }
                 }
-
-                if success {
-                    NetworkResponses::NoResponse
-                } else {
-                    NetworkResponses::RouteNotFound
-                }
+                NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
                 if self.send_message_to_peer(RawRoutedMessage {

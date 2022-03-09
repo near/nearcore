@@ -151,15 +151,17 @@ impl Handler<PeerManagerMessageRequest> for MockPeerManagerActor {
                             .do_send(NetworkClientMessages::BlockHeaders(headers, peer_id));
                     });
                 }
-                NetworkRequests::PartialEncodedChunkRequest { request, .. } => {
+                NetworkRequests::PartialEncodedChunkRequest { requests, .. } => {
                     run_later(ctx, self.network_delay, move |act, _ctx| {
-                        let response = act
-                            .chain_history_access
-                            .retrieve_partial_encoded_chunk(&request)
-                            .unwrap();
-                        let _response = act
-                            .client_addr
-                            .do_send(NetworkClientMessages::PartialEncodedChunkResponse(response));
+                        for request in requests {
+                            let response = act
+                                .chain_history_access
+                                .retrieve_partial_encoded_chunk(&request)
+                                .unwrap();
+                            let _response = act.client_addr.do_send(
+                                NetworkClientMessages::PartialEncodedChunkResponse(response),
+                            );
+                        }
                     });
                 }
                 NetworkRequests::Block { .. } => {}
