@@ -95,3 +95,4 @@ sandbox = [
   "near-client/sandbox",
 ]
 no_cache = ["nearcore/no_cache"]
+mock_network = ["near-chain/mock_network"]
