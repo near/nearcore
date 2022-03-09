@@ -1,5 +1,6 @@
 use crate::apply_chain_range::apply_chain_range;
 use crate::state_dump::state_dump;
+use crate::state_dump::state_dump_redis;
 use crate::{apply_chunk, epoch_info};
 use ansi_term::Color::Red;
 use near_chain::chain::collect_receipts_from_response;
@@ -80,6 +81,23 @@ pub(crate) fn dump_state(
         println!("Saving state at {:?} @ {} into {}", state_roots, height, output_file.display(),);
         new_near_config.genesis.to_file(&output_file);
     }
+}
+
+pub(crate) fn dump_state_redis(
+    height: Option<BlockHeight>,
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+) {
+    let mode = match height {
+        Some(h) => LoadTrieMode::LastFinalFromHeight(h),
+        None => LoadTrieMode::Latest,
+    };
+    let (runtime, state_roots, header) =
+        load_trie_stop_at_height(store, home_dir, &near_config, mode);
+
+    let res = state_dump_redis(runtime, &state_roots, header);
+    assert_eq!(res, Ok(()));
 }
 
 pub(crate) fn apply_range(

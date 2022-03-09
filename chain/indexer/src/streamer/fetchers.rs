@@ -17,7 +17,7 @@ pub(crate) async fn fetch_status(
     client: &Addr<near_client::ClientActor>,
 ) -> Result<near_primitives::views::StatusResponse, FailedToFetchData> {
     client
-        .send(near_client::Status { is_health_check: false })
+        .send(near_client::Status { is_health_check: false, detailed: false })
         .await?
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }

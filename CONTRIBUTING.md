@@ -20,13 +20,12 @@ If you see an obvious typo, or an obvious bug that can be fixed with a small cha
 
 ## Working on current tasks
 
-If you have never contributed to nearcore before, take a look at the work items in the issue tracker labeled with `good first issue` [here](https://github.com/nearprotocol/nearcore/labels/good%20first%20issue) and `good first test` [here](https://github.com/nearprotocol/nearcore/labels/good%20first%20test). If you see one that looks interesting, and is not claimed, please comment on the issue that you would like to start working on it, and someone from the team will assign it to you.
+If you have never contributed to nearcore before, take a look at the work items in the issue tracker labeled with `C-good-first-issue` [here](https://github.com/near/nearcore/labels/C-good-first-issue). If you see one that looks interesting, and is not claimed, please comment on the issue that you would like to start working on it, and someone from the team will assign it to you.
 
 Keep in mind the following:
 
 1. The changes need to be thoroughly tested. Refer to [this document](https://github.com/nearprotocol/nearcore/wiki/Writing-tests-for-nearcore) for our testing guidelines and overview of the testing infrastructure.
-2. Because of (1), starting with a `good first test` task is a good idea, since it helps you familiarize yourself with the testing infrastructure.
-3. If you get an issue assigned to you, please post updates at least once a week. It is also preferred for you to send a draft PR as early as you have something working, before it is ready.
+2. If you get an issue assigned to you, please post updates at least once a week. It is also preferred for you to send a draft PR as early as you have something working, before it is ready.
 
 ### Submitting the PR
 

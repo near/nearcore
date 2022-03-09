@@ -44,6 +44,7 @@ debug: neard-debug
 	$(MAKE) sandbox
 
 
+perf-release: NEAR_RELEASE_BUILD=release
 perf-release:
 	CARGO_PROFILE_RELEASE_DEBUG=true cargo build -p neard --release --features performance_stats,memory_stats
 	cargo build -p store-validator --release --features nearcore/performance_stats,nearcore/memory_stats
