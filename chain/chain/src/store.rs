@@ -2469,6 +2469,7 @@ impl<'a> ChainStoreUpdate<'a> {
     /// Only used in mock network
     /// Copy the necessary chain state related to `block_hash` from `source_store` to the current
     /// store.
+    #[cfg(feature = "mock_network")]
     pub fn copy_chain_state_as_of_block(
         &mut self,
         block_hash: &CryptoHash,
