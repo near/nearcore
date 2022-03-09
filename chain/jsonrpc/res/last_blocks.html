@@ -1,0 +1,120 @@
+<html>
+
+<head>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        table,
+        th,
+        td {
+            border: 1px solid black;
+        }
+
+        td {
+            text-align: left;
+            vertical-align: top;
+            padding: 8px;
+        }
+
+        th {
+            text-align: center;
+            vertical-align: center;
+            padding: 8px;
+            background-color: lightgrey;
+        }
+
+        tr.active {
+            background-color: #eff8bf;
+        }
+    </style>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script>
+        $(document).ready(function () {
+            var root = $("#blocks_table_tbody");
+            root.html("Loading...");
+            $.ajax({
+                type: "GET",
+                url: "/debug/api/last_blocks",
+                success: function (data) {
+                    var root = $("#blocks_table_tbody");
+                    root.html("");
+                    var max_shard = 0;
+                    data.detailed_debug_status.last_blocks.forEach(element => {
+                        element.chunks.forEach(chunk => {
+                            if (chunk.shard_id > max_shard) {
+                                max_shard = chunk.shard_id;
+                            }
+                        });
+                    });
+
+                    prepareTableHeader(max_shard);
+                    data.detailed_debug_status.last_blocks.forEach(element => {
+                        console.log(element.block_hash);
+                        var row = $('<tr>');
+
+                        row.append($('<td>').text(element.block_height));
+                        row.append($('<td>').text(element.block_hash));
+                        row.append($('<td>').text(element.processing_time_ms));
+                        row.append($('<td>').text((element.timestamp_delta / 1000000000).toFixed(3)));
+
+
+                        let shards_cells = []
+                        for (let i = 0; i < (max_shard + 1) * 3; i += 1) {
+                            shards_cells.push($('<td>'));
+                        }
+                        element.chunks.forEach(chunk => {
+                            shards_cells[chunk.shard_id * 3].text(chunk.chunk_hash);
+                            shards_cells[chunk.shard_id * 3 + 1].text((chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1));
+                            shards_cells[chunk.shard_id * 3 + 2].text(chunk.processing_time_ms);
+                        });
+
+                        for (let i = 0; i < shards_cells.length; i += 1) {
+                            row.append(shards_cells[i]);
+                        }
+                        root.append(row);
+
+                    });
+                    return;
+                },
+                dataType: "json",
+                error: function (errMsg, textStatus, errorThrown) {
+                    if (errMsg.status == 405) {
+                        // Method not allowd.
+                        alert("debug not allowed - did you set enable_debug_rpc: true in your config?")
+                    } else {
+                        alert("Failed: " + textStatus + " :" + errorThrown);
+                    }
+                },
+                contentType: "application/json; charset=utf-8",
+            })
+
+        });
+
+        function prepareTableHeader(max_shard) {
+            var headers = '<th>Block id</th> <th>Block hash</th><th>Processing Time(ms)</th><th>Next block time(s)</th>';
+            for (let i = 0; i < max_shard + 1; i += 1) {
+                headers += `<th colspan=3>Shard ${i} (hash/gas/time)</th>`;
+            }
+            $("#blocks_table_thead")[0].innerHTML = headers;
+        }
+    </script>
+</head>
+
+<body>
+    <h1>
+        Most recent blocks.
+    </h1>
+    <div id="blocks_table">
+        <table>
+            <thead id="blocks_table_thead">
+            </thead>
+            <tbody id="blocks_table_tbody">
+            </tbody>
+        </table>
+    </div>
+</body>
+
+</html>
