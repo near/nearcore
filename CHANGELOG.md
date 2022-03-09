@@ -10,6 +10,7 @@
 ### Non-protocol Changes
 
 * Switch to LZ4+ZSTD compression from Snappy in RocksDB [#6365](https://github.com/near/nearcore/pull/6365)
+* Moved Client Actor to separate thread - should improve performance [#6333](https://github.com/near/nearcore/pull/6333)
 
 ## `1.23.0` [13-12-2021]
 
