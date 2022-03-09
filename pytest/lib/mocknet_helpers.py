@@ -4,6 +4,7 @@ import time
 import base58
 import requests
 from configured_logger import logger
+from key import Key
 
 LOCAL_ADDR = '127.0.0.1'
 RPC_PORT = '3030'
@@ -21,6 +22,10 @@ def json_rpc(method, params, addr=LOCAL_ADDR, port=RPC_PORT):
     return r.json()
 
 
+def get_nonce_for_key(key: Key) -> int:
+    return get_nonce_for_pk(key.account_id, key.pk)
+
+
 def get_nonce_for_pk(account_id,
                      pk,
                      finality='optimistic',
@@ -34,7 +39,9 @@ def get_nonce_for_pk(account_id,
                            addr=addr,
                            port=port)
     logger.info(f'get_nonce_for_pk {account_id}')
-    assert access_keys['result']['keys'], account_id
+    logger.info(access_keys)
+    if not access_keys['result']['keys']:
+        raise KeyError(account_id)
 
     nonce = next((key['access_key']['nonce']
                   for key in access_keys['result']['keys']
@@ -98,3 +105,17 @@ def get_amount_yoctonear(account_id, addr=LOCAL_ADDR, port=RPC_PORT):
                  addr=addr,
                  port=port)
     return int(j.get('result', {}).get('amount', 0))
+
+
+# Returns the transaction result for the given txn_id.
+# Might return None - if transaction is not present and wait_for_success is false.
+def tx_result(txn_id, account_id, wait_for_success=False):
+    while True:
+        status = json_rpc("EXPERIMENTAL_tx_status", [txn_id, account_id])
+        if 'error' in status:
+            print("tx error: tx not ready yet")
+            if not wait_for_success:
+                return None
+            time.sleep(3)
+        else:
+            return status['result']

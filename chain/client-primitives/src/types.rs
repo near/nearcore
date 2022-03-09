@@ -346,6 +346,13 @@ pub enum QueryError {
     },
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
+    #[error(
+        "The data for block #{block_height} is garbage collected on this node, use an archival node to fetch historical data"
+    )]
+    GarbageCollectedBlock {
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error("Block either has never been observed on the node or has been garbage collected: {block_reference:?}")]
     UnknownBlock { block_reference: near_primitives::types::BlockReference },
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
@@ -358,6 +365,8 @@ pub enum QueryError {
 
 pub struct Status {
     pub is_health_check: bool,
+    // If true - return more detailed information about the current status (recent blocks etc).
+    pub detailed: bool,
 }
 
 #[derive(thiserror::Error, Debug)]

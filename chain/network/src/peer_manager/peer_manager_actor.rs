@@ -1177,9 +1177,6 @@ impl PeerManagerActor {
         for peer_id in to_unban {
             if let Err(err) = self.peer_store.peer_unban(&peer_id) {
                 error!(target: "network", ?err, "Failed to unban a peer");
-                // TODO: Do we really want to return?
-                // Doesn't this stop the trigger?
-                return;
             }
         }
 
@@ -1213,8 +1210,6 @@ impl PeerManagerActor {
 
         if let Err(err) = self.peer_store.remove_expired(&self.config) {
             error!(target: "network", ?err, "Failed to remove expired peers");
-            // TODO: Do we really want to return?
-            return;
         };
 
         let new_interval = min(
@@ -2252,11 +2247,9 @@ impl PeerManagerActor {
         addr: Addr<PeerActor>,
         throttle_controller: Option<ThrottleController>,
     ) {
-        let mut edges: Vec<Edge> = Vec::new();
-        std::mem::swap(&mut edges, &mut ibf_msg.edges);
         self.validate_edges_and_add_to_routing_table(
             peer_id.clone(),
-            edges,
+            std::mem::take(&mut ibf_msg.edges),
             throttle_controller.clone(),
         );
         actix::spawn(
