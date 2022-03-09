@@ -1,24 +1,21 @@
-#[cfg(not(feature = "single_thread_rocksdb"))]
-use std::cmp;
-use std::collections::HashMap;
-use std::io;
-use std::sync::RwLock;
-
+use crate::db::refcount::merge_refcounted_records;
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::version::DbVersion;
+use once_cell::sync::Lazy;
+use rocksdb::checkpoint::Checkpoint;
 use rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, Env, IteratorMode,
     Options, ReadOptions, WriteBatch, DB,
 };
-use strum::EnumIter;
-use tracing::warn;
-
-use near_primitives::version::DbVersion;
-
-use crate::db::refcount::merge_refcounted_records;
-
-use rocksdb::checkpoint::Checkpoint;
+#[cfg(not(feature = "single_thread_rocksdb"))]
+use std::cmp;
+use std::collections::HashMap;
+use std::io;
 use std::path::Path;
 use std::sync::atomic::Ordering;
+use std::sync::{Condvar, Mutex, RwLock};
+use strum::EnumIter;
+use tracing::{debug, error, info, warn};
 
 pub(crate) mod refcount;
 pub(crate) mod v6_to_v7;
@@ -446,6 +443,9 @@ pub struct RocksDB {
     check_free_space_counter: std::sync::atomic::AtomicU16,
     check_free_space_interval: u16,
     free_space_threshold: bytesize::ByteSize,
+
+    // RAII-style of keeping track of the number of instances of RocksDB in a global variable.
+    _instance_counter: InstanceCounter,
 }
 
 // DB was already Send+Sync. cf and read_options are const pointers using only functions in
@@ -536,6 +536,7 @@ impl RocksDBOptions {
             check_free_space_interval: self.check_free_space_interval,
             check_free_space_counter: std::sync::atomic::AtomicU16::new(0),
             free_space_threshold: self.free_space_threshold,
+            _instance_counter: InstanceCounter::new(),
         })
     }
 
@@ -575,6 +576,7 @@ impl RocksDBOptions {
             check_free_space_interval: self.check_free_space_interval,
             check_free_space_counter: std::sync::atomic::AtomicU16::new(0),
             free_space_threshold: self.free_space_threshold,
+            _instance_counter: InstanceCounter::new(),
         })
     }
 }
@@ -852,7 +854,22 @@ fn rocksdb_column_options(col: DBCol) -> Options {
     opts
 }
 
+// Number of RocksDB instances in the process.
+pub(crate) static ROCKSDB_INSTANCES_COUNTER: Lazy<(Mutex<usize>, Condvar)> =
+    Lazy::new(|| (Mutex::new(0), Condvar::new()));
+
 impl RocksDB {
+    /// Blocks until all RocksDB instances (usually 0 or 1) gracefully shutdown.
+    pub fn block_until_all_instances_are_dropped() {
+        let (lock, cvar) = &*ROCKSDB_INSTANCES_COUNTER;
+        let mut num_instances = lock.lock().unwrap();
+        while *num_instances != 0 {
+            info!(target: "db", "Waiting for the {} remaining RocksDB instances to gracefully shutdown", *num_instances);
+            num_instances = cvar.wait(num_instances).unwrap();
+        }
+        info!(target: "db", "All RocksDB instances performed a graceful shutdown");
+    }
+
     /// Returns version of the database state on disk.
     pub fn get_version<P: AsRef<std::path::Path>>(path: P) -> Result<DbVersion, DBError> {
         let db = RocksDB::new_read_only(path)?;
@@ -941,6 +958,32 @@ impl Drop for RocksDB {
             env.set_background_threads(4);
         }
         self.db.cancel_all_background_work(true);
+    }
+}
+
+// We've seen problems with RocksDB corruptions. InstanceCounter lets us gracefully shutdown the
+// process letting RocksDB to finish all operations and leaving the instances in a valid
+// non-corrupted state.
+struct InstanceCounter {}
+
+impl InstanceCounter {
+    fn new() -> Self {
+        let (lock, cvar) = &*ROCKSDB_INSTANCES_COUNTER;
+        let mut num_instances = lock.lock().unwrap();
+        *num_instances += 1;
+        debug!(target: "db", "Created a new RocksDB instance. Current #instances: {}", *num_instances);
+        cvar.notify_all();
+        Self {}
+    }
+}
+
+impl Drop for InstanceCounter {
+    fn drop(&mut self) {
+        let (lock, cvar) = &*ROCKSDB_INSTANCES_COUNTER;
+        let mut num_instances = lock.lock().unwrap();
+        *num_instances -= 1;
+        debug!(target: "db", "Dropped an instance of RocksDB. Remaining instances: {}", *num_instances);
+        cvar.notify_all();
     }
 }
 

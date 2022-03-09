@@ -68,6 +68,8 @@ pub enum StateViewerSubCommand {
     /// Generate a genesis file from the current state of the DB.
     #[clap(name = "dump_state")]
     DumpState(DumpStateCmd),
+    #[clap(name = "dump_state_redis")]
+    DumpStateRedis(DumpStateRedisCmd),
     /// Print chain from start_index to end_index.
     #[clap(name = "chain")]
     Chain(ChainCmd),
@@ -104,6 +106,9 @@ pub enum StateViewerSubCommand {
     Chunks(ChunksCmd),
     #[clap(name = "partial_chunks")]
     PartialChunks(PartialChunksCmd),
+    /// Apply a chunk, even if it's not included in any block on disk
+    #[clap(name = "apply_chunk")]
+    ApplyChunk(ApplyChunkCmd),
 }
 
 impl StateViewerSubCommand {
@@ -114,6 +119,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::Peers => peers(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
             StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyRange(cmd) => cmd.run(home_dir, near_config, store),
@@ -127,6 +133,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, store),
         }
     }
 }
@@ -152,6 +159,19 @@ pub struct DumpStateCmd {
 impl DumpStateCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         dump_state(self.height, self.stream, self.file, home_dir, near_config, store);
+    }
+}
+
+#[derive(Clap)]
+pub struct DumpStateRedisCmd {
+    /// Optionally, can specify at which height to dump state.
+    #[clap(long)]
+    height: Option<BlockHeight>,
+}
+
+impl DumpStateRedisCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        dump_state_redis(self.height, home_dir, near_config, store);
     }
 }
 
@@ -356,5 +376,30 @@ impl PartialChunksCmd {
         let partial_chunk_hash =
             ChunkHash::from(CryptoHash::from_str(&self.partial_chunk_hash).unwrap());
         get_partial_chunk(partial_chunk_hash, near_config, store)
+    }
+}
+
+#[derive(Clap)]
+pub struct ApplyChunkCmd {
+    #[clap(long)]
+    chunk_hash: String,
+    #[clap(long)]
+    target_height: Option<u64>,
+    #[clap(long)]
+    txs: Option<Vec<String>>,
+    #[clap(long)]
+    receipts: Option<Vec<String>>,
+}
+
+impl ApplyChunkCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        let hash = ChunkHash::from(CryptoHash::from_str(&self.chunk_hash).unwrap());
+        let receipts = self
+            .receipts
+            .map(|v| v.iter().map(|h| CryptoHash::from_str(h).unwrap()).collect::<Vec<_>>());
+        let txs = self
+            .txs
+            .map(|v| v.iter().map(|h| CryptoHash::from_str(h).unwrap()).collect::<Vec<_>>());
+        apply_chunk(home_dir, near_config, store, hash, self.target_height, txs, receipts).unwrap()
     }
 }

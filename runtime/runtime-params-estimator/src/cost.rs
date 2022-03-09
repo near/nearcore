@@ -70,13 +70,93 @@ pub enum Cost {
 
     HostFunctionCall,
     WasmInstruction,
+
+    // # Reading and writing memory
+    // The hosting runtime sometimes copies data between in and out of WASM
+    // buffers defined by smart contract code. The smart contract code defines
+    // their side of the buffers as WASM address + length. Copies going from
+    // WASM to host memory are called *reads*, whereas *writes* are going from
+    // host to WASM memory.
+    //
+    // The following is a best-effort list of all host functions that may
+    // produce memory reads or writes
+    //
+    // Read:
+    //  - Creating promises for actions: The data describing the actions.
+    //  - Writing to a register: The data to be written to the register.
+    //  - Using various math API functions: Reading the operand values.
+    //  - On log or abort/panic: Reading string data from memory.
+    //
+    // Write
+    //  - Reading from a register: The data from the register is copied into
+    //    WASM memory.
+    //  - Host function calls such as `account_balance()` and
+    //    `validator_stake()` that return a value by writing it to a pointer.
+    //
+    /// Estimates `ext_costs.read_memory_base` which is charged once every time
+    /// data is copied from WASM memory to the hosting runtime as a result of
+    /// executing a contract.
+    ///
+    /// Estimation: Execute a transaction with a single function call that calls
+    /// `value_return()` 10'000 times with a 10 byte value. Subtract the cost of
+    /// an empty function call and divide the rest by 10'000.
     ReadMemoryBase,
+    /// Estimates `ext_costs.read_memory_byte` which is charged as an
+    /// incremental cost per byte each time WASM memory is copied to the host.
+    ///
+    /// Estimation: Execute a transaction with a single function call that calls
+    /// `value_return()` 10'000 times with a 1 MiB sized value. Subtract the
+    /// cost of an empty function call and divide the rest by 10'000 * 1Mi.
     ReadMemoryByte,
+    /// Estimates `ext_costs.write_memory_base` which is charged once every time
+    /// data is copied from the host to WASM memory as a result of executing a
+    /// contract.
+    ///
+    /// Estimation: Execute a transaction with a single function call that
+    /// writes 10 bytes to a register  and calls `read_register` 10'000 times to
+    /// copy it back to WASM memory. Subtract the cost of an empty function call
+    /// and divide the rest by 10'000.
     WriteMemoryBase,
+    /// Estimates `ext_costs.write_memory_byte` which is charged as an
+    /// incremental cost per byte each time data is copied from the host to WASM
+    /// memory.
+    ///
+    /// Estimation: Execute a transaction with a single function call that
+    /// writes 1MiB to a register  and calls `read_register` 10'000 times to
+    /// copy it back to WASM memory. Subtract the cost of an empty function call
+    /// and divide the rest by 10'000 * 1Mi.
     WriteMemoryByte,
+
+    // # Register API
+    // Instead of relying on WASM memory, some host functions operate on
+    // registers. These registers are allocated outside the WASM memory but need
+    // to be copied in and out of WASM memory if a contract want to access them.
+    // This copying is done through `read_register` and `write_register`.
+    /// Estimates `read_register_base` which is charged once for every reading access to a register.
+    ///
+    /// Estimation: Execute a transaction with a single function call that
+    /// writes 10 bytes to a register once and then calls `value_return` with
+    /// that register 10'000 times. Subtract the cost of an empty function call
+    /// and divide the rest by 10'000.
     ReadRegisterBase,
+    /// Estimates `read_register_byte` which is charged per byte for every reading access to a register.
+    ///
+    /// Estimation: Execute a transaction with a single function call that
+    /// writes 1 MiB to a register once and then calls `value_return` with
+    /// that register 10'000 times. Subtract the cost of an empty function call
+    /// and divide the rest by 10'000 * 1Mi.
     ReadRegisterByte,
+    /// Estimates `write_register_base` which is charged once for every writing access to a register.
+    ///
+    /// Estimation: Execute a transaction with a single function call that
+    /// writes 10B to a register 10'000 times. Subtract the cost of an empty
+    /// function call and divide the rest by 10'000.
     WriteRegisterBase,
+    /// Estimates `write_register_byte` which is charged per byte for every writing access to a register.
+    ///
+    /// Estimation: Execute a transaction with a single function call that
+    /// writes 1 MiB to a register 10'000 times. Subtract the cost of an empty
+    /// function call and divide the rest by 10'000 * 1Mi.
     WriteRegisterByte,
     Utf8DecodingBase,
     Utf8DecodingByte,

@@ -11,6 +11,9 @@ from key import Key
 from utils import load_binary_file
 from configured_logger import logger
 
+# Constant for 1 NEAR
+NEAR_BASE = 10**24
+
 
 class Account:
 
@@ -103,7 +106,7 @@ class Account:
         self.prep_tx()
         new_key = Key(new_account_id, self.key.pk, self.key.sk)
         tx = sign_create_account_with_full_access_key_and_balance_tx(
-            self.key, new_account_id, new_key, 100, self.nonce,
+            self.key, new_account_id, new_key, 100 * NEAR_BASE, self.nonce,
             base_block_hash or self.base_block_hash)
         return self.send_tx(tx)
 
