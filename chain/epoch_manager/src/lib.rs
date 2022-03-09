@@ -6,6 +6,7 @@ use near_cache::SyncLruCache;
 use primitive_types::U256;
 use tracing::{debug, warn};
 
+use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
 use near_primitives::epoch_manager::{
@@ -18,6 +19,7 @@ use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardId,
     ValidatorId, ValidatorKickoutReason, ValidatorStats,
 };
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
@@ -1197,8 +1199,17 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
-        let chunk_producers = epoch_info.chunk_producers_settlement();
-        for validator_id in chunk_producers[shard_id as usize].iter() {
+        let validators = if !checked_feature!(
+            "protocol_feature_chunk_only_producers",
+            ChunkOnlyProducers,
+            PROTOCOL_VERSION
+        ) {
+            // before chunk only producers is enabled, all validators track all shards
+            epoch_info.block_producers_settlement()
+        } else {
+            &epoch_info.chunk_producers_settlement()[shard_id as usize]
+        };
+        for validator_id in validators.iter() {
             if epoch_info.validator_account_id(*validator_id) == account_id {
                 return Ok(true);
             }
