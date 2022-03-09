@@ -1,4 +1,3 @@
-use std::cmp::max;
 use std::convert::AsRef;
 use std::fmt;
 
