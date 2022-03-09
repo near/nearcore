@@ -1092,17 +1092,13 @@ impl ShardsManager {
         )
     }
 
-    /// Constructs a vector of receipt proofs for specified chunk.
-    ///
-    /// The `make_elem` argument converts `ReceiptsProof` values into objects
-    /// which are returned from this function.  In practice this is used to
-    /// either return `ReceiptProof` directly or wrap the object into `Arc`.
-    fn make_outgoing_receipts_proofs<T>(
+    /// Constructs receipt proofs for specified chunk and returns them in an
+    /// iterator.
+    fn make_outgoing_receipts_proofs(
         &self,
         chunk_header: &ShardChunkHeader,
         outgoing_receipts: &[Receipt],
-        make_elem: impl Fn(ReceiptProof) -> T,
-    ) -> Result<Vec<T>, near_chunks_primitives::Error> {
+    ) -> Result<impl Iterator<Item = ReceiptProof>, near_chunks_primitives::Error> {
         let shard_id = chunk_header.shard_id();
         let shard_layout = self
             .runtime_adapter
@@ -1110,30 +1106,18 @@ impl ShardsManager {
 
         let hashes = Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout);
         let (root, proofs) = merklize(&hashes);
-        if chunk_header.outgoing_receipts_root() != root {
-            return Err(near_chunks_primitives::Error::UnexpectedOutgoingRemeiptsRoot {
-                want: chunk_header.outgoing_receipts_root(),
-                got: root,
-            });
-        }
+        assert_eq!(chunk_header.outgoing_receipts_root(), root);
 
         let mut receipts_by_shard =
             Chain::group_receipts_by_shard(outgoing_receipts.to_vec(), &shard_layout);
-        let proofs = proofs
-            .into_iter()
-            .enumerate()
-            .map(|(proof_shard_id, proof)| {
-                let proof_shard_id = proof_shard_id as u64;
-                let receipts = receipts_by_shard.remove(&proof_shard_id).unwrap_or_else(Vec::new);
-                let shard_proof = ShardProof {
-                    from_shard_id: shard_id,
-                    to_shard_id: proof_shard_id,
-                    proof: proof,
-                };
-                make_elem(ReceiptProof(receipts, shard_proof))
-            })
-            .collect();
-        Ok(proofs)
+        let it = proofs.into_iter().enumerate().map(move |(proof_shard_id, proof)| {
+            let proof_shard_id = proof_shard_id as u64;
+            let receipts = receipts_by_shard.remove(&proof_shard_id).unwrap_or_else(Vec::new);
+            let shard_proof =
+                ShardProof { from_shard_id: shard_id, to_shard_id: proof_shard_id, proof: proof };
+            ReceiptProof(receipts, shard_proof)
+        });
+        Ok(it)
     }
 
     /// Prepares response to a partial encoded chunk request from a chunk read
@@ -1164,12 +1148,18 @@ impl ShardsManager {
         // Get outgoing receipts for the chunk and construct vector of their
         // proofs.
         let outgoing_receipts = chunk.receipts();
-        let receipt_proofs = self
-            .make_outgoing_receipts_proofs(&header, &outgoing_receipts, |p| p)
+        let present_receipts: HashMap<ShardId, _> = self
+            .make_outgoing_receipts_proofs(&header, &outgoing_receipts)
             .map_err(|err| {
                 warn!(target: "chunks", "Not sending {}, {}", request.chunk_hash.0, err);
             })
-            .ok()?;
+            .ok()?
+            .map(|receipt| (receipt.1.to_shard_id, receipt))
+            .collect();
+        let receipts_iter = request
+            .tracking_shards
+            .into_iter()
+            .map(move |shard_id| present_receipts.get(&shard_id).cloned());
 
         // Construct EncodedShardChunk.  If we earlier determined that we will
         // need parity parts, instruct the constructor to calculate them as
@@ -1211,14 +1201,6 @@ impl ShardsManager {
                 merkle_proof: merkle_paths[ord].clone(),
             })
         });
-
-        // Same process for receipts as above for parts.
-        let present_receipts: HashMap<ShardId, _> =
-            receipt_proofs.iter().map(|receipt| (receipt.1.to_shard_id, receipt)).collect();
-        let receipts_iter = request
-            .tracking_shards
-            .iter()
-            .map(|shard_id| present_receipts.get(shard_id).map(|x| *x).cloned());
 
         // Pass iterators to function, same as cache case.
         Self::prepare_partial_encoded_chunk_response_from_iters(
@@ -2064,7 +2046,7 @@ impl ShardsManager {
         store_update: &mut ChainStoreUpdate<'_>,
     ) -> Result<(), Error> {
         let header = encoded_chunk.cloned_header();
-        let receipts = self.make_outgoing_receipts_proofs(&header, &outgoing_receipts, |p| p)?;
+        let receipts = self.make_outgoing_receipts_proofs(&header, &outgoing_receipts)?.collect();
         let partial_chunk = PartialEncodedChunkV2 {
             header,
             parts: encoded_chunk
@@ -2115,8 +2097,10 @@ impl ShardsManager {
             entry.push(part_ord);
         }
 
-        let receipt_proofs =
-            self.make_outgoing_receipts_proofs(&chunk_header, &outgoing_receipts, Arc::new)?;
+        let receipt_proofs = self
+            .make_outgoing_receipts_proofs(&chunk_header, &outgoing_receipts)?
+            .map(Arc::new)
+            .collect::<Vec<_>>();
         for (to_whom, part_ords) in block_producer_mapping {
             let part_receipt_proofs = receipt_proofs
                 .iter()
