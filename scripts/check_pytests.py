@@ -25,6 +25,7 @@ HELPER_SCRIPTS = [
     'delete_remote_nodes.py',
     'mocknet/*',
     'stress/hundred_nodes/*',
+    'loadtest/*',
 ]
 
 PYTEST_TESTS_DIRECTORY = pathlib.Path('pytest/tests')
