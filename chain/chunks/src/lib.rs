@@ -1133,7 +1133,11 @@ impl ShardsManager {
         rs: &mut ReedSolomonWrapper,
         chunk: ShardChunk,
     ) -> Option<PartialEncodedChunkResponseMsg> {
-        let total_parts = rs.total_shard_count();
+        let total_parts = self.runtime_adapter.num_total_parts();
+        // rs is created with self.runtime_adapter.num_total_parts() so this
+        // assert should always hold true.  If it doesn’t than something strange
+        // is going on.
+        assert_eq!(total_parts, rs.total_shard_count());
         for &ord in request.part_ords.iter() {
             let ord: usize = ord.try_into().unwrap();
             if ord >= total_parts {
