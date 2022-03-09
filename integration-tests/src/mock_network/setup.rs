@@ -17,11 +17,13 @@ use near_primitives::types::BlockHeight;
 use near_store::create_store;
 use near_telemetry::TelemetryActor;
 use nearcore::{get_store_path, NearConfig, NightshadeRuntime};
+use regex::Regex;
 use std::cmp::min;
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::{Arc, RwLock};
-use std::thread;
 use std::time::Duration;
+use std::{io, thread};
 use tracing::info;
 
 fn setup_runtime(home_dir: &Path, config: &NearConfig) -> Arc<NightshadeRuntime> {
@@ -43,7 +45,7 @@ fn setup_mock_peer_manager_actor(
     genesis_config: &GenesisConfig,
     chain_genesis: &ChainGenesis,
     block_production_delay: Duration,
-    sync_mode: SyncMode,
+    mode: MockNetworkMode,
     network_delay: Duration,
     target_height: Option<BlockHeight>,
 ) -> MockPeerManagerActor {
@@ -53,9 +55,11 @@ fn setup_mock_peer_manager_actor(
     let chain_height = chain.head().unwrap().height;
     let target_height = min(target_height.unwrap_or(chain_height), chain_height);
 
-    let peers_start_height = match sync_mode {
-        SyncMode::Sync => target_height,
-        SyncMode::NoSync => chain.genesis_block().header().height(),
+    let peers_start_height = match mode {
+        MockNetworkMode::NoNewBlocks => target_height,
+        MockNetworkMode::ProduceNewBlocks(start_height) => {
+            start_height.unwrap_or(chain.genesis_block().header().height())
+        }
     };
     MockPeerManagerActor::new(
         client_addr,
@@ -68,20 +72,38 @@ fn setup_mock_peer_manager_actor(
     )
 }
 
-pub enum SyncMode {
-    /// The mock network will simulate an environment where the peers are already at the latest height,
-    Sync,
-    /// The peers will start at the genesis block height and new blocks are produced
-    NoSync,
+#[derive(Debug)]
+pub enum MockNetworkMode {
+    /// No new blocks will be produced by the peers
+    NoNewBlocks,
+    /// New blocks will produced. The peers will start to produce blocks starting from the specified
+    /// height
+    ProduceNewBlocks(Option<u64>),
 }
 
+impl FromStr for MockNetworkMode {
+    type Err = io::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s == "no_new_blocks" {
+            Ok(MockNetworkMode::NoNewBlocks)
+        } else if s == "produce_new_blocks" {
+            Ok(MockNetworkMode::ProduceNewBlocks(None))
+        } else {
+            let re = Regex::new(r"produce_new_blocks\((?P<height>\d+)\)").unwrap();
+            let caps = re.captures(s).unwrap();
+            let height = caps.name("height").unwrap().as_str().parse::<u64>().unwrap();
+            Ok(MockNetworkMode::ProduceNewBlocks(Some(height)))
+        }
+    }
+}
 /// Setup up a mock network environment, including setting up
 /// a MockPeerManagerActor and a ClientActor and a ViewClientActor
 /// `client_home_dir`: home dir for the new client
 /// `network_home_dir`: home dir that contains the pre-generated chain history, will be used
 ///                     to construct `MockPeerManagerActor`
 /// `config`: config for the new client
-/// `sync_mode`: whether the mock network will simulate that the node is syncing or not
+/// `mode`: whether new blocks will be produced in the simulated network
 /// `network_delay`: delay for getting response from the simulated network
 /// `client_start_height`: start height for client
 /// `target_height`: height that the simulated peers will produce blocks until. If None, will
@@ -90,7 +112,7 @@ pub fn setup_mock_network(
     client_home_dir: &Path,
     network_home_dir: &Path,
     config: &NearConfig,
-    sync_mode: SyncMode,
+    mode: MockNetworkMode,
     network_delay: Duration,
     client_start_height: Option<BlockHeight>,
     target_height: Option<BlockHeight>,
@@ -105,6 +127,14 @@ pub fn setup_mock_network(
     let network_adapter = Arc::new(NetworkRecipient::default());
     #[cfg(feature = "test_features")]
     let adv = Arc::new(std::sync::RwLock::new(AdversarialControls::default()));
+
+    // if no start height is provided for the mock network at ProduceNewBlocks mode, fall back to
+    // client start height
+    let mode = if let MockNetworkMode::ProduceNewBlocks(None) = mode {
+        MockNetworkMode::ProduceNewBlocks(client_start_height.clone())
+    } else {
+        mode
+    };
 
     // set up client dir to be ready to process blocks from client_start_height
     if let Some(start_height) = client_start_height {
@@ -251,7 +281,7 @@ pub fn setup_mock_network(
                 &genesis_config,
                 &chain_genesis,
                 block_production_delay,
-                sync_mode,
+                mode,
                 network_delay,
                 target_height,
             )
@@ -262,7 +292,7 @@ pub fn setup_mock_network(
 
 #[cfg(test)]
 mod test {
-    use crate::mock_network::setup::{setup_mock_network, SyncMode};
+    use crate::mock_network::setup::{setup_mock_network, MockNetworkMode};
     use actix::{Actor, System};
     use futures::{future, FutureExt};
     use near_actix_test_utils::{run_actix, spawn_interruptible};
@@ -378,7 +408,7 @@ mod test {
                 dir1.path().clone(),
                 dir.path().clone(),
                 &near_config1,
-                SyncMode::Sync,
+                MockNetworkMode::NoNewBlocks,
                 Duration::from_millis(10),
                 Some(10),
                 None,

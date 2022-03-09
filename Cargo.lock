@@ -2052,6 +2052,7 @@ dependencies = [
  "portpicker",
  "primitive-types",
  "rand 0.7.3",
+ "regex",
  "serde",
  "serde_json",
  "tempfile",
