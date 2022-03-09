@@ -2598,6 +2598,7 @@ name = "near-chunks-primitives"
 version = "0.0.0"
 dependencies = [
  "near-chain-primitives",
+ "near-primitives",
 ]
 
 [[package]]
