@@ -4,7 +4,6 @@ use std::io;
 use chrono::DateTime;
 use near_primitives::time::Utc;
 
-use failure::{Backtrace, Context, Fail};
 use tracing::error;
 
 use near_primitives::block::BlockValidityError;
@@ -65,160 +64,160 @@ pub enum QueryError {
 
 #[derive(Debug)]
 pub struct Error {
-    inner: Context<ErrorKind>,
+    inner: anyhow::Error,
 }
 
-#[derive(Clone, Eq, PartialEq, Debug, Fail)]
+#[derive(Clone, Eq, PartialEq, Debug, thiserror::Error)]
 pub enum ErrorKind {
     /// The block is already known
-    #[fail(display = "Block is known: {:?}", _0)]
-    BlockKnown(BlockKnownError),
+    #[error("Block is known: {0}")]
+    BlockKnown(#[from] BlockKnownError),
     /// Orphan block.
-    #[fail(display = "Orphan")]
+    #[error("Orphan")]
     Orphan,
     /// Chunk is missing.
-    #[fail(display = "Chunk Missing (unavailable on the node): {:?}", _0)]
+    #[error("Chunk Missing (unavailable on the node): {0:?}")]
     ChunkMissing(ChunkHash),
     /// Chunks missing with header info.
-    #[fail(display = "Chunks Missing: {:?}", _0)]
+    #[error("Chunks Missing: {0:?}")]
     ChunksMissing(Vec<ShardChunkHeader>),
     /// Block time is before parent block time.
-    #[fail(display = "Invalid Block Time: block time {} before previous {}", _1, _0)]
+    #[error("Invalid Block Time: block time {1} before previous {0}")]
     InvalidBlockPastTime(DateTime<Utc>, DateTime<Utc>),
     /// Block time is from too much in the future.
-    #[fail(display = "Invalid Block Time: Too far in the future: {}", _0)]
+    #[error("Invalid Block Time: Too far in the future: {0}")]
     InvalidBlockFutureTime(DateTime<Utc>),
     /// Block height is invalid (not previous + 1).
-    #[fail(display = "Invalid Block Height {}", _0)]
+    #[error("Invalid Block Height {0}")]
     InvalidBlockHeight(BlockHeight),
     /// Invalid block proposed signature.
-    #[fail(display = "Invalid Block Proposer Signature")]
+    #[error("Invalid Block Proposer Signature")]
     InvalidBlockProposer,
     /// Invalid state root hash.
-    #[fail(display = "Invalid State Root Hash")]
+    #[error("Invalid State Root Hash")]
     InvalidStateRoot,
     /// Invalid block tx root hash.
-    #[fail(display = "Invalid Block Tx Root Hash")]
+    #[error("Invalid Block Tx Root Hash")]
     InvalidTxRoot,
     /// Invalid chunk receipts root hash.
-    #[fail(display = "Invalid Chunk Receipts Root Hash")]
+    #[error("Invalid Chunk Receipts Root Hash")]
     InvalidChunkReceiptsRoot,
     /// Invalid chunk headers root hash.
-    #[fail(display = "Invalid Chunk Headers Root Hash")]
+    #[error("Invalid Chunk Headers Root Hash")]
     InvalidChunkHeadersRoot,
     /// Invalid chunk tx root hash.
-    #[fail(display = "Invalid Chunk Tx Root Hash")]
+    #[error("Invalid Chunk Tx Root Hash")]
     InvalidChunkTxRoot,
     /// Invalid receipts proof.
-    #[fail(display = "Invalid Receipts Proof")]
+    #[error("Invalid Receipts Proof")]
     InvalidReceiptsProof,
     /// Invalid outcomes proof.
-    #[fail(display = "Invalid Outcomes Proof")]
+    #[error("Invalid Outcomes Proof")]
     InvalidOutcomesProof,
     /// Invalid state payload on state sync.
-    #[fail(display = "Invalid State Payload")]
+    #[error("Invalid State Payload")]
     InvalidStatePayload,
     /// Invalid transactions in the block.
-    #[fail(display = "Invalid Transactions")]
+    #[error("Invalid Transactions")]
     InvalidTransactions,
     /// Invalid Challenge Root (doesn't match actual challenge)
-    #[fail(display = "Invalid Challenge Root")]
+    #[error("Invalid Challenge Root")]
     InvalidChallengeRoot,
     /// Invalid challenge (wrong signature or format).
-    #[fail(display = "Invalid Challenge")]
+    #[error("Invalid Challenge")]
     InvalidChallenge,
     /// Incorrect (malicious) challenge (slash the sender).
-    #[fail(display = "Malicious Challenge")]
+    #[error("Malicious Challenge")]
     MaliciousChallenge,
     /// Incorrect number of chunk headers
-    #[fail(display = "Incorrect Number of Chunk Headers")]
+    #[error("Incorrect Number of Chunk Headers")]
     IncorrectNumberOfChunkHeaders,
     /// Invalid chunk.
-    #[fail(display = "Invalid Chunk")]
+    #[error("Invalid Chunk")]
     InvalidChunk,
     /// One of the chunks has invalid proofs
-    #[fail(display = "Invalid Chunk Proofs")]
+    #[error("Invalid Chunk Proofs")]
     InvalidChunkProofs(Box<ChunkProofs>),
     /// Invalid chunk state.
-    #[fail(display = "Invalid Chunk State")]
+    #[error("Invalid Chunk State")]
     InvalidChunkState(Box<ChunkState>),
     /// Invalid chunk mask
-    #[fail(display = "Invalid Chunk Mask")]
+    #[error("Invalid Chunk Mask")]
     InvalidChunkMask,
     /// The chunk height is outside of the horizon
-    #[fail(display = "Invalid Chunk Height")]
+    #[error("Invalid Chunk Height")]
     InvalidChunkHeight,
     /// Invalid epoch hash
-    #[fail(display = "Invalid Epoch Hash")]
+    #[error("Invalid Epoch Hash")]
     InvalidEpochHash,
     /// `next_bps_hash` doens't correspond to the actual next block producers set
-    #[fail(display = "Invalid Next BP Hash")]
+    #[error("Invalid Next BP Hash")]
     InvalidNextBPHash,
     /// The block doesn't have approvals from 50% of the block producers
-    #[fail(display = "Not enough approvals")]
+    #[error("Not enough approvals")]
     NotEnoughApprovals,
     /// The information about the last final block is incorrect
-    #[fail(display = "Invalid finality info")]
+    #[error("Invalid finality info")]
     InvalidFinalityInfo,
     /// Invalid validator proposals in the block.
-    #[fail(display = "Invalid Validator Proposals")]
+    #[error("Invalid Validator Proposals")]
     InvalidValidatorProposals,
     /// Invalid Signature
-    #[fail(display = "Invalid Signature")]
+    #[error("Invalid Signature")]
     InvalidSignature,
     /// Invalid Approvals
-    #[fail(display = "Invalid Approvals")]
+    #[error("Invalid Approvals")]
     InvalidApprovals,
     /// Invalid Gas Limit
-    #[fail(display = "Invalid Gas Limit")]
+    #[error("Invalid Gas Limit")]
     InvalidGasLimit,
     /// Invalid Gas Limit
-    #[fail(display = "Invalid Gas Price")]
+    #[error("Invalid Gas Price")]
     InvalidGasPrice,
     /// Invalid Gas Used
-    #[fail(display = "Invalid Gas Used")]
+    #[error("Invalid Gas Used")]
     InvalidGasUsed,
     /// Invalid Balance Burnt
-    #[fail(display = "Invalid Balance Burnt")]
+    #[error("Invalid Balance Burnt")]
     InvalidBalanceBurnt,
     /// Invalid shard id
-    #[fail(display = "Shard id {} does not exist", _0)]
+    #[error("Shard id {0} does not exist")]
     InvalidShardId(ShardId),
     /// Invalid shard id
-    #[fail(display = "Invalid state request: {}", _0)]
+    #[error("Invalid state request: {0}")]
     InvalidStateRequest(String),
     /// Invalid VRF proof, or incorrect random_output in the header
-    #[fail(display = "Invalid Randomness Beacon Output")]
+    #[error("Invalid Randomness Beacon Output")]
     InvalidRandomnessBeaconOutput,
     /// Invalid block merkle root.
-    #[fail(display = "Invalid Block Merkle Root")]
+    #[error("Invalid Block Merkle Root")]
     InvalidBlockMerkleRoot,
     /// Someone is not a validator. Usually happens in signature verification
-    #[fail(display = "Not A Validator")]
+    #[error("Not A Validator")]
     NotAValidator,
     /// Validator error.
-    #[fail(display = "Validator Error: {}", _0)]
+    #[error("Validator Error: {0}")]
     ValidatorError(String),
     /// Epoch out of bounds. Usually if received block is too far in the future or alternative fork.
-    #[fail(display = "Epoch Out Of Bounds")]
+    #[error("Epoch Out Of Bounds")]
     EpochOutOfBounds(EpochId),
     /// A challenged block is on the chain that was attempted to become the head
-    #[fail(display = "Challenged block on chain")]
+    #[error("Challenged block on chain")]
     ChallengedBlockOnChain,
     /// IO Error.
-    #[fail(display = "IO Error: {}", _0)]
+    #[error("IO Error: {0}")]
     IOErr(String),
     /// Not found record in the DB.
-    #[fail(display = "DB Not Found Error: {}", _0)]
+    #[error("DB Not Found Error: {0}")]
     DBNotFoundErr(String),
     /// Storage error. Used for internal passing the error.
-    #[fail(display = "Storage Error: {}", _0)]
-    StorageError(StorageError),
+    #[error("Storage Error: {0}")]
+    StorageError(#[from] StorageError),
     /// GC error.
-    #[fail(display = "GC Error: {}", _0)]
+    #[error("GC Error: {0}")]
     GCError(String),
     /// Anything else
-    #[fail(display = "Other Error: {}", _0)]
+    #[error("Other Error: {0}")]
     Other(String),
 }
 
@@ -242,25 +241,26 @@ impl<T> LogTransientStorageError for Result<T, Error> {
 
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let cause = match self.cause() {
-            Some(c) => format!("{}", c),
-            None => String::from("Unknown"),
-        };
-        let output = format!("{} \n Cause: {}", self.inner, cause);
-        Display::fmt(&output, f)
+        Display::fmt(&self.inner, f)
     }
 }
 
 impl Error {
+    /// Return the [`ErrorKind`] of the error.
     pub fn kind(&self) -> ErrorKind {
-        self.inner.get_context().clone()
+        match self.inner.downcast_ref::<ErrorKind>() {
+            Some(kind) => kind.clone(),
+            None => ErrorKind::Other(self.inner.to_string()),
+        }
     }
 
-    pub fn cause(&self) -> Option<&dyn Fail> {
-        self.inner.cause()
+    /// Return the root cause of the error.
+    pub fn cause(&self) -> &(dyn std::error::Error + 'static) {
+        self.inner.root_cause()
     }
 
-    pub fn backtrace(&self) -> Option<&Backtrace> {
+    /// Return the error's backtrace.
+    pub fn backtrace(&self) -> impl std::fmt::Debug + Display + '_ {
         self.inner.backtrace()
     }
 
@@ -328,20 +328,20 @@ impl Error {
 }
 
 impl From<ErrorKind> for Error {
-    fn from(kind: ErrorKind) -> Error {
-        Error { inner: Context::new(kind) }
+    fn from(kind: ErrorKind) -> Self {
+        Self { inner: anyhow::Error::new(kind) }
     }
 }
 
 impl From<io::Error> for Error {
-    fn from(error: io::Error) -> Error {
-        Error { inner: Context::new(ErrorKind::IOErr(error.to_string())) }
+    fn from(error: io::Error) -> Self {
+        Self { inner: anyhow::Error::new(ErrorKind::IOErr(error.to_string())) }
     }
 }
 
 impl From<String> for Error {
-    fn from(error: String) -> Error {
-        Error { inner: Context::new(ErrorKind::Other(error)) }
+    fn from(error: String) -> Self {
+        Self { inner: anyhow::Error::new(ErrorKind::Other(error)) }
     }
 }
 
@@ -389,24 +389,16 @@ impl From<StorageError> for Error {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Debug, Fail)]
+#[derive(Clone, Eq, PartialEq, Debug, thiserror::Error)]
 pub enum BlockKnownError {
+    #[error("already known in header")]
     KnownInHeader,
+    #[error("already known in head")]
     KnownInHead,
+    #[error("already known in orphan")]
     KnownInOrphan,
+    #[error("already known in missing chunks")]
     KnownInMissingChunks,
+    #[error("already known in store")]
     KnownInStore,
-}
-
-impl fmt::Display for BlockKnownError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let output = match self {
-            BlockKnownError::KnownInHeader => "already known in header",
-            BlockKnownError::KnownInHead => "already known in head",
-            BlockKnownError::KnownInOrphan => "already known in orphan",
-            BlockKnownError::KnownInMissingChunks => "already known in missing chunks",
-            BlockKnownError::KnownInStore => "already known in store",
-        };
-        fmt::Display::fmt(&output, f)
-    }
 }

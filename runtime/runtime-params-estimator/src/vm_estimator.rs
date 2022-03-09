@@ -108,7 +108,7 @@ fn precompilation_cost(
     let (a, b) = GasCost::least_squares_method_gas_cost(
         &xs,
         &ys,
-        LeastSquaresTolerance::default()
+        &LeastSquaresTolerance::default()
             .base_abs_nn_tolerance(negative_base_tolerance)
             .factor_rel_nn_tolerance(rel_factor_tolerance),
         verbose,

@@ -521,7 +521,7 @@ fn action_deploy_contract_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     let (_base, per_byte) = GasCost::least_squares_method_gas_cost(
         &xs,
         &ys,
-        LeastSquaresTolerance::default()
+        &LeastSquaresTolerance::default()
             .base_abs_nn_tolerance(negative_base_tolerance)
             .factor_rel_nn_tolerance(rel_factor_tolerance),
         ctx.config.debug_least_squares,
@@ -1091,9 +1091,7 @@ fn gas_metering(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {
     if let Some(cached) = ctx.cached.gas_metering_cost_base_per_op.clone() {
         return cached;
     }
-    let (base, byte) = gas_metering_cost(ctx.config.metric, ctx.config.vm_kind);
-    let base = GasCost::from_gas(base.into(), ctx.config.metric);
-    let byte = GasCost::from_gas(byte.into(), ctx.config.metric);
+    let (base, byte) = gas_metering_cost(&ctx.config);
     ctx.cached.gas_metering_cost_base_per_op = Some((base.clone(), byte.clone()));
     (base, byte)
 }

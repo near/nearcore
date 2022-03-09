@@ -42,7 +42,6 @@ impl VMLogicBuilder {
             self.current_protocol_version,
         )
     }
-    #[allow(dead_code)]
     pub fn free() -> Self {
         VMLogicBuilder {
             config: VMConfig::free(),
