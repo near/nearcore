@@ -30,10 +30,17 @@ use std::time::Duration;
 /// the same height as the client, which is specified by client_start_height.
 ///
 /// Example commands:
+/// start_mock_network ~/.near/localnet/node0 -h 100 --mode no_new_blocks
+///
+/// Client starts at genesis height and mock network starts at height 100. No new blocks will be produced.
+/// The simulated peers stay at height 100.
+///
 /// start_mock_network ~/.near/localnet/node0 -s 61 -h 100 --mode produce_new_blocks
+///
 /// Both client and mock network starts at height 61, mock network will produce new blocks until height 100
 ///  
 /// start_mock_network ~/.near/localnet/node0 -h 100 --mode "produce_new_blocks(20)"
+///
 /// Client starts at genesis height and mock network starts at heigh 20,
 /// mock network will produce new blocks until height 100
 #[derive(Clap)]
@@ -51,7 +58,8 @@ struct Cli {
     #[clap(short = 'M', long)]
     mode: MockNetworkMode,
     /// If specified, the binary will set up client home dir before starting the client node
-    /// so head of the client chain will be the specified height when the client starts
+    /// so head of the client chain will be the specified height when the client starts.
+    /// The given height must be the last block in an epoch.
     #[clap(short = 's', long)]
     client_start_height: Option<BlockHeight>,
     /// Target height that the client should sync to before stopping. If not specified,
