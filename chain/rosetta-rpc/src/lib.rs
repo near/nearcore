@@ -51,7 +51,7 @@ async fn check_network_identifier(
     }
 
     let status = client_addr
-        .send(near_client::Status { is_health_check: false })
+        .send(near_client::Status { is_health_check: false, detailed: false })
         .await?
         .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     if status.chain_id != identifier.network {
@@ -74,7 +74,7 @@ async fn network_list(
     _body: Json<models::MetadataRequest>,
 ) -> Result<Json<models::NetworkListResponse>, models::Error> {
     let status = client_addr
-        .send(near_client::Status { is_health_check: false })
+        .send(near_client::Status { is_health_check: false, detailed: false })
         .await?
         .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     Ok(Json(models::NetworkListResponse {
