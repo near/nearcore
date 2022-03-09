@@ -53,6 +53,10 @@ impl TrieStorage for IncompletePartialStorage {
         // Make sure it's not called - it pretends to be PartialStorage but is not
         unimplemented!()
     }
+
+    fn get_touched_nodes_count(&self) -> u64 {
+        unimplemented!();
+    }
 }
 
 fn setup_storage<F, Out>(trie: Rc<Trie>, test: &mut F) -> (PartialStorage, Out)

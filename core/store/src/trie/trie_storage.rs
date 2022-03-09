@@ -65,9 +65,7 @@ pub trait TrieStorage {
         None
     }
 
-    fn get_touched_nodes_count(&self) -> u64 {
-        unimplemented!();
-    }
+    fn get_touched_nodes_count(&self) -> u64;
 }
 
 /// Records every value read by retrieve_raw_bytes.
@@ -100,6 +98,10 @@ impl TrieStorage for TrieRecordingStorage {
     fn as_recording_storage(&self) -> Option<&TrieRecordingStorage> {
         Some(self)
     }
+
+    fn get_touched_nodes_count(&self) -> u64 {
+        unimplemented!();
+    }
 }
 
 /// Storage for validating recorded partial storage.
@@ -123,6 +125,10 @@ impl TrieStorage for TrieMemoryPartialStorage {
 
     fn as_partial_storage(&self) -> Option<&TrieMemoryPartialStorage> {
         Some(self)
+    }
+
+    fn get_touched_nodes_count(&self) -> u64 {
+        unimplemented!();
     }
 }
 
