@@ -25,6 +25,7 @@ borsh = "0.9"
 reed-solomon-erasure = "4"
 num-rational = "0.3"
 thiserror = "1.0"
+tokio = { version = "1.1", features = ["sync"] }
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
@@ -53,6 +54,7 @@ expensive_tests = []
 test_features = [
   "near-network/test_features",
   "near-chain/test_features",
+  "near-chunks/test_features",
 ]
 delay_detector = [
   "near-chain/delay_detector",

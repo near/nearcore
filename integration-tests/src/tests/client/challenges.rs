@@ -11,6 +11,7 @@ use near_chain::{
     Provenance,
 };
 use near_chain_configs::Genesis;
+use near_chunks::ShardsManager;
 use near_client::test_utils::{create_chunk, create_chunk_with_transactions, run_catchup, TestEnv};
 use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -304,27 +305,25 @@ fn test_verify_chunk_invalid_state_challenge() {
     let data_parts = env.clients[0].runtime_adapter.num_data_parts();
     let parity_parts = total_parts - data_parts;
     let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
-    let (mut invalid_chunk, merkle_paths) = env.clients[0]
-        .shards_mgr
-        .create_encoded_shard_chunk(
-            *last_block.hash(),
-            StateRoot::default(),
-            CryptoHash::default(),
-            last_block.header().height() + 1,
-            0,
-            0,
-            1_000,
-            0,
-            vec![],
-            vec![],
-            &vec![],
-            last_block.chunks()[0].outgoing_receipts_root(),
-            CryptoHash::default(),
-            &validator_signer,
-            &mut rs,
-            PROTOCOL_VERSION,
-        )
-        .unwrap();
+    let (mut invalid_chunk, merkle_paths) = ShardsManager::create_encoded_shard_chunk(
+        *last_block.hash(),
+        StateRoot::default(),
+        CryptoHash::default(),
+        last_block.header().height() + 1,
+        0,
+        0,
+        1_000,
+        0,
+        vec![],
+        vec![],
+        &vec![],
+        last_block.chunks()[0].outgoing_receipts_root(),
+        CryptoHash::default(),
+        &validator_signer,
+        &mut rs,
+        PROTOCOL_VERSION,
+    )
+    .unwrap();
 
     let client = &mut env.clients[0];
 

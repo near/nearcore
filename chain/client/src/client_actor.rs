@@ -13,6 +13,7 @@ use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
     BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
 };
+use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, ValidatorInfoIdentifier};
 use near_chain::{
@@ -42,7 +43,9 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::ValidatorInfo;
+use near_primitives::views::{
+    DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, ValidatorInfo,
+};
 use near_store::db::DBCol::ColStateParts;
 use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
@@ -51,6 +54,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
+use tokio::sync::oneshot;
 use tracing::{debug, error, info, trace, warn};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
@@ -79,6 +83,10 @@ pub struct ClientActor {
 
     /// Last time handle_block_production method was called
     block_production_next_attempt: DateTime<Utc>,
+
+    // Last time when log_summary method was called.
+    log_summary_timer_next_attempt: DateTime<Utc>,
+
     block_production_started: bool,
     doomslug_timer_next_attempt: DateTime<Utc>,
     chunk_request_retry_next_attempt: DateTime<Utc>,
@@ -90,6 +98,10 @@ pub struct ClientActor {
 
     #[cfg(feature = "sandbox")]
     fastforward_delta: Option<near_primitives::types::BlockHeightDelta>,
+
+    /// Synchronization measure to allow graceful shutdown.
+    /// Informs the system when a ClientActor gets dropped.
+    _shutdown_signal: Option<oneshot::Sender<()>>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -124,6 +136,7 @@ impl ClientActor {
         enable_doomslug: bool,
         rng_seed: RngSeed,
         ctx: &Context<ClientActor>,
+        shutdown_signal: Option<oneshot::Sender<()>>,
         #[cfg(feature = "test_features")] adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
@@ -170,6 +183,7 @@ impl ClientActor {
             last_validator_announce_time: None,
             info_helper,
             block_production_next_attempt: now,
+            log_summary_timer_next_attempt: now,
             block_production_started: false,
             doomslug_timer_next_attempt: now,
             chunk_request_retry_next_attempt: now,
@@ -187,6 +201,7 @@ impl ClientActor {
 
             #[cfg(feature = "sandbox")]
             fastforward_delta: None,
+            _shutdown_signal: shutdown_signal,
         })
     }
 }
@@ -228,9 +243,6 @@ impl Actor for ClientActor {
 
         // Start catchup job.
         self.catchup(ctx);
-
-        // Start periodic logging of current state of the client.
-        self.log_summary(ctx);
     }
 }
 
@@ -551,6 +563,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     part_request_msg,
                     route_back,
                     self.client.chain.mut_store(),
+                    &mut self.client.rs,
                 );
                 NetworkClientResponses::NoResponse
             }
@@ -662,6 +675,52 @@ impl Handler<Status> for ClientActor {
                 earliest_block_time = Some(earliest_block.timestamp());
             }
         }
+        // Provide more detailed information about the current state of chain.
+        // For now - provide info about last 50 blocks.
+        let detailed_debug_status = if msg.detailed {
+            let mut blocks_debug: Vec<DebugBlockStatus> = Vec::new();
+
+            let mut last_block_hash = head.last_block_hash;
+            let mut last_block_timestamp: u64 = 0;
+
+            // Fetch last 50 blocks (we can fetch more blocks in the future if needed)
+            for _ in 0..50 {
+                let block = match self.client.chain.get_block(&last_block_hash) {
+                    Ok(block) => block,
+                    Err(_) => break,
+                };
+                let chunks = block
+                    .chunks()
+                    .iter()
+                    .map(|chunk| DebugChunkStatus {
+                        shard_id: chunk.shard_id(),
+                        chunk_hash: chunk.chunk_hash(),
+                        gas_used: chunk.gas_used(),
+                        processing_time_ms: CryptoHashTimer::get_timer_value(chunk.chunk_hash().0)
+                            .map(|s| s.as_millis() as u64),
+                    })
+                    .collect();
+
+                blocks_debug.push(DebugBlockStatus {
+                    block_hash: last_block_hash,
+                    block_height: block.header().height(),
+                    chunks,
+                    processing_time_ms: CryptoHashTimer::get_timer_value(last_block_hash)
+                        .map(|s| s.as_millis() as u64),
+                    timestamp_delta: if last_block_timestamp > 0 {
+                        last_block_timestamp.saturating_sub(block.header().raw_timestamp())
+                    } else {
+                        0
+                    },
+                });
+                last_block_hash = block.header().prev_hash().clone();
+                last_block_timestamp = block.header().raw_timestamp();
+            }
+
+            Some(DetailedDebugStatus { last_blocks: blocks_debug })
+        } else {
+            None
+        };
         Ok(StatusResponse {
             version: self.client.config.version.clone(),
             protocol_version,
@@ -682,6 +741,7 @@ impl Handler<Status> for ClientActor {
                 epoch_start_height: Some(epoch_start_height),
             },
             validator_account_id,
+            detailed_debug_status,
         })
     }
 }
@@ -881,6 +941,21 @@ impl ClientActor {
                     .unwrap_or(delay),
             )
         }
+
+        self.log_summary_timer_next_attempt = self.run_timer(
+            self.client.config.log_summary_period,
+            self.log_summary_timer_next_attempt,
+            ctx,
+            |act, _ctx| act.log_summary(),
+        );
+        delay = core::cmp::min(
+            delay,
+            self.log_summary_timer_next_attempt
+                .signed_duration_since(now)
+                .to_std()
+                .unwrap_or(delay),
+        );
+
         self.chunk_request_retry_next_attempt = self.run_timer(
             self.client.config.chunk_request_retry_period,
             self.chunk_request_retry_next_attempt,
@@ -1461,70 +1536,59 @@ impl ClientActor {
         });
     }
 
-    /// Periodically log summary.
-    fn log_summary(&self, ctx: &mut Context<Self>) {
-        near_performance_metrics::actix::run_later(
-            ctx,
-            self.client.config.log_summary_period,
-            move |act, ctx| {
-                let _d = delay_detector::DelayDetector::new(|| "client log summary".into());
-                let is_syncing = act.client.sync_status.is_syncing();
-                let head = unwrap_or_return!(act.client.chain.head(), act.log_summary(ctx));
-                let validator_info = if !is_syncing {
-                    let validators = unwrap_or_return!(
-                        act.client.runtime_adapter.get_epoch_block_producers_ordered(
-                            &head.epoch_id,
-                            &head.last_block_hash
-                        ),
-                        act.log_summary(ctx)
-                    );
-                    let num_validators = validators.len();
-                    let account_id = act.client.validator_signer.as_ref().map(|x| x.validator_id());
-                    let is_validator = if let Some(account_id) = account_id {
-                        match act.client.runtime_adapter.get_validator_by_account_id(
-                            &head.epoch_id,
-                            &head.last_block_hash,
-                            account_id,
-                        ) {
-                            Ok((_, is_slashed)) => !is_slashed,
-                            Err(_) => false,
-                        }
-                    } else {
-                        false
-                    };
-                    Some(ValidatorInfoHelper { is_validator, num_validators })
-                } else {
-                    None
-                };
+    /// Print current summary.
+    fn log_summary(&mut self) {
+        let _d = delay_detector::DelayDetector::new(|| "client log summary".into());
+        let is_syncing = self.client.sync_status.is_syncing();
+        let head = unwrap_or_return!(self.client.chain.head());
+        let validator_info = if !is_syncing {
+            let validators = unwrap_or_return!(self
+                .client
+                .runtime_adapter
+                .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash));
+            let num_validators = validators.len();
+            let account_id = self.client.validator_signer.as_ref().map(|x| x.validator_id());
+            let is_validator = if let Some(account_id) = account_id {
+                match self.client.runtime_adapter.get_validator_by_account_id(
+                    &head.epoch_id,
+                    &head.last_block_hash,
+                    account_id,
+                ) {
+                    Ok((_, is_slashed)) => !is_slashed,
+                    Err(_) => false,
+                }
+            } else {
+                false
+            };
+            Some(ValidatorInfoHelper { is_validator, num_validators })
+        } else {
+            None
+        };
 
-                let epoch_identifier = ValidatorInfoIdentifier::BlockHash(head.last_block_hash);
-                let validator_epoch_stats = act
-                    .client
-                    .runtime_adapter
-                    .get_validator_info(epoch_identifier)
-                    .map(get_validator_epoch_stats)
-                    .unwrap_or_default();
-                act.info_helper.info(
-                    act.client.chain.store().get_genesis_height(),
-                    &head,
-                    &act.client.sync_status,
-                    &act.node_id,
-                    &act.network_info,
-                    validator_info,
-                    validator_epoch_stats,
-                    act.client
-                        .runtime_adapter
-                        .get_epoch_height_from_prev_block(&head.prev_block_hash)
-                        .unwrap_or(0),
-                    act.client
-                        .runtime_adapter
-                        .get_protocol_upgrade_block_height(head.last_block_hash)
-                        .unwrap_or(None)
-                        .unwrap_or(0),
-                );
-
-                act.log_summary(ctx);
-            },
+        let epoch_identifier = ValidatorInfoIdentifier::BlockHash(head.last_block_hash);
+        let validator_epoch_stats = self
+            .client
+            .runtime_adapter
+            .get_validator_info(epoch_identifier)
+            .map(get_validator_epoch_stats)
+            .unwrap_or_default();
+        self.info_helper.info(
+            self.client.chain.store().get_genesis_height(),
+            &head,
+            &self.client.sync_status,
+            &self.node_id,
+            &self.network_info,
+            validator_info,
+            validator_epoch_stats,
+            self.client
+                .runtime_adapter
+                .get_epoch_height_from_prev_block(&head.prev_block_hash)
+                .unwrap_or(0),
+            self.client
+                .runtime_adapter
+                .get_protocol_upgrade_block_height(head.last_block_hash)
+                .unwrap_or(None)
+                .unwrap_or(0),
         );
     }
 }
@@ -1678,9 +1742,11 @@ pub fn start_client(
     network_adapter: Arc<dyn PeerManagerAdapter>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
+    sender: Option<oneshot::Sender<()>>,
     #[cfg(feature = "test_features")] adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
-    let client_arbiter_handle = Arbiter::current();
+    let client_arbiter = Arbiter::new();
+    let client_arbiter_handle = client_arbiter.handle();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
         ClientActor::new(
             client_config,
@@ -1693,6 +1759,7 @@ pub fn start_client(
             true,
             random_seed_from_thread(),
             ctx,
+            sender,
             #[cfg(feature = "test_features")]
             adv,
         )

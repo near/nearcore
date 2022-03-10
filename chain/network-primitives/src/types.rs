@@ -16,7 +16,7 @@ use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
-use near_primitives::time::{Clock, Utc};
+use near_primitives::time::Utc;
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
@@ -156,18 +156,17 @@ impl KnownPeerStatus {
 pub struct KnownPeerState {
     pub peer_info: PeerInfo,
     pub status: KnownPeerStatus,
-    /// Unused
-    first_seen: u64,
+    pub first_seen: u64,
     pub last_seen: u64,
 }
 
 impl KnownPeerState {
-    pub fn new(peer_info: PeerInfo) -> Self {
+    pub fn new(peer_info: PeerInfo, now: DateTime<Utc>) -> Self {
         KnownPeerState {
             peer_info,
             status: KnownPeerStatus::Unknown,
-            first_seen: to_timestamp(Clock::utc()),
-            last_seen: to_timestamp(Clock::utc()),
+            first_seen: to_timestamp(now),
+            last_seen: to_timestamp(now),
         }
     }
 

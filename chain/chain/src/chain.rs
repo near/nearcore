@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 
@@ -48,6 +49,7 @@ use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpda
 
 use near_primitives::state_record::StateRecord;
 
+use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
@@ -79,7 +81,7 @@ const MAX_ORPHAN_AGE_SECS: u64 = 300;
 // Number of orphan ancestors should be checked to request chunks
 // Orphans for which we will request for missing chunks must satisfy,
 // its NUM_ORPHAN_ANCESTORS_CHECK'th ancestor has been accepted
-pub const NUM_ORPHAN_ANCESTORS_CHECK: u64 = 1;
+pub const NUM_ORPHAN_ANCESTORS_CHECK: u64 = 3;
 
 // Maximum number of orphans that we can request missing chunks
 // Note that if there are no forks, the maximum number of orphans we would
@@ -1288,6 +1290,8 @@ impl Chain {
     ) -> Result<Option<Tip>, Error> {
         metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
         metrics::NUM_ORPHANS.set(self.orphans.len() as i64);
+        let block_hash = *block.hash();
+        let _timer = CryptoHashTimer::new(block_hash);
         let success_timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
 
         let res = self.process_block_single_impl(
@@ -3016,6 +3020,37 @@ impl Chain {
             .ok_or_else(|| ErrorKind::DBNotFoundErr(format!("EXECUTION OUTCOME: {}", id)).into())
     }
 
+    /// Retrieve the up to `max_headers_returned` headers on the main chain
+    /// `hashes`: a list of block "locators". `hashes` should be ordered from older blocks to
+    ///           more recent blocks. This function will find the first block in `hashes`
+    ///           that is on the main chain and returns the blocks after this block. If none of the
+    ///           blocks in `hashes` are on the main chain, the function returns an empty vector.
+    pub fn retrieve_headers(
+        &mut self,
+        hashes: Vec<CryptoHash>,
+        max_headers_returned: u64,
+        max_height: Option<BlockHeight>,
+    ) -> Result<Vec<BlockHeader>, Error> {
+        let header = match self.find_common_header(&hashes) {
+            Some(header) => header,
+            None => return Ok(vec![]),
+        };
+
+        let mut headers = vec![];
+        let header_head_height = self.header_head()?.height;
+        let max_height = max_height.unwrap_or(header_head_height);
+        // TODO: this may be inefficient if there are a lot of skipped blocks.
+        for h in header.height() + 1..=max_height {
+            if let Ok(header) = self.get_header_by_height(h) {
+                headers.push(header.clone());
+                if headers.len() >= max_headers_returned as usize {
+                    break;
+                }
+            }
+        }
+        Ok(headers)
+    }
+
     /// Returns a vector of chunk headers, each of which corresponds to the previous chunk of
     /// a chunk in the block after `prev_block`
     /// This function is important when the block after `prev_block` has different number of chunks
@@ -3705,6 +3740,7 @@ impl<'a> ChainUpdate<'a> {
                     let states_to_patch = self.states_to_patch.take();
 
                     result.push(Box::new(move || -> Result<ApplyChunkResult, Error> {
+                        let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
                         match runtime_adapter.apply_transactions(
                             shard_id,
                             chunk_inner.prev_state_root(),

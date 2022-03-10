@@ -358,6 +358,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-trait"
+version = "0.1.52"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "061a7acccaa286c011ddc30970520b98fa40e00c9d644633fb26b5fc63a265e3"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -768,6 +779,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
+name = "chainsync-loadtest"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "anyhow",
+ "clap 3.0.0-beta.2",
+ "dirs",
+ "futures",
+ "log",
+ "near-chain-configs",
+ "near-crypto",
+ "near-network",
+ "near-network-primitives",
+ "near-primitives",
+ "near-store",
+ "nearcore",
+ "openssl-probe",
+ "parking_lot 0.11.2",
+ "rand 0.8.4",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -855,6 +891,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddfc5b9aa5d4507acaf872de71051dfd0e309860e88966e1051e462a077aac4f"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "combine"
+version = "4.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50b727aacc797f9fc28e355d21f34709ac4fc9adecfe470ad07b8f4464f53062"
+dependencies = [
+ "bytes",
+ "memchr",
 ]
 
 [[package]]
@@ -1996,6 +2042,7 @@ dependencies = [
  "base64 0.11.0",
  "borsh",
  "chrono",
+ "clap 3.0.0-beta.2",
  "futures",
  "hex",
  "hyper",
@@ -2012,6 +2059,7 @@ dependencies = [
  "near-logger-utils",
  "near-network",
  "near-network-primitives",
+ "near-performance-metrics",
  "near-primitives",
  "near-store",
  "near-telemetry",
@@ -2218,6 +2266,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4da24a77a3d8a6d4862d95f72e6fdb9c09a643ecdb402d754004a557f2bec75"
 dependencies = [
  "scopeguard",
+ "serde",
 ]
 
 [[package]]
@@ -2227,7 +2276,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "712a4d093c9976e24e7dbca41db895dabcbac38eb5f4045393d17a95bdfb1109"
 dependencies = [
  "scopeguard",
- "serde",
 ]
 
 [[package]]
@@ -2453,6 +2501,7 @@ version = "0.0.0"
 dependencies = [
  "actix-rt",
  "futures",
+ "near-store",
 ]
 
 [[package]]
@@ -2549,6 +2598,7 @@ name = "near-chunks-primitives"
 version = "0.0.0"
 dependencies = [
  "near-chain-primitives",
+ "near-primitives",
 ]
 
 [[package]]
@@ -2587,6 +2637,7 @@ dependencies = [
  "strum",
  "sysinfo",
  "thiserror",
+ "tokio",
  "tracing",
 ]
 
@@ -2695,6 +2746,7 @@ dependencies = [
  "actix-web",
  "easy-ext",
  "futures",
+ "lazy-static-include",
  "near-chain-configs",
  "near-client",
  "near-jsonrpc-adversarial-primitives",
@@ -2929,6 +2981,7 @@ dependencies = [
  "near-rpc-error-macro",
  "near-vm-errors",
  "num-rational",
+ "once_cell",
  "primitive-types",
  "rand 0.7.3",
  "reed-solomon-erasure",
@@ -3046,6 +3099,7 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "num_cpus",
+ "once_cell",
  "rand 0.7.3",
  "rocksdb",
  "serde_json",
@@ -3109,6 +3163,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sha3",
+ "tracing",
  "zeropool-bn",
 ]
 
@@ -3249,6 +3304,7 @@ dependencies = [
  "near-performance-metrics",
  "near-primitives",
  "near-rust-allocator-proxy",
+ "near-store",
  "nearcore",
  "once_cell",
  "openssl-probe",
@@ -3485,7 +3541,7 @@ dependencies = [
  "paperclip-actix",
  "paperclip-core",
  "paperclip-macros",
- "parking_lot 0.11.2",
+ "parking_lot 0.10.2",
  "semver 0.9.0",
  "serde",
  "serde_derive",
@@ -3506,7 +3562,7 @@ dependencies = [
  "once_cell",
  "paperclip-core",
  "paperclip-macros",
- "parking_lot 0.11.2",
+ "parking_lot 0.10.2",
  "serde_json",
 ]
 
@@ -3519,7 +3575,7 @@ dependencies = [
  "mime",
  "once_cell",
  "paperclip-macros",
- "parking_lot 0.11.2",
+ "parking_lot 0.10.2",
  "pin-project",
  "regex",
  "serde",
@@ -4112,6 +4168,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "redis"
+version = "0.21.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a80b5f38d7f5a020856a0e16e40a9cfabf88ae8f0e4c2dcd8a3114c1e470852"
+dependencies = [
+ "async-trait",
+ "combine",
+ "dtoa",
+ "itoa",
+ "percent-encoding",
+ "sha1",
+ "url",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.1.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4338,6 +4409,7 @@ name = "runtime-tester"
 version = "0.0.0"
 dependencies = [
  "byteorder",
+ "cpu-time",
  "libfuzzer-sys",
  "near-chain",
  "near-chain-configs",
@@ -4756,11 +4828,14 @@ dependencies = [
  "near-logger-utils",
  "near-network",
  "near-primitives",
+ "near-primitives-core",
  "near-store",
  "nearcore",
  "node-runtime",
  "once_cell",
+ "rand 0.7.3",
  "rayon",
+ "redis",
  "serde",
  "serde_json",
  "tempfile",
