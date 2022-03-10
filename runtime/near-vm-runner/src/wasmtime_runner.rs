@@ -227,7 +227,7 @@ impl crate::runner::VM for WasmtimeVM {
         // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
         if logic.add_contract_compile_fee(code.code().len() as u64).is_err() {
             return (
-                Some(logic.outcome()),
+                Some(logic.compute_outcome_and_distribute_gas()),
                 Some(VMError::FunctionCallError(FunctionCallError::HostError(
                     near_vm_errors::HostError::GasExceeded,
                 ))),
@@ -282,10 +282,16 @@ impl crate::runner::VM for WasmtimeVM {
             Ok(instance) => match instance.get_func(&mut store, method_name) {
                 Some(func) => match func.typed::<(), (), _>(&mut store) {
                     Ok(run) => match run.call(&mut store, ()) {
-                        Ok(_) => (Some(logic.outcome()), None),
-                        Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+                        Ok(_) => (Some(logic.compute_outcome_and_distribute_gas()), None),
+                        Err(err) => (
+                            Some(logic.compute_outcome_and_distribute_gas()),
+                            Some(err.into_vm_error()),
+                        ),
                     },
-                    Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+                    Err(err) => (
+                        Some(logic.compute_outcome_and_distribute_gas()),
+                        Some(err.into_vm_error()),
+                    ),
                 },
                 None => (
                     None,
@@ -294,7 +300,9 @@ impl crate::runner::VM for WasmtimeVM {
                     ))),
                 ),
             },
-            Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+            Err(err) => {
+                (Some(logic.compute_outcome_and_distribute_gas()), Some(err.into_vm_error()))
+            }
         }
     }
 
