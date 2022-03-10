@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use actix::Addr;
 use actix_cors::Cors;
-use actix_web::{http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
+use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use futures::Future;
 use futures::FutureExt;
 use prometheus;
@@ -61,6 +61,10 @@ impl Default for RpcLimitsConfig {
     }
 }
 
+fn default_enable_debug_rpc() -> bool {
+    false
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RpcConfig {
     pub addr: String,
@@ -70,6 +74,10 @@ pub struct RpcConfig {
     pub polling_config: RpcPollingConfig,
     #[serde(default)]
     pub limits_config: RpcLimitsConfig,
+    // If true, enable some debug RPC endpoints (like one to get the latest block).
+    // We disable it by default, as some of those endpoints might be quite CPU heavy.
+    #[serde(default = "default_enable_debug_rpc")]
+    pub enable_debug_rpc: bool,
 }
 
 impl Default for RpcConfig {
@@ -80,6 +88,7 @@ impl Default for RpcConfig {
             cors_allowed_origins: vec!["*".to_owned()],
             polling_config: Default::default(),
             limits_config: Default::default(),
+            enable_debug_rpc: false,
         }
     }
 }
@@ -199,6 +208,7 @@ struct JsonRpcHandler {
     view_client_addr: Addr<ViewClientActor>,
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
+    enable_debug_rpc: bool,
     #[cfg(feature = "test_features")]
     peer_manager_addr: Addr<near_network::PeerManagerActor>,
     #[cfg(feature = "test_features")]
@@ -864,7 +874,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::status::RpcHealthResponse,
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
-        Ok(self.client_addr.send(Status { is_health_check: true }).await??.into())
+        Ok(self.client_addr.send(Status { is_health_check: true, detailed: false }).await??.into())
     }
 
     pub async fn status(
@@ -873,7 +883,25 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::status::RpcStatusResponse,
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
-        Ok(self.client_addr.send(Status { is_health_check: false }).await??.into())
+        Ok(self.client_addr.send(Status { is_health_check: false, detailed: false }).await??.into())
+    }
+
+    pub async fn debug(
+        &self,
+    ) -> Result<
+        Option<near_jsonrpc_primitives::types::status::RpcStatusResponse>,
+        near_jsonrpc_primitives::types::status::RpcStatusError,
+    > {
+        if self.enable_debug_rpc {
+            Ok(Some(
+                self.client_addr
+                    .send(Status { is_health_check: false, detailed: true })
+                    .await??
+                    .into(),
+            ))
+        } else {
+            return Ok(None);
+        }
     }
 
     /// Expose Genesis Config (with internal Runtime Config) without state records to keep the
@@ -1310,6 +1338,14 @@ fn status_handler(
     response.boxed()
 }
 
+async fn debug_handler(handler: web::Data<JsonRpcHandler>) -> Result<HttpResponse, HttpError> {
+    match handler.debug().await {
+        Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
+        Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
+        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+    }
+}
+
 fn health_handler(
     handler: web::Data<JsonRpcHandler>,
 ) -> impl Future<Output = Result<HttpResponse, HttpError>> {
@@ -1360,6 +1396,21 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
         .max_age(3600)
 }
 
+lazy_static_include::lazy_static_include_str! {
+    LAST_BLOCKS_HTML => "res/last_blocks.html",
+    DEBUG_HTML => "res/debug.html",
+}
+
+#[get("/debug")]
+async fn debug_html() -> actix_web::Result<impl actix_web::Responder> {
+    Ok(HttpResponse::Ok().body(*DEBUG_HTML))
+}
+
+#[get("/debug/last_blocks")]
+async fn last_blocks_html() -> actix_web::Result<impl actix_web::Responder> {
+    Ok(HttpResponse::Ok().body(*LAST_BLOCKS_HTML))
+}
+
 /// Starts HTTP server(s) listening for RPC requests.
 ///
 /// Starts an HTTP server which handles JSON RPC calls as well as states
@@ -1379,8 +1430,14 @@ pub fn start_http(
     #[cfg(feature = "test_features")] peer_manager_addr: Addr<near_network::PeerManagerActor>,
     #[cfg(feature = "test_features")] routing_table_addr: Addr<near_network::RoutingTableActor>,
 ) -> Vec<(&'static str, actix_web::dev::Server)> {
-    let RpcConfig { addr, prometheus_addr, cors_allowed_origins, polling_config, limits_config } =
-        config;
+    let RpcConfig {
+        addr,
+        prometheus_addr,
+        cors_allowed_origins,
+        polling_config,
+        limits_config,
+        enable_debug_rpc,
+    } = config;
     let prometheus_addr = prometheus_addr.filter(|it| it != &addr);
     let cors_allowed_origins_clone = cors_allowed_origins.clone();
     info!(target:"network", "Starting http server at {}", addr);
@@ -1393,6 +1450,7 @@ pub fn start_http(
                 view_client_addr: view_client_addr.clone(),
                 polling_config,
                 genesis_config: genesis_config.clone(),
+                enable_debug_rpc,
                 #[cfg(feature = "test_features")]
                 peer_manager_addr: peer_manager_addr.clone(),
                 #[cfg(feature = "test_features")]
@@ -1413,6 +1471,9 @@ pub fn start_http(
             )
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
+            .service(web::resource("/debug/api/last_blocks").route(web::get().to(debug_handler)))
+            .service(debug_html)
+            .service(last_blocks_html)
     })
     .bind(addr)
     .unwrap()

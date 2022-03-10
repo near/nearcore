@@ -9,6 +9,7 @@ use near_primitives::time::MockClockGuard;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Rational;
 use std::str::FromStr;
+use std::time::Instant;
 
 #[test]
 fn empty_chain() {
@@ -42,6 +43,9 @@ fn build_chain() {
         // - one time for validating block header
         mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
         mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
+        // Instant calls for CryptoHashTimer.
+        mock_clock_guard.add_instant(Instant::now());
+        mock_clock_guard.add_instant(Instant::now());
     }
 
     let (mut chain, _, signer) = setup();
@@ -69,7 +73,7 @@ fn build_chain() {
     let count_instant = mock_clock_guard.instant_call_count();
     let count_utc = mock_clock_guard.utc_call_count();
     assert_eq!(count_utc, 9);
-    assert_eq!(count_instant, 0);
+    assert_eq!(count_instant, 8);
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(
         chain.head().unwrap().last_block_hash,

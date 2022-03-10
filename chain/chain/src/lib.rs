@@ -8,6 +8,7 @@ pub use store_validator::{ErrorMessage, StoreValidator};
 pub use types::{Block, BlockHeader, BlockStatus, ChainGenesis, Provenance, RuntimeAdapter};
 
 pub mod chain;
+pub mod crypto_hash_timer;
 mod doomslug;
 mod lightclient;
 mod metrics;

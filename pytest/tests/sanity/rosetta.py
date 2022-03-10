@@ -592,11 +592,13 @@ class RosettaTestCase(unittest.TestCase):
         self.assertEqual(1, len(receipt_ids))
         receipt_id = {'hash': 'receipt:' + receipt_ids[0]}
 
-        # The actual amount subtracted is more than test_amount because of the
-        # gas payment.
+        # There are two operations. The first subtracts `test_amount` from the account and the second one subtracts
+        # gas fees
         value = -int(tx['operations'][0]['amount']['value'])
         logger.info(f'Took {value} from validator account')
-        self.assertLess(test_amount, value)
+        self.assertEqual(test_amount, value)
+        gas_payment = -int(tx['operations'][1]['amount']['value'])
+        self.assertGreater(gas_payment, 0)
 
         self.assertEqual([{
             'metadata': {
@@ -615,6 +617,22 @@ class RosettaTestCase(unittest.TestCase):
                 },
                 'operation_identifier': {
                     'index': 0
+                },
+                'status': 'SUCCESS',
+                'type': 'TRANSFER'
+            }, {
+                'account': {
+                    'address': 'test0'
+                },
+                'amount': {
+                    'currency': {
+                        'decimals': 24,
+                        'symbol': 'NEAR'
+                    },
+                    'value': str(-gas_payment)
+                },
+                'operation_identifier': {
+                    'index': 1
                 },
                 'status': 'SUCCESS',
                 'type': 'TRANSFER'

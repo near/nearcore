@@ -4,7 +4,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use rocksdb::{ColumnFamilyDescriptor, MergeOperands, Options};
 use strum::IntoEnumIterator;
 
-use crate::db::{rocksdb_column_options, DBError, RocksDB, RocksDBOptions};
+use crate::db::{col_name, rocksdb_column_options, DBError, RocksDB, RocksDBOptions};
 use crate::DBCol;
 
 fn refcount_merge_v6(
@@ -59,14 +59,11 @@ fn rocksdb_column_options_v6(col: DBCol) -> Options {
 impl RocksDB {
     pub(crate) fn new_v6<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
         RocksDBOptions::default()
-            .cf_names(DBCol::iter().map(|col| format!("col{}", col as usize)).collect())
+            .cf_names(DBCol::iter().map(|col| col_name(col)).collect())
             .cf_descriptors(
                 DBCol::iter()
                     .map(|col| {
-                        ColumnFamilyDescriptor::new(
-                            format!("col{}", col as usize),
-                            rocksdb_column_options_v6(col),
-                        )
+                        ColumnFamilyDescriptor::new(col_name(col), rocksdb_column_options_v6(col))
                     })
                     .collect(),
             )
