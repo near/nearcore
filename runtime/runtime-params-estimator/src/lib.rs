@@ -1098,6 +1098,10 @@ fn touching_trie_node_read(ctx: &mut EstimatorContext) -> GasCost {
 
     let nodes_touched_delta = ext_cost_long_key[&ExtCosts::touching_trie_node]
         - ext_cost_short_key[&ExtCosts::touching_trie_node];
+    // The exact number of touched nodes is a implementation that we don't want
+    // to test here but it should be close to 2*final_key_len
+    assert!(nodes_touched_delta as usize <= 2 * final_key_len + 10);
+    assert!(nodes_touched_delta as usize >= 2 * final_key_len - 10);
     let cost_delta = cost_long_key - cost_short_key;
     let cost = cost_delta / nodes_touched_delta;
 
@@ -1153,6 +1157,10 @@ fn touching_trie_node_write(ctx: &mut EstimatorContext) -> GasCost {
 
     let nodes_touched_delta = ext_cost_long_key[&ExtCosts::touching_trie_node]
         - ext_cost_short_key[&ExtCosts::touching_trie_node];
+    // The exact number of touched nodes is a implementation that we don't want
+    // to test here but it should be close to 2*final_key_len
+    assert!(nodes_touched_delta as usize <= 2 * final_key_len + 10);
+    assert!(nodes_touched_delta as usize >= 2 * final_key_len - 10);
     let cost_delta = cost_long_key - cost_short_key;
     let cost = cost_delta / nodes_touched_delta;
 
