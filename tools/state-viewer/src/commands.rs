@@ -345,29 +345,21 @@ fn resulting_chunk_extra(result: ApplyTransactionResult, gas_limit: Gas) -> Chun
     )
 }
 
-pub(crate) fn apply_block_at_height(
-    height: BlockHeight,
+fn apply_block(
+    block_hash: CryptoHash,
     shard_id: ShardId,
-    home_dir: &Path,
     near_config: NearConfig,
-    store: Store,
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    chain_store: &mut ChainStore,
 ) {
-    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
-    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::with_config(
-        home_dir,
-        store,
-        &near_config,
-        None,
-        near_config.client_config.max_gas_burnt_view,
-    ));
-    let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let block = chain_store.get_block(&block_hash).unwrap().clone();
+    let height = block.header().height();
     let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
     let apply_result = if block.chunks()[shard_id as usize].height_included() == height {
         let chunk =
             chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap().clone();
         let prev_block = chain_store.get_block(block.header().prev_hash()).unwrap().clone();
-        let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
+        let mut chain_store_update = ChainStoreUpdate::new(chain_store);
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
                 shard_id,
@@ -379,7 +371,7 @@ pub(crate) fn apply_block_at_height(
 
         let chunk_inner = chunk.cloned_header().take_inner();
         let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
-            &mut chain_store,
+            chain_store,
             runtime_adapter.as_ref(),
             block.header().prev_hash(),
             shard_id,
@@ -445,6 +437,25 @@ pub(crate) fn apply_block_at_height(
     } else {
         println!("No existing chunk extra available");
     }
+}
+
+pub(crate) fn apply_block_at_height(
+    height: BlockHeight,
+    shard_id: ShardId,
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+) {
+    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::with_config(
+        home_dir,
+        store,
+        &near_config,
+        None,
+        near_config.client_config.max_gas_burnt_view,
+    ));
+    let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
+    apply_block(block_hash, shard_id, near_config, runtime_adapter, &mut chain_store);
 }
 
 pub(crate) fn view_chain(
