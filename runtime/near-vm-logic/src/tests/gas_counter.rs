@@ -160,6 +160,29 @@ fn function_call_weight_single_smoke_test() {
 
     // Weight over u64 bounds
     function_call_weight_check([(0, u64::MAX), (0, 1000)]);
+
+    // Weights with one zero and one non-zero
+    function_call_weight_check([(0, 0), (0, 1)])
+}
+
+#[cfg(feature = "protocol_feature_function_call_weight")]
+#[test]
+fn function_call_no_weight_refund() {
+    use near_primitives::types::GasWeight;
+
+    let gas_limit = 10u64.pow(14);
+
+    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
+    let mut logic = logic_builder.build_with_prepaid_gas(gas_limit);
+
+    let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
+    promise_batch_action_function_call_weight(&mut logic, index, 0, 1000, GasWeight(0))
+        .expect("batch action function call should succeed");
+
+    let outcome = logic.compute_outcome_and_distribute_gas();
+
+    // Verify that unused gas was not allocated to function call
+    assert!(outcome.used_gas < gas_limit);
 }
 
 impl VMLogicBuilder {

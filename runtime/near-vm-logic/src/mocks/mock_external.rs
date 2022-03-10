@@ -249,11 +249,16 @@ impl External for MockedExternal {
         Ok(self.validators.values().sum())
     }
 
+    /// Distributes the gas passed in by splitting it among weights defined in `gas_weights`.
+    /// This will sum all weights, retrieve the gas per weight, then update each function
+    /// to add the respective amount of gas. Once all gas is distributed, the remainder of
+    /// the gas not assigned due to precision loss is added to the last function with a weight.
     #[cfg(feature = "protocol_feature_function_call_weight")]
     fn distribute_unused_gas(&mut self, gas: Gas) -> GasDistribution {
         let gas_weight_sum: u128 =
             self.gas_weights.iter().map(|(_, GasWeight(weight))| *weight as u128).sum();
         if gas_weight_sum != 0 {
+            // Floor division that will ensure gas allocated is <= gas to distribute
             let gas_per_weight = (gas as u128 / gas_weight_sum) as u64;
 
             let mut distribute_gas = |metadata: &FunctionCallActionIndex, assigned_gas: u64| {
@@ -265,7 +270,11 @@ impl External for MockedExternal {
                 {
                     *gas += assigned_gas;
                 } else {
-                    panic!("Invalid index for assigning unused gas weight");
+                    panic!(
+                        "Invalid index for assigning unused gas weight \
+                        (promise_index={}, action_index={})",
+                        receipt_index, action_index
+                    );
                 }
             };
 

@@ -286,6 +286,8 @@ pub trait External {
     /// specified, the action should be allocated gas in
     /// [`distribute_unused_gas`](Self::distribute_unused_gas).
     ///
+    /// For more information, see [crate::VMLogic::promise_batch_action_function_call_weight].
+    ///
     /// # Arguments
     ///
     /// * `receipt_index` - an index of Receipt to append an action
