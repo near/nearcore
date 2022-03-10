@@ -14,7 +14,6 @@ use nearcore::NightshadeRuntime;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use std::cmp::Ord;
-use std::collections::HashSet;
 use std::sync::Arc;
 
 // like ChainStoreUpdate::get_incoming_receipts_for_shard(), but for the case when we don't
@@ -65,33 +64,12 @@ fn get_incoming_receipts(
     Ok(collect_receipts_from_response(&responses))
 }
 
-fn check_hashes_exist<T, F: Fn(&T) -> CryptoHash>(
-    hashes: &Option<Vec<CryptoHash>>,
-    items: &[T],
-    item_hash: F,
-) -> Result<(), CryptoHash> {
-    match hashes {
-        Some(hashes) => {
-            let hashes_seen = items.iter().map(item_hash).collect::<HashSet<_>>();
-            for hash in hashes.iter() {
-                if !hashes_seen.contains(hash) {
-                    return Err(*hash);
-                }
-            }
-            Ok(())
-        }
-        None => Ok(()),
-    }
-}
-
 // returns (apply_result, gas limit)
 pub(crate) fn apply_chunk(
     runtime: Arc<NightshadeRuntime>,
     chain_store: &mut ChainStore,
     chunk_hash: ChunkHash,
     target_height: Option<u64>,
-    tx_hashes: &Option<Vec<CryptoHash>>,
-    receipt_hashes: &Option<Vec<CryptoHash>>,
     rng: Option<StdRng>,
 ) -> anyhow::Result<(ApplyTransactionResult, Gas)> {
     let chunk = chain_store.get_chunk(&chunk_hash)?;
@@ -102,10 +80,6 @@ pub(crate) fn apply_chunk(
     let prev_state_root = chunk.prev_state_root();
 
     let transactions = chunk.transactions().clone();
-    check_hashes_exist(&tx_hashes, &transactions, |tx| tx.get_hash()).map_err(|hash| {
-        anyhow!("transaction with hash {} not found in chunk {:?}", hash, &chunk_hash)
-    })?;
-
     let prev_block =
         chain_store.get_block(&prev_block_hash).context("Failed getting chunk's prev block")?;
     let prev_height_included = prev_block.chunks()[shard_id as usize].height_included();
@@ -126,9 +100,7 @@ pub(crate) fn apply_chunk(
         rng,
     )
     .context("Failed collecting incoming receipts")?;
-    check_hashes_exist(&receipt_hashes, &receipts, |r| r.receipt_id).map_err(|hash| {
-        anyhow!("receipt with ID {} not found in any incoming receipt for shard {}", hash, shard_id)
-    })?;
+
     let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
         chain_store,
         runtime.as_ref(),
@@ -267,8 +239,6 @@ mod test {
                         &mut chain_store,
                         chunk_hash.clone(),
                         None,
-                        &None,
-                        &None,
                         Some(rng),
                     )
                     .unwrap();

@@ -24,7 +24,7 @@ use near_store::test_utils::create_test_store;
 use near_store::{Store, TrieIterator};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -673,39 +673,12 @@ pub fn chunk_mask_to_str(mask: &[bool]) -> String {
     mask.iter().map(|f| if *f { '.' } else { 'X' }).collect()
 }
 
-fn print_apply_chunk_result(
-    result: ApplyTransactionResult,
-    gas_limit: Gas,
-    tx_hashes: Option<Vec<CryptoHash>>,
-    receipt_hashes: Option<Vec<CryptoHash>>,
-) {
-    if tx_hashes.is_some() || receipt_hashes.is_some() {
-        let mut hashes = HashSet::new();
-        if let Some(tx_hashes) = tx_hashes {
-            hashes.extend(tx_hashes);
-        }
-        if let Some(receipt_hashes) = receipt_hashes {
-            hashes.extend(receipt_hashes);
-        }
-
-        println!("outcomes:");
-        for outcome in result.outcomes.iter() {
-            if hashes.contains(&outcome.id) {
-                println!("{:?}", outcome);
-            }
-        }
-    }
-    println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(result, gas_limit));
-}
-
 pub(crate) fn apply_chunk(
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
     chunk_hash: ChunkHash,
     target_height: Option<u64>,
-    tx_hashes: Option<Vec<CryptoHash>>,
-    receipt_hashes: Option<Vec<CryptoHash>>,
 ) -> anyhow::Result<()> {
     let runtime = Arc::new(NightshadeRuntime::with_config(
         home_dir,
@@ -715,15 +688,8 @@ pub(crate) fn apply_chunk(
         near_config.client_config.max_gas_burnt_view,
     ));
     let mut chain_store = ChainStore::new(store, near_config.genesis.config.genesis_height);
-    let (apply_result, gas_limit) = apply_chunk::apply_chunk(
-        runtime,
-        &mut chain_store,
-        chunk_hash,
-        target_height,
-        &tx_hashes,
-        &receipt_hashes,
-        None,
-    )?;
-    print_apply_chunk_result(apply_result, gas_limit, tx_hashes, receipt_hashes);
+    let (apply_result, gas_limit) =
+        apply_chunk::apply_chunk(runtime, &mut chain_store, chunk_hash, target_height, None)?;
+    println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(apply_result, gas_limit));
     Ok(())
 }
