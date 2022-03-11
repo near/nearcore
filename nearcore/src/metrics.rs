@@ -11,10 +11,10 @@ pub static APPLY_CHUNK_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub static SECS_PER_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
+pub static SECS_PER_THOUSAND_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_execution_secs_per_tgas",
-        "Execution time per teragas. Ingore label 'label'.",
+        "near_execution_secs_per_thousand_tgas",
+        "Execution time per teragas. Ignore label 'label'.",
         &["label"],
         Some(prometheus::linear_buckets(0.0, 0.05, 50).unwrap()),
     )
