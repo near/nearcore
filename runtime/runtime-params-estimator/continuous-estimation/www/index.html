@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Gas Parameter Estimations (NEAR Protocol)</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/echarts@5.3.1/dist/echarts.min.js"
+    integrity="sha256-up/VQ00XWfwfCN9hDtxDmZk9PgDVs83dQvTPRnWK0p4=" crossorigin="anonymous"></script>
+  <script defer src="index.js"></script>
+</head>
+
+<body>
+  <h1>Gas parameter estimation history MVP</h1>
+  <section id="main">
+    <div>
+      <form onsubmit="return false;">
+        <label for="estimations">Estimation to display:</label>
+        <select name="estimations" id="estimations">
+          <option value="-">-</option>
+        </select>
+        <label for="singular">Show single estimation</label>
+        <input onchange="onSingularChange()" name="singular" id="singular" type="checkbox" checked="checked">
+        <button onclick="onReset()">Reset</button>
+      </form>
+    </div>
+    <div id="chart" style="width: 600px;height:400px;"></div>
+  </section>
+</body>
+
+</html>

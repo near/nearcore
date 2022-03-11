@@ -1,0 +1,28 @@
+html {
+    text-align: center;
+    font-family: 'Helvetica', sans-serif;
+}
+
+h1 {
+    font-size: 28px;
+}
+
+#main {
+    width: 720px;
+    margin: auto;
+}
+
+form {
+  display: grid;
+  grid-template-columns: 250px auto;
+  grid-gap: 25px;
+}
+
+input {
+    justify-self: left;
+}
+
+button {
+    grid-column-start: 2;
+    width: 100px;
+}
