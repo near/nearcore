@@ -41,6 +41,7 @@ near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }
 near-chain-configs = { path = "../core/chain-configs" }
 near-store = { path = "../core/store" }
+near-metrics = { path = "../../core/metrics" }
 node-runtime = { path = "../runtime/runtime" }
 near-chain = { path = "../chain/chain" }
 near-chunks = { path = "../chain/chunks" }

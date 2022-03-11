@@ -537,6 +537,7 @@ impl NightshadeRuntime {
             },
         };
 
+        let apply_timer = metrics::APPLY_DELAY.start_timer();
         let apply_result = self
             .runtime
             .apply(
@@ -561,7 +562,16 @@ impl NightshadeRuntime {
                 // TODO(#2152): process gracefully
                 RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                 RuntimeError::ValidatorError(e) => e.into(),
-            })?;
+            });
+        match apply_result {
+            Ok(_) => {
+                apply_timer.stop_and_record();
+            },
+            Err(_) => {
+                apply_timer.stop_and_discard();
+            }
+        };
+        let apply_result = apply_result?;
 
         let total_gas_burnt =
             apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();

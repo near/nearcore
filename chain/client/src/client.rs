@@ -1797,10 +1797,10 @@ impl Client {
     }
 
     fn record_receive_block_timestamp(&mut self, block_hash: &CryptoHash) {
-        self.chunks_delay_tracker.add_block_timestamp(block_hash, Clock::instant());
+        self.chunks_delay_tracker.received_block(block_hash, Clock::instant());
     }
 
     fn record_receive_chunk_timestamp(&mut self, chunk_hash: &ChunkHash) {
-        self.chunks_delay_tracker.add_chunk_timestamp(chunk_hash, Clock::instant());
+        self.chunks_delay_tracker.received_chunk(chunk_hash, Clock::instant());
     }
 }
