@@ -12,7 +12,6 @@ from peer import *
 from proxy import ProxyHandler
 import utils
 
-TIMEOUT = 40
 TARGET_HEIGHT = 20
 
 nodes = start_cluster(2, 0, 1, None, [], {}, ProxyHandler)
@@ -20,4 +19,4 @@ nodes = start_cluster(2, 0, 1, None, [], {}, ProxyHandler)
 nodes[1].kill()
 nodes[1].start(boot_node=nodes[0])
 
-utils.wait_for_blocks(nodes[1], target=TARGET_HEIGHT, timeout=TIMEOUT)
+utils.wait_for_blocks(nodes[1], target=TARGET_HEIGHT)
