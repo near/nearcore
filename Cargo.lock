@@ -2598,6 +2598,7 @@ name = "near-chunks-primitives"
 version = "0.0.0"
 dependencies = [
  "near-chain-primitives",
+ "near-primitives",
 ]
 
 [[package]]
@@ -4827,10 +4828,12 @@ dependencies = [
  "near-logger-utils",
  "near-network",
  "near-primitives",
+ "near-primitives-core",
  "near-store",
  "nearcore",
  "node-runtime",
  "once_cell",
+ "rand 0.7.3",
  "rayon",
  "redis",
  "serde",

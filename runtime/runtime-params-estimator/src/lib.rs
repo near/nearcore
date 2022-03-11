@@ -72,6 +72,7 @@ mod function_call;
 mod gas_metering;
 
 use std::convert::{TryFrom, TryInto};
+use std::iter;
 use std::time::Instant;
 
 use estimator_params::sha256_cost;
@@ -177,6 +178,8 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::StorageRemoveKeyByte, storage_remove_key_byte),
     (Cost::StorageRemoveRetValueByte, storage_remove_ret_value_byte),
     (Cost::TouchingTrieNode, touching_trie_node),
+    (Cost::TouchingTrieNodeRead, touching_trie_node_read),
+    (Cost::TouchingTrieNodeWrite, touching_trie_node_write),
     (Cost::ApplyBlock, apply_block_cost),
     (Cost::ContractCompileBase, contract_compile_base),
     (Cost::ContractCompileBytes, contract_compile_bytes),
@@ -1042,9 +1045,127 @@ fn storage_remove_ret_value_byte(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn touching_trie_node(ctx: &mut EstimatorContext) -> GasCost {
-    // TODO: Actually compute it once our storage is complete.
-    // TODO: temporary value, as suggested by @nearmax, divisor is log_16(20000) ~ 3.57 ~ 7/2.
-    storage_read_base(ctx) * 2 / 7
+    let read = touching_trie_node_read(ctx);
+    let write = touching_trie_node_write(ctx);
+    return std::cmp::max(read, write);
+}
+
+fn touching_trie_node_read(ctx: &mut EstimatorContext) -> GasCost {
+    if let Some(cost) = ctx.cached.touching_trie_node_read.clone() {
+        return cost;
+    }
+    let warmup_iters = ctx.config.warmup_iters_per_block;
+    let measured_iters = ctx.config.iter_per_block;
+    let mut testbed = ctx.testbed();
+    let tb = testbed.transaction_builder();
+
+    // Number of bytes in the final key. Will create 2x that many nodes.
+    // Picked somewhat arbitrarily, balancing estimation time vs accuracy.
+    let final_key_len = 1000;
+
+    // Prepare a long chain in the trie
+    let signer = tb.random_account();
+    let key = "j".repeat(final_key_len);
+    let mut setup_block = Vec::new();
+    for key_len in 0..final_key_len {
+        let key = &key.as_str()[..key_len];
+        let value = "0";
+        setup_block.push(tb.account_insert_key(signer.clone(), key, value));
+    }
+
+    let mut blocks = Vec::with_capacity(1 + 2 * warmup_iters + 2 * measured_iters);
+    blocks.push(setup_block);
+
+    blocks.extend(
+        iter::repeat_with(|| vec![tb.account_has_key(signer.clone(), &key.as_str()[0..1])])
+            .take(measured_iters + warmup_iters),
+    );
+    blocks.extend(
+        iter::repeat_with(|| vec![tb.account_has_key(signer.clone(), &key)])
+            .take(measured_iters + warmup_iters),
+    );
+
+    let results = &testbed.measure_blocks(blocks)[1..];
+    let (short_key_results, long_key_results) = results.split_at(measured_iters + warmup_iters);
+
+    let (cost_short_key, ext_cost_short_key) = aggregate_per_block_measurements(
+        &ctx.config,
+        1,
+        short_key_results[warmup_iters..].to_vec(),
+    );
+    let (cost_long_key, ext_cost_long_key) =
+        aggregate_per_block_measurements(&ctx.config, 1, long_key_results[warmup_iters..].to_vec());
+
+    let nodes_touched_delta = ext_cost_long_key[&ExtCosts::touching_trie_node]
+        - ext_cost_short_key[&ExtCosts::touching_trie_node];
+    // The exact number of touched nodes is a implementation that we don't want
+    // to test here but it should be close to 2*final_key_len
+    assert!(nodes_touched_delta as usize <= 2 * final_key_len + 10);
+    assert!(nodes_touched_delta as usize >= 2 * final_key_len - 10);
+    let cost_delta = cost_long_key - cost_short_key;
+    let cost = cost_delta / nodes_touched_delta;
+
+    ctx.cached.touching_trie_node_read = Some(cost.clone());
+    cost
+}
+
+fn touching_trie_node_write(ctx: &mut EstimatorContext) -> GasCost {
+    if let Some(cost) = ctx.cached.touching_trie_node_write.clone() {
+        return cost;
+    }
+    let warmup_iters = ctx.config.warmup_iters_per_block;
+    let measured_iters = ctx.config.iter_per_block;
+    let mut testbed = ctx.testbed();
+    let tb = testbed.transaction_builder();
+
+    // Number of bytes in the final key. Will create 2x that many nodes.
+    // Picked somewhat arbitrarily, balancing estimation time vs accuracy.
+    let final_key_len = 1000;
+
+    // Prepare a long chain in the trie
+    let signer = tb.random_account();
+    let key = std::iter::repeat('j').take(final_key_len).collect::<String>();
+    let mut setup_block = Vec::new();
+    for key_len in 0..final_key_len {
+        let key = &key.as_str()[..key_len];
+        let value = "0";
+        setup_block.push(tb.account_insert_key(signer.clone(), key, value));
+    }
+
+    let mut blocks = Vec::with_capacity(1 + 2 * warmup_iters + 2 * measured_iters);
+    blocks.push(setup_block);
+
+    blocks.extend(
+        iter::repeat_with(|| vec![tb.account_insert_key(signer.clone(), &key.as_str()[0..1], "1")])
+            .take(measured_iters + warmup_iters),
+    );
+    blocks.extend(
+        iter::repeat_with(|| vec![tb.account_insert_key(signer.clone(), &key, "1")])
+            .take(measured_iters + warmup_iters),
+    );
+
+    let results = &testbed.measure_blocks(blocks)[1..];
+    let (short_key_results, long_key_results) = results.split_at(measured_iters + warmup_iters);
+
+    let (cost_short_key, ext_cost_short_key) = aggregate_per_block_measurements(
+        &ctx.config,
+        1,
+        short_key_results[warmup_iters..].to_vec(),
+    );
+    let (cost_long_key, ext_cost_long_key) =
+        aggregate_per_block_measurements(&ctx.config, 1, long_key_results[warmup_iters..].to_vec());
+
+    let nodes_touched_delta = ext_cost_long_key[&ExtCosts::touching_trie_node]
+        - ext_cost_short_key[&ExtCosts::touching_trie_node];
+    // The exact number of touched nodes is a implementation that we don't want
+    // to test here but it should be close to 2*final_key_len
+    assert!(nodes_touched_delta as usize <= 2 * final_key_len + 10);
+    assert!(nodes_touched_delta as usize >= 2 * final_key_len - 10);
+    let cost_delta = cost_long_key - cost_short_key;
+    let cost = cost_delta / nodes_touched_delta;
+
+    ctx.cached.touching_trie_node_write = Some(cost.clone());
+    cost
 }
 
 fn apply_block_cost(ctx: &mut EstimatorContext) -> GasCost {
