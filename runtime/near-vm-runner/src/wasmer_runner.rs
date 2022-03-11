@@ -261,7 +261,7 @@ pub(crate) fn run_wasmer0_module<'a>(
     }
 
     let err = run_method(&module, &import_object, method_name).err();
-    (Some(logic.outcome()), err)
+    (Some(logic.compute_outcome_and_distribute_gas()), err)
 }
 
 pub(crate) fn wasmer0_vm_hash() -> u64 {
@@ -346,7 +346,7 @@ impl crate::runner::VM for Wasmer0VM {
         // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
         if logic.add_contract_compile_fee(code.code().len() as u64).is_err() {
             return (
-                Some(logic.outcome()),
+                Some(logic.compute_outcome_and_distribute_gas()),
                 Some(VMError::FunctionCallError(FunctionCallError::HostError(
                     near_vm_errors::HostError::GasExceeded,
                 ))),
@@ -361,7 +361,7 @@ impl crate::runner::VM for Wasmer0VM {
         }
 
         let err = run_method(&module, &import_object, method_name).err();
-        (Some(logic.outcome()), err)
+        (Some(logic.compute_outcome_and_distribute_gas()), err)
     }
 
     fn precompile(

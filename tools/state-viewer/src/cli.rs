@@ -9,7 +9,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{DB_VERSION, PROTOCOL_VERSION};
-use near_store::{create_store, Store};
+use near_store::{open_read_only_store, Store};
 use nearcore::{get_default_home, get_store_path, load_config, NearConfig};
 use once_cell::sync::Lazy;
 use std::path::{Path, PathBuf};
@@ -106,12 +106,15 @@ pub enum StateViewerSubCommand {
     Chunks(ChunksCmd),
     #[clap(name = "partial_chunks")]
     PartialChunks(PartialChunksCmd),
+    /// Apply a chunk, even if it's not included in any block on disk
+    #[clap(name = "apply_chunk")]
+    ApplyChunk(ApplyChunkCmd),
 }
 
 impl StateViewerSubCommand {
     pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
         let near_config = load_config(home_dir, genesis_validation);
-        let store = create_store(&get_store_path(home_dir));
+        let store = open_read_only_store(&get_store_path(home_dir));
         match self {
             StateViewerSubCommand::Peers => peers(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
@@ -130,6 +133,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, store),
         }
     }
 }
@@ -372,5 +376,30 @@ impl PartialChunksCmd {
         let partial_chunk_hash =
             ChunkHash::from(CryptoHash::from_str(&self.partial_chunk_hash).unwrap());
         get_partial_chunk(partial_chunk_hash, near_config, store)
+    }
+}
+
+#[derive(Clap)]
+pub struct ApplyChunkCmd {
+    #[clap(long)]
+    chunk_hash: String,
+    #[clap(long)]
+    target_height: Option<u64>,
+    #[clap(long)]
+    txs: Option<Vec<String>>,
+    #[clap(long)]
+    receipts: Option<Vec<String>>,
+}
+
+impl ApplyChunkCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        let hash = ChunkHash::from(CryptoHash::from_str(&self.chunk_hash).unwrap());
+        let receipts = self
+            .receipts
+            .map(|v| v.iter().map(|h| CryptoHash::from_str(h).unwrap()).collect::<Vec<_>>());
+        let txs = self
+            .txs
+            .map(|v| v.iter().map(|h| CryptoHash::from_str(h).unwrap()).collect::<Vec<_>>());
+        apply_chunk(home_dir, near_config, store, hash, self.target_height, txs, receipts).unwrap()
     }
 }
