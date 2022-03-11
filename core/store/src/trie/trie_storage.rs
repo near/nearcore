@@ -292,12 +292,6 @@ impl TrieCachingStorage {
         self.try_put_to_chunk_cache(key, value.clone());
     }
 
-    /// Removes and returns the value corresponding to the key from the cache or `None` if it does not exist.
-    pub(crate) fn pop_from_cache(&self, key: &CryptoHash) -> Option<Arc<[u8]>> {
-        self.chunk_cache.borrow_mut().remove(key);
-        self.shard_cache.pop(key)
-    }
-
     /// Set cache state.
     pub fn set_state(&self, state: TrieCacheState) {
         self.cache_state.set(state);

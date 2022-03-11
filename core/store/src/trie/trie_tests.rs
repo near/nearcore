@@ -237,28 +237,6 @@ mod trie_cache_tests {
         );
     }
 
-    /// Pop the item from the cache. Check that getting it from cache returns None.
-    #[test]
-    fn test_pop() {
-        let store = create_test_store();
-        let trie_caching_storage =
-            TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard());
-        let value: Arc<[u8]> = vec![1u8].into();
-        let key = hash(&value);
-
-        trie_caching_storage.put_to_cache(key, value.clone());
-        assert_eq!(
-            trie_caching_storage.get_from_cache(&key),
-            RawBytesWithCost { value: Some(value), cost: TrieNodeRetrievalCost::Full }
-        );
-
-        trie_caching_storage.pop_from_cache(&key);
-        assert_matches!(
-            trie_caching_storage.get_from_cache(&key),
-            RawBytesWithCost { value: None, .. }
-        );
-    }
-
     /// Check that if shard cache size exceeds capacity, the least recently accessed item is evicted.
     #[test]
     fn test_shard_cache_cap() {
