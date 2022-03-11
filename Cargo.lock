@@ -2501,7 +2501,6 @@ version = "0.0.0"
 dependencies = [
  "actix-rt",
  "futures",
- "near-store",
 ]
 
 [[package]]
