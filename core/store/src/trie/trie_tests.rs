@@ -216,6 +216,7 @@ mod trie_cache_tests {
     use near_primitives::hash::hash;
     use near_primitives::types::TrieCacheState;
 
+    /// Put the item into the cache. Check that getting it from cache returns the correct value.
     #[test]
     fn test_put() {
         let store = create_test_store();
@@ -236,6 +237,7 @@ mod trie_cache_tests {
         );
     }
 
+    /// Pop the item from the cache. Check that getting it from cache returns None.
     #[test]
     fn test_pop() {
         let store = create_test_store();
@@ -257,8 +259,9 @@ mod trie_cache_tests {
         );
     }
 
+    /// Check that if shard cache size exceeds capacity, the least recently accessed item is evicted.
     #[test]
-    fn test_shard_cache_size() {
+    fn test_shard_cache_cap() {
         let shard_cache_size = 5;
         let store = create_test_store();
         let trie_caching_storage = TrieCachingStorage::new(
@@ -283,6 +286,7 @@ mod trie_cache_tests {
         });
     }
 
+    /// Check that positions of item and costs of its retrieval are returned correctly.
     #[test]
     fn test_positions_and_costs() {
         let store = create_test_store();
@@ -291,15 +295,19 @@ mod trie_cache_tests {
         let value: Arc<[u8]> = vec![1u8].into();
         let key = hash(&value);
 
+        // In the beginning, we are in the CachingShard state and item is not present in cache.
         assert_matches!(trie_caching_storage.cache_state.get(), TrieCacheState::CachingShard);
         assert_matches!(trie_caching_storage.get_cache_position(&key), CachePosition::None);
 
+        // Because we are in the CachingShard state, item should be placed into shard cache.
         trie_caching_storage.put_to_cache(key, value.clone());
         assert_matches!(
             trie_caching_storage.get_cache_position(&key),
             CachePosition::ShardCache(_)
         );
 
+        // Move to CachingChunk state. The retrieval cost must be full, because it is the first time we accessed item
+        // while caching chunk.
         trie_caching_storage.set_state(TrieCacheState::CachingChunk);
         assert_matches!(
             trie_caching_storage.get_cache_position(&key),
@@ -309,6 +317,8 @@ mod trie_cache_tests {
             trie_caching_storage.get_from_cache(&key),
             RawBytesWithCost { value: Some(value.clone()), cost: TrieNodeRetrievalCost::Full }
         );
+
+        // After previous retrieval, item must be copied to chunk cache. The retrieval cost must be free now.
         assert_matches!(
             trie_caching_storage.get_cache_position(&key),
             CachePosition::ChunkCache(_)
@@ -318,7 +328,15 @@ mod trie_cache_tests {
             RawBytesWithCost { value: Some(value.clone()), cost: TrieNodeRetrievalCost::Free }
         );
 
-        trie_caching_storage.pop_from_cache(&key);
-        assert_matches!(trie_caching_storage.get_cache_position(&key), CachePosition::None);
+        // Even if we switch to caching shard, retrieval still must be free. Chunk cache must be cleared explicitly.
+        trie_caching_storage.set_state(TrieCacheState::CachingShard);
+        assert_matches!(
+            trie_caching_storage.get_cache_position(&key),
+            CachePosition::ChunkCache(_)
+        );
+        assert_eq!(
+            trie_caching_storage.get_from_cache(&key),
+            RawBytesWithCost { value: Some(value.clone()), cost: TrieNodeRetrievalCost::Free }
+        );
     }
 }
