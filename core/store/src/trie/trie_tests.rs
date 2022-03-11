@@ -185,7 +185,7 @@ mod caching_storage_tests {
         assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, &trie_items), vec![5, 5, 4]);
 
         let storage = trie.storage.as_caching_storage().unwrap();
-        assert_eq!(storage.cache.len(), 9);
+        assert_eq!(storage.shard_cache.len(), 9);
     }
 
     // Check that same values are stored in the same trie node.
@@ -202,6 +202,123 @@ mod caching_storage_tests {
         assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, &trie_items), vec![4, 4]);
 
         let storage = trie.storage.as_caching_storage().unwrap();
-        assert_eq!(storage.cache.len(), 5);
+        assert_eq!(storage.shard_cache.len(), 5);
+    }
+}
+
+#[cfg(test)]
+mod trie_cache_tests {
+    use super::*;
+    use crate::test_utils::create_test_store;
+    use crate::trie::trie_storage::{CachePosition, RawBytesWithCost, TrieNodeRetrievalCost};
+    use crate::trie::{TrieCache, TrieCachingStorage};
+    use assert_matches::assert_matches;
+    use near_primitives::hash::hash;
+    use near_primitives::types::TrieCacheState;
+
+    #[test]
+    fn test_put() {
+        let store = create_test_store();
+        let trie_caching_storage =
+            TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard());
+        let value: Arc<[u8]> = vec![1u8].into();
+        let key = hash(&value);
+
+        assert_eq!(
+            trie_caching_storage.get_from_cache(&key),
+            RawBytesWithCost { value: None, cost: TrieNodeRetrievalCost::Full }
+        );
+
+        trie_caching_storage.put_to_cache(key, value.clone());
+        assert_eq!(
+            trie_caching_storage.get_from_cache(&key),
+            RawBytesWithCost { value: Some(value), cost: TrieNodeRetrievalCost::Full }
+        );
+    }
+
+    #[test]
+    fn test_pop() {
+        let store = create_test_store();
+        let trie_caching_storage =
+            TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard());
+        let value: Arc<[u8]> = vec![1u8].into();
+        let key = hash(&value);
+
+        trie_caching_storage.put_to_cache(key, value.clone());
+        assert_eq!(
+            trie_caching_storage.get_from_cache(&key),
+            RawBytesWithCost { value: Some(value), cost: TrieNodeRetrievalCost::Full }
+        );
+
+        trie_caching_storage.pop_from_cache(&key);
+        assert_matches!(
+            trie_caching_storage.get_from_cache(&key),
+            RawBytesWithCost { value: None, .. }
+        );
+    }
+
+    #[test]
+    fn test_shard_cache_size() {
+        let shard_cache_size = 5;
+        let store = create_test_store();
+        let trie_caching_storage = TrieCachingStorage::new(
+            store,
+            TrieCache::new_with_cap(shard_cache_size),
+            ShardUId::single_shard(),
+        );
+
+        (0..shard_cache_size as u8 + 1)
+            .for_each(|i| trie_caching_storage.put_to_cache(hash(&[i]), vec![i].into()));
+
+        assert_matches!(
+            trie_caching_storage.get_from_cache(&hash(&[0u8])),
+            RawBytesWithCost { value: None, .. }
+        );
+        (1..shard_cache_size as u8 + 1).for_each(|i| {
+            let value: Arc<[u8]> = vec![i].into();
+            assert_eq!(
+                trie_caching_storage.get_from_cache(&hash(&value)),
+                RawBytesWithCost { value: Some(value.clone()), cost: TrieNodeRetrievalCost::Full }
+            )
+        });
+    }
+
+    #[test]
+    fn test_positions_and_costs() {
+        let store = create_test_store();
+        let trie_caching_storage =
+            TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard());
+        let value: Arc<[u8]> = vec![1u8].into();
+        let key = hash(&value);
+
+        assert_matches!(trie_caching_storage.cache_state.get(), TrieCacheState::CachingShard);
+        assert_matches!(trie_caching_storage.get_cache_position(&key), CachePosition::None);
+
+        trie_caching_storage.put_to_cache(key, value.clone());
+        assert_matches!(
+            trie_caching_storage.get_cache_position(&key),
+            CachePosition::ShardCache(_)
+        );
+
+        trie_caching_storage.set_state(TrieCacheState::CachingChunk);
+        assert_matches!(
+            trie_caching_storage.get_cache_position(&key),
+            CachePosition::ShardCache(_)
+        );
+        assert_eq!(
+            trie_caching_storage.get_from_cache(&key),
+            RawBytesWithCost { value: Some(value.clone()), cost: TrieNodeRetrievalCost::Full }
+        );
+        assert_matches!(
+            trie_caching_storage.get_cache_position(&key),
+            CachePosition::ChunkCache(_)
+        );
+        assert_eq!(
+            trie_caching_storage.get_from_cache(&key),
+            RawBytesWithCost { value: Some(value.clone()), cost: TrieNodeRetrievalCost::Free }
+        );
+
+        trie_caching_storage.pop_from_cache(&key);
+        assert_matches!(trie_caching_storage.get_cache_position(&key), CachePosition::None);
     }
 }
