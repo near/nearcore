@@ -2575,6 +2575,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "assert_matches",
+ "backtrace",
  "borsh",
  "chrono",
  "futures",

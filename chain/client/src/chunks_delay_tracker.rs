@@ -1,4 +1,3 @@
-use lru::LruCache;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
@@ -33,11 +32,16 @@ impl ChunksDelayTracker {
     }
 
     pub fn received_chunk(&mut self, chunk_hash: &ChunkHash, timestamp: Instant) {
-        self.chunks_in_progress.get_mut(&chunk_hash).map(|chunk_in_progress|chunk_in_progress.chunk_received.get_or_insert(timestamp));
+        self.chunks_in_progress
+            .get_mut(&chunk_hash)
+            .map(|chunk_in_progress| chunk_in_progress.chunk_received.get_or_insert(timestamp));
     }
 
     pub fn requested_chunk(&mut self, chunk_hash: &ChunkHash, timestamp: Instant) {
-        self.chunks_in_progress.entry(*chunk_hash).or_insert_with(|| ChunkInProgress { chunk_requested: Some(timestamp),chunk_received: None  });
+        self.chunks_in_progress.entry(chunk_hash.clone()).or_insert_with(|| ChunkInProgress {
+            chunk_requested: Some(timestamp),
+            chunk_received: None,
+        });
     }
 
     pub fn finish_block_processing(
@@ -45,11 +49,11 @@ impl ChunksDelayTracker {
         processed_block_hash: &CryptoHash,
         chunks: &[(ChunkHash, ShardId)],
     ) {
-        self.update_block_chunks_metric(processed_block_hash, &chunks);
+        self.update_block_chunks_requested_metric(processed_block_hash, &chunks);
         self.update_chunks_metric(&chunks);
 
         self.blocks_received.remove(&processed_block_hash);
-        for (chunk_hash, _shard_id) in {
+        for (chunk_hash, _shard_id) in chunks {
             self.chunks_in_progress.remove(chunk_hash);
         }
     }
@@ -65,8 +69,7 @@ impl ChunksDelayTracker {
     ) {
         if let Some(block_received) = self.blocks_received.get(&block_hash) {
             for (chunk_hash, shard_id) in chunks {
-                let chunk_in_progress = self.chunks_in_progress.peek(&chunk_hash.clone());
-                if let Some(chunk_in_progress) = chunk_in_progress {
+                if let Some(chunk_in_progress) = self.chunks_in_progress.get(chunk_hash) {
                     if let Some(chunk_requested) = chunk_in_progress.chunk_requested {
                         metrics::BLOCK_CHUNKS_REQUESTED_DELAY
                             .with_label_values(&[&format!("{}", shard_id)])
@@ -83,7 +86,7 @@ impl ChunksDelayTracker {
 
     fn update_chunks_metric(&mut self, chunks: &[(ChunkHash, ShardId)]) {
         for (chunk_hash, shard_id) in chunks {
-            if let Some(chunk_in_progress) = self.chunks_in_progress.get(&chunk_hash.clone()) {
+            if let Some(chunk_in_progress) = self.chunks_in_progress.get(&chunk_hash) {
                 if let Some(chunk_received) = chunk_in_progress.chunk_received {
                     if let Some(chunk_requested) = chunk_in_progress.chunk_requested {
                         metrics::CHUNK_RECEIVED_DELAY

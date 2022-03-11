@@ -16,6 +16,7 @@ tracing = "0.1.13"
 borsh = "0.9"
 lru = "0.7.2"
 reed-solomon-erasure = "4"
+backtrace = "*"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }

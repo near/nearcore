@@ -84,11 +84,13 @@ pub static BLOCK_CHUNKS_REQUESTED_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 pub static CHUNK_RECEIVED_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec("near_chunk_request_delay", "Delay between requesting and receiving a chunk.",
-                             &["shard_id"],
-                             Some(prometheus::exponential_buckets(0.001, 1.6, 20).unwrap()),
+    try_create_histogram_vec(
+        "near_chunk_request_delay",
+        "Delay between requesting and receiving a chunk.",
+        &["shard_id"],
+        Some(prometheus::exponential_buckets(0.001, 1.6, 20).unwrap()),
     )
-        .unwrap()
+    .unwrap()
 });
 pub static VALIDATORS_CHUNKS_PRODUCED: Lazy<IntGaugeVec> = Lazy::new(|| {
     near_metrics::try_create_int_gauge_vec(
