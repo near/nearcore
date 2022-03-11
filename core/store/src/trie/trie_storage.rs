@@ -170,9 +170,9 @@ const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 4000;
 pub(crate) enum CachePosition {
     /// Value is not present.
     None,
-    /// Value is present in the shard cache.
+    /// Value is present **only** in the shard cache.
     ShardCache(Arc<[u8]>),
-    /// Value is present in both shard and chunk cache.
+    /// Value is present in the chunk cache.
     ChunkCache(Arc<[u8]>),
 }
 
@@ -203,7 +203,7 @@ pub struct TrieCachingStorage {
     /// txs and receipts in the chunk. All items placed here must remain until applying txs/receipts ends.
     /// Note that for both caches key is the hash of value, so for the fixed key the value is unique.
     /// TODO (#5920): enable chunk nodes caching in Runtime::apply.
-    chunk_cache: RefCell<HashMap<CryptoHash, Arc<[u8]>>>,
+    pub(crate) chunk_cache: RefCell<HashMap<CryptoHash, Arc<[u8]>>>,
 
     /// Counts retrieved trie nodes. Used to compute gas cost for touching trie nodes.
     pub(crate) counter: Cell<u64>,
@@ -273,8 +273,8 @@ impl TrieCachingStorage {
             CachePosition::None => {
                 RawBytesWithCost { value: None, cost: TrieNodeRetrievalCost::Full }
             }
-            // If value is present in shard cache, we can copy value to the chunk cache. The cost must be full anyway
-            // because we didn't access the node in the chunk yet.
+            // If value is present only in shard cache, we can copy value to the chunk cache. The cost must be full
+            // anyway because we didn't access the node in the chunk yet.
             CachePosition::ShardCache(value) => {
                 self.try_put_to_chunk_cache(key.clone(), value.clone());
                 RawBytesWithCost { value: Some(value), cost: TrieNodeRetrievalCost::Full }

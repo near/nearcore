@@ -317,4 +317,30 @@ mod trie_cache_tests {
             RawBytesWithCost { value: Some(value.clone()), cost: TrieNodeRetrievalCost::Free }
         );
     }
+
+    /// Check that if an item present in chunk cache gets evicted from the shard cache, it stays in the chunk cache.
+    #[test]
+    fn test_chunk_cache_presence() {
+        let shard_cache_size = 5;
+        let store = create_test_store();
+        let trie_caching_storage = TrieCachingStorage::new(
+            store,
+            TrieCache::new_with_cap(shard_cache_size),
+            ShardUId::single_shard(),
+        );
+
+        let value = vec![0].into();
+        let key = hash(&[0]);
+        trie_caching_storage.set_state(TrieCacheState::CachingChunk);
+        trie_caching_storage.put_to_cache(key, value);
+        assert_eq!(trie_caching_storage.shard_cache.get(&key), Some(value.clone()));
+        assert!(trie_caching_storage.chunk_cache.borrow().contains_key(&key));
+
+        trie_caching_storage.set_state(TrieCacheState::CachingShard);
+        (1..shard_cache_size as u8 + 1)
+            .for_each(|i| trie_caching_storage.put_to_cache(hash(&[i]), vec![i].into()));
+
+        assert_eq!(trie_caching_storage.shard_cache.get(&key), None);
+        assert!(trie_caching_storage.chunk_cache.borrow().contains_key(&key));
+    }
 }

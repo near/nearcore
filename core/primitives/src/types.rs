@@ -983,7 +983,7 @@ pub trait EpochInfoProvider {
 pub enum TrieCacheState {
     /// We put each visited node to LRU cache. It generally saves time, but existence of any node is not guaranteed;
     CachingShard,
-    /// We put each visited node to the hash map. On the chunk processing, we guarantee that all nodes visited on such
-    /// state will be presented in the trie cache.
+    /// We put each visited node to the chunk cache which is a hash map. On the chunk processing, we guarantee that all
+    /// nodes visited on such state will remain in the chunk cache.
     CachingChunk,
 }
