@@ -329,11 +329,11 @@ mod trie_cache_tests {
             ShardUId::single_shard(),
         );
 
-        let value = vec![0].into();
+        let value: Arc<[u8]> = vec![0].into();
         let key = hash(&[0]);
         trie_caching_storage.set_state(TrieCacheState::CachingChunk);
-        trie_caching_storage.put_to_cache(key, value);
-        assert_eq!(trie_caching_storage.shard_cache.get(&key), Some(value.clone()));
+        trie_caching_storage.put_to_cache(key, value.clone());
+        assert_eq!(trie_caching_storage.shard_cache.get(&key), Some(value));
         assert!(trie_caching_storage.chunk_cache.borrow().contains_key(&key));
 
         trie_caching_storage.set_state(TrieCacheState::CachingShard);
