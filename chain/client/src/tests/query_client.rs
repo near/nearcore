@@ -98,12 +98,14 @@ fn query_status_not_crash() {
                 client
                     .send(NetworkClientMessages::Block(next_block, PeerInfo::random().id, false))
                     .then(move |_| {
-                        actix::spawn(client.send(Status { is_health_check: true }).then(
-                            move |_| {
-                                System::current().stop();
-                                future::ready(())
-                            },
-                        ));
+                        actix::spawn(
+                            client.send(Status { is_health_check: true, detailed: false }).then(
+                                move |_| {
+                                    System::current().stop();
+                                    future::ready(())
+                                },
+                            ),
+                        );
                         future::ready(())
                     }),
             );

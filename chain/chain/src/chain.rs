@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 
@@ -48,6 +49,7 @@ use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpda
 
 use near_primitives::state_record::StateRecord;
 
+use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
@@ -1288,6 +1290,8 @@ impl Chain {
     ) -> Result<Option<Tip>, Error> {
         metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
         metrics::NUM_ORPHANS.set(self.orphans.len() as i64);
+        let block_hash = *block.hash();
+        let _timer = CryptoHashTimer::new(block_hash);
         let success_timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
 
         let res = self.process_block_single_impl(
@@ -2264,6 +2268,9 @@ impl Chain {
         blocks_catch_up_state: &mut BlocksCatchUpState,
         block_catch_up_scheduler: &dyn Fn(BlockCatchUpRequest),
     ) -> Result<(), Error> {
+        debug!(target:"catchup", "catch up blocks: pending blocks: {:?}, processed {:?}, scheduled: {:?}, done: {:?}", 
+               blocks_catch_up_state.pending_blocks, blocks_catch_up_state.processed_blocks.keys().collect::<Vec<_>>(),
+               blocks_catch_up_state.scheduled_blocks.keys().collect::<Vec<_>>(), blocks_catch_up_state.done_blocks.len());
         for (queued_block, (saved_store_update, results)) in
             blocks_catch_up_state.processed_blocks.drain()
         {
@@ -3736,6 +3743,7 @@ impl<'a> ChainUpdate<'a> {
                     let states_to_patch = self.states_to_patch.take();
 
                     result.push(Box::new(move || -> Result<ApplyChunkResult, Error> {
+                        let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
                         match runtime_adapter.apply_transactions(
                             shard_id,
                             chunk_inner.prev_state_root(),
