@@ -150,6 +150,8 @@ pub enum ProtocolFeature {
     /// alpha is min stake ratio
     #[cfg(feature = "protocol_feature_fix_staking_threshold")]
     FixStakingThreshold,
+    #[cfg(feature = "protocol_feature_function_call_weight")]
+    FunctionCallWeight,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -166,7 +168,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 52;
 pub const PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION;
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 126;
+pub const PROTOCOL_VERSION: ProtocolVersion = 127;
 
 /// The points in time after which the voting for the protocol version should start.
 #[allow(dead_code)]
@@ -226,6 +228,8 @@ impl ProtocolFeature {
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
+            #[cfg(feature = "protocol_feature_function_call_weight")]
+            ProtocolFeature::FunctionCallWeight => 127,
         }
     }
 }
