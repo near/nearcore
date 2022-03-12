@@ -1242,7 +1242,7 @@ pub fn init_testnet_configs(
 
 pub fn get_genesis_url(chain_id: &str) -> String {
     format!(
-        "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/genesis.json",
+        "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/genesis.json.xz",
         chain_id,
     )
 }
