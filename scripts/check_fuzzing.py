@@ -69,18 +69,6 @@ def find_fuzz_tests() -> typing.Iterable[typing.Tuple[str, str]]:
         yield target['crate'], target['runner']
 
 
-def format_target(crate: str, runner: str, weight=10) -> str:
-    """Formats a single [[target]] toml file entry"""
-    data = {
-        'crate': crate,
-        'runner': runner,
-        'weight': weight,
-        'flags': ['-len_control=0', '-prefer_small=0', '-max_len=4000000']
-    }
-    data = {'target': [data]}
-    return textwrap.indent(toml.dumps(data).rstrip(), '    ')
-
-
 def main() -> typing.Optional[str]:
     targets = set(find_fuzz_targets())
     missing = sorted(targets.difference(find_fuzz_tests()))
@@ -96,7 +84,7 @@ def main() -> typing.Optional[str]:
             'crate': crate,
             'runner': runner,
             'weight': weight,
-            'flags': ['-len_control=0', '-prefer_small=0', '-max_len=4000000']
+            'flags': []
         }
 
     def format_targets(targets: dict) -> str:
