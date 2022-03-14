@@ -993,11 +993,7 @@ impl Client {
         self.on_block_accepted_with_optional_chunk_produce(block_hash, status, provenance, false);
     }
 
-    pub fn record_accepted_block(
-        &mut self,
-        block_hash: &CryptoHash,
-        chunks: &[(ChunkHash, ShardId)],
-    ) {
+    pub fn record_accepted_block(&mut self, block_hash: &CryptoHash, chunks: &[ChunkHash]) {
         self.chunks_delay_tracker.finish_block_processing(block_hash, chunks);
     }
 

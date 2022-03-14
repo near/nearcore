@@ -1,7 +1,6 @@
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::types::ShardId;
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -47,28 +46,28 @@ impl ChunksDelayTracker {
     pub fn finish_block_processing(
         &mut self,
         processed_block_hash: &CryptoHash,
-        chunks: &[(ChunkHash, ShardId)],
+        chunks: &[ChunkHash],
     ) {
         self.update_block_chunks_requested_metric(processed_block_hash, &chunks);
         self.update_chunks_metric(&chunks);
 
         self.blocks_received.remove(&processed_block_hash);
-        for (chunk_hash, _shard_id) in chunks {
+        for chunk_hash in chunks {
             self.chunks_in_progress.remove(chunk_hash);
         }
     }
 
-    pub fn get_chunks(block: &Block) -> Vec<(ChunkHash, ShardId)> {
-        block.chunks().iter().map(|chunk| (chunk.chunk_hash(), chunk.shard_id())).collect()
+    pub fn get_chunks(block: &Block) -> Vec<ChunkHash> {
+        block.chunks().iter().map(|chunk| chunk.chunk_hash()).collect()
     }
 
     fn update_block_chunks_requested_metric(
         &mut self,
         block_hash: &CryptoHash,
-        chunks: &[(ChunkHash, ShardId)],
+        chunks: &[ChunkHash],
     ) {
         if let Some(block_received) = self.blocks_received.get(&block_hash) {
-            for (chunk_hash, shard_id) in chunks {
+            for (shard_id, chunk_hash) in chunks.iter().enumerate() {
                 if let Some(chunk_in_progress) = self.chunks_in_progress.get(chunk_hash) {
                     if let Some(chunk_requested) = chunk_in_progress.chunk_requested {
                         metrics::BLOCK_CHUNKS_REQUESTED_DELAY
@@ -84,8 +83,8 @@ impl ChunksDelayTracker {
         }
     }
 
-    fn update_chunks_metric(&mut self, chunks: &[(ChunkHash, ShardId)]) {
-        for (chunk_hash, shard_id) in chunks {
+    fn update_chunks_metric(&mut self, chunks: &[ChunkHash]) {
+        for (shard_id, chunk_hash) in chunks.iter().enumerate() {
             if let Some(chunk_in_progress) = self.chunks_in_progress.get(&chunk_hash) {
                 if let Some(chunk_received) = chunk_in_progress.chunk_received {
                     if let Some(chunk_requested) = chunk_in_progress.chunk_requested {
