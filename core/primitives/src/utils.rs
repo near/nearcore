@@ -1,3 +1,4 @@
+use std::cmp::max;
 use std::convert::AsRef;
 use std::fmt;
 
@@ -408,7 +409,17 @@ pub fn to_timestamp(time: DateTime<chrono::Utc>) -> u64 {
 
 /// Compute number of seats per shard for given total number of seats and number of shards.
 pub fn get_num_seats_per_shard(num_shards: NumShards, num_seats: NumSeats) -> Vec<NumSeats> {
-    vec![num_seats; num_shards as usize]
+    (0..num_shards)
+        .map(|i| {
+            let remainder = num_seats % num_shards;
+            let num = if i < remainder as u64 {
+                num_seats / num_shards + 1
+            } else {
+                num_seats / num_shards
+            };
+            max(num, 1)
+        })
+        .collect()
 }
 
 /// Generate random string of given length
