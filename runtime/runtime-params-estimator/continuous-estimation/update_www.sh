@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 
+# Reads data from Sqlite DB and exports it in the format the static website expects.
+# Output directory can be set with the environemnt variable WWW_PATH.
+
 if [[ -z "${SQLI_DB}" ]]; then
   echo '$SQLI_DB is not defined, please set it as environment variable before running this script.'
   exit
 fi
 
 SQL_ALL_NAMES="SELECT DISTINCT name FROM gas_fee ORDER BY name;"
-DIR_OUT="_directory.json"
+DIR_OUT="${WWW_PATH}_directory.json"
 
 echo '{' > $DIR_OUT
 echo '    "names": [' >> $DIR_OUT
@@ -19,7 +22,7 @@ echo '}' >> $DIR_OUT
 sqlite3 $SQLI_DB "${SQL_ALL_NAMES}" \
     | while read NAME
     do
-        OUT="${NAME}.json"
+        OUT="${WWW_PATH}${NAME}.json"
         echo '{' > $OUT
         SQL="SELECT commit_hash,gas,uncertain,date FROM gas_fee WHERE name = \"${NAME}\" AND commit_hash IS NOT NULL AND icount IS NOT NULL \
             AND date IN ( SELECT MAX(date) FROM gas_fee WHERE name = \"${NAME}\" AND commit_hash IS NOT NULL AND icount IS NOT NULL GROUP BY commit_hash) \
