@@ -1040,3 +1040,41 @@ pub unsafe fn cpu_ram_soak_test() {
         buf[j] = tmp;
     }
 }
+
+/// Maximum length that sum of arguments can have.
+/// The assumption is that all WASM memory except for 1 page is available.
+const MAX_ARG_LEN: u64 = 1024 * 1024 - 4096;
+
+#[no_mangle]
+/// Insert or overwrite a value to given key
+pub unsafe fn account_storage_insert_key() {
+    input(0);
+    let input_data = [0u8; MAX_ARG_LEN as usize];
+    read_register(0, input_data.as_ptr() as _);
+
+    let key_len = u64::from_le_bytes(input_data[..8].try_into().unwrap());
+    assert!(key_len < MAX_ARG_LEN - 16);
+    let key = &input_data[8..8 + key_len as usize];
+
+    let value_input = &input_data[8 + key_len as usize..];
+
+    let value_len = u64::from_le_bytes(value_input[..8].try_into().unwrap());
+    assert!(value_len + key_len + 16 < MAX_ARG_LEN);
+    let value = &value_input[8..8 + value_len as usize];
+
+    storage_write(key_len, key.as_ptr() as _, value_len, value.as_ptr() as _, 1);
+}
+
+#[no_mangle]
+/// Check if key exists for account
+pub unsafe fn account_storage_has_key() {
+    input(0);
+    let input_data = [0u8; MAX_ARG_LEN as usize];
+    read_register(0, input_data.as_ptr() as _);
+    
+    let key_len = u64::from_le_bytes(input_data[..8].try_into().unwrap());
+    assert!(key_len < MAX_ARG_LEN - 16);
+    let key = &input_data[8..8 + key_len as usize];
+
+    storage_has_key(key_len, key.as_ptr() as _);
+}

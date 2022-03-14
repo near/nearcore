@@ -1,4 +1,6 @@
 use crate::{External, ValuePtr};
+#[cfg(feature = "protocol_feature_function_call_weight")]
+use near_primitives::types::{GasDistribution, GasWeight};
 use near_primitives_core::types::{AccountId, Balance, Gas};
 use near_vm_errors::HostError;
 use serde::{Deserialize, Serialize};
@@ -10,6 +12,15 @@ pub struct MockedExternal {
     pub fake_trie: HashMap<Vec<u8>, Vec<u8>>,
     receipts: Vec<Receipt>,
     pub validators: HashMap<AccountId, Balance>,
+    #[cfg(feature = "protocol_feature_function_call_weight")]
+    gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
+}
+
+#[derive(Clone)]
+#[cfg(feature = "protocol_feature_function_call_weight")]
+struct FunctionCallActionIndex {
+    receipt_index: usize,
+    action_index: usize,
 }
 
 pub struct MockedValuePtr {
@@ -118,6 +129,34 @@ impl External for MockedExternal {
         Ok(())
     }
 
+    #[cfg(feature = "protocol_feature_function_call_weight")]
+    fn append_action_function_call_weight(
+        &mut self,
+        receipt_index: u64,
+        method_name: Vec<u8>,
+        arguments: Vec<u8>,
+        attached_deposit: u128,
+        prepaid_gas: Gas,
+        gas_weight: GasWeight,
+    ) -> Result<()> {
+        let receipt_index = receipt_index as usize;
+        let receipt = self.receipts.get_mut(receipt_index).unwrap();
+        if gas_weight.0 > 0 {
+            self.gas_weights.push((
+                FunctionCallActionIndex { receipt_index, action_index: receipt.actions.len() },
+                gas_weight,
+            ));
+        }
+
+        receipt.actions.push(Action::FunctionCall(FunctionCallAction {
+            method_name,
+            args: arguments,
+            deposit: attached_deposit,
+            gas: prepaid_gas,
+        }));
+        Ok(())
+    }
+
     fn append_action_transfer(&mut self, receipt_index: u64, amount: u128) -> Result<()> {
         self.receipts
             .get_mut(receipt_index as usize)
@@ -208,6 +247,57 @@ impl External for MockedExternal {
 
     fn validator_total_stake(&self) -> Result<Balance> {
         Ok(self.validators.values().sum())
+    }
+
+    /// Distributes the gas passed in by splitting it among weights defined in `gas_weights`.
+    /// This will sum all weights, retrieve the gas per weight, then update each function
+    /// to add the respective amount of gas. Once all gas is distributed, the remainder of
+    /// the gas not assigned due to precision loss is added to the last function with a weight.
+    #[cfg(feature = "protocol_feature_function_call_weight")]
+    fn distribute_unused_gas(&mut self, gas: Gas) -> GasDistribution {
+        let gas_weight_sum: u128 =
+            self.gas_weights.iter().map(|(_, GasWeight(weight))| *weight as u128).sum();
+        if gas_weight_sum != 0 {
+            // Floor division that will ensure gas allocated is <= gas to distribute
+            let gas_per_weight = (gas as u128 / gas_weight_sum) as u64;
+
+            let mut distribute_gas = |metadata: &FunctionCallActionIndex, assigned_gas: u64| {
+                let FunctionCallActionIndex { receipt_index, action_index } = metadata;
+                if let Some(Action::FunctionCall(FunctionCallAction { ref mut gas, .. })) = self
+                    .receipts
+                    .get_mut(*receipt_index)
+                    .and_then(|receipt| receipt.actions.get_mut(*action_index))
+                {
+                    *gas += assigned_gas;
+                } else {
+                    panic!(
+                        "Invalid index for assigning unused gas weight \
+                        (promise_index={}, action_index={})",
+                        receipt_index, action_index
+                    );
+                }
+            };
+
+            let mut distributed = 0;
+            for (action_index, GasWeight(weight)) in &self.gas_weights {
+                // This can't overflow because the gas_per_weight is floor division
+                // of the weight sum.
+                let assigned_gas = gas_per_weight * weight;
+
+                distribute_gas(action_index, assigned_gas);
+
+                distributed += assigned_gas
+            }
+
+            // Distribute remaining gas to final action.
+            if let Some((last_idx, _)) = self.gas_weights.last() {
+                distribute_gas(last_idx, gas - distributed);
+            }
+            self.gas_weights.clear();
+            GasDistribution::All
+        } else {
+            GasDistribution::NoRatios
+        }
     }
 }
 
