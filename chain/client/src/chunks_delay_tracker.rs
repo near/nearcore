@@ -14,13 +14,17 @@ use crate::metrics;
 pub(crate) struct ChunksDelayTracker {
     /// Timestamp of trying to process a block for the first time.
     blocks_received: HashMap<CryptoHash, Instant>,
+    /// An entry gets created when a chunk gets requested for the first time.
+    /// Chunks get deleted when the block gets processed.
     chunks_in_progress: HashMap<ChunkHash, ChunkInProgress>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
+/// Records timestamps of requesting and receiving a chunk. Assumes that each chunk is requested
+/// before it is received.
 struct ChunkInProgress {
     /// Timestamps of requesting missing chunks.
-    chunk_requested: Option<Instant>,
+    chunk_requested: Instant,
     /// Timestamps of receiving each of the shards in a block.
     chunk_received: Option<Instant>,
 }
@@ -38,7 +42,7 @@ impl ChunksDelayTracker {
 
     pub fn requested_chunk(&mut self, chunk_hash: &ChunkHash, timestamp: Instant) {
         self.chunks_in_progress.entry(chunk_hash.clone()).or_insert_with(|| ChunkInProgress {
-            chunk_requested: Some(timestamp),
+            chunk_requested: timestamp,
             chunk_received: None,
         });
     }
@@ -69,15 +73,14 @@ impl ChunksDelayTracker {
         if let Some(block_received) = self.blocks_received.get(&block_hash) {
             for (shard_id, chunk_hash) in chunks.iter().enumerate() {
                 if let Some(chunk_in_progress) = self.chunks_in_progress.get(chunk_hash) {
-                    if let Some(chunk_requested) = chunk_in_progress.chunk_requested {
-                        metrics::BLOCK_CHUNKS_REQUESTED_DELAY
-                            .with_label_values(&[&format!("{}", shard_id)])
-                            .observe(
-                                chunk_requested
-                                    .saturating_duration_since(*block_received)
-                                    .as_secs_f64(),
-                            );
-                    }
+                    let chunk_requested = chunk_in_progress.chunk_requested;
+                    metrics::BLOCK_CHUNKS_REQUESTED_DELAY
+                        .with_label_values(&[&format!("{}", shard_id)])
+                        .observe(
+                            chunk_requested
+                                .saturating_duration_since(*block_received)
+                                .as_secs_f64(),
+                        );
                 }
             }
         }
@@ -87,15 +90,12 @@ impl ChunksDelayTracker {
         for (shard_id, chunk_hash) in chunks.iter().enumerate() {
             if let Some(chunk_in_progress) = self.chunks_in_progress.get(&chunk_hash) {
                 if let Some(chunk_received) = chunk_in_progress.chunk_received {
-                    if let Some(chunk_requested) = chunk_in_progress.chunk_requested {
-                        metrics::CHUNK_RECEIVED_DELAY
-                            .with_label_values(&[&format!("{}", shard_id)])
-                            .observe(
-                                chunk_received
-                                    .saturating_duration_since(chunk_requested)
-                                    .as_secs_f64(),
-                            );
-                    }
+                    let chunk_requested = chunk_in_progress.chunk_requested;
+                    metrics::CHUNK_RECEIVED_DELAY
+                        .with_label_values(&[&format!("{}", shard_id)])
+                        .observe(
+                            chunk_received.saturating_duration_since(chunk_requested).as_secs_f64(),
+                        );
                 }
             }
         }
