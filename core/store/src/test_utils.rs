@@ -129,7 +129,7 @@ pub fn gen_larger_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, 
 }
 
 pub(crate) fn simplify_changes(
-    changes: &Vec<(Vec<u8>, Option<Vec<u8>>)>,
+    changes: &[(Vec<u8>, Option<Vec<u8>>)],
 ) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
     let mut state: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
     for (key, value) in changes.iter() {
