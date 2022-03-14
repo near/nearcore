@@ -13,7 +13,7 @@ pub static APPLY_CHUNK_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
 
 pub static SECS_PER_THOUSAND_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_execution_seconds_per_petagas",
+        "near_execution_seconds_per_petagas_ratio",
         "Execution time per teragas. Ignore label 'label'.",
         // To define custom histogram buckets, at least one label needs to be defined and the label
         // needs to be non-empty. Let's call this label simply 'label'.
