@@ -571,8 +571,8 @@ impl NightshadeRuntime {
             .with_label_values(&[&format_total_gas_burnt(total_gas_burnt)])
             .observe(elapsed.as_secs_f64());
         if total_gas_burnt > 0 {
-            metrics::SECS_PER_THOUSAND_TGAS
-                .with_label_values(&[""])
+            metrics::SECONDS_PER_PETAGAS
+                .with_label_values(&[])
                 .observe(elapsed.as_secs_f64() * 1e15 / total_gas_burnt as f64);
         }
         let total_balance_burnt = apply_result
