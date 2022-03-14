@@ -681,6 +681,7 @@ impl Handler<Status> for ClientActor {
 
             let mut last_block_hash = head.last_block_hash;
             let mut last_block_timestamp: u64 = 0;
+            let mut last_block_height = head.height + 1;
 
             // Fetch last 50 blocks (we can fetch more blocks in the future if needed)
             for _ in 0..50 {
@@ -688,12 +689,50 @@ impl Handler<Status> for ClientActor {
                     Ok(block) => block,
                     Err(_) => break,
                 };
+                // If there is a gap - and some blocks were not produced - make sure to report this
+                // (and mention who was supposed to be a block producer).
+                if block.header().height() < last_block_height - 1 {
+                    for height in (block.header().height() + 1..last_block_height).rev() {
+                        let block_producer = self
+                            .client
+                            .runtime_adapter
+                            .get_block_producer(block.header().epoch_id(), height)
+                            .map(|f| f.to_string())
+                            .unwrap_or_default();
+                        blocks_debug.push(DebugBlockStatus {
+                            block_hash: CryptoHash::default(),
+                            block_height: height,
+                            block_producer: block_producer,
+                            chunks: vec![],
+                            processing_time_ms: None,
+                            timestamp_delta: 0,
+                        });
+                    }
+                }
+
+                let block_producer = self
+                    .client
+                    .runtime_adapter
+                    .get_block_producer(block.header().epoch_id(), block.header().height())
+                    .map(|f| f.to_string())
+                    .unwrap_or_default();
+
                 let chunks = block
                     .chunks()
                     .iter()
                     .map(|chunk| DebugChunkStatus {
                         shard_id: chunk.shard_id(),
                         chunk_hash: chunk.chunk_hash(),
+                        chunk_producer: self
+                            .client
+                            .runtime_adapter
+                            .get_chunk_producer(
+                                block.header().epoch_id(),
+                                block.header().height(),
+                                chunk.shard_id(),
+                            )
+                            .map(|f| f.to_string())
+                            .unwrap_or_default(),
                         gas_used: chunk.gas_used(),
                         processing_time_ms: CryptoHashTimer::get_timer_value(chunk.chunk_hash().0)
                             .map(|s| s.as_millis() as u64),
@@ -703,6 +742,7 @@ impl Handler<Status> for ClientActor {
                 blocks_debug.push(DebugBlockStatus {
                     block_hash: last_block_hash,
                     block_height: block.header().height(),
+                    block_producer: block_producer,
                     chunks,
                     processing_time_ms: CryptoHashTimer::get_timer_value(last_block_hash)
                         .map(|s| s.as_millis() as u64),
@@ -714,6 +754,7 @@ impl Handler<Status> for ClientActor {
                 });
                 last_block_hash = block.header().prev_hash().clone();
                 last_block_timestamp = block.header().raw_timestamp();
+                last_block_height = block.header().height();
             }
 
             Some(DetailedDebugStatus { last_blocks: blocks_debug })
