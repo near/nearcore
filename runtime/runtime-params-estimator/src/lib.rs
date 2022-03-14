@@ -569,7 +569,7 @@ fn deploy_contract_cost(
         let actions = vec![Action::DeployContract(DeployContractAction { code: code_factory() })];
         tb.transaction_from_actions(sender, receiver, actions)
     };
-    // Use a small block size since deployments are gas heavy
+    // Use a small block size since deployments are gas heavy.
     let block_size = 5;
     let (total_cost, _ext) = transaction_cost_ext(testbed, block_size, &mut make_transaction);
     let base_cost = action_sir_receipt_creation(ctx) + apply_block_cost(ctx);
