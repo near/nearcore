@@ -805,7 +805,7 @@ fn log_base(ctx: &mut EstimatorContext) -> GasCost {
 }
 fn log_byte(ctx: &mut EstimatorContext) -> GasCost {
     // NOTE: We are paying per *output* byte here, hence 3/2 multiplier.
-    fn_cost(ctx, "utf16_log_10kib_10k", ExtCosts::log_byte, (10 * 1024 * 3 / 2) * 10_000)
+    fn_cost(ctx, "utf16_log_10kib_1k", ExtCosts::log_byte, (10 * 1024 * 3 / 2) * 1_000)
 }
 
 fn utf8_decoding_base(ctx: &mut EstimatorContext) -> GasCost {
