@@ -244,7 +244,7 @@ mod trie_cache_tests {
         let store = create_test_store();
         let trie_caching_storage = TrieCachingStorage::new(
             store,
-            TrieCache::new_with_cap(shard_cache_size),
+            TrieCache::with_capacity(shard_cache_size),
             ShardUId::single_shard(),
         );
 
@@ -325,7 +325,7 @@ mod trie_cache_tests {
         let store = create_test_store();
         let trie_caching_storage = TrieCachingStorage::new(
             store,
-            TrieCache::new_with_cap(shard_cache_size),
+            TrieCache::with_capacity(shard_cache_size),
             ShardUId::single_shard(),
         );
 

@@ -18,19 +18,19 @@ pub struct TrieCache(Arc<Mutex<LruCache<CryptoHash, Arc<[u8]>>>>);
 
 impl TrieCache {
     pub fn new() -> Self {
-        Self::new_with_cap(TRIE_MAX_SHARD_CACHE_SIZE)
+        Self::with_capacity(TRIE_MAX_SHARD_CACHE_SIZE)
     }
 
-    pub fn new_with_cap(cap: usize) -> Self {
+    pub fn with_capacity(cap: usize) -> Self {
         Self(Arc::new(Mutex::new(LruCache::new(cap))))
     }
 
     pub fn get(&self, key: &CryptoHash) -> Option<Arc<[u8]>> {
-        self.0.lock().expect(POISONED_LOCK_ERR).get(key).map(Clone::clone)
+        self.0.lock().expect(POISONED_LOCK_ERR).get(key).cloned()
     }
 
     pub fn put(&self, key: CryptoHash, value: Arc<[u8]>) {
-        self.0.lock().unwrap().put(key, value);
+        self.0.lock().expect(POISONED_LOCK_ERR).put(key, value);
     }
 
     pub fn pop(&self, key: &CryptoHash) -> Option<Arc<[u8]>> {
