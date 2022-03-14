@@ -13,10 +13,16 @@ pub static APPLY_CHUNK_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
 
 pub static SECS_PER_THOUSAND_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_execution_secs_per_thousand_tgas",
+        "near_execution_seconds_per_petagas",
         "Execution time per teragas. Ignore label 'label'.",
+        // To define custom histogram buckets, at least one label needs to be defined and the label
+        // needs to be non-empty. Let's call this label simply 'label'.
         &["label"],
-        Some(prometheus::linear_buckets(0.0, 0.05, 50).unwrap()),
+        // Non-linear buckets with higher resolution around 1.0.
+        Some(vec![
+            0.0, 0.1, 0.2, 0.5, 0.7, 0.8, 0.9, 0.95, 0.97, 0.99, 1.0, 1.01, 1.03, 1.05, 1.1, 1.2,
+            1.3, 1.5, 2.0, 5.0, 10.0,
+        ]),
     )
     .unwrap()
 });
