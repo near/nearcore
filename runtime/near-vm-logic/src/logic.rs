@@ -16,6 +16,8 @@ use near_primitives_core::runtime::fees::{
 use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
+#[cfg(feature = "protocol_feature_function_call_weight")]
+use near_primitives_core::types::{GasDistribution, GasWeight};
 use near_vm_errors::InconsistentStateError;
 use near_vm_errors::{HostError, VMLogicError};
 use std::collections::HashMap;
@@ -1519,6 +1521,102 @@ impl<'a> VMLogic<'a> {
         amount_ptr: u64,
         gas: Gas,
     ) -> Result<()> {
+        let append_action_fn = |vm: &mut Self, receipt_idx, method_name, arguments, amount, gas| {
+            vm.ext.append_action_function_call(receipt_idx, method_name, arguments, amount, gas)
+        };
+        self.internal_promise_batch_action_function_call(
+            promise_idx,
+            method_name_len,
+            method_name_ptr,
+            arguments_len,
+            arguments_ptr,
+            amount_ptr,
+            gas,
+            append_action_fn,
+        )
+    }
+
+    /// Appends `FunctionCall` action to the batch of actions for the given promise pointed by
+    /// `promise_idx`. This function allows not specifying a specific gas value and allowing the
+    /// runtime to assign remaining gas based on a weight.
+    ///
+    /// # Gas
+    ///
+    /// Gas can be specified using a static amount, a weight of remaining prepaid gas, or a mixture
+    /// of both. To omit a static gas amount, `0` can be passed for the `gas` parameter.
+    /// To omit assigning remaining gas, `0` can be passed as the `gas_weight` parameter.
+    ///
+    /// The gas weight parameter works as the following:
+    ///
+    /// All unused prepaid gas from the current function call is split among all function calls
+    /// which supply this gas weight. The amount attached to each respective call depends on the
+    /// value of the weight.
+    ///
+    /// For example, if 40 gas is leftover from the current method call and three functions specify
+    /// the weights 1, 5, 2 then 5, 25, 10 gas will be added to each function call respectively,
+    /// using up all remaining available gas.
+    ///
+    /// If the `gas_weight` parameter is set as a large value, the amount of distributed gas
+    /// to each action can be 0 or a very low value because the amount of gas per weight is
+    /// based on the floor division of the amount of gas by the sum of weights.
+    ///
+    /// Any remaining gas will be distributed to the last scheduled function call with a weight
+    /// specified.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If `method_name_len + method_name_ptr` or `arguments_len + arguments_ptr` or
+    /// `amount_ptr + 16` points outside the memory of the guest or host returns
+    /// `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
+    #[cfg(feature = "protocol_feature_function_call_weight")]
+    pub fn promise_batch_action_function_call_weight(
+        &mut self,
+        promise_idx: u64,
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        amount_ptr: u64,
+        gas: Gas,
+        gas_weight: GasWeight,
+    ) -> Result<()> {
+        let append_action_fn = |vm: &mut Self, receipt_idx, method_name, arguments, amount, gas| {
+            vm.ext.append_action_function_call_weight(
+                receipt_idx,
+                method_name,
+                arguments,
+                amount,
+                gas,
+                gas_weight,
+            )
+        };
+        self.internal_promise_batch_action_function_call(
+            promise_idx,
+            method_name_len,
+            method_name_ptr,
+            arguments_len,
+            arguments_ptr,
+            amount_ptr,
+            gas,
+            append_action_fn,
+        )
+    }
+
+    fn internal_promise_batch_action_function_call(
+        &mut self,
+        promise_idx: u64,
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        amount_ptr: u64,
+        gas: Gas,
+        append_action_fn: impl FnOnce(&mut Self, u64, Vec<u8>, Vec<u8>, u128, u64) -> Result<()>,
+    ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view() {
             return Err(HostError::ProhibitedInView {
@@ -1553,8 +1651,7 @@ impl<'a> VMLogic<'a> {
 
         self.deduct_balance(amount)?;
 
-        self.ext.append_action_function_call(receipt_idx, method_name, arguments, amount, gas)?;
-        Ok(())
+        append_action_fn(self, receipt_idx, method_name, arguments, amount, gas)
     }
 
     /// Appends `Transfer` action to the batch of actions for the given promise pointed by
@@ -2509,8 +2606,24 @@ impl<'a> VMLogic<'a> {
         }))
     }
 
-    /// Computes the outcome of execution.
-    pub fn outcome(self) -> VMOutcome {
+    /// Computes the outcome of the execution.
+    ///
+    /// If `FunctionCallWeight` protocol feature (127) is enabled, unused gas will be
+    /// distributed to functions that specify a gas weight. If there are no functions with
+    /// a gas weight, the outcome will contain unused gas as usual.
+    #[cfg_attr(not(feature = "protocol_feature_function_call_weight"), allow(unused_mut))]
+    pub fn compute_outcome_and_distribute_gas(mut self) -> VMOutcome {
+        #[cfg(feature = "protocol_feature_function_call_weight")]
+        if !self.context.is_view() {
+            // Distribute unused gas to scheduled function calls
+            let unused_gas = self.context.prepaid_gas - self.gas_counter.used_gas();
+
+            // Distribute the unused gas and prepay for the gas.
+            if matches!(self.ext.distribute_unused_gas(unused_gas), GasDistribution::All) {
+                self.gas_counter.prepay_gas(unused_gas).unwrap();
+            }
+        }
+
         let burnt_gas = self.gas_counter.burnt_gas();
         let used_gas = self.gas_counter.used_gas();
 

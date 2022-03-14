@@ -2,6 +2,8 @@
 
 use crate::types::{PublicKey, ReceiptIndex};
 use near_primitives_core::types::{AccountId, Balance, Gas};
+#[cfg(feature = "protocol_feature_function_call_weight")]
+use near_primitives_core::types::{GasDistribution, GasWeight};
 use near_vm_errors::VMLogicError;
 
 /// An abstraction over the memory of the smart contract.
@@ -276,6 +278,57 @@ pub trait External {
         prepaid_gas: Gas,
     ) -> Result<()>;
 
+    /// Attach the [`FunctionCallAction`] action to an existing receipt. This method has similar
+    /// functionality to [`append_action_function_call`](Self::append_action_function_call) except
+    /// that it allows specifying a weight to use leftover gas from the current execution.
+    ///
+    /// `prepaid_gas` and `gas_weight` can either be specified or both. If a `gas_weight` is
+    /// specified, the action should be allocated gas in
+    /// [`distribute_unused_gas`](Self::distribute_unused_gas).
+    ///
+    /// For more information, see [crate::VMLogic::promise_batch_action_function_call_weight].
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `method_name` - a name of the contract method to call
+    /// * `arguments` - a Wasm code to attach
+    /// * `attached_deposit` - amount of tokens to transfer with the call
+    /// * `prepaid_gas` - amount of prepaid gas to attach to the call
+    /// * `gas_weight` - relative weight of unused gas to distribute to the function call action
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
+    /// # use near_vm_logic::External;
+    ///
+    /// # let mut external = MockedExternal::new();
+    /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
+    /// external.append_action_function_call_weight(
+    ///     receipt_index,
+    ///     b"method_name".to_vec(),
+    ///     b"{serialised: arguments}".to_vec(),
+    ///     100000u128,
+    ///     100u64,
+    ///     2,
+    /// ).unwrap();
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    #[cfg(feature = "protocol_feature_function_call_weight")]
+    fn append_action_function_call_weight(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        method_name: Vec<u8>,
+        arguments: Vec<u8>,
+        attached_deposit: Balance,
+        prepaid_gas: Gas,
+        gas_weight: GasWeight,
+    ) -> Result<()>;
+
     /// Attach the [`TransferAction`] action to an existing receipt.
     ///
     /// # Arguments
@@ -486,4 +539,16 @@ pub trait External {
 
     /// Returns total stake of validators in the current epoch.
     fn validator_total_stake(&self) -> Result<Balance>;
+
+    /// Distribute the gas among the scheduled function calls that specify a gas weight.
+    ///
+    /// # Arguments
+    ///
+    /// * `gas` - amount of unused gas to distribute
+    ///
+    /// # Returns
+    ///
+    /// Function returns a [GasDistribution] that indicates how the gas was distributed.
+    #[cfg(feature = "protocol_feature_function_call_weight")]
+    fn distribute_unused_gas(&mut self, gas: Gas) -> GasDistribution;
 }

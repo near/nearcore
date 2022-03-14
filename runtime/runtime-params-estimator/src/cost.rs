@@ -308,7 +308,29 @@ pub enum Cost {
     StorageIterNextKeyByte,
     /// DEPRECATED: Was charged in `storage_iter_next`
     StorageIterNextValueByte,
+
+    /// Estimates `touching_trie_node` which is charged when smart contracts
+    /// access storage either through `storage_has_key`, `storage_read`, or
+    /// `storage_write`. The fee is paid once for each unique trie node
+    /// accessed.
+    ///
+    /// Estimation: Take the maximum of estimations for `TouchingTrieNodeRead`
+    /// and `TouchingTrieNodeWrite`
     TouchingTrieNode,
+    /// Helper estimation for `TouchingTrieNode`
+    ///
+    /// Estimation: Prepare an account that has many keys stored that are
+    /// prefixes from each other. Then measure access cost for the shortest and
+    /// the longest key. The gas estimation difference is divided by the
+    /// difference of actually touched nodes.
+    TouchingTrieNodeRead,
+    /// Helper estimation for `TouchingTrieNode`
+    ///
+    /// Estimation: Prepare an account that has many keys stored that are
+    /// prefixes from each other. Then measure write cost for the shortest and
+    /// the longest key. The gas estimation difference is divided by the
+    /// difference of actually touched nodes.
+    TouchingTrieNodeWrite,
     /// Estimates `promise_and_base` which is charged for every call to
     /// `promise_and`. This should cover the base cost for creating receipt
     /// dependencies.
