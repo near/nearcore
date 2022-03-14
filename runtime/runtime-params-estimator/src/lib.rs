@@ -823,7 +823,7 @@ fn utf8_decoding_byte(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn utf16_decoding_base(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "utf16_log_10b_10k", ExtCosts::utf16_decoding_base, 1_000)
+    fn_cost(ctx, "utf16_log_10b_10k", ExtCosts::utf16_decoding_base, 10_000)
 }
 fn utf16_decoding_byte(ctx: &mut EstimatorContext) -> GasCost {
     let no_nul =
