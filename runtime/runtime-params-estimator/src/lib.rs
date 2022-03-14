@@ -812,28 +812,27 @@ fn utf8_decoding_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "utf8_log_10b_10k", ExtCosts::utf8_decoding_base, 10_000)
 }
 fn utf8_decoding_byte(ctx: &mut EstimatorContext) -> GasCost {
-    let no_nul =
-        fn_cost(ctx, "utf8_log_10kib_10k", ExtCosts::utf8_decoding_byte, 10 * 1024 * 10_000);
+    let no_nul = fn_cost(ctx, "utf8_log_10kib_1k", ExtCosts::utf8_decoding_byte, 10 * 1024 * 1_000);
     let nul = fn_cost(
         ctx,
-        "nul_utf8_log_10kib_10k",
+        "nul_utf8_log_10kib_1k",
         ExtCosts::utf8_decoding_byte,
-        (10 * 1024 - 1) * 10_000,
+        (10 * 1024 - 1) * 1_000,
     );
     nul.max(no_nul)
 }
 
 fn utf16_decoding_base(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "utf16_log_10b_10k", ExtCosts::utf16_decoding_base, 10_000)
+    fn_cost(ctx, "utf16_log_10b_10k", ExtCosts::utf16_decoding_base, 1_000)
 }
 fn utf16_decoding_byte(ctx: &mut EstimatorContext) -> GasCost {
     let no_nul =
-        fn_cost(ctx, "utf16_log_10kib_10k", ExtCosts::utf16_decoding_byte, 10 * 1024 * 10_000);
+        fn_cost(ctx, "utf16_log_10kib_1k", ExtCosts::utf16_decoding_byte, 10 * 1024 * 1_000);
     let nul = fn_cost(
         ctx,
-        "nul_utf16_log_10kib_10k",
+        "nul_utf16_log_10kib_1k",
         ExtCosts::utf16_decoding_byte,
-        (10 * 1024 - 2) * 10_000,
+        (10 * 1024 - 2) * 1_000,
     );
     nul.max(no_nul)
 }
