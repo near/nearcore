@@ -33,3 +33,10 @@ crate = "core/account-id/fuzz"
 runner = "serde"
 weight = 1
 flags = ["-len_control=0", "-prefer_small=0", "-max_len=4000000"]
+
+# TODO(#1234): Enable the test again once <some condition>
+[[target]]
+crate = "chain/jsonrpc/fuzz"
+runner = "fuzz_target_1"
+weight = 0
+flags = ["-len_control=0", "-prefer_small=0", "-max_len=4000000"]

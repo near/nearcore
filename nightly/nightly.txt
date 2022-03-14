@@ -1,4 +1,3 @@
 ./sandbox.txt
 ./pytest.txt
 ./expensive.txt
-./fuzzing.txt
