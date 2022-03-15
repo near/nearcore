@@ -66,6 +66,9 @@ struct Cli {
     /// use the height of the last block in chain history
     #[clap(short = 'h', long)]
     target_height: Option<BlockHeight>,
+    /// If true, use in memory storage instead of rocksdb for the client
+    #[clap(short = 'i', long)]
+    in_memory_storage: bool,
 }
 
 fn main() {
@@ -95,6 +98,7 @@ fn main() {
             network_delay,
             args.client_start_height,
             args.target_height,
+            args.in_memory_storage,
         );
         let target_height =
             async { mock_network.send(GetChainTargetBlockHeight).await }.await.unwrap();

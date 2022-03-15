@@ -14,7 +14,8 @@ use near_network::types::NetworkClientMessages;
 use near_primitives::network::PeerId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::BlockHeight;
-use near_store::create_store;
+use near_store::db::TestDB;
+use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
 use nearcore::{get_store_path, NearConfig, NightshadeRuntime};
 use regex::Regex;
@@ -26,13 +27,21 @@ use std::time::Duration;
 use std::{io, thread};
 use tracing::info;
 
-fn setup_runtime(home_dir: &Path, config: &NearConfig) -> Arc<NightshadeRuntime> {
-    let path = get_store_path(home_dir);
-    let store = create_store(&path);
+fn setup_runtime(
+    home_dir: &Path,
+    config: &NearConfig,
+    in_memory_storage: bool,
+) -> Arc<NightshadeRuntime> {
+    let store = if in_memory_storage {
+        Store::new(Arc::new(TestDB::new()))
+    } else {
+        let path = get_store_path(home_dir);
+        create_store(&path)
+    };
 
     Arc::new(NightshadeRuntime::with_config(
         home_dir,
-        store.clone(),
+        store,
         config,
         config.client_config.trie_viewer_state_size_limit,
         config.client_config.max_gas_burnt_view,
@@ -108,6 +117,7 @@ impl FromStr for MockNetworkMode {
 /// `client_start_height`: start height for client
 /// `target_height`: height that the simulated peers will produce blocks until. If None, will
 ///                  use the height from the chain head in storage
+/// `in_memory_storage`: if true, make client use in memory storage instead of rocksdb
 pub fn setup_mock_network(
     client_home_dir: &Path,
     network_home_dir: &Path,
@@ -116,9 +126,10 @@ pub fn setup_mock_network(
     network_delay: Duration,
     client_start_height: Option<BlockHeight>,
     target_height: Option<BlockHeight>,
+    in_memory_storage: bool,
 ) -> (Addr<MockPeerManagerActor>, Addr<ClientActor>, Addr<ViewClientActor>) {
-    let client_runtime = setup_runtime(client_home_dir, &config);
-    let mock_network_runtime = setup_runtime(network_home_dir, &config);
+    let client_runtime = setup_runtime(client_home_dir, &config, in_memory_storage);
+    let mock_network_runtime = setup_runtime(network_home_dir, &config, false);
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::from(&config.genesis);
@@ -291,6 +302,7 @@ pub fn setup_mock_network(
 }
 
 #[cfg(test)]
+#[cfg(feature = "mock_network")]
 mod test {
     use crate::mock_network::setup::{setup_mock_network, MockNetworkMode};
     use actix::{Actor, System};

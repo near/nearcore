@@ -97,5 +97,3 @@ sandbox = [
 ]
 no_cache = ["nearcore/no_cache"]
 mock_network = ["near-chain/mock_network", "near-epoch-manager/mock_network"]
-# enable the mock_network feature by default
-default = ["mock_network"]
