@@ -1190,6 +1190,10 @@ impl Client {
                 skip_produce_chunk,
             );
         }
+
+        let chunk_hashes: Vec<ChunkHash> =
+            block.chunks().iter().map(|chunk| chunk.chunk_hash()).collect();
+        self.record_accepted_block(&block_hash, &chunk_hashes);
     }
 
     pub fn request_missing_chunks(
