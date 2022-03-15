@@ -347,12 +347,12 @@ def poll_blocks(node: cluster.LocalNode,
         AssertionError: If more than `timeout` seconds passes from the start of
             the iteration.
     """
-    end = time.time() + timeout
+    end = time.monotonic() + timeout
     start_height = -1
     count = 0
     previous = -1
 
-    while time.time() < end:
+    while time.monotonic() < end:
         latest = node.get_latest_block(**kw)
         if latest.height != previous:
             yield latest
@@ -377,6 +377,7 @@ def wait_for_blocks(node: cluster.LocalNode,
                     *,
                     target: typing.Optional[int] = None,
                     count: typing.Optional[int] = None,
+                    timeout: typing.Optional[float] = None,
                     **kw) -> cluster.BlockId:
     """Waits until given node reaches expected target block height.
 
@@ -390,6 +391,9 @@ def wait_for_blocks(node: cluster.LocalNode,
         count: How many new blocks to wait for.  If this argument is given,
             target is calculated as node’s current block height plus the given
             count.
+        timeout: Total timeout from the first status request sent to the node.
+            If not specified, the default is to assume that overall each block
+            takes no more than five seconds to generate.
         kw: Keyword arguments passed to `poll_blocks`.  `timeout` and
             `poll_interval` are likely of most interest.
     Returns:
@@ -402,9 +406,15 @@ def wait_for_blocks(node: cluster.LocalNode,
         if count is None:
             raise TypeError('Expected `count` or `target` keyword argument')
         target = node.get_latest_block().height + count
-    elif count is not None:
-        raise TypeError('Expected at most one of `count` or `target` arguments')
-    for latest in poll_blocks(node, __target=target, **kw):
+    else:
+        if count is not None:
+            raise TypeError(
+                'Expected at most one of `count` or `target` arguments')
+        if timeout is None:
+            count = max(0, target - node.get_latest_block().height)
+    if timeout is None:
+        timeout = max(10, count * 5)
+    for latest in poll_blocks(node, timeout=timeout, __target=target, **kw):
         logger.info(f'{latest}  (waiting for #{target})')
         if latest.height >= target:
             return latest

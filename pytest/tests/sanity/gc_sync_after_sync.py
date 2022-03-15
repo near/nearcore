@@ -19,7 +19,6 @@ import utils
 TARGET_HEIGHT1 = 60
 TARGET_HEIGHT2 = 170
 TARGET_HEIGHT3 = 250
-TIMEOUT = 300
 
 consensus_config = {
     "consensus": {
@@ -49,7 +48,6 @@ nodes[1].kill()
 
 node0_height, _ = utils.wait_for_blocks(nodes[0],
                                         target=TARGET_HEIGHT1,
-                                        timeout=TIMEOUT,
                                         verbose=True)
 
 logger.info('Restart node 1')
@@ -58,7 +56,6 @@ time.sleep(3)
 
 node1_height, _ = utils.wait_for_blocks(nodes[1],
                                         target=node0_height,
-                                        timeout=TIMEOUT,
                                         verbose=True)
 
 if swap_nodes:
@@ -70,7 +67,6 @@ nodes[1].kill()
 
 node0_height, _ = utils.wait_for_blocks(nodes[0],
                                         target=TARGET_HEIGHT2,
-                                        timeout=TIMEOUT,
                                         verbose=True)
 
 logger.info('Restart node 1')
@@ -79,7 +75,6 @@ time.sleep(3)
 
 node1_height, _ = utils.wait_for_blocks(nodes[1],
                                         target=node0_height,
-                                        timeout=TIMEOUT,
                                         verbose=True)
 
 # all fresh data should be synced
@@ -120,9 +115,6 @@ for height in range(130, 150):
 assert blocks_count == 0
 
 # check that node can GC normally after syncing
-utils.wait_for_blocks(nodes[1],
-                      target=TARGET_HEIGHT3,
-                      timeout=TIMEOUT,
-                      verbose=True)
+utils.wait_for_blocks(nodes[1], target=TARGET_HEIGHT3, verbose=True)
 
 logger.info('EPIC')

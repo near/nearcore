@@ -327,6 +327,7 @@ pub struct ValidatorInfo {
 pub struct DebugChunkStatus {
     pub shard_id: u64,
     pub chunk_hash: ChunkHash,
+    pub chunk_producer: String,
     pub gas_used: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub processing_time_ms: Option<u64>,
@@ -337,6 +338,7 @@ pub struct DebugChunkStatus {
 pub struct DebugBlockStatus {
     pub block_hash: CryptoHash,
     pub block_height: u64,
+    pub block_producer: String,
     pub chunks: Vec<DebugChunkStatus>,
     // Time that was spent processing a given block.
     #[serde(skip_serializing_if = "Option::is_none")]
