@@ -169,7 +169,7 @@ pub enum Cost {
     /// output of logging in UTF8 or panicking.
     ///
     /// Estimation: Execute a transaction with a single function that logs
-    /// 10'000 times a string of length 10'000. Divide the cost by total bytes
+    /// a 10kiB string many times. Divide the cost by total bytes
     /// logged. One more details, to cover both null-terminated strings and
     /// fixed-length strings, both versions are measured and the maximum is
     /// taken.
@@ -183,31 +183,29 @@ pub enum Cost {
     /// Estimates `utf16_decoding_byte` which is charged for each byte in the
     /// output of logging in UTF16.
     ///
-    /// Estimation: Execute a transaction with a single function that logs
-    /// 10'000 times a string of length 10'000. Divide the cost by total bytes
-    /// logged. One more details, to cover both null-terminated strings and
-    /// fixed-length strings, both versions are measured and the maximum is
-    /// taken.
+    /// Estimation: Execute a transaction with a single function that logs a
+    /// 10kiB string many times. Divide the cost by total bytes logged. One more
+    /// details, to cover both null-terminated strings and fixed-length strings,
+    /// both versions are measured and the maximum is taken.
     Utf16DecodingByte,
     /// Estimates `log_base` which is charged once every time log output is
     /// produced, either through logging functions (UTF8 or UTF16) or when
     /// panicking.
-    /// 
+    ///
     /// Estimation: Execute a transaction with a single function that logs
     /// 10'000 times a small string (using UTF16 to be pessimistic). Divide the
     /// cost by 10'000.
-    /// 
+    ///
     /// Note: This currently uses the identical estimation as
     /// `Utf16DecodingBase`
     LogBase,
     /// Estimates `log_byte` which is charged for every byte of log output
     /// produced, either through logging functions (UTF8 or UTF16) or when
     /// panicking.
-    /// 
-    /// Estimation: Execute a transaction with a single function that logs
-    /// 10'000 times a 10kiB string (using UTF16 to be pessimistic). Divide the
-    /// cost by total bytes of output produced, which is 3/2 * 10'000 * 10 *
-    /// 1024.
+    ///
+    /// Estimation: Execute a transaction with a single function that logs a
+    /// 10kiB string N times (using UTF16 to be pessimistic). Divide the cost by
+    /// total bytes of output produced, which is 3/2 * N * 10 * 1024.
     LogByte,
 
     // Cryptographic host functions:
