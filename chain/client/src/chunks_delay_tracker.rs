@@ -11,7 +11,8 @@ use crate::metrics;
 /// If a chunk or a block is received or requested multiple times, only the first time is recorded.
 #[derive(Debug, Default)]
 pub(crate) struct ChunksDelayTracker {
-    /// Timestamp of trying to process a block for the first time.
+    /// Timestamps of the first attempt of block processing.
+    /// Contains only blocks that are not yet processed.
     blocks_in_progress: HashMap<CryptoHash, Instant>,
     /// An entry gets created when a chunk gets requested for the first time.
     /// Chunks get deleted when the block gets processed.
