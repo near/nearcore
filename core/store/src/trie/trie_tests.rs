@@ -209,59 +209,51 @@ mod caching_storage_tests {
 #[cfg(test)]
 mod trie_cache_tests {
     use super::*;
-    use crate::test_utils::create_test_store;
+    use crate::test_utils::{create_test_store, create_tries};
     use crate::trie::trie_storage::{CachePosition, RawBytesWithCost, TrieNodeRetrievalCost};
-    use crate::trie::{TrieCache, TrieCachingStorage};
+    use crate::trie::{TrieCache, TrieCachingStorage, TrieRefcountChange};
+    use crate::{ColState, Store, TrieChanges};
     use assert_matches::assert_matches;
     use near_primitives::hash::hash;
     use near_primitives::types::TrieCacheState;
 
+    fn create_store_with_values(values: &[Vec<u8>]) -> Store {
+        let tries = create_tries();
+        let shard_uid = ShardUId::single_shard();
+        let mut trie_changes = TrieChanges::empty(Trie::empty_root());
+        trie_changes.insertions = values
+            .iter()
+            .map(|value| TrieRefcountChange {
+                trie_node_or_value_hash: hash(value),
+                trie_node_or_value: value.clone(),
+                rc: 1,
+            })
+            .collect();
+        let (store_update, _) = tries.apply_all(&trie_changes, shard_uid).unwrap();
+        store_update.commit().unwrap();
+        tries.get_store()
+    }
+
     /// Put the item into the cache. Check that getting it from cache returns the correct value.
     #[test]
     fn test_put() {
-        let store = create_test_store();
+        let values = vec![vec![1u8]];
+        let store = create_store_with_values(&values);
+        let trie_cache = TrieCache::new();
         let trie_caching_storage =
-            TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard());
-        let value: Arc<[u8]> = vec![1u8].into();
-        let key = hash(&value);
+            TrieCachingStorage::new(store, trie_cache, ShardUId::single_shard());
+        let value = &values[0];
+        let key = hash(value);
 
-        assert_eq!(
-            trie_caching_storage.get_from_cache(&key),
-            RawBytesWithCost { value: None, cost: TrieNodeRetrievalCost::Full }
-        );
-
-        trie_caching_storage.put_to_cache(key, value.clone());
-        assert_eq!(
-            trie_caching_storage.get_from_cache(&key),
-            RawBytesWithCost { value: Some(value), cost: TrieNodeRetrievalCost::Full }
-        );
-    }
-
-    /// Check that if shard cache size exceeds capacity, the least recently accessed item is evicted.
-    #[test]
-    fn test_shard_cache_cap() {
-        let shard_cache_size = 5;
-        let store = create_test_store();
-        let trie_caching_storage = TrieCachingStorage::new(
-            store,
-            TrieCache::with_capacity(shard_cache_size),
-            ShardUId::single_shard(),
-        );
-
-        (0..shard_cache_size as u8 + 1)
-            .for_each(|i| trie_caching_storage.put_to_cache(hash(&[i]), vec![i].into()));
-
-        assert_matches!(
-            trie_caching_storage.get_from_cache(&hash(&[0u8])),
-            RawBytesWithCost { value: None, .. }
-        );
-        (1..shard_cache_size as u8 + 1).for_each(|i| {
-            let value: Arc<[u8]> = vec![i].into();
-            assert_eq!(
-                trie_caching_storage.get_from_cache(&hash(&value)),
-                RawBytesWithCost { value: Some(value.clone()), cost: TrieNodeRetrievalCost::Full }
-            )
-        });
+        for _ in 0..2 {
+            let count_before = trie_caching_storage.get_touched_nodes_count();
+            let result = trie_caching_storage.retrieve_raw_bytes(&key);
+            let bytes: Arc<[u8]> = result.into();
+            let count_after = trie_caching_storage.get_touched_nodes_count();
+            assert_eq!(result, Some(bytes));
+            assert_eq!(count_before + 1, count_after);
+            assert_eq!(trie_cache.get(&key), Some(value));
+        }
     }
 
     /// Check that positions of item and costs of its retrieval are returned correctly.
