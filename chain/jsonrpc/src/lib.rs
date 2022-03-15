@@ -904,19 +904,6 @@ impl JsonRpcHandler {
         }
     }
 
-    pub async fn sync_info(
-        &self,
-    ) -> Result<
-        near_jsonrpc_primitives::types::status::RpcStatusResponse,
-        near_jsonrpc_primitives::types::status::RpcStatusError,
-    > {
-        Ok(self
-            .client_addr
-            .send(Status { is_health_check: false, detailed: true })
-            .await??
-            .into())
-    }
-
     /// Expose Genesis Config (with internal Runtime Config) without state records to keep the
     /// output at a reasonable size.
     ///
@@ -1397,7 +1384,7 @@ pub async fn prometheus_handler() -> Result<HttpResponse, HttpError> {
 }
 
 async fn sync_info_handler(handler: web::Data<JsonRpcHandler>) -> Result<HttpResponse, HttpError> {
-    match handler.sync_info().await {
+    match handler.debug().await {
         Ok(value) => Ok(HttpResponse::Ok().json(&value)),
         Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
     }
