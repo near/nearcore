@@ -96,7 +96,7 @@ use rand::Rng;
 use utils::{
     aggregate_per_block_measurements, fn_cost, fn_cost_count, fn_cost_with_setup,
     generate_data_only_contract, generate_fn_name, noop_function_call_cost, read_resource,
-    transaction_cost,
+    transaction_cost, transaction_cost_ext,
 };
 use vm_estimator::{compile_single_contract_cost, compute_compile_cost_vm};
 
@@ -569,7 +569,9 @@ fn deploy_contract_cost(
         let actions = vec![Action::DeployContract(DeployContractAction { code: code_factory() })];
         tb.transaction_from_actions(sender, receiver, actions)
     };
-    let total_cost = transaction_cost(testbed, &mut make_transaction);
+    // Use a small block size since deployments are gas heavy.
+    let block_size = 5;
+    let (total_cost, _ext) = transaction_cost_ext(testbed, block_size, &mut make_transaction);
     let base_cost = action_sir_receipt_creation(ctx) + apply_block_cost(ctx);
     total_cost - base_cost
 }
@@ -803,20 +805,19 @@ fn log_base(ctx: &mut EstimatorContext) -> GasCost {
 }
 fn log_byte(ctx: &mut EstimatorContext) -> GasCost {
     // NOTE: We are paying per *output* byte here, hence 3/2 multiplier.
-    fn_cost(ctx, "utf16_log_10kib_10k", ExtCosts::log_byte, (10 * 1024 * 3 / 2) * 10_000)
+    fn_cost(ctx, "utf16_log_10kib_1k", ExtCosts::log_byte, (10 * 1024 * 3 / 2) * 1_000)
 }
 
 fn utf8_decoding_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "utf8_log_10b_10k", ExtCosts::utf8_decoding_base, 10_000)
 }
 fn utf8_decoding_byte(ctx: &mut EstimatorContext) -> GasCost {
-    let no_nul =
-        fn_cost(ctx, "utf8_log_10kib_10k", ExtCosts::utf8_decoding_byte, 10 * 1024 * 10_000);
+    let no_nul = fn_cost(ctx, "utf8_log_10kib_1k", ExtCosts::utf8_decoding_byte, 10 * 1024 * 1_000);
     let nul = fn_cost(
         ctx,
-        "nul_utf8_log_10kib_10k",
+        "nul_utf8_log_10kib_1k",
         ExtCosts::utf8_decoding_byte,
-        (10 * 1024 - 1) * 10_000,
+        (10 * 1024 - 1) * 1_000,
     );
     nul.max(no_nul)
 }
@@ -826,12 +827,12 @@ fn utf16_decoding_base(ctx: &mut EstimatorContext) -> GasCost {
 }
 fn utf16_decoding_byte(ctx: &mut EstimatorContext) -> GasCost {
     let no_nul =
-        fn_cost(ctx, "utf16_log_10kib_10k", ExtCosts::utf16_decoding_byte, 10 * 1024 * 10_000);
+        fn_cost(ctx, "utf16_log_10kib_1k", ExtCosts::utf16_decoding_byte, 10 * 1024 * 1_000);
     let nul = fn_cost(
         ctx,
-        "nul_utf16_log_10kib_10k",
+        "nul_utf16_log_10kib_1k",
         ExtCosts::utf16_decoding_byte,
-        (10 * 1024 - 2) * 10_000,
+        (10 * 1024 - 2) * 1_000,
     );
     nul.max(no_nul)
 }

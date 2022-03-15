@@ -127,6 +127,7 @@ use near_primitives::epoch_manager::RngSeed;
 use rand::Rng;
 
 mod chunk_cache;
+mod metrics;
 pub mod test_utils;
 
 const CHUNK_PRODUCER_BLACKLIST_SIZE: usize = 100;
@@ -999,32 +1000,62 @@ impl ShardsManager {
     ) {
         debug!(target: "chunks", "Received partial encoded chunk request for {:?}, part_ordinals: {:?}, shards: {:?}, I'm {:?}", request.chunk_hash.0, request.part_ords, request.tracking_shards, self.me);
 
-        let response = if let Some(entry) = self.encoded_chunks.get(&request.chunk_hash) {
-            Self::prepare_partial_encoded_chunk_response_from_cache(request, entry)
-        } else if let Ok(partial_chunk) = chain_store.get_partial_chunk(&request.chunk_hash) {
-            Self::prepare_partial_encoded_chunk_response_from_partial(request, partial_chunk)
-        } else if let Ok(chunk) = chain_store.get_chunk(&request.chunk_hash).map(|ch| ch.clone()) {
-            // Note: we need to clone the chunk because otherwise we would be
-            // holding multiple references to chain_store.  One through the
-            // chunk and another through chain_store which we need to pass down
-            // to do further fetches.
+        let (started, key, response) =
+            self.prepare_partial_encoded_chunk_response(request, chain_store, rs);
 
-            // If we are archival node we might have garbage collected the
-            // partial chunk while we still keep the chunk itself.  We can get
-            // the chunk, recalculate the parts and respond to the request.
-            //
-            // TODO(#6242): This is currently not implemented and effectively
-            // this is dead code.
-            self.prepare_partial_encoded_chunk_response_from_chunk(request, rs, chunk)
-        } else {
-            None
-        };
+        let elapsed = started.elapsed().as_secs_f64();
+        let labels = [key, if response.is_some() { "ok" } else { "failed" }];
+        metrics::PARTIAL_ENCODED_CHUNK_REQUEST_PROCESSING_TIME
+            .with_label_values(&labels)
+            .observe(elapsed);
 
         if let Some(response) = response {
             self.peer_manager_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::PartialEncodedChunkResponse { route_back, response },
             ))
         }
+    }
+
+    fn prepare_partial_encoded_chunk_response(
+        &mut self,
+        request: PartialEncodedChunkRequestMsg,
+        chain_store: &mut ChainStore,
+        rs: &mut ReedSolomonWrapper,
+    ) -> (std::time::Instant, &'static str, Option<PartialEncodedChunkResponseMsg>) {
+        // Try getting data from in-memory cache.
+        let started = Instant::now();
+        if let Some(entry) = self.encoded_chunks.get(&request.chunk_hash) {
+            let response = Self::prepare_partial_encoded_chunk_response_from_cache(request, entry);
+            return (started, "cache", response);
+        }
+
+        // Try fetching partial encoded chunk from storage.
+        let started = Instant::now();
+        if let Ok(partial_chunk) = chain_store.get_partial_chunk(&request.chunk_hash) {
+            let response =
+                Self::prepare_partial_encoded_chunk_response_from_partial(request, partial_chunk);
+            return (started, "partial", response);
+        }
+
+        // Try fetching chunk from storage and recomputing encoded chunk from
+        // it.  If we are archival node we might have garbage collected the
+        // partial chunk while we still keep the chunk itself.  We can get the
+        // chunk, recalculate the parts and respond to the request.
+        let started = Instant::now();
+        if let Ok(chunk) = chain_store.get_chunk(&request.chunk_hash).map(|ch| ch.clone()) {
+            // Note: we need to clone the chunk because otherwise we would be
+            // holding multiple references to chain_store.  One through the
+            // chunk and another through chain_store which we need to pass down
+            // to do further fetches.
+
+            // TODO(#6242): This is currently not implemented and effectively
+            // this is dead code.
+            let response =
+                self.prepare_partial_encoded_chunk_response_from_chunk(request, rs, chunk);
+            return (started, "chunk", response);
+        }
+
+        (Instant::now(), "none", None)
     }
 
     /// Prepares response to a partial encoded chunk request from an entry in
