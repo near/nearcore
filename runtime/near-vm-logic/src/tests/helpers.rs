@@ -1,4 +1,6 @@
 use crate::{with_ext_cost_counter, VMLogic};
+#[cfg(feature = "protocol_feature_function_call_weight")]
+use near_primitives_core::types::GasWeight;
 use near_primitives_core::{config::ExtCosts, types::Gas};
 use near_vm_errors::VMLogicError;
 use std::collections::HashMap;
@@ -25,6 +27,12 @@ pub fn promise_create(
     )
 }
 
+#[allow(dead_code)]
+pub fn promise_batch_create(logic: &mut VMLogic, account_id: &str) -> Result<u64> {
+    logic.promise_batch_create(account_id.len() as _, account_id.as_ptr() as _)
+}
+
+#[allow(dead_code)]
 pub fn promise_batch_action_function_call(
     logic: &mut VMLogic<'_>,
     promise_index: u64,
@@ -45,6 +53,31 @@ pub fn promise_batch_action_function_call(
     )
 }
 
+#[cfg(feature = "protocol_feature_function_call_weight")]
+#[allow(dead_code)]
+pub fn promise_batch_action_function_call_weight(
+    logic: &mut VMLogic<'_>,
+    promise_index: u64,
+    amount: u128,
+    gas: Gas,
+    ratio: GasWeight,
+) -> Result<()> {
+    let method_id = b"promise_batch_action";
+    let args = b"promise_batch_action_args";
+
+    logic.promise_batch_action_function_call_weight(
+        promise_index,
+        method_id.len() as _,
+        method_id.as_ptr() as _,
+        args.len() as _,
+        args.as_ptr() as _,
+        amount.to_le_bytes().as_ptr() as _,
+        gas,
+        ratio,
+    )
+}
+
+#[allow(dead_code)]
 pub fn promise_batch_action_add_key_with_function_call(
     logic: &mut VMLogic<'_>,
     promise_index: u64,
