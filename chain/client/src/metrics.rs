@@ -74,17 +74,21 @@ pub static TGAS_USAGE_HIST: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static CHUNKS_RECEIVING_DELAY_US: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge(
-        "near_chunks_receiving_delay_us",
-        "Max delay between receiving a block and its chunks for several most recent blocks",
+pub static BLOCK_CHUNKS_REQUESTED_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_block_chunks_request_delay_seconds",
+        "Delay between receiving a block and requesting its chunks",
+        &["shard_id"],
+        Some(prometheus::exponential_buckets(0.001, 1.6, 20).unwrap()),
     )
     .unwrap()
 });
-pub static BLOCKS_AHEAD_OF_HEAD: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge(
-        "near_blocks_ahead_of_head",
-        "Height difference between the current head and the newest block or chunk received",
+pub static CHUNK_RECEIVED_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_receive_delay_seconds",
+        "Delay between requesting and receiving a chunk.",
+        &["shard_id"],
+        Some(prometheus::exponential_buckets(0.001, 1.6, 20).unwrap()),
     )
     .unwrap()
 });
