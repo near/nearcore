@@ -761,6 +761,10 @@ impl ChainStore {
             }
         })
     }
+
+    pub fn get_rocksdb_statistics(&self) -> Option<String> {
+        self.store.get_rocksdb_statistics()
+    }
 }
 
 impl ChainStoreAccess for ChainStore {

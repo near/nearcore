@@ -151,6 +151,10 @@ impl Store {
     pub fn get_rocksdb(&self) -> Option<&RocksDB> {
         self.storage.as_rocksdb()
     }
+
+    pub fn get_rocksdb_statistics(&self) -> Option<String> {
+        self.storage.get_rocksdb_statistics()
+    }
 }
 
 /// Keeps track of current changes to the database and can commit all of them to the database.

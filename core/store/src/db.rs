@@ -438,6 +438,7 @@ impl DBTransaction {
 
 pub struct RocksDB {
     db: DB,
+    db_opt: Options,
     cfs: Vec<*const ColumnFamily>,
 
     check_free_space_counter: std::sync::atomic::AtomicU16,
@@ -539,6 +540,7 @@ impl RocksDBOptions {
 
         Ok(RocksDB {
             db,
+            db_opt: options,
             cfs,
             check_free_space_interval: self.check_free_space_interval,
             check_free_space_counter: std::sync::atomic::AtomicU16::new(0),
@@ -573,6 +575,7 @@ impl RocksDBOptions {
             cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
         Ok(RocksDB {
             db,
+            db_opt: options,
             cfs,
             check_free_space_interval: self.check_free_space_interval,
             check_free_space_counter: std::sync::atomic::AtomicU16::new(0),
@@ -603,6 +606,9 @@ pub trait Database: Sync + Send {
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn write(&self, batch: DBTransaction) -> Result<(), DBError>;
     fn as_rocksdb(&self) -> Option<&RocksDB> {
+        None
+    }
+    fn get_rocksdb_statistics(&self) -> Option<String> {
         None
     }
 }
@@ -700,6 +706,10 @@ impl Database for RocksDB {
 
     fn as_rocksdb(&self) -> Option<&RocksDB> {
         Some(self)
+    }
+
+    fn get_rocksdb_statistics(&self) -> Option<String> {
+        self.db_opt.get_statistics()
     }
 }
 

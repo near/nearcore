@@ -100,6 +100,7 @@ impl InfoHelper {
         validator_epoch_stats: Vec<ValidatorProductionStats>,
         epoch_height: EpochHeight,
         protocol_upgrade_block_height: BlockHeight,
+        statistics: Option<String>,
     ) {
         let use_colour = matches!(self.log_summary_style, LogSummaryStyle::Colored);
         let paint = |colour: ansi_term::Colour, text: Option<String>| match text {
@@ -161,6 +162,7 @@ impl InfoHelper {
             paint(ansi_term::Colour::Green, blocks_info_log),
             paint(ansi_term::Colour::Blue, machine_info_log),
         );
+        export_rocksdb_statistics(statistics);
 
         let (cpu_usage, memory_usage) = proc_info.unwrap_or_default();
         let is_validator = validator_info.map(|v| v.is_validator).unwrap_or_default();
@@ -230,6 +232,66 @@ impl InfoHelper {
             serde_json::to_value(&info).expect("Telemetry must serialize to json")
         };
         telemetry(&self.telemetry_actor, content);
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum StatsValue {
+    Count(u64),
+    Sum(u64),
+    Percentile(u32, f64),
+}
+
+fn parse_statistics(statistics: &str) -> Result<Vec<(&str, Vec<StatsValue>)>, anyhow::Error> {
+    let mut result = vec![];
+    for line in statistics.split('\n') {
+        let mut values = vec![];
+        let words: Vec<&str> = line.split(' ').collect();
+        if words.len() > 1 {
+            let stats_name = words[0];
+            for i in (1..words.len()).step_by(3) {
+                if words[i] == "COUNT" {
+                    values.push(StatsValue::Count(
+                        words[i + 2].parse::<u64>().map_err(|err| anyhow::anyhow!(err))?,
+                    ));
+                } else if words[i] == "SUM" {
+                    values.push(StatsValue::Sum(
+                        words[i + 2].parse::<u64>().map_err(|err| anyhow::anyhow!(err))?,
+                    ));
+                } else if words[i].starts_with("P") {
+                    values.push(StatsValue::Percentile(
+                        words[i][1..].parse::<u32>().map_err(|err| anyhow::anyhow!(err))?,
+                        words[i + 2].parse::<f64>().map_err(|err| anyhow::anyhow!(err))?,
+                    ));
+                } else {
+                    return Err(anyhow::anyhow!(
+                        "Unsupported stats value: {} in {}",
+                        words[i],
+                        line
+                    ));
+                }
+            }
+            result.push((stats_name, values));
+        }
+    }
+    Ok(result)
+}
+
+fn export_stats_as_metrics(stats: &[(&str, Vec<StatsValue>)]) {
+    for (&stats_name, &values) in stats {}
+}
+
+fn export_rocksdb_statistics(statistics: Option<String>) {
+    if let Some(statistics) = statistics {
+        info!(target:"stats","{}",statistics);
+        match parse_statistics(&statistics) {
+            Ok(stats) => {
+                export_stats_as_metrics(&stats);
+            }
+            Err(err) => {
+                warning!(target: "stats", "Failed to parse rocksdb statistics: {:?}", err);
+            }
+        }
     }
 }
 

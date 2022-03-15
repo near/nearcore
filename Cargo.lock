@@ -2608,6 +2608,7 @@ dependencies = [
  "actix",
  "actix-rt",
  "ansi_term 0.12.1",
+ "anyhow",
  "borsh",
  "chrono",
  "delay-detector",
