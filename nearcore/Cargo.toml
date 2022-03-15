@@ -20,6 +20,8 @@ chrono = { version = "0.4.4", features = ["serde"] }
 futures = "0.3"
 hyper = { version = "0.14", features = ["full"] }
 hyper-tls = "0.5.0"
+once_cell = "1.5.2"
+prometheus = "0.11"
 rand = "0.7"
 rayon = "1.5"
 serde = { version = "1", features = ["derive"] }
@@ -41,6 +43,7 @@ near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }
 near-chain-configs = { path = "../core/chain-configs" }
 near-store = { path = "../core/store" }
+near-metrics = { path = "../core/metrics" }
 node-runtime = { path = "../runtime/runtime" }
 near-chain = { path = "../chain/chain" }
 near-chunks = { path = "../chain/chunks" }
