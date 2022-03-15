@@ -4,7 +4,7 @@ use std::{fmt, ops};
 
 use near_primitives::types::Gas;
 use num_rational::Ratio;
-use num_traits::ToPrimitive;
+use num_traits::{SaturatingSub, ToPrimitive};
 
 use crate::config::GasMetric;
 use crate::estimator_params::{GAS_IN_INSTR, GAS_IN_NS, IO_READ_BYTE_COST, IO_WRITE_BYTE_COST};
@@ -104,6 +104,18 @@ impl GasCost {
             }
         }
     }
+
+    /// Subtracts two gas costs from each other without panicking on an arithmetic underflow.
+    /// If the given tolerance is breached, the result will be marked as uncertain.
+    pub(crate) fn safe_subtract(&self, rhs: &Self, tolerance: &NonNegativeTolerance) -> Self {
+        let mut pos = self.saturating_sub(rhs);
+        let neg = rhs.saturating_sub(self);
+        if !tolerance.tolerates(&pos, &neg) {
+            pos.set_uncertain(true);
+            pos.set_uncertain(true);
+        }
+        pos
+    }
 }
 
 /// Defines what negative solutions are allowed in a least-squares result.
@@ -149,7 +161,7 @@ impl LeastSquaresTolerance {
 
 /// Defines what negative solutions are allowed in a least-squares result
 #[derive(Clone, Copy, PartialEq)]
-enum NonNegativeTolerance {
+pub(crate) enum NonNegativeTolerance {
     /// Allow no negative values
     Strict,
     /// Tolerate negative values if it changes the total gas by less than X times.
@@ -157,6 +169,8 @@ enum NonNegativeTolerance {
     /// Tolerate negative values if they are below X gas
     AbsoluteTolerance(Gas),
 }
+pub(crate) const PER_MILLE_TOLERANCE: NonNegativeTolerance =
+    NonNegativeTolerance::RelativeTolerance(0.001);
 
 impl LeastSquaresTolerance {
     fn tolerates(&self, pos: &(GasCost, GasCost), neg: &(GasCost, GasCost)) -> bool {
