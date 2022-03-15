@@ -105,23 +105,18 @@ def main(argv: typing.Sequence[str]) -> None:
         min_delay = datetime.timedelta(milliseconds=1)
         target_height = LONG_TARGET_HEIGHT
 
-    timeout = target_height * 5
     with Cluster(min_block_production_delay=min_delay) as cluster:
         # Start the validator and wait for a few epoch’s worth of blocks to be
         # generated.
         boot = cluster.start_node(0)
         latest = utils.wait_for_blocks(boot,
                                        target=target_height,
-                                       poll_interval=1,
-                                       timeout=timeout)
+                                       poll_interval=1)
 
         # Start the observer node and wait for it to catch up with the chain
         # state.
         fred = cluster.start_node(1)
-        utils.wait_for_blocks(fred,
-                              target=target_height,
-                              poll_interval=1,
-                              timeout=timeout)
+        utils.wait_for_blocks(fred, target=target_height, poll_interval=1)
 
         # Verify that observer got all the blocks.  Note that get_all_blocks
         # verifies that the node has full chain from head to genesis block.

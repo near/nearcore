@@ -13,7 +13,6 @@ from configured_logger import logger
 import utils
 
 TARGET_HEIGHT = 60
-TIMEOUT = 30
 
 consensus_config = {
     "consensus": {
@@ -62,4 +61,4 @@ time.sleep(3)
 
 start_time = time.time()
 
-utils.wait_for_blocks(nodes[1], target=node0_height, timeout=TIMEOUT)
+utils.wait_for_blocks(nodes[1], target=node0_height)
