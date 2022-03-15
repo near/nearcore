@@ -762,7 +762,8 @@ def apply_config_changes(node_dir, client_config_change):
     # ClientConfig keys which are valid but may be missing from the config.json
     # file.  Those are usually Option<T> types which are not stored in JSON file
     # when None.
-    allowed_missing_configs = ('max_gas_burnt_view', 'rosetta_rpc')
+    allowed_missing_configs = ('max_gas_burnt_view', 'rosetta_rpc',
+                               'archive_gc_partial_chunks')
 
     for k, v in client_config_change.items():
         if not (k in allowed_missing_configs or k in config_json):
