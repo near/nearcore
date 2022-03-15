@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::estimator_context::{EstimatorContext, Testbed};
-use crate::gas_cost::{GasCost, PER_MILLE_TOLERANCE};
+use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::TransactionBuilder;
 
 use std::collections::HashMap;
@@ -75,7 +75,7 @@ pub(crate) fn fn_cost(
 
     let base_cost = noop_function_call_cost(ctx);
 
-    total_cost.saturating_sub(&base_cost, &PER_MILLE_TOLERANCE) / count
+    total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE) / count
 }
 
 pub(crate) fn fn_cost_count(

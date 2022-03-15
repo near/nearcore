@@ -35,12 +35,18 @@ pub(crate) struct GasCost {
     /// result here is just printing UNCERTAIN next to the corresponding cost in
     /// the output. `uncertain_message` can be called to display the reason and
     /// code location of where the uncertainty has been set.
-    uncertain: Option<(&'static str, &'static Location<'static>)>,
+    uncertain: Option<MeasurementUncertainty>,
 }
 
 pub(crate) struct GasClock {
     start: Instant,
     metric: GasMetric,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct MeasurementUncertainty {
+    reason: &'static str,
+    location: &'static Location<'static>,
 }
 
 impl GasCost {
@@ -78,11 +84,12 @@ impl GasCost {
         self.uncertain.is_some()
     }
     pub(crate) fn uncertain_message(&self) -> Option<String> {
-        self.uncertain.map(|(reason, location)| format!("{reason}: {location}"))
+        self.uncertain
+            .map(|MeasurementUncertainty { reason, location }| format!("{reason}: {location}"))
     }
     #[track_caller]
-    pub(crate) fn set_uncertain(&mut self, uncertain_reason: &'static str) {
-        self.uncertain = Some((uncertain_reason, Location::caller()));
+    pub(crate) fn set_uncertain(&mut self, reason: &'static str) {
+        self.uncertain = Some(MeasurementUncertainty { reason, location: Location::caller() });
     }
     /// Performs least squares using a separate variable for each component of the gas cost.
     ///
@@ -199,8 +206,6 @@ pub(crate) enum NonNegativeTolerance {
     /// Tolerate negative values if they are below X gas
     AbsoluteTolerance(Gas),
 }
-pub(crate) const PER_MILLE_TOLERANCE: NonNegativeTolerance =
-    NonNegativeTolerance::RelativeTolerance(0.001);
 
 impl LeastSquaresTolerance {
     fn tolerates(&self, pos: &(GasCost, GasCost), neg: &(GasCost, GasCost)) -> bool {
@@ -209,6 +214,10 @@ impl LeastSquaresTolerance {
     }
 }
 impl NonNegativeTolerance {
+    /// Tolerate negative values if they account for less than 0.1% of the total
+    pub(crate) const PER_MILLE: NonNegativeTolerance =
+        NonNegativeTolerance::RelativeTolerance(0.001);
+
     fn tolerates(&self, pos: &GasCost, neg: &GasCost) -> bool {
         match self {
             NonNegativeTolerance::Strict => neg.to_gas() == 0,
