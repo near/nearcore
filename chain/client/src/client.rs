@@ -1726,9 +1726,11 @@ impl Client {
             )? {
                 StateSyncResult::Unchanged => {}
                 StateSyncResult::Changed(fetch_block) => {
+                    debug!(target:"catchup", "state sync finished but waiting to fetch block");
                     assert!(!fetch_block);
                 }
                 StateSyncResult::Completed => {
+                    debug!(target:"catchup", "state sync completed now catch up blocks");
                     self.chain.catchup_blocks_step(
                         me,
                         &sync_hash,

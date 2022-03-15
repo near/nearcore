@@ -1410,7 +1410,7 @@ impl TestEnv {
         }
     }
 
-    fn get_partial_encoded_chunk_response(
+    pub fn get_partial_encoded_chunk_response(
         &mut self,
         id: usize,
         request: PartialEncodedChunkRequestMsg,
@@ -1420,6 +1420,7 @@ impl TestEnv {
             request,
             CryptoHash::default(),
             client.chain.mut_store(),
+            &mut client.rs,
         );
         let response = self.network_adapters[id].pop().unwrap();
         if let PeerManagerMessageRequest::NetworkRequests(

@@ -2501,7 +2501,6 @@ version = "0.0.0"
 dependencies = [
  "actix-rt",
  "futures",
- "near-store",
 ]
 
 [[package]]
@@ -2598,6 +2597,7 @@ name = "near-chunks-primitives"
 version = "0.0.0"
 dependencies = [
  "near-chain-primitives",
+ "near-primitives",
 ]
 
 [[package]]
