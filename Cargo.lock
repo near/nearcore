@@ -2502,6 +2502,7 @@ dependencies = [
  "actix-rt",
  "futures",
  "near-store",
+ "once_cell",
 ]
 
 [[package]]
