@@ -231,7 +231,7 @@ fn least_squares_method_gas_cost_pos_neg(
     verbose: bool,
 ) -> Result<(GasCost, GasCost), ((GasCost, GasCost), (GasCost, GasCost))> {
     let metric = ys[0].metric;
-    let uncertain = ys.iter().find(|cost| cost.is_uncertain()).map(|cost| cost.uncertain.unwrap());
+    let uncertain = ys.iter().find_map(|cost| cost.uncertain);
 
     let mut t = (0.into(), 0.into(), vec![]);
     let mut i = (0.into(), 0.into(), vec![]);
