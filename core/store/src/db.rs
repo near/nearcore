@@ -13,7 +13,7 @@ use std::io;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::{Condvar, Mutex, RwLock};
-use strum::EnumIter;
+use strum::{EnumCount, EnumIter};
 use tracing::{debug, error, info, warn};
 
 pub(crate) mod refcount;
@@ -45,7 +45,9 @@ impl Into<io::Error> for DBError {
 /// This enum holds the information about the columns that we use within the RocksDB storage.
 /// You can think about our storage as 2-dimensional table (with key and column as indexes/coordinates).
 // TODO(mm-near): add info about the RC in the columns.
-#[derive(PartialEq, Debug, Copy, Clone, EnumIter, BorshDeserialize, BorshSerialize, Hash, Eq)]
+#[derive(
+    PartialEq, Debug, Copy, Clone, EnumCount, EnumIter, BorshDeserialize, BorshSerialize, Hash, Eq,
+)]
 pub enum DBCol {
     /// Column to indicate which version of database this is.
     /// - *Rows*: single row [VERSION_KEY]
