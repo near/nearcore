@@ -14,7 +14,7 @@ use near_primitives::transaction::{
     FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider};
+use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, TrieCacheState};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
@@ -99,7 +99,9 @@ pub(crate) fn execute_function_call(
         output_data_receivers,
     };
 
-    near_vm_runner::run(
+    // TODO (#5920): enable chunk caching in the protocol
+    // runtime_ext.set_trie_cache_state(TrieCacheState::CachingChunk);
+    let result = near_vm_runner::run(
         &code,
         &function_call.method_name,
         runtime_ext,
@@ -109,7 +111,9 @@ pub(crate) fn execute_function_call(
         promise_results,
         apply_state.current_protocol_version,
         apply_state.cache.as_deref(),
-    )
+    );
+    // runtime_ext.set_trie_cache_state(TrieCacheState::CachingShard);
+    result
 }
 
 pub(crate) fn action_function_call(

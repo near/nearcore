@@ -3,7 +3,7 @@ use std::iter::Peekable;
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
+    RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, TrieCacheState,
 };
 
 use crate::trie::TrieChanges;
@@ -170,6 +170,12 @@ impl TrieUpdate {
 
     pub fn get_root(&self) -> CryptoHash {
         self.root
+    }
+
+    pub fn set_trie_cache_state(&self, state: TrieCacheState) {
+        if let Some(storage) = self.trie.storage.as_caching_storage() {
+            storage.set_state(state);
+        }
     }
 }
 

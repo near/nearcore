@@ -13,6 +13,7 @@ use near_primitives::types::TrieCacheState;
 use std::cell::{Cell, RefCell};
 use std::io::ErrorKind;
 
+/// Wrapper over LruCache which doesn't hold too large elements.
 #[derive(Clone)]
 pub struct TrieCache(Arc<Mutex<LruCache<CryptoHash, Arc<[u8]>>>>);
 
@@ -163,33 +164,7 @@ const TRIE_MAX_SHARD_CACHE_SIZE: usize = 1;
 
 /// Values above this size (in bytes) are never cached.
 /// Note that Trie inner nodes are always smaller than this.
-const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 4000;
-
-/// Position of the value in cache.
-#[derive(Debug)]
-pub(crate) enum CachePosition {
-    /// Value is not present.
-    None,
-    /// Value is present **only** in the shard cache.
-    ShardCache(Arc<[u8]>),
-    /// Value is present in the chunk cache.
-    ChunkCache(Arc<[u8]>),
-}
-
-/// Cost of retrieving trie node from the storage. Used to compute gas cost for touching trie nodes.
-#[derive(Debug, Eq, PartialEq)]
-pub enum TrieNodeRetrievalCost {
-    Free,
-    Full,
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub(crate) struct RawBytesWithCost {
-    /// Bytes of the retrieved node. None if no value was found in cache.
-    pub(crate) value: Option<Arc<[u8]>>,
-    /// Cost of node retrieval.
-    pub(crate) cost: TrieNodeRetrievalCost,
-}
+pub(crate) const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 4000;
 
 pub struct TrieCachingStorage {
     pub(crate) store: Store,
@@ -246,50 +221,11 @@ impl TrieCachingStorage {
         self.counter.set(self.counter.get() + 1);
     }
 
-    /// Get position of the given key in the cache.
-    pub(crate) fn get_cache_position(&self, key: &CryptoHash) -> CachePosition {
-        match self.chunk_cache.borrow_mut().get(key) {
-            Some(value) => CachePosition::ChunkCache(value.clone()),
-            None => match self.shard_cache.get(key) {
-                Some(value) => CachePosition::ShardCache(value.clone()),
-                None => CachePosition::None,
-            },
-        }
-    }
-
     /// If we are in the caching chunk state, put item to the chunk cache.
     fn try_put_to_chunk_cache(&self, key: CryptoHash, value: Arc<[u8]>) {
         if let TrieCacheState::CachingChunk = self.cache_state.borrow().get() {
             self.chunk_cache.borrow_mut().insert(key, value);
         };
-    }
-
-    /// Get value for the given key from cache.
-    /// Return value if it is present and cost of retrieving the trie node corresponding to this key.
-    pub(crate) fn get_from_cache(&self, key: &CryptoHash) -> RawBytesWithCost {
-        match self.get_cache_position(key) {
-            // If no value is present, return None. If node for this key will be retrieved from DB, we have to charge
-            // full cost for it.
-            CachePosition::None => {
-                RawBytesWithCost { value: None, cost: TrieNodeRetrievalCost::Full }
-            }
-            // If value is present only in shard cache, we can copy value to the chunk cache. The cost must be full
-            // anyway because we didn't access the node in the chunk yet.
-            CachePosition::ShardCache(value) => {
-                self.try_put_to_chunk_cache(key.clone(), value.clone());
-                RawBytesWithCost { value: Some(value), cost: TrieNodeRetrievalCost::Full }
-            }
-            // If value is present in chunk cache, the cost is free.
-            CachePosition::ChunkCache(value) => {
-                RawBytesWithCost { value: Some(value), cost: TrieNodeRetrievalCost::Free }
-            }
-        }
-    }
-
-    /// Put a key-value pair into cache.
-    pub(crate) fn put_to_cache(&self, key: CryptoHash, value: Arc<[u8]>) {
-        self.shard_cache.put(key.clone(), value.clone());
-        self.try_put_to_chunk_cache(key, value.clone());
     }
 
     /// Set cache state.
@@ -300,36 +236,37 @@ impl TrieCachingStorage {
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        // Try to get value from cache and determine node retrieval cost.
-        let RawBytesWithCost { value, cost } = self.get_from_cache(hash);
+        // Try to get value from chunk cache containing free of charge nodes, otherwise increment the nodes counter.
+        // let RawBytesWithCost { value, cost } = self.get_from_cache(hash);
+        if let Some(val) = self.chunk_cache.borrow_mut().get(hash) {
+            return Ok(val.clone());
+        }
+        self.inc_counter();
 
         // If full cost for retrieving the node must be charged, increment the counter.
-        if let TrieNodeRetrievalCost::Full = cost {
-            self.inc_counter();
+        if let Some(val) = self.shard_cache.get(hash) {
+            self.try_put_to_chunk_cache(*hash, val.clone());
+            return Ok(val);
         }
 
-        match value {
-            // If value is not present, get it from the store and put into the cache.
-            None => {
-                let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
-                let val = self
-                    .store
-                    .get(ColState, key.as_ref())
-                    .map_err(|_| StorageError::StorageInternalError)?;
-                if let Some(val) = val {
-                    let val: Arc<[u8]> = val.into();
-                    if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
-                        self.put_to_cache(*hash, val.clone());
-                    }
-                    Ok(val)
-                } else {
-                    // not StorageError::TrieNodeMissing because it's only for TrieMemoryPartialStorage
-                    Err(StorageError::StorageInconsistentState("Trie node missing".to_string()))
-                }
-            }
-            // If value is present, return it.
-            Some(val) => Ok(val),
+        // If value is not present in cache, get it from the storage.
+        let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
+        let val = self
+            .store
+            .get(ColState, key.as_ref())
+            .map_err(|_| StorageError::StorageInternalError)?
+            .ok_or_else(|| {
+                StorageError::StorageInconsistentState("Trie node missing".to_string())
+            })?;
+        let val: Arc<[u8]> = val.into();
+
+        // Insert value to shard and chunk caches.
+        if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
+            self.shard_cache.put(*hash, val.clone());
         }
+        self.try_put_to_chunk_cache(*hash, val.clone());
+
+        Ok(val)
     }
 
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {

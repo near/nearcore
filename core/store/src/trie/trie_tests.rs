@@ -133,7 +133,7 @@ fn test_reads_with_incomplete_storage() {
 }
 
 #[cfg(test)]
-mod caching_storage_tests {
+mod nodes_counter_tests {
     use super::*;
     use crate::test_utils::create_tries;
     use crate::trie::nibble_slice::NibbleSlice;
@@ -172,7 +172,7 @@ mod caching_storage_tests {
 
     // Test nodes counter and trie cache size on the sample of trie items.
     #[test]
-    fn count_touched_nodes() {
+    fn test_count() {
         // For keys with nibbles [000, 011, 100], we expect 6 touched nodes to get value for the first key 000:
         // Extension -> Branch -> Branch -> Leaf plus retrieving the value by its hash. In total
         // there will be 9 distinct nodes, because 011 and 100 both add one Leaf and value.
@@ -190,7 +190,7 @@ mod caching_storage_tests {
 
     // Check that same values are stored in the same trie node.
     #[test]
-    fn count_touched_nodes_repeated_values() {
+    fn test_repeated_values_count() {
         // For these keys there will be 5 nodes with distinct hashes, because each path looks like
         // Extension([0, 0]) -> Branch -> Leaf([48/49]) -> value.
         // TODO: explain the exact values in path items here
@@ -207,19 +207,18 @@ mod caching_storage_tests {
 }
 
 #[cfg(test)]
-mod trie_cache_tests {
+mod caching_storage_tests {
     use super::*;
     use crate::test_utils::{create_test_store, create_tries};
-    use crate::trie::trie_storage::{CachePosition, RawBytesWithCost, TrieNodeRetrievalCost};
+    use crate::trie::trie_storage::TRIE_LIMIT_CACHED_VALUE_SIZE;
     use crate::trie::{TrieCache, TrieCachingStorage, TrieRefcountChange};
-    use crate::{ColState, Store, TrieChanges};
+    use crate::{Store, TrieChanges};
     use assert_matches::assert_matches;
     use near_primitives::hash::hash;
     use near_primitives::types::TrieCacheState;
 
-    fn create_store_with_values(values: &[Vec<u8>]) -> Store {
+    fn create_store_with_values(values: &[Vec<u8>], shard_uid: ShardUId) -> Store {
         let tries = create_tries();
-        let shard_uid = ShardUId::single_shard();
         let mut trie_changes = TrieChanges::empty(Trie::empty_root());
         trie_changes.insertions = values
             .iter()
@@ -236,103 +235,134 @@ mod trie_cache_tests {
 
     /// Put the item into the cache. Check that getting it from cache returns the correct value.
     #[test]
-    fn test_put() {
-        let values = vec![vec![1u8]];
-        let store = create_store_with_values(&values);
+    fn test_retrieve() {
+        let value = vec![1u8];
+        let values = vec![value.clone()];
+        let shard_uid = ShardUId::single_shard();
+        let store = create_store_with_values(&values, shard_uid);
         let trie_cache = TrieCache::new();
-        let trie_caching_storage =
-            TrieCachingStorage::new(store, trie_cache, ShardUId::single_shard());
-        let value = &values[0];
-        let key = hash(value);
+        let trie_caching_storage = TrieCachingStorage::new(store, trie_cache.clone(), shard_uid);
+        let key = hash(&value);
+        assert_eq!(trie_cache.get(&key), None);
 
         for _ in 0..2 {
             let count_before = trie_caching_storage.get_touched_nodes_count();
             let result = trie_caching_storage.retrieve_raw_bytes(&key);
-            let bytes: Arc<[u8]> = result.into();
             let count_after = trie_caching_storage.get_touched_nodes_count();
-            assert_eq!(result, Some(bytes));
+            assert_eq!(result.unwrap().as_ref(), value);
             assert_eq!(count_before + 1, count_after);
-            assert_eq!(trie_cache.get(&key), Some(value));
+            assert_eq!(trie_cache.get(&key).unwrap().as_ref(), value);
         }
+    }
+
+    /// Check that if item is not present in a store, retrieval returns an error.
+    #[test]
+    fn test_retrieve_error() {
+        let shard_uid = ShardUId::single_shard();
+        let store = create_test_store();
+        let trie_caching_storage = TrieCachingStorage::new(store, TrieCache::new(), shard_uid);
+        let value = vec![1u8];
+        let key = hash(&value);
+
+        let result = trie_caching_storage.retrieve_raw_bytes(&key);
+        assert_matches!(result, Err(StorageError::StorageInconsistentState(_)));
+    }
+
+    /// Check that large values does not fall into shard cache, but fall into chunk cache.
+    #[test]
+    fn test_large_value() {
+        let value = vec![1u8].repeat(TRIE_LIMIT_CACHED_VALUE_SIZE + 1);
+        let values = vec![value.clone()];
+        let shard_uid = ShardUId::single_shard();
+        let store = create_store_with_values(&values, shard_uid);
+        let trie_cache = TrieCache::new();
+        let trie_caching_storage = TrieCachingStorage::new(store, trie_cache.clone(), shard_uid);
+        let key = hash(&value);
+
+        trie_caching_storage.set_state(TrieCacheState::CachingChunk);
+        let _ = trie_caching_storage.retrieve_raw_bytes(&key);
+
+        let count_before = trie_caching_storage.get_touched_nodes_count();
+        let result = trie_caching_storage.retrieve_raw_bytes(&key);
+        let count_after = trie_caching_storage.get_touched_nodes_count();
+        assert_eq!(trie_cache.get(&key), None);
+        assert_eq!(result.unwrap().as_ref(), value);
+        assert_eq!(count_before, count_after);
     }
 
     /// Check that positions of item and costs of its retrieval are returned correctly.
     #[test]
-    fn test_positions_and_costs() {
-        let store = create_test_store();
-        let trie_caching_storage =
-            TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard());
-        let value: Arc<[u8]> = vec![1u8].into();
+    fn test_counter_with_caching() {
+        let values = vec![vec![1u8]];
+        let shard_uid = ShardUId::single_shard();
+        let store = create_store_with_values(&values, shard_uid);
+        let trie_cache = TrieCache::new();
+        let trie_caching_storage = TrieCachingStorage::new(store, trie_cache.clone(), shard_uid);
+        let value = &values[0];
         let key = hash(&value);
 
         // In the beginning, we are in the CachingShard state and item is not present in cache.
-        assert_matches!(trie_caching_storage.cache_state.get(), TrieCacheState::CachingShard);
-        assert_matches!(trie_caching_storage.get_cache_position(&key), CachePosition::None);
+        assert_eq!(trie_cache.get(&key), None);
 
         // Because we are in the CachingShard state, item should be placed into shard cache.
-        trie_caching_storage.put_to_cache(key, value.clone());
-        assert_matches!(
-            trie_caching_storage.get_cache_position(&key),
-            CachePosition::ShardCache(_)
-        );
+        let result = trie_caching_storage.retrieve_raw_bytes(&key);
+        assert_eq!(result.unwrap().as_ref(), value);
 
-        // Move to CachingChunk state. The retrieval cost must be full, because it is the first time we accessed item
-        // while caching chunk.
+        // Move to CachingChunk state. Retrieval should increment the counter, because it is the first time we accessed
+        // item while caching chunk.
         trie_caching_storage.set_state(TrieCacheState::CachingChunk);
-        assert_matches!(
-            trie_caching_storage.get_cache_position(&key),
-            CachePosition::ShardCache(_)
-        );
-        assert_eq!(
-            trie_caching_storage.get_from_cache(&key),
-            RawBytesWithCost { value: Some(value.clone()), cost: TrieNodeRetrievalCost::Full }
-        );
+        let count_before = trie_caching_storage.get_touched_nodes_count();
+        let result = trie_caching_storage.retrieve_raw_bytes(&key);
+        let count_after = trie_caching_storage.get_touched_nodes_count();
+        assert_eq!(result.unwrap().as_ref(), value);
+        assert_eq!(count_before + 1, count_after);
 
-        // After previous retrieval, item must be copied to chunk cache. The retrieval cost must be free now.
-        assert_matches!(
-            trie_caching_storage.get_cache_position(&key),
-            CachePosition::ChunkCache(_)
-        );
-        assert_eq!(
-            trie_caching_storage.get_from_cache(&key),
-            RawBytesWithCost { value: Some(value.clone()), cost: TrieNodeRetrievalCost::Free }
-        );
+        // After previous retrieval, item must be copied to chunk cache. Retrieval shouldn't increment the counter.
+        let count_before = trie_caching_storage.get_touched_nodes_count();
+        let result = trie_caching_storage.retrieve_raw_bytes(&key);
+        let count_after = trie_caching_storage.get_touched_nodes_count();
+        assert_eq!(result.unwrap().as_ref(), value);
+        assert_eq!(count_before, count_after);
 
-        // Even if we switch to caching shard, retrieval still must be free. Chunk cache must be cleared explicitly.
+        // Even if we switch to caching shard, retrieval shouldn't increment the counter. Chunk cache only grows and is
+        // dropped only when trie caching storage is dropped.
         trie_caching_storage.set_state(TrieCacheState::CachingShard);
-        assert_matches!(
-            trie_caching_storage.get_cache_position(&key),
-            CachePosition::ChunkCache(_)
-        );
-        assert_eq!(
-            trie_caching_storage.get_from_cache(&key),
-            RawBytesWithCost { value: Some(value.clone()), cost: TrieNodeRetrievalCost::Free }
-        );
+        let count_before = trie_caching_storage.get_touched_nodes_count();
+        let result = trie_caching_storage.retrieve_raw_bytes(&key);
+        let count_after = trie_caching_storage.get_touched_nodes_count();
+        assert_eq!(result.unwrap().as_ref(), value);
+        assert_eq!(count_before, count_after);
     }
 
     /// Check that if an item present in chunk cache gets evicted from the shard cache, it stays in the chunk cache.
     #[test]
     fn test_chunk_cache_presence() {
         let shard_cache_size = 5;
-        let store = create_test_store();
-        let trie_caching_storage = TrieCachingStorage::new(
-            store,
-            TrieCache::with_capacity(shard_cache_size),
-            ShardUId::single_shard(),
-        );
+        let values: Vec<Vec<u8>> = (0..shard_cache_size as u8 + 1).map(|i| vec![i]).collect();
+        let shard_uid = ShardUId::single_shard();
+        let store = create_store_with_values(&values, shard_uid);
+        let trie_cache = TrieCache::with_capacity(shard_cache_size);
+        let trie_caching_storage = TrieCachingStorage::new(store, trie_cache.clone(), shard_uid);
 
-        let value: Arc<[u8]> = vec![0].into();
-        let key = hash(&[0]);
+        let value = &values[0];
+        let key = hash(&value);
+
         trie_caching_storage.set_state(TrieCacheState::CachingChunk);
-        trie_caching_storage.put_to_cache(key, value.clone());
-        assert_eq!(trie_caching_storage.shard_cache.get(&key), Some(value));
-        assert!(trie_caching_storage.chunk_cache.borrow().contains_key(&key));
+        let result = trie_caching_storage.retrieve_raw_bytes(&key);
+        assert_eq!(result.unwrap().as_ref(), value);
 
         trie_caching_storage.set_state(TrieCacheState::CachingShard);
-        (1..shard_cache_size as u8 + 1)
-            .for_each(|i| trie_caching_storage.put_to_cache(hash(&[i]), vec![i].into()));
+        values[1..].iter().for_each(|value| {
+            let result = trie_caching_storage.retrieve_raw_bytes(&hash(value));
+            assert_eq!(result.unwrap().as_ref(), value);
+        });
 
-        assert_eq!(trie_caching_storage.shard_cache.get(&key), None);
-        assert!(trie_caching_storage.chunk_cache.borrow().contains_key(&key));
+        // Check that the first element gets evicted, but the counter is not incremented.
+        assert_eq!(trie_cache.get(&key), None);
+        let count_before = trie_caching_storage.get_touched_nodes_count();
+        let result = trie_caching_storage.retrieve_raw_bytes(&key);
+        let count_after = trie_caching_storage.get_touched_nodes_count();
+        assert_eq!(result.unwrap().as_ref(), value);
+        assert_eq!(count_before, count_after);
     }
 }
