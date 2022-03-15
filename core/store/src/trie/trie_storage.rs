@@ -170,7 +170,6 @@ pub struct TrieCachingStorage {
     pub(crate) store: Store,
     pub(crate) shard_uid: ShardUId,
 
-    pub(crate) cache_state: Cell<TrieCacheState>,
     /// Caches ever requested items for the shard `shard_uid`. Used to speed up DB operations, presence of any item is
     /// not guaranteed.
     pub(crate) shard_cache: TrieCache,
@@ -179,6 +178,7 @@ pub struct TrieCachingStorage {
     /// Note that for both caches key is the hash of value, so for the fixed key the value is unique.
     /// TODO (#5920): enable chunk nodes caching in Runtime::apply.
     pub(crate) chunk_cache: RefCell<HashMap<CryptoHash, Arc<[u8]>>>,
+    pub(crate) cache_state: Cell<TrieCacheState>,
 
     /// Counts retrieved trie nodes. Used to compute gas cost for touching trie nodes.
     pub(crate) counter: Cell<u64>,
