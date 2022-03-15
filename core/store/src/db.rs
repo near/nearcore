@@ -7,7 +7,6 @@ use rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, Env, IteratorMode,
     Options, ReadOptions, WriteBatch, DB,
 };
-#[cfg(not(feature = "single_thread_rocksdb"))]
 use std::cmp;
 use std::collections::HashMap;
 use std::io;
@@ -559,8 +558,7 @@ impl RocksDBOptions {
                 .collect()
         });
         let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
-        #[cfg(feature = "single_thread_rocksdb")]
-        {
+        if cfg!(feature = "single_thread_rocksdb") {
             // These have to be set after open db
             let mut env = Env::default().unwrap();
             env.set_bottom_priority_background_threads(0);
@@ -796,13 +794,7 @@ fn rocksdb_options() -> Options {
     opts.set_bytes_per_sync(bytesize::MIB);
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);
     opts.set_max_bytes_for_level_base(256 * bytesize::MIB);
-    #[cfg(not(feature = "single_thread_rocksdb"))]
-    {
-        opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
-        opts.set_max_total_wal_size(bytesize::GIB);
-    }
-    #[cfg(feature = "single_thread_rocksdb")]
-    {
+    if cfg!(feature = "single_thread_rocksdb") {
         opts.set_disable_auto_compactions(true);
         opts.set_max_background_jobs(0);
         opts.set_stats_dump_period_sec(0);
@@ -810,6 +802,9 @@ fn rocksdb_options() -> Options {
         opts.set_level_zero_slowdown_writes_trigger(-1);
         opts.set_level_zero_file_num_compaction_trigger(-1);
         opts.set_level_zero_stop_writes_trigger(100000000);
+    } else {
+        opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
+        opts.set_max_total_wal_size(bytesize::GIB);
     }
 
     opts

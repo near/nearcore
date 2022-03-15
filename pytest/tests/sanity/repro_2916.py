@@ -33,7 +33,7 @@ async def main():
     # start a cluster with two shards
     nodes = start_cluster(2, 0, 2, None, [], {})
 
-    height, hash_ = utils.wait_for_blocks(nodes[0], target=3, timeout=10)
+    height, hash_ = utils.wait_for_blocks(nodes[0], target=3)
     block = nodes[0].get_block(hash_)['result']
     chunk_hashes = [base58.b58decode(x['chunk_hash']) for x in block['chunks']]
     assert len(chunk_hashes) == 2
