@@ -692,23 +692,21 @@ impl Handler<Status> for ClientActor {
                 };
                 // If there is a gap - and some blocks were not produced - make sure to report this
                 // (and mention who was supposed to be a block producer).
-                if block.header().height() < last_block_height - 1 {
-                    for height in (block.header().height() + 1..last_block_height).rev() {
-                        let block_producer = self
-                            .client
-                            .runtime_adapter
-                            .get_block_producer(block.header().epoch_id(), height)
-                            .map(|f| f.to_string())
-                            .unwrap_or_default();
-                        blocks_debug.push(DebugBlockStatus {
-                            block_hash: CryptoHash::default(),
-                            block_height: height,
-                            block_producer: block_producer,
-                            chunks: vec![],
-                            processing_time_ms: None,
-                            timestamp_delta: 0,
-                        });
-                    }
+                for height in (block.header().height() + 1..last_block_height).rev() {
+                    let block_producer = self
+                        .client
+                        .runtime_adapter
+                        .get_block_producer(block.header().epoch_id(), height)
+                        .map(|account| account.to_string())
+                        .unwrap_or_default();
+                    blocks_debug.push(DebugBlockStatus {
+                        block_hash: CryptoHash::default(),
+                        block_height: height,
+                        block_producer,
+                        chunks: vec![],
+                        processing_time_ms: None,
+                        timestamp_delta: 0,
+                    });
                 }
 
                 let block_producer = self
