@@ -189,8 +189,8 @@ impl TrieCachingStorage {
         TrieCachingStorage {
             store,
             shard_uid,
-            cache_state: Cell::new(TrieCacheState::CachingShard),
             shard_cache,
+            cache_state: Cell::new(TrieCacheState::CachingShard),
             chunk_cache: RefCell::new(Default::default()),
             counter: Cell::new(0u64),
         }
