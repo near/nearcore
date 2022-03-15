@@ -1,10 +1,11 @@
 use std::cmp::Ordering;
+use std::panic::Location;
 use std::time::{Duration, Instant};
 use std::{fmt, ops};
 
 use near_primitives::types::Gas;
 use num_rational::Ratio;
-use num_traits::{SaturatingSub, ToPrimitive};
+use num_traits::ToPrimitive;
 
 use crate::config::GasMetric;
 use crate::estimator_params::{GAS_IN_INSTR, GAS_IN_NS, IO_READ_BYTE_COST, IO_WRITE_BYTE_COST};
@@ -32,8 +33,9 @@ pub(crate) struct GasCost {
     ///
     /// Each specific cost can use it's own criteria for uncertainty -- the end
     /// result here is just printing UNCERTAIN next to the corresponding cost in
-    /// the output.
-    uncertain: bool,
+    /// the output. `uncertain_message` can be called to display the reason and
+    /// code location of where the uncertainty has been set.
+    uncertain: Option<(&'static str, &'static Location<'static>)>,
 }
 
 pub(crate) struct GasClock {
@@ -49,7 +51,7 @@ impl GasCost {
             instructions: 0.into(),
             io_r_bytes: 0.into(),
             io_w_bytes: 0.into(),
-            uncertain: false,
+            uncertain: None,
         }
     }
 
@@ -73,10 +75,14 @@ impl GasCost {
     }
 
     pub(crate) fn is_uncertain(&self) -> bool {
-        self.uncertain
+        self.uncertain.is_some()
     }
-    pub(crate) fn set_uncertain(&mut self, uncertain: bool) {
-        self.uncertain = uncertain;
+    pub(crate) fn uncertain_message(&self) -> Option<String> {
+        self.uncertain.map(|(reason, location)| format!("{reason}: {location}"))
+    }
+    #[track_caller]
+    pub(crate) fn set_uncertain(&mut self, uncertain_reason: &'static str) {
+        self.uncertain = Some((uncertain_reason, Location::caller()));
     }
     /// Performs least squares using a separate variable for each component of the gas cost.
     ///
@@ -86,6 +92,7 @@ impl GasCost {
     /// non-negative least squares (NNLS) but that is algorithmically much more
     /// complex. To keep it simpler, instead of solving NNLS, the caller has a
     /// couple of choices how to handle negative solutions.
+    #[track_caller]
     pub(crate) fn least_squares_method_gas_cost(
         xs: &[u64],
         ys: &[Self],
@@ -97,8 +104,8 @@ impl GasCost {
             Err((mut pos, neg)) => {
                 // On negative parameters, return positive part and mark as uncertain if necessary
                 if !tolerance.tolerates(&pos, &neg) {
-                    pos.0.set_uncertain(true);
-                    pos.1.set_uncertain(true);
+                    pos.0.set_uncertain("NEG-LEAST-SQUARES");
+                    pos.1.set_uncertain("NEG-LEAST-SQUARES");
                 }
                 pos
             }
@@ -107,14 +114,37 @@ impl GasCost {
 
     /// Subtracts two gas costs from each other without panicking on an arithmetic underflow.
     /// If the given tolerance is breached, the result will be marked as uncertain.
-    pub(crate) fn safe_subtract(&self, rhs: &Self, tolerance: &NonNegativeTolerance) -> Self {
-        let mut pos = self.saturating_sub(rhs);
-        let neg = rhs.saturating_sub(self);
+    #[track_caller]
+    pub(crate) fn saturating_sub(&self, rhs: &Self, tolerance: &NonNegativeTolerance) -> Self {
+        assert_eq!(self.metric, rhs.metric);
+        let mut pos = self.saturating_sub_no_uncertain_check(rhs);
+        let neg = rhs.saturating_sub_no_uncertain_check(self);
         if !tolerance.tolerates(&pos, &neg) {
-            pos.set_uncertain(true);
-            pos.set_uncertain(true);
+            pos.set_uncertain("SUBTRACTION-UNDERFLOW");
         }
+        pos.combine_uncertain(self);
+        pos.combine_uncertain(rhs);
         pos
+    }
+
+    fn saturating_sub_no_uncertain_check(&self, rhs: &Self) -> Self {
+        assert_eq!(self.metric, rhs.metric);
+        GasCost {
+            time_ns: saturating_sub(self.time_ns, rhs.time_ns),
+            instructions: saturating_sub(self.instructions, rhs.instructions),
+            io_r_bytes: saturating_sub(self.io_r_bytes, rhs.io_r_bytes),
+            io_w_bytes: saturating_sub(self.io_w_bytes, rhs.io_w_bytes),
+            metric: self.metric,
+            uncertain: None,
+        }
+    }
+
+    /// Does nothing if `GasCost` is already uncertain, otherise copies
+    /// uncertain from other `GasCost`.
+    fn combine_uncertain(&mut self, rhs: &Self) {
+        if !self.is_uncertain() {
+            self.uncertain = rhs.uncertain;
+        }
     }
 }
 
@@ -201,7 +231,7 @@ fn least_squares_method_gas_cost_pos_neg(
     verbose: bool,
 ) -> Result<(GasCost, GasCost), ((GasCost, GasCost), (GasCost, GasCost))> {
     let metric = ys[0].metric;
-    let uncertain = ys.iter().any(|y| y.uncertain);
+    let uncertain = ys.iter().find(|cost| cost.is_uncertain()).map(|cost| cost.uncertain.unwrap());
 
     let mut t = (0.into(), 0.into(), vec![]);
     let mut i = (0.into(), 0.into(), vec![]);
@@ -338,16 +368,16 @@ impl fmt::Debug for GasCost {
 impl ops::Add for GasCost {
     type Output = GasCost;
 
-    fn add(self, rhs: GasCost) -> Self::Output {
+    fn add(mut self, rhs: GasCost) -> Self::Output {
         assert_eq!(self.metric, rhs.metric);
-        let uncertain = self.uncertain || rhs.uncertain;
+        self.combine_uncertain(&rhs);
         GasCost {
             time_ns: self.time_ns + rhs.time_ns,
             instructions: self.instructions + rhs.instructions,
             io_r_bytes: self.io_r_bytes + rhs.io_r_bytes,
             io_w_bytes: self.io_w_bytes + rhs.io_w_bytes,
             metric: self.metric,
-            uncertain,
+            uncertain: self.uncertain,
         }
     }
 }
@@ -361,17 +391,9 @@ impl ops::AddAssign for GasCost {
 impl ops::Sub for GasCost {
     type Output = GasCost;
 
+    #[track_caller]
     fn sub(self, rhs: GasCost) -> Self::Output {
-        assert_eq!(self.metric, rhs.metric);
-        let uncertain = self.uncertain || rhs.uncertain;
-        GasCost {
-            time_ns: self.time_ns - rhs.time_ns,
-            instructions: self.instructions - rhs.instructions,
-            io_r_bytes: self.io_r_bytes - rhs.io_r_bytes,
-            io_w_bytes: self.io_w_bytes - rhs.io_w_bytes,
-            metric: self.metric,
-            uncertain,
-        }
+        self.saturating_sub(&rhs, &NonNegativeTolerance::Strict)
     }
 }
 
@@ -403,37 +425,6 @@ impl ops::Div<u64> for GasCost {
     }
 }
 
-impl num_traits::CheckedSub for GasCost {
-    fn checked_sub(&self, rhs: &Self) -> Option<Self> {
-        if self.metric != rhs.metric {
-            return None;
-        }
-        let uncertain = self.uncertain || rhs.uncertain;
-        Some(GasCost {
-            time_ns: self.time_ns.checked_sub(&rhs.time_ns)?,
-            instructions: self.instructions.checked_sub(&rhs.instructions)?,
-            io_r_bytes: self.io_r_bytes.checked_sub(&rhs.io_r_bytes)?,
-            io_w_bytes: self.io_w_bytes.checked_sub(&rhs.io_w_bytes)?,
-            metric: self.metric,
-            uncertain,
-        })
-    }
-}
-
-impl num_traits::SaturatingSub for GasCost {
-    fn saturating_sub(&self, rhs: &Self) -> Self {
-        assert_eq!(self.metric, rhs.metric);
-        let uncertain = self.uncertain || rhs.uncertain;
-        GasCost {
-            time_ns: saturating_sub(self.time_ns, rhs.time_ns),
-            instructions: saturating_sub(self.instructions, rhs.instructions),
-            io_r_bytes: saturating_sub(self.io_r_bytes, rhs.io_r_bytes),
-            io_w_bytes: saturating_sub(self.io_w_bytes, rhs.io_w_bytes),
-            metric: self.metric,
-            uncertain,
-        }
-    }
-}
 fn saturating_sub(a: Ratio<u64>, b: Ratio<u64>) -> Ratio<u64> {
     if a < b {
         0.into()
