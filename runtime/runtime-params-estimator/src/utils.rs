@@ -75,7 +75,7 @@ pub(crate) fn fn_cost(
 
     let base_cost = noop_function_call_cost(ctx);
 
-    total_cost.safe_subtract(&base_cost, &PER_MILLE_TOLERANCE) / count
+    total_cost.saturating_sub(&base_cost, &PER_MILLE_TOLERANCE) / count
 }
 
 pub(crate) fn fn_cost_count(
@@ -172,7 +172,7 @@ pub(crate) fn fn_cost_with_setup(
 
     let base_cost = noop_function_call_cost(ctx);
 
-    total_cost.safe_subtract(&base_cost, &PER_MILLE_TOLERANCE) / count
+    (total_cost - base_cost) / count
 }
 
 pub(crate) fn aggregate_per_block_measurements(
@@ -196,7 +196,9 @@ pub(crate) fn aggregate_per_block_measurements(
         *v /= n;
     }
     let mut gas_cost = total / n;
-    gas_cost.set_uncertain(is_high_variance(&block_costs));
+    if is_high_variance(&block_costs) {
+        gas_cost.set_uncertain("HIGH-VARIANCE");
+    }
     (gas_cost, total_ext_costs)
 }
 
