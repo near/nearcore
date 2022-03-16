@@ -1,8 +1,8 @@
+use crate::rocksdb_metrics::{parse_statistics, RocksDBMetrics};
 use crate::{metrics, SyncStatus};
 use actix::Addr;
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_client_primitives::types::ShardSyncStatus;
-use near_metrics::{try_create_gauge_vec, try_create_int_gauge};
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
@@ -16,9 +16,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo, ValidatorKickoutView};
 use near_telemetry::{telemetry, TelemetryActor};
-use prometheus::{GaugeVec, IntGauge};
 use std::cmp::min;
-use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::Arc;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
@@ -240,81 +238,11 @@ impl InfoHelper {
         telemetry(&self.telemetry_actor, content);
     }
 
-    fn export_stats_as_metrics(&mut self, stats: &[(&str, Vec<StatsValue>)]) {
-        for (stats_name, values) in stats {
-            if values.len() == 1 {
-                // A counter stats.
-                if let StatsValue::Count(value) = values[0] {
-                    let entry = self.rocksdb_metrics.int_gauges.entry(stats_name.to_string());
-                    entry
-                        .or_insert_with(|| {
-                            try_create_int_gauge(
-                                &get_prometheus_metric_name(stats_name),
-                                stats_name,
-                            )
-                            .unwrap()
-                        })
-                        .set(value);
-                }
-            } else {
-                // A summary stats.
-                for stats_value in values {
-                    match stats_value {
-                        StatsValue::Count(value) => {
-                            let entry = self
-                                .rocksdb_metrics
-                                .int_gauges
-                                .entry(get_stats_summary_count_key(stats_name));
-                            entry
-                                .or_insert_with(|| {
-                                    try_create_int_gauge(
-                                        &get_metric_name_summary_count_gauge(stats_name),
-                                        stats_name,
-                                    )
-                                    .unwrap()
-                                })
-                                .set(*value);
-                        }
-                        StatsValue::Sum(value) => {
-                            let entry = self
-                                .rocksdb_metrics
-                                .int_gauges
-                                .entry(get_stats_summary_sum_key(stats_name));
-                            entry
-                                .or_insert_with(|| {
-                                    try_create_int_gauge(
-                                        &get_metric_name_summary_sum_gauge(stats_name),
-                                        stats_name,
-                                    )
-                                    .unwrap()
-                                })
-                                .set(*value);
-                        }
-                        StatsValue::Percentile(percentile, value) => {
-                            let entry = self.rocksdb_metrics.gauges.entry(stats_name.to_string());
-                            entry
-                                .or_insert_with(|| {
-                                    try_create_gauge_vec(
-                                        &get_prometheus_metric_name(stats_name),
-                                        stats_name,
-                                        &["quantile"],
-                                    )
-                                    .unwrap()
-                                })
-                                .with_label_values(&[&format!("{:.2}", *percentile as f64 * 0.01)])
-                                .set(*value);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     fn export_rocksdb_statistics(&mut self, statistics: Option<String>) {
         if let Some(statistics) = statistics {
             match parse_statistics(&statistics) {
                 Ok(stats) => {
-                    self.export_stats_as_metrics(&stats);
+                    self.rocksdb_metrics.export_stats_as_metrics(&stats);
                 }
                 Err(err) => {
                     warn!(target: "stats", "Failed to parse rocksdb statistics: {:?}", err);
@@ -322,74 +250,6 @@ impl InfoHelper {
             }
         }
     }
-}
-
-#[derive(Default)]
-struct RocksDBMetrics {
-    int_gauges: HashMap<String, IntGauge>,
-    gauges: HashMap<String, GaugeVec>,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum StatsValue {
-    Count(i64),
-    Sum(i64),
-    Percentile(u32, f64),
-}
-
-fn get_prometheus_metric_name(stats_name: &str) -> String {
-    format!("near_{}", stats_name.replace(".", "_"))
-}
-
-fn get_metric_name_summary_count_gauge(stats_name: &str) -> String {
-    format!("near_{}_count", stats_name.replace(".", "_"))
-}
-
-fn get_metric_name_summary_sum_gauge(stats_name: &str) -> String {
-    format!("near_{}_sum", stats_name.replace(".", "_"))
-}
-
-fn get_stats_summary_count_key(stats_name: &str) -> String {
-    format!("{}.count", stats_name)
-}
-
-fn get_stats_summary_sum_key(stats_name: &str) -> String {
-    format!("{}.sum", stats_name)
-}
-
-fn parse_statistics(statistics: &str) -> Result<Vec<(&str, Vec<StatsValue>)>, anyhow::Error> {
-    let mut result = vec![];
-    for line in statistics.split('\n') {
-        let mut values = vec![];
-        let words: Vec<&str> = line.split(' ').collect();
-        if words.len() > 1 {
-            let stats_name = words[0];
-            for i in (1..words.len()).step_by(3) {
-                if words[i] == "COUNT" {
-                    values.push(StatsValue::Count(
-                        words[i + 2].parse::<i64>().map_err(|err| anyhow::anyhow!(err))?,
-                    ));
-                } else if words[i] == "SUM" {
-                    values.push(StatsValue::Sum(
-                        words[i + 2].parse::<i64>().map_err(|err| anyhow::anyhow!(err))?,
-                    ));
-                } else if words[i].starts_with("P") {
-                    values.push(StatsValue::Percentile(
-                        words[i][1..].parse::<u32>().map_err(|err| anyhow::anyhow!(err))?,
-                        words[i + 2].parse::<f64>().map_err(|err| anyhow::anyhow!(err))?,
-                    ));
-                } else {
-                    return Err(anyhow::anyhow!(
-                        "Unsupported stats value: {} in {}",
-                        words[i],
-                        line
-                    ));
-                }
-            }
-            result.push((stats_name, values));
-        }
-    }
-    Ok(result)
 }
 
 fn display_sync_status(

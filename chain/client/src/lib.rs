@@ -18,6 +18,7 @@ mod client;
 mod client_actor;
 mod info;
 mod metrics;
+mod rocksdb_metrics;
 pub mod sync;
 pub mod test_utils;
 #[cfg(test)]
