@@ -38,6 +38,11 @@ ICOUNT_OPTIONS="--docker --full "
 export CARGO_PROFILE_RELEASE_LTO=fat
 export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 
+# Rebuild test contract
+pushd runtime/runtime-params-estimator/test-contract
+bash build.sh
+popd
+
 # Run icount measurments inside docker container. Output will be in stdout.
 cargo run --release -p runtime-params-estimator --features required -- \
     ${COMMON_ARGS} ${ICOUNT_OPTIONS} \
