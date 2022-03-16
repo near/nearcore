@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use borsh::BorshDeserialize;
-use log::debug;
+use tracing::debug;
 
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
@@ -14,7 +14,9 @@ use near_primitives::transaction::{
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider};
+use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas};
+#[cfg(feature = "protocol_feature_function_call_weight")]
+use near_primitives::types::{GasDistribution, GasWeight};
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
 use near_store::{get_code, TrieUpdate, TrieUpdateValuePtr};
@@ -35,6 +37,15 @@ pub struct RuntimeExt<'a> {
     last_block_hash: &'a CryptoHash,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
+
+    #[cfg(feature = "protocol_feature_function_call_weight")]
+    gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
+}
+
+#[cfg(feature = "protocol_feature_function_call_weight")]
+struct FunctionCallActionIndex {
+    receipt_index: usize,
+    action_index: usize,
 }
 
 /// Error used by `RuntimeExt`.
@@ -93,6 +104,9 @@ impl<'a> RuntimeExt<'a> {
             last_block_hash,
             epoch_info_provider,
             current_protocol_version,
+
+            #[cfg(feature = "protocol_feature_function_call_weight")]
+            gas_weights: vec![],
         }
     }
 
@@ -140,13 +154,19 @@ impl<'a> RuntimeExt<'a> {
             .collect()
     }
 
-    fn append_action(&mut self, receipt_index: u64, action: Action) {
-        self.action_receipts
+    /// Appends an action and returns the index the action was inserted in the receipt
+    fn append_action(&mut self, receipt_index: u64, action: Action) -> usize {
+        let actions = &mut self
+            .action_receipts
             .get_mut(receipt_index as usize)
             .expect("receipt index should be present")
             .1
-            .actions
-            .push(action);
+            .actions;
+
+        actions.push(action);
+
+        // Return index that action was inserted at
+        actions.len() - 1
     }
 
     #[inline]
@@ -254,13 +274,44 @@ impl<'a> External for RuntimeExt<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "protocol_feature_function_call_weight")]
+    fn append_action_function_call_weight(
+        &mut self,
+        receipt_index: u64,
+        method_name: Vec<u8>,
+        args: Vec<u8>,
+        attached_deposit: u128,
+        prepaid_gas: Gas,
+        gas_weight: GasWeight,
+    ) -> ExtResult<()> {
+        let action_index = self.append_action(
+            receipt_index,
+            Action::FunctionCall(FunctionCallAction {
+                method_name: String::from_utf8(method_name)
+                    .map_err(|_| HostError::InvalidMethodName)?,
+                args,
+                gas: prepaid_gas,
+                deposit: attached_deposit,
+            }),
+        );
+
+        if gas_weight.0 > 0 {
+            self.gas_weights.push((
+                FunctionCallActionIndex { receipt_index: receipt_index as usize, action_index },
+                gas_weight,
+            ));
+        }
+
+        Ok(())
+    }
+
     fn append_action_function_call(
         &mut self,
         receipt_index: u64,
         method_name: Vec<u8>,
         args: Vec<u8>,
         attached_deposit: u128,
-        prepaid_gas: u64,
+        prepaid_gas: Gas,
     ) -> ExtResult<()> {
         self.append_action(
             receipt_index,
@@ -375,7 +426,7 @@ impl<'a> External for RuntimeExt<'a> {
     }
 
     fn get_touched_nodes_count(&self) -> u64 {
-        self.trie_update.trie.counter.get()
+        self.trie_update.trie.get_touched_nodes_count()
     }
 
     fn validator_stake(&self, account_id: &AccountId) -> ExtResult<Option<Balance>> {
@@ -388,5 +439,56 @@ impl<'a> External for RuntimeExt<'a> {
         self.epoch_info_provider
             .validator_total_stake(self.epoch_id, self.prev_block_hash)
             .map_err(|e| ExternalError::ValidatorError(e).into())
+    }
+
+    /// Distributes the gas passed in by splitting it among weights defined in `gas_weights`.
+    /// This will sum all weights, retrieve the gas per weight, then update each function
+    /// to add the respective amount of gas. Once all gas is distributed, the remainder of
+    /// the gas not assigned due to precision loss is added to the last function with a weight.
+    #[cfg(feature = "protocol_feature_function_call_weight")]
+    fn distribute_unused_gas(&mut self, gas: u64) -> GasDistribution {
+        let gas_weight_sum: u128 =
+            self.gas_weights.iter().map(|(_, GasWeight(weight))| *weight as u128).sum();
+        if gas_weight_sum != 0 {
+            // Floor division that will ensure gas allocated is <= gas to distribute
+            let gas_per_weight = (gas as u128 / gas_weight_sum) as u64;
+
+            let mut distribute_gas = |metadata: &FunctionCallActionIndex, assigned_gas: u64| {
+                let FunctionCallActionIndex { receipt_index, action_index } = metadata;
+                if let Some(Action::FunctionCall(FunctionCallAction { ref mut gas, .. })) = self
+                    .action_receipts
+                    .get_mut(*receipt_index)
+                    .and_then(|(_, receipt)| receipt.actions.get_mut(*action_index))
+                {
+                    *gas += assigned_gas;
+                } else {
+                    panic!(
+                        "Invalid index for assigning unused gas weight \
+                        (promise_index={}, action_index={})",
+                        receipt_index, action_index
+                    );
+                }
+            };
+
+            let mut distributed = 0;
+            for (action_index, GasWeight(weight)) in &self.gas_weights {
+                // This can't overflow because the gas_per_weight is floor division
+                // of the weight sum.
+                let assigned_gas = gas_per_weight * weight;
+
+                distribute_gas(action_index, assigned_gas);
+
+                distributed += assigned_gas
+            }
+
+            // Distribute remaining gas to final action.
+            if let Some((last_idx, _)) = self.gas_weights.last() {
+                distribute_gas(last_idx, gas - distributed);
+            }
+            self.gas_weights.clear();
+            GasDistribution::All
+        } else {
+            GasDistribution::NoRatios
+        }
     }
 }

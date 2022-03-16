@@ -1,6 +1,7 @@
 use crate::apply_chain_range::apply_chain_range;
-use crate::epoch_info;
 use crate::state_dump::state_dump;
+use crate::state_dump::state_dump_redis;
+use crate::{apply_chunk, epoch_info};
 use ansi_term::Color::Red;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
@@ -18,11 +19,12 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
+use near_primitives_core::types::Gas;
 use near_store::test_utils::create_test_store;
 use near_store::{Store, TrieIterator};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -79,6 +81,23 @@ pub(crate) fn dump_state(
         println!("Saving state at {:?} @ {} into {}", state_roots, height, output_file.display(),);
         new_near_config.genesis.to_file(&output_file);
     }
+}
+
+pub(crate) fn dump_state_redis(
+    height: Option<BlockHeight>,
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+) {
+    let mode = match height {
+        Some(h) => LoadTrieMode::LastFinalFromHeight(h),
+        None => LoadTrieMode::Latest,
+    };
+    let (runtime, state_roots, header) =
+        load_trie_stop_at_height(store, home_dir, &near_config, mode);
+
+    let res = state_dump_redis(runtime, &state_roots, header);
+    assert_eq!(res, Ok(()));
 }
 
 pub(crate) fn apply_range(
@@ -214,7 +233,8 @@ pub(crate) fn print_chain(
             if height == 0 {
                 println!("{: >3} {}", header.height(), format_hash(*header.hash()));
             } else {
-                let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap();
+                let parent_header =
+                    chain_store.get_block_header(header.prev_hash()).unwrap().clone();
                 let epoch_id = runtime.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
                 cur_epoch_id = Some(epoch_id.clone());
                 if runtime.is_next_block_epoch_start(header.prev_hash()).unwrap() {
@@ -234,13 +254,35 @@ pub(crate) fn print_chain(
                     .entry(block_producer.clone())
                     .and_modify(|e| *e += 1)
                     .or_insert(1);
+
+                let block = chain_store.get_block(&block_hash).unwrap().clone();
+
+                let mut chunk_debug_str: Vec<String> = Vec::new();
+
+                for shard_id in 0..header.chunk_mask().len() {
+                    if header.chunk_mask()[shard_id] {
+                        let chunk = chain_store
+                            .get_chunk(&block.chunks()[shard_id as usize].chunk_hash())
+                            .unwrap()
+                            .clone();
+                        chunk_debug_str.push(format!(
+                            "{}: {} {: >3} Tgas ",
+                            shard_id,
+                            format_hash(chunk.chunk_hash().0),
+                            chunk.cloned_header().gas_used() / (1024 * 1024 * 1024 * 1024)
+                        ));
+                    }
+                }
+
                 println!(
-                    "{: >3} {} | {: >10} | parent: {: >3} {}",
+                    "{: >3} {} | {: >10} | parent: {: >3} {} | {} {}",
                     header.height(),
                     format_hash(*header.hash()),
                     block_producer,
                     parent_header.height(),
                     format_hash(*parent_header.hash()),
+                    chunk_mask_to_str(header.chunk_mask()),
+                    chunk_debug_str.join("|")
                 );
             }
         } else {
@@ -289,6 +331,18 @@ pub(crate) fn replay_chain(
                 .unwrap();
         }
     }
+}
+
+fn resulting_chunk_extra(result: ApplyTransactionResult, gas_limit: Gas) -> ChunkExtra {
+    let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(&result.outcomes);
+    ChunkExtra::new(
+        &result.new_root,
+        outcome_root,
+        result.validator_proposals,
+        result.total_gas_burnt,
+        gas_limit,
+        result.total_balance_burnt,
+    )
 }
 
 pub(crate) fn apply_block_at_height(
@@ -376,19 +430,11 @@ pub(crate) fn apply_block_at_height(
             )
             .unwrap()
     };
-    let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
-    let chunk_extra = ChunkExtra::new(
-        &apply_result.new_root,
-        outcome_root,
-        apply_result.validator_proposals,
-        apply_result.total_gas_burnt,
-        near_config.genesis.config.gas_limit,
-        apply_result.total_balance_burnt,
-    );
-
     println!(
         "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
-        shard_id, height, chunk_extra
+        shard_id,
+        height,
+        resulting_chunk_extra(apply_result, near_config.genesis.config.gas_limit)
     );
     if block.chunks()[shard_id as usize].height_included() == height {
         if let Ok(chunk_extra) = chain_store.get_chunk_extra(&block_hash, &shard_uid) {
@@ -621,4 +667,63 @@ fn load_trie_stop_at_height(
 
 pub fn format_hash(h: CryptoHash) -> String {
     to_base(&h)[..7].to_string()
+}
+
+pub fn chunk_mask_to_str(mask: &[bool]) -> String {
+    mask.iter().map(|f| if *f { '.' } else { 'X' }).collect()
+}
+
+fn print_apply_chunk_result(
+    result: ApplyTransactionResult,
+    gas_limit: Gas,
+    tx_hashes: Option<Vec<CryptoHash>>,
+    receipt_hashes: Option<Vec<CryptoHash>>,
+) {
+    if tx_hashes.is_some() || receipt_hashes.is_some() {
+        let mut hashes = HashSet::new();
+        if let Some(tx_hashes) = tx_hashes {
+            hashes.extend(tx_hashes);
+        }
+        if let Some(receipt_hashes) = receipt_hashes {
+            hashes.extend(receipt_hashes);
+        }
+
+        println!("outcomes:");
+        for outcome in result.outcomes.iter() {
+            if hashes.contains(&outcome.id) {
+                println!("{:?}", outcome);
+            }
+        }
+    }
+    println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(result, gas_limit));
+}
+
+pub(crate) fn apply_chunk(
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+    chunk_hash: ChunkHash,
+    target_height: Option<u64>,
+    tx_hashes: Option<Vec<CryptoHash>>,
+    receipt_hashes: Option<Vec<CryptoHash>>,
+) -> anyhow::Result<()> {
+    let runtime = Arc::new(NightshadeRuntime::with_config(
+        home_dir,
+        store.clone(),
+        &near_config,
+        None,
+        near_config.client_config.max_gas_burnt_view,
+    ));
+    let mut chain_store = ChainStore::new(store, near_config.genesis.config.genesis_height);
+    let (apply_result, gas_limit) = apply_chunk::apply_chunk(
+        runtime,
+        &mut chain_store,
+        chunk_hash,
+        target_height,
+        &tx_hashes,
+        &receipt_hashes,
+        None,
+    )?;
+    print_apply_chunk_result(apply_result, gas_limit, tx_hashes, receipt_hashes);
+    Ok(())
 }

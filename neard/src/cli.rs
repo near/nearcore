@@ -1,20 +1,21 @@
-use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION};
 use clap::{AppSettings, Clap};
 use futures::future::FutureExt;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
+use near_store::db::RocksDB;
 use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
+use tokio::sync::oneshot;
 use tracing::metadata::LevelFilter;
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 /// NEAR Protocol Node
 #[derive(Clap)]
-#[clap(version = NEARD_VERSION_STRING.as_str())]
+#[clap(version = crate::NEARD_VERSION_STRING.as_str())]
 #[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
 pub(super) struct NeardCmd {
     #[clap(flatten)]
@@ -27,7 +28,7 @@ impl NeardCmd {
     pub(super) fn parse_and_run() {
         let neard_cmd = Self::parse();
         neard_cmd.opts.init();
-        info!(target: "neard", "Version: {}, Build: {}, Latest Protocol: {}", NEARD_VERSION.version, NEARD_VERSION.build, PROTOCOL_VERSION);
+        info!(target: "neard", "Version: {}, Build: {}, Latest Protocol: {}", crate::NEARD_VERSION, crate::NEARD_BUILD, near_primitives::version::PROTOCOL_VERSION);
 
         #[cfg(feature = "test_features")]
         {
@@ -88,7 +89,7 @@ struct NeardOpts {
     #[clap(long, name = "target")]
     verbose: Option<String>,
     /// Directory for config and data.
-    #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
+    #[clap(long, parse(from_os_str), default_value_os = crate::DEFAULT_HOME.as_os_str())]
     home: PathBuf,
     /// Skips consistency checks of the 'genesis.json' file upon startup.
     /// Let's you start `neard` slightly faster.
@@ -292,7 +293,7 @@ impl RunCmd {
         check_release_build(&near_config.client_config.chain_id);
 
         // Set current version in client config.
-        near_config.client_config.version = super::NEARD_VERSION.clone();
+        near_config.client_config.version = crate::neard_version();
         // Override some parameters from command line.
         if let Some(produce_empty_blocks) = self.produce_empty_blocks {
             near_config.client_config.produce_empty_blocks = produce_empty_blocks;
@@ -348,10 +349,12 @@ impl RunCmd {
             }
         }
 
+        let (tx, rx) = oneshot::channel::<()>();
         let sys = actix::System::new();
         sys.block_on(async move {
             let nearcore::NearNode { rpc_servers, .. } =
-                nearcore::start_with_config(home_dir, near_config).expect("start_with_config");
+                nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
+                    .expect("start_with_config");
 
             let sig = if cfg!(unix) {
                 use tokio::signal::unix::{signal, SignalKind};
@@ -359,13 +362,15 @@ impl RunCmd {
                 let mut sigterm = signal(SignalKind::terminate()).unwrap();
                 futures::select! {
                     _ = sigint .recv().fuse() => "SIGINT",
-                    _ = sigterm.recv().fuse() => "SIGTERM"
+                    _ = sigterm.recv().fuse() => "SIGTERM",
+                    _ = rx.fuse() => "ClentActor died",
                 }
             } else {
+                // TODO(#6372): Support graceful shutdown on windows.
                 tokio::signal::ctrl_c().await.unwrap();
                 "Ctrl+C"
             };
-            info!(target: "neard", "Got {}, stopping...", sig);
+            info!(target: "neard", "Got '{}', stopping...", sig);
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
@@ -374,6 +379,8 @@ impl RunCmd {
             actix::System::current().stop();
         });
         sys.run().unwrap();
+        info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
+        RocksDB::block_until_all_instances_are_dropped();
     }
 }
 
@@ -429,6 +436,12 @@ fn init_logging(verbose: Option<&str>) {
         } else {
             env_filter = env_filter.add_directive(format!("{}=debug", module).parse().unwrap());
         }
+    }
+
+    if cfg!(feature = "sandbox") {
+        // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
+        // This is hidden by default so we enable it for sandbox node.
+        env_filter = env_filter.add_directive("sandbox=debug".parse().unwrap());
     }
 
     tracing_subscriber::fmt::Subscriber::builder()

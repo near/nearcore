@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use log::debug;
+use tracing::debug;
 
 use near_chain_configs::Genesis;
 pub use near_crypto;
@@ -1268,7 +1268,7 @@ impl Runtime {
                                    state_update: &mut TrieUpdate,
                                    total_gas_burnt: &mut Gas|
          -> Result<_, RuntimeError> {
-            let _span = tracing::debug_span!(target: "runtime", "Runtime::process_receipt", receipt_id = %receipt.receipt_id, node_counter = state_update.trie.counter.get()).entered();
+            let _span = tracing::debug_span!(target: "runtime", "Runtime::process_receipt", receipt_id = %receipt.receipt_id, node_counter = state_update.trie.get_touched_nodes_count()).entered();
             let result = self.process_receipt(
                 state_update,
                 apply_state,
@@ -1278,7 +1278,7 @@ impl Runtime {
                 &mut stats,
                 epoch_info_provider,
             );
-            tracing::debug!(target: "runtime", node_counter = state_update.trie.counter.get());
+            tracing::debug!(target: "runtime", node_counter = state_update.trie.get_touched_nodes_count());
             result?.into_iter().try_for_each(
                 |outcome_with_id: ExecutionOutcomeWithId| -> Result<(), RuntimeError> {
                     *total_gas_burnt =
@@ -1449,8 +1449,7 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
     }
 
-    /// It's okay to use unsafe math here, because this method should only be called on the trusted
-    /// state records (e.g. at launch from genesis)
+    /// Computes the expected storage per account for a given set of StateRecord(s).
     pub fn compute_storage_usage(
         &self,
         records: &[StateRecord],

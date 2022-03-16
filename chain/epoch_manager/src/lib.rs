@@ -1,8 +1,8 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use log::{debug, warn};
 use primitive_types::U256;
+use tracing::{debug, warn};
 
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
@@ -38,6 +38,7 @@ mod reward_calculator;
 #[cfg(feature = "protocol_feature_chunk_only_producers")]
 mod shard_assignment;
 pub mod test_utils;
+#[cfg(test)]
 mod tests;
 mod types;
 mod validator_selection;

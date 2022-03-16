@@ -25,6 +25,24 @@ pub type Balance = u128;
 /// Gas is a type for storing amount of gas.
 pub type Gas = u64;
 
+/// Weight of unused gas to distribute to scheduled function call actions.
+/// Used in `promise_batch_action_function_call_weight` host function.
+#[cfg(feature = "protocol_feature_function_call_weight")]
+#[derive(Clone, Debug, PartialEq)]
+pub struct GasWeight(pub u64);
+
+/// Result from a gas distribution among function calls with ratios.
+#[cfg(feature = "protocol_feature_function_call_weight")]
+#[must_use]
+#[non_exhaustive]
+#[derive(Debug, PartialEq)]
+pub enum GasDistribution {
+    /// All remaining gas was distributed to functions.
+    All,
+    /// There were no function call actions with a ratio specified.
+    NoRatios,
+}
+
 /// Number of blocks in current group.
 pub type NumBlocks = u64;
 /// Number of shards in current group.

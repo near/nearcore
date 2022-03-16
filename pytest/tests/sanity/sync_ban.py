@@ -82,7 +82,7 @@ nodes = start_cluster(1, 1, 1, None, [["epoch_length", EPOCH_LENGTH]], {
     1: node1_config
 }, Handler)
 
-utils.wait_for_blocks(nodes[0], target=110, timeout=TIMEOUT, poll_interval=2)
+utils.wait_for_blocks(nodes[0], target=110, poll_interval=2)
 
 should_sync.value = True
 

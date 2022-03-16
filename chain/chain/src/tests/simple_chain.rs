@@ -9,6 +9,7 @@ use near_primitives::time::MockClockGuard;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Rational;
 use std::str::FromStr;
+use std::time::Instant;
 
 #[test]
 fn empty_chain() {
@@ -22,10 +23,11 @@ fn empty_chain() {
 
     assert_eq!(chain.head().unwrap().height, 0);
     let hash = chain.head().unwrap().last_block_hash;
+    // The hashes here will have to be modified after each change to genesis file.
     #[cfg(feature = "nightly_protocol")]
-    assert_eq!(hash, CryptoHash::from_str("4iPPuWZ2BZj6i6zGCa96xFTQhp3FHkY2CzUCJFUUryt8").unwrap());
+    assert_eq!(hash, CryptoHash::from_str("2VFkBfWwcTqyVJ83zy78n5WUNadwGuJbLc2KEp9SJ8dV").unwrap());
     #[cfg(not(feature = "nightly_protocol"))]
-    assert_eq!(hash, CryptoHash::from_str("9w8Z2UGnC6hxn5RR7B3akP7kBw7ohqyHAw1ssiK1NzTs").unwrap());
+    assert_eq!(hash, CryptoHash::from_str("8UF2TCELQ2sSqorskN5myyC7h1XfgxYm68JHJMKo5n8X").unwrap());
     assert_eq!(count_utc, 1);
 }
 
@@ -41,6 +43,9 @@ fn build_chain() {
         // - one time for validating block header
         mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
         mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
+        // Instant calls for CryptoHashTimer.
+        mock_clock_guard.add_instant(Instant::now());
+        mock_clock_guard.add_instant(Instant::now());
     }
 
     let (mut chain, _, signer) = setup();
@@ -49,12 +54,12 @@ fn build_chain() {
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(
         prev_hash,
-        CryptoHash::from_str("zcVm8wC8eBt2b5C2uTNch2UyfXCwjs3qgYGZwyXcUAA").unwrap()
+        CryptoHash::from_str("299HrY4hpubeFXa3V9DNtR36dGEtiz4AVfMbfL6hT2sq").unwrap()
     );
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
         prev_hash,
-        CryptoHash::from_str("CUcHvQVmaNdWZtSd4z2Y4eWD75orjkhF2uLBZmTQrYF9").unwrap()
+        CryptoHash::from_str("BkRwcuuVjS86zNvP8DDC9FzsJfWQLV92YyX7NCAz3TNu").unwrap()
     );
 
     for i in 0..4 {
@@ -68,16 +73,16 @@ fn build_chain() {
     let count_instant = mock_clock_guard.instant_call_count();
     let count_utc = mock_clock_guard.utc_call_count();
     assert_eq!(count_utc, 9);
-    assert_eq!(count_instant, 0);
+    assert_eq!(count_instant, 8);
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(
         chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("CDfAT886U5up6bQZ3QNVcvxtuVM6sNyJnF6Nk6RMHnEZ").unwrap()
+        CryptoHash::from_str("A1ZqLuyanSg6YeD3HxGco2tJYEAsmHvAva5n4dsPTgij").unwrap()
     );
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
         chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("FhnRwdDssC97PaAUZpkt71sL26oqBtdzPf1SW2P8twcM").unwrap()
+        CryptoHash::from_str("8FkFyWKsnAvAEVAwR41GFTY9i9eQnvGCm52FCYR7qEhy").unwrap()
     );
 }
 

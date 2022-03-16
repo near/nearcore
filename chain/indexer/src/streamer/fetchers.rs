@@ -6,18 +6,18 @@ use actix::Addr;
 use futures::stream::StreamExt;
 use tracing::warn;
 
-pub use near_primitives::hash::CryptoHash;
-pub use near_primitives::{types, views};
+use near_indexer_primitives::IndexerExecutionOutcomeWithOptionalReceipt;
+use near_primitives::hash::CryptoHash;
+use near_primitives::{types, views};
 
 use super::errors::FailedToFetchData;
-use super::types::IndexerExecutionOutcomeWithOptionalReceipt;
 use super::INDEXER;
 
 pub(crate) async fn fetch_status(
     client: &Addr<near_client::ClientActor>,
 ) -> Result<near_primitives::views::StatusResponse, FailedToFetchData> {
     client
-        .send(near_client::Status { is_health_check: false })
+        .send(near_client::Status { is_health_check: false, detailed: false })
         .await?
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
@@ -60,9 +60,10 @@ pub(crate) async fn fetch_block_by_hash(
 pub(crate) async fn fetch_state_changes(
     client: &Addr<near_client::ViewClientActor>,
     block_hash: CryptoHash,
-) -> Result<views::StateChangesView, FailedToFetchData> {
+    epoch_id: near_primitives::types::EpochId,
+) -> Result<HashMap<near_primitives::types::ShardId, views::StateChangesView>, FailedToFetchData> {
     client
-        .send(near_client::GetStateChangesWithCauseInBlock { block_hash })
+        .send(near_client::GetStateChangesWithCauseInBlockForTrackedShards { block_hash, epoch_id })
         .await?
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }

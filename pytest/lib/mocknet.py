@@ -361,7 +361,7 @@ def transfer_between_nodes(nodes):
 
     tx, tx_hash = sign_payment_tx_and_get_hash(alice, bob.account_id,
                                                transfer_amount, alice_nonce + 1,
-                                               last_block_hash_decoded)
+                                               last_block_hash)
     send_transaction(node, tx, tx_hash, alice.account_id)
 
     alice_final_balance = get_balance(alice)
@@ -596,7 +596,6 @@ def create_genesis_file(validator_node_names,
             else:
                 prev_stake = prev_stake + STAKE_STEP
                 staked = prev_stake * ONE_NEAR
-            print(f'{account_id} {staked}')
         else:
             staked = MIN_STAKE
         stakes.append((staked, account_id))
@@ -717,7 +716,7 @@ def create_genesis_file(validator_node_names,
                 'version': 1
             }
         }
-        genesis_config['shard_layout']: shard_layout
+        genesis_config['shard_layout'] = shard_layout
         genesis_config['simple_nightshade_shard_layout'] = shard_layout
     else:
         genesis_config['shard_layout'] = {'V0': {'num_shards': 1, 'version': 0}}
@@ -950,7 +949,6 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
                     prev_stake = prev_stake + STAKE_STEP
                     staked = prev_stake * ONE_NEAR
                 stakes.append((staked, node.instance_name))
-                print(f'{node_account_name(node.instance_name)} {staked}')
 
         else:
             for node in validator_nodes:
@@ -967,15 +965,27 @@ def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
             if (seats_upgraded + seat) * 100 > 75 * num_block_producer_seats:
                 break
             schedule[instance_name] = 0
+            logger.info(
+                f'validator node {node.instance_name} will start upgraded')
             seats_upgraded += seat
 
         # Upgrade the remaining validators during 4 epochs.
         for node in validator_nodes:
             if node.instance_name not in schedule:
                 schedule[node.instance_name] = random.randint(1, 4)
+                logger.info(
+                    f'validator node {node.instance_name} will upgrade at {schedule[node.instance_name]}'
+                )
 
         for node in rpc_nodes:
             schedule[node.instance_name] = random.randint(0, 4)
+            if not schedule[node.instance_name]:
+                logger.info(
+                    f'rpc node {node.instance_name} will start upgraded')
+            else:
+                logger.info(
+                    f'rpc node {node.instance_name} will upgrade at {schedule[node.instance_name]}'
+                )
     else:
         # Start all nodes upgraded.
         for node in rpc_nodes:

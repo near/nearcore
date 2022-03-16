@@ -218,11 +218,11 @@ impl Trie {
         let mut map = HashMap::new();
         let mut contract_codes = Vec::new();
         for TrieTraversalItem { hash, key } in trie_traversal_items {
-            let value = trie.retrieve_raw_bytes(&hash)?;
-            map.entry(hash).or_insert_with(|| (value.clone(), 0)).1 += 1;
+            let value = trie.storage.retrieve_raw_bytes(&hash)?;
+            map.entry(hash).or_insert_with(|| (value.to_vec(), 0)).1 += 1;
             if let Some(trie_key) = key {
                 if is_contract_code_key(&trie_key) {
-                    contract_codes.push(ContractCode::new(value, None));
+                    contract_codes.push(ContractCode::new(value.to_vec(), None));
                 }
             }
         }
@@ -301,7 +301,7 @@ mod tests {
                     *rc += 1;
                 } else {
                     let bytes = trie.storage.retrieve_raw_bytes(hash)?;
-                    insertions.insert(*hash, (bytes, 1));
+                    insertions.insert(*hash, (bytes.to_vec(), 1));
                 }
                 Ok(())
             })?;

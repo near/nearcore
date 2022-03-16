@@ -11,6 +11,9 @@ from key import Key
 from utils import load_binary_file
 from configured_logger import logger
 
+# Constant for 1 NEAR
+NEAR_BASE = 10**24
+
 
 class Account:
 
@@ -32,6 +35,7 @@ class Account:
         assert rpc_info or rpc_infos
         if rpc_info:
             assert not rpc_infos
+            rpc_infos = [rpc_info]
         self.rpc_infos = rpc_infos
         assert key.account_id
         self.tx_timestamps = []
@@ -62,9 +66,11 @@ class Account:
         self.tx_timestamps.append(time.time())
         self.nonce += 1
 
-    def send_transfer_tx(self, dest_account_id, base_block_hash=None):
+    def send_transfer_tx(self,
+                         dest_account_id,
+                         transfer_amount=100,
+                         base_block_hash=None):
         self.prep_tx()
-        transfer_amount = 100
         tx = sign_payment_tx(self.key, dest_account_id, transfer_amount,
                              self.nonce, base_block_hash or
                              self.base_block_hash)
@@ -100,7 +106,7 @@ class Account:
         self.prep_tx()
         new_key = Key(new_account_id, self.key.pk, self.key.sk)
         tx = sign_create_account_with_full_access_key_and_balance_tx(
-            self.key, new_account_id, new_key, 100, self.nonce,
+            self.key, new_account_id, new_key, 100 * NEAR_BASE, self.nonce,
             base_block_hash or self.base_block_hash)
         return self.send_tx(tx)
 

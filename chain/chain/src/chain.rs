@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 
@@ -48,6 +49,7 @@ use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpda
 
 use near_primitives::state_record::StateRecord;
 
+use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
@@ -64,7 +66,6 @@ use crate::validate::{
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
 use actix::Message;
-#[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
@@ -80,7 +81,7 @@ const MAX_ORPHAN_AGE_SECS: u64 = 300;
 // Number of orphan ancestors should be checked to request chunks
 // Orphans for which we will request for missing chunks must satisfy,
 // its NUM_ORPHAN_ANCESTORS_CHECK'th ancestor has been accepted
-pub const NUM_ORPHAN_ANCESTORS_CHECK: u64 = 1;
+pub const NUM_ORPHAN_ANCESTORS_CHECK: u64 = 3;
 
 // Maximum number of orphans that we can request missing chunks
 // Note that if there are no forks, the maximum number of orphans we would
@@ -773,8 +774,7 @@ impl Chain {
         tries: ShardTries,
         gc_blocks_limit: NumBlocks,
     ) -> Result<(), Error> {
-        #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("GC".into());
+        let _d = DelayDetector::new(|| "GC".into());
 
         let head = self.store.head()?;
         let tail = self.store.tail()?;
@@ -1015,7 +1015,7 @@ impl Chain {
         ) {
             Ok(_) => {}
             Err(err) => {
-                debug!(target: "chain", "Invalid challenge: {}", err);
+                warn!(target: "chain", "Invalid challenge: {}\nChallenge: {:#?}", err, challenge);
             }
         }
         unwrap_or_return!(chain_update.commit());
@@ -1290,6 +1290,8 @@ impl Chain {
     ) -> Result<Option<Tip>, Error> {
         metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
         metrics::NUM_ORPHANS.set(self.orphans.len() as i64);
+        let block_hash = *block.hash();
+        let _timer = CryptoHashTimer::new(block_hash);
         let success_timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
 
         let res = self.process_block_single_impl(
@@ -1380,7 +1382,7 @@ impl Chain {
                             let requested_missing_chunks = if let Some(orphan_missing_chunks) =
                                 self.should_request_chunks_for_orphan(me, &block)
                             {
-                                debug!(target:"chain", "request missing chunks for orphan {:?} {:?}", block_hash, orphan_missing_chunks.missing_chunks);
+                                debug!(target:"chain", "Request missing chunks for orphan {:?} {:?}", block_hash, orphan_missing_chunks.missing_chunks);
                                 // This callback handles requesting missing chunks. It adds the missing chunks
                                 // to a list and all missing chunks in the list will be requested
                                 // at the end of Client::process_block
@@ -1640,7 +1642,7 @@ impl Chain {
                 if let Some(orphan_missing_chunks) =
                     self.should_request_chunks_for_orphan(me, &orphan)
                 {
-                    debug!(target:"chain", "request missing chunks for orphan {:?}", orphan_hash);
+                    debug!(target:"chain", "Request missing chunks for orphan {:?}", orphan_hash);
                     orphan_misses_chunks(orphan_missing_chunks);
                     self.orphans.mark_missing_chunks_requested_for_orphan(orphan_hash);
                 }
@@ -2243,7 +2245,7 @@ impl Chain {
             // here we store the state roots in chunk_extra in the database for later use
             let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
             chain_update.chain_store_update.save_chunk_extra(&prev_hash, &shard_uid, chunk_extra);
-            debug!(target:"chain", "finish building split state for shard {:?} {:?} {:?} ", shard_uid, prev_hash, state_root);
+            debug!(target:"chain", "Finish building split state for shard {:?} {:?} {:?} ", shard_uid, prev_hash, state_root);
         }
         chain_update.commit()
     }
@@ -2266,6 +2268,9 @@ impl Chain {
         blocks_catch_up_state: &mut BlocksCatchUpState,
         block_catch_up_scheduler: &dyn Fn(BlockCatchUpRequest),
     ) -> Result<(), Error> {
+        debug!(target:"catchup", "catch up blocks: pending blocks: {:?}, processed {:?}, scheduled: {:?}, done: {:?}", 
+               blocks_catch_up_state.pending_blocks, blocks_catch_up_state.processed_blocks.keys().collect::<Vec<_>>(),
+               blocks_catch_up_state.scheduled_blocks.keys().collect::<Vec<_>>(), blocks_catch_up_state.done_blocks.len());
         for (queued_block, (saved_store_update, results)) in
             blocks_catch_up_state.processed_blocks.drain()
         {
@@ -3018,6 +3023,37 @@ impl Chain {
             .ok_or_else(|| ErrorKind::DBNotFoundErr(format!("EXECUTION OUTCOME: {}", id)).into())
     }
 
+    /// Retrieve the up to `max_headers_returned` headers on the main chain
+    /// `hashes`: a list of block "locators". `hashes` should be ordered from older blocks to
+    ///           more recent blocks. This function will find the first block in `hashes`
+    ///           that is on the main chain and returns the blocks after this block. If none of the
+    ///           blocks in `hashes` are on the main chain, the function returns an empty vector.
+    pub fn retrieve_headers(
+        &mut self,
+        hashes: Vec<CryptoHash>,
+        max_headers_returned: u64,
+        max_height: Option<BlockHeight>,
+    ) -> Result<Vec<BlockHeader>, Error> {
+        let header = match self.find_common_header(&hashes) {
+            Some(header) => header,
+            None => return Ok(vec![]),
+        };
+
+        let mut headers = vec![];
+        let header_head_height = self.header_head()?.height;
+        let max_height = max_height.unwrap_or(header_head_height);
+        // TODO: this may be inefficient if there are a lot of skipped blocks.
+        for h in header.height() + 1..=max_height {
+            if let Ok(header) = self.get_header_by_height(h) {
+                headers.push(header.clone());
+                if headers.len() >= max_headers_returned as usize {
+                    break;
+                }
+            }
+        }
+        Ok(headers)
+    }
+
     /// Returns a vector of chunk headers, each of which corresponds to the previous chunk of
     /// a chunk in the block after `prev_block`
     /// This function is important when the block after `prev_block` has different number of chunks
@@ -3626,7 +3662,13 @@ impl<'a> ChainUpdate<'a> {
                         chunk_header,
                     )
                     .map_err(|e| {
-                        debug!(target: "chain", "Failed to validate chunk extra: {:?}", e);
+                        warn!(target: "chain", "Failed to validate chunk extra: {:?}.\n\
+                                                block prev_hash: {}\n\
+                                                block hash: {}\n\
+                                                shard_id: {}\n\
+                                                prev_chunk_height_included: {}\n\
+                                                prev_chunk_extra: {:#?}\n\
+                                                chunk_header: {:#?}", e,block.header().prev_hash(),block.header().hash(),shard_id,prev_chunk_height_included,prev_chunk_extra,chunk_header);
                         byzantine_assert!(false);
                         match self.create_chunk_state_challenge(prev_block, block, chunk_header) {
                             Ok(chunk_state) => {
@@ -3701,6 +3743,7 @@ impl<'a> ChainUpdate<'a> {
                     let states_to_patch = self.states_to_patch.take();
 
                     result.push(Box::new(move || -> Result<ApplyChunkResult, Error> {
+                        let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
                         match runtime_adapter.apply_transactions(
                             shard_id,
                             chunk_inner.prev_state_root(),
@@ -4212,7 +4255,7 @@ impl<'a> ChainUpdate<'a> {
         let apply_chunk_work = if is_caught_up {
             self.apply_chunks_preprocessing(me, block, &prev_block, ApplyChunksMode::IsCaughtUp)?
         } else {
-            debug!("add block to catch up {:?} {:?}", prev_hash, *block.hash());
+            debug!("Add block to catch up {:?} {:?}", prev_hash, *block.hash());
             self.chain_store_update.add_block_to_catchup(prev_hash, *block.hash());
             self.apply_chunks_preprocessing(me, block, &prev_block, ApplyChunksMode::NotCaughtUp)?
         };

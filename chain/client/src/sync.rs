@@ -9,9 +9,9 @@ use std::time::Duration as TimeDuration;
 use ansi_term::Color::{Purple, Yellow};
 use chrono::{DateTime, Duration};
 use futures::{future, FutureExt};
-use log::{debug, error, info, warn};
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{thread_rng, Rng};
+use tracing::{debug, error, info, warn};
 
 use near_chain::{Chain, RuntimeAdapter};
 use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter};
@@ -1178,6 +1178,7 @@ impl StateSync {
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<StateSyncResult, near_chain::Error> {
+        debug!(target:"sync", "syncing state sync_hash {:?} new_shard_sync {:?} tracking_shards {:?}", sync_hash, new_shard_sync, tracking_shards);
         let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let now = Clock::utc();
 
