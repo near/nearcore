@@ -17,7 +17,7 @@ actix-rt = "2"
 base64 = "0.11"
 borsh = "0.9"
 chrono = { version = "0.4.4", features = ["serde"] }
-clap ="3.1.6"
+clap = "3.1.6"
 futures = "0.3"
 hex = "0.4"
 hyper = { version = "0.14", features = ["full"] }
