@@ -28,21 +28,25 @@ pub fn alt_bn128_g1_multiexp_sublinear_complexity_estimate(
 
     // A+C*n/(log2(n)+4) - B*n - discount
     let n = (n_bytes)
-        .checked_add(MULTIEXP_ITEM_SIZE).ok_or(HostError::IntegerOverflow)?
-        .checked_add(MULTIEXP_ITEM_SIZE).ok_or(HostError::IntegerOverflow)?
+        .checked_add(MULTIEXP_ITEM_SIZE)
+        .ok_or(HostError::IntegerOverflow)?
+        .checked_add(MULTIEXP_ITEM_SIZE)
+        .ok_or(HostError::IntegerOverflow)?
         / MULTIEXP_ITEM_SIZE;
-        
+
     let res = A;
     if n != 0 {
         let growth_factor = std::cmp::min(ilog2(n), 15);
         res.checked_add(
-            n.checked_mul(growth_factor + 3).ok_or(HostError::IntegerOverflow)?
+            n.checked_mul(growth_factor + 3)
+                .ok_or(HostError::IntegerOverflow)?
                 .checked_add(1 << (1 + growth_factor))
                 .ok_or(HostError::IntegerOverflow)?
                 .checked_mul(C)
                 .ok_or(HostError::IntegerOverflow)?
-                / ((growth_factor + 4) * (growth_factor + 5))
-        ).ok_or(HostError::IntegerOverflow)?;
+                / ((growth_factor + 4) * (growth_factor + 5)),
+        )
+        .ok_or(HostError::IntegerOverflow)?;
     }
 
     Ok(res.saturating_sub(
