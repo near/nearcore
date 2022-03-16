@@ -74,4 +74,4 @@ assert resp['result']['chunks'][0]['height_created'] > BLOCKS_TO_FASTFORWARD
 # Not necessarily a requirement, but current implementation should be able to retrieve
 # one of the blocks before fast-forwarding:
 resp = nodes[0].json_rpc("block", {"block_id": pre_forward_block_hash})
-assert resp['result']['chunks'][0]['height_create'] < BLOCKS_TO_FASTFORWARD
+assert resp['result']['chunks'][0]['height_created'] < BLOCKS_TO_FASTFORWARD
