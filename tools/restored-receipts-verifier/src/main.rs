@@ -1,4 +1,4 @@
-use clap::{App, Arg};
+use clap::{Command, Arg};
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::hash::CryptoHash;
@@ -32,11 +32,11 @@ fn main() -> Result<()> {
     eprintln!("restored-receipts-verifier started");
 
     let default_home = get_default_home();
-    let matches = App::new("restored-receipts-verifier")
+    let matches = Command::new("restored-receipts-verifier")
         .arg(
             Arg::new("home")
                 .default_value_os(default_home.as_os_str())
-                .about("Directory for config and data (default \"~/.near\")")
+                .help("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
         )
         .get_matches();
