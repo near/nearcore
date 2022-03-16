@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use anyhow::Context;
-use clap::Clap;
+use clap::Parser;
 use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -22,7 +22,7 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time;
 
-#[derive(Clap)]
+#[derive(Parser)]
 struct CliArgs {
     /// Directory for config and data. If not set, a temporary directory is used
     /// to generate appropriate data.
