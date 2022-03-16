@@ -249,6 +249,8 @@ impl TrieStorage for TrieCachingStorage {
                 if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
                     guard.put(*hash, val.clone());
                 }
+
+                val
             }
         };
 
@@ -264,7 +266,7 @@ impl TrieStorage for TrieCachingStorage {
         // All values are given as of 16/03/2022. We may consider more precise limit for the chunk cache as well.
         self.inc_counter();
         if let TrieCacheMode::CachingChunk = self.cache_mode.borrow().get() {
-            self.chunk_cache.borrow_mut().insert(key, value);
+            self.chunk_cache.borrow_mut().insert(*hash, val.clone());
         };
 
         Ok(val)
