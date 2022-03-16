@@ -978,13 +978,13 @@ pub trait EpochInfoProvider {
     fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError>;
 }
 
-/// State of the trie cache.
+/// Mode of the trie cache.
 #[derive(Debug, Copy, Clone)]
-pub enum TrieCacheState {
-    /// In this state we put each visited node to LRU cache to optimize performance.
+pub enum TrieCacheMode {
+    /// In this mode we put each visited node to LRU cache to optimize performance.
     /// Presence of any exact node is not guaranteed.
     CachingShard,
-    /// In this state we put each visited node to the chunk cache which is a hash map.
+    /// In this mode we put each visited node to the chunk cache which is a hash map.
     /// This is needed to guarantee that all nodes for which we charged a touching trie node cost are retrieved from DB
     /// only once during a single chunk processing. Such nodes remain in cache until the chunk processing is finished,
     /// and thus users (potentially different) are not required to pay twice for retrieval of the same node.

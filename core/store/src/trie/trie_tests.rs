@@ -215,7 +215,7 @@ mod caching_storage_tests {
     use crate::{Store, TrieChanges};
     use assert_matches::assert_matches;
     use near_primitives::hash::hash;
-    use near_primitives::types::TrieCacheState;
+    use near_primitives::types::TrieCacheMode;
 
     fn create_store_with_values(values: &[Vec<u8>], shard_uid: ShardUId) -> Store {
         let tries = create_tries();
@@ -279,7 +279,7 @@ mod caching_storage_tests {
         let trie_caching_storage = TrieCachingStorage::new(store, trie_cache.clone(), shard_uid);
         let key = hash(&value);
 
-        trie_caching_storage.set_state(TrieCacheState::CachingChunk);
+        trie_caching_storage.set_mode(TrieCacheMode::CachingChunk);
         let _ = trie_caching_storage.retrieve_raw_bytes(&key);
 
         let count_before = trie_caching_storage.get_touched_nodes_count();
@@ -301,16 +301,16 @@ mod caching_storage_tests {
         let value = &values[0];
         let key = hash(&value);
 
-        // In the beginning, we are in the CachingShard state and item is not present in cache.
+        // In the beginning, we are in the CachingShard mode and item is not present in cache.
         assert_eq!(trie_cache.get(&key), None);
 
-        // Because we are in the CachingShard state, item should be placed into shard cache.
+        // Because we are in the CachingShard mode, item should be placed into shard cache.
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
         assert_eq!(result.unwrap().as_ref(), value);
 
-        // Move to CachingChunk state. Retrieval should increment the counter, because it is the first time we accessed
+        // Move to CachingChunk mode. Retrieval should increment the counter, because it is the first time we accessed
         // item while caching chunk.
-        trie_caching_storage.set_state(TrieCacheState::CachingChunk);
+        trie_caching_storage.set_mode(TrieCacheMode::CachingChunk);
         let count_before = trie_caching_storage.get_touched_nodes_count();
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
         let count_after = trie_caching_storage.get_touched_nodes_count();
@@ -326,7 +326,7 @@ mod caching_storage_tests {
 
         // Even if we switch to caching shard, retrieval shouldn't increment the counter. Chunk cache only grows and is
         // dropped only when trie caching storage is dropped.
-        trie_caching_storage.set_state(TrieCacheState::CachingShard);
+        trie_caching_storage.set_mode(TrieCacheMode::CachingShard);
         let count_before = trie_caching_storage.get_touched_nodes_count();
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
         let count_after = trie_caching_storage.get_touched_nodes_count();
@@ -347,11 +347,11 @@ mod caching_storage_tests {
         let value = &values[0];
         let key = hash(&value);
 
-        trie_caching_storage.set_state(TrieCacheState::CachingChunk);
+        trie_caching_storage.set_mode(TrieCacheMode::CachingChunk);
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
         assert_eq!(result.unwrap().as_ref(), value);
 
-        trie_caching_storage.set_state(TrieCacheState::CachingShard);
+        trie_caching_storage.set_mode(TrieCacheMode::CachingShard);
         values[1..].iter().for_each(|value| {
             let result = trie_caching_storage.retrieve_raw_bytes(&hash(value));
             assert_eq!(result.unwrap().as_ref(), value);
