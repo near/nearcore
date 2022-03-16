@@ -33,6 +33,8 @@ CONFIG.update({
 })
 
 nodes = start_cluster(1, 0, 1, CONFIG, [["epoch_length", EPOCH_LENGTH]], {})
+sync_info = nodes[0].get_status()['sync_info']
+pre_forward_block_hash = sync_info['latest_block_hash']
 
 # request to fast forward
 nodes[0].json_rpc('sandbox_fast_forward', {
@@ -62,3 +64,14 @@ assert min_forwarded_time < latest < max_forwarded_time
 # Check to see that the epoch height has been updated correctly:
 epoch_height = nodes[0].get_validators()['result']['epoch_height']
 assert epoch_height > BLOCKS_TO_FASTFORWARD / EPOCH_LENGTH
+
+# Check if queries aren't failing after fast forwarding:
+resp = nodes[0].json_rpc("block", {"finality": "optimistic"})
+assert resp['result']['chunks'][0]['height_created'] > BLOCKS_TO_FASTFORWARD
+resp = nodes[0].json_rpc("block", {"finality": "final"})
+assert resp['result']['chunks'][0]['height_created'] > BLOCKS_TO_FASTFORWARD
+
+# Not necessarily a requirement, but current implementation should be able to retrieve
+# one of the blocks before fast-forwarding:
+resp = nodes[0].json_rpc("block", {"block_id": pre_forward_block_hash})
+assert resp['result']['chunks'][0]['height_create'] < BLOCKS_TO_FASTFORWARD

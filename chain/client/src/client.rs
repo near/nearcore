@@ -523,29 +523,67 @@ impl Client {
             block_merkle_root,
         );
 
+        #[allow(unused_mut, unused_assignments)] // unused if not in sandbox
+        let mut at = to_timestamp(Clock::utc());
+
         // If sandbox is enabled, set the fast-forwarded block timestamp to the produced block.
         // This is current time + total amount of time forwarded from fast-forwarding.
         #[cfg(feature = "sandbox")]
         {
-            let header = match block {
-                Block::BlockV1(ref mut block) => &mut block.header,
-                Block::BlockV2(ref mut block) => &mut block.header,
-            };
-            let mut inner_lite = match header {
-                BlockHeader::BlockHeaderV1(ref mut header) => &mut header.inner_lite,
-                BlockHeader::BlockHeaderV2(ref mut header) => &mut header.inner_lite,
-                BlockHeader::BlockHeaderV3(ref mut header) => &mut header.inner_lite,
-            };
+            use borsh::BorshSerialize;
+            let delta_time = self.sandbox_delta_time();
+            at = to_timestamp(Clock::utc()) + delta_time;
 
-            // Set block timestamp to the actual fast forwarded timestamp:
-            inner_lite.timestamp = to_timestamp(Clock::utc()) + self.sandbox_delta_time();
-        }
+            if delta_time > 0 {
+                let header = match block {
+                    Block::BlockV1(ref mut block) => &mut block.header,
+                    Block::BlockV2(ref mut block) => &mut block.header,
+                };
+                let (mut inner_lite, inner_rest_vec) = match header {
+                    BlockHeader::BlockHeaderV1(ref mut header) => (
+                        &mut header.inner_lite,
+                        header.inner_rest.try_to_vec().expect("Failed to serialize"),
+                    ),
+                    BlockHeader::BlockHeaderV2(ref mut header) => (
+                        &mut header.inner_lite,
+                        header.inner_rest.try_to_vec().expect("Failed to serialize"),
+                    ),
+                    BlockHeader::BlockHeaderV3(ref mut header) => (
+                        &mut header.inner_lite,
+                        header.inner_rest.try_to_vec().expect("Failed to serialize"),
+                    ),
+                };
+
+                // Set block timestamp to the actual fast forwarded timestamp:
+                inner_lite.timestamp = at;
+
+                // Need to update hash after updating the timestamp.
+                // TODO: Probably a good idea to move this conditional logic into block.rs
+                let (hash, signature) = validator_signer.sign_block_header_parts(
+                    prev_hash,
+                    &inner_lite.try_to_vec().expect("Failed to serialize"),
+                    &inner_rest_vec,
+                );
+
+                match header {
+                    BlockHeader::BlockHeaderV1(ref mut header) => {
+                        header.hash = hash;
+                        header.signature = signature;
+                    }
+                    BlockHeader::BlockHeaderV2(ref mut header) => {
+                        header.hash = hash;
+                        header.signature = signature;
+                    }
+                    BlockHeader::BlockHeaderV3(ref mut header) => {
+                        header.hash = hash;
+                        header.signature = signature;
+                    }
+                };
+            }
+        };
 
         // Update latest known even before returning block out, to prevent race conditions.
-        self.chain.mut_store().save_latest_known(LatestKnown {
-            height: next_height,
-            seen: to_timestamp(Clock::utc()),
-        })?;
+        self.chain.mut_store().save_latest_known(LatestKnown { height: next_height, seen: at })?;
 
         metrics::BLOCK_PRODUCED_TOTAL.inc();
 
