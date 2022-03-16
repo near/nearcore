@@ -154,4 +154,3 @@ fn get_stats_summary_count_key(stats_name: &str) -> String {
 fn get_stats_summary_sum_key(stats_name: &str) -> String {
     format!("{}.sum", stats_name)
 }
-

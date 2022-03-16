@@ -804,11 +804,11 @@ fn rocksdb_options() -> Options {
     opts.set_bytes_per_sync(bytesize::MIB);
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);
     opts.set_max_bytes_for_level_base(256 * bytesize::MIB);
-    // Rust API doesn't permit choosing stats level. The default stats level is `kExceptDetailedTimers`.
+    // Rust API doesn't permit choosing stats level. The default stats level is
+    // `kExceptDetailedTimers`, which is described as:
+    // "Collects all stats except time inside mutex lock AND time spent on compression.".
     opts.enable_statistics();
-    // Disable persisting rocksdb stats.
     opts.set_stats_persist_period_sec(0);
-    // How often to dump a few hundred rocksdb stats to the `LOG` file.
     opts.set_stats_dump_period_sec(60);
     if cfg!(feature = "single_thread_rocksdb") {
         opts.set_disable_auto_compactions(true);
