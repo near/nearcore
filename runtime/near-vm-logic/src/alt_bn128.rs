@@ -27,25 +27,23 @@ pub fn alt_bn128_g1_multiexp_sublinear_complexity_estimate(
     const MULTIEXP_ITEM_SIZE: u64 = std::mem::size_of::<(G1, Fr)>() as u64;
 
     // A+C*n/(log2(n)+4) - B*n - discount
-
-    let n = (n_bytes - 1).checked_add(MULTIEXP_ITEM_SIZE).ok_or(HostError::IntegerOverflow)?
+    let n = (n_bytes)
+        .checked_add(MULTIEXP_ITEM_SIZE).ok_or(HostError::IntegerOverflow)?
+        .checked_add(MULTIEXP_ITEM_SIZE).ok_or(HostError::IntegerOverflow)?
         / MULTIEXP_ITEM_SIZE;
-    let res = A
-        .checked_add(if n == 0 {
-            0
-        } else {
-            // set linear complexity growth for n > 32768
-            let growth_factor = std::cmp::min(ilog2(n), 15);
-
-            // (n * (growth_factor + 3) +  (1 << (1 + growth_factor)))  * C / ((growth_factor + 4) * (growth_factor + 5))
-            (n.checked_mul(growth_factor + 3).ok_or(HostError::IntegerOverflow)?)
+        
+    let res = A;
+    if n != 0 {
+        let growth_factor = std::cmp::min(ilog2(n), 15);
+        res.checked_add(
+            n.checked_mul(growth_factor + 3).ok_or(HostError::IntegerOverflow)?
                 .checked_add(1 << (1 + growth_factor))
                 .ok_or(HostError::IntegerOverflow)?
                 .checked_mul(C)
                 .ok_or(HostError::IntegerOverflow)?
                 / ((growth_factor + 4) * (growth_factor + 5))
-        })
-        .ok_or(HostError::IntegerOverflow)?;
+        ).ok_or(HostError::IntegerOverflow)?;
+    }
 
     Ok(res.saturating_sub(
         B.checked_mul(n)
