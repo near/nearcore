@@ -30,27 +30,32 @@ SHORT_TARGET_HEIGHT = 20 * EPOCH_LENGTH
 # This must be greater than HEIGHT_HORIZON in chunk_cache.rs
 LONG_TARGET_HEIGHT = 1500
 
+_DurationMaybe = typing.Optional[datetime.timedelta]
+
 
 class Cluster:
 
     def __init__(self,
                  *,
-                 min_block_production_delay: typing.Optional[
-                     datetime.timedelta] = None):
+                 min_block_production_delay: _DurationMaybe = None,
+                 max_block_production_delay: _DurationMaybe = None):
         node_config = {
             'archive': True,
+            'archive_gc_partial_chunks': True,
             'tracked_shards': [0],
         }
-        if min_block_production_delay:
-            secs, td = divmod(min_block_production_delay,
-                              datetime.timedelta(seconds=1))
-            ns = td.microseconds
-            node_config['consensus'] = {
-                'min_block_production_delay': {
+
+        for key, duration in (('min_block_production_delay',
+                               min_block_production_delay),
+                              ('max_block_production_delay',
+                               max_block_production_delay)):
+            if duration:
+                secs, td = divmod(duration, datetime.timedelta(seconds=1))
+                node_config.setdefault('consensus', {})[key] = {
                     'secs': secs,
                     'nanos': td.microseconds * 1000,
                 }
-            }
+
         self._config = cluster.load_config()
         self._near_root, self._node_dirs = cluster.init_cluster(
             1, 1, 1, self._config, [['epoch_length', EPOCH_LENGTH],
@@ -101,11 +106,14 @@ def main(argv: typing.Sequence[str]) -> None:
 
     target_height = SHORT_TARGET_HEIGHT
     min_delay = None
+    max_delay = None
     if opts.long_run:
         min_delay = datetime.timedelta(milliseconds=1)
+        max_delay = datetime.timedelta(milliseconds=10)
         target_height = LONG_TARGET_HEIGHT
 
-    with Cluster(min_block_production_delay=min_delay) as cluster:
+    with Cluster(min_block_production_delay=min_delay,
+                 max_block_production_delay=max_delay) as cluster:
         # Start the validator and wait for a few epoch’s worth of blocks to be
         # generated.
         boot = cluster.start_node(0)
