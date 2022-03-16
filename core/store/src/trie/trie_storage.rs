@@ -243,6 +243,9 @@ impl TrieStorage for TrieCachingStorage {
                 let val: Arc<[u8]> = val.into();
 
                 // Insert value to shard cache, if its size is small enough.
+                // It is fine to have a size limit for shard cache and **not** have a limit for chunk cache, because key
+                // is always a value hash, so for each key there could be only one value, and it is impossible to have
+                // **different** values for the given key in shard and chunk caches.
                 if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
                     guard.put(*hash, val.clone());
                 }
