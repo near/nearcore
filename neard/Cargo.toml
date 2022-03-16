@@ -13,7 +13,7 @@ path = "src/main.rs"
 name = "neard"
 
 [dependencies]
-clap = "3.1.6"
+clap = { version = "3.1.6", features = ["derive"] }
 actix = "=0.11.0-beta.2"
 tracing = "0.1.13"
 tracing-subscriber = "0.2.4"
