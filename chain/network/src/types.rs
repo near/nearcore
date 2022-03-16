@@ -372,9 +372,11 @@ impl From<NetworkInfo> for NetworkInfoView {
         NetworkInfoView {
             peer_max_count: network_info.peer_max_count,
             num_connected_peers: network_info.num_connected_peers,
-            connected_peers: network_info.connected_peers.iter().map(|full_peer_info|
-                full_peer_info.into()
-            ).collect::<Vec<_>>(),
+            connected_peers: network_info
+                .connected_peers
+                .iter()
+                .map(|full_peer_info| full_peer_info.into())
+                .collect::<Vec<_>>(),
             sent_bytes_per_sec: network_info.sent_bytes_per_sec,
             received_bytes_per_sec: network_info.received_bytes_per_sec,
             peer_counter: network_info.peer_counter,
