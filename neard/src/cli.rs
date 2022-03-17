@@ -16,7 +16,7 @@ use tracing_subscriber::EnvFilter;
 /// NEAR Protocol Node
 #[derive(Parser)]
 #[clap(version = crate::NEARD_VERSION_STRING.as_str())]
-#[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
+#[clap(subcommand_required(true), arg_required_else_help(true))]
 pub(super) struct NeardCmd {
     #[clap(flatten)]
     opts: NeardOpts,
