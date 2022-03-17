@@ -176,19 +176,17 @@ impl EncodedChunksCache {
         chunk_header: &ShardChunkHeader,
     ) -> &mut EncodedChunksCacheEntry {
         let chunk_hash = chunk_header.chunk_hash();
-        if !self.encoded_chunks.contains_key(&chunk_hash) {
+        self.encoded_chunks.entry(chunk_hash).or_insert_with_key(|chunk_hash| {
             self.height_map
                 .entry(chunk_header.height_created())
-                .or_insert_with(|| HashSet::default())
+                .or_default()
                 .insert(chunk_hash.clone());
             self.incomplete_chunks
                 .entry(chunk_header.prev_block_hash())
                 .or_default()
                 .insert(chunk_hash.clone());
-        }
-        self.encoded_chunks
-            .entry(chunk_hash)
-            .or_insert_with(|| EncodedChunksCacheEntry::from_chunk_header(chunk_header.clone()))
+            EncodedChunksCacheEntry::from_chunk_header(chunk_header.clone())
+        })
     }
 
     pub fn height_within_front_horizon(&self, height: BlockHeight) -> bool {
