@@ -136,7 +136,7 @@ impl User for RpcUser {
         }
     }
 
-    fn add_receipt(&self, _receipt: Receipt) -> Result<(), ServerError> {
+    fn add_receipts(&self, _receipts: Vec<Receipt>) -> Result<(), ServerError> {
         // TDDO: figure out if rpc will support this
         unimplemented!()
     }

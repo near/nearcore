@@ -59,6 +59,7 @@ protocol_feature_function_call_weight = [
     "near-primitives/protocol_feature_function_call_weight",
     "near-vm-logic/protocol_feature_function_call_weight",
 ]
+protocol_feature_chunk_nodes_cache = ["near-primitives/protocol_feature_chunk_nodes_cache"]
 sandbox = ["near-vm-logic/sandbox", "near-vm-runner/sandbox"]
 
 [dev-dependencies]

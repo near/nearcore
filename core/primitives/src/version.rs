@@ -152,6 +152,10 @@ pub enum ProtocolFeature {
     FixStakingThreshold,
     #[cfg(feature = "protocol_feature_function_call_weight")]
     FunctionCallWeight,
+    /// Ensure caching all nodes in the chunk for which touching trie node cost was charged. Charge for each such node
+    /// only once per chunk at the first access time.
+    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
+    ChunkNodesCache,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -168,7 +172,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 52;
 pub const PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION;
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 127;
+pub const PROTOCOL_VERSION: ProtocolVersion = 128;
 
 /// The points in time after which the voting for the protocol version should start.
 #[allow(dead_code)]
@@ -230,6 +234,8 @@ impl ProtocolFeature {
             ProtocolFeature::FixStakingThreshold => 126,
             #[cfg(feature = "protocol_feature_function_call_weight")]
             ProtocolFeature::FunctionCallWeight => 127,
+            #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
+            ProtocolFeature::ChunkNodesCache => 128,
         }
     }
 }

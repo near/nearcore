@@ -1,3 +1,5 @@
+extern crate core;
+
 pub mod genesis_helpers;
 pub mod mock_network;
 pub mod node;

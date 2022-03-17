@@ -47,6 +47,7 @@ protocol_feature_routing_exchange_algorithm = ["near-primitives-core/protocol_fe
 protocol_feature_access_key_nonce_for_implicit_accounts = []
 protocol_feature_fix_staking_threshold = []
 protocol_feature_function_call_weight = ["near-primitives-core/protocol_feature_function_call_weight"]
+protocol_feature_chunk_nodes_cache = []
 nightly_protocol_features = [
   "nightly_protocol",
   "protocol_feature_alt_bn128",
@@ -55,6 +56,7 @@ nightly_protocol_features = [
   "protocol_feature_access_key_nonce_for_implicit_accounts",
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_function_call_weight",
+  "protocol_feature_chunk_nodes_cache",
 ]
 nightly_protocol = []
 deepsize_feature = [

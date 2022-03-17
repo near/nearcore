@@ -4511,3 +4511,162 @@ mod contract_precompilation_tests {
         assert!(caches[1].get(&contract_key.0).unwrap().is_none());
     }
 }
+
+#[cfg(feature = "protocol_feature_chunk_nodes_cache")]
+#[cfg(test)]
+mod chunk_nodes_cache_test {
+    use super::*;
+    use near_primitives::config::ExtCosts;
+    use near_primitives::transaction::ExecutionMetadata;
+    use near_primitives::types::BlockHeightDelta;
+
+    fn arr_u64_to_u8(value: &[u64]) -> Vec<u8> {
+        let mut res = vec![];
+        for el in value {
+            res.extend_from_slice(&el.to_le_bytes());
+        }
+        res
+    }
+
+    fn process_transaction(
+        env: &mut TestEnv,
+        signer: &dyn Signer,
+        num_blocks: BlockHeightDelta,
+        protocol_version: ProtocolVersion,
+    ) -> CryptoHash {
+        let tip = env.clients[0].chain.head().unwrap();
+        let epoch_id = env.clients[0]
+            .runtime_adapter
+            .get_epoch_id_from_prev_block(&tip.last_block_hash)
+            .unwrap();
+        let block_producer =
+            env.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
+        let last_block_hash =
+            env.clients[0].chain.get_block_by_height(tip.height).unwrap().hash().clone();
+        let next_height = tip.height + 1;
+        let gas = 20_000_000_000_000;
+        let tx = SignedTransaction::from_actions(
+            next_height,
+            "test0".parse().unwrap(),
+            "test0".parse().unwrap(),
+            signer,
+            vec![
+                Action::FunctionCall(FunctionCallAction {
+                    args: arr_u64_to_u8(&[0u64, 10u64]),
+                    method_name: "write_key_value".to_string(),
+                    gas,
+                    deposit: 0,
+                }),
+                Action::FunctionCall(FunctionCallAction {
+                    args: arr_u64_to_u8(&[1u64, 20u64]),
+                    method_name: "write_key_value".to_string(),
+                    gas,
+                    deposit: 0,
+                }),
+            ],
+            last_block_hash,
+        );
+        let tx_hash = tx.get_hash().clone();
+        env.clients[0].process_tx(tx, false, false);
+
+        for i in next_height..next_height + num_blocks {
+            let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
+            set_block_protocol_version(&mut block, block_producer.clone(), protocol_version);
+            env.process_block(0, block.clone(), Provenance::PRODUCED);
+        }
+        tx_hash
+    }
+
+    /// Compare node touches before and after protocol upgrade to the protocol version of `ChunkNodesCache`.
+    /// This upgrade during chunk processing saves each node for which we charge touching trie node cost to a special
+    /// chunk cache, and such cost is charged only once on the first access. This effect doesn't persist across chunks.
+    ///
+    /// We run the same transaction 4 times and compare resulting costs. This transaction writes two different key-value
+    /// pairs to the contract storage.
+    /// 1st run establishes the trie structure. For our needs, the structure is:
+    ///
+    ///                                                    --> (Leaf) -> (Value 1)
+    /// (Extension) -> (Branch) -> (Extension) -> (Branch) |
+    ///                                                    --> (Leaf) -> (Value 2)
+    ///
+    /// 2nd run should count 12 nodes - 6 nodes per each value.
+    /// 3nd run should count 8 nodes - 6 for the first value and 2 for the second value, because first 4 nodes were
+    /// already put into the chunk cache.
+    /// 4nd run should also count 8 nodes, because caching must not affect different chunks.
+    #[test]
+    fn compare_node_touches() {
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        let epoch_length = 10;
+        let num_blocks = 5;
+
+        #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
+        let old_protocol_version = ProtocolFeature::ChunkNodesCache.protocol_version() - 1;
+        #[cfg(not(feature = "protocol_feature_chunk_nodes_cache"))]
+        let old_protocol_version = PROTOCOL_VERSION - 1;
+
+        genesis.config.epoch_length = epoch_length;
+        genesis.config.protocol_version = old_protocol_version;
+        let chain_genesis = ChainGenesis::from(&genesis);
+        let mut env = TestEnv::builder(chain_genesis)
+            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+            .build();
+
+        deploy_test_contract(
+            &mut env,
+            "test0".parse().unwrap(),
+            near_test_contracts::rs_contract(),
+            num_blocks,
+            1,
+        );
+
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+        let tx_node_touches: Vec<u64> = (0..4)
+            .map(|i| {
+                let base_cost = RuntimeConfig::test().wasm_config.ext_costs.touching_trie_node;
+
+                let tx_hash = if i < 1 {
+                    process_transaction(&mut env, &signer, num_blocks, old_protocol_version)
+                } else {
+                    process_transaction(
+                        &mut env,
+                        &signer,
+                        2 * epoch_length,
+                        old_protocol_version + 1,
+                    )
+                };
+
+                let final_result =
+                    env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+                assert!(matches!(final_result.status, FinalExecutionStatus::SuccessValue(_)));
+                let transaction_outcome =
+                    env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
+                let receipt_ids = transaction_outcome.outcome_with_id.outcome.receipt_ids;
+                assert_eq!(receipt_ids.len(), 1);
+                let receipt_execution_outcome =
+                    env.clients[0].chain.get_execution_outcome(&receipt_ids[0]).unwrap();
+                let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata.clone();
+                let touching_trie_node_cost = match metadata {
+                    ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),
+                    ExecutionMetadata::V2(profile_data) => {
+                        profile_data.get_ext_cost(ExtCosts::touching_trie_node)
+                    }
+                };
+
+                touching_trie_node_cost / base_cost
+            })
+            .collect();
+
+        assert_eq!(tx_node_touches[1], 12);
+        #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
+        {
+            assert_eq!(tx_node_touches[2], 8);
+            assert_eq!(tx_node_touches[3], 8);
+        }
+        #[cfg(not(feature = "protocol_feature_chunk_nodes_cache"))]
+        {
+            assert_eq!(tx_node_touches[2], 12);
+            assert_eq!(tx_node_touches[3], 12);
+        }
+    }
+}

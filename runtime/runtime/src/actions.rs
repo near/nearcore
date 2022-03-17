@@ -14,7 +14,7 @@ use near_primitives::transaction::{
     FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider};
+use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, TrieCacheMode};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
@@ -99,21 +99,30 @@ pub(crate) fn execute_function_call(
         output_data_receivers,
     };
 
-    // TODO (#5920): enable chunk caching in the protocol. Also consider using RAII for switching the state back
-    // runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
-    let result = near_vm_runner::run(
-        &code,
-        &function_call.method_name,
-        runtime_ext,
-        context,
-        &config.wasm_config,
-        &config.transaction_costs,
-        promise_results,
-        apply_state.current_protocol_version,
-        apply_state.cache.as_deref(),
-    );
-    // runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
-    result
+    // TODO (#5920): Consider using RAII for switching the state back
+    let protocol_version = runtime_ext.protocol_version();
+    let runner = |runtime_ext| {
+        near_vm_runner::run(
+            &code,
+            &function_call.method_name,
+            runtime_ext,
+            context,
+            &config.wasm_config,
+            &config.transaction_costs,
+            promise_results,
+            apply_state.current_protocol_version,
+            apply_state.cache.as_deref(),
+        )
+    };
+
+    if checked_feature!("protocol_feature_chunk_nodes_cache", ChunkNodesCache, protocol_version) {
+        runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
+        let result = runner(runtime_ext);
+        runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
+        result
+    } else {
+        runner(runtime_ext)
+    }
 }
 
 pub(crate) fn action_function_call(

@@ -318,4 +318,11 @@ mod test {
         let node = create_runtime_node();
         test_contract_write_key_value_cost(node);
     }
+
+    #[test]
+    fn test_chunk_nodes_cache_across_receipts_runtime() {
+        let node = create_runtime_node();
+        let runtime_config = node.client.as_ref().read().unwrap().runtime_config.clone();
+        test_chunk_nodes_cache_across_receipts(node, runtime_config);
+    }
 }

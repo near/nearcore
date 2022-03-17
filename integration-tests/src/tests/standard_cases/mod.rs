@@ -4,6 +4,7 @@ mod rpc;
 mod runtime;
 
 use assert_matches::assert_matches;
+use borsh::BorshSerialize;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
@@ -11,18 +12,21 @@ use near_primitives::errors::{
     ActionError, ActionErrorKind, ContractCallError, InvalidAccessKeyError, InvalidTxError,
     TxExecutionError,
 };
-use near_primitives::hash::hash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::to_base64;
 use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::views::{
-    AccessKeyView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus,
+    AccessKeyView, AccountView, ExecutionMetadataView, FinalExecutionOutcomeView,
+    FinalExecutionStatus,
 };
 use near_vm_errors::MethodResolveError;
 use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
 use crate::node::Node;
 use crate::user::User;
+use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::transaction::FunctionCallAction;
 use testlib::fees_utils::FeeHelper;
 use testlib::runtime_utils::{
     alice_account, bob_account, eve_dot_alice_account, x_dot_y_dot_alice_account,
@@ -1328,6 +1332,16 @@ pub fn test_smart_contract_free(node: impl Node) {
     assert_ne!(root, new_root);
 }
 
+fn get_touching_trie_node_cost(metadata: &ExecutionMetadataView) -> Gas {
+    metadata
+        .gas_profile
+        .clone()
+        .unwrap()
+        .iter()
+        .map(|cost| if cost.cost == "TOUCHING_TRIE_NODE" { cost.gas_used } else { 0 })
+        .sum()
+}
+
 /// Checks correctness of touching trie node cost for writing value into contract storage.
 /// First call should touch 2 nodes (Extension and Branch), because before it contract storage is empty.
 /// The second call should touch 4 nodes, because the first call adds Leaf and Value nodes to trie.  
@@ -1348,15 +1362,78 @@ pub fn test_contract_write_key_value_cost(node: impl Node) {
         assert_matches!(transaction_result.status, FinalExecutionStatus::SuccessValue(_));
         assert_eq!(transaction_result.receipts_outcome.len(), 2);
 
-        let gas_profile = &transaction_result.receipts_outcome[0].outcome.metadata.gas_profile;
-        let touching_trie_node_cost: Gas = gas_profile
-            .clone()
-            .unwrap()
-            .iter()
-            .map(|cost| if cost.cost == "TOUCHING_TRIE_NODE" { cost.gas_used } else { 0 })
-            .sum();
+        let touching_trie_node_cost =
+            get_touching_trie_node_cost(&transaction_result.receipts_outcome[0].outcome.metadata);
         let node_touches = touching_trie_node_cost
             / RuntimeConfig::test().wasm_config.ext_costs.touching_trie_node;
         assert_eq!(node_touches, results[i]);
     }
+}
+
+fn make_write_key_value_receipts(node: &impl Node) -> Vec<Receipt> {
+    (0..3)
+        .map(|i| {
+            let receipt_enum = ReceiptEnum::Action(ActionReceipt {
+                signer_id: alice_account(),
+                signer_public_key: node.signer().as_ref().public_key(),
+                gas_price: 0,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![FunctionCallAction {
+                    method_name: "write_key_value".to_string(),
+                    args: arr_u64_to_u8(&[i, 10u64 + i]),
+                    gas: 10u64.pow(14),
+                    deposit: 0,
+                }
+                .into()],
+            });
+            Receipt {
+                predecessor_id: alice_account(),
+                receiver_id: bob_account(),
+                receipt_id: hash(&receipt_enum.try_to_vec().unwrap()),
+                receipt: receipt_enum,
+            }
+        })
+        .collect()
+}
+
+/// Check correctness of touching trie node cost for receipts with enabled chunk nodes cache.
+/// We run the same set of receipts 2 times and compare resulting costs. Each receipt writes some key-value pair to the
+/// contract storage.
+/// 1st run establishes the trie structure. For our needs, the structure is:
+///
+///                                                    --> (Leaf) -> (Value 1)
+/// (Extension) -> (Branch) -> (Extension) -> (Branch) |-> (Leaf) -> (Value 2)
+///                                                    --> (Leaf) -> (Value 3)
+///
+/// 2nd run should count 6 nodes for the first receipt and 2 nodes for next two receipts, because for them first 4 nodes
+/// were already put into the chunk cache.
+pub fn test_chunk_nodes_cache_across_receipts(node: impl Node, runtime_config: RuntimeConfig) {
+    let node_user = node.user();
+    let mut node_touches: Vec<u64> = vec![];
+    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
+    let results: Vec<u64> = vec![6, 2, 2];
+    #[cfg(not(feature = "protocol_feature_chunk_nodes_cache"))]
+    let results: Vec<u64> = vec![6, 6, 6];
+    for i in 0..2 {
+        let receipts = make_write_key_value_receipts(&node);
+        let receipt_hashes: Vec<CryptoHash> =
+            receipts.iter().map(|receipt| receipt.receipt_id.clone()).collect();
+
+        node_user.add_receipts(receipts).unwrap();
+
+        if i == 1 {
+            node_touches = receipt_hashes
+                .iter()
+                .map(|receipt_hash| {
+                    let result = node_user.get_transaction_result(receipt_hash);
+                    let touching_trie_node_cost = get_touching_trie_node_cost(&result.metadata);
+                    touching_trie_node_cost
+                        / runtime_config.wasm_config.ext_costs.touching_trie_node
+                })
+                .collect();
+        }
+    }
+
+    assert_eq!(node_touches, results);
 }
