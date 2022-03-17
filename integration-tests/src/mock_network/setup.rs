@@ -1,13 +1,15 @@
 use crate::mock_network::MockPeerManagerActor;
 use actix::{Actor, Addr, Arbiter, Recipient};
+#[cfg(feature = "mock_network")]
+use near_chain::ChainStoreUpdate;
 use near_chain::{
-    Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate, DoomslugThresholdMode,
-    RuntimeAdapter,
+    Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode, RuntimeAdapter,
 };
 use near_chain_configs::GenesisConfig;
 #[cfg(feature = "test_features")]
 use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
+#[cfg(feature = "mock_network")]
 use near_epoch_manager::EpochManager;
 use near_network::test_utils::NetworkRecipient;
 use near_network::types::NetworkClientMessages;
@@ -150,9 +152,9 @@ pub fn setup_mock_network(
     // set up client dir to be ready to process blocks from client_start_height
     if let Some(start_height) = client_start_height {
         info!(target:"mock_network", "Preparing client data dir to be able to start at the specified start height {}", start_height);
+        #[cfg(feature = "mock_network")]
         let mut chain_store =
             ChainStore::new(client_runtime.get_store(), config.genesis.config.genesis_height);
-        let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
         let mut network_chain_store =
             ChainStore::new(mock_network_runtime.get_store(), config.genesis.config.genesis_height);
 
@@ -176,37 +178,44 @@ pub fn setup_mock_network(
         }
 
         // copy chain info
-        chain_store_update
-            .copy_chain_state_as_of_block(
-                &hash,
-                mock_network_runtime.clone(),
-                &mut network_chain_store,
-            )
-            .unwrap();
-        chain_store_update.commit().unwrap();
-        info!(target:"mock_network", "Done preparing chain state");
+        #[cfg(feature = "mock_network")]
+        {
+            let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
+            chain_store_update
+                .copy_chain_state_as_of_block(
+                    &hash,
+                    mock_network_runtime.clone(),
+                    &mut network_chain_store,
+                )
+                .unwrap();
+            chain_store_update.commit().unwrap();
+            info!(target:"mock_network", "Done preparing chain state");
+        }
 
         // copy epoch info
-        let mut epoch_manager = EpochManager::new_from_genesis_config(
-            client_runtime.get_store(),
-            &config.genesis.config,
-        )
-        .unwrap();
-        let mut mock_epoch_manager = EpochManager::new_from_genesis_config(
-            mock_network_runtime.get_store(),
-            &config.genesis.config,
-        )
-        .unwrap();
-        let header = network_chain_store.get_block(&hash).unwrap().header();
-        epoch_manager
-            .copy_epoch_info_as_of_block(
-                &hash,
-                header.epoch_id(),
-                header.next_epoch_id(),
-                &mut mock_epoch_manager,
+        #[cfg(feature = "mock_network")]
+        {
+            let mut epoch_manager = EpochManager::new_from_genesis_config(
+                client_runtime.get_store(),
+                &config.genesis.config,
             )
             .unwrap();
-        info!(target:"mock_network", "Done preparing epoch info");
+            let mut mock_epoch_manager = EpochManager::new_from_genesis_config(
+                mock_network_runtime.get_store(),
+                &config.genesis.config,
+            )
+            .unwrap();
+            let header = network_chain_store.get_block(&hash).unwrap().header();
+            epoch_manager
+                .copy_epoch_info_as_of_block(
+                    &hash,
+                    header.epoch_id(),
+                    header.next_epoch_id(),
+                    &mut mock_epoch_manager,
+                )
+                .unwrap();
+            info!(target:"mock_network", "Done preparing epoch info");
+        }
 
         // copy state for all shards
         let next_hash = *network_chain_store.get_next_block_hash(&hash).unwrap();
