@@ -808,8 +808,9 @@ fn rocksdb_options() -> Options {
     // `kExceptDetailedTimers`, which is described as:
     // "Collects all stats except time inside mutex lock AND time spent on compression.".
     opts.enable_statistics();
+    // Disabling dumping stats to filse because the stats are exported to Prometheus.
     opts.set_stats_persist_period_sec(0);
-    opts.set_stats_dump_period_sec(60);
+    opts.set_stats_dump_period_sec(0);
     if cfg!(feature = "single_thread_rocksdb") {
         opts.set_disable_auto_compactions(true);
         opts.set_max_background_jobs(0);

@@ -1,6 +1,7 @@
 use crate::rocksdb_metrics::{parse_statistics, RocksDBMetrics};
 use crate::{metrics, SyncStatus};
 use actix::Addr;
+use anyhow::Context;
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_client_primitives::types::ShardSyncStatus;
 use near_network::types::NetworkInfo;
@@ -166,7 +167,9 @@ impl InfoHelper {
             paint(ansi_term::Colour::Green, blocks_info_log),
             paint(ansi_term::Colour::Blue, machine_info_log),
         );
-        self.export_rocksdb_statistics(statistics);
+        if let Err(err) = self.export_rocksdb_statistics(statistics) {
+            warn!("Failed to export RocksDB statistics: {:?}", err);
+        }
 
         let (cpu_usage, memory_usage) = proc_info.unwrap_or_default();
         let is_validator = validator_info.map(|v| v.is_validator).unwrap_or_default();
@@ -238,17 +241,17 @@ impl InfoHelper {
         telemetry(&self.telemetry_actor, content);
     }
 
-    fn export_rocksdb_statistics(&mut self, statistics: Option<String>) {
+    fn export_rocksdb_statistics(&mut self, statistics: Option<String>) -> anyhow::Result<()> {
         if let Some(statistics) = statistics {
-            match parse_statistics(&statistics) {
-                Ok(stats) => {
-                    self.rocksdb_metrics.export_stats_as_metrics(&stats);
-                }
-                Err(err) => {
-                    warn!(target: "stats", "Failed to parse rocksdb statistics: {:?}", err);
-                }
-            }
+            parse_statistics(&statistics).context("Failed to parse rocksdb statistics").and_then(
+                |stats| {
+                    self.rocksdb_metrics
+                        .export_stats_as_metrics(&stats)
+                        .context("Failed to parse rocksdb statistics")
+                },
+            )?;
         }
+        Ok(())
     }
 }
 
