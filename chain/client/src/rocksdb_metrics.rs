@@ -115,10 +115,10 @@ pub(crate) fn parse_statistics(statistics: &str) -> anyhow::Result<Vec<(&str, Ve
         // 1) <stat_name> COUNT : <value>
         // 2) <stat_name> P50 : <value> P90 : <value> COUNT : <value> SUM : <value>
         // Each line gets split into words and we parse statistics according to this format.
-        if let Some((stat_name, tokens)) = line.split_once(' ') {
+        if let Some((stat_name, words)) = line.split_once(' ') {
             let mut values = vec![];
-            let mut tokens = tokens.split(" : ").flat_map(|v| v.split(" "));
-            while let (Some(key), Some(val)) = (tokens.next(), tokens.next()) {
+            let mut words = words.split(" : ").flat_map(|v| v.split(" "));
+            while let (Some(key), Some(val)) = (words.next(), words.next()) {
                 match key {
                     "COUNT" => values.push(StatsValue::Count(val.parse::<i64>()?)),
                     "SUM" => values.push(StatsValue::Sum(val.parse::<i64>()?)),
