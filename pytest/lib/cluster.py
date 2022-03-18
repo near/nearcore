@@ -466,9 +466,17 @@ class LocalNode(BaseNode):
             logger.error(
                 '=== failed to start node, rpc does not ready in 10 seconds')
 
-    def kill(self):
+    def kill(self, *, gentle=False):
+        """Kills the process.  If `gentle` sends SIGINT before killing."""
         if self._proxy_local_stopped is not None:
             self._proxy_local_stopped.value = 1
+        if self._process and gentle:
+            self._process.send_signal(signal.SIGINT)
+            try:
+                self._process.wait(5)
+                self._process = None
+            except subprocess.TimeoutExpired:
+                pass
         if self._process:
             self._process.kill()
             self._process.wait(5)
