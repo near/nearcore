@@ -1160,7 +1160,8 @@ impl ClientActor {
                 }
             }
         }
-        let (accepted_blocks, result) = self.client.process_block(block, provenance);
+        let (accepted_blocks, result) =
+            self.client.process_block(block, provenance);
         self.process_accepted_blocks(accepted_blocks);
         result.map(|_| ())
     }
