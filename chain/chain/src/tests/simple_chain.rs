@@ -25,7 +25,7 @@ fn empty_chain() {
     let hash = chain.head().unwrap().last_block_hash;
     // The hashes here will have to be modified after each change to genesis file.
     #[cfg(feature = "nightly_protocol")]
-    assert_eq!(hash, CryptoHash::from_str("A66sjdBrMzMi96tuaQXTBDAaePUDxYCo2qSBGCzHTMgb").unwrap());
+    assert_eq!(hash, CryptoHash::from_str("2VFkBfWwcTqyVJ83zy78n5WUNadwGuJbLc2KEp9SJ8dV").unwrap());
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(hash, CryptoHash::from_str("8t6f63ezCoqS2nNxT7KivhvHH5tvNND4dj7RY3Hwhn64").unwrap());
     assert_eq!(count_utc, 1);
@@ -54,7 +54,7 @@ fn build_chain() {
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(
         prev_hash,
-        CryptoHash::from_str("4jTD7SXoyvFiLmKkVDuP6jEdDZhuWQAqjb2C1Ba4Uynu").unwrap()
+        CryptoHash::from_str("299HrY4hpubeFXa3V9DNtR36dGEtiz4AVfMbfL6hT2sq").unwrap()
     );
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
@@ -77,7 +77,7 @@ fn build_chain() {
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(
         chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("43BEyYbBJr9gG868PsGj7ikYdKGmX42jTSuZghpNUQ7L").unwrap()
+        CryptoHash::from_str("A1ZqLuyanSg6YeD3HxGco2tJYEAsmHvAva5n4dsPTgij").unwrap()
     );
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
