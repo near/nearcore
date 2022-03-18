@@ -282,9 +282,9 @@ pub unsafe fn utf8_log_10b_10k() {
 // It actually measures them together with `read_memory_base` and `read_memory_byte`.
 // Write utf8 10kib 1k times into log.
 #[no_mangle]
-pub unsafe fn utf8_log_10kib_10k() {
+pub unsafe fn utf8_log_10kib_1k() {
     let buffer = [65u8; 10240];
-    for _ in 0..10_000 {
+    for _ in 0..1_000 {
         log_utf8(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
     }
 }
@@ -307,10 +307,10 @@ pub unsafe fn nul_utf8_log_10b_10k() {
 // It actually measures them together with `read_memory_base` and `read_memory_byte`.
 // Write utf8 10kib 1k times into log.
 #[no_mangle]
-pub unsafe fn nul_utf8_log_10kib_10k() {
+pub unsafe fn nul_utf8_log_10kib_1k() {
     let mut buffer = [65u8; 10240];
     buffer[buffer.len() - 1] = 0;
-    for _ in 0..10_000 {
+    for _ in 0..1_000 {
         log_utf8(core::u64::MAX, buffer.as_ptr() as *const u64 as u64);
     }
 }
@@ -330,9 +330,9 @@ pub unsafe fn utf16_log_10b_10k() {
 // It actually measures them together with `read_memory_base` and `read_memory_byte`.
 // Write utf16 10kib 1k times into log.
 #[no_mangle]
-pub unsafe fn utf16_log_10kib_10k() {
+pub unsafe fn utf16_log_10kib_1k() {
     let buffer = [65u8; 10240];
-    for _ in 0..10_000 {
+    for _ in 0..1_000 {
         log_utf16(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
     }
 }
@@ -356,11 +356,11 @@ pub unsafe fn nul_utf16_log_10b_10k() {
 // It actually measures them together with `read_memory_base` and `read_memory_byte`.
 // Write utf16 10kib 1k times into log.
 #[no_mangle]
-pub unsafe fn nul_utf16_log_10kib_10k() {
+pub unsafe fn nul_utf16_log_10kib_1k() {
     let mut buffer = [65u8; 10240];
     buffer[buffer.len() - 2] = 0;
     buffer[buffer.len() - 1] = 0;
-    for _ in 0..10_000 {
+    for _ in 0..1_000 {
         log_utf16(core::u64::MAX, buffer.as_ptr() as *const u64 as u64);
     }
 }
@@ -1071,7 +1071,7 @@ pub unsafe fn account_storage_has_key() {
     input(0);
     let input_data = [0u8; MAX_ARG_LEN as usize];
     read_register(0, input_data.as_ptr() as _);
-    
+
     let key_len = u64::from_le_bytes(input_data[..8].try_into().unwrap());
     assert!(key_len < MAX_ARG_LEN - 16);
     let key = &input_data[8..8 + key_len as usize];
