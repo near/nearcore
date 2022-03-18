@@ -1140,11 +1140,17 @@ fn touching_trie_node_write(ctx: &mut EstimatorContext) -> GasCost {
     blocks.push(setup_block);
 
     blocks.extend(
-        iter::repeat_with(|| vec![tb.account_insert_key(signer.clone(), &key.as_str()[0..1], "1")])
+        ["1", "2", "3"]
+            .iter()
+            .cycle()
+            .map(|value| vec![tb.account_insert_key(signer.clone(), &key.as_str()[0..1], value)])
             .take(measured_iters + warmup_iters),
     );
     blocks.extend(
-        iter::repeat_with(|| vec![tb.account_insert_key(signer.clone(), &key, "1")])
+        ["1", "2", "3"]
+            .iter()
+            .cycle()
+            .map(|value| vec![tb.account_insert_key(signer.clone(), &key, value)])
             .take(measured_iters + warmup_iters),
     );
 
