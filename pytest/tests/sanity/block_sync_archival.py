@@ -61,12 +61,17 @@ class Cluster:
 
         self._config = cluster.load_config()
         self._near_root, self._node_dirs = cluster.init_cluster(
-            1, 2, 1, self._config, [['epoch_length', EPOCH_LENGTH],
-                                    ['block_producer_kickout_threshold', 80]], {
-                                        0: node_config,
-                                        1: node_config,
-                                        2: node_config,
-                                    })
+            num_nodes=1,
+            num_observers=2,
+            num_shards=1,
+            config=self._config,
+            genesis_config_changes=[['epoch_length', EPOCH_LENGTH],
+                                    ['block_producer_kickout_threshold', 80]],
+            client_config_changes={
+                0: node_config,
+                1: node_config,
+                2: node_config,
+            })
         self._nodes = [None] * len(self._node_dirs)
 
     def start_node(self,
