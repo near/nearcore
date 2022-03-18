@@ -506,10 +506,12 @@ pub fn recompress_storage(home_dir: &Path, dst_dir: &Path) -> anyhow::Result<()>
     // We’re configuring each RocksDB to use 512 file descriptors.  Make sure we
     // can open that many by ensuring nofile limit is large enough to give us
     // some room to spare over 1024 file descriptors.
-    let (soft, hard) = rlimit::Resource::NOFILE.get()
+    let (soft, hard) = rlimit::Resource::NOFILE
+        .get()
         .map_err(|err| anyhow::anyhow!("getrlimit: NOFILE: {}", err))?;
     if soft < 3 * 512 {
-        rlimit::Resource::NOFILE.set(3 * 512, hard)
+        rlimit::Resource::NOFILE
+            .set(3 * 512, hard)
             .map_err(|err| anyhow::anyhow!("setrlimit: NOFILE: {}", err))?;
     }
 
