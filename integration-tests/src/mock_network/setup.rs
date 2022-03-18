@@ -433,6 +433,7 @@ mod test {
                 Duration::from_millis(10),
                 Some(10),
                 None,
+                false,
             );
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
