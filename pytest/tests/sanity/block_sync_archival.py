@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Tests that archival node can sync up history from another archival node.
 
-Initialises a cluster with three archival nodes: one validator and two observer.
-Starts the validator with one observer keeping in sync.  Once several epochs
-worth of blocks are generated kills the validator (so that no new blocks are
-generated) and starts the second observer making sure that it properly
-synchronises the full history.
+Initialises a cluster with three archival nodes: one validator and two
+observers.  Starts the validator with one observer keeping in sync.  Once
+several epochs worth of blocks are generated kills the validator (so that no new
+blocks are generated) and starts the second observer making sure that it
+properly synchronises the full history.
 
 When called with --long-run the test will generate enough blocks so that entries
 in EncodedChunksCache start being evicted.  That it, it’ll generate more than
@@ -72,14 +72,14 @@ class Cluster:
     def start_node(self,
                    ordinal: int,
                    *,
-                   boot_node: int = 0) -> cluster.BaseNode:
+                   boot_node_index: int = 0) -> cluster.BaseNode:
         assert self._nodes[ordinal] is None
         self._nodes[ordinal] = node = cluster.spin_up_node(
             self._config,
             self._near_root,
             self._node_dirs[ordinal],
             ordinal,
-            boot_node=self._nodes[boot_node],
+            boot_node=self._nodes[boot_node_index],
             single_node=not ordinal)
         return node
 
@@ -132,7 +132,7 @@ def main(argv: typing.Sequence[str]) -> None:
 
         # Start the second observer node and wait for it to catch up with the
         # first observer.
-        barney = cluster.start_node(2, boot_node=1)
+        barney = cluster.start_node(2, boot_node_index=1)
         utils.wait_for_blocks(barney, target=latest.height, poll_interval=1)
 
         # Verify that observer got all the blocks.  Note that get_all_blocks
