@@ -41,7 +41,6 @@ class Cluster:
                  max_block_production_delay: _DurationMaybe = None):
         node_config = {
             'archive': True,
-            'archive_gc_partial_chunks': True,
             'tracked_shards': [0],
         }
 
