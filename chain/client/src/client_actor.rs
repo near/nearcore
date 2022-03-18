@@ -1784,7 +1784,8 @@ pub fn start_client(
     sender: Option<oneshot::Sender<()>>,
     #[cfg(feature = "test_features")] adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
-    let client_arbiter_handle = Arbiter::current();
+    let client_arbiter = Arbiter::new();
+    let client_arbiter_handle = client_arbiter.handle();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
         ClientActor::new(
             client_config,
