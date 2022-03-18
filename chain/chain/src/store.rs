@@ -1983,52 +1983,78 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn clear_chunk_data_and_headers(
         &mut self,
         min_chunk_height: BlockHeight,
-        gc_limit: BlockHeightDelta,
-        archival: bool,
     ) -> Result<(), Error> {
         let chunk_tail = self.chunk_tail()?;
-        let min_chunk_height = std::cmp::min(min_chunk_height, chunk_tail.saturating_add(gc_limit));
         for height in chunk_tail..min_chunk_height {
             let chunk_hashes = self.chain_store.get_all_chunk_hashes_by_height(height)?;
             for chunk_hash in chunk_hashes {
                 // 1. Delete chunk-related data
-                if !archival {
-                    let chunk = self.get_chunk(&chunk_hash)?.clone();
-                    debug_assert_eq!(chunk.cloned_header().height_created(), height);
-                    for transaction in chunk.transactions() {
-                        self.gc_col(ColTransactions, &transaction.get_hash().into());
-                    }
-                    for receipt in chunk.receipts() {
-                        self.gc_col(ColReceipts, &receipt.get_hash().into());
-                    }
+                let chunk = self.get_chunk(&chunk_hash)?.clone();
+                debug_assert_eq!(chunk.cloned_header().height_created(), height);
+                for transaction in chunk.transactions() {
+                    self.gc_col(ColTransactions, &transaction.get_hash().into());
+                }
+                for receipt in chunk.receipts() {
+                    self.gc_col(ColReceipts, &receipt.get_hash().into());
                 }
 
                 // 2. Delete chunk_hash-indexed data
-                let chunk_header_hash = chunk_hash.into();
-                if !archival {
-                    self.gc_col(ColChunks, &chunk_header_hash);
-                }
+                let chunk_header_hash = chunk_hash.clone().into();
+                self.gc_col(ColChunks, &chunk_header_hash);
                 self.gc_col(ColPartialChunks, &chunk_header_hash);
                 self.gc_col(ColInvalidChunks, &chunk_header_hash);
             }
 
-            if !archival {
+            let header_hashes = self.chain_store.get_all_header_hashes_by_height(height)?;
+            for _header_hash in header_hashes {
+                // 3. Delete header_hash-indexed data
                 // TODO #3488: enable
-                // let header_hashes = self.chain_store.get_all_header_hashes_by_height(height)?;
-                // for _header_hash in header_hashes {
-                //     // 3. Delete header_hash-indexed data
-                //     self.gc_col(ColBlockHeader, &header_hash.into());
-                // }
+                //self.gc_col(ColBlockHeader, &header_hash.into());
             }
 
             // 4. Delete chunks_tail-related data
-            if !archival {
-                let key = &index_to_bytes(height).to_vec();
-                self.gc_col(ColChunkHashesByHeight, key);
-                self.gc_col(ColHeaderHashesByHeight, key);
-            }
+            let key = &index_to_bytes(height).to_vec();
+            self.gc_col(ColChunkHashesByHeight, key);
+            self.gc_col(ColHeaderHashesByHeight, key);
         }
         self.update_chunk_tail(min_chunk_height);
+        Ok(())
+    }
+
+    /// Clears chunk data which can be computed from other data in the storage.
+    ///
+    /// We are storing PartialEncodedChunk objects in the ColPartialChunks in
+    /// the storage.  However, those objects can be computed from data in
+    /// ColChunks and as such are redundant.  For performance reasons we want to
+    /// keep that data when operating at head of the chain but the data can be
+    /// safely removed from archival storage.
+    ///
+    /// `gc_stop_height` indicates height starting from which no data should be
+    /// garbage collected.  Roughly speaking this represents start of the ‘hot’
+    /// data that we want to keep.
+    ///
+    /// `gt_height_limit` indicates limit of how many heights to process.  This
+    /// limit means that the method may stop garbage collection before reaching
+    /// `gc_stop_height`.
+    pub fn clear_redundant_chunk_data(
+        &mut self,
+        gc_stop_height: BlockHeight,
+        gc_height_limit: BlockHeightDelta,
+    ) -> Result<(), Error> {
+        let start = self.chunk_tail()?;
+        let stop = gc_stop_height.min(start.saturating_add(gc_height_limit));
+        for height in start..stop {
+            let chunk_hashes = self.chain_store.get_all_chunk_hashes_by_height(height)?;
+            for chunk_hash in chunk_hashes {
+                let chunk_header_hash = chunk_hash.into();
+                self.gc_col(ColPartialChunks, &chunk_header_hash);
+                // Data in ColInvalidChunks isn’t technically redundant (as it
+                // cannot be calculated from any other data) but it is data we
+                // don’t need for anything so it can be deleted as well.
+                self.gc_col(ColInvalidChunks, &chunk_header_hash);
+            }
+        }
+        self.update_chunk_tail(stop);
         Ok(())
     }
 
@@ -2198,7 +2224,7 @@ impl<'a> ChainStoreUpdate<'a> {
                         min_chunk_height = chunk_header.height_created();
                     }
                 }
-                self.clear_chunk_data_and_headers(min_chunk_height, BlockHeightDelta::MAX, false)?;
+                self.clear_chunk_data_and_headers(min_chunk_height)?;
             }
             GCMode::StateSync { .. } => {
                 // 7. State Sync clearing

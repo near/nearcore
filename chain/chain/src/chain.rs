@@ -858,7 +858,9 @@ impl Chain {
     /// the storage contains some data duplication, i.e. values in some of the
     /// columns can be recomputed from data in different columns.  To save on
     /// storage, archival nodes do garbage collect that data.
-    pub fn clear_archive_data(&mut self, gc_limit: BlockHeightDelta) -> Result<(), Error> {
+    ///
+    /// `gc_height_limit` limits how many heights will the function process.
+    pub fn clear_archive_data(&mut self, gc_height_limit: BlockHeightDelta) -> Result<(), Error> {
         let _d = DelayDetector::new(|| "GC".into());
 
         let head = self.store.head()?;
@@ -871,11 +873,11 @@ impl Chain {
         }
 
         let mut chain_store_update = self.store.store_update();
-        chain_store_update.clear_chunk_data_and_headers(gc_stop_height, gc_limit, true)?;
+        chain_store_update.clear_redundant_chunk_data(gc_stop_height, gc_height_limit)?;
         chain_store_update.commit()
     }
 
-    fn clear_forks_data(
+    pub fn clear_forks_data(
         &mut self,
         tries: ShardTries,
         height: BlockHeight,
@@ -1191,11 +1193,7 @@ impl Chain {
         let mut chain_store_update = self.mut_store().store_update();
         // The largest height of chunk we have in storage is head.height + 1
         let chunk_height = std::cmp::min(head.height + 2, sync_height);
-        chain_store_update.clear_chunk_data_and_headers(
-            chunk_height,
-            BlockHeightDelta::MAX,
-            false,
-        )?;
+        chain_store_update.clear_chunk_data_and_headers(chunk_height)?;
         chain_store_update.commit()?;
 
         // clear all trie data
