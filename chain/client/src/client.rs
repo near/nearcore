@@ -701,7 +701,8 @@ impl Client {
         block: MaybeValidated<Block>,
         provenance: Provenance,
     ) -> (Vec<AcceptedBlock>, Result<Option<Tip>, near_chain::Error>) {
-        self.record_receive_block_timestamp(block.header().hash());
+        let processing_started = Clock::instant();
+        let block_hash = block.header().hash().clone();
         let is_requested = match provenance {
             Provenance::PRODUCED | Provenance::SYNC => true,
             Provenance::NONE => false,
@@ -745,6 +746,19 @@ impl Client {
                 &mut |challenge| challenges.push(challenge),
             )
         };
+
+        // Record a timestamp of processing a block, but only do it if the block isn't known yet.
+        let block_known_error = if let Err(ref e) = result {
+            match e.kind() {
+                ErrorKind::BlockKnown(_) => true,
+                _ => false,
+            }
+        } else {
+            false
+        };
+        if !block_known_error {
+            self.chunks_delay_tracker.received_block(&block_hash, processing_started);
+        }
 
         // Send out challenges that accumulated via on_challenge.
         self.send_challenges(challenges);
@@ -1796,10 +1810,6 @@ impl Client {
         //            self.challenges.insert(challenge.hash, challenge);
         //        }
         Ok(())
-    }
-
-    fn record_receive_block_timestamp(&mut self, block_hash: &CryptoHash) {
-        self.chunks_delay_tracker.received_block(block_hash, Clock::instant());
     }
 
     fn record_receive_chunk_timestamp(&mut self, chunk_hash: &ChunkHash) {
