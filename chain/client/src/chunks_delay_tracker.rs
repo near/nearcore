@@ -60,6 +60,7 @@ impl ChunksDelayTracker {
         for chunk_hash in chunks {
             self.chunks_in_progress.remove(chunk_hash);
         }
+        println!("finish_block_processing {}",self.blocks_in_progress.len());
     }
 
     fn update_block_chunks_requested_metric(
