@@ -2501,6 +2501,8 @@ version = "0.0.0"
 dependencies = [
  "actix-rt",
  "futures",
+ "near-store",
+ "once_cell",
 ]
 
 [[package]]
@@ -3091,6 +3093,7 @@ version = "0.0.0"
 name = "near-store"
 version = "0.0.0"
 dependencies = [
+ "assert_matches",
  "bencher",
  "borsh",
  "byteorder",

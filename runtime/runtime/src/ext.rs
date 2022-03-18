@@ -14,7 +14,7 @@ use near_primitives::transaction::{
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas};
+use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, TrieCacheMode};
 #[cfg(feature = "protocol_feature_function_call_weight")]
 use near_primitives::types::{GasDistribution, GasWeight};
 use near_primitives::utils::create_data_id;
@@ -167,6 +167,10 @@ impl<'a> RuntimeExt<'a> {
 
         // Return index that action was inserted at
         actions.len() - 1
+    }
+
+    pub fn set_trie_cache_mode(&mut self, state: TrieCacheMode) {
+        self.trie_update.set_trie_cache_mode(state);
     }
 
     #[inline]
