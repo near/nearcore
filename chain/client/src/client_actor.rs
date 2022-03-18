@@ -294,7 +294,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                     NetworkRequests::Block { block: block.clone() },
                                 ),
                             );
-                            let (accepted_blocks, _) = self.client.process_block(block.into(), Provenance::PRODUCED);
+                            let (accepted_blocks, _) =
+                                self.client.process_block(block.into(), Provenance::PRODUCED);
                             for accepted_block in accepted_blocks {
                                 self.client.on_block_accepted(
                                     accepted_block.hash,
@@ -1160,8 +1161,7 @@ impl ClientActor {
                 }
             }
         }
-        let (accepted_blocks, result) =
-            self.client.process_block(block, provenance);
+        let (accepted_blocks, result) = self.client.process_block(block, provenance);
         self.process_accepted_blocks(accepted_blocks);
         result.map(|_| ())
     }
