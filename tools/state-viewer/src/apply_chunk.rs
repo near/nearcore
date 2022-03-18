@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context};
+use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::ApplyTransactionResult;
@@ -6,15 +7,22 @@ use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::receipt::Receipt;
+use near_primitives::shard_layout;
 use near_primitives::sharding::{ChunkHash, ReceiptProof};
 use near_primitives::syncing::ReceiptProofResponse;
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives_core::hash::hash;
 use near_primitives_core::types::Gas;
+use near_store::db::DBCol;
+use near_store::Store;
+use nearcore::NearConfig;
 use nearcore::NightshadeRuntime;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use std::cmp::Ord;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use tracing::warn;
 
 // like ChainStoreUpdate::get_incoming_receipts_for_shard(), but for the case when we don't
 // know of a block containing the target chunk
@@ -132,6 +140,265 @@ pub(crate) fn apply_chunk(
         )?,
         chunk_header.gas_limit(),
     ))
+}
+
+enum HashType {
+    Tx,
+    Receipt,
+}
+
+fn find_tx_or_receipt(
+    hash: &CryptoHash,
+    block_hash: &CryptoHash,
+    runtime: &Arc<NightshadeRuntime>,
+    chain_store: &mut ChainStore,
+) -> anyhow::Result<Option<(HashType, ShardId)>> {
+    let block = chain_store.get_block(&block_hash)?;
+    let chunk_hashes = block.chunks().iter().map(|c| c.chunk_hash()).collect::<Vec<_>>();
+
+    for (shard_id, chunk_hash) in chunk_hashes.iter().enumerate() {
+        let chunk =
+            chain_store.get_chunk(chunk_hash).context("Failed looking up canditate chunk")?;
+        for tx in chunk.transactions() {
+            if &tx.get_hash() == hash {
+                return Ok(Some((HashType::Tx, shard_id as ShardId)));
+            }
+        }
+        for receipt in chunk.receipts() {
+            if &receipt.get_hash() == hash {
+                let shard_layout = runtime.get_shard_layout_from_prev_block(chunk.prev_block())?;
+                let to_shard =
+                    shard_layout::account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
+                return Ok(Some((HashType::Receipt, to_shard)));
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn apply_tx_in_block(
+    near_config: NearConfig,
+    runtime: Arc<NightshadeRuntime>,
+    chain_store: &mut ChainStore,
+    tx_hash: &CryptoHash,
+    block_hash: CryptoHash,
+) -> anyhow::Result<()> {
+    match find_tx_or_receipt(tx_hash, &block_hash, &runtime, chain_store)? {
+        Some((hash_type, shard_id)) => {
+            match hash_type {
+                HashType::Tx => {
+                    println!("Found tx in block {} shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
+                             &block_hash, shard_id, chain_store.get_block_header(&block_hash)?.height(), shard_id);
+                    crate::commands::apply_block(block_hash, shard_id, near_config, runtime, chain_store);
+                    Ok(())
+                },
+                HashType::Receipt => {
+                    Err(anyhow!("{} appears to be a Receipt ID, not a tx hash. Try running:\nview_state apply_receipt --hash {}", tx_hash, tx_hash))
+                },
+            }
+        },
+        None => {
+            Err(anyhow!("Could not find tx with hash {} in block {}, even though `ColTransactionResult` says it should be there", tx_hash, block_hash))
+        }
+    }
+}
+
+fn apply_tx_in_chunk(
+    runtime: Arc<NightshadeRuntime>,
+    store: Store,
+    chain_store: &mut ChainStore,
+    tx_hash: &CryptoHash,
+) -> anyhow::Result<()> {
+    if chain_store.get_transaction(tx_hash)?.is_none() {
+        return Err(anyhow!("tx with hash {} not known", tx_hash));
+    }
+
+    println!("Transaction is known but doesn't seem to have been applied. Searching in chunks that haven't been applied...");
+
+    let head = chain_store.head()?.height;
+    let mut chunk_hashes = vec![];
+
+    for (k, v) in store.iter(DBCol::ColChunkHashesByHeight) {
+        let height = BlockHeight::from_le_bytes(k[..].try_into().unwrap());
+        if height > head {
+            let hashes = HashSet::<ChunkHash>::try_from_slice(&v).unwrap();
+            for chunk_hash in hashes {
+                let chunk = match chain_store.get_chunk(&chunk_hash) {
+                    Ok(c) => c,
+                    Err(_) => {
+                        warn!(target: "state-viewer", "chunk hash {:?} appears in ColChunkHashesByHeight but the chunk is not saved", &chunk_hash);
+                        continue;
+                    }
+                };
+                for hash in chunk.transactions().iter().map(|tx| tx.get_hash()) {
+                    if hash == *tx_hash {
+                        chunk_hashes.push(chunk_hash);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if chunk_hashes.len() == 0 {
+        return Err(anyhow!(
+            "Could not find tx with hash {} in any chunk that hasn't been applied yet",
+            tx_hash
+        ));
+    }
+
+    for chunk_hash in chunk_hashes {
+        println!("found tx in chunk {}. Equivalent command (which will run faster than apply_tx):\nview_state apply_chunk --chunk_hash {}\n", &chunk_hash.0, &chunk_hash.0);
+        let (apply_result, gas_limit) =
+            apply_chunk(runtime.clone(), chain_store, chunk_hash, None, None)?;
+        println!(
+            "resulting chunk extra:\n{:?}",
+            crate::commands::resulting_chunk_extra(apply_result, gas_limit)
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn apply_tx(
+    near_config: NearConfig,
+    runtime: Arc<NightshadeRuntime>,
+    store: Store,
+    tx_hash: CryptoHash,
+) -> anyhow::Result<()> {
+    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+    let outcomes = chain_store.get_outcomes_by_id(&tx_hash)?;
+
+    if let Some(outcome) = outcomes.first() {
+        apply_tx_in_block(near_config, runtime, &mut chain_store, &tx_hash, outcome.block_hash)
+    } else {
+        apply_tx_in_chunk(runtime, store, &mut chain_store, &tx_hash)
+    }
+}
+
+fn apply_receipt_in_block(
+    near_config: NearConfig,
+    runtime: Arc<NightshadeRuntime>,
+    chain_store: &mut ChainStore,
+    id: &CryptoHash,
+    block_hash: CryptoHash,
+) -> anyhow::Result<()> {
+    match find_tx_or_receipt(id, &block_hash, &runtime, chain_store)? {
+        Some((hash_type, shard_id)) => {
+            match hash_type {
+                HashType::Tx => {
+                    Err(anyhow!("{} appears to be a tx hash, not a Receipt ID. Try running:\nview_state apply_tx --hash {}", id, id))
+                },
+                HashType::Receipt => {
+                    println!("Found receipt in block {}. Receiver is in shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
+                             &block_hash, shard_id, chain_store.get_block_header(&block_hash)?.height(), shard_id);
+                    crate::commands::apply_block(block_hash, shard_id, near_config, runtime, chain_store);
+                    Ok(())
+                },
+            }
+        },
+        None => {
+            // TODO: handle local/delayed receipts
+            Err(anyhow!("Could not find receipt with ID {} in block {}. Is it a local or delayed receipt?", id, block_hash))
+        }
+    }
+}
+
+fn apply_receipt_in_chunk(
+    runtime: Arc<NightshadeRuntime>,
+    store: Store,
+    chain_store: &mut ChainStore,
+    id: &CryptoHash,
+) -> anyhow::Result<()> {
+    if chain_store.get_receipt(id)?.is_none() {
+        // TODO: handle local/delayed receipts
+        return Err(anyhow!("receipt with ID {} not known. Is it a local or delayed receipt?", id));
+    }
+
+    println!(
+        "Receipt is known but doesn't seem to have been applied. Searching in chunks that haven't been applied..."
+    );
+
+    let head = chain_store.head()?.height;
+    let mut to_apply = HashSet::new();
+    let mut non_applied_chunks = HashMap::new();
+
+    for (k, v) in store.iter(DBCol::ColChunkHashesByHeight) {
+        let height = BlockHeight::from_le_bytes(k[..].try_into().unwrap());
+        if height > head {
+            let hashes = HashSet::<ChunkHash>::try_from_slice(&v).unwrap();
+            for chunk_hash in hashes {
+                let chunk = match chain_store.get_chunk(&chunk_hash) {
+                    Ok(c) => c,
+                    Err(_) => {
+                        warn!(target: "state-viewer", "chunk hash {:?} appears in ColChunkHashesByHeight but the chunk is not saved", &chunk_hash);
+                        continue;
+                    }
+                };
+                non_applied_chunks.insert((height, chunk.shard_id()), chunk_hash.clone());
+
+                for receipt in chunk.receipts().iter() {
+                    if receipt.get_hash() == *id {
+                        let shard_layout =
+                            runtime.get_shard_layout_from_prev_block(chunk.prev_block())?;
+                        let to_shard = shard_layout::account_id_to_shard_id(
+                            &receipt.receiver_id,
+                            &shard_layout,
+                        );
+                        to_apply.insert((height, to_shard));
+                        println!(
+                            "found receipt in chunk {}. Receiver is in shard {}",
+                            &chunk_hash.0, to_shard
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if to_apply.len() == 0 {
+        return Err(anyhow!(
+            "Could not find receipt with hash {} in any chunk that hasn't been applied yet",
+            id
+        ));
+    }
+
+    for (height, shard_id) in to_apply {
+        let chunk_hash = match non_applied_chunks.get(&(height, shard_id)) {
+            Some(h) => h,
+            None => {
+                eprintln!(
+                    "Wanted to apply chunk in shard {} at height {}, but no such chunk was found.",
+                    shard_id, height,
+                );
+                continue;
+            }
+        };
+        println!("Applying chunk at height {} in shard {}. Equivalent command (which will run faster than apply_receipt):\nview_state apply_chunk --chunk_hash {}\n",
+                 height, shard_id, chunk_hash.0);
+        let (apply_result, gas_limit) =
+            apply_chunk(runtime.clone(), chain_store, chunk_hash.clone(), None, None)?;
+        println!(
+            "resulting chunk extra:\n{:?}",
+            crate::commands::resulting_chunk_extra(apply_result, gas_limit)
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn apply_receipt(
+    near_config: NearConfig,
+    runtime: Arc<NightshadeRuntime>,
+    store: Store,
+    id: CryptoHash,
+) -> anyhow::Result<()> {
+    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+    let outcomes = chain_store.get_outcomes_by_id(&id)?;
+    if let Some(outcome) = outcomes.first() {
+        apply_receipt_in_block(near_config, runtime, &mut chain_store, &id, outcome.block_hash)
+    } else {
+        apply_receipt_in_chunk(runtime, store, &mut chain_store, &id)
+    }
 }
 
 #[cfg(test)]

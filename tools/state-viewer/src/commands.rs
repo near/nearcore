@@ -333,7 +333,7 @@ pub(crate) fn replay_chain(
     }
 }
 
-fn resulting_chunk_extra(result: ApplyTransactionResult, gas_limit: Gas) -> ChunkExtra {
+pub(crate) fn resulting_chunk_extra(result: ApplyTransactionResult, gas_limit: Gas) -> ChunkExtra {
     let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(&result.outcomes);
     ChunkExtra::new(
         &result.new_root,
@@ -345,7 +345,7 @@ fn resulting_chunk_extra(result: ApplyTransactionResult, gas_limit: Gas) -> Chun
     )
 }
 
-fn apply_block(
+pub(crate) fn apply_block(
     block_hash: CryptoHash,
     shard_id: ShardId,
     near_config: NearConfig,
@@ -703,4 +703,36 @@ pub(crate) fn apply_chunk(
         apply_chunk::apply_chunk(runtime, &mut chain_store, chunk_hash, target_height, None)?;
     println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(apply_result, gas_limit));
     Ok(())
+}
+
+pub(crate) fn apply_tx(
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+    hash: CryptoHash,
+) -> anyhow::Result<()> {
+    let runtime = Arc::new(NightshadeRuntime::with_config(
+        home_dir,
+        store.clone(),
+        &near_config,
+        None,
+        near_config.client_config.max_gas_burnt_view,
+    ));
+    apply_chunk::apply_tx(near_config, runtime, store, hash)
+}
+
+pub(crate) fn apply_receipt(
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+    hash: CryptoHash,
+) -> anyhow::Result<()> {
+    let runtime = Arc::new(NightshadeRuntime::with_config(
+        home_dir,
+        store.clone(),
+        &near_config,
+        None,
+        near_config.client_config.max_gas_burnt_view,
+    ));
+    apply_chunk::apply_receipt(near_config, runtime, store, hash)
 }
