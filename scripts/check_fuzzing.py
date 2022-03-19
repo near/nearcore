@@ -80,12 +80,7 @@ def main() -> typing.Optional[str]:
     pkg_len = max(len(package) for package, _ in missing)
 
     def target_object(crate: str, runner: str, weight=10) -> dict:
-        return {
-            'crate': crate,
-            'runner': runner,
-            'weight': weight,
-            'flags': []
-        }
+        return {'crate': crate, 'runner': runner, 'weight': weight, 'flags': []}
 
     def format_targets(targets: dict) -> str:
         formatted = toml.dumps({'target': list(targets)})
