@@ -16,6 +16,7 @@ use near_network::types::{
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
+use near_primitives::time::Clock;
 use nearcore::config::NearConfig;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -247,6 +248,7 @@ impl Network {
                                 part_ords: (0..ppc).collect(),
                                 tracking_shards: Default::default(),
                             },
+                            create_time: Clock::instant(),
                         }
                     })
                 });
@@ -281,7 +283,7 @@ impl Network {
                     self.block_headers.get(&hash).map(|p| p.set(headers));
                 }
             }
-            NetworkClientMessages::PartialEncodedChunkResponse(resp) => {
+            NetworkClientMessages::PartialEncodedChunkResponse(resp, _) => {
                 self.chunks.get(&resp.chunk_hash.clone()).map(|p| p.set(resp));
             }
             _ => {}

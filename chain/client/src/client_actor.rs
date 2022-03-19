@@ -2,6 +2,7 @@
 
 use crate::client::Client;
 use crate::info::{get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper};
+use crate::metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY;
 use crate::sync::{StateSync, StateSyncResult};
 use crate::StatusResponse;
 use actix::dev::SendError;
@@ -567,7 +568,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 );
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::PartialEncodedChunkResponse(response) => {
+            NetworkClientMessages::PartialEncodedChunkResponse(response, time) => {
+                PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(time.elapsed().as_secs_f64());
                 if let Ok(accepted_blocks) =
                     self.client.process_partial_encoded_chunk_response(response)
                 {

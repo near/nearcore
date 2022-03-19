@@ -11,7 +11,7 @@ use crate::routing::routing_table_actor::{
 };
 use crate::routing::routing_table_view::{RoutingTableView, DELETE_PEERS_AFTER_TIME};
 use crate::stats::metrics;
-use crate::stats::metrics::NetworkMetrics;
+use crate::stats::metrics::{NetworkMetrics, PARTIAL_ENCODED_CHUNK_REQUEST_DELAY};
 use crate::types::{
     FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
     PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerRequest, PeerResponse,
@@ -1597,7 +1597,8 @@ impl PeerManagerActor {
                 self.announce_account(announce_account);
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::PartialEncodedChunkRequest { target, request } => {
+            NetworkRequests::PartialEncodedChunkRequest { target, request, create_time } => {
+                PARTIAL_ENCODED_CHUNK_REQUEST_DELAY.observe(create_time.elapsed().as_secs_f64());
                 let mut success = false;
 
                 // Make two attempts to send the message. First following the preference of `prefer_peer`,
