@@ -16,7 +16,6 @@ import utils
 
 fcntl.fcntl(1, fcntl.F_SETFL, 0)  # no cache when execute from nightly runner
 
-TIMEOUT = 600
 BLOCKS = 105  # should be enough to trigger state sync for node 1 later, see comments there
 
 nightly = len(sys.argv) > 1
@@ -36,7 +35,7 @@ logger.info('cluster started')
 started = time.time()
 
 logger.info(f'Waiting for {BLOCKS} blocks...')
-height = utils.wait_for_blocks(nodes[1], target=BLOCKS, timeout=TIMEOUT)
+height = utils.wait_for_blocks(nodes[1], target=BLOCKS)
 logger.info(f'Got to {height} blocks, rebooting the first node')
 
 nodes[0].kill()
@@ -45,7 +44,7 @@ tracker = utils.LogTracker(nodes[0])
 nodes[0].start(boot_node=nodes[1])
 time.sleep(3)
 
-utils.wait_for_blocks(nodes[0], target=BLOCKS, timeout=TIMEOUT)
+utils.wait_for_blocks(nodes[0], target=BLOCKS)
 
 # make sure `nodes[0]` actually state synced
 assert tracker.check("transition to State Sync")

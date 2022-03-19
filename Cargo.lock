@@ -2501,6 +2501,8 @@ version = "0.0.0"
 dependencies = [
  "actix-rt",
  "futures",
+ "near-store",
+ "once_cell",
 ]
 
 [[package]]
@@ -2582,11 +2584,14 @@ dependencies = [
  "near-chunks-primitives",
  "near-crypto",
  "near-logger-utils",
+ "near-metrics",
  "near-network",
  "near-network-primitives",
  "near-pool",
  "near-primitives",
  "near-store",
+ "once_cell",
+ "prometheus",
  "rand 0.7.3",
  "reed-solomon-erasure",
  "tracing",
@@ -2630,6 +2635,7 @@ dependencies = [
  "near-telemetry",
  "num-rational",
  "once_cell",
+ "prometheus",
  "rand 0.7.3",
  "reed-solomon-erasure",
  "serde_json",
@@ -3087,6 +3093,7 @@ version = "0.0.0"
 name = "near-store"
 version = "0.0.0"
 dependencies = [
+ "assert_matches",
  "bencher",
  "borsh",
  "byteorder",
@@ -3265,6 +3272,7 @@ dependencies = [
  "near-jsonrpc",
  "near-jsonrpc-primitives",
  "near-logger-utils",
+ "near-metrics",
  "near-network",
  "near-network-primitives",
  "near-performance-metrics",
@@ -3277,7 +3285,9 @@ dependencies = [
  "near-vm-runner",
  "node-runtime",
  "num-rational",
+ "once_cell",
  "primitive-types",
+ "prometheus",
  "rand 0.7.3",
  "rayon",
  "serde",
