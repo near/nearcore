@@ -9,7 +9,7 @@ edition = "2021"
 
 [dependencies]
 ansi_term = "0.12"
-clap = "2.33"
+clap = { version = "3.1.6", features = ["derive"] }
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-logger-utils = { path = "../../test-utils/logger" }
