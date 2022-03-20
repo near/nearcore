@@ -379,7 +379,7 @@ impl PartialChunksCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct ApplyChunkCmd {
     #[clap(long)]
     chunk_hash: String,
