@@ -155,6 +155,16 @@ imports! {
         amount_ptr: u64,
         gas: u64
     ] -> []>,
+    #["protocol_feature_function_call_weight", FunctionCallRatio] promise_batch_action_function_call_weight<[
+        promise_index: u64,
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        amount_ptr: u64,
+        gas: u64,
+        gas_weight: u64
+    ] -> []>,
     promise_batch_action_transfer<[promise_index: u64, amount_ptr: u64] -> []>,
     promise_batch_action_stake<[
         promise_index: u64,

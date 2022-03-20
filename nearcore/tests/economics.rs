@@ -41,21 +41,6 @@ fn setup_env(genesis: &Genesis) -> TestEnv {
         .build()
 }
 
-/// Debug tool to show current balances.
-#[allow(dead_code)]
-fn print_accounts(env: &mut TestEnv) {
-    println!(
-        "{:?}",
-        ["near", "test0", "test1"]
-            .iter()
-            .map(|account_id| {
-                let account = env.query_account(account_id.parse().unwrap());
-                (account_id, account.amount, account.locked)
-            })
-            .collect::<Vec<_>>()
-    );
-}
-
 fn calc_total_supply(env: &mut TestEnv) -> u128 {
     ["near", "test0", "test1"]
         .iter()

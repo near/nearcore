@@ -7,14 +7,13 @@ use rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, Env, IteratorMode,
     Options, ReadOptions, WriteBatch, DB,
 };
-#[cfg(not(feature = "single_thread_rocksdb"))]
 use std::cmp;
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::{Condvar, Mutex, RwLock};
-use strum::EnumIter;
+use strum::{EnumCount, EnumIter};
 use tracing::{debug, error, info, warn};
 
 pub(crate) mod refcount;
@@ -46,7 +45,9 @@ impl Into<io::Error> for DBError {
 /// This enum holds the information about the columns that we use within the RocksDB storage.
 /// You can think about our storage as 2-dimensional table (with key and column as indexes/coordinates).
 // TODO(mm-near): add info about the RC in the columns.
-#[derive(PartialEq, Debug, Copy, Clone, EnumIter, BorshDeserialize, BorshSerialize, Hash, Eq)]
+#[derive(
+    PartialEq, Debug, Copy, Clone, EnumCount, EnumIter, BorshDeserialize, BorshSerialize, Hash, Eq,
+)]
 pub enum DBCol {
     /// Column to indicate which version of database this is.
     /// - *Rows*: single row [VERSION_KEY]
@@ -266,9 +267,6 @@ pub enum DBCol {
     ColStateChangesForSplitStates = 49,
 }
 
-// Do not move this line from enum DBCol
-pub const NUM_COLS: usize = 50;
-
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         let desc = match self {
@@ -337,8 +335,8 @@ impl DBCol {
 
 // List of columns for which GC should be implemented
 
-pub static SHOULD_COL_GC: [bool; NUM_COLS] = {
-    let mut col_gc = [true; NUM_COLS];
+pub static SHOULD_COL_GC: [bool; DBCol::COUNT] = {
+    let mut col_gc = [true; DBCol::COUNT];
     col_gc[DBCol::ColDbVersion as usize] = false; // DB version is unrelated to GC
     col_gc[DBCol::ColBlockMisc as usize] = false;
     // TODO #3488 remove
@@ -362,8 +360,8 @@ pub static SHOULD_COL_GC: [bool; NUM_COLS] = {
 
 // List of columns for which GC may not be executed even in fully operational node
 
-pub static SKIP_COL_GC: [bool; NUM_COLS] = {
-    let mut col_gc = [false; NUM_COLS];
+pub static SKIP_COL_GC: [bool; DBCol::COUNT] = {
+    let mut col_gc = [false; DBCol::COUNT];
     // A node may never restarted
     col_gc[DBCol::ColStateHeaders as usize] = true;
     // True until #2515
@@ -373,8 +371,8 @@ pub static SKIP_COL_GC: [bool; NUM_COLS] = {
 
 // List of reference counted columns
 
-pub static IS_COL_RC: [bool; NUM_COLS] = {
-    let mut col_rc = [false; NUM_COLS];
+pub static IS_COL_RC: [bool; DBCol::COUNT] = {
+    let mut col_rc = [false; DBCol::COUNT];
     col_rc[DBCol::ColState as usize] = true;
     col_rc[DBCol::ColTransactions as usize] = true;
     col_rc[DBCol::ColReceipts as usize] = true;
@@ -489,6 +487,10 @@ impl Default for RocksDBOptions {
     }
 }
 
+fn col_name(col: DBCol) -> String {
+    format!("col{}", col as usize)
+}
+
 impl RocksDBOptions {
     /// Once the disk space is below the `free_disk_space_warn_threshold`, RocksDB will emit an warning message every [`interval`](RocksDBOptions::check_free_space_interval) write.
     pub fn free_disk_space_warn_threshold(mut self, warn_treshold: bytesize::ByteSize) -> Self {
@@ -525,11 +527,14 @@ impl RocksDBOptions {
 
     /// Opens a read only database.
     pub fn read_only<P: AsRef<std::path::Path>>(self, path: P) -> Result<RocksDB, DBError> {
-        let options = self.rocksdb_options.unwrap_or_default();
-        let cf_names: Vec<_> = self.cf_names.unwrap_or_else(|| vec!["col0".to_string()]);
-        let db = DB::open_cf_for_read_only(&options, path, cf_names.iter(), false)?;
-        let cfs =
-            cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
+        use strum::IntoEnumIterator;
+        let options = self.rocksdb_options.unwrap_or_else(rocksdb_options);
+        let cf_with_opts = DBCol::iter().map(|col| (col_name(col), rocksdb_column_options(col)));
+        let db = DB::open_cf_with_opts_for_read_only(&options, path, cf_with_opts, false)?;
+        let cfs = DBCol::iter()
+            .map(|col| db.cf_handle(&col_name(col)).unwrap() as *const ColumnFamily)
+            .collect();
+
         Ok(RocksDB {
             db,
             cfs,
@@ -544,22 +549,15 @@ impl RocksDBOptions {
     pub fn read_write<P: AsRef<std::path::Path>>(self, path: P) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
         let options = self.rocksdb_options.unwrap_or_else(rocksdb_options);
-        let cf_names = self
-            .cf_names
-            .unwrap_or_else(|| DBCol::iter().map(|col| format!("col{}", col as usize)).collect());
+        let cf_names =
+            self.cf_names.unwrap_or_else(|| DBCol::iter().map(|col| col_name(col)).collect());
         let cf_descriptors = self.cf_descriptors.unwrap_or_else(|| {
             DBCol::iter()
-                .map(|col| {
-                    ColumnFamilyDescriptor::new(
-                        format!("col{}", col as usize),
-                        rocksdb_column_options(col),
-                    )
-                })
+                .map(|col| ColumnFamilyDescriptor::new(col_name(col), rocksdb_column_options(col)))
                 .collect()
         });
         let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
-        #[cfg(feature = "single_thread_rocksdb")]
-        {
+        if cfg!(feature = "single_thread_rocksdb") {
             // These have to be set after open db
             let mut env = Env::default().unwrap();
             env.set_bottom_priority_background_threads(0);
@@ -795,13 +793,7 @@ fn rocksdb_options() -> Options {
     opts.set_bytes_per_sync(bytesize::MIB);
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);
     opts.set_max_bytes_for_level_base(256 * bytesize::MIB);
-    #[cfg(not(feature = "single_thread_rocksdb"))]
-    {
-        opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
-        opts.set_max_total_wal_size(bytesize::GIB);
-    }
-    #[cfg(feature = "single_thread_rocksdb")]
-    {
+    if cfg!(feature = "single_thread_rocksdb") {
         opts.set_disable_auto_compactions(true);
         opts.set_max_background_jobs(0);
         opts.set_stats_dump_period_sec(0);
@@ -809,6 +801,9 @@ fn rocksdb_options() -> Options {
         opts.set_level_zero_slowdown_writes_trigger(-1);
         opts.set_level_zero_file_num_compaction_trigger(-1);
         opts.set_level_zero_stop_writes_trigger(100000000);
+    } else {
+        opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
+        opts.set_max_total_wal_size(bytesize::GIB);
     }
 
     opts
@@ -882,7 +877,7 @@ impl RocksDB {
         })
     }
 
-    fn new_read_only<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
+    pub fn new_read_only<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
         RocksDBOptions::default().read_only(path)
     }
 
@@ -989,7 +984,7 @@ impl Drop for InstanceCounter {
 
 impl TestDB {
     pub fn new() -> Self {
-        let db: Vec<_> = (0..NUM_COLS).map(|_| HashMap::new()).collect();
+        let db: Vec<_> = (0..DBCol::COUNT).map(|_| HashMap::new()).collect();
         Self { db: RwLock::new(db) }
     }
 }

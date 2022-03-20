@@ -29,6 +29,7 @@ near-crypto = { path = "../crypto" }
 near-primitives = { path = "../primitives" }
 
 [dev-dependencies]
+assert_matches = "1.5.0"
 tempfile = "3"
 bencher = "0.1.5"
 rand = "0.7"

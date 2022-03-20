@@ -12,7 +12,7 @@ use lru::LruCache;
 pub use db::DBCol::{self, *};
 pub use db::{
     CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, NUM_COLS, SHOULD_COL_GC, SKIP_COL_GC, TAIL_KEY,
+    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, SHOULD_COL_GC, SKIP_COL_GC, TAIL_KEY,
 };
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
@@ -297,6 +297,13 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
 
 pub fn create_store(path: &Path) -> Store {
     let db = Arc::new(RocksDB::new(path).expect("Failed to open the database"));
+    Store::new(db)
+}
+
+/// Creates a store which is unable to modify an existing RocksDB instance.
+/// Panics if a write operation is attempted.
+pub fn open_read_only_store(path: &Path) -> Store {
+    let db = Arc::new(RocksDB::new_read_only(path).expect("Failed to open the database"));
     Store::new(db)
 }
 

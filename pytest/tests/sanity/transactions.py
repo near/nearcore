@@ -81,10 +81,7 @@ last_balances = [x for x in ctx.expected_balances]
 step = 0
 sent_height = -1
 
-height, hash_ = utils.wait_for_blocks(nodes[4],
-                                      target=1,
-                                      timeout=TIMEOUT,
-                                      check_storage=False)
+height, hash_ = utils.wait_for_blocks(nodes[4], target=1, check_storage=False)
 tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1,
                      base58.b58decode(hash_.encode('utf8')))
 nodes[4].send_tx(tx)
@@ -95,7 +92,6 @@ sent_height = height
 
 height, hash_ = utils.wait_for_blocks(nodes[4],
                                       target=sent_height + 6,
-                                      timeout=TIMEOUT,
                                       check_storage=False)
 cur_balances = ctx.get_balances()
 assert cur_balances == ctx.expected_balances, "%s != %s" % (

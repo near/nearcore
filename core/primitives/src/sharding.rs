@@ -303,6 +303,17 @@ impl ShardChunkHeader {
         }
     }
 
+    // TODO(mina86): Change return type of prev_block_hash to &CryptoHash and
+    // then this method can be deleted.
+    #[inline]
+    pub fn prev_block_hash_ref(&self) -> &CryptoHash {
+        match self {
+            Self::V1(header) => &header.inner.prev_block_hash,
+            Self::V2(header) => &header.inner.prev_block_hash,
+            Self::V3(header) => header.inner.prev_block_hash(),
+        }
+    }
+
     #[inline]
     pub fn encoded_merkle_root(&self) -> CryptoHash {
         match self {
@@ -527,11 +538,7 @@ impl PartialEncodedChunk {
     pub fn prev_block(&self) -> &CryptoHash {
         match &self {
             PartialEncodedChunk::V1(chunk) => &chunk.header.inner.prev_block_hash,
-            PartialEncodedChunk::V2(chunk) => match &chunk.header {
-                ShardChunkHeader::V1(header) => &header.inner.prev_block_hash,
-                ShardChunkHeader::V2(header) => &header.inner.prev_block_hash,
-                ShardChunkHeader::V3(header) => header.inner.prev_block_hash(),
-            },
+            PartialEncodedChunk::V2(chunk) => chunk.header.prev_block_hash_ref(),
         }
     }
 
@@ -697,6 +704,14 @@ impl ShardChunk {
         match self {
             Self::V1(chunk) => chunk.header.inner.height_created,
             Self::V2(chunk) => chunk.header.height_created(),
+        }
+    }
+
+    #[inline]
+    pub fn prev_block(&self) -> &CryptoHash {
+        match &self {
+            ShardChunk::V1(chunk) => &chunk.header.inner.prev_block_hash,
+            ShardChunk::V2(chunk) => chunk.header.prev_block_hash_ref(),
         }
     }
 
@@ -937,7 +952,7 @@ impl EncodedShardChunk {
         TransactionReceipt::try_from_slice(&encoded_data)
     }
 
-    fn encode_transaction_receipts(
+    pub fn encode_transaction_receipts(
         rs: &mut ReedSolomonWrapper,
         transactions: Vec<SignedTransaction>,
         outgoing_receipts: &[Receipt],
