@@ -73,7 +73,7 @@ struct CliArgs {
     #[clap(long)]
     drop_os_cache: bool,
     /// Print extra debug information
-    #[clap(long, multiple(true), possible_values=&["io", "rocksdb", "least-squares"])]
+    #[clap(long, multiple_occurrences(true), possible_values=&["io", "rocksdb", "least-squares"])]
     debug: Vec<String>,
     /// Prints hierarchical execution-timing information using the tracing-span-tree crate.
     #[clap(long)]
