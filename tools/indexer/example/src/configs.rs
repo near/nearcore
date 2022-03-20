@@ -1,4 +1,4 @@
-use clap::{AppSettings, Parser};
+use clap::Parser;
 
 use near_indexer::near_primitives::types::Gas;
 
