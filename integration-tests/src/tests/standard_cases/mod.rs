@@ -23,11 +23,13 @@ use near_vm_errors::MethodResolveError;
 use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
 use crate::node::Node;
+use crate::tests;
 use crate::user::User;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::transaction::FunctionCallAction;
 use testlib::fees_utils::FeeHelper;
+use testlib::runtime_utils;
 use testlib::runtime_utils::{
     alice_account, bob_account, eve_dot_alice_account, x_dot_y_dot_alice_account,
 };
@@ -37,14 +39,6 @@ const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
 
 fn fee_helper(node: &impl Node) -> FeeHelper {
     FeeHelper::new(RuntimeConfig::test().transaction_costs, node.genesis().config.min_gas_price)
-}
-
-fn arr_u64_to_u8(value: &[u64]) -> Vec<u8> {
-    let mut res = vec![];
-    for el in value {
-        res.extend_from_slice(&el.to_le_bytes());
-    }
-    res
 }
 
 /// Adds given access key to the given account_id using signer2.
@@ -1354,7 +1348,7 @@ pub fn test_contract_write_key_value_cost(node: impl Node) {
                 alice_account(),
                 bob_account(),
                 "write_key_value",
-                arr_u64_to_u8(&[10u64, 20u64]),
+                runtime_utils::arr_u64_to_u8(&[10u64, 20u64]),
                 10u64.pow(14),
                 0,
             )
@@ -1381,7 +1375,7 @@ fn make_write_key_value_receipts(node: &impl Node) -> Vec<Receipt> {
                 input_data_ids: vec![],
                 actions: vec![FunctionCallAction {
                     method_name: "write_key_value".to_string(),
-                    args: arr_u64_to_u8(&[i, 10u64 + i]),
+                    args: runtime_utils::arr_u64_to_u8(&[i, 10u64 + i]),
                     gas: 10u64.pow(14),
                     deposit: 0,
                 }

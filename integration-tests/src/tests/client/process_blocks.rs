@@ -4517,14 +4517,7 @@ mod chunk_nodes_cache_test {
     use near_primitives::config::ExtCosts;
     use near_primitives::transaction::ExecutionMetadata;
     use near_primitives::types::BlockHeightDelta;
-
-    fn arr_u64_to_u8(value: &[u64]) -> Vec<u8> {
-        let mut res = vec![];
-        for el in value {
-            res.extend_from_slice(&el.to_le_bytes());
-        }
-        res
-    }
+    use testlib::runtime_utils::arr_u64_to_u8;
 
     fn process_transaction(
         env: &mut TestEnv,
@@ -4655,7 +4648,7 @@ mod chunk_nodes_cache_test {
             })
             .collect();
 
-        assert_eq!(tx_node_touches[0], 2);
+        assert_eq!(tx_node_touches[0], 4);
         assert_eq!(tx_node_touches[1], 12);
         if cfg!(feature = "protocol_feature_chunk_nodes_cache") {
             assert_eq!(tx_node_touches[2], 8);

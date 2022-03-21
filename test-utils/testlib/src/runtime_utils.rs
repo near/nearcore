@@ -51,3 +51,12 @@ pub fn encode_int(val: i32) -> [u8; 4] {
     LittleEndian::write_i32(&mut tmp, val);
     tmp
 }
+
+// Convert array of u64 to u8 to be passed as argument to smart contract.
+pub fn arr_u64_to_u8(value: &[u64]) -> Vec<u8> {
+    let mut res = vec![];
+    for el in value {
+        res.extend_from_slice(&el.to_le_bytes());
+    }
+    res
+}

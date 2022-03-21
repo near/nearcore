@@ -7,6 +7,7 @@ use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
 use near_vm_logic::{VMConfig, VMOutcome};
 use std::mem::size_of;
+use testlib::runtime_utils::arr_u64_to_u8;
 
 use crate::tests::{
     create_context, with_vm_variants, CURRENT_ACCOUNT_ID, LATEST_PROTOCOL_VERSION,
@@ -40,14 +41,6 @@ fn assert_run_result((outcome, err): (Option<VMOutcome>, Option<VMError>), expec
     } else {
         panic!("Failed execution");
     }
-}
-
-fn arr_u64_to_u8(value: &[u64]) -> Vec<u8> {
-    let mut res = vec![];
-    for el in value {
-        res.extend_from_slice(&el.to_le_bytes());
-    }
-    res
 }
 
 #[test]
