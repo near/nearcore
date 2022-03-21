@@ -118,7 +118,7 @@ pub(super) enum NeardSubCommand {
     /// DEPRECATED: this command has been renamed to 'localnet' and will be removed in a future
     /// release.
     // TODO(#4372): Deprecated since 1.24.  Delete it in a couple of releases in 2022.
-    #[clap(name = "testnet")]
+    #[clap(name = "testnet", hide(true))]
     Testnet(LocalnetCmd),
     /// (unsafe) Remove the entire NEAR home directory (which includes the
     /// configuration, genesis files, private keys and data).  This effectively
@@ -130,7 +130,7 @@ pub(super) enum NeardSubCommand {
     #[clap(name = "unsafe_reset_data", hide(true))]
     UnsafeResetData,
     /// View DB state.
-    #[clap(subcommand, name = "view_state", hide(true))]
+    #[clap(subcommand, name = "view_state")]
     StateViewer(StateViewerSubCommand),
 }
 
