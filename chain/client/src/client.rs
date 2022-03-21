@@ -1867,7 +1867,16 @@ impl Client {
 
         // Look also on the orphans queue - some of the blocks here might already be processed,
         // but others will be just waiting for their turn.
-        for entry in self.chain.orphans.orphans.iter() {
+        self.chain.orphans().map(&mut |chunk_hash, block, added| {
+            let h = block.header().height();
+            let height_status = height_status_map.entry(h).or_insert(HeightStatus::default());
+            let mut block_status =
+                height_status.blocks.entry(*chunk_hash).or_insert(BlockDebugStatus::default());
+            block_status.in_orphan_for = now.checked_duration_since(*added);
+            block_status.chunk_hashes =
+                block.chunks().iter().map(|it| it.chunk_hash()).collect_vec();
+        });
+        /*for entry in self.chain.orphans.orphans.iter() {
             let h = entry.1.block.get_inner().header().height();
             let height_status = height_status_map.entry(h).or_insert(HeightStatus::default());
             let mut block_status =
@@ -1876,7 +1885,7 @@ impl Client {
             let block = entry.1.block.get_inner();
             block_status.chunk_hashes =
                 block.chunks().iter().map(|it| it.chunk_hash()).collect_vec();
-        }
+        }*/
 
         // Fetch the status of the chunks.
         for height_entry in height_status_map.iter_mut() {
@@ -1950,7 +1959,7 @@ impl Client {
             self.chain.head()?.epoch_id,
             self.chunks_delay_tracker.blocks_in_progress.len(),
             self.chunks_delay_tracker.chunks_in_progress.len(),
-            self.chain.orphans.orphans.len(),
+            self.chain.orphans().len(),
             if next_blocks_log.len() > 0 { "\n" } else { "" },
             next_blocks_log.join("\n")
         ))

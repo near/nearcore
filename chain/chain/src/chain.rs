@@ -122,9 +122,9 @@ enum ApplyChunksMode {
 /// We save these blocks in an in-memory orphan pool to be processed later
 /// after their previous block is accepted.
 pub struct Orphan {
-    pub block: MaybeValidated<Block>,
-    pub provenance: Provenance,
-    pub added: Instant,
+    block: MaybeValidated<Block>,
+    provenance: Provenance,
+    added: Instant,
 }
 
 impl BlockLike for Orphan {
@@ -152,7 +152,7 @@ impl Orphan {
 ///    or the height is high
 pub struct OrphanBlockPool {
     /// A map from block hash to a orphan block
-    pub orphans: HashMap<CryptoHash, Orphan>,
+    orphans: HashMap<CryptoHash, Orphan>,
     /// A set that contains all orphans for which we have requested missing chunks for them
     /// An orphan can be added to this set when it was first added to the pool, or later
     /// when certain requirements are satisfied (see check_orphans)
@@ -160,7 +160,7 @@ pub struct OrphanBlockPool {
     orphans_requested_missing_chunks: HashSet<CryptoHash>,
     /// A map from block heights to orphan blocks at the height
     /// It's used to evict orphans when the pool is saturated
-    pub height_idx: HashMap<BlockHeight, Vec<CryptoHash>>,
+    height_idx: HashMap<BlockHeight, Vec<CryptoHash>>,
     /// A map from block hashes to orphan blocks whose prev block is the block
     /// It's used to check which orphan blocks are ready to be processed when a block is accepted
     prev_hash_idx: HashMap<CryptoHash, Vec<CryptoHash>>,
@@ -179,35 +179,12 @@ impl OrphanBlockPool {
         }
     }
 
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.orphans.len()
     }
 
     fn len_evicted(&self) -> usize {
         self.evicted
-    }
-
-    pub fn debug(&self) -> String {
-        let per_height_log = self
-            .height_idx
-            .iter()
-            .sorted()
-            .take(20)
-            .map(|entry| {
-                let height = entry.0;
-                let orphans = entry
-                    .1
-                    .iter()
-                    .map(|orphan| {
-                        let chunks_requested =
-                            self.orphans_requested_missing_chunks.contains(&orphan);
-                        format!("{} {} ", orphan, if chunks_requested { "req" } else { "" })
-                    })
-                    .collect::<Vec<String>>();
-                format!("{} {}", height, orphans.join(","))
-            })
-            .collect::<Vec<String>>();
-        format!("Orphans: {} \n {}", self.orphans.len(), per_height_log.join("\n"))
     }
 
     /// Add a block to the orphan pool
@@ -263,6 +240,14 @@ impl OrphanBlockPool {
 
     pub fn get(&self, hash: &CryptoHash) -> Option<&Orphan> {
         self.orphans.get(hash)
+    }
+
+    // Iterates over existing orphans.
+    pub fn map(&self, orphan_fn: &mut dyn FnMut(&CryptoHash, &Block, &Instant)) {
+        self.orphans
+            .iter()
+            .map(|it| orphan_fn(it.0, it.1.block.get_inner(), &it.1.added))
+            .collect_vec();
     }
 
     /// Remove all orphans in the pool that can be "adopted" by block `prev_hash`, i.e., children
@@ -424,8 +409,7 @@ pub fn check_known(
 pub struct Chain {
     store: ChainStore,
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
-    // FIXME
-    pub orphans: OrphanBlockPool,
+    orphans: OrphanBlockPool,
     pub blocks_with_missing_chunks: MissingChunksPool<Orphan>,
     genesis: Block,
     pub transaction_validity_period: NumBlocks,
