@@ -4655,7 +4655,7 @@ mod chunk_nodes_cache_test {
             })
             .collect();
 
-        assert_eq!(tx_node_touches[1], 2);
+        assert_eq!(tx_node_touches[0], 2);
         assert_eq!(tx_node_touches[1], 12);
         if cfg!(feature = "protocol_feature_chunk_nodes_cache") {
             assert_eq!(tx_node_touches[2], 8);
