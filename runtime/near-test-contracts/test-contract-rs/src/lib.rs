@@ -281,10 +281,10 @@ pub unsafe fn ext_validator_stake() {
 #[no_mangle]
 pub unsafe fn write_key_value() {
     input(0);
-    if register_len(0) != 2 * size_of::<u64>() as u64 {
+    if register_len(0) < 2 * size_of::<u64>() as u64 {
         panic()
     }
-    let data = [0u8; 2 * size_of::<u64>()];
+    let data = vec![0u8; register_len(0) as usize];
     read_register(0, data.as_ptr() as u64);
 
     let key = &data[0..size_of::<u64>()];

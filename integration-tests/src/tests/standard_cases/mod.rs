@@ -1430,3 +1430,33 @@ pub fn test_chunk_nodes_cache_across_receipts(node: impl Node, runtime_config: R
 
     assert_eq!(node_touches, results);
 }
+
+pub fn test_chunk_nodes_cache_mode(node: impl Node, runtime_config: RuntimeConfig) {
+    let node_user = node.user();
+    let mut node_touches: Vec<u64> = vec![];
+    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
+    let results: Vec<u64> = vec![6, 2, 2];
+    #[cfg(not(feature = "protocol_feature_chunk_nodes_cache"))]
+    let results: Vec<u64> = vec![6, 6, 6];
+    for i in 0..2 {
+        let receipts = make_write_key_value_receipts(&node);
+        let receipt_hashes: Vec<CryptoHash> =
+            receipts.iter().map(|receipt| receipt.receipt_id.clone()).collect();
+
+        node_user.add_receipts(receipts).unwrap();
+
+        if i == 1 {
+            node_touches = receipt_hashes
+                .iter()
+                .map(|receipt_hash| {
+                    let result = node_user.get_transaction_result(receipt_hash);
+                    let touching_trie_node_cost = get_touching_trie_node_cost(&result.metadata);
+                    touching_trie_node_cost
+                        / runtime_config.wasm_config.ext_costs.touching_trie_node
+                })
+                .collect();
+        }
+    }
+
+    assert_eq!(node_touches, results);
+}
