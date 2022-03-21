@@ -342,10 +342,7 @@ pub struct FullPeerInfo {
 impl From<&FullPeerInfo> for PeerInfoView {
     fn from(full_peer_info: &FullPeerInfo) -> Self {
         PeerInfoView {
-            addr: match full_peer_info.peer_info.addr {
-                Some(socket_addr) => socket_addr.to_string(),
-                None => "N/A".to_string(),
-            },
+            addr: full_peer_info.peer_info.addr,
             account_id: full_peer_info.peer_info.account_id.clone(),
             height: full_peer_info.chain_info.height,
             tracked_shards: full_peer_info.chain_info.tracked_shards.clone(),
@@ -377,9 +374,6 @@ impl From<NetworkInfo> for NetworkInfoView {
                 .iter()
                 .map(|full_peer_info| full_peer_info.into())
                 .collect::<Vec<_>>(),
-            sent_bytes_per_sec: network_info.sent_bytes_per_sec,
-            received_bytes_per_sec: network_info.received_bytes_per_sec,
-            peer_counter: network_info.peer_counter,
         }
     }
 }

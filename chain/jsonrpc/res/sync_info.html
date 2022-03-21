@@ -31,12 +31,12 @@
     </style>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script>
-        $(document).ready(function () {
+        $(document).ready(() => {
             $('span').text("Loading...");
             $.ajax({
                 type: "GET",
                 url: "/debug/api/sync_info",
-                success: function (data) {
+                success: data => {
                     let sync_status = data.detailed_debug_status.sync_status;
                     let network_info = data.detailed_debug_status.network_info;
                     $('.js-sync-status').text(sync_status);
