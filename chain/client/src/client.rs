@@ -109,19 +109,32 @@ pub struct Client {
 
 #[derive(Default)]
 pub struct BlockDebugStatus {
+    // How long is this block 'in progress' (time since we first saw it).
     pub in_progress_for: Option<Duration>,
+    // How long is this block in orphan pool.
     pub in_orphan_for: Option<Duration>,
+    // Epoch id for the block.
     pub epoch_id: EpochId,
-    pub chunks: u64,
+    // List of chunk hashes that belong to this block.
     pub chunk_hashes: Vec<ChunkHash>,
 
-    pub chunks_requested: HashSet<ChunkHash>,
-    pub chunks_received: HashSet<ChunkHash>,
+    // Chunk statuses are below:
+    // We first sent the request to fetch the chunk
+    // Later we get the response from the peer and we try to reconstruct it.
+    // If reconstructions suceeds, the chunk will be marked as complete.
+    // If it fails (or fragments are missing) - we're going to re-request the chunk again.
 
+    // Chunks that we reqeusted (sent the request to peers).
+    pub chunks_requested: HashSet<ChunkHash>,
+    // Chunks for which we've received the response.
+    pub chunks_received: HashSet<ChunkHash>,
+    // Chunks misssing from the database.
     pub chunks_not_completed: HashSet<ChunkHash>,
+    // Chunks completed - fully rebuild and present in database.
     pub chunks_completed: HashSet<ChunkHash>,
 }
 #[derive(Default)]
+// Deubg information about the given height:
 pub struct HeightStatus {
     pub blocks: HashMap<CryptoHash, BlockDebugStatus>,
 }
@@ -1842,8 +1855,7 @@ impl Client {
                 // In case chunks delay tracker 'leaked' some old blocks - we don't want them to show up.
                 continue;
             }
-            let height_status =
-                height_status_map.entry(entry.1.height).or_insert(HeightStatus::default());
+            let height_status = height_status_map.entry(entry.1.height).or_default();
             let mut block_status =
                 height_status.blocks.entry(*entry.0).or_insert(BlockDebugStatus::default());
             block_status.in_progress_for = now.checked_duration_since(entry.1.timestamp);
@@ -1869,7 +1881,7 @@ impl Client {
         // but others will be just waiting for their turn.
         self.chain.orphans().map(&mut |chunk_hash, block, added| {
             let h = block.header().height();
-            let height_status = height_status_map.entry(h).or_insert(HeightStatus::default());
+            let height_status = height_status_map.entry(h).or_default();
             let mut block_status =
                 height_status.blocks.entry(*chunk_hash).or_insert(BlockDebugStatus::default());
             block_status.in_orphan_for = now.checked_duration_since(*added);

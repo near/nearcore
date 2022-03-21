@@ -24,8 +24,11 @@ pub struct ChunksDelayTracker {
 
 #[derive(Debug)]
 pub struct BlockInProgress {
+    /// Timestamp when block was added.
     pub timestamp: Instant,
+    /// Height at which the block is going to be added.
     pub height: BlockHeight,
+    /// Hashes of the chunks that belong to this block.
     pub chunks: Vec<ChunkHash>,
 }
 
