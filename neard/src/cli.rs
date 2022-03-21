@@ -148,12 +148,15 @@ pub(super) enum NeardSubCommand {
     /// hold of all the old data.
     ///
     /// This command makes it possible to force the recompression as a one-time
-    /// operation.  Using it may reduce the size of the database even by up to
-    /// 40% though that depends on various factors including which chain the
-    /// node operates on.  However, it may take up to a day to finish in which
-    /// time the database cannot be used by the node.
+    /// operation.  Using it reduces the database even by up to 40% though that
+    /// is partially due to database ‘defragmentation’ (whose effects will wear
+    /// off in time).  Still, reduction by about 20% even if that’s taken into
+    /// account can be expected.
     ///
-    /// Note that file system where output directory is located needs enough
+    /// It’s important to remember however, that this command may take up to
+    /// a day to finish in which time the database cannot be used by the node.
+    ///
+    /// Furthermore, file system where output directory is located needs enough
     /// free space to store the new copy of the database.  It will be smaller
     /// than the original but to be safe one should provision around the same
     /// space as the size of the current `data` directory.
