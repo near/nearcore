@@ -171,7 +171,7 @@ fn main() {
         StandaloneOutput {
             outcome: outcome.clone(),
             err: err.map(|it| it.to_string()),
-            receipts: results.state.get_receipt_create_calls().clone(),
+            receipts: todo!(),
             state: State(results.state.fake_trie),
         }
     );

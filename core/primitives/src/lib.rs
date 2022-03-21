@@ -16,6 +16,7 @@ pub mod network;
 pub use near_primitives_core::profile;
 pub mod rand;
 pub mod receipt;
+pub mod receipt_manager;
 pub mod runtime;
 pub mod serialize;
 pub mod shard_layout;
