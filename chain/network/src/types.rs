@@ -342,7 +342,10 @@ pub struct FullPeerInfo {
 impl From<&FullPeerInfo> for PeerInfoView {
     fn from(full_peer_info: &FullPeerInfo) -> Self {
         PeerInfoView {
-            addr: full_peer_info.peer_info.addr,
+            addr: match full_peer_info.peer_info.addr {
+                Some(socket_addr) => socket_addr.to_string(),
+                None => "N/A".to_string(),
+            },
             account_id: full_peer_info.peer_info.account_id.clone(),
             height: full_peer_info.chain_info.height,
             tracked_shards: full_peer_info.chain_info.tracked_shards.clone(),

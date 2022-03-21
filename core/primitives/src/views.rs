@@ -4,7 +4,6 @@
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use std::fmt;
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -348,15 +347,17 @@ pub struct DebugBlockStatus {
     pub timestamp_delta: u64,
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct PeerInfoView {
-    pub addr: Option<SocketAddr>,
+    pub addr: String,
     pub account_id: Option<AccountId>,
     pub height: BlockHeight,
     pub tracked_shards: Vec<ShardId>,
     pub archival: bool,
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct NetworkInfoView {
     pub peer_max_count: u32,
