@@ -66,8 +66,13 @@ impl NeardCmd {
             NeardSubCommand::UnsafeResetAll => {
                 unsafe_reset("unsafe_reset_all", &home_dir, "data and config", "<near-home-dir>");
             }
+
             NeardSubCommand::StateViewer(cmd) => {
                 cmd.run(&home_dir, genesis_validation);
+            }
+
+            NeardSubCommand::RecompressStorage(cmd) => {
+                cmd.run(&home_dir);
             }
         }
     }
@@ -132,6 +137,10 @@ pub(super) enum NeardSubCommand {
     /// View DB state.
     #[clap(name = "view_state")]
     StateViewer(StateViewerSubCommand),
+    /// Recompresses the entire storage.  This is a slow operation which reads
+    /// all the data from the database and writes them down to a new copy of the
+    /// database.
+    RecompressStorage(RecompressStorageSubCommand),
 }
 
 #[derive(Clap)]
@@ -452,6 +461,21 @@ fn init_logging(verbose: Option<&str>) {
         .with_env_filter(env_filter)
         .with_writer(io::stderr)
         .init();
+}
+
+#[derive(Clap)]
+pub(super) struct RecompressStorageSubCommand {
+    /// Directory where to save new storage.
+    #[clap(long)]
+    output_dir: PathBuf,
+}
+
+impl RecompressStorageSubCommand {
+    pub(super) fn run(self, home_dir: &Path) {
+        if let Err(err) = nearcore::recompress_storage(&home_dir, &self.output_dir) {
+            error!("{}", err);
+        }
+    }
 }
 
 #[cfg(test)]

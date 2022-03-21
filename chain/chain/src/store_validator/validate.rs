@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use borsh::BorshSerialize;
+use strum::EnumCount;
 use thiserror::Error;
 
 use near_primitives::block::{Block, BlockHeader, Tip};
@@ -19,7 +20,7 @@ use near_store::{
     ColBlock, ColBlockHeader, ColBlockHeight, ColBlockInfo, ColBlockMisc, ColBlockPerHeight,
     ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColHeaderHashesByHeight, ColOutcomeIds,
     ColStateHeaders, ColTransactionResult, DBCol, TrieChanges, TrieIterator, CHUNK_TAIL_KEY,
-    FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, NUM_COLS, SHOULD_COL_GC, TAIL_KEY,
+    FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, SHOULD_COL_GC, TAIL_KEY,
 };
 
 use crate::StoreValidator;
@@ -908,7 +909,7 @@ pub(crate) fn gc_col_count_final(sv: &mut StoreValidator) -> Result<(), StoreVal
         }
     }
     // 1. All zeroes case is acceptable
-    if zeroes == NUM_COLS {
+    if zeroes == DBCol::COUNT {
         return Ok(());
     }
     let mut gc_col_count = 0;
@@ -918,7 +919,7 @@ pub(crate) fn gc_col_count_final(sv: &mut StoreValidator) -> Result<(), StoreVal
         }
     }
     // 2. All columns are GCed case is acceptable
-    if zeroes == NUM_COLS - gc_col_count {
+    if zeroes == DBCol::COUNT - gc_col_count {
         return Ok(());
     }
     // TODO #2861 build a graph of dependencies or make it better in another way
