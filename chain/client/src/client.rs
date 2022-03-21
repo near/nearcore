@@ -107,8 +107,9 @@ pub struct Client {
     pub chunks_delay_tracker: ChunksDelayTracker,
 }
 
+// Debug information about the upcoming block.
 #[derive(Default)]
-pub struct BlockDebugStatus {
+pub struct UpcomingBlockDebugStatus {
     // How long is this block 'in progress' (time since we first saw it).
     pub in_progress_for: Option<Duration>,
     // How long is this block in orphan pool.
@@ -132,11 +133,6 @@ pub struct BlockDebugStatus {
     pub chunks_not_completed: HashSet<ChunkHash>,
     // Chunks completed - fully rebuild and present in database.
     pub chunks_completed: HashSet<ChunkHash>,
-}
-#[derive(Default)]
-// Deubg information about the given height:
-pub struct HeightStatus {
-    pub blocks: HashMap<CryptoHash, BlockDebugStatus>,
 }
 
 impl Client {
@@ -1847,7 +1843,10 @@ impl Client {
     // Returns detailed information about the upcoming blocks.
     pub fn detailed_upcoming_blocks_info(&self) -> Result<String, Error> {
         let now = Instant::now();
-        let mut height_status_map: HashMap<BlockHeight, HeightStatus> = HashMap::new();
+        let mut height_status_map: HashMap<
+            BlockHeight,
+            HashMap<CryptoHash, UpcomingBlockDebugStatus>,
+        > = HashMap::new();
 
         // First - look at all the 'in progress' blocks.
         for entry in self.chunks_delay_tracker.blocks_in_progress.iter() {
@@ -1856,8 +1855,7 @@ impl Client {
                 continue;
             }
             let height_status = height_status_map.entry(entry.1.height).or_default();
-            let mut block_status =
-                height_status.blocks.entry(*entry.0).or_insert(BlockDebugStatus::default());
+            let mut block_status = height_status.entry(*entry.0).or_default();
             block_status.in_progress_for = now.checked_duration_since(entry.1.timestamp);
             block_status.chunk_hashes = entry.1.chunks.clone();
         }
@@ -1866,9 +1864,9 @@ impl Client {
         // Here we can see which ones we sent requests for and which responses already came back.
         for entry in self.chunks_delay_tracker.chunks_in_progress.iter() {
             for height_entry in height_status_map.iter_mut() {
-                if height_entry.1.blocks.contains_key(&entry.1.requestor_block_hash) {
+                if height_entry.1.contains_key(&entry.1.requestor_block_hash) {
                     let block_status_entry =
-                        height_entry.1.blocks.get_mut(&entry.1.requestor_block_hash).unwrap();
+                        height_entry.1.get_mut(&entry.1.requestor_block_hash).unwrap();
                     block_status_entry.chunks_requested.insert(entry.0.clone());
                     if entry.1.chunk_received.is_some() {
                         block_status_entry.chunks_received.insert(entry.0.clone());
@@ -1882,26 +1880,15 @@ impl Client {
         self.chain.orphans().map(&mut |chunk_hash, block, added| {
             let h = block.header().height();
             let height_status = height_status_map.entry(h).or_default();
-            let mut block_status =
-                height_status.blocks.entry(*chunk_hash).or_insert(BlockDebugStatus::default());
+            let mut block_status = height_status.entry(*chunk_hash).or_default();
             block_status.in_orphan_for = now.checked_duration_since(*added);
             block_status.chunk_hashes =
                 block.chunks().iter().map(|it| it.chunk_hash()).collect_vec();
         });
-        /*for entry in self.chain.orphans.orphans.iter() {
-            let h = entry.1.block.get_inner().header().height();
-            let height_status = height_status_map.entry(h).or_insert(HeightStatus::default());
-            let mut block_status =
-                height_status.blocks.entry(*entry.0).or_insert(BlockDebugStatus::default());
-            block_status.in_orphan_for = now.checked_duration_since(entry.1.added);
-            let block = entry.1.block.get_inner();
-            block_status.chunk_hashes =
-                block.chunks().iter().map(|it| it.chunk_hash()).collect_vec();
-        }*/
 
         // Fetch the status of the chunks.
         for height_entry in height_status_map.iter_mut() {
-            for block_entry in height_entry.1.blocks.iter_mut() {
+            for block_entry in height_entry.1.iter_mut() {
                 for chunk_hash in block_entry.1.chunk_hashes.iter() {
                     match self.chain.chain_store().chunk_exists(&chunk_hash) {
                         Ok(true) => block_entry.1.chunks_completed.insert(chunk_hash.clone()),
@@ -1925,7 +1912,6 @@ impl Client {
                 let val = height_status_map.get(height).unwrap();
 
                 let block_debug = val
-                    .blocks
                     .iter()
                     .map(|entry| {
                         let block_info = entry.1;
