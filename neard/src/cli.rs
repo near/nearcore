@@ -123,14 +123,14 @@ pub(super) enum NeardSubCommand {
     /// (unsafe) Remove the entire NEAR home directory (which includes the
     /// configuration, genesis files, private keys and data).  This effectively
     /// removes all information about the network.
-    #[clap(name = "unsafe_reset_all")]
+    #[clap(name = "unsafe_reset_all", hide(true))]
     UnsafeResetAll,
     /// (unsafe) Remove all the data, effectively resetting node to the genesis state (keeps genesis and
     /// config).
-    #[clap(name = "unsafe_reset_data")]
+    #[clap(name = "unsafe_reset_data", hide(true))]
     UnsafeResetData,
     /// View DB state.
-    #[clap(subcommand, name = "view_state")]
+    #[clap(subcommand, name = "view_state", hide(true))]
     StateViewer(StateViewerSubCommand),
 }
 
