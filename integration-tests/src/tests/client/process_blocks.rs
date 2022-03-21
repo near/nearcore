@@ -4512,8 +4512,6 @@ mod contract_precompilation_tests {
     }
 }
 
-#[cfg(feature = "protocol_feature_chunk_nodes_cache")]
-#[cfg(test)]
 mod chunk_nodes_cache_test {
     use super::*;
     use near_primitives::config::ExtCosts;
@@ -4657,14 +4655,12 @@ mod chunk_nodes_cache_test {
             })
             .collect();
 
+        assert_eq!(tx_node_touches[1], 2);
         assert_eq!(tx_node_touches[1], 12);
-        #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
-        {
+        if cfg!(feature = "protocol_feature_chunk_nodes_cache") {
             assert_eq!(tx_node_touches[2], 8);
             assert_eq!(tx_node_touches[3], 8);
-        }
-        #[cfg(not(feature = "protocol_feature_chunk_nodes_cache"))]
-        {
+        } else {
             assert_eq!(tx_node_touches[2], 12);
             assert_eq!(tx_node_touches[3], 12);
         }

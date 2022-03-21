@@ -165,8 +165,11 @@ pub struct TrieCachingStorage {
     /// Caches ever requested items for the shard `shard_uid`. Used to speed up DB operations, presence of any item is
     /// not guaranteed.
     pub(crate) shard_cache: TrieCache,
-    /// Caches all items requested in the mode `TrieCacheMode::CachingChunk`. It must be empty when we start to apply
-    /// txs and receipts in the chunk. All items placed here must remain until applying txs/receipts ends.
+    /// Caches all items requested in the mode `TrieCacheMode::CachingChunk`. It is created in
+    /// `apply_transactions_with_optional_storage_proof` by calling `get_trie_for_shard`. Before we start to apply
+    /// txs and receipts in the chunk, it must be empty, and all items placed here must remain until applying
+    /// txs/receipts ends. Then cache is removed automatically in `apply_transactions_with_optional_storage_proof` when
+    /// `TrieCachingStorage` is removed.
     /// Note that for both caches key is the hash of value, so for the fixed key the value is unique.
     /// TODO (#5920): enable chunk nodes caching in Runtime::apply.
     pub(crate) chunk_cache: RefCell<HashMap<CryptoHash, Arc<[u8]>>>,
