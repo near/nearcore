@@ -31,6 +31,7 @@ near-primitives = { path = "../core/primitives" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
 near-state-viewer = { path = "../tools/state-viewer", package = "state-viewer" }
 near-store = { path = "../core/store" }
+near-o11y = { path = "../core/o11y" }
 
 [build-dependencies]
 anyhow = "1.0.51"

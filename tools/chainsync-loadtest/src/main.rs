@@ -132,27 +132,17 @@ impl Cmd {
     }
 }
 
-fn init_logging() {
-    let env_filter = EnvFilter::from_default_env().add_directive(LevelFilter::INFO.into());
-    tracing_subscriber::fmt::Subscriber::builder()
-        .with_span_events(
-            tracing_subscriber::fmt::format::FmtSpan::ENTER
-                | tracing_subscriber::fmt::format::FmtSpan::CLOSE,
-        )
-        .with_env_filter(env_filter)
-        .with_writer(io::stderr)
-        .init();
-}
-
 fn main() {
-    init_logging();
-    let orig_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |panic_info| {
-        orig_hook(panic_info);
-        std::process::exit(1);
-    }));
-    openssl_probe::init_ssl_cert_env_vars();
-    if let Err(e) = Cmd::parse_and_run() {
-        error!("Cmd::parse_and_run(): {:#}", e);
-    }
+    let env_filter = EnvFilter::from_default_env().add_directive(LevelFilter::INFO.into());
+    near_o11y::with_default_subscriber(env_filter, || {
+        let orig_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |panic_info| {
+            orig_hook(panic_info);
+            std::process::exit(1);
+        }));
+        openssl_probe::init_ssl_cert_env_vars();
+        if let Err(e) = Cmd::parse_and_run() {
+            error!("Cmd::parse_and_run(): {:#}", e);
+        }
+    })
 }

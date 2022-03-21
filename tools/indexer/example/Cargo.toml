@@ -18,3 +18,4 @@ tracing-subscriber = "0.2.4"
 anyhow = "1.0"
 
 near-indexer = { path = "../../../chain/indexer" }
+near-o11y = { path = "../../../core/o11y" }

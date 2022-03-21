@@ -24,13 +24,10 @@ fn maybe_kicked_out(validator_info: &CurrentEpochValidatorInfo) -> bool {
 }
 
 fn main() {
-    tracing_subscriber::fmt::Subscriber::builder()
-        .with_env_filter(EnvFilter::default().add_directive(LevelFilter::DEBUG.into()))
-        .with_writer(std::io::stderr)
-        .init();
-
-    let default_home = get_default_home();
-    let matches = Command::new("Key-pairs generator")
+    let env_filter = EnvFilter::default().add_directive(LevelFilter::DEBUG.into());
+    near_o11y::with_default_subscriber(env_filter, || {
+        let default_home = get_default_home();
+        let matches = Command::new("Key-pairs generator")
         .about(
             "Continuously checking the node and executes staking transaction if node is kicked out",
         )
@@ -64,66 +61,73 @@ fn main() {
         )
         .get_matches();
 
-    let home_dir = matches.value_of("home").map(Path::new).unwrap();
-    let wait_period = matches
-        .value_of("wait-period")
-        .map(|s| s.parse().expect("Wait period must be a number"))
-        .unwrap();
-    let rpc_url = matches.value_of("rpc-url").unwrap();
-    let stake_amount = matches
-        .value_of("stake-amount")
-        .map(|s| s.parse().expect("Stake amount must be a number"))
-        .unwrap();
+        let home_dir = matches.value_of("home").map(Path::new).unwrap();
+        let wait_period = matches
+            .value_of("wait-period")
+            .map(|s| s.parse().expect("Wait period must be a number"))
+            .unwrap();
+        let rpc_url = matches.value_of("rpc-url").unwrap();
+        let stake_amount = matches
+            .value_of("stake-amount")
+            .map(|s| s.parse().expect("Stake amount must be a number"))
+            .unwrap();
 
-    let config = Config::from_file(&home_dir.join(CONFIG_FILENAME)).expect("can't load config");
-    let key_file = KeyFile::from_file(&home_dir.join(&config.validator_key_file));
-    // Support configuring if there is another key.
-    let signer = InMemorySigner::from_file(&home_dir.join(&config.validator_key_file));
-    let account_id = signer.account_id.clone();
-    let mut last_stake_amount = stake_amount;
+        let config = Config::from_file(&home_dir.join(CONFIG_FILENAME)).expect("can't load config");
+        let key_file = KeyFile::from_file(&home_dir.join(&config.validator_key_file));
+        // Support configuring if there is another key.
+        let signer = InMemorySigner::from_file(&home_dir.join(&config.validator_key_file));
+        let account_id = signer.account_id.clone();
+        let mut last_stake_amount = stake_amount;
 
-    assert_eq!(
-        signer.account_id, key_file.account_id,
-        "Only can stake for the same account as given signer key"
-    );
+        assert_eq!(
+            signer.account_id, key_file.account_id,
+            "Only can stake for the same account as given signer key"
+        );
 
-    let user = RpcUser::new(rpc_url, account_id.clone(), Arc::new(signer));
-    loop {
-        let validators = user.validators(None).unwrap();
-        // Check:
-        //  - don't already have a proposal
-        //  - too many missing blocks in current validators
-        //  - missing in next validators
-        if validators.current_proposals.iter().any(|proposal| proposal.account_id() == &account_id)
-        {
-            continue;
-        }
-        let mut restake = false;
-        validators
-            .current_validators
-            .iter()
-            .filter(|validator_info| validator_info.account_id == account_id)
-            .last()
-            .map(|validator_info| {
-                last_stake_amount = validator_info.stake;
-                if maybe_kicked_out(validator_info) {
-                    restake = true;
-                }
-            });
-        restake |= !validators
-            .next_validators
-            .iter()
-            .any(|validator_info| validator_info.account_id == account_id);
-        if restake {
-            // Already kicked out or getting kicked out.
-            let amount = if stake_amount == 0 { last_stake_amount } else { stake_amount };
-            info!(target: "restaked", "Sending staking transaction {} -> {}", key_file.account_id, amount);
-            if let Err(err) =
-                user.stake(key_file.account_id.clone(), key_file.public_key.clone(), amount)
+        let user = RpcUser::new(rpc_url, account_id.clone(), Arc::new(signer));
+        loop {
+            let validators = user.validators(None).unwrap();
+            // Check:
+            //  - don't already have a proposal
+            //  - too many missing blocks in current validators
+            //  - missing in next validators
+            if validators
+                .current_proposals
+                .iter()
+                .any(|proposal| proposal.account_id() == &account_id)
             {
-                error!(target: "restaked", "Failed to send staking transaction: {}", err);
+                continue;
             }
+            let mut restake = false;
+            validators
+                .current_validators
+                .iter()
+                .filter(|validator_info| validator_info.account_id == account_id)
+                .last()
+                .map(|validator_info| {
+                    last_stake_amount = validator_info.stake;
+                    if maybe_kicked_out(validator_info) {
+                        restake = true;
+                    }
+                });
+            restake |= !validators
+                .next_validators
+                .iter()
+                .any(|validator_info| validator_info.account_id == account_id);
+            if restake {
+                // Already kicked out or getting kicked out.
+                let amount = if stake_amount == 0 { last_stake_amount } else { stake_amount };
+                info!(
+                    target: "restaked",
+                    "Sending staking transaction {} -> {}", key_file.account_id, amount
+                );
+                if let Err(err) =
+                    user.stake(key_file.account_id.clone(), key_file.public_key.clone(), amount)
+                {
+                    error!(target: "restaked", "Failed to send staking transaction: {}", err);
+                }
+            }
+            std::thread::sleep(Duration::from_secs(wait_period));
         }
-        std::thread::sleep(Duration::from_secs(wait_period));
-    }
+    });
 }

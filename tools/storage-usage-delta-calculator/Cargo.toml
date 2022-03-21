@@ -17,3 +17,4 @@ tracing-subscriber = "0.2.4"
 near-chain-configs = { path = "../../core/chain-configs" }
 near-primitives = { path = "../../core/primitives" }
 node-runtime = { path = "../../runtime/runtime" }
+near-o11y = { path = "../../core/o11y" }

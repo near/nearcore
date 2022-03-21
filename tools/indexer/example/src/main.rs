@@ -5,7 +5,7 @@ use clap::Parser;
 use tokio::sync::mpsc;
 use tracing::info;
 
-use configs::{init_logging, Opts, SubCommand};
+use configs::{Opts, SubCommand};
 use near_indexer;
 
 mod configs;
@@ -260,29 +260,36 @@ fn main() -> Result<()> {
     // We use it to automatically search the for root certificates to perform HTTPS calls
     // (sending telemetry and downloading genesis)
     openssl_probe::init_ssl_cert_env_vars();
-    init_logging();
+    let env_filter = EnvFilter::new(
+        "nearcore=info,indexer_example=info,tokio_reactor=info,near=info,\
+         stats=info,telemetry=info,indexer=info,near-performance-metrics=info",
+    );
+    near_o11y::with_default_subscriber(env_filter, || {
+        let opts: Opts = Opts::parse();
 
-    let opts: Opts = Opts::parse();
+        let home_dir =
+            opts.home_dir.unwrap_or(std::path::PathBuf::from(near_indexer::get_default_home()));
 
-    let home_dir =
-        opts.home_dir.unwrap_or(std::path::PathBuf::from(near_indexer::get_default_home()));
-
-    match opts.subcmd {
-        SubCommand::Run => {
-            let indexer_config = near_indexer::IndexerConfig {
-                home_dir,
-                sync_mode: near_indexer::SyncModeEnum::FromInterruption,
-                await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::WaitForFullSync,
-            };
-            let system = actix::System::new();
-            system.block_on(async move {
-                let indexer = near_indexer::Indexer::new(indexer_config).expect("Indexer::new()");
-                let stream = indexer.streamer();
-                actix::spawn(listen_blocks(stream));
-            });
-            system.run()?;
+        match opts.subcmd {
+            SubCommand::Run => {
+                let indexer_config = near_indexer::IndexerConfig {
+                    home_dir,
+                    sync_mode: near_indexer::SyncModeEnum::FromInterruption,
+                    await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::WaitForFullSync,
+                };
+                let system = actix::System::new();
+                system.block_on(async move {
+                    let indexer =
+                        near_indexer::Indexer::new(indexer_config).expect("Indexer::new()");
+                    let stream = indexer.streamer();
+                    actix::spawn(listen_blocks(stream));
+                });
+                system.run()?;
+            }
+            SubCommand::Init(config) => {
+                near_indexer::indexer_init_configs(&home_dir, config.into())?
+            }
         }
-        SubCommand::Init(config) => near_indexer::indexer_init_configs(&home_dir, config.into())?,
-    }
-    Ok(())
+        Ok(())
+    })
 }

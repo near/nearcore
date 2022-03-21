@@ -1,0 +1,11 @@
+[package]
+name = "near-o11y"
+description = "Observability helpers for the near codebase"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tracing = { version = "0.1.13", features = ["std"] }
+tracing-subscriber = { version = "0.3.9", features = ["fmt", "env-filter", "std"] }
+tracing-appender = "0.2.2"
