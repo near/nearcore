@@ -75,6 +75,10 @@ struct CliArgs {
     /// Print extra debug information
     #[clap(long, multiple(true), possible_values=&["io", "rocksdb", "least-squares"])]
     debug: Vec<String>,
+    /// Print detailed estimation results in JSON format. One line with one JSON
+    /// object per estimation.
+    #[clap(long)]
+    json_output: bool,
     /// Prints hierarchical execution-timing information using the tracing-span-tree crate.
     #[clap(long)]
     tracing_span_tree: bool,
@@ -222,6 +226,7 @@ fn main() -> anyhow::Result<()> {
         costs_to_measure,
         rocksdb_test_config,
         debug_least_squares: debug_options.contains(&"least-squares"),
+        json_output: cli_args.json_output,
         drop_os_cache: cli_args.drop_os_cache,
     };
     let cost_table = runtime_params_estimator::run(config);
