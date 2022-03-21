@@ -2616,6 +2616,7 @@ dependencies = [
  "chrono",
  "delay-detector",
  "futures",
+ "itertools",
  "lru",
  "near-actix-test-utils",
  "near-chain",
