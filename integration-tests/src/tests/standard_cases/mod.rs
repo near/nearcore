@@ -26,7 +26,7 @@ use crate::node::Node;
 use crate::user::User;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::runtime::config::RuntimeConfig;
-use near_primitives::transaction::FunctionCallAction;
+use near_primitives::transaction::{Action, FunctionCallAction};
 use testlib::fees_utils::FeeHelper;
 use testlib::runtime_utils;
 use testlib::runtime_utils::{
@@ -1363,30 +1363,32 @@ pub fn test_contract_write_key_value_cost(node: impl Node) {
     }
 }
 
+fn make_receipt(node: &impl Node, actions: Vec<Action>) -> Receipt {
+    let receipt_enum = ReceiptEnum::Action(ActionReceipt {
+        signer_id: alice_account(),
+        signer_public_key: node.signer().as_ref().public_key(),
+        gas_price: 0,
+        output_data_receivers: vec![],
+        input_data_ids: vec![],
+        actions,
+    });
+    Receipt {
+        predecessor_id: alice_account(),
+        receiver_id: bob_account(),
+        receipt_id: hash(&receipt_enum.try_to_vec().unwrap()),
+        receipt: receipt_enum,
+    }
+}
+
 fn make_write_key_value_receipts(node: &impl Node) -> Vec<Receipt> {
     (0..3)
-        .map(|i| {
-            let receipt_enum = ReceiptEnum::Action(ActionReceipt {
-                signer_id: alice_account(),
-                signer_public_key: node.signer().as_ref().public_key(),
-                gas_price: 0,
-                output_data_receivers: vec![],
-                input_data_ids: vec![],
-                actions: vec![FunctionCallAction {
-                    method_name: "write_key_value".to_string(),
-                    args: runtime_utils::arr_u64_to_u8(&[i, 10u64 + i]),
-                    gas: 10u64.pow(14),
-                    deposit: 0,
-                }
-                .into()],
-            });
-            Receipt {
-                predecessor_id: alice_account(),
-                receiver_id: bob_account(),
-                receipt_id: hash(&receipt_enum.try_to_vec().unwrap()),
-                receipt: receipt_enum,
-            }
-        })
+        .map(|i| make_receipt(node,
+                              vec![FunctionCallAction {
+                                                  method_name: "write_key_value".to_string(),
+                                                  args: runtime_utils::arr_u64_to_u8(&[i, 10u64 + i]),
+                                                  gas: 10u64.pow(14),
+                                                  deposit: 0,
+                                              }.into()]))
         .collect()
 }
 
@@ -1438,6 +1440,15 @@ pub fn test_chunk_nodes_cache_mode(node: impl Node, runtime_config: RuntimeConfi
     let results: Vec<u64> = vec![6, 2, 2];
     #[cfg(not(feature = "protocol_feature_chunk_nodes_cache"))]
     let results: Vec<u64> = vec![6, 6, 6];
+
+    let mut receipt =
+        vec![make_receipt(&node, FunctionCallAction {
+            method_name: "write_key_value".to_string(),
+            args: runtime_utils::arr_u64_to_u8(&[1, 10u64 + i]),
+            gas: 10u64.pow(14),
+            deposit: 0,
+        }.into())];
+    receipt.push()
     for i in 0..2 {
         let receipts = make_write_key_value_receipts(&node);
         let receipt_hashes: Vec<CryptoHash> =
