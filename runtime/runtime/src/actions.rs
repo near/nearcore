@@ -99,30 +99,30 @@ pub(crate) fn execute_function_call(
         output_data_receivers,
     };
 
+    // Enable caching chunk mode for the function call. This allows to charge for nodes touched in a chunk only once for
+    // the first access time. Although nodes are accessed for other actions as well, we do it only here because we
+    // charge only for trie nodes touched during function calls.
     // TODO (#5920): Consider using RAII for switching the state back
     let protocol_version = runtime_ext.protocol_version();
-    let runner = |runtime_ext| {
-        near_vm_runner::run(
-            &code,
-            &function_call.method_name,
-            runtime_ext,
-            context,
-            &config.wasm_config,
-            &config.transaction_costs,
-            promise_results,
-            apply_state.current_protocol_version,
-            apply_state.cache.as_deref(),
-        )
-    };
-
     if checked_feature!("protocol_feature_chunk_nodes_cache", ChunkNodesCache, protocol_version) {
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
-        let result = runner(runtime_ext);
-        runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
-        result
-    } else {
-        runner(runtime_ext)
     }
+    let result = near_vm_runner::run(
+        &code,
+        &function_call.method_name,
+        runtime_ext,
+        context,
+        &config.wasm_config,
+        &config.transaction_costs,
+        promise_results,
+        apply_state.current_protocol_version,
+        apply_state.cache.as_deref(),
+    );
+    if checked_feature!("protocol_feature_chunk_nodes_cache", ChunkNodesCache, protocol_version) {
+        runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
+    }
+
+    result
 }
 
 pub(crate) fn action_function_call(
