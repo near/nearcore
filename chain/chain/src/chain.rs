@@ -337,6 +337,7 @@ pub struct BlockMissingChunks {
     /// previous block hash
     pub prev_hash: CryptoHash,
     pub missing_chunks: Vec<ShardChunkHeader>,
+    pub block_hash: CryptoHash,
 }
 
 /// Contains information needed to request chunks for orphans
@@ -1441,6 +1442,7 @@ impl Chain {
                         block_misses_chunks(BlockMissingChunks {
                             prev_hash: *block.header().prev_hash(),
                             missing_chunks,
+                            block_hash,
                         });
                         let orphan = Orphan { block, provenance, added: Clock::instant() };
                         self.blocks_with_missing_chunks

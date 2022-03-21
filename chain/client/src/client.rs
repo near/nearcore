@@ -1223,15 +1223,9 @@ impl Client {
         orphans_missing_chunks: Vec<OrphanMissingChunks>,
     ) {
         let now = Clock::instant();
-        for BlockMissingChunks { prev_hash, missing_chunks, requestor_block_hash } in
-            blocks_missing_chunks
-        {
+        for BlockMissingChunks { prev_hash, missing_chunks, block_hash } in blocks_missing_chunks {
             for chunk in &missing_chunks {
-                self.chunks_delay_tracker.requested_chunk(
-                    &chunk.chunk_hash(),
-                    now,
-                    &requestor_block_hash,
-                );
+                self.chunks_delay_tracker.requested_chunk(&chunk.chunk_hash(), now, &block_hash);
             }
             self.shards_mgr.request_chunks(
                 missing_chunks,
@@ -1952,11 +1946,12 @@ impl Client {
             .collect::<Vec<String>>();
 
         Ok(format!(
-            "{:?} Blocks in progress: {} Chunks in progress: {} Orphans: {}\n {}",
+            "{:?} Blocks in progress: {} Chunks in progress: {} Orphans: {}{}{}",
             self.chain.head()?.epoch_id,
             self.chunks_delay_tracker.blocks_in_progress.len(),
             self.chunks_delay_tracker.chunks_in_progress.len(),
             self.chain.orphans.orphans.len(),
+            if next_blocks_log.len() > 0 { "\n" } else { "" },
             next_blocks_log.join("\n")
         ))
     }
