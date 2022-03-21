@@ -166,7 +166,7 @@ impl GasCost {
                 "instructions": self.instructions.to_f64(),
                 "io_r_bytes": self.io_r_bytes.to_f64(),
                 "io_w_bytes": self.io_w_bytes.to_f64(),
-                "uncertain": self.uncertain.is_some(),
+                // `None` will be printed as `null`
                 "uncertain_reason": self.uncertain.map(|u| u.reason),
             }),
             GasMetric::Time => json!({
