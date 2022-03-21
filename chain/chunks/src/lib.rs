@@ -2466,7 +2466,7 @@ mod test {
             let mut parts = HashSet::new();
             while let Some(r) = fixture.mock_network.pop() {
                 match r.as_network_requests_ref() {
-                    NetworkRequests::PartialEncodedChunkRequest { target: _, request } => {
+                    NetworkRequests::PartialEncodedChunkRequest { request, .. } => {
                         for part_ord in &request.part_ords {
                             parts.insert(*part_ord);
                         }
