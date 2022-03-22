@@ -1,10 +1,12 @@
 [package]
 name = "near-o11y"
+version = "0.0.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
 description = "Observability helpers for the near codebase"
-readme = "README.md"
-version = "0.1.0"
 edition = "2021"
 publish = false
+readme = "README.md"
+rust-version = "1.56.0"
 
 [dependencies]
 tracing = { version = "0.1.13", features = ["std"] }

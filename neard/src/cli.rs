@@ -47,7 +47,7 @@ impl NeardCmd {
         #[cfg(feature = "test_features")]
         {
             error!("THIS IS A NODE COMPILED WITH ADVERSARIAL BEHAVIORS. DO NOT USE IN PRODUCTION.");
-            if env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
+            if std::env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
                 error!(
                     "To run a node with adversarial behavior enabled give your consent \
                             by setting an environment variable:"

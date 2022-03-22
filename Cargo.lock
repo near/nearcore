@@ -2930,7 +2930,7 @@ dependencies = [
 
 [[package]]
 name = "near-o11y"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "tracing",
  "tracing-appender",
@@ -5430,7 +5430,7 @@ version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e0ab7bdc962035a87fba73f3acca9b8a8d0034c2e6f60b84aeaaddddc155dce"
 dependencies = [
- "ansi_term 0.12.1",
+ "ansi_term",
  "lazy_static",
  "matchers",
  "regex",
