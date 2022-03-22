@@ -1,12 +1,11 @@
 use std::{io, path::PathBuf};
 
 use clap::Clap;
+use db::DB;
 use import::ImportInfo;
-use rusqlite::Connection;
 
-mod data_representations;
+mod db;
 mod import;
-mod queries;
 
 #[derive(Clap)]
 struct CliArgs {
@@ -33,9 +32,7 @@ enum SubCommand {
 fn main() -> anyhow::Result<()> {
     let cli_args = CliArgs::parse();
 
-    let db = Connection::open(cli_args.db)?;
-    let init_sql = include_str!("init.sql");
-    db.execute(init_sql, [])?;
+    let db = DB::open(&cli_args.db)?;
 
     match cli_args.cmd {
         SubCommand::Import => {
@@ -43,7 +40,7 @@ fn main() -> anyhow::Result<()> {
                 commit_hash: cli_args.commit_hash,
                 protocol_version: cli_args.protocol_version,
             };
-            import::json_from_bufread(&db, &info, io::stdin().lock())?;
+            db.import_json_lines(&info, io::stdin().lock())?;
         }
     }
 
@@ -52,11 +49,9 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod test {
-    use rusqlite::Connection;
-
     use crate::{
-        data_representations::GasFeeRow,
-        import::{json_from_bufread, ImportInfo},
+        db::{EstimationRow, DB},
+        import::ImportInfo,
     };
 
     #[test]
@@ -66,27 +61,27 @@ mod test {
             {"computed_in":{"nanos":983235753,"secs":0},"name":"LogByte","result":{"gas":2743748,"metric":"time","time_ns":2.7437486640625,"uncertain_reason":"HIGH-VARIANCE"}}
         "#;
         let expected = [
-            GasFeeRow {
+            EstimationRow {
                 name: "LogBase".to_owned(),
                 gas: 441061948.0,
+                parameter: None,
                 wall_clock_time: Some(441.061948),
                 icount: None,
                 io_read: None,
                 io_write: None,
                 uncertain_reason: None,
-                protocol_version: None,
-                commit_hash: Some("53a3ccf3ef07".to_owned()),
+                commit_hash: "53a3ccf3ef07".to_owned(),
             },
-            GasFeeRow {
+            EstimationRow {
                 name: "LogByte".to_owned(),
                 gas: 2743748.0,
+                parameter: None,
                 wall_clock_time: Some(2.7437486640625),
                 icount: None,
                 io_read: None,
                 io_write: None,
                 uncertain_reason: Some("HIGH-VARIANCE".to_owned()),
-                protocol_version: None,
-                commit_hash: Some("53a3ccf3ef07".to_owned()),
+                commit_hash: "53a3ccf3ef07".to_owned(),
             },
         ];
         let info =
@@ -100,27 +95,27 @@ mod test {
         {"computed_in":{"nanos":50472,"secs":0},"name":"ApplyBlock","result":{"gas":9059500000,"instructions":71583.0,"io_r_bytes":0.0,"io_w_bytes":19.0,"metric":"icount","uncertain_reason":"HIGH-VARIANCE"}}
         "#;
         let expected = [
-            GasFeeRow {
+            EstimationRow {
                 name: "ActionReceiptCreation".to_owned(),
                 gas: 240650158750.0,
+                parameter: None,
                 wall_clock_time: None,
                 icount: Some(1860478.51),
                 io_read: Some(0.0),
                 io_write: Some(1377.08),
                 uncertain_reason: None,
-                protocol_version: None,
-                commit_hash: Some("53a3ccf3ef07".to_owned()),
+                commit_hash: "53a3ccf3ef07".to_owned(),
             },
-            GasFeeRow {
+            EstimationRow {
                 name: "ApplyBlock".to_owned(),
                 gas: 9059500000.0,
+                parameter: None,
                 wall_clock_time: None,
                 icount: Some(71583.0),
                 io_read: Some(0.0),
                 io_write: Some(19.0),
                 uncertain_reason: Some("HIGH-VARIANCE".to_owned()),
-                protocol_version: None,
-                commit_hash: Some("53a3ccf3ef07".to_owned()),
+                commit_hash: "53a3ccf3ef07".to_owned(),
             },
         ];
         let info =
@@ -128,21 +123,17 @@ mod test {
         assert_import_icount(input, &info, &expected);
     }
     #[track_caller]
-    fn assert_import_time(input: &str, info: &ImportInfo, expected_output: &[GasFeeRow]) {
-        let db = Connection::open_in_memory().unwrap();
-        let init_sql = include_str!("init.sql");
-        db.execute(init_sql, []).unwrap();
-        json_from_bufread(&db, info, input.as_bytes()).unwrap();
-        let output = GasFeeRow::all_time_based(&db).unwrap();
+    fn assert_import_time(input: &str, info: &ImportInfo, expected_output: &[EstimationRow]) {
+        let db = DB::test();
+        db.import_json_lines(info, input.as_bytes()).unwrap();
+        let output = EstimationRow::all_time_based(&db).unwrap();
         assert_eq!(expected_output, output);
     }
     #[track_caller]
-    fn assert_import_icount(input: &str, info: &ImportInfo, expected_output: &[GasFeeRow]) {
-        let db = Connection::open_in_memory().unwrap();
-        let init_sql = include_str!("init.sql");
-        db.execute(init_sql, []).unwrap();
-        json_from_bufread(&db, info, input.as_bytes()).unwrap();
-        let output = GasFeeRow::all_icount_based(&db).unwrap();
+    fn assert_import_icount(input: &str, info: &ImportInfo, expected_output: &[EstimationRow]) {
+        let db = DB::test();
+        db.import_json_lines(info, input.as_bytes()).unwrap();
+        let output = EstimationRow::all_icount_based(&db).unwrap();
         assert_eq!(expected_output, output);
     }
 }
