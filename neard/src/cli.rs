@@ -140,6 +140,29 @@ pub(super) enum NeardSubCommand {
     /// Recompresses the entire storage.  This is a slow operation which reads
     /// all the data from the database and writes them down to a new copy of the
     /// database.
+    ///
+    /// In 1.26 release the compression algorithm for the database has changed
+    /// to reduce storage size.  Nodes don’t need to do anything for new data to
+    /// take advantage of better compression but existing data may take months
+    /// to be recompressed.  This may be an issue for archival nodes which keep
+    /// hold of all the old data.
+    ///
+    /// This command makes it possible to force the recompression as a one-time
+    /// operation.  Using it reduces the database even by up to 40% though that
+    /// is partially due to database ‘defragmentation’ (whose effects will wear
+    /// off in time).  Still, reduction by about 20% even if that’s taken into
+    /// account can be expected.
+    ///
+    /// It’s important to remember however, that this command may take up to
+    /// a day to finish in which time the database cannot be used by the node.
+    ///
+    /// Furthermore, file system where output directory is located needs enough
+    /// free space to store the new copy of the database.  It will be smaller
+    /// than the original but to be safe one should provision around the same
+    /// space as the size of the current `data` directory.
+    ///
+    /// Finally, because this command is meant only as a temporary migration
+    /// tool, it is planned to be removed by the end of 2022.
     RecompressStorage(RecompressStorageSubCommand),
 }
 
