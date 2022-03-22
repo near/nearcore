@@ -50,6 +50,7 @@ use near_store::{
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeAdapter};
 use near_store::db::DBCol::ColStateChangesForSplitStates;
+use near_store::db::StoreStatistics;
 
 /// lru cache size
 #[cfg(not(feature = "no_cache"))]
@@ -762,8 +763,8 @@ impl ChainStore {
         })
     }
 
-    pub fn get_rocksdb_statistics(&self) -> Option<String> {
-        self.store.get_rocksdb_statistics()
+    pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
+        self.store.get_store_statistics()
     }
 }
 

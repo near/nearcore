@@ -96,7 +96,7 @@ fn apply_block_at_height(
 }
 
 pub fn migrate_12_to_13(path: &Path, near_config: &NearConfig) {
-    let store = create_store(path);
+    let store = create_store(path, false);
     if !near_config.client_config.archive {
         // Non archival node. Perform a simply migration without necessarily fixing the inconsistencies
         // since the old data will be garbage collected in five epochs
@@ -138,7 +138,7 @@ pub fn migrate_12_to_13(path: &Path, near_config: &NearConfig) {
 
 pub fn migrate_18_to_19(path: &Path, near_config: &NearConfig) {
     use near_primitives::types::EpochId;
-    let store = create_store(path);
+    let store = create_store(path, false);
     if near_config.client_config.archive {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
@@ -209,7 +209,7 @@ pub fn migrate_18_to_19(path: &Path, near_config: &NearConfig) {
 }
 
 pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
-    let store = create_store(path);
+    let store = create_store(path, false);
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
@@ -271,7 +271,7 @@ pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
 /// This is a one time patch to fix an existing issue in mainnet database
 /// (<https://github.com/near/near-indexer-for-explorer/issues/110>)
 pub fn migrate_22_to_23(path: &Path, near_config: &NearConfig) {
-    let store = create_store(path);
+    let store = create_store(path, false);
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
@@ -345,7 +345,7 @@ lazy_static_include::lazy_static_include_bytes! {
 /// Put receipts restored in scope of issue
 /// <https://github.com/near/nearcore/pull/4248> to storage.
 pub fn migrate_23_to_24(path: &Path, near_config: &NearConfig) {
-    let store = create_store(path);
+    let store = create_store(path, false);
     if &near_config.genesis.config.chain_id == "mainnet" {
         let mut store_update = store.store_update();
         let restored_receipts: ReceiptResult = serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
@@ -362,7 +362,7 @@ pub fn migrate_23_to_24(path: &Path, near_config: &NearConfig) {
 pub fn migrate_24_to_25(path: &Path) {
     use smart_default::SmartDefault;
 
-    let store = create_store(path);
+    let store = create_store(path, false);
 
     #[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, SmartDefault, Eq, Debug)]
     pub struct OldExecutionOutcome {
@@ -482,7 +482,7 @@ pub fn migrate_24_to_25(path: &Path) {
 /// Fix an issue with block ordinal (#5761)
 // This migration takes at least 3 hours to complete on mainnet
 pub fn migrate_30_to_31(path: &Path, near_config: &NearConfig) {
-    let store = create_store(path);
+    let store = create_store(path, false);
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);

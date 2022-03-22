@@ -1,8 +1,26 @@
 use near_metrics::{try_create_gauge_vec, try_create_int_gauge};
+use near_store::db::{StatsValue, StoreStatistics};
+use once_cell::sync::Lazy;
 use prometheus::{GaugeVec, IntGauge};
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::sync::Mutex;
+use tracing::warn;
 
-#[derive(Default)]
+pub(crate) fn export_stats_as_metrics(stats: StoreStatistics) {
+    match ROCKSDB_METRICS.lock().unwrap().export_stats_as_metrics(stats) {
+        Ok(_) => {}
+        Err(err) => {
+            warn!(target:"stats", "Failed to export store statistics: {:?}",err);
+        }
+    }
+}
+
+/// Wrapper for re-exporting RocksDB stats into Prometheus metrics.
+pub(crate) static ROCKSDB_METRICS: Lazy<Mutex<RocksDBMetrics>> =
+    Lazy::new(|| Mutex::new(RocksDBMetrics::default()));
+
+#[derive(Default, Debug)]
 /// Creates prometheus metrics on-demand for exporting RocksDB statistics.
 pub(crate) struct RocksDBMetrics {
     // Contains counters and sums, which are integer statistics in RocksDB.
@@ -14,18 +32,18 @@ pub(crate) struct RocksDBMetrics {
 impl RocksDBMetrics {
     pub fn export_stats_as_metrics(
         &mut self,
-        stats: &[(&str, Vec<StatsValue>)],
-    ) -> anyhow::Result<()> {
-        for (stat_name, values) in stats {
+        stats: StoreStatistics,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for (stat_name, values) in stats.data {
             if values.len() == 1 {
                 // A counter stats.
                 // A statistic 'a.b.c' creates the following prometheus metric:
                 // - near_a_b_c
                 if let StatsValue::Count(value) = values[0] {
                     self.set_int_value(
-                        |stat_name| stat_name.to_string(),
+                        |stat_name: &str| stat_name.to_string(),
                         |stat_name| get_prometheus_metric_name(stat_name),
-                        stat_name,
+                        &stat_name,
                         value,
                     )?;
                 }
@@ -41,35 +59,46 @@ impl RocksDBMetrics {
                             self.set_int_value(
                                 |stat_name| get_stats_summary_count_key(stat_name),
                                 |stat_name| get_metric_name_summary_count_gauge(stat_name),
-                                stat_name,
-                                *value,
+                                &stat_name,
+                                value,
                             )?;
                         }
                         StatsValue::Sum(value) => {
                             self.set_int_value(
                                 |stat_name| get_stats_summary_sum_key(stat_name),
                                 |stat_name| get_metric_name_summary_sum_gauge(stat_name),
-                                stat_name,
-                                *value,
+                                &stat_name,
+                                value,
                             )?;
                         }
                         StatsValue::Percentile(percentile, value) => {
-                            let key: &str = stat_name;
-                            if !self.gauges.contains_key(key) {
-                                self.gauges.insert(
-                                    key.to_string(),
-                                    try_create_gauge_vec(
-                                        &get_prometheus_metric_name(stat_name),
-                                        stat_name,
+                            let key = &stat_name;
+
+                            let entry = self.gauges.entry(key.to_string());
+                            match entry {
+                                Entry::Vacant(ve) => {
+                                    let gauge = ve.insert(try_create_gauge_vec(
+                                        &get_prometheus_metric_name(&stat_name),
+                                        &stat_name,
                                         &["quantile"],
-                                    )?,
-                                );
-                            }
-                            self.gauges
-                                .get(key)
-                                .unwrap()
-                                .with_label_values(&[&format!("{:.2}", *percentile as f64 * 0.01)])
-                                .set(*value);
+                                    )?);
+                                    gauge
+                                        .with_label_values(&[&format!(
+                                            "{:.2}",
+                                            percentile as f64 * 0.01
+                                        )])
+                                        .set(value);
+                                }
+                                Entry::Occupied(oe) => {
+                                    let gauge = oe.get();
+                                    gauge
+                                        .with_label_values(&[&format!(
+                                            "{:.2}",
+                                            percentile as f64 * 0.01
+                                        )])
+                                        .set(value);
+                                }
+                            };
                         }
                     }
                 }
@@ -78,67 +107,27 @@ impl RocksDBMetrics {
         Ok(())
     }
 
-    fn set_int_value<F1, F2>(
+    fn set_int_value(
         &mut self,
-        key_fn: F1,
-        metric_fn: F2,
+        key_fn: fn(&str) -> String,
+        metric_fn: fn(&str) -> String,
         stat_name: &str,
         value: i64,
-    ) -> anyhow::Result<()>
-    where
-        F1: Fn(&str) -> String,
-        F2: Fn(&str) -> String,
-    {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let key: &str = &key_fn(stat_name);
-        if !self.int_gauges.contains_key(key) {
-            self.int_gauges
-                .insert(key.to_string(), try_create_int_gauge(&metric_fn(stat_name), stat_name)?);
-        }
-        self.int_gauges.get(key).unwrap().set(value);
+        let entry = self.int_gauges.entry(key.to_string());
+        match entry {
+            Entry::Vacant(ve) => {
+                let gauge = ve.insert(try_create_int_gauge(&metric_fn(stat_name), stat_name)?);
+                gauge.set(value);
+            }
+            Entry::Occupied(oe) => {
+                let gauge = oe.get();
+                gauge.set(value);
+            }
+        };
         Ok(())
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum StatsValue {
-    Count(i64),
-    Sum(i64),
-    Percentile(u32, f64),
-}
-
-/// Parses a string containing RocksDB statistics.
-pub(crate) fn parse_statistics(statistics: &str) -> anyhow::Result<Vec<(&str, Vec<StatsValue>)>> {
-    let mut result = vec![];
-    // Statistics are given one per line.
-    for line in statistics.split('\n') {
-        // Each line follows one of two formats:
-        // 1) <stat_name> COUNT : <value>
-        // 2) <stat_name> P50 : <value> P90 : <value> COUNT : <value> SUM : <value>
-        // Each line gets split into words and we parse statistics according to this format.
-        if let Some((stat_name, words)) = line.split_once(' ') {
-            let mut values = vec![];
-            let mut words = words.split(" : ").flat_map(|v| v.split(" "));
-            while let (Some(key), Some(val)) = (words.next(), words.next()) {
-                match key {
-                    "COUNT" => values.push(StatsValue::Count(val.parse::<i64>()?)),
-                    "SUM" => values.push(StatsValue::Sum(val.parse::<i64>()?)),
-                    p if p.starts_with("P") => values.push(StatsValue::Percentile(
-                        key[1..].parse::<u32>()?,
-                        val.parse::<f64>()?,
-                    )),
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "Unsupported stats value: {} in {}",
-                            key,
-                            line
-                        ));
-                    }
-                }
-            }
-            result.push((stat_name, values));
-        }
-    }
-    Ok(result)
 }
 
 fn get_prometheus_metric_name(stat_name: &str) -> String {

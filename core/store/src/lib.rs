@@ -28,7 +28,8 @@ use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 pub use crate::db::refcount::decode_value_with_rc;
 use crate::db::refcount::encode_value_with_rc;
 use crate::db::{
-    DBOp, DBTransaction, Database, RocksDB, GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
+    DBOp, DBTransaction, Database, RocksDB, StoreStatistics, GENESIS_JSON_HASH_KEY,
+    GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::iterator::TrieIterator;
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
@@ -152,8 +153,8 @@ impl Store {
         self.storage.as_rocksdb()
     }
 
-    pub fn get_rocksdb_statistics(&self) -> Option<String> {
-        self.storage.get_rocksdb_statistics()
+    pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
+        self.storage.get_store_statstics()
     }
 }
 
@@ -299,8 +300,8 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
     Ok(None)
 }
 
-pub fn create_store(path: &Path) -> Store {
-    let db = Arc::new(RocksDB::new(path).expect("Failed to open the database"));
+pub fn create_store(path: &Path, enable_statistics: bool) -> Store {
+    let db = Arc::new(RocksDB::new(path, enable_statistics).expect("Failed to open the database"));
     Store::new(db)
 }
 

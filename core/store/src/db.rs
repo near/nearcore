@@ -530,7 +530,7 @@ impl RocksDBOptions {
     /// Opens a read only database.
     pub fn read_only<P: AsRef<std::path::Path>>(self, path: P) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
-        let options = self.rocksdb_options.unwrap_or_else(rocksdb_options);
+        let options = self.rocksdb_options.unwrap_or_else(|| rocksdb_options(false));
         let cf_with_opts = DBCol::iter().map(|col| (col_name(col), rocksdb_column_options(col)));
         let db = DB::open_cf_with_opts_for_read_only(&options, path, cf_with_opts, false)?;
         let cfs = DBCol::iter()
@@ -549,9 +549,13 @@ impl RocksDBOptions {
     }
 
     /// Opens the database in read/write mode.
-    pub fn read_write<P: AsRef<std::path::Path>>(self, path: P) -> Result<RocksDB, DBError> {
+    pub fn read_write<P: AsRef<std::path::Path>>(
+        self,
+        path: P,
+        enable_statistics: bool,
+    ) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
-        let options = self.rocksdb_options.unwrap_or_else(rocksdb_options);
+        let options = self.rocksdb_options.unwrap_or_else(|| rocksdb_options(enable_statistics));
         let cf_names =
             self.cf_names.unwrap_or_else(|| DBCol::iter().map(|col| col_name(col)).collect());
         let cf_descriptors = self.cf_descriptors.unwrap_or_else(|| {
@@ -606,7 +610,7 @@ pub trait Database: Sync + Send {
     fn as_rocksdb(&self) -> Option<&RocksDB> {
         None
     }
-    fn get_rocksdb_statistics(&self) -> Option<String> {
+    fn get_store_statstics(&self) -> Option<StoreStatistics> {
         None
     }
 }
@@ -706,8 +710,18 @@ impl Database for RocksDB {
         Some(self)
     }
 
-    fn get_rocksdb_statistics(&self) -> Option<String> {
-        self.db_opt.get_statistics()
+    fn get_store_statstics(&self) -> Option<StoreStatistics> {
+        if let Some(stats_str) = self.db_opt.get_statistics() {
+            match parse_statistics(&stats_str) {
+                Ok(parsed_statistics) => {
+                    return Some(parsed_statistics);
+                }
+                Err(err) => {
+                    warn!(target: "store", "Failed to parse store statistics: {:?}", err);
+                }
+            }
+        }
+        None
     }
 }
 
@@ -792,7 +806,7 @@ fn set_compression_options(opts: &mut Options) {
 }
 
 /// DB level options
-fn rocksdb_options() -> Options {
+fn rocksdb_options(enable_statistics: bool) -> Options {
     let mut opts = Options::default();
 
     set_compression_options(&mut opts);
@@ -804,13 +818,15 @@ fn rocksdb_options() -> Options {
     opts.set_bytes_per_sync(bytesize::MIB);
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);
     opts.set_max_bytes_for_level_base(256 * bytesize::MIB);
-    // Rust API doesn't permit choosing stats level. The default stats level is
-    // `kExceptDetailedTimers`, which is described as:
-    // "Collects all stats except time inside mutex lock AND time spent on compression.".
-    opts.enable_statistics();
-    // Disabling dumping stats to filse because the stats are exported to Prometheus.
-    opts.set_stats_persist_period_sec(0);
-    opts.set_stats_dump_period_sec(0);
+    if enable_statistics {
+        // Rust API doesn't permit choosing stats level. The default stats level is
+        // `kExceptDetailedTimers`, which is described as:
+        // "Collects all stats except time inside mutex lock AND time spent on compression."
+        opts.enable_statistics();
+        // Disabling dumping stats to files because the stats are exported to Prometheus.
+        opts.set_stats_persist_period_sec(0);
+        opts.set_stats_dump_period_sec(0);
+    }
     if cfg!(feature = "single_thread_rocksdb") {
         opts.set_disable_auto_compactions(true);
         opts.set_max_background_jobs(0);
@@ -899,8 +915,11 @@ impl RocksDB {
         RocksDBOptions::default().read_only(path)
     }
 
-    pub fn new<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
-        RocksDBOptions::default().read_write(path)
+    pub fn new<P: AsRef<std::path::Path>>(
+        path: P,
+        enable_statistics: bool,
+    ) -> Result<Self, DBError> {
+        RocksDBOptions::default().read_write(path, enable_statistics)
     }
 
     /// Checks if there is enough memory left to perform a write. Not having enough memory left can
@@ -1116,4 +1135,46 @@ mod tests {
             assert_eq!(store.get(ColState, &[1]).unwrap(), None);
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum StatsValue {
+    Count(i64),
+    Sum(i64),
+    Percentile(u32, f64),
+}
+
+pub struct StoreStatistics {
+    pub data: Vec<(String, Vec<StatsValue>)>,
+}
+
+/// Parses a string containing RocksDB statistics.
+fn parse_statistics(statistics: &str) -> Result<StoreStatistics, Box<dyn std::error::Error>> {
+    let mut result = vec![];
+    // Statistics are given one per line.
+    for line in statistics.lines() {
+        // Each line follows one of two formats:
+        // 1) <stat_name> COUNT : <value>
+        // 2) <stat_name> P50 : <value> P90 : <value> COUNT : <value> SUM : <value>
+        // Each line gets split into words and we parse statistics according to this format.
+        if let Some((stat_name, words)) = line.split_once(' ') {
+            let mut values = vec![];
+            let mut words = words.split(" : ").flat_map(|v| v.split(" "));
+            while let (Some(key), Some(val)) = (words.next(), words.next()) {
+                match key {
+                    "COUNT" => values.push(StatsValue::Count(val.parse::<i64>()?)),
+                    "SUM" => values.push(StatsValue::Sum(val.parse::<i64>()?)),
+                    p if p.starts_with("P") => values.push(StatsValue::Percentile(
+                        key[1..].parse::<u32>()?,
+                        val.parse::<f64>()?,
+                    )),
+                    _ => {
+                        warn!(target: "stats", "Unsupported stats value: {key} in {line}");
+                    }
+                }
+            }
+            result.push((stat_name.to_string(), values));
+        }
+    }
+    Ok(StoreStatistics { data: result })
 }

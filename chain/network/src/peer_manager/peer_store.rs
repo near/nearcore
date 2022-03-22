@@ -431,14 +431,14 @@ mod test {
         let peer_info_to_ban = gen_peer_info(1);
         let boot_nodes = vec![peer_info_a, peer_info_to_ban.clone()];
         {
-            let store = create_store(tmp_dir.path());
+            let store = create_store(tmp_dir.path(), false);
             let mut peer_store = PeerStore::new(store, &boot_nodes).unwrap();
             assert_eq!(peer_store.healthy_peers(3).len(), 2);
             peer_store.peer_ban(&peer_info_to_ban.id, ReasonForBan::Abusive).unwrap();
             assert_eq!(peer_store.healthy_peers(3).len(), 1);
         }
         {
-            let store_new = create_store(tmp_dir.path());
+            let store_new = create_store(tmp_dir.path(), false);
             let peer_store_new = PeerStore::new(store_new, &boot_nodes).unwrap();
             assert_eq!(peer_store_new.healthy_peers(3).len(), 1);
         }
@@ -451,7 +451,7 @@ mod test {
         let peer_info_to_ban = gen_peer_info(1);
         let boot_nodes = vec![peer_info_a, peer_info_to_ban];
         {
-            let store = create_store(tmp_dir.path());
+            let store = create_store(tmp_dir.path(), false);
             let peer_store = PeerStore::new(store, &boot_nodes).unwrap();
             assert!(peer_store.unconnected_peer(|_| false).is_some());
             assert!(peer_store.unconnected_peer(|_| true).is_none());

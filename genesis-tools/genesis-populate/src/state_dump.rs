@@ -17,7 +17,7 @@ pub struct StateDump {
 
 impl StateDump {
     pub fn from_dir(dir: &Path, target_store_path: &Path) -> Self {
-        let store = create_store(target_store_path);
+        let store = create_store(target_store_path, false);
         let state_file = dir.join(STATE_DUMP_FILE);
         store.load_from_file(ColState, state_file.as_path()).expect("Failed to read state dump");
         let roots_files = dir.join(GENESIS_ROOTS_FILE);

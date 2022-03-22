@@ -1,7 +1,5 @@
-use crate::rocksdb_metrics::{parse_statistics, RocksDBMetrics};
-use crate::{metrics, SyncStatus};
+use crate::{metrics, rocksdb_metrics, SyncStatus};
 use actix::Addr;
-use anyhow::Context;
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_client_primitives::types::ShardSyncStatus;
 use near_network::types::NetworkInfo;
@@ -16,12 +14,13 @@ use near_primitives::types::{AccountId, BlockHeight, EpochHeight, Gas, NumBlocks
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo, ValidatorKickoutView};
+use near_store::db::StoreStatistics;
 use near_telemetry::{telemetry, TelemetryActor};
 use std::cmp::min;
 use std::fmt::Write;
 use std::sync::Arc;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
-use tracing::{info, warn};
+use tracing::info;
 
 const TERAGAS: f64 = 1_000_000_000_000_f64;
 
@@ -52,8 +51,6 @@ pub struct InfoHelper {
     telemetry_actor: Addr<TelemetryActor>,
     /// Log coloring enabled
     log_summary_style: LogSummaryStyle,
-    /// Wrapper for re-exporting RocksDB stats into Prometheus metrics.
-    rocksdb_metrics: RocksDBMetrics,
 }
 
 impl InfoHelper {
@@ -74,7 +71,6 @@ impl InfoHelper {
             telemetry_actor,
             validator_signer,
             log_summary_style: client_config.log_summary_style,
-            rocksdb_metrics: RocksDBMetrics::default(),
         }
     }
 
@@ -105,7 +101,7 @@ impl InfoHelper {
         validator_epoch_stats: Vec<ValidatorProductionStats>,
         epoch_height: EpochHeight,
         protocol_upgrade_block_height: BlockHeight,
-        statistics: Option<String>,
+        statistics: Option<StoreStatistics>,
     ) {
         let use_colour = matches!(self.log_summary_style, LogSummaryStyle::Colored);
         let paint = |colour: ansi_term::Colour, text: Option<String>| match text {
@@ -167,8 +163,8 @@ impl InfoHelper {
             paint(ansi_term::Colour::Green, blocks_info_log),
             paint(ansi_term::Colour::Blue, machine_info_log),
         );
-        if let Err(err) = self.export_rocksdb_statistics(statistics) {
-            warn!("Failed to export RocksDB statistics: {:?}", err);
+        if let Some(statistics) = statistics {
+            rocksdb_metrics::export_stats_as_metrics(statistics);
         }
 
         let (cpu_usage, memory_usage) = proc_info.unwrap_or_default();
@@ -239,19 +235,6 @@ impl InfoHelper {
             serde_json::to_value(&info).expect("Telemetry must serialize to json")
         };
         telemetry(&self.telemetry_actor, content);
-    }
-
-    fn export_rocksdb_statistics(&mut self, statistics: Option<String>) -> anyhow::Result<()> {
-        if let Some(statistics) = statistics {
-            parse_statistics(&statistics).context("Failed to parse rocksdb statistics").and_then(
-                |stats| {
-                    self.rocksdb_metrics
-                        .export_stats_as_metrics(&stats)
-                        .context("Failed to parse rocksdb statistics")
-                },
-            )?;
-        }
-        Ok(())
     }
 }
 

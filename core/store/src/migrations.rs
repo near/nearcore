@@ -148,7 +148,7 @@ pub fn migrate_6_to_7(path: &Path) {
 }
 
 pub fn migrate_7_to_8(path: &Path) {
-    let store = create_store(path);
+    let store = create_store(path, false);
     let mut store_update = store.store_update();
     for (key, _) in store.iter_without_rc_logic(ColStateParts) {
         store_update.delete(ColStateParts, &key);
@@ -159,14 +159,14 @@ pub fn migrate_7_to_8(path: &Path) {
 
 // No format change. Recompute ColTransactions and ColReceiptIdToShardId because they could be inconsistent.
 pub fn migrate_8_to_9(path: &Path) {
-    let store = create_store(path);
+    let store = create_store(path, false);
     repair_col_transactions(&store);
     repair_col_receipt_id_to_shard_id(&store);
     set_store_version(&store, 9);
 }
 
 pub fn migrate_9_to_10(path: &Path, is_archival: bool) {
-    let store = create_store(path);
+    let store = create_store(path, false);
     let protocol_version = 38; // protocol_version at the time this migration was written
     if is_archival {
         // Hard code the number of parts there. These numbers are only used for this migration.
@@ -259,7 +259,7 @@ pub fn migrate_9_to_10(path: &Path, is_archival: bool) {
 }
 
 pub fn migrate_10_to_11(path: &Path) {
-    let store = create_store(path);
+    let store = create_store(path, false);
     let mut store_update = store.store_update();
     let head = store.get_ser::<Tip>(ColBlockMisc, HEAD_KEY).unwrap().expect("head must exist");
     let block_header = store
@@ -289,7 +289,7 @@ pub fn migrate_10_to_11(path: &Path) {
 }
 
 pub fn migrate_11_to_12(path: &Path) {
-    let store = create_store(path);
+    let store = create_store(path, false);
     recompute_col_rc(
         &store,
         DBCol::ColReceipts,
@@ -401,7 +401,7 @@ where
 
 /// Lift all chunks to the versioned structure
 pub fn migrate_13_to_14(path: &Path) {
-    let store = create_store(path);
+    let store = create_store(path, false);
 
     map_col(&store, DBCol::ColPartialChunks, |pec: PartialEncodedChunkV1| {
         PartialEncodedChunk::V1(pec)
@@ -422,7 +422,7 @@ pub fn migrate_13_to_14(path: &Path) {
 
 /// Make execution outcome ids in `ColOutcomeIds` ordered by replaying the chunks.
 pub fn migrate_14_to_15(path: &Path) {
-    let store = create_store(path);
+    let store = create_store(path, false);
     let trie_store = Box::new(TrieCachingStorage::new(
         store.clone(),
         TrieCache::new(),
@@ -615,7 +615,7 @@ pub fn migrate_17_to_18(path: &Path) {
         pub slashed: Vec<SlashedValidator>,
         pub total_supply: Balance,
     }
-    let store = create_store(path);
+    let store = create_store(path, false);
     map_col_from_key(&store, DBCol::ColBlockInfo, |key| {
         let hash = CryptoHash::try_from(key).unwrap();
         let old_block_info =
@@ -650,7 +650,7 @@ pub fn migrate_17_to_18(path: &Path) {
 }
 
 pub fn migrate_20_to_21(path: &Path) {
-    let store = create_store(path);
+    let store = create_store(path, false);
     let mut store_update = store.store_update();
     store_update.delete(DBCol::ColBlockMisc, GENESIS_JSON_HASH_KEY);
     store_update.commit().unwrap();
@@ -678,7 +678,7 @@ pub fn migrate_21_to_22(path: &Path) {
         pub slashed: HashMap<AccountId, SlashState>,
         pub total_supply: Balance,
     }
-    let store = create_store(path);
+    let store = create_store(path, false);
     map_col_from_key(&store, DBCol::ColBlockInfo, |key| {
         let old_block_info =
             store.get_ser::<OldBlockInfo>(DBCol::ColBlockInfo, key).unwrap().unwrap();
@@ -723,7 +723,7 @@ pub fn migrate_21_to_22(path: &Path) {
 }
 
 pub fn migrate_25_to_26(path: &Path) {
-    let store = create_store(path);
+    let store = create_store(path, false);
     let mut store_update = store.store_update();
     store_update.delete_all(DBCol::ColCachedContractCode);
     store_update.commit().unwrap();
@@ -732,7 +732,7 @@ pub fn migrate_25_to_26(path: &Path) {
 }
 
 pub fn migrate_26_to_27(path: &Path, is_archival: bool) {
-    let store = create_store(path);
+    let store = create_store(path, false);
     if is_archival {
         recompute_block_ordinal(&store);
     }
@@ -740,7 +740,7 @@ pub fn migrate_26_to_27(path: &Path, is_archival: bool) {
 }
 
 pub fn migrate_28_to_29(path: &Path) {
-    let store = create_store(path);
+    let store = create_store(path, false);
     let mut store_update = store.store_update();
     store_update.delete_all(DBCol::_ColNextBlockWithNewChunk);
     store_update.delete_all(DBCol::_ColLastBlockWithNewChunk);
@@ -761,7 +761,7 @@ pub fn migrate_29_to_30(path: &Path) {
     };
     use std::collections::BTreeMap;
 
-    let store = create_store(path);
+    let store = create_store(path, false);
 
     #[derive(BorshDeserialize)]
     pub struct OldEpochSummary {

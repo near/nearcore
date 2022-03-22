@@ -68,7 +68,7 @@ pub fn compute_function_call_cost(
     contract: &ContractCode,
 ) -> Gas {
     let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-    let store = create_store(&get_store_path(workdir.path()));
+    let store = create_store(&get_store_path(workdir.path()), false);
     let cache_store = Arc::new(StoreCompiledContractCache { store });
     let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
     let protocol_version = ProtocolVersion::MAX;
