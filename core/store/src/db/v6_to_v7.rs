@@ -67,6 +67,6 @@ impl RocksDB {
                     })
                     .collect(),
             )
-            .read_write(path, false)
+            .read_write(path)
     }
 }

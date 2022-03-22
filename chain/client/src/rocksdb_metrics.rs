@@ -17,7 +17,7 @@ pub(crate) fn export_stats_as_metrics(stats: StoreStatistics) {
 }
 
 /// Wrapper for re-exporting RocksDB stats into Prometheus metrics.
-pub(crate) static ROCKSDB_METRICS: Lazy<Mutex<RocksDBMetrics>> =
+static ROCKSDB_METRICS: Lazy<Mutex<RocksDBMetrics>> =
     Lazy::new(|| Mutex::new(RocksDBMetrics::default()));
 
 #[derive(Default, Debug)]
@@ -57,16 +57,16 @@ impl RocksDBMetrics {
                     match stats_value {
                         StatsValue::Count(value) => {
                             self.set_int_value(
-                                |stat_name| get_stats_summary_count_key(stat_name),
-                                |stat_name| get_metric_name_summary_count_gauge(stat_name),
+                                get_stats_summary_count_key,
+                                get_metric_name_summary_count_gauge,
                                 &stat_name,
                                 value,
                             )?;
                         }
                         StatsValue::Sum(value) => {
                             self.set_int_value(
-                                |stat_name| get_stats_summary_sum_key(stat_name),
-                                |stat_name| get_metric_name_summary_sum_gauge(stat_name),
+                                get_stats_summary_sum_key,
+                                get_metric_name_summary_sum_gauge,
                                 &stat_name,
                                 value,
                             )?;
@@ -74,31 +74,17 @@ impl RocksDBMetrics {
                         StatsValue::Percentile(percentile, value) => {
                             let key = &stat_name;
 
-                            let entry = self.gauges.entry(key.to_string());
-                            match entry {
-                                Entry::Vacant(ve) => {
-                                    let gauge = ve.insert(try_create_gauge_vec(
-                                        &get_prometheus_metric_name(&stat_name),
-                                        &stat_name,
-                                        &["quantile"],
-                                    )?);
-                                    gauge
-                                        .with_label_values(&[&format!(
-                                            "{:.2}",
-                                            percentile as f64 * 0.01
-                                        )])
-                                        .set(value);
-                                }
-                                Entry::Occupied(oe) => {
-                                    let gauge = oe.get();
-                                    gauge
-                                        .with_label_values(&[&format!(
-                                            "{:.2}",
-                                            percentile as f64 * 0.01
-                                        )])
-                                        .set(value);
-                                }
+                            let gauge = match self.gauges.entry(key.to_string()) {
+                                Entry::Vacant(entry) => entry.insert(try_create_gauge_vec(
+                                    &get_prometheus_metric_name(&stat_name),
+                                    &stat_name,
+                                    &["quantile"],
+                                )?),
+                                Entry::Occupied(entry) => entry.into_mut(),
                             };
+                            gauge
+                                .with_label_values(&[&format!("{:.2}", percentile as f64 * 0.01)])
+                                .set(value);
                         }
                     }
                 }
@@ -115,17 +101,13 @@ impl RocksDBMetrics {
         value: i64,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let key: &str = &key_fn(stat_name);
-        let entry = self.int_gauges.entry(key.to_string());
-        match entry {
-            Entry::Vacant(ve) => {
-                let gauge = ve.insert(try_create_int_gauge(&metric_fn(stat_name), stat_name)?);
-                gauge.set(value);
+        let gauge = match self.int_gauges.entry(key.to_string()) {
+            Entry::Vacant(entry) => {
+                entry.insert(try_create_int_gauge(&metric_fn(stat_name), stat_name)?)
             }
-            Entry::Occupied(oe) => {
-                let gauge = oe.get();
-                gauge.set(value);
-            }
+            Entry::Occupied(entry) => entry.into_mut(),
         };
+        gauge.set(value);
         Ok(())
     }
 }

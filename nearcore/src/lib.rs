@@ -28,7 +28,7 @@ use near_store::migrations::{
     migrate_21_to_22, migrate_25_to_26, migrate_26_to_27, migrate_28_to_29, migrate_29_to_30,
     migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
 };
-use near_store::{create_store, Store};
+use near_store::{create_store, create_store_with_config, Store, StoreConfig};
 use near_telemetry::TelemetryActor;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -104,7 +104,7 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf
             path.display()));
     }
 
-    let db = RocksDB::new(path, false)?;
+    let db = RocksDB::new(path)?;
     let checkpoint = db.checkpoint()?;
     info!(target: "near", "Creating a database migration snapshot in '{}'", checkpoint_path.display());
     checkpoint.create_checkpoint(&checkpoint_path)?;
@@ -157,21 +157,21 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         // Does not need to do anything since open db with option `create_missing_column_families`
         // Nevertheless need to bump db version, because db_version 1 binary can't open db_version 2 db
         info!(target: "near", "Migrate DB from version 1 to 2");
-        let store = create_store(path, false);
+        let store = create_store(path);
         set_store_version(&store, 2);
     }
     if db_version <= 2 {
         // version 2 => 3: add ColOutcomesByBlockHash + rename LastComponentNonce -> ColLastComponentNonce
         // The column number is the same, so we don't need additional updates
         info!(target: "near", "Migrate DB from version 2 to 3");
-        let store = create_store(path, false);
+        let store = create_store(path);
         fill_col_outcomes_by_hash(&store);
         set_store_version(&store, 3);
     }
     if db_version <= 3 {
         // version 3 => 4: add ColTransactionRefCount
         info!(target: "near", "Migrate DB from version 3 to 4");
-        let store = create_store(path, false);
+        let store = create_store(path);
         fill_col_transaction_refcount(&store);
         set_store_version(&store, 4);
     }
@@ -180,14 +180,14 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         // version 4 => 5: add ColProcessedBlockHeights
         // we don't need to backfill the old heights since at worst we will just process some heights
         // again.
-        let store = create_store(path, false);
+        let store = create_store(path);
         set_store_version(&store, 5);
     }
     if db_version <= 5 {
         info!(target: "near", "Migrate DB from version 5 to 6");
         // version 5 => 6: add merge operator to ColState
         // we don't have merge records before so old storage works
-        let store = create_store(path, false);
+        let store = create_store(path);
         set_store_version(&store, 6);
     }
     if db_version <= 6 {
@@ -249,13 +249,13 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
     if db_version <= 15 {
         info!(target: "near", "Migrate DB from version 15 to 16");
         // version 15 => 16: add column for compiled contracts
-        let store = create_store(path, false);
+        let store = create_store(path);
         set_store_version(&store, 16);
     }
     if db_version <= 16 {
         info!(target: "near", "Migrate DB from version 16 to 17");
         // version 16 => 17: add column for storing epoch validator info
-        let store = create_store(path, false);
+        let store = create_store(path);
         set_store_version(&store, 17);
     }
     if db_version <= 17 {
@@ -308,7 +308,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         // Does not need to do anything since open db with option `create_missing_column_families`
         // Nevertheless need to bump db version, because db_version 1 binary can't open db_version 2 db
         info!(target: "near", "Migrate DB from version 27 to 28");
-        let store = create_store(path, false);
+        let store = create_store(path);
         set_store_version(&store, 28);
     }
     if db_version <= 28 {
@@ -329,7 +329,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
 
     #[cfg(feature = "nightly_protocol")]
     {
-        let store = create_store(&path, false);
+        let store = create_store(&path);
 
         // set some dummy value to avoid conflict with other migrations from nightly features
         set_store_version(&store, 10000);
@@ -367,7 +367,8 @@ pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Stor
     if store_exists {
         apply_store_migrations(&path, near_config);
     }
-    let store = create_store(&path, near_config.config.enable_rocksdb_statistics);
+    let store =
+        create_store_with_config(&path, StoreConfig { read_only: false, enable_statistics: true });
     if !store_exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);
     }

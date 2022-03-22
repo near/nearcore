@@ -471,6 +471,7 @@ pub struct RocksDBOptions {
     check_free_space_interval: u16,
     free_space_threshold: bytesize::ByteSize,
     warn_treshold: bytesize::ByteSize,
+    enable_statistics: bool,
 }
 
 /// Sets [`RocksDBOptions::check_free_space_interval`] to 256,
@@ -485,6 +486,7 @@ impl Default for RocksDBOptions {
             check_free_space_interval: 256,
             free_space_threshold: bytesize::ByteSize::mb(16),
             warn_treshold: bytesize::ByteSize::mb(256),
+            enable_statistics: false,
         }
     }
 }
@@ -530,7 +532,7 @@ impl RocksDBOptions {
     /// Opens a read only database.
     pub fn read_only<P: AsRef<std::path::Path>>(self, path: P) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
-        let options = self.rocksdb_options.unwrap_or_else(|| rocksdb_options(false));
+        let options = self.rocksdb_options.unwrap_or_else(rocksdb_options);
         let cf_with_opts = DBCol::iter().map(|col| (col_name(col), rocksdb_column_options(col)));
         let db = DB::open_cf_with_opts_for_read_only(&options, path, cf_with_opts, false)?;
         let cfs = DBCol::iter()
@@ -549,13 +551,12 @@ impl RocksDBOptions {
     }
 
     /// Opens the database in read/write mode.
-    pub fn read_write<P: AsRef<std::path::Path>>(
-        self,
-        path: P,
-        enable_statistics: bool,
-    ) -> Result<RocksDB, DBError> {
+    pub fn read_write<P: AsRef<std::path::Path>>(self, path: P) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
-        let options = self.rocksdb_options.unwrap_or_else(|| rocksdb_options(enable_statistics));
+        let mut options = self.rocksdb_options.unwrap_or_else(rocksdb_options);
+        if self.enable_statistics {
+            options = enable_statistics(options);
+        }
         let cf_names =
             self.cf_names.unwrap_or_else(|| DBCol::iter().map(|col| col_name(col)).collect());
         let cf_descriptors = self.cf_descriptors.unwrap_or_else(|| {
@@ -585,6 +586,11 @@ impl RocksDBOptions {
             _instance_counter: InstanceCounter::new(),
         })
     }
+
+    pub fn enable_statistics(mut self) -> Self {
+        self.enable_statistics = true;
+        self
+    }
 }
 
 pub struct TestDB {
@@ -610,7 +616,7 @@ pub trait Database: Sync + Send {
     fn as_rocksdb(&self) -> Option<&RocksDB> {
         None
     }
-    fn get_store_statstics(&self) -> Option<StoreStatistics> {
+    fn get_store_statistics(&self) -> Option<StoreStatistics> {
         None
     }
 }
@@ -710,7 +716,7 @@ impl Database for RocksDB {
         Some(self)
     }
 
-    fn get_store_statstics(&self) -> Option<StoreStatistics> {
+    fn get_store_statistics(&self) -> Option<StoreStatistics> {
         if let Some(stats_str) = self.db_opt.get_statistics() {
             match parse_statistics(&stats_str) {
                 Ok(parsed_statistics) => {
@@ -806,7 +812,7 @@ fn set_compression_options(opts: &mut Options) {
 }
 
 /// DB level options
-fn rocksdb_options(enable_statistics: bool) -> Options {
+fn rocksdb_options() -> Options {
     let mut opts = Options::default();
 
     set_compression_options(&mut opts);
@@ -818,15 +824,6 @@ fn rocksdb_options(enable_statistics: bool) -> Options {
     opts.set_bytes_per_sync(bytesize::MIB);
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);
     opts.set_max_bytes_for_level_base(256 * bytesize::MIB);
-    if enable_statistics {
-        // Rust API doesn't permit choosing stats level. The default stats level is
-        // `kExceptDetailedTimers`, which is described as:
-        // "Collects all stats except time inside mutex lock AND time spent on compression."
-        opts.enable_statistics();
-        // Disabling dumping stats to files because the stats are exported to Prometheus.
-        opts.set_stats_persist_period_sec(0);
-        opts.set_stats_dump_period_sec(0);
-    }
     if cfg!(feature = "single_thread_rocksdb") {
         opts.set_disable_auto_compactions(true);
         opts.set_max_background_jobs(0);
@@ -839,6 +836,18 @@ fn rocksdb_options(enable_statistics: bool) -> Options {
         opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
         opts.set_max_total_wal_size(bytesize::GIB);
     }
+
+    opts
+}
+
+pub fn enable_statistics(mut opts: Options) -> Options {
+    // Rust API doesn't permit choosing stats level. The default stats level is
+    // `kExceptDetailedTimers`, which is described as:
+    // "Collects all stats except time inside mutex lock AND time spent on compression."
+    opts.enable_statistics();
+    // Disabling dumping stats to files because the stats are exported to Prometheus.
+    opts.set_stats_persist_period_sec(0);
+    opts.set_stats_dump_period_sec(0);
 
     opts
 }
@@ -915,11 +924,8 @@ impl RocksDB {
         RocksDBOptions::default().read_only(path)
     }
 
-    pub fn new<P: AsRef<std::path::Path>>(
-        path: P,
-        enable_statistics: bool,
-    ) -> Result<Self, DBError> {
-        RocksDBOptions::default().read_write(path, enable_statistics)
+    pub fn new<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
+        RocksDBOptions::default().read_write(path)
     }
 
     /// Checks if there is enough memory left to perform a write. Not having enough memory left can

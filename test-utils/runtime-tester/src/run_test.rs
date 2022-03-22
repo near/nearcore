@@ -50,7 +50,7 @@ impl Scenario {
         } else {
             let tempdir = tempfile::tempdir()
                 .unwrap_or_else(|err| panic!("failed to create temporary directory: {}", err));
-            let store = create_store(&nearcore::get_store_path(tempdir.path()), false);
+            let store = create_store(&nearcore::get_store_path(tempdir.path()));
             (Some(tempdir), store)
         };
 

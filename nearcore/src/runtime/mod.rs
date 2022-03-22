@@ -2110,7 +2110,7 @@ mod test {
             minimum_stake_divisor: Option<u64>,
         ) -> Self {
             let dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
-            let store = create_store(&get_store_path(dir.path()), false);
+            let store = create_store(&get_store_path(dir.path()));
             let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
                 acc.union(&x.iter().cloned().collect()).cloned().collect()
             });

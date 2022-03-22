@@ -19,7 +19,7 @@ use std::time::Duration;
 
 fn setup_runtime(home_dir: &Path, config: &NearConfig) -> Arc<NightshadeRuntime> {
     let path = get_store_path(home_dir);
-    let store = create_store(&path, false);
+    let store = create_store(&path);
 
     Arc::new(NightshadeRuntime::with_config(
         home_dir,

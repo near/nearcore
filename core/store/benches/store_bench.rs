@@ -39,7 +39,7 @@ fn benchmark_write_then_read_successful(
 /// Create `Store` in a random folder.
 fn create_store_in_random_folder() -> Store {
     let tmp_dir = tempfile::Builder::new().prefix("_test_clear_column").tempdir().unwrap();
-    let store = create_store(tmp_dir.path(), false);
+    let store = create_store(tmp_dir.path());
     store
 }
 

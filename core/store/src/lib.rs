@@ -28,7 +28,7 @@ use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 pub use crate::db::refcount::decode_value_with_rc;
 use crate::db::refcount::encode_value_with_rc;
 use crate::db::{
-    DBOp, DBTransaction, Database, RocksDB, StoreStatistics, GENESIS_JSON_HASH_KEY,
+    DBOp, DBTransaction, Database, RocksDB, RocksDBOptions, StoreStatistics, GENESIS_JSON_HASH_KEY,
     GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::iterator::TrieIterator;
@@ -154,7 +154,7 @@ impl Store {
     }
 
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
-        self.storage.get_store_statstics()
+        self.storage.get_store_statistics()
     }
 }
 
@@ -300,15 +300,27 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
     Ok(None)
 }
 
-pub fn create_store(path: &Path, enable_statistics: bool) -> Store {
-    let db = Arc::new(RocksDB::new(path, enable_statistics).expect("Failed to open the database"));
+pub fn create_store(path: &Path) -> Store {
+    let db = Arc::new(RocksDB::new(path).expect("Failed to open the database"));
     Store::new(db)
 }
 
-/// Creates a store which is unable to modify an existing RocksDB instance.
-/// Panics if a write operation is attempted.
-pub fn open_read_only_store(path: &Path) -> Store {
-    let db = Arc::new(RocksDB::new_read_only(path).expect("Failed to open the database"));
+#[derive(Default, Debug)]
+pub struct StoreConfig {
+    pub read_only: bool,
+    pub enable_statistics: bool,
+}
+
+pub fn create_store_with_config(path: &Path, store_config: StoreConfig) -> Store {
+    let mut opts = RocksDBOptions::default();
+    if store_config.enable_statistics {
+        opts = opts.enable_statistics();
+    }
+
+    let db = Arc::new(
+        (if store_config.read_only { opts.read_only(path) } else { opts.read_write(path) })
+            .expect("Failed to open the database"),
+    );
     Store::new(db)
 }
 

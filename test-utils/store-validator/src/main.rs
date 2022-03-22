@@ -30,7 +30,7 @@ fn main() {
     let home_dir = matches.value_of("home").map(Path::new).unwrap();
     let near_config = load_config(home_dir, GenesisValidationMode::Full);
 
-    let store = create_store(&get_store_path(home_dir), false);
+    let store = create_store(&get_store_path(home_dir));
 
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(nearcore::NightshadeRuntime::new(
         home_dir,
