@@ -491,12 +491,28 @@ pub(super) struct RecompressStorageSubCommand {
     /// Directory where to save new storage.
     #[clap(long)]
     output_dir: PathBuf,
+
+    /// Delete data from ColPartialChunks column.  The option is ignored unless
+    /// running on archival node.
+    #[clap(long)]
+    clean_partial_chunks: bool,
+
+    /// Clean ColTrieChanges column.  The option is ignored unless running on
+    /// archival node.
+    #[clap(long)]
+    clean_trie_changes: bool,
 }
 
 impl RecompressStorageSubCommand {
     pub(super) fn run(self, home_dir: &Path) {
-        if let Err(err) = nearcore::recompress_storage(&home_dir, &self.output_dir) {
+        let opts = nearcore::RecompressOpts {
+            dest_dir: self.output_dir,
+            clean_partial_chunks: self.clean_partial_chunks,
+            clean_trie_changes: self.clean_trie_changes,
+        };
+        if let Err(err) = nearcore::recompress_storage(&home_dir, opts) {
             error!("{}", err);
+            std::process::exit(1);
         }
     }
 }

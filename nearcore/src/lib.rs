@@ -500,8 +500,26 @@ pub fn start_with_config_and_synchronization(
     })
 }
 
-pub fn recompress_storage(home_dir: &Path, dst_dir: &Path) -> anyhow::Result<()> {
+pub struct RecompressOpts {
+    pub dest_dir: PathBuf,
+    pub clean_partial_chunks: bool,
+    pub clean_trie_changes: bool,
+}
+
+pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Result<()> {
     use strum::{EnumCount, IntoEnumIterator};
+
+    let config_path = home_dir.join(config::CONFIG_FILENAME);
+    let archive = config::Config::from_file(&config_path)
+        .map_err(|err| anyhow::anyhow!("{}: {}", config_path.display(), err))?
+        .archive;
+    let mut skip_columns = Vec::new();
+    if !archive && opts.clean_partial_chunks {
+        skip_columns.push(near_store::db::DBCol::ColPartialChunks);
+    }
+    if !archive && opts.clean_trie_changes {
+        skip_columns.push(near_store::db::DBCol::ColTrieChanges);
+    }
 
     // We’re configuring each RocksDB to use 512 file descriptors.  Make sure we
     // can open that many by ensuring nofile limit is large enough to give us
@@ -531,18 +549,29 @@ pub fn recompress_storage(home_dir: &Path, dst_dir: &Path) -> anyhow::Result<()>
     );
 
     anyhow::ensure!(
-        !store_path_exists(&dst_dir),
+        !store_path_exists(&opts.dest_dir),
         "{}: directory already exists",
-        dst_dir.display()
+        opts.dest_dir.display()
     );
 
-    info!("Recompressing data from {} into {}", src_dir.display(), dst_dir.display());
+    info!("Recompressing data from {} into {}", src_dir.display(), opts.dest_dir.display());
     let src_store = open_read_only_store(&src_dir);
-    let dst_store = create_store(&dst_dir);
+    let dst_store = create_store(&opts.dest_dir);
 
     const BATCH_SIZE_BYTES: usize = 150_000_000;
 
     for (n, column) in DBCol::iter().enumerate() {
+        if skip_columns.contains(&column) {
+            info!(
+                "Clearing out col{} ‘{}’ ({:2} / {:2})",
+                column as usize,
+                column,
+                n + 1,
+                DBCol::COUNT
+            );
+            continue;
+        }
+
         info!(
             "Recompressing col{} ‘{}’ ({:2} / {:2})",
             column as usize,
@@ -583,6 +612,6 @@ pub fn recompress_storage(home_dir: &Path, dst_dir: &Path) -> anyhow::Result<()>
     core::mem::drop(dst_store);
     core::mem::drop(src_store);
 
-    info!("Done; recompressed database at {}", dst_dir.display());
+    info!("Done; recompressed database at {}", opts.dest_dir.display());
     Ok(())
 }
