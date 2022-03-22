@@ -68,7 +68,7 @@ impl NeardCmd {
             }
 
             NeardSubCommand::StateViewer(cmd) => {
-                cmd.run(&home_dir, genesis_validation);
+                cmd.subcmd.run(&home_dir, genesis_validation, cmd.readwrite);
             }
 
             NeardSubCommand::RecompressStorage(cmd) => {
@@ -76,6 +76,17 @@ impl NeardCmd {
             }
         }
     }
+}
+
+#[derive(Clap)]
+pub(super) struct StateViewerCommand {
+    /// By default state viewer opens rocks DB in the read only mode, which allows it to run
+    /// multiple instances in parallel and be sure that no unintended changes get written to the DB.
+    /// In case an operation needs to write to caches, a read-write mode may be needed.
+    #[clap(long, short = 'w')]
+    readwrite: bool,
+    #[clap(flatten)]
+    subcmd: StateViewerSubCommand,
 }
 
 fn unsafe_reset(command: &str, path: &std::path::Path, what: &str, default: &str) {
@@ -136,7 +147,7 @@ pub(super) enum NeardSubCommand {
     UnsafeResetData,
     /// View DB state.
     #[clap(name = "view_state")]
-    StateViewer(StateViewerSubCommand),
+    StateViewer(StateViewerCommand),
     /// Recompresses the entire storage.  This is a slow operation which reads
     /// all the data from the database and writes them down to a new copy of the
     /// database.
