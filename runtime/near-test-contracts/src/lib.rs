@@ -12,6 +12,21 @@ pub fn trivial_contract() -> &'static [u8] {
         .as_slice()
 }
 
+/// Contract with exact size in bytes.
+pub fn sized_contract(size: usize) -> Vec<u8> {
+    let payload = "x".repeat(size);
+    let base_size =
+        wat::parse_str(format!("(module (data \"{payload}\") (func (export \"main\")))"))
+            .unwrap()
+            .len();
+    let adjusted_size = size as i64 - (base_size as i64 - size as i64);
+    let payload = "x".repeat(adjusted_size as usize);
+    let code = format!("(module (data \"{payload}\") (func (export \"main\")))");
+    let contract = wat::parse_str(code).unwrap();
+    assert_eq!(contract.len(), size);
+    contract
+}
+
 /// Standard test contract which can call various host functions.
 ///
 /// Note: the contract relies on the latest protocol version, and
