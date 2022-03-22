@@ -4176,8 +4176,8 @@ impl<'a> ChainUpdate<'a> {
                 return Err(ErrorKind::Orphan.into());
             }
 
-            // For the first block of the epoch we never apply state for the next epoch, so it's
-            // always caught up.
+            // For the first block of the epoch we check if we need to start download states for
+            // shards that we will care about in the next epoch, if so, we consider that we don't have
             let has_state_to_download = self.start_downloading_state(me, block)?;
             !has_state_to_download
         } else {
