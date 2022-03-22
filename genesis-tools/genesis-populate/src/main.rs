@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use clap::{Command, Arg};
+use clap::{Arg, Command};
 
 use near_store::create_store;
 use nearcore::{get_default_home, get_store_path, load_config};

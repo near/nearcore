@@ -1,4 +1,4 @@
-use clap::{Parser,Args};
+use clap::{Args, Parser};
 use futures::future::FutureExt;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::types::{Gas, NumSeats, NumShards};

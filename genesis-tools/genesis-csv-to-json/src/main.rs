@@ -1,4 +1,4 @@
-use clap::{Command, Arg};
+use clap::{Arg, Command};
 use near_primitives::types::ShardId;
 use nearcore::get_default_home;
 use std::collections::HashSet;

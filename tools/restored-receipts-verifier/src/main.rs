@@ -1,4 +1,4 @@
-use clap::{Command, Arg};
+use clap::{Arg, Command};
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::hash::CryptoHash;

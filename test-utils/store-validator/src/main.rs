@@ -3,7 +3,7 @@ use std::process;
 use std::sync::Arc;
 
 use ansi_term::Color::{Green, Red, White, Yellow};
-use clap::{Command, Arg};
+use clap::{Arg, Command};
 
 use near_chain::store_validator::StoreValidator;
 use near_chain::RuntimeAdapter;

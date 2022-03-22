@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use clap::{Command, Arg};
+use clap::{Arg, Command};
 use tracing::metadata::LevelFilter;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;

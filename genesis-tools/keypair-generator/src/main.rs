@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use clap::{Command, Arg};
+use clap::{Arg, Command};
 
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use nearcore::get_default_home;
