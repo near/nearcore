@@ -1,6 +1,7 @@
 [package]
 name = "near-o11y"
 description = "Observability helpers for the near codebase"
+readme = "README.md"
 version = "0.1.0"
 edition = "2021"
 publish = false

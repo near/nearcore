@@ -1,6 +1,7 @@
 use clap::{Args, Parser};
 use futures::future::FutureExt;
 use near_chain_configs::GenesisValidationMode;
+use near_o11y::{default_subscriber, EnvFilterBuilder};
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
@@ -9,9 +10,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 use tokio::sync::oneshot;
-use tracing::metadata::LevelFilter;
 use tracing::{debug, error, info, warn};
-use tracing_subscriber::EnvFilter;
 
 /// NEAR Protocol Node
 #[derive(Parser)]
@@ -28,95 +27,73 @@ impl NeardCmd {
     pub(super) fn parse_and_run() {
         let neard_cmd = Self::parse();
         let verbose = neard_cmd.opts.verbose.as_deref();
-
-        let rust_log = env::var("RUST_LOG");
-        let rust_log = rust_log.as_ref().map(String::as_str).unwrap_or(near_o11y::DEFAULT_RUST_LOG);
-        let mut env_filter = EnvFilter::new(rust_log);
-        if let Some(module) = verbose {
-            env_filter = env_filter
-                .add_directive("cranelift_codegen=warn".parse().unwrap())
-                .add_directive("h2=warn".parse().unwrap())
-                .add_directive("trust_dns_resolver=warn".parse().unwrap())
-                .add_directive("trust_dns_proto=warn".parse().unwrap());
-
-            if module.is_empty() {
-                env_filter = env_filter.add_directive(LevelFilter::DEBUG.into());
-            } else {
-                env_filter = env_filter.add_directive(format!("{}=debug", module).parse().unwrap());
-            }
-        }
-        if cfg!(feature = "sandbox") {
-            // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
-            // This is hidden by default so we enable it for sandbox node.
+        let env_filter = EnvFilterBuilder::from_env().verbose(verbose).finish();
+        // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
+        // This is hidden by default so we enable it for sandbox node.
+        let env_filter = if cfg!(feature = "sandbox") {
             env_filter = env_filter.add_directive("sandbox=debug".parse().unwrap());
+        } else {
+            env_filter
+        };
+        let _subscriber = default_subscriber(env_filter);
+
+        info!(
+            target: "neard",
+            version = crate::NEARD_VERSION,
+            build = crate::NEARD_BUILD,
+            latest_protocol = near_primitives::version::PROTOCOL_VERSION
+        );
+
+        #[cfg(feature = "test_features")]
+        {
+            error!("THIS IS A NODE COMPILED WITH ADVERSARIAL BEHAVIORS. DO NOT USE IN PRODUCTION.");
+            if env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
+                error!(
+                    "To run a node with adversarial behavior enabled give your consent \
+                            by setting an environment variable:"
+                );
+                error!("ADVERSARY_CONSENT=1");
+                std::process::exit(1);
+            }
         }
 
-        near_o11y::with_default_subscriber(env_filter, || {
-            info!(
-                target: "neard",
-                version = crate::NEARD_VERSION,
-                build = crate::NEARD_BUILD,
-                latest_protocol = near_primitives::version::PROTOCOL_VERSION
-            );
+        let home_dir = neard_cmd.opts.home;
+        let genesis_validation = if neard_cmd.opts.unsafe_fast_startup {
+            GenesisValidationMode::UnsafeFast
+        } else {
+            GenesisValidationMode::Full
+        };
 
-            #[cfg(feature = "test_features")]
-            {
-                error!(
-                    "THIS IS A NODE COMPILED WITH ADVERSARIAL BEHAVIORS. DO NOT USE IN PRODUCTION."
-                );
-                if env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
-                    error!(
-                        "To run a node with adversarial behavior enabled give your consent \
-                            by setting an environment variable:"
-                    );
-                    error!("ADVERSARY_CONSENT=1");
-                    std::process::exit(1);
-                }
-            }
-
-            let home_dir = neard_cmd.opts.home;
-            let genesis_validation = if neard_cmd.opts.unsafe_fast_startup {
-                GenesisValidationMode::UnsafeFast
-            } else {
-                GenesisValidationMode::Full
-            };
-
-            match neard_cmd.subcmd {
-                NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
-                NeardSubCommand::Localnet(cmd) => cmd.run(&home_dir),
-                NeardSubCommand::Testnet(cmd) => {
-                    warn!(
-                        "The 'testnet' command has been renamed to 'localnet' \
+        match neard_cmd.subcmd {
+            NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
+            NeardSubCommand::Localnet(cmd) => cmd.run(&home_dir),
+            NeardSubCommand::Testnet(cmd) => {
+                warn!(
+                    "The 'testnet' command has been renamed to 'localnet' \
                            and will be removed in the future"
-                    );
-                    cmd.run(&home_dir);
-                }
-                NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation),
-
-                // TODO(mina86): Remove the command in Q3 2022.
-                NeardSubCommand::UnsafeResetData => {
-                    let store_path = get_store_path(&home_dir);
-                    unsafe_reset("unsafe_reset_data", &store_path, "data", "<near-home-dir>/data");
-                }
-                // TODO(mina86): Remove the command in Q3 2022.
-                NeardSubCommand::UnsafeResetAll => {
-                    unsafe_reset(
-                        "unsafe_reset_all",
-                        &home_dir,
-                        "data and config",
-                        "<near-home-dir>",
-                    );
-                }
-
-                NeardSubCommand::StateViewer(cmd) => {
-                    cmd.run(&home_dir, genesis_validation);
-                }
-
-                NeardSubCommand::RecompressStorage(cmd) => {
-                    cmd.run(&home_dir);
-                }
+                );
+                cmd.run(&home_dir);
             }
-        });
+            NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation),
+
+            // TODO(mina86): Remove the command in Q3 2022.
+            NeardSubCommand::UnsafeResetData => {
+                let store_path = get_store_path(&home_dir);
+                unsafe_reset("unsafe_reset_data", &store_path, "data", "<near-home-dir>/data");
+            }
+            // TODO(mina86): Remove the command in Q3 2022.
+            NeardSubCommand::UnsafeResetAll => {
+                unsafe_reset("unsafe_reset_all", &home_dir, "data and config", "<near-home-dir>");
+            }
+
+            NeardSubCommand::StateViewer(cmd) => {
+                cmd.run(&home_dir, genesis_validation);
+            }
+
+            NeardSubCommand::RecompressStorage(cmd) => {
+                cmd.run(&home_dir);
+            }
+        }
     }
 }
 

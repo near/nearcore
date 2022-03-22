@@ -9,9 +9,6 @@ use actix::{Actor, Arbiter};
 use anyhow::{anyhow, Context};
 use clap::Parser;
 use openssl_probe;
-use tracing::metadata::LevelFilter;
-use tracing::{error, info};
-use tracing_subscriber::EnvFilter;
 
 use concurrency::{Ctx, Scope};
 use network::{FakeClientActor, Network};
@@ -20,6 +17,7 @@ use near_chain_configs::Genesis;
 use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::NetworkRecipient;
 use near_network::PeerManagerActor;
+use near_o11y::tracing::{error, info};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_store::{db, Store};
@@ -133,16 +131,16 @@ impl Cmd {
 }
 
 fn main() {
-    let env_filter = EnvFilter::from_default_env().add_directive(LevelFilter::INFO.into());
-    near_o11y::with_default_subscriber(env_filter, || {
-        let orig_hook = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |panic_info| {
-            orig_hook(panic_info);
-            std::process::exit(1);
-        }));
-        openssl_probe::init_ssl_cert_env_vars();
-        if let Err(e) = Cmd::parse_and_run() {
-            error!("Cmd::parse_and_run(): {:#}", e);
-        }
-    })
+    let env_filter =
+        near_o11y::EnvFilterBuilder::from_env().finish().add_directive(LevelFilter::INFO.into());
+    let _subscriber = near_o11y::default_subscriber(env_filter);
+    let orig_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        orig_hook(panic_info);
+        std::process::exit(1);
+    }));
+    openssl_probe::init_ssl_cert_env_vars();
+    if let Err(e) = Cmd::parse_and_run() {
+        error!("Cmd::parse_and_run(): {:#}", e);
+    }
 }

@@ -791,7 +791,6 @@ dependencies = [
  "parking_lot 0.11.2",
  "rand 0.8.4",
  "tokio",
- "tracing-subscriber 0.3.9",
 ]
 
 [[package]]
@@ -1973,7 +1972,6 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
- "tracing-subscriber 0.2.25",
 ]
 
 [[package]]
@@ -2873,8 +2871,8 @@ dependencies = [
 name = "near-logger-utils"
 version = "0.0.0"
 dependencies = [
+ "near-o11y",
  "tracing",
- "tracing-subscriber 0.2.25",
 ]
 
 [[package]]
@@ -3343,7 +3341,6 @@ dependencies = [
  "tikv-jemallocator",
  "tokio",
  "tracing",
- "tracing-subscriber 0.2.25",
 ]
 
 [[package]]
@@ -4347,7 +4344,6 @@ dependencies = [
  "near-o11y",
  "near-primitives",
  "nearcore",
- "tracing-subscriber 0.3.9",
 ]
 
 [[package]]
@@ -4958,7 +4954,6 @@ dependencies = [
  "node-runtime",
  "serde_json",
  "tracing",
- "tracing-subscriber 0.2.25",
 ]
 
 [[package]]

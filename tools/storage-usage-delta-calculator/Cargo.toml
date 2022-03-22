@@ -12,7 +12,6 @@ edition = "2021"
 [dependencies]
 serde_json = "1.0"
 tracing = "0.1.13"
-tracing-subscriber = "0.2.4"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-primitives = { path = "../../core/primitives" }
