@@ -73,7 +73,7 @@ struct CliArgs {
     #[clap(long)]
     drop_os_cache: bool,
     /// Print extra debug information
-    #[clap(long, multiple_occurrences(true), possible_values=&["io", "rocksdb", "least-squares"])]
+    #[clap(long, multiple_occurrences = true, possible_values=&["io", "rocksdb", "least-squares"])]
     debug: Vec<String>,
     /// Print detailed estimation results in JSON format. One line with one JSON
     /// object per estimation.

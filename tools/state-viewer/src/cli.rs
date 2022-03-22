@@ -59,7 +59,7 @@ impl StateViewerOpts {
 }
 
 #[derive(Subcommand)]
-#[clap(subcommand_required(true), arg_required_else_help(true))]
+#[clap(subcommand_required = true, arg_required_else_help = true)]
 pub enum StateViewerSubCommand {
     #[clap(name = "peers")]
     Peers,

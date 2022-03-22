@@ -8,7 +8,7 @@ use tracing_subscriber::EnvFilter;
 /// Watches for stream of blocks from the chain
 #[derive(Parser, Debug)]
 #[clap(version = "0.1", author = "Near Inc. <hello@nearprotocol.com>")]
-#[clap(subcommand_required(true), arg_required_else_help(true))]
+#[clap(subcommand_required = true, arg_required_else_help = true)]
 pub(crate) struct Opts {
     /// Sets a custom config dir. Defaults to ~/.near/
     #[clap(short, long)]
