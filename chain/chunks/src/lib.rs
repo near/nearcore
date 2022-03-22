@@ -94,7 +94,9 @@ use near_chain::{
     byzantine_assert, Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind,
     RuntimeAdapter,
 };
-use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
+use near_network::types::{
+    NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, WrappedInstant,
+};
 use near_pool::{PoolIteratorWrapper, TransactionPool};
 use near_primitives::block::Tip;
 use near_primitives::hash::{hash, CryptoHash};
@@ -659,7 +661,7 @@ impl ShardsManager {
                     NetworkRequests::PartialEncodedChunkRequest {
                         target,
                         request,
-                        create_time: Clock::instant(),
+                        create_time: WrappedInstant(Clock::instant()),
                     },
                 ));
             } else {
