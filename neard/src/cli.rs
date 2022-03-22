@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser,Args};
 use futures::future::FutureExt;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::types::{Gas, NumSeats, NumShards};
@@ -108,7 +108,7 @@ impl NeardOpts {
     }
 }
 
-#[derive(Subcommand)]
+#[derive(Parser)]
 pub(super) enum NeardSubCommand {
     /// Initializes NEAR configuration
     #[clap(name = "init")]
@@ -140,6 +140,7 @@ pub(super) enum NeardSubCommand {
     /// Recompresses the entire storage.  This is a slow operation which reads
     /// all the data from the database and writes them down to a new copy of the
     /// database.
+    #[clap(name = "recompress_storage")]
     RecompressStorage(RecompressStorageSubCommand),
 }
 
@@ -463,7 +464,8 @@ fn init_logging(verbose: Option<&str>) {
         .init();
 }
 
-#[derive(Clap)]
+#[derive(Args)]
+#[clap(arg_required_else_help(true))]
 pub(super) struct RecompressStorageSubCommand {
     /// Directory where to save new storage.
     #[clap(long)]
