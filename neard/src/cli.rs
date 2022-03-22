@@ -6,9 +6,9 @@ use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use nearcore::get_store_path;
+use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::{env, fs, io};
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
 
@@ -31,7 +31,7 @@ impl NeardCmd {
         // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
         // This is hidden by default so we enable it for sandbox node.
         let env_filter = if cfg!(feature = "sandbox") {
-            env_filter = env_filter.add_directive("sandbox=debug".parse().unwrap());
+            env_filter.add_directive("sandbox=debug".parse().unwrap())
         } else {
             env_filter
         };

@@ -90,7 +90,7 @@ impl<'a> EnvFilterBuilder<'a> {
     ///
     /// If the `module` string is empty, all targets will log debug output. Otherwise only the
     /// specified target will log the debug output.
-    pub fn verbose<S: Into<Cow<'a, str>>>(&mut self, target: Option<S>) -> &mut Self {
+    pub fn verbose<S: Into<Cow<'a, str>>>(mut self, target: Option<S>) -> Self {
         self.verbose = target.map(Into::into);
         self
     }

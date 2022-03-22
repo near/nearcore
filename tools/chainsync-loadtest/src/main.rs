@@ -2,7 +2,6 @@ mod concurrency;
 mod fetch_chain;
 mod network;
 
-use std::io;
 use std::sync::Arc;
 
 use actix::{Actor, Arbiter};
@@ -131,8 +130,9 @@ impl Cmd {
 }
 
 fn main() {
-    let env_filter =
-        near_o11y::EnvFilterBuilder::from_env().finish().add_directive(LevelFilter::INFO.into());
+    let env_filter = near_o11y::EnvFilterBuilder::from_env()
+        .finish()
+        .add_directive(near_o11y::tracing::Level::INFO.into());
     let _subscriber = near_o11y::default_subscriber(env_filter);
     let orig_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
