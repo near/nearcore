@@ -7,12 +7,12 @@ mod dependencies;
 pub mod gas_counter;
 mod logic;
 pub mod mocks;
+pub(crate) mod receipt_manager;
 pub mod serde_with;
 #[cfg(test)]
 mod tests;
 pub mod types;
 mod utils;
-pub(crate) mod receipt_manager;
 
 pub use context::VMContext;
 pub use dependencies::{External, MemoryLike, ValuePtr};

@@ -77,10 +77,7 @@ fn test_promise_batch_action_function_call() {
             }
         ]
     }]);
-    assert_eq!(
-        &serde_json::to_string(&vm_receipts(&logic)).unwrap(),
-        &expected.to_string()
-    );
+    assert_eq!(&serde_json::to_string(&vm_receipts(&logic)).unwrap(), &expected.to_string());
 }
 
 #[test]
@@ -118,10 +115,7 @@ fn test_promise_batch_action_create_account() {
             ]
         }
     ]);
-    assert_eq!(
-        &serde_json::to_string(&vm_receipts(&logic)).unwrap(),
-        &expected.to_string()
-    );
+    assert_eq!(&serde_json::to_string(&vm_receipts(&logic)).unwrap(), &expected.to_string());
 }
 
 #[test]
@@ -148,7 +142,7 @@ fn test_promise_batch_action_deploy_contract() {
     let expected = serde_json::json!(
       [
         {
-        
+
         "receiver_id": "rick.test",
         "actions": [
           {
@@ -167,10 +161,7 @@ fn test_promise_batch_action_deploy_contract() {
         ]
       }
     ]);
-    assert_eq!(
-        &serde_json::to_string(&vm_receipts(&logic)).unwrap(),
-        &expected.to_string()
-    );
+    assert_eq!(&serde_json::to_string(&vm_receipts(&logic)).unwrap(), &expected.to_string());
 }
 
 #[test]
@@ -202,7 +193,7 @@ fn test_promise_batch_action_transfer() {
     let expected = serde_json::json!(
     [
         {
-            
+
             "receiver_id": "rick.test",
             "actions": [
             {
@@ -221,10 +212,7 @@ fn test_promise_batch_action_transfer() {
             ]
         }
     ]);
-    assert_eq!(
-        &serde_json::to_string(&vm_receipts(&logic)).unwrap(),
-        &expected.to_string()
-    );
+    assert_eq!(&serde_json::to_string(&vm_receipts(&logic)).unwrap(), &expected.to_string());
 }
 
 #[test]
@@ -268,7 +256,7 @@ fn test_promise_batch_action_stake() {
     assert_eq!(logic.used_gas().unwrap(), 5138631652196);
     let expected = serde_json::json!([
         {
-            
+
             "receiver_id": "rick.test",
             "actions": [
                 {
@@ -288,10 +276,7 @@ fn test_promise_batch_action_stake() {
             ]
         }
     ]);
-    assert_eq!(
-        &serde_json::to_string(&vm_receipts(&logic)).unwrap(),
-        &expected.to_string()
-    );
+    assert_eq!(&serde_json::to_string(&vm_receipts(&logic)).unwrap(), &expected.to_string());
 }
 
 #[test]
@@ -371,10 +356,7 @@ fn test_promise_batch_action_add_key_with_function_call() {
             ]
         }
     ]);
-    assert_eq!(
-        &serde_json::to_string(&vm_receipts(&logic)).unwrap(),
-        &expected.to_string()
-    );
+    assert_eq!(&serde_json::to_string(&vm_receipts(&logic)).unwrap(), &expected.to_string());
 }
 
 #[test]
@@ -424,8 +406,5 @@ fn test_promise_batch_then() {
             "actions": []
         }
     ]);
-    assert_eq!(
-        &serde_json::to_string(&vm_receipts(&logic)).unwrap(),
-        &expected.to_string()
-    );
+    assert_eq!(&serde_json::to_string(&vm_receipts(&logic)).unwrap(), &expected.to_string());
 }
