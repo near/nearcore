@@ -1,7 +1,7 @@
 extern crate integration_tests;
 
 use actix::{Actor, System};
-use clap::Clap;
+use clap::Parser;
 use futures::{future, FutureExt};
 use std::path::Path;
 
@@ -28,7 +28,7 @@ use std::time::Duration;
 /// In NoSync mode, the client and mock network start at the same height and new blocks will
 /// be produced. They both start from genesis height and the mock network will produce
 /// blocks until target height.
-#[derive(Clap)]
+#[derive(Parser)]
 struct Cli {
     /// Existing home dir for the pre-generated chain history. For example, you can use
     /// the home dir of a near node.
