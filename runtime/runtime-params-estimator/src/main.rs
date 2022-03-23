@@ -19,7 +19,6 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
-use std::str;
 use std::sync::Arc;
 use std::time;
 
@@ -108,7 +107,7 @@ fn main() -> anyhow::Result<()> {
                 std::io::ErrorKind::InvalidData,
                 format!(
                     "Failed to build test contract: {}",
-                    str::from_utf8(&result.stderr).unwrap()
+                    String::from_utf8_lossy(&result.stderr)
                 ),
             )));
         }
