@@ -91,14 +91,13 @@ impl ReceiptManager {
     // TODO pull docs for all these methods into here
     pub fn create_receipt(
         &mut self,
+        mut generate_data_id: impl FnMut() -> CryptoHash,
         receipt_indices: Vec<u64>,
         receiver_id: AccountId,
     ) -> ExtResult<u64> {
         let mut input_data_ids = vec![];
         for receipt_index in receipt_indices {
-            // let data_id = self.new_data_id();
-            // TODO
-            let data_id = CryptoHash::default();
+            let data_id = generate_data_id();
             self.action_receipts
                 .get_mut(receipt_index as usize)
                 .ok_or_else(|| HostError::InvalidReceiptIndex { receipt_index })?

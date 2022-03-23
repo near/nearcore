@@ -1,5 +1,6 @@
 //! External dependencies of the near-vm-logic.
 
+use near_primitives::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance};
 use near_vm_errors::VMLogicError;
 
@@ -160,6 +161,8 @@ pub trait External {
     /// assert_eq!(external.storage_has_key(b"no_value_key"), Ok(false));
     /// ```
     fn storage_has_key(&mut self, key: &[u8]) -> Result<bool>;
+
+    fn generate_data_id(&mut self) -> CryptoHash;
 
     // /// Create a receipt which will be executed after all the receipts identified by
     // /// `receipt_indices` are complete.

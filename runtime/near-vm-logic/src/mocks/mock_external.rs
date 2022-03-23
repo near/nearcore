@@ -1,4 +1,5 @@
 use crate::{External, ValuePtr};
+use near_primitives::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, Gas};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -37,7 +38,6 @@ impl MockedExternal {
     pub fn new() -> Self {
         Self::default()
     }
-
 }
 
 use crate::dependencies::Result;
@@ -68,6 +68,10 @@ impl External for MockedExternal {
 
     fn storage_has_key(&mut self, key: &[u8]) -> Result<bool> {
         Ok(self.fake_trie.contains_key(key))
+    }
+
+    fn generate_data_id(&mut self) -> CryptoHash {
+        todo!()
     }
 
     // fn create_receipt(&mut self, receipt_indices: Vec<u64>, receiver_id: AccountId) -> Result<u64> {

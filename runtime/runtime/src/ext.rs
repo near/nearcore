@@ -204,6 +204,10 @@ impl<'a> External for RuntimeExt<'a> {
         Ok(())
     }
 
+    fn generate_data_id(&mut self) -> CryptoHash {
+        todo!()
+    }
+
     // fn create_receipt(
     //     &mut self,
     //     receipt_indices: Vec<u64>,

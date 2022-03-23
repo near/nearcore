@@ -6,6 +6,7 @@ use crate::utils::split_method_names;
 use crate::ValuePtr;
 use byteorder::ByteOrder;
 use near_crypto::Secp256K1Signature;
+use near_primitives::hash::CryptoHash;
 use near_primitives::receipt_manager::ReceiptManager;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
@@ -1313,7 +1314,11 @@ impl<'a> VMLogic<'a> {
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         let sir = account_id == self.context.current_account_id;
         self.pay_gas_for_new_receipt(sir, &[])?;
-        let new_receipt_idx = self.receipt_manager.create_receipt(vec![], account_id.clone())?;
+        let new_receipt_idx = self.receipt_manager.create_receipt(
+            data_id_generator(self.ext),
+            vec![],
+            account_id.clone(),
+        )?;
         // self.receipt_to_account.insert(new_receipt_idx, account_id);
 
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
@@ -1371,8 +1376,11 @@ impl<'a> VMLogic<'a> {
             .collect();
         self.pay_gas_for_new_receipt(sir, &deps)?;
 
-        let new_receipt_idx =
-            self.receipt_manager.create_receipt(receipt_dependencies, account_id.clone())?;
+        let new_receipt_idx = self.receipt_manager.create_receipt(
+            data_id_generator(self.ext),
+            receipt_dependencies,
+            account_id.clone(),
+        )?;
         // self.receipt_to_account.insert(new_receipt_idx, account_id);
 
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
@@ -2679,6 +2687,10 @@ impl<'a> VMLogic<'a> {
         let new_used_gas = self.gas_counter.used_gas();
         self.gas_counter.process_gas_limit(new_burn_gas, new_used_gas)
     }
+}
+
+fn data_id_generator(ext: &mut dyn External) -> impl FnMut() -> CryptoHash + '_ {
+    || ext.generate_data_id()
 }
 
 #[derive(Clone, PartialEq)]
