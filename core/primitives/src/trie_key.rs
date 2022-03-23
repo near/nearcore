@@ -128,9 +128,8 @@ impl TrieKey {
         }
     }
 
-    pub fn to_vec(&self) -> Vec<u8> {
-        let expected_len = self.len();
-        let mut res = Vec::with_capacity(expected_len);
+    pub fn append_into(&self, res: &mut Vec<u8>) {
+        res.reserve(self.len());
         match self {
             TrieKey::Account { account_id } => {
                 res.extend(col::ACCOUNT);
@@ -184,6 +183,12 @@ impl TrieKey {
                 res.extend(key);
             }
         };
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        let expected_len = self.len();
+        let mut res = Vec::with_capacity(expected_len);
+        self.append_into(&mut res);
         debug_assert_eq!(res.len(), expected_len);
         res
     }
