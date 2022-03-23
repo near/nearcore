@@ -1,7 +1,7 @@
 use std::{io, path::PathBuf};
 
 use check::{check, CheckConfig};
-use clap::Clap;
+use clap::{Parser, Subcommand};
 use db::{EstimationRow, ParameterRow, DB};
 use import::ImportConfig;
 
@@ -10,7 +10,7 @@ mod db;
 mod import;
 mod zulip;
 
-#[derive(Clap)]
+#[derive(clap::Parser)]
 struct CliArgs {
     #[clap(subcommand)]
     cmd: SubCommand,
@@ -20,7 +20,7 @@ struct CliArgs {
     db: PathBuf,
 }
 
-#[derive(Clap, Debug)]
+#[derive(Subcommand, Debug)]
 enum SubCommand {
     /// Read estimations in JSON format from STDIN and store it in the warehouse.
     Import(ImportConfig),

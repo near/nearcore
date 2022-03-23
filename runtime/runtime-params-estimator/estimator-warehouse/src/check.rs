@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use clap::Clap;
+use clap::Parser;
 
 use crate::{
     db::{EstimationRow, DB},
@@ -8,7 +8,7 @@ use crate::{
     Metric,
 };
 
-#[derive(Clap, Debug)]
+#[derive(Parser, Debug)]
 pub(crate) struct CheckConfig {
     /// Send notifications from checks to specified server.
     #[clap(long, default_value = "near.zulipchat.com")]

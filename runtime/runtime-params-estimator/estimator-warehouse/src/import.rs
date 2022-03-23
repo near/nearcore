@@ -2,14 +2,14 @@ use std::io::prelude::*;
 
 use anyhow::Context;
 
-use clap::Clap;
+use clap::Parser;
 use serde::Deserialize;
 use std::time::Duration;
 
 use crate::db::{EstimationRow, DB};
 
 /// Additional information required for import
-#[derive(Debug, Clap)]
+#[derive(Debug, Parser)]
 pub(crate) struct ImportConfig {
     /// Required for importing estimation results, which source code commit it
     /// should be associated with.
