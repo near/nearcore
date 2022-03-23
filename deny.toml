@@ -18,8 +18,8 @@ deny = [
 
 skip = [
     { name = "clap", version = "=2.33.3" },
-    { name = "humantime", version = "=2.1.0" },
-    { name = "textwrap", version = "=0.12.1" },
+    # criterion uses clap=2.33.3 which relies on an older textwrap
+    { name = "textwrap", version = "=0.11.0" },
 
     # insta uses older version of console
     { name = "console", version = "=0.14.1" },
@@ -75,9 +75,6 @@ skip = [
     # chrono uses old time crate
     { name = "time", version = "=0.1.43" },
 
-    # clap v2 uses old versions
-    { name = "strsim", version = "0.8.0" },
-
     # ed25519-dalek uses older versions of rand and rand_core
     { name = "rand", version = "=0.7.3" },
     { name = "rand_core", version = "=0.5.1" },
@@ -96,5 +93,8 @@ skip = [
 
     # criterion and wasmer-runtime-core-near depend on this older
     # version of the crate.
-    { name = "rustc_version", version = "=0.2.3" }
+    { name = "rustc_version", version = "=0.2.3" },
+
+    # paperclip-macros, strum_macros, walrus-macro depend on this while clap3.1.6 uses heck=0.4.0
+    { name = "heck", version = "=0.3.3" }
 ]
