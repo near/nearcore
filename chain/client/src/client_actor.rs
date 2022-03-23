@@ -758,7 +758,11 @@ impl Handler<Status> for ClientActor {
                 last_block_height = block.header().height();
             }
 
-            Some(DetailedDebugStatus { last_blocks: blocks_debug })
+            Some(DetailedDebugStatus {
+                last_blocks: blocks_debug,
+                network_info: self.network_info.clone().into(),
+                sync_status: self.client.sync_status.as_variant_name().to_string(),
+            })
         } else {
             None
         };
