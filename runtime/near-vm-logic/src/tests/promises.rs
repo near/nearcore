@@ -3,7 +3,9 @@ use crate::tests::helpers::*;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::types::PromiseResult;
 use crate::VMLogic;
+use borsh::BorshSerialize;
 use near_account_id::AccountId;
+use near_crypto::PublicKey;
 use near_primitives::transaction::Action;
 use serde::Serialize;
 use serde_json;
@@ -223,7 +225,11 @@ fn test_promise_batch_action_stake() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(context);
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
-    let key = b"ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf";
+    let key = "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf"
+        .parse::<PublicKey>()
+        .unwrap()
+        .try_to_vec()
+        .unwrap();
 
     logic
         .promise_batch_action_stake(
@@ -253,7 +259,7 @@ fn test_promise_batch_action_stake() {
             key.as_ptr() as _,
         )
         .expect("should add an action to stake");
-    assert_eq!(logic.used_gas().unwrap(), 5138631652196);
+    assert_eq!(logic.used_gas().unwrap(), 5138414976215);
     let expected = serde_json::json!([
         {
 
@@ -269,8 +275,8 @@ fn test_promise_batch_action_stake() {
                 },
                 {
                     "Stake": {
-                        "stake": 110,
-                        "public_key": "RLb4qQXoZPAFqzZhiLFAcGFPFC7JWcDd8xKvQHHEqLUgDXuQkr2ehKAN28MNGQN9vUZ1qGZ"
+                        "stake": "110",
+                        "public_key": "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf"
                     }
                 }
             ]
@@ -287,7 +293,12 @@ fn test_promise_batch_action_add_key_with_function_call() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(context);
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
-    let key = b"ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf";
+    let serialized_key = "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf"
+        .parse::<PublicKey>()
+        .unwrap()
+        .try_to_vec()
+        .unwrap();
+    let key = &&serialized_key;
     let nonce = 1;
     let allowance = 999u128;
     let receiver_id = b"sam";
@@ -327,7 +338,7 @@ fn test_promise_batch_action_add_key_with_function_call() {
         method_names,
     )
     .expect("should add allowance");
-    assert_eq!(logic.used_gas().unwrap(), 5126897175676);
+    assert_eq!(logic.used_gas().unwrap(), 5126680499695);
     let expected = serde_json::json!(
     [
         {
@@ -342,15 +353,21 @@ fn test_promise_batch_action_add_key_with_function_call() {
                     }
                 },
                 {
-                    "AddKeyWithFunctionCall": {
-                        "public_key": "RLb4qQXoZPAFqzZhiLFAcGFPFC7JWcDd8xKvQHHEqLUgDXuQkr2ehKAN28MNGQN9vUZ1qGZ",
-                        "nonce": 1,
-                        "allowance": 999,
-                        "receiver_id": "sam",
-                        "method_names": [
-                            "foo",
-                            "bar"
-                        ]
+                    "AddKey": {
+                        "public_key": "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf",
+                        "access_key": {
+                            "nonce": 1,
+                            "permission": {
+                                "FunctionCall": {
+                                    "allowance": "999",
+                                    "receiver_id": "sam",
+                                    "method_names": [
+                                        "foo",
+                                        "bar"
+                                    ]
+                                }
+                            }
+                        }
                     }
                 }
             ]

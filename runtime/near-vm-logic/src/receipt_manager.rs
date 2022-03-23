@@ -62,7 +62,7 @@ impl ActionReceipts {
 }
 
 #[derive(Default, Clone, PartialEq)]
-pub struct ReceiptManager {
+pub(crate) struct ReceiptManager {
     pub(crate) action_receipts: ActionReceipts,
     #[cfg(feature = "protocol_feature_function_call_weight")]
     gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
