@@ -1,4 +1,4 @@
-use clap::{App, Arg};
+use clap::{Arg, Command};
 use near_primitives::types::ShardId;
 use nearcore::get_default_home;
 use std::collections::HashSet;
@@ -10,18 +10,18 @@ pub mod serde_with;
 
 fn main() {
     let default_home = get_default_home();
-    let matches = App::new("Genesis CSV to JSON.")
+    let matches = Command::new("Genesis CSV to JSON.")
         .about("Converts accounts listed in CSV format to JSON configs")
         .arg(
-            Arg::with_name("home")
+            Arg::new("home")
                 .long("home")
                 .default_value_os(default_home.as_os_str())
                 .help("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
         )
-        .arg(Arg::with_name("chain-id").long("chain-id").takes_value(true))
+        .arg(Arg::new("chain-id").long("chain-id").takes_value(true))
         .arg(
-            Arg::with_name("tracked-shards")
+            Arg::new("tracked-shards")
                 .long("tracked-shards")
                 .takes_value(true)
                 .help("Set of shards that this node wants to track (default empty)"),
