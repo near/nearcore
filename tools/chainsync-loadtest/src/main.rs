@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use actix::{Actor, Arbiter};
 use anyhow::{anyhow, Context};
-use clap::Clap;
+use clap::Parser;
 use openssl_probe;
 use tracing::metadata::LevelFilter;
 use tracing::{error, info};
@@ -71,7 +71,7 @@ fn download_configs(chain_id: &str, dir: &std::path::Path) -> anyhow::Result<Nea
     return Ok(NearConfig::new(config, genesis, (&node_signer).into(), None));
 }
 
-#[derive(Clap, Debug)]
+#[derive(Parser, Debug)]
 struct Cmd {
     #[clap(long)]
     pub chain_id: String,
