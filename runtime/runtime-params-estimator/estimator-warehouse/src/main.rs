@@ -1,9 +1,13 @@
 use std::{io, path::PathBuf};
 
+use check::{check, CheckConfig};
 use clap::Clap;
 use db::DB;
 use import::ImportInfo;
 
+use crate::db::{EstimationRow, ParameterRow};
+
+mod check;
 mod db;
 mod import;
 
@@ -21,12 +25,22 @@ struct CliArgs {
     /// For importing parameter values, which protocol version it should be associated with.
     #[clap(long)]
     protocol_version: Option<u32>,
+    /// <domain:stream> (for example --zulip near.zulipchat.com:mystream)
+    /// Send notifications from checks to specified server and stream.
+    #[clap(long)]
+    zulip: Option<String>,
 }
 
 #[derive(Clap, Debug)]
 enum SubCommand {
     /// Read estimations in JSON format from STDIN and store it in the warehouse.
     Import,
+    /// Compares parameters, estimations, and how estimations changed over time.
+    /// Reports any deviations from the norm to STDOUT. Combine with `--zulip`
+    /// to send notifications to a Zulip stream
+    Check(CheckConfig),
+    /// Prints a summary of the current data in the warehouse.
+    Stats,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -42,9 +56,61 @@ fn main() -> anyhow::Result<()> {
             };
             db.import_json_lines(&info, io::stdin().lock())?;
         }
+        SubCommand::Check(check_config) => {
+            check(&db, &check_config)?;
+        }
+        SubCommand::Stats => {
+            print_stats(&db)?;
+        }
     }
 
     Ok(())
+}
+
+fn print_stats(db: &DB) -> anyhow::Result<()> {
+    eprintln!("");
+    eprintln!("{:=^72}", " Warehouse statistics ");
+    eprintln!("");
+    eprintln!("{:>24}{:>24}{:>24}", "metric", "records", "last updated");
+    eprintln!("{:>24}{:>24}{:>24}", "------", "-------", "------------");
+    eprintln!(
+        "{:>24}{:>24}{:>24}",
+        "icount",
+        EstimationRow::count_by_metric(&db, Metric::ICount)?,
+        EstimationRow::last_updated(&db, Metric::ICount)?
+            .map(|dt| dt.to_string())
+            .as_deref()
+            .unwrap_or("never")
+    );
+    eprintln!(
+        "{:>24}{:>24}{:>24}",
+        "time",
+        EstimationRow::count_by_metric(&db, Metric::Time)?,
+        EstimationRow::last_updated(&db, Metric::Time)?
+            .map(|dt| dt.to_string())
+            .as_deref()
+            .unwrap_or("never")
+    );
+    eprintln!(
+        "{:>24}{:>24}{:>24}",
+        "parameter",
+        ParameterRow::count(&db)?,
+        ParameterRow::latest_protocol_version(&db)?
+            .map(|version| format!("v{version}"))
+            .as_deref()
+            .unwrap_or("never")
+    );
+    eprintln!("");
+    eprintln!("{:=^72}", " END STATS ");
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, clap::ArgEnum)]
+enum Metric {
+    #[clap(name = "icount")]
+    ICount,
+    Time,
 }
 
 #[cfg(test)]

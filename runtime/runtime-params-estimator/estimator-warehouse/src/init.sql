@@ -13,5 +13,5 @@ CREATE TABLE IF NOT EXISTS estimation (
 CREATE TABLE IF NOT EXISTS parameter (
     name TEXT NOT NULL,                             -- parameter name as recorded in runtime_config.json
     gas REAL NOT NULL,                              -- gas cost
-    protocol_version INTEGER,                       -- protocol version for which the paramter is valid
+    protocol_version INTEGER                       -- protocol version for which the parameter is valid
 );

@@ -2,7 +2,10 @@
 
 use std::path::Path;
 
-use rusqlite::{params, Connection};
+use chrono::NaiveDateTime;
+use rusqlite::{params, Connection, Row};
+
+use crate::Metric;
 
 /// Wrapper around database connection
 pub(crate) struct DB {
@@ -14,7 +17,7 @@ impl DB {
     pub(crate) fn open(path: &Path) -> anyhow::Result<Self> {
         let conn = Connection::open(path)?;
         let init_sql = include_str!("init.sql");
-        conn.execute(init_sql, [])?;
+        conn.execute_batch(init_sql)?;
         Ok(Self { conn })
     }
     #[cfg(test)]
@@ -66,27 +69,97 @@ pub(crate) struct EstimationRow {
     pub commit_hash: String,
 }
 
+/// A single data row in the parameter table
+#[derive(Debug, PartialEq)]
+pub(crate) struct ParameterRow {
+    /// Name of the estimation / parameter
+    pub name: String,
+    /// The estimation result converted to gas units
+    pub gas: f64,
+    /// Protocol version for which the parameter is valid
+    pub protocol_version: u32,
+}
+
 impl EstimationRow {
+    const SELECT_ALL: &'static str =
+        "name,gas,parameter,wall_clock_time,icount,io_read,io_write,uncertain_reason,commit_hash";
+    pub fn get(db: &DB, name: &str, commit: &str, metric: Metric) -> anyhow::Result<Vec<Self>> {
+        Ok(Self::get_any_metric(db, name, commit)?
+            .into_iter()
+            .filter(|row| row.is_metric(metric))
+            .collect())
+    }
+    pub fn get_any_metric(db: &DB, name: &str, commit: &str) -> anyhow::Result<Vec<Self>> {
+        let select = Self::SELECT_ALL;
+        let mut stmt = db.conn.prepare(&format!(
+            "SELECT {select} FROM estimation WHERE name = ?1 AND commit_hash = ?2;"
+        ))?;
+        let data = stmt
+            .query_map([name, commit], Self::from_row)?
+            .collect::<Result<Vec<_>, rusqlite::Error>>()?;
+        Ok(data)
+    }
+    pub fn latest(db: &DB, metric: Metric) -> anyhow::Result<Option<Self>> {
+        let condition = metric.condition();
+        let select = Self::SELECT_ALL;
+        let sql = format!(
+            "
+            SELECT {select} FROM estimation
+            WHERE {condition}
+            ORDER BY date DESC
+            LIMIT 1;
+        "
+        );
+        let mut stmt = db.conn.prepare(&sql)?;
+        let mut data =
+            stmt.query_map([], Self::from_row)?.collect::<Result<Vec<_>, rusqlite::Error>>()?;
+        Ok(data.pop())
+    }
+    pub fn select_by_commit_and_metric(
+        db: &DB,
+        commit: &str,
+        metric: Metric,
+    ) -> anyhow::Result<Vec<Self>> {
+        let select = Self::SELECT_ALL;
+        let metric_condition = metric.condition();
+        let mut stmt = db.conn.prepare(&format!(
+            "SELECT {select} FROM estimation WHERE commit_hash = ?1 AND {metric_condition};"
+        ))?;
+        let data = stmt
+            .query_map([commit], Self::from_row)?
+            .collect::<Result<Vec<_>, rusqlite::Error>>()?;
+        Ok(data)
+    }
+
+    /// Returns one (commit_hash,date) tuple for each commit in store,
+    /// optionally filtered by estimation metric. The output is sorted by the
+    /// date, in ascending order. Note that the date is not the committed-date
+    /// but instead the earliest date associated with an estimation of that
+    /// commit, as recorded in the warehouse. This is usually the date the
+    /// estimation has been performed.
+    pub fn commits_sorted_by_date(
+        db: &DB,
+        metric: Option<Metric>,
+    ) -> anyhow::Result<Vec<(String, NaiveDateTime)>> {
+        let extra_condition = match metric {
+            Some(m) => format!("AND {}", m.condition()),
+            None => String::new(),
+        };
+        let sql = format!("SELECT commit_hash,min(date) FROM estimation WHERE wall_clock_time IS NOT NULL {extra_condition} GROUP BY commit_hash ORDER BY date ASC;");
+        let mut stmt = db.conn.prepare(&sql)?;
+        let data = stmt
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, NaiveDateTime>(1)?)))?
+            .collect::<Result<Vec<_>, rusqlite::Error>>()?;
+        Ok(data)
+    }
+
     pub fn all_time_based(db: &DB) -> anyhow::Result<Vec<Self>> {
         let mut stmt = db.conn.prepare(
             "SELECT name,gas,wall_clock_time,uncertain_reason,commit_hash FROM estimation WHERE wall_clock_time IS NOT NULL;",
         )?;
 
-        let data = stmt
-            .query_map([], |row| {
-                Ok(Self {
-                    name: row.get(0)?,
-                    gas: row.get(1)?,
-                    parameter: None,
-                    wall_clock_time: row.get(2)?,
-                    icount: None,
-                    io_read: None,
-                    io_write: None,
-                    uncertain_reason: row.get(3)?,
-                    commit_hash: row.get(4)?,
-                })
-            })?
-            .collect::<Result<Vec<_>, rusqlite::Error>>()?;
+        let data =
+            stmt.query_map([], Self::from_row)?.collect::<Result<Vec<_>, rusqlite::Error>>()?;
         Ok(data)
     }
     pub fn all_icount_based(db: &DB) -> anyhow::Result<Vec<Self>> {
@@ -110,5 +183,62 @@ impl EstimationRow {
             })?
             .collect::<Result<Vec<_>, rusqlite::Error>>()?;
         Ok(data)
+    }
+    pub fn count_by_metric(db: &DB, metric: Metric) -> anyhow::Result<u64> {
+        let sql = match metric {
+            Metric::ICount => "SELECT COUNT(*) FROM estimation WHERE icount IS NOT NULL;",
+            Metric::Time => "SELECT COUNT(*) FROM estimation WHERE wall_clock_time IS NOT NULL;",
+        };
+        let count = db.conn.query_row::<i32, _, _>(sql, [], |row| row.get(0))?;
+        Ok(count as u64)
+    }
+    pub fn last_updated(db: &DB, metric: Metric) -> anyhow::Result<Option<NaiveDateTime>> {
+        let sql = match metric {
+            Metric::ICount => "SELECT MAX(date) FROM estimation WHERE icount IS NOT NULL;",
+            Metric::Time => "SELECT MAX(date) FROM estimation WHERE wall_clock_time IS NOT NULL;",
+        };
+        let dt = db.conn.query_row::<Option<NaiveDateTime>, _, _>(sql, [], |row| row.get(0))?;
+        Ok(dt)
+    }
+    fn is_metric(&self, metric: Metric) -> bool {
+        match metric {
+            Metric::ICount => self.icount.is_some(),
+            Metric::Time => self.icount.is_none() && self.wall_clock_time.is_some(),
+        }
+    }
+    fn from_row(row: &Row) -> rusqlite::Result<Self> {
+        Ok(Self {
+            name: row.get(0)?,
+            gas: row.get(1)?,
+            parameter: row.get(2)?,
+            wall_clock_time: row.get(3)?,
+            icount: row.get(4)?,
+            io_read: row.get(5)?,
+            io_write: row.get(6)?,
+            uncertain_reason: row.get(7)?,
+            commit_hash: row.get(8)?,
+        })
+    }
+}
+
+impl ParameterRow {
+    pub fn count(db: &DB) -> anyhow::Result<u64> {
+        let sql = "SELECT COUNT(*) FROM parameter;";
+        let count = db.conn.query_row::<u64, _, _>(sql, [], |row| row.get(0))?;
+        Ok(count)
+    }
+    pub fn latest_protocol_version(db: &DB) -> anyhow::Result<Option<u32>> {
+        let sql = "SELECT MAX(protocol_version) FROM parameter;";
+        let max = db.conn.query_row::<Option<u32>, _, _>(sql, [], |row| row.get(0))?;
+        Ok(max)
+    }
+}
+
+impl Metric {
+    fn condition(&self) -> &'static str {
+        match self {
+            Metric::ICount => "icount IS NOT NULL",
+            Metric::Time => "wall_clock_time IS NOT NULL",
+        }
     }
 }
