@@ -11,6 +11,7 @@ fi
 if [[ -z "${ESTIMATOR_NEAR_HOME}" ]]; then
   echo '$ESTIMATOR_NEAR_HOME is not defined, will use /tmp/estimator_home as near home'
   ESTIMATOR_NEAR_HOME="/tmp/estimator_home"
+  mkdir -p $ESTIMATOR_NEAR_HOME
 fi
 
 if [[ -z "${REPO_UNDER_TEST}" ]]; then
