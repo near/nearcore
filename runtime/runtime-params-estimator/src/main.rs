@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use anyhow::{Context, Error};
+use anyhow::Context;
 use clap::Parser;
 use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
@@ -103,13 +103,11 @@ fn main() -> anyhow::Result<()> {
             .output()
             .context("could not build test contract")?;
         if !result.status.success() {
-            return Err(Error::from(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!(
-                    "Failed to build test contract: {}",
-                    String::from_utf8_lossy(&result.stderr)
-                ),
-            )));
+            anyhow::bail!(
+                "Failed to build test contract, {}, stderr: {}",
+                result.status,
+                String::from_utf8_lossy(&result.stderr)
+            );
         }
     }
 
