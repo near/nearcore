@@ -99,22 +99,6 @@ impl EstimationRow {
             .collect::<Result<Vec<_>, rusqlite::Error>>()?;
         Ok(data)
     }
-    pub fn latest(db: &DB, metric: Metric) -> anyhow::Result<Option<Self>> {
-        let condition = metric.condition();
-        let select = Self::SELECT_ALL;
-        let sql = format!(
-            "
-            SELECT {select} FROM estimation
-            WHERE {condition}
-            ORDER BY date DESC
-            LIMIT 1;
-        "
-        );
-        let mut stmt = db.conn.prepare(&sql)?;
-        let mut data =
-            stmt.query_map([], Self::from_row)?.collect::<Result<Vec<_>, rusqlite::Error>>()?;
-        Ok(data.pop())
-    }
     pub fn select_by_commit_and_metric(
         db: &DB,
         commit: &str,

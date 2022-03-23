@@ -8,6 +8,7 @@ use import::ImportConfig;
 mod check;
 mod db;
 mod import;
+mod zulip;
 
 #[derive(Clap)]
 struct CliArgs {

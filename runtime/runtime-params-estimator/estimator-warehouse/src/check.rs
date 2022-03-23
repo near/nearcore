@@ -1,23 +1,26 @@
 use std::collections::BTreeSet;
 
 use clap::Clap;
-use reqwest::blocking::Client;
 
 use crate::{
     db::{EstimationRow, DB},
+    zulip::{ZulipEndpoint, ZulipReport},
     Metric,
 };
 
 #[derive(Clap, Debug)]
 pub(crate) struct CheckConfig {
     /// Send notifications from checks to specified server.
-    /// Notifications are sent iff server and stream are set.
-    #[clap(long)]
-    zulip_server: Option<String>,
+    #[clap(long, default_value = "near.zulipchat.com")]
+    zulip_server: String,
     /// Send notifications from checks to specified stream.
-    /// Notifications are sent iff server and stream are set.
+    /// Notifications are sent iff stream or user is set.
     #[clap(long)]
     zulip_stream: Option<String>,
+    /// Send notifications from checks to specified Zulip user ID.
+    /// Notifications are sent iff stream or user is set.
+    #[clap(long)]
+    zulip_user: Option<u64>,
     /// Checks have to be done on one specific metric.
     #[clap(long, arg_enum)]
     metric: Metric,
@@ -35,32 +38,26 @@ pub(crate) struct CheckConfig {
     estimations: Vec<String>,
 }
 
-// impl CheckConfig {
-//     pub(crate) fn new(zulip: Option<&str>, metric: Metric) -> Self {
-//         let zulip = zulip.map(|s| {
-//             let mut split_iter = s.split(":").map(String::from);
-//             let (url, stream) =
-//                 (split_iter.next().unwrap_or_default(), split_iter.next().unwrap_or_default());
-//             if url.is_empty() || stream.is_empty() {
-//                 panic!("Zulip parameter parsing failed. Please specify as <domain:stream>");
-//             }
-//             ZulipConfig { url, stream }
-//         });
-//         // TODO: Allow to configure commits_to_compare and estimations in CLI
-//         Self { zulip, metric, commits_to_compare: None, estimations: vec![] }
-//     }
-// }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Status {
+    Ok = 0,
+    Warn = 1,
+    // Critical = 2,
+}
 
 #[derive(Debug)]
-struct Warning {
-    message: String,
+pub(crate) enum Notice {
+    RelativeChange(RelativeChange),
+}
+
+#[derive(Debug)]
+pub(crate) struct RelativeChange {
+    pub estimation: String,
+    pub before: f64,
+    pub after: f64,
 }
 
 pub(crate) fn check(db: &DB, config: &CheckConfig) -> anyhow::Result<()> {
-    if config.zulip_server.is_some() != config.zulip_stream.is_some() {
-        anyhow::bail!("Please either specify both Zulip stream and server or neither.")
-    }
-
     let (commit_a, commit_b) = match (&config.commit_a, &config.commit_b) {
         (Some(a), Some(b)) => (a.clone(), b.clone()),
         (None, None) => {
@@ -93,20 +90,22 @@ pub(crate) fn check(db: &DB, config: &CheckConfig) -> anyhow::Result<()> {
     for warning in &warnings {
         println!("{warning:?}");
     }
-    // if let Some(zulip) = &config.zulip {
-    //     let client = Client::new();
-    //     let user = "params-estimator-bot";
-    //     let pw = "TODO";
-    //     let domain = &zulip.url;
-    //     let url = format!("https://{user}:{pw}@{domain}/api/v1/messages");
-    //     for warning in &warnings {
-    //         let message = &warning.message;
-    //         let topic = "test";
-    //         let params =
-    //             [("type", "stream"), ("to", &zulip.stream), ("topic", topic), ("content", message)];
-    //         client.post(&url).form(&params).send().unwrap();
-    //     }
-    // }
+
+    let zulip_receiver = {
+        if let Some(user) = config.zulip_user {
+            Some(ZulipEndpoint::to_user(&config.zulip_server, user)?)
+        } else if let Some(stream) = &config.zulip_stream {
+            Some(ZulipEndpoint::to_stream(&config.zulip_server, stream.clone())?)
+        } else {
+            None
+        }
+    };
+
+    if let Some(zulip) = zulip_receiver {
+        let mut report = ZulipReport::new(commit_a, commit_b);
+        warnings.into_iter().for_each(|w| report.add(w, Status::Warn));
+        zulip.post(&report)?;
+    }
     Ok(())
 }
 
@@ -117,15 +116,18 @@ fn estimation_changes(
     commit_b: &str,
     tolerance: f64,
     metric: Metric,
-) -> anyhow::Result<Vec<Warning>> {
+) -> anyhow::Result<Vec<Notice>> {
     let mut warnings = Vec::new();
     for name in estimation_names {
         let a = &EstimationRow::get(db, name, commit_a, metric)?[0];
         let b = &EstimationRow::get(db, name, commit_b, metric)?[0];
         let rel_change = (a.gas - b.gas).abs() / a.gas;
         if rel_change > tolerance {
-            warnings
-                .push(Warning { message: format!("{name}: Changed by {}%", rel_change * 100.0) })
+            warnings.push(Notice::RelativeChange(RelativeChange {
+                estimation: name.clone(),
+                before: a.gas,
+                after: b.gas,
+            }))
         }
     }
 
