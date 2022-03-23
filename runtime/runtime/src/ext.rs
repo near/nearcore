@@ -97,19 +97,6 @@ impl<'a> RuntimeExt<'a> {
         TrieKey::ContractData { account_id: self.account_id.clone(), key: key.to_vec() }
     }
 
-    // TODO needs to be moved into trait to be used in VMLogic
-    pub fn new_data_id(&mut self) -> CryptoHash {
-        let data_id = create_data_id(
-            self.current_protocol_version,
-            self.action_hash,
-            self.prev_block_hash,
-            self.last_block_hash,
-            self.data_count as usize,
-        );
-        self.data_count += 1;
-        data_id
-    }
-
     // pub fn into_receipts(self, predecessor_id: &AccountId) -> Vec<Receipt> {
     //     self.action_receipts
     //         .into_iter()
@@ -205,7 +192,15 @@ impl<'a> External for RuntimeExt<'a> {
     }
 
     fn generate_data_id(&mut self) -> CryptoHash {
-        todo!()
+        let data_id = create_data_id(
+            self.current_protocol_version,
+            self.action_hash,
+            self.prev_block_hash,
+            self.last_block_hash,
+            self.data_count as usize,
+        );
+        self.data_count += 1;
+        data_id
     }
 
     // fn create_receipt(

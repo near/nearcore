@@ -1,5 +1,5 @@
 use crate::{External, ValuePtr};
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives_core::types::{AccountId, Balance, Gas};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -9,6 +9,7 @@ use std::collections::HashMap;
 pub struct MockedExternal {
     pub fake_trie: HashMap<Vec<u8>, Vec<u8>>,
     pub validators: HashMap<AccountId, Balance>,
+    data_count: u64,
 }
 
 pub struct MockedValuePtr {
@@ -71,7 +72,11 @@ impl External for MockedExternal {
     }
 
     fn generate_data_id(&mut self) -> CryptoHash {
-        todo!()
+        // Generates some hash for the data ID to receive data. This hash should not be functionally
+        // used in any mocked contexts.
+        let data_id = hash(&self.data_count.to_le_bytes());
+        self.data_count += 1;
+        data_id
     }
 
     // fn create_receipt(&mut self, receipt_indices: Vec<u64>, receiver_id: AccountId) -> Result<u64> {

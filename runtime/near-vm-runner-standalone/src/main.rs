@@ -4,8 +4,8 @@ mod script;
 
 use crate::script::Script;
 use clap::Clap;
+use near_vm_logic::ProtocolVersion;
 use near_vm_logic::VMOutcome;
-use near_vm_logic::{mocks::mock_external::Receipt, ProtocolVersion};
 use near_vm_runner::internal::VMKind;
 use serde::{
     de::{MapAccess, Visitor},
@@ -107,7 +107,6 @@ struct CliArgs {
 struct StandaloneOutput {
     pub outcome: Option<VMOutcome>,
     pub err: Option<String>,
-    pub receipts: Vec<Receipt>,
     pub state: State,
 }
 
@@ -171,7 +170,6 @@ fn main() {
         StandaloneOutput {
             outcome: outcome.clone(),
             err: err.map(|it| it.to_string()),
-            receipts: todo!(),
             state: State(results.state.fake_trie),
         }
     );

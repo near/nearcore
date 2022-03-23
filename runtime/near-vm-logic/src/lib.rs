@@ -12,6 +12,7 @@ pub mod serde_with;
 mod tests;
 pub mod types;
 mod utils;
+pub(crate) mod receipt_manager;
 
 pub use context::VMContext;
 pub use dependencies::{External, MemoryLike, ValuePtr};

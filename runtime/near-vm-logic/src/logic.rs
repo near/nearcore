@@ -1,13 +1,13 @@
 use crate::context::VMContext;
 use crate::dependencies::{External, MemoryLike};
 use crate::gas_counter::{FastGasCounter, GasCounter};
+use crate::receipt_manager::{ActionReceipts, ReceiptManager};
 use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
 use crate::ValuePtr;
 use byteorder::ByteOrder;
-use near_crypto::Secp256K1Signature;
-use near_primitives::hash::CryptoHash;
-use near_primitives::receipt_manager::ReceiptManager;
+use near_crypto::{PublicKey, Secp256K1Signature};
+use near_primitives::receipt::Receipt;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig, ViewConfig};
@@ -71,7 +71,7 @@ pub struct VMLogic<'a> {
     current_protocol_version: ProtocolVersion,
 
     // TODO docs
-    receipt_manager: ReceiptManager,
+    pub(crate) receipt_manager: ReceiptManager,
 }
 
 /// Promises API allows to create a DAG-structure that defines dependencies between smart contract
@@ -1315,7 +1315,7 @@ impl<'a> VMLogic<'a> {
         let sir = account_id == self.context.current_account_id;
         self.pay_gas_for_new_receipt(sir, &[])?;
         let new_receipt_idx = self.receipt_manager.create_receipt(
-            data_id_generator(self.ext),
+            || self.ext.generate_data_id(),
             vec![],
             account_id.clone(),
         )?;
@@ -1377,7 +1377,7 @@ impl<'a> VMLogic<'a> {
         self.pay_gas_for_new_receipt(sir, &deps)?;
 
         let new_receipt_idx = self.receipt_manager.create_receipt(
-            data_id_generator(self.ext),
+            || self.ext.generate_data_id(),
             receipt_dependencies,
             account_id.clone(),
         )?;
@@ -2666,7 +2666,7 @@ impl<'a> VMLogic<'a> {
             profile,
             // TODO this probably should be receipts, but we need to know the gas price from the
             // initial action receipt to be able to convert, which happens outside VM
-            receipt_manager: self.receipt_manager,
+            action_receipts: self.receipt_manager.action_receipts,
         }
     }
 
@@ -2689,11 +2689,7 @@ impl<'a> VMLogic<'a> {
     }
 }
 
-fn data_id_generator(ext: &mut dyn External) -> impl FnMut() -> CryptoHash + '_ {
-    || ext.generate_data_id()
-}
-
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub struct VMOutcome {
     pub balance: Balance,
     pub storage_usage: StorageUsage,
@@ -2703,7 +2699,19 @@ pub struct VMOutcome {
     pub logs: Vec<String>,
     /// Data collected from making a contract call
     pub profile: ProfileData,
-    pub receipt_manager: ReceiptManager,
+    action_receipts: ActionReceipts,
+}
+
+impl PartialEq for VMOutcome {
+    fn eq(&self, other: &Self) -> bool {
+        self.balance == other.balance
+            && self.storage_usage == other.storage_usage
+            && self.return_data == other.return_data
+            && self.burnt_gas == other.burnt_gas
+            && self.used_gas == other.used_gas
+            && self.logs == other.logs
+            && self.profile == other.profile
+    }
 }
 
 impl std::fmt::Debug for VMOutcome {
@@ -2718,5 +2726,18 @@ impl std::fmt::Debug for VMOutcome {
             "VMOutcome: balance {} storage_usage {} return data {} burnt gas {} used gas {}",
             self.balance, self.storage_usage, return_data_str, self.burnt_gas, self.used_gas
         )
+    }
+}
+
+impl VMOutcome {
+    // TODO docs
+    pub fn take_receipts(
+        &mut self,
+        predecessor_id: &AccountId,
+        signer_id: &AccountId,
+        signer_public_key: &PublicKey,
+        gas_price: Balance,
+    ) -> Vec<Receipt> {
+        self.action_receipts.take_receipts(predecessor_id, signer_id, signer_public_key, gas_price)
     }
 }

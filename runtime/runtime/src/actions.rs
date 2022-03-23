@@ -221,7 +221,13 @@ pub(crate) fn action_function_call(
         }
         None => true,
     };
-    if let Some(outcome) = outcome {
+    if let Some(mut outcome) = outcome {
+        let new_receipts = outcome.take_receipts(
+            &receipt.predecessor_id,
+            &action_receipt.signer_id,
+            &action_receipt.signer_public_key,
+            action_receipt.gas_price,
+        );
         result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
         result.gas_burnt_for_function_call =
             safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;
@@ -236,12 +242,7 @@ pub(crate) fn action_function_call(
             account.set_amount(outcome.balance);
             account.set_storage_usage(outcome.storage_usage);
             result.result = Ok(outcome.return_data);
-            result.new_receipts.extend(outcome.receipt_manager.into_receipts(
-                &receipt.predecessor_id,
-                &action_receipt.signer_id,
-                &action_receipt.signer_public_key,
-                action_receipt.gas_price,
-            ));
+            result.new_receipts.extend(new_receipts);
         }
     } else {
         assert!(!execution_succeeded, "Outcome should always be available if execution succeeded")
