@@ -2,10 +2,8 @@ use std::{io, path::PathBuf};
 
 use check::{check, CheckConfig};
 use clap::Clap;
-use db::DB;
-use import::ImportInfo;
-
-use crate::db::{EstimationRow, ParameterRow};
+use db::{EstimationRow, ParameterRow, DB};
+use import::ImportConfig;
 
 mod check;
 mod db;
@@ -19,22 +17,12 @@ struct CliArgs {
     /// will be created.
     #[clap(long, default_value = "db.sqlite")]
     db: PathBuf,
-    /// For importing estimation data, which source code commit it should be associated with.
-    #[clap(long)]
-    commit_hash: Option<String>,
-    /// For importing parameter values, which protocol version it should be associated with.
-    #[clap(long)]
-    protocol_version: Option<u32>,
-    /// <domain:stream> (for example --zulip near.zulipchat.com:mystream)
-    /// Send notifications from checks to specified server and stream.
-    #[clap(long)]
-    zulip: Option<String>,
 }
 
 #[derive(Clap, Debug)]
 enum SubCommand {
     /// Read estimations in JSON format from STDIN and store it in the warehouse.
-    Import,
+    Import(ImportConfig),
     /// Compares parameters, estimations, and how estimations changed over time.
     /// Reports any deviations from the norm to STDOUT. Combine with `--zulip`
     /// to send notifications to a Zulip stream
@@ -45,19 +33,14 @@ enum SubCommand {
 
 fn main() -> anyhow::Result<()> {
     let cli_args = CliArgs::parse();
-
     let db = DB::open(&cli_args.db)?;
 
     match cli_args.cmd {
-        SubCommand::Import => {
-            let info = ImportInfo {
-                commit_hash: cli_args.commit_hash,
-                protocol_version: cli_args.protocol_version,
-            };
-            db.import_json_lines(&info, io::stdin().lock())?;
+        SubCommand::Import(config) => {
+            db.import_json_lines(&config, io::stdin().lock())?;
         }
-        SubCommand::Check(check_config) => {
-            check(&db, &check_config)?;
+        SubCommand::Check(config) => {
+            check(&db, &config)?;
         }
         SubCommand::Stats => {
             print_stats(&db)?;
@@ -65,6 +48,13 @@ fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, clap::ArgEnum)]
+enum Metric {
+    #[clap(name = "icount")]
+    ICount,
+    Time,
 }
 
 fn print_stats(db: &DB) -> anyhow::Result<()> {
@@ -104,102 +94,4 @@ fn print_stats(db: &DB) -> anyhow::Result<()> {
     eprintln!("{:=^72}", " END STATS ");
 
     Ok(())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, clap::ArgEnum)]
-enum Metric {
-    #[clap(name = "icount")]
-    ICount,
-    Time,
-}
-
-#[cfg(test)]
-mod test {
-    use crate::{
-        db::{EstimationRow, DB},
-        import::ImportInfo,
-    };
-
-    #[test]
-    fn test_import_time() {
-        let input = r#"
-            {"computed_in":{"nanos":826929296,"secs":0},"name":"LogBase","result":{"gas":441061948,"metric":"time","time_ns":441.061948,"uncertain_reason":null}}
-            {"computed_in":{"nanos":983235753,"secs":0},"name":"LogByte","result":{"gas":2743748,"metric":"time","time_ns":2.7437486640625,"uncertain_reason":"HIGH-VARIANCE"}}
-        "#;
-        let expected = [
-            EstimationRow {
-                name: "LogBase".to_owned(),
-                gas: 441061948.0,
-                parameter: None,
-                wall_clock_time: Some(441.061948),
-                icount: None,
-                io_read: None,
-                io_write: None,
-                uncertain_reason: None,
-                commit_hash: "53a3ccf3ef07".to_owned(),
-            },
-            EstimationRow {
-                name: "LogByte".to_owned(),
-                gas: 2743748.0,
-                parameter: None,
-                wall_clock_time: Some(2.7437486640625),
-                icount: None,
-                io_read: None,
-                io_write: None,
-                uncertain_reason: Some("HIGH-VARIANCE".to_owned()),
-                commit_hash: "53a3ccf3ef07".to_owned(),
-            },
-        ];
-        let info =
-            ImportInfo { commit_hash: Some("53a3ccf3ef07".to_owned()), protocol_version: Some(0) };
-        assert_import_time(input, &info, &expected);
-    }
-    #[test]
-    fn test_import_icount() {
-        let input = r#"
-        {"computed_in":{"nanos":107762511,"secs":17},"name":"ActionReceiptCreation","result":{"gas":240650158750,"instructions":1860478.51,"io_r_bytes":0.0,"io_w_bytes":1377.08,"metric":"icount","uncertain_reason":null}}
-        {"computed_in":{"nanos":50472,"secs":0},"name":"ApplyBlock","result":{"gas":9059500000,"instructions":71583.0,"io_r_bytes":0.0,"io_w_bytes":19.0,"metric":"icount","uncertain_reason":"HIGH-VARIANCE"}}
-        "#;
-        let expected = [
-            EstimationRow {
-                name: "ActionReceiptCreation".to_owned(),
-                gas: 240650158750.0,
-                parameter: None,
-                wall_clock_time: None,
-                icount: Some(1860478.51),
-                io_read: Some(0.0),
-                io_write: Some(1377.08),
-                uncertain_reason: None,
-                commit_hash: "53a3ccf3ef07".to_owned(),
-            },
-            EstimationRow {
-                name: "ApplyBlock".to_owned(),
-                gas: 9059500000.0,
-                parameter: None,
-                wall_clock_time: None,
-                icount: Some(71583.0),
-                io_read: Some(0.0),
-                io_write: Some(19.0),
-                uncertain_reason: Some("HIGH-VARIANCE".to_owned()),
-                commit_hash: "53a3ccf3ef07".to_owned(),
-            },
-        ];
-        let info =
-            ImportInfo { commit_hash: Some("53a3ccf3ef07".to_owned()), protocol_version: Some(0) };
-        assert_import_icount(input, &info, &expected);
-    }
-    #[track_caller]
-    fn assert_import_time(input: &str, info: &ImportInfo, expected_output: &[EstimationRow]) {
-        let db = DB::test();
-        db.import_json_lines(info, input.as_bytes()).unwrap();
-        let output = EstimationRow::all_time_based(&db).unwrap();
-        assert_eq!(expected_output, output);
-    }
-    #[track_caller]
-    fn assert_import_icount(input: &str, info: &ImportInfo, expected_output: &[EstimationRow]) {
-        let db = DB::test();
-        db.import_json_lines(info, input.as_bytes()).unwrap();
-        let output = EstimationRow::all_icount_based(&db).unwrap();
-        assert_eq!(expected_output, output);
-    }
 }

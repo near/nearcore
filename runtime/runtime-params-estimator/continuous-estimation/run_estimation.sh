@@ -66,11 +66,11 @@ if [ "$EUID" -ne 0 ]; then
   TIME_OPTIONS=""
 fi
 
-IMPORT_OPTIONS="--commit-hash="${GIT_HASH}" --db ${SQLI_DB}"
+IMPORT_OPTIONS="--db ${SQLI_DB} import --commit-hash=${GIT_HASH} "
 
 "${ESTIMATOR_BINARY}" ${COMMON_ARGS} ${USE_LARGE_STATE} ${TIME_OPTIONS} --metric time \
-    | "${WAREHOUSE_BINARY}" ${IMPORT_OPTIONS} import;
+    | "${WAREHOUSE_BINARY}" ${IMPORT_OPTIONS};
 
 # Run icount measurements inside docker container.
 "${ESTIMATOR_BINARY}" ${COMMON_ARGS} ${ICOUNT_OPTIONS} --metric icount \
-    | "${WAREHOUSE_BINARY}" ${IMPORT_OPTIONS} import;
+    | "${WAREHOUSE_BINARY}" ${IMPORT_OPTIONS};

@@ -152,38 +152,6 @@ impl EstimationRow {
             .collect::<Result<Vec<_>, rusqlite::Error>>()?;
         Ok(data)
     }
-
-    pub fn all_time_based(db: &DB) -> anyhow::Result<Vec<Self>> {
-        let mut stmt = db.conn.prepare(
-            "SELECT name,gas,wall_clock_time,uncertain_reason,commit_hash FROM estimation WHERE wall_clock_time IS NOT NULL;",
-        )?;
-
-        let data =
-            stmt.query_map([], Self::from_row)?.collect::<Result<Vec<_>, rusqlite::Error>>()?;
-        Ok(data)
-    }
-    pub fn all_icount_based(db: &DB) -> anyhow::Result<Vec<Self>> {
-        let mut stmt = db.conn.prepare(
-            "SELECT name,gas,icount,io_read,io_write,uncertain_reason,commit_hash FROM estimation WHERE icount IS NOT NULL;",
-        )?;
-
-        let data = stmt
-            .query_map([], |row| {
-                Ok(Self {
-                    name: row.get(0)?,
-                    gas: row.get(1)?,
-                    parameter: None,
-                    wall_clock_time: None,
-                    icount: row.get(2)?,
-                    io_read: row.get(3)?,
-                    io_write: row.get(4)?,
-                    uncertain_reason: row.get(5)?,
-                    commit_hash: row.get(6)?,
-                })
-            })?
-            .collect::<Result<Vec<_>, rusqlite::Error>>()?;
-        Ok(data)
-    }
     pub fn count_by_metric(db: &DB, metric: Metric) -> anyhow::Result<u64> {
         let sql = match metric {
             Metric::ICount => "SELECT COUNT(*) FROM estimation WHERE icount IS NOT NULL;",
