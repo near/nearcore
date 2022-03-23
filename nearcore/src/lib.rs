@@ -514,10 +514,10 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         .map_err(|err| anyhow::anyhow!("{}: {}", config_path.display(), err))?
         .archive;
     let mut skip_columns = Vec::new();
-    if !archive && opts.clean_partial_chunks {
+    if archive && opts.clean_partial_chunks {
         skip_columns.push(near_store::db::DBCol::ColPartialChunks);
     }
-    if !archive && opts.clean_trie_changes {
+    if archive && opts.clean_trie_changes {
         skip_columns.push(near_store::db::DBCol::ColTrieChanges);
     }
 
