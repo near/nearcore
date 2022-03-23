@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use anyhow::Context;
+use anyhow::{Context, Error};
 use clap::Parser;
 use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
@@ -19,6 +19,7 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+use std::str;
 use std::sync::Arc;
 use std::time;
 
@@ -98,10 +99,19 @@ fn main() -> anyhow::Result<()> {
         let build_test_contract = "./build.sh";
         let project_root = project_root();
         let estimator_dir = project_root.join("runtime/runtime-params-estimator/test-contract");
-        std::process::Command::new(build_test_contract)
+        let result = std::process::Command::new(build_test_contract)
             .current_dir(estimator_dir)
             .output()
             .context("could not build test contract")?;
+        if !result.status.success() {
+            return Err(Error::from(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "Failed to build test contract: {}",
+                    str::from_utf8(&result.stderr).unwrap()
+                ),
+            )));
+        }
     }
 
     let temp_dir;
