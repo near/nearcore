@@ -3,20 +3,28 @@
 This folder contains some scripts for automated parameter estimation and tracking of the results.
 
 ## How can I observe results?
-1. Check XXXzulipXXX for significant changes in gas cost estimations.
-1. Browse XXX for history of gas cost estimations and how it compares to protocol parameters.
+1. Check [Zulip # pagoda/contract-runtime/ce](https://near.zulipchat.com/#narrow/stream/319057-pagoda.2Fcontract-runtime.2Fce) for significant changes in gas cost estimations on the master branch.
+1. Browse [near.github.io/parameter-estimator-reports](https://near.github.io/parameter-estimator-reports) for a history of gas cost estimations and how it compares to protocol parameters.
 
-## High-level flow of scripts
-1. The full list of available estimations is defined in `runtime/runtime-params-estimator/src/cost.rs` and it is run with the binary in runtime/runtime-params-estimator.
-1. The script `XXX.js` serves as an entry point for regular triggers. It is installed as a CRON job and calls all scripts named below.
-1. Estimations run on the latest change on github.com/near/nearcore
-1. Detailed estimations results are inserted into a SQLite3 DB file.
-1. `XXX` exports the data from the DB to JSON files for a webview with a time series of all estimation results.
-1. `XXX` compares the latest two estimations and notifies XXXzulipXXX about significant diversions.
+## Understanding the Data flow
+1. The estimator produces JSON output with gas costs and extra details.
+1. JSON output is fed to the [estimator-warehouse](../estimator-warehouse), which is a wrapper around an SQLite database file.
+1. The estimator-warehouse pushes notifications to Zulip.
+1. (TODO[jakmeier]) The estimator-warehouse pushes JSON reports to near/parameter-estimator-reports.
+1. (TODO[jakmeier]) A vanilla JavaScript frontend at reads the JSON files hosted by GitHub pages and displays them at [near.github.io/parameter-estimator-reports](https://near.github.io/parameter-estimator-reports).
+
+## Running in CI
+TODO[jakmeier]: Install a daily buildkite job and document the necessary steps to prepare the full environment.
+
+## Running locally
+Use `bash run_estimation.sh` to run estimations on the current version in your working directory. Make sure to set the environment variable `SQLI_DB` to some path where results can be persisted.
+Then use [estimator-warehouse](../estimator-warehouse) to interact with the data.
 
 
-## Files overview
-- `init.sql`: SQL statement to initialize a table in an sqlite3 database. Usage: `sqlite3 mydb.sqlite3 --init init.sql .exit`
-- `run_estimation.sh`: Runs all estimations on currently checked out git HEAD and stores result in a sqlite3 DB. Usage: `SQLI_DB=mydb.sqlite3 ./run_estimation.sh`
-- Various awk scripts used as helpers to parse output and format it as sql insertion query. Used inside `run_estimation.sh`.
-- TODO: Describe all files
+## Configuration
+The script running estimations can be configured to use where it should store the estimated data, where 
+* SQLI_DB="/path/to/db.sqlite"
+* ESTIMATOR_NEAR_HOME="/path/to/near/home"
+    * Use this if a persistent near state should be used. Useful for testing with large stores. But make sure the deployed test contracts are up-to-date.
+* REPO_UNDER_TEST="/path/to/another/repository"
+    * If you want to run the estimator on a repository clone other than the current directory. Useful to run estimation on older commits, which do not have the continuous estimation scripts.
