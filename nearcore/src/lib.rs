@@ -540,7 +540,7 @@ pub fn recompress_storage(home_dir: &Path, dst_dir: &Path) -> anyhow::Result<()>
     let src_store = open_read_only_store(&src_dir);
     let dst_store = create_store(&dst_dir);
 
-    const BATCH_SIZE_BYTES: usize = 150_000_000;
+    const BATCH_SIZE_BYTES: u64 = 150_000_000;
 
     for (n, column) in DBCol::iter().enumerate() {
         info!(
@@ -551,13 +551,13 @@ pub fn recompress_storage(home_dir: &Path, dst_dir: &Path) -> anyhow::Result<()>
             DBCol::COUNT
         );
         let mut store_update = dst_store.store_update();
-        let mut total_written = 0;
-        let mut batch_written = 0;
-        let mut count_keys = 0;
+        let mut total_written: u64 = 0;
+        let mut batch_written: u64 = 0;
+        let mut count_keys: u64 = 0;
         for (key, value) in src_store.iter(column) {
             store_update.set(column, &key, &value);
-            total_written += value.len();
-            batch_written += value.len();
+            total_written += value.len() as u64;
+            batch_written += value.len() as u64;
             count_keys += 1;
             if batch_written >= BATCH_SIZE_BYTES {
                 store_update.commit()?;
