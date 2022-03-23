@@ -55,6 +55,17 @@ impl deepsize::DeepSizeOf for PeerRequest {
     }
 }
 
+/// A struct wrapped std::Instant to support the deepsize feature
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WrappedInstant(pub Instant);
+
+#[cfg(feature = "deepsize_feature")]
+impl deepsize::DeepSizeOf for WrappedInstant {
+    fn deep_size_of_children(&self, _context: &mut deepsize::Context) -> usize {
+        0
+    }
+}
+
 #[derive(actix::MessageResponse, Debug)]
 pub enum PeerResponse {
     NoResponse,
@@ -260,6 +271,7 @@ pub enum NetworkRequests {
     PartialEncodedChunkRequest {
         target: AccountIdOrPeerTrackingShard,
         request: PartialEncodedChunkRequestMsg,
+        create_time: WrappedInstant,
     },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunkResponse {
@@ -385,7 +397,7 @@ pub enum NetworkClientMessages {
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
     /// Response to a request for  chunk parts and/or receipts.
-    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg, Instant),
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunk(PartialEncodedChunk),
     /// Forwarding parts to those tracking the shard (so they don't need to send requests)
