@@ -1887,9 +1887,9 @@ impl Client {
         for height_entry in height_status_map.iter_mut() {
             for block_entry in height_entry.1.iter_mut() {
                 for chunk_hash in block_entry.1.chunk_hashes.iter() {
-                    if self.chain.chain_store().chunk_exists(&chunk_hash) == Ok(true) {
-                        block_entry.1.chunks_completed.insert(chunk_hash.clone())
-                    };
+                    if let Ok(true) = self.chain.chain_store().chunk_exists(&chunk_hash) {
+                        block_entry.1.chunks_completed.insert(chunk_hash.clone());
+                    }
                 }
             }
         }
@@ -1936,11 +1936,11 @@ impl Client {
 
                         let in_progress_str = match block_info.in_progress_for {
                             Some(duration) => format!("in progress for: {:?}", duration),
-                            None => "",
+                            None => "".to_string(),
                         };
                         let in_orphan_str = match block_info.in_orphan_for {
                             Some(duration) => format!("orphan for {:?}", duration),
-                            None => "",
+                            None => "".to_string(),
                         };
 
                         format!(
