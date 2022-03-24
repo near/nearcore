@@ -26,7 +26,7 @@ use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse}
 use near_primitives::time::Instant;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference, EpochId, ShardId};
-use near_primitives::views::QueryRequest;
+use near_primitives::views::{NetworkInfoView, PeerInfoView, QueryRequest};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use strum::AsStaticStr;
@@ -339,6 +339,21 @@ pub struct FullPeerInfo {
     pub partial_edge_info: PartialEdgeInfo,
 }
 
+impl From<&FullPeerInfo> for PeerInfoView {
+    fn from(full_peer_info: &FullPeerInfo) -> Self {
+        PeerInfoView {
+            addr: match full_peer_info.peer_info.addr {
+                Some(socket_addr) => socket_addr.to_string(),
+                None => "N/A".to_string(),
+            },
+            account_id: full_peer_info.peer_info.account_id.clone(),
+            height: full_peer_info.chain_info.height,
+            tracked_shards: full_peer_info.chain_info.tracked_shards.clone(),
+            archival: full_peer_info.chain_info.archival,
+        }
+    }
+}
+
 #[derive(Debug, Clone, actix::MessageResponse)]
 pub struct NetworkInfo {
     pub connected_peers: Vec<FullPeerInfo>,
@@ -350,6 +365,20 @@ pub struct NetworkInfo {
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
     pub peer_counter: usize,
+}
+
+impl From<NetworkInfo> for NetworkInfoView {
+    fn from(network_info: NetworkInfo) -> Self {
+        NetworkInfoView {
+            peer_max_count: network_info.peer_max_count,
+            num_connected_peers: network_info.num_connected_peers,
+            connected_peers: network_info
+                .connected_peers
+                .iter()
+                .map(|full_peer_info| full_peer_info.into())
+                .collect::<Vec<_>>(),
+        }
+    }
 }
 
 #[derive(Debug, actix::MessageResponse)]
