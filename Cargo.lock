@@ -288,15 +288,6 @@ dependencies = [
 
 [[package]]
 name = "ansi_term"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee49baf6cb617b853aa8d93bf420db2383fab46d314482ca2803b40d5fde979b"
-dependencies = [
- "winapi",
-]
-
-[[package]]
-name = "ansi_term"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d52a9bb7ec0cf484c551830a7ce27bd20d67eac647e1befb56b0be4ee39a55d2"
@@ -784,7 +775,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "anyhow",
- "clap 3.0.0-beta.2",
+ "clap 3.1.6",
  "dirs",
  "futures",
  "log",
@@ -843,20 +834,16 @@ version = "2.33.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37e58ac78573c40708d45522f0d80fa2f01cc4f9b4e2bf749807255454312002"
 dependencies = [
- "ansi_term 0.11.0",
- "atty",
  "bitflags",
- "strsim 0.8.0",
  "textwrap 0.11.0",
  "unicode-width",
- "vec_map",
 ]
 
 [[package]]
 name = "clap"
-version = "3.0.0-beta.2"
+version = "3.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bd1061998a501ee7d4b6d449020df3266ca3124b941ec56cf2005c3779ca142"
+checksum = "d8c93436c21e4698bacadf42917db28b23017027a4deccb35dbe47a7e7840123"
 dependencies = [
  "atty",
  "bitflags",
@@ -864,20 +851,18 @@ dependencies = [
  "indexmap",
  "lazy_static",
  "os_str_bytes",
- "strsim 0.10.0",
+ "strsim",
  "termcolor",
- "textwrap 0.12.1",
- "unicode-width",
- "vec_map",
+ "textwrap 0.15.0",
 ]
 
 [[package]]
 name = "clap_derive"
-version = "3.0.0-beta.2"
+version = "3.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "370f715b81112975b1b69db93e0b56ea4cd4e5002ac43b2da8474106a54096a1"
+checksum = "da95d038ede1a964ce99f49cbe27a7fb538d1da595e4b4f70b8c8f338d17bf16"
 dependencies = [
- "heck",
+ "heck 0.4.0",
  "proc-macro-error",
  "proc-macro2",
  "quote",
@@ -1246,7 +1231,7 @@ dependencies = [
  "ident_case",
  "proc-macro2",
  "quote",
- "strsim 0.10.0",
+ "strsim",
  "syn",
 ]
 
@@ -1697,7 +1682,7 @@ name = "genesis-csv-to-json"
 version = "0.0.0"
 dependencies = [
  "chrono",
- "clap 2.33.3",
+ "clap 3.1.6",
  "csv",
  "lazy-static-include",
  "near-chain-configs",
@@ -1715,7 +1700,7 @@ name = "genesis-populate"
 version = "0.0.0"
 dependencies = [
  "borsh",
- "clap 2.33.3",
+ "clap 3.1.6",
  "indicatif",
  "near-chain",
  "near-chain-configs",
@@ -1817,6 +1802,12 @@ checksum = "6d621efb26863f0e9924c6ac577e8275e5e6b77455db64ffa6c65c904e9e132c"
 dependencies = [
  "unicode-segmentation",
 ]
+
+[[package]]
+name = "heck"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2540771e65fc8cb83cd6e8a237f70c319bd5c29f78ed1084ba5d50eeac86f7f9"
 
 [[package]]
 name = "hermit-abi"
@@ -1975,7 +1966,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "anyhow",
- "clap 3.0.0-beta.2",
+ "clap 3.1.6",
  "near-indexer",
  "openssl-probe",
  "serde_json",
@@ -2042,7 +2033,7 @@ dependencies = [
  "base64 0.11.0",
  "borsh",
  "chrono",
- "clap 3.0.0-beta.2",
+ "clap 3.1.6",
  "futures",
  "hex",
  "hyper",
@@ -2133,7 +2124,7 @@ checksum = "67c21572b4949434e4fc1e1978b99c5f77064153c59d998bf13ecd96fb5ecba7"
 name = "keypair-generator"
 version = "0.0.0"
 dependencies = [
- "clap 2.33.3",
+ "clap 3.1.6",
  "near-crypto",
  "nearcore",
 ]
@@ -2266,7 +2257,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4da24a77a3d8a6d4862d95f72e6fdb9c09a643ecdb402d754004a557f2bec75"
 dependencies = [
  "scopeguard",
- "serde",
 ]
 
 [[package]]
@@ -2276,6 +2266,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "712a4d093c9976e24e7dbca41db895dabcbac38eb5f4045393d17a95bdfb1109"
 dependencies = [
  "scopeguard",
+ "serde",
 ]
 
 [[package]]
@@ -2501,6 +2492,8 @@ version = "0.0.0"
 dependencies = [
  "actix-rt",
  "futures",
+ "near-store",
+ "once_cell",
 ]
 
 [[package]]
@@ -2609,7 +2602,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "actix-rt",
- "ansi_term 0.12.1",
+ "ansi_term",
  "borsh",
  "chrono",
  "delay-detector",
@@ -3091,6 +3084,7 @@ version = "0.0.0"
 name = "near-store"
 version = "0.0.0"
 dependencies = [
+ "assert_matches",
  "bencher",
  "borsh",
  "byteorder",
@@ -3224,8 +3218,7 @@ name = "near-vm-runner-standalone"
 version = "0.0.0"
 dependencies = [
  "base64 0.13.0",
- "clap 3.0.0-beta.2",
- "clap_derive",
+ "clap 3.1.6",
  "hex",
  "near-primitives",
  "near-primitives-core",
@@ -3287,9 +3280,11 @@ dependencies = [
  "prometheus",
  "rand 0.7.3",
  "rayon",
+ "rlimit",
  "serde",
  "serde_json",
  "smart-default",
+ "strum",
  "tempfile",
  "testlib",
  "thiserror",
@@ -3304,7 +3299,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "anyhow",
- "clap 3.0.0-beta.2",
+ "clap 3.1.6",
  "futures",
  "near-chain-configs",
  "near-performance-metrics",
@@ -3522,9 +3517,12 @@ dependencies = [
 
 [[package]]
 name = "os_str_bytes"
-version = "2.4.0"
+version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "afb2e1c3ee07430c2cf76151675e583e0f19985fa6efae47d6848a3e2c824f85"
+checksum = "8e22443d1643a904602595ba1cd8f7d896afe56d26712531c5ff73a15b2fbf64"
+dependencies = [
+ "memchr",
+]
 
 [[package]]
 name = "page_size"
@@ -3547,7 +3545,7 @@ dependencies = [
  "paperclip-actix",
  "paperclip-core",
  "paperclip-macros",
- "parking_lot 0.10.2",
+ "parking_lot 0.11.2",
  "semver 0.9.0",
  "serde",
  "serde_derive",
@@ -3568,7 +3566,7 @@ dependencies = [
  "once_cell",
  "paperclip-core",
  "paperclip-macros",
- "parking_lot 0.10.2",
+ "parking_lot 0.11.2",
  "serde_json",
 ]
 
@@ -3581,7 +3579,7 @@ dependencies = [
  "mime",
  "once_cell",
  "paperclip-macros",
- "parking_lot 0.10.2",
+ "parking_lot 0.11.2",
  "pin-project",
  "regex",
  "serde",
@@ -3595,7 +3593,7 @@ name = "paperclip-macros"
 version = "0.4.0"
 source = "git+https://github.com/near/paperclip?branch=actix-web-4-beta.6#b9589c6e520eeee4a07ed94f7e32c476990d6536"
 dependencies = [
- "heck",
+ "heck 0.3.3",
  "http",
  "lazy_static",
  "mime",
@@ -4305,7 +4303,7 @@ dependencies = [
 name = "restaked"
 version = "0.0.0"
 dependencies = [
- "clap 2.33.3",
+ "clap 3.1.6",
  "integration-tests",
  "near-crypto",
  "near-jsonrpc-client",
@@ -4319,7 +4317,7 @@ dependencies = [
 name = "restored-receipts-verifier"
 version = "0.0.0"
 dependencies = [
- "clap 3.0.0-beta.2",
+ "clap 3.1.6",
  "near-chain",
  "near-chain-configs",
  "near-jsonrpc",
@@ -4366,6 +4364,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rlimit"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "347703a5ae47adf1e693144157be231dde38c72bd485925cae7407ad3e52480b"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "rocksdb"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4384,7 +4391,7 @@ dependencies = [
  "bytesize",
  "cfg-if 1.0.0",
  "chrono",
- "clap 3.0.0-beta.2",
+ "clap 3.1.6",
  "genesis-populate",
  "hex",
  "indicatif",
@@ -4822,10 +4829,10 @@ dependencies = [
 name = "state-viewer"
 version = "0.0.0"
 dependencies = [
- "ansi_term 0.12.1",
+ "ansi_term",
  "anyhow",
  "borsh",
- "clap 3.0.0-beta.2",
+ "clap 3.1.6",
  "near-chain",
  "near-chain-configs",
  "near-client",
@@ -4920,8 +4927,8 @@ dependencies = [
 name = "store-validator"
 version = "0.0.0"
 dependencies = [
- "ansi_term 0.12.1",
- "clap 2.33.3",
+ "ansi_term",
+ "clap 3.1.6",
  "near-chain",
  "near-chain-configs",
  "near-client",
@@ -4932,12 +4939,6 @@ dependencies = [
  "serde_json",
  "testlib",
 ]
-
-[[package]]
-name = "strsim"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ea5119cdb4c55b55d432abb513a0429384878c15dde60cc77b1c99de1a95a6a"
 
 [[package]]
 name = "strsim"
@@ -4960,7 +4961,7 @@ version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee8bc6b87a5112aeeab1f4a9f7ab634fe6cbefc4850006df31267f4cfb9e3149"
 dependencies = [
- "heck",
+ "heck 0.3.3",
  "proc-macro2",
  "quote",
  "syn",
@@ -5084,12 +5085,9 @@ dependencies = [
 
 [[package]]
 name = "textwrap"
-version = "0.12.1"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "203008d98caf094106cfaba70acfed15e18ed3ddb7d94e49baec153a2b462789"
-dependencies = [
- "unicode-width",
-]
+checksum = "b1141d4d61095b28419e22cb0bbf02755f5e54e0526f97f1e3d1d160e60885fb"
 
 [[package]]
 name = "themis"
@@ -5395,7 +5393,7 @@ version = "0.2.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e0d2eaa99c3c2e41547cfa109e910a68ea03823cccad4a0525dcbc9b01e8c71"
 dependencies = [
- "ansi_term 0.12.1",
+ "ansi_term",
  "chrono",
  "lazy_static",
  "matchers",
@@ -5518,12 +5516,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
-name = "vec_map"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
-
-[[package]]
 name = "version_check"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5566,7 +5558,7 @@ version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7c2bb690b44cb1b0fdcc54d4998d21f8bdaf706b93775425e440b174f39ad16"
 dependencies = [
- "heck",
+ "heck 0.3.3",
  "proc-macro2",
  "quote",
  "syn",
