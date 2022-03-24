@@ -1,4 +1,4 @@
-use crate::{metrics, SyncStatus};
+use crate::{metrics, rocksdb_metrics, SyncStatus};
 use actix::Addr;
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_client_primitives::types::ShardSyncStatus;
@@ -14,6 +14,7 @@ use near_primitives::types::{AccountId, BlockHeight, EpochHeight, Gas, NumBlocks
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo, ValidatorKickoutView};
+use near_store::db::StoreStatistics;
 use near_telemetry::{telemetry, TelemetryActor};
 use std::cmp::min;
 use std::fmt::Write;
@@ -100,6 +101,7 @@ impl InfoHelper {
         validator_epoch_stats: Vec<ValidatorProductionStats>,
         epoch_height: EpochHeight,
         protocol_upgrade_block_height: BlockHeight,
+        statistics: Option<StoreStatistics>,
     ) {
         let use_colour = matches!(self.log_summary_style, LogSummaryStyle::Colored);
         let paint = |colour: ansi_term::Colour, text: Option<String>| match text {
@@ -161,6 +163,9 @@ impl InfoHelper {
             paint(ansi_term::Colour::Green, blocks_info_log),
             paint(ansi_term::Colour::Blue, machine_info_log),
         );
+        if let Some(statistics) = statistics {
+            rocksdb_metrics::export_stats_as_metrics(statistics);
+        }
 
         let (cpu_usage, memory_usage) = proc_info.unwrap_or_default();
         let is_validator = validator_info.map(|v| v.is_validator).unwrap_or_default();
