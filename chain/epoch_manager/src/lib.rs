@@ -152,10 +152,12 @@ impl EpochManager {
     pub fn copy_epoch_info_as_of_block(
         &mut self,
         block_hash: &CryptoHash,
-        epoch_id: &EpochId,
-        next_epoch_id: &EpochId,
         source_epoch_manager: &mut EpochManager,
     ) -> Result<(), EpochError> {
+        let block_info = source_epoch_manager.get_block_info(block_hash)?.clone();
+        let prev_hash = block_info.prev_hash();
+        let epoch_id = &source_epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+        let next_epoch_id = &source_epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
         let mut store_update = self.store.store_update();
         self.save_epoch_info(
             &mut store_update,
@@ -179,7 +181,6 @@ impl EpochManager {
             )?;
         }
 
-        let block_info = source_epoch_manager.get_block_info(block_hash)?.clone();
         // save block info for the first block in the epoch
         let epoch_first_block = block_info.epoch_first_block();
         self.save_block_info(

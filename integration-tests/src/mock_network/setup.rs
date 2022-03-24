@@ -22,9 +22,11 @@ use near_telemetry::TelemetryActor;
 use nearcore::{get_store_path, NearConfig, NightshadeRuntime};
 use regex::Regex;
 use std::cmp::min;
+use std::collections::HashMap;
 use std::path::Path;
 use std::str::FromStr;
-use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use std::{io, thread};
 use tracing::info;
@@ -180,14 +182,13 @@ pub fn setup_mock_network(
         // copy chain info
         #[cfg(feature = "mock_network")]
         {
-            let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
-            chain_store_update
-                .copy_chain_state_as_of_block(
-                    &hash,
-                    mock_network_runtime.clone(),
-                    &mut network_chain_store,
-                )
-                .unwrap();
+            let chain_store_update = ChainStoreUpdate::copy_chain_state_as_of_block(
+                &mut chain_store,
+                &hash,
+                mock_network_runtime.clone(),
+                &mut network_chain_store,
+            )
+            .unwrap();
             chain_store_update.commit().unwrap();
             info!(target:"mock_network", "Done preparing chain state");
         }
@@ -205,15 +206,7 @@ pub fn setup_mock_network(
                 &config.genesis.config,
             )
             .unwrap();
-            let header = network_chain_store.get_block(&hash).unwrap().header();
-            epoch_manager
-                .copy_epoch_info_as_of_block(
-                    &hash,
-                    header.epoch_id(),
-                    header.next_epoch_id(),
-                    &mut mock_epoch_manager,
-                )
-                .unwrap();
+            epoch_manager.copy_epoch_info_as_of_block(&hash, &mut mock_epoch_manager).unwrap();
             info!(target:"mock_network", "Done preparing epoch info");
         }
 
@@ -227,8 +220,8 @@ pub fn setup_mock_network(
             let state_root_node =
                 mock_network_runtime.get_state_root_node(shard_id, &hash, &state_root).unwrap();
             let num_parts = get_num_state_parts(state_root_node.memory_usage);
-            let mut handlers = vec![];
-            let finished_parts_count = Arc::new(RwLock::new(0));
+            let mut handlers = HashMap::new();
+            let finished_parts_count = Arc::new(AtomicUsize::new(0));
             for part_id in 0..num_parts {
                 let mock_network_runtime1 = mock_network_runtime.clone();
                 let client_runtime1 = client_runtime.clone();
@@ -236,32 +229,46 @@ pub fn setup_mock_network(
                 let hash1 = hash.clone();
                 let state_root1 = state_root.clone();
                 let next_hash1 = next_hash.clone();
-                handlers.push(thread::spawn(move || {
-                    let state_part = mock_network_runtime1
-                        .obtain_state_part(shard_id, &next_hash1, &state_root1, part_id, num_parts)
-                        .unwrap();
-                    client_runtime1
-                        .apply_state_part(
-                            shard_id,
-                            &state_root1,
-                            part_id,
+                handlers.insert(
+                    part_id,
+                    thread::spawn(move || {
+                        let state_part = mock_network_runtime1
+                            .obtain_state_part(
+                                shard_id,
+                                &next_hash1,
+                                &state_root1,
+                                part_id,
+                                num_parts,
+                            )
+                            .unwrap();
+                        client_runtime1
+                            .apply_state_part(
+                                shard_id,
+                                &state_root1,
+                                part_id,
+                                num_parts,
+                                &state_part,
+                                &mock_network_runtime1
+                                    .get_epoch_id_from_prev_block(&hash1)
+                                    .unwrap(),
+                            )
+                            .unwrap();
+                        finished_parts_count1.fetch_add(1, Ordering::SeqCst);
+                        info!(
+                            target: "mock_network",
+                            "Done {}/{} parts for shard {}",
+                            finished_parts_count1.load(Ordering::SeqCst) + 1,
                             num_parts,
-                            &state_part,
-                            &mock_network_runtime1.get_epoch_id_from_prev_block(&hash1).unwrap(),
-                        )
-                        .unwrap();
-                    let finished_parts_count_num = *finished_parts_count1.read().expect("");
-                    *finished_parts_count1.write().expect("") = finished_parts_count_num + 1;
-                    info!(
-                        target: "mock_network",
-                        "Done {}/{} parts",
-                        finished_parts_count_num + 1,
-                        num_parts
-                    );
-                }));
+                            shard_id,
+                        );
+                    }),
+                );
             }
-            for handler in handlers {
-                handler.join().expect("Problem in copying state parts");
+            for (part_id, handler) in handlers {
+                handler.join().expect(&format!(
+                    "Problem in copying state parts {} in shard {}",
+                    part_id, shard_id,
+                ));
             }
         }
     }
