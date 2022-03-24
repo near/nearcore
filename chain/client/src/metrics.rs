@@ -176,3 +176,19 @@ pub static CLIENT_MESSAGES_PROCESSING_TIME: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static CHECK_TRIGGERS_TIME: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram(
+        "near_client_triggers_time",
+        "Processing time of the check_triggers function in client",
+    )
+    .unwrap()
+});
+pub static CLIENT_TRIGGER_TIME_BY_TYPE: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_client_triggers_time_by_type",
+        "Time spent on the different triggers in client",
+        &["trigger"],
+        Some(prometheus::exponential_buckets(0.0001, 1.6, 20).unwrap()),
+    )
+    .unwrap()
+});
