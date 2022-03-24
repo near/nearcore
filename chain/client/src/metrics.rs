@@ -172,7 +172,7 @@ pub static CLIENT_MESSAGES_PROCESSING_TIME: Lazy<HistogramVec> = Lazy::new(|| {
         "near_client_messages_processing_time",
         "Processing time of messages that client actor received, sorted by message type",
         &["type"],
-        Some(prometheus::exponential_buckets(0.001, 1.6, 20).unwrap()),
+        Some(prometheus::exponential_buckets(0.0001, 1.6, 20).unwrap()),
     )
     .unwrap()
 });
