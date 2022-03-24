@@ -1187,6 +1187,32 @@ impl JsonRpcHandler {
                 ),
             ))
             .await?;
+
+        // Hard limit the request to timeout at an hour, since fast forwarding can take a while,
+        // where we can leave it to the rpc clients to set their own timeouts if necessary.
+        timeout(Duration::from_secs(60 * 60), async {
+            loop {
+                let fast_forward_finished = self
+                    .client_addr
+                    .send(NetworkClientMessages::Sandbox(
+                        near_network_primitives::types::NetworkSandboxMessage::SandboxFastForwardStatus {},
+                    ))
+                    .await;
+
+                if let Ok(NetworkClientResponses::SandboxResult(
+                    near_network_primitives::types::SandboxResponse::SandboxFastForwardFinished(true),
+                )) = fast_forward_finished
+                {
+                    break;
+                }
+                let _ = sleep(self.polling_config.polling_interval).await;
+            }
+        })
+        .await
+        .map_err(|_| near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
+            error_message: "sandbox failed to fast forward within reasonable time of an hour".to_string()
+        })?;
+
         Ok(near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardResponse {})
     }
 }

@@ -371,6 +371,13 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         self.fastforward_delta = Some(delta_height);
                         NetworkClientResponses::NoResponse
                     }
+                    near_network_primitives::types::NetworkSandboxMessage::SandboxFastForwardStatus => {
+                        NetworkClientResponses::SandboxResult(
+                            near_network_primitives::types::SandboxResponse::SandboxFastForwardFinished(
+                                self.fastforward_delta.is_none(),
+                            ),
+                        )
+                    }
                 };
             }
             NetworkClientMessages::Transaction { transaction, is_forwarded, check_only } => {

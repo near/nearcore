@@ -276,12 +276,14 @@ pub enum NetworkSandboxMessage {
     SandboxPatchState(Vec<near_primitives::state_record::StateRecord>),
     SandboxPatchStateStatus,
     SandboxFastForward(near_primitives::types::BlockHeightDelta),
+    SandboxFastForwardStatus,
 }
 
 #[cfg(feature = "sandbox")]
 #[derive(Eq, PartialEq, Debug)]
 pub enum SandboxResponse {
     SandboxPatchStateFinished(bool),
+    SandboxFastForwardFinished(bool),
 }
 
 #[derive(actix::Message, AsStaticStr)]
