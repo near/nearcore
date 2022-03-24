@@ -861,6 +861,56 @@ impl ClientActor {
         }
     }
 
+    #[cfg(feature = "sandbox")]
+    fn sandbox_process_fast_forward(
+        &mut self,
+        block_height: BlockHeight,
+    ) -> Result<Option<near_chain::types::LatestKnown>, Error> {
+        let epoch_length = self.client.config.epoch_length;
+        if epoch_length <= 3 {
+            return Err(Error::Other(
+                "Unsupported: fast_forward with an epoch length of 3 or less".to_string(),
+            ));
+        }
+
+        let mut delta_height = match self.fastforward_delta.take() {
+            Some(delta_height) if delta_height > 0 => delta_height,
+            _ => return Ok(None),
+        };
+
+        // Check if we are at epoch boundary. If we are, do not fast forward until new
+        // epoch is here. Decrement the fast_forward count by 1 when a block is produced
+        // during this period of waiting
+        let block_height_wrt_epoch = block_height % epoch_length;
+        if epoch_length - block_height_wrt_epoch <= 3 || block_height_wrt_epoch == 0 {
+            // wait for doomslug to call into produce block
+            self.fastforward_delta = Some(delta_height);
+            return Ok(None);
+        }
+
+        let delta_height = if block_height_wrt_epoch + delta_height >= epoch_length {
+            // fast forward to just right before epoch boundary to have epoch_manager
+            // handle the epoch_height updates as normal. `- 3` since this is being
+            // done 3 blocks before the epoch ends.
+            let right_before_epoch_update = epoch_length - block_height_wrt_epoch - 3;
+
+            delta_height -= right_before_epoch_update;
+            self.fastforward_delta = Some(delta_height);
+            right_before_epoch_update
+        } else {
+            delta_height
+        };
+
+        self.client.accrued_fastforward_delta += delta_height;
+        let timestamp_delta_ns = self.client.sandbox_delta_time();
+        let new_latest_known = near_chain::types::LatestKnown {
+            height: block_height + delta_height,
+            seen: near_primitives::utils::to_timestamp(Clock::utc()) + timestamp_delta_ns,
+        };
+
+        Ok(Some(new_latest_known))
+    }
+
     /// Retrieves latest height, and checks if must produce next block.
     /// Otherwise wait for block arrival or suggest to skip after timeout.
     fn handle_block_production(&mut self) -> Result<(), Error> {
@@ -875,19 +925,13 @@ impl ClientActor {
         let latest_known = self.client.chain.mut_store().get_latest_known()?;
 
         #[cfg(feature = "sandbox")]
-        let latest_known = if let Some(delta_height) = self.fastforward_delta.take() {
-            self.client.accrued_fastforward_delta += delta_height;
-            let timestamp_delta_ns = self.client.sandbox_delta_time();
-            let new_latest_known = near_chain::types::LatestKnown {
-                height: latest_known.height + delta_height,
-                seen: near_primitives::utils::to_timestamp(Clock::utc()) + timestamp_delta_ns,
-            };
-
-            self.client.chain.mut_store().save_latest_known(new_latest_known.clone())?;
-            self.client.sandbox_update_tip(new_latest_known.height)?;
-            new_latest_known
-        } else {
-            latest_known
+        let latest_known = match self.sandbox_process_fast_forward(latest_known.height)? {
+            Some(new_latest_known) => {
+                self.client.chain.mut_store().save_latest_known(new_latest_known.clone())?;
+                self.client.sandbox_update_tip(new_latest_known.height)?;
+                new_latest_known
+            }
+            None => latest_known,
         };
 
         assert!(
@@ -921,6 +965,11 @@ impl ClientActor {
                     if let Err(err) = self.produce_block(height) {
                         // If there is an error, report it and let it retry on the next loop step.
                         error!(target: "client", "Block production failed: {}", err);
+                    } else {
+                        #[cfg(feature = "sandbox")]
+                        if let Some(delta_height) = self.fastforward_delta.take() {
+                            self.fastforward_delta = Some(delta_height - 1);
+                        }
                     }
                 }
             }

@@ -383,8 +383,7 @@ impl EpochManager {
         let validator_stake =
             epoch_info.validators_iter().map(|r| r.account_and_stake()).collect::<HashMap<_, _>>();
         let next_epoch_id = self.get_next_epoch_id_from_info(block_info)?;
-        #[allow(unused_mut)] // unused mut when not in sandbox
-        let mut next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
+        let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
         self.save_epoch_validator_info(store_update, block_info.epoch_id(), &epoch_summary)?;
 
         let EpochSummary {
@@ -412,18 +411,6 @@ impl EpochManager {
             )
         };
         let next_next_epoch_config = self.config.for_protocol_version(next_version);
-        #[cfg(feature = "sandbox")]
-        {
-            // explaination on calculation:
-            // (block_height / length) gives us epoch_height, but we index from 1, so +1 at the end.
-            // Note, this is a retroactive update for sandbox since we can receive fast-forward
-            // requests in the middle of an epoch. block_height is different based on when it gets
-            // called. When fast-forwarded, we need to retroactively adjust the epoch height, but
-            // with a normal `finalize_epoch`, it's the start of the epoch's next block height, so
-            // (height - 1) is needed after adding +1 at the end.
-            *next_epoch_info.epoch_height_mut() =
-                ((block_info.height() - 1) / next_next_epoch_config.epoch_length) + 1;
-        }
 
         let next_next_epoch_info = match proposals_to_epoch_info(
             next_next_epoch_config,
@@ -460,12 +447,6 @@ impl EpochManager {
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).
         self.save_epoch_info(store_update, &next_next_epoch_id, next_next_epoch_info)?;
-
-        // Store next_epoch info again since sandbox changes it. Need to retroactively update
-        // since a fast-forward request can happen in the middle of an epoch.
-        if cfg!(feature = "sandbox") {
-            self.save_epoch_info(store_update, &next_epoch_id, next_epoch_info)?;
-        }
 
         Ok(())
     }
