@@ -3445,10 +3445,14 @@ fn test_catchup_no_sharding_change() {
     // run the chain to a few epochs and make sure no catch up is triggered and the chain still
     // functions
     for h in 1..20 {
-        let block = env.clients[0].produce_block(h).unwrap();
-        let (_, res) = env.clients[0].process_block(block.unwrap().into(), Provenance::PRODUCED);
+        let block = env.clients[0].produce_block(h).unwrap().unwrap();
+        let (_, res) = env.clients[0].process_block(block.clone().into(), Provenance::PRODUCED);
         res.unwrap();
         assert_eq!(env.clients[0].chain.store().iterate_state_sync_infos(), vec![]);
+        assert_eq!(
+            env.clients[0].chain.store().get_blocks_to_catchup(block.header().prev_hash()).unwrap(),
+            vec![]
+        );
     }
 }
 

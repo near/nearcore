@@ -4177,7 +4177,8 @@ impl<'a> ChainUpdate<'a> {
             }
 
             // For the first block of the epoch we check if we need to start download states for
-            // shards that we will care about in the next epoch, if so, we consider that we don't have
+            // shards that we will care about in the next epoch. If there is no state to be downloaded,
+            // we consider that we are caught up, otherwise not
             let has_state_to_download = self.start_downloading_state(me, block)?;
             !has_state_to_download
         } else {
