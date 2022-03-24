@@ -852,7 +852,9 @@ fn rocksdb_column_options(col: DBCol) -> Options {
     // the rest levels use LZ4 compression.
     // See the implementation here:
     //      https://github.com/facebook/rocksdb/blob/main/options/options.cc#L588.
-    opts.optimize_level_style_compaction(/*memtable_memory_budget */128 * bytesize::MIB as usize);
+
+    let memtable_memory_budget = 128 * bytesize::MIB as usize;
+    opts.optimize_level_style_compaction(memtable_memory_budget);
     opts.set_target_file_size_base(64 * bytesize::MIB);
     if col.is_rc() {
         opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
