@@ -411,7 +411,6 @@ impl EpochManager {
             )
         };
         let next_next_epoch_config = self.config.for_protocol_version(next_version);
-
         let next_next_epoch_info = match proposals_to_epoch_info(
             next_next_epoch_config,
             rng_seed,
@@ -447,7 +446,6 @@ impl EpochManager {
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).
         self.save_epoch_info(store_update, &next_next_epoch_id, next_next_epoch_info)?;
-
         Ok(())
     }
 

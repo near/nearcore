@@ -44,7 +44,6 @@ sandbox = [
   "near-chain/sandbox",
   "near-network/sandbox",
   "near-client/sandbox",
-  "near-epoch-manager/sandbox",
 ]
 nightly_protocol_features = ["nearcore/nightly_protocol_features"]
 nightly_protocol = ["nearcore/nightly_protocol"]

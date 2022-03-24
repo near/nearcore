@@ -152,5 +152,4 @@ sandbox = [
   "near-client/sandbox",
   "node-runtime/sandbox",
   "near-jsonrpc/sandbox",
-  "near-epoch-manager/sandbox",
 ]

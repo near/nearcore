@@ -28,7 +28,6 @@ near-store = { path = "../../core/store" }
 near-chain-configs = { path = "../../core/chain-configs" }
 
 [features]
-sandbox = []
 expensive_tests = []
 protocol_feature_chunk_only_producers = [
   "near-primitives/protocol_feature_chunk_only_producers",
