@@ -93,6 +93,7 @@ use near_vm_logic::{ExtCosts, VMConfig};
 use near_vm_runner::MockCompiledContractCache;
 use num_rational::Ratio;
 use rand::Rng;
+use serde_json::json;
 use utils::{
     aggregate_per_block_measurements, fn_cost, fn_cost_count, fn_cost_with_setup,
     generate_data_only_contract, generate_fn_name, noop_function_call_cost, read_resource,
@@ -222,19 +223,30 @@ pub fn run(config: Config) -> CostTable {
 
         let start = Instant::now();
         let measurement = f(&mut ctx);
+        let time = start.elapsed();
+        let name = cost.to_string();
         let uncertain = if measurement.is_uncertain() { "UNCERTAIN " } else { "" };
         let gas = measurement.to_gas();
         res.add(cost, gas);
 
         eprintln!(
             "{:<40} {:>25} gas [{:>25}] {:<10}(computed in {:?}) {}",
-            cost.to_string(),
+            name,
             format_gas(gas),
             format!("{:?}", measurement),
             uncertain,
-            start.elapsed(),
+            time,
             measurement.uncertain_message().unwrap_or_default(),
         );
+
+        if config.json_output {
+            let json = json! ({
+                "name": name,
+                "result": measurement.to_json(),
+                "computed_in": time,
+            });
+            println!("{json}");
+        }
     }
     eprintln!();
 
@@ -1140,11 +1152,17 @@ fn touching_trie_node_write(ctx: &mut EstimatorContext) -> GasCost {
     blocks.push(setup_block);
 
     blocks.extend(
-        iter::repeat_with(|| vec![tb.account_insert_key(signer.clone(), &key.as_str()[0..1], "1")])
+        ["1", "2", "3"]
+            .iter()
+            .cycle()
+            .map(|value| vec![tb.account_insert_key(signer.clone(), &key.as_str()[0..1], value)])
             .take(measured_iters + warmup_iters),
     );
     blocks.extend(
-        iter::repeat_with(|| vec![tb.account_insert_key(signer.clone(), &key, "1")])
+        ["1", "2", "3"]
+            .iter()
+            .cycle()
+            .map(|value| vec![tb.account_insert_key(signer.clone(), &key, value)])
             .take(measured_iters + warmup_iters),
     );
 

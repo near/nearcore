@@ -6,6 +6,7 @@ use std::{fmt, ops};
 use near_primitives::types::Gas;
 use num_rational::Ratio;
 use num_traits::ToPrimitive;
+use serde_json::json;
 
 use crate::config::GasMetric;
 use crate::estimator_params::{GAS_IN_INSTR, GAS_IN_NS, IO_READ_BYTE_COST, IO_WRITE_BYTE_COST};
@@ -151,6 +152,30 @@ impl GasCost {
     fn combine_uncertain(&mut self, rhs: &Self) {
         if !self.is_uncertain() {
             self.uncertain = rhs.uncertain;
+        }
+    }
+    /// JSON representation of the gas cost. This is intended to be used by
+    /// other scripts, such as the continuous estimation pipeline. Consumers
+    /// should expect more fields to be added. But existing fields should remain
+    /// stable.
+    pub fn to_json(&self) -> serde_json::Value {
+        match self.metric {
+            GasMetric::ICount => json!({
+                "gas": self.to_gas(),
+                "metric": "icount",
+                "instructions": self.instructions.to_f64(),
+                "io_r_bytes": self.io_r_bytes.to_f64(),
+                "io_w_bytes": self.io_w_bytes.to_f64(),
+                // `None` will be printed as `null`
+                "uncertain_reason": self.uncertain.map(|u| u.reason),
+            }),
+            GasMetric::Time => json!({
+                "gas": self.to_gas(),
+                "metric": "time",
+                "time_ns": self.time_ns.to_f64(),
+                "uncertain": self.uncertain.is_some(),
+                "uncertain_reason": self.uncertain.map(|u| u.reason),
+            }),
         }
     }
 }

@@ -2,6 +2,7 @@
 
 use crate::client::Client;
 use crate::info::{get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper};
+use crate::metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY;
 use crate::sync::{StateSync, StateSyncResult};
 use crate::StatusResponse;
 use actix::dev::SendError;
@@ -567,7 +568,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 );
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::PartialEncodedChunkResponse(response) => {
+            NetworkClientMessages::PartialEncodedChunkResponse(response, time) => {
+                PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(time.elapsed().as_secs_f64());
                 if let Ok(accepted_blocks) =
                     self.client.process_partial_encoded_chunk_response(response)
                 {
@@ -756,7 +758,11 @@ impl Handler<Status> for ClientActor {
                 last_block_height = block.header().height();
             }
 
-            Some(DetailedDebugStatus { last_blocks: blocks_debug })
+            Some(DetailedDebugStatus {
+                last_blocks: blocks_debug,
+                network_info: self.network_info.clone().into(),
+                sync_status: self.client.sync_status.as_variant_name().to_string(),
+            })
         } else {
             None
         };
@@ -1784,7 +1790,8 @@ pub fn start_client(
     sender: Option<oneshot::Sender<()>>,
     #[cfg(feature = "test_features")] adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
-    let client_arbiter_handle = Arbiter::current();
+    let client_arbiter = Arbiter::new();
+    let client_arbiter_handle = client_arbiter.handle();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
         ClientActor::new(
             client_config,

@@ -188,7 +188,7 @@ fn chunks_produced_and_distributed_common(
                     }
                     NetworkRequests::PartialEncodedChunkRequest {
                         target: AccountIdOrPeerTrackingShard { account_id: Some(to_whom), .. },
-                        request: _,
+                        ..
                     } => {
                         if drop_from_1_to_4
                             && from_whom.as_ref() == "test4"
