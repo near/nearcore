@@ -2664,8 +2664,6 @@ impl<'a> VMLogic<'a> {
             used_gas,
             logs: self.logs,
             profile,
-            // TODO this probably should be receipts, but we need to know the gas price from the
-            // initial action receipt to be able to convert, which happens outside VM
             action_receipts: self.receipt_manager.action_receipts,
         }
     }
