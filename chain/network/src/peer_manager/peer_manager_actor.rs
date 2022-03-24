@@ -397,7 +397,7 @@ impl PeerManagerActor {
             if bandwidth_used > REPORT_BANDWIDTH_THRESHOLD_BYTES
                 || total_msg_received_count > REPORT_BANDWIDTH_THRESHOLD_COUNT
             {
-                debug!(
+                debug!(target: "bandwidth",
                     ?peer_id,
                     bandwidth_used, msg_received_count, "Peer bandwidth exceeded threshold",
                 );
