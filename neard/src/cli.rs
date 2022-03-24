@@ -396,7 +396,7 @@ impl RunCmd {
                 futures::select! {
                     _ = sigint .recv().fuse() => "SIGINT",
                     _ = sigterm.recv().fuse() => "SIGTERM",
-                    _ = rx.fuse() => "ClentActor died",
+                    _ = rx.fuse() => "ClientActor died",
                 }
             } else {
                 // TODO(#6372): Support graceful shutdown on windows.
