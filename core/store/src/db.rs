@@ -841,7 +841,7 @@ fn rocksdb_column_options(col: DBCol) -> Options {
     let cache_size = choose_cache_size(col);
     opts.set_block_based_table_factory(&rocksdb_block_based_options(cache_size));
 
-    // Not that this function changes a lot of rustdb parameters including:
+    // Note that this function changes a lot of rustdb parameters including:
     //      write_buffer_size = memtable_memory_budget / 4
     //      min_write_buffer_number_to_merge = 2
     //      max_write_buffer_number = 6
