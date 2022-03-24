@@ -449,7 +449,7 @@ impl Wasmer2VM {
             return (None, Some(e));
         }
         let err = self.run_method(artifact, import, method_name).err();
-        (Some(logic.outcome()), err)
+        (Some(logic.compute_outcome_and_distribute_gas()), err)
     }
 }
 
@@ -571,7 +571,7 @@ impl crate::runner::VM for Wasmer2VM {
         // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
         if logic.add_contract_compile_fee(code.code().len() as u64).is_err() {
             return (
-                Some(logic.outcome()),
+                Some(logic.compute_outcome_and_distribute_gas()),
                 Some(VMError::FunctionCallError(FunctionCallError::HostError(
                     near_vm_errors::HostError::GasExceeded,
                 ))),
@@ -582,7 +582,7 @@ impl crate::runner::VM for Wasmer2VM {
             return (None, Some(e));
         }
         let err = self.run_method(&artifact, import, method_name).err();
-        (Some(logic.outcome()), err)
+        (Some(logic.compute_outcome_and_distribute_gas()), err)
     }
 
     fn precompile(

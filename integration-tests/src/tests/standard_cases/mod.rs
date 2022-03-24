@@ -13,7 +13,7 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::hash;
 use near_primitives::serialize::to_base64;
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::views::{
     AccessKeyView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
@@ -33,6 +33,14 @@ const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
 
 fn fee_helper(node: &impl Node) -> FeeHelper {
     FeeHelper::new(RuntimeConfig::test().transaction_costs, node.genesis().config.min_gas_price)
+}
+
+fn arr_u64_to_u8(value: &[u64]) -> Vec<u8> {
+    let mut res = vec![];
+    for el in value {
+        res.extend_from_slice(&el.to_le_bytes());
+    }
+    res
 }
 
 /// Adds given access key to the given account_id using signer2.
@@ -1318,4 +1326,37 @@ pub fn test_smart_contract_free(node: impl Node) {
 
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
+}
+
+/// Checks correctness of touching trie node cost for writing value into contract storage.
+/// First call should touch 2 nodes (Extension and Branch), because before it contract storage is empty.
+/// The second call should touch 4 nodes, because the first call adds Leaf and Value nodes to trie.  
+pub fn test_contract_write_key_value_cost(node: impl Node) {
+    let node_user = node.user();
+    let results: Vec<Gas> = vec![2, 4];
+    for i in 0..2 {
+        let transaction_result = node_user
+            .function_call(
+                alice_account(),
+                bob_account(),
+                "write_key_value",
+                arr_u64_to_u8(&[10u64, 20u64]),
+                10u64.pow(14),
+                0,
+            )
+            .unwrap();
+        assert_matches!(transaction_result.status, FinalExecutionStatus::SuccessValue(_));
+        assert_eq!(transaction_result.receipts_outcome.len(), 2);
+
+        let gas_profile = &transaction_result.receipts_outcome[0].outcome.metadata.gas_profile;
+        let touching_trie_node_cost: Gas = gas_profile
+            .clone()
+            .unwrap()
+            .iter()
+            .map(|cost| if cost.cost == "TOUCHING_TRIE_NODE" { cost.gas_used } else { 0 })
+            .sum();
+        let node_touches = touching_trie_node_cost
+            / RuntimeConfig::test().wasm_config.ext_costs.touching_trie_node;
+        assert_eq!(node_touches, results[i]);
+    }
 }

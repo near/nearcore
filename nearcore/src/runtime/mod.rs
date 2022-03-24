@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
+use std::time::Instant;
 
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
@@ -41,13 +42,12 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
     QueryResponseKind, ViewApplyState, ViewStateResult,
 };
-use near_vm_runner::precompile_contract;
-
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
     ApplyStatePartResult, ColState, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
     StoreUpdate, Trie, WrappedTrieChanges,
 };
+use near_vm_runner::precompile_contract;
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
@@ -55,9 +55,9 @@ use node_runtime::{
     ValidatorAccountsUpdate,
 };
 
-use crate::shard_tracker::{ShardTracker, TrackedConfig};
-
+use crate::metrics;
 use crate::migrations::load_migration_data;
+use crate::shard_tracker::{ShardTracker, TrackedConfig};
 use crate::NearConfig;
 use errors::FromStateViewerErrors;
 use near_primitives::runtime::config_store::{RuntimeConfigStore, INITIAL_TESTNET_CONFIG};
@@ -537,6 +537,7 @@ impl NightshadeRuntime {
             },
         };
 
+        let instant = Instant::now();
         let apply_result = self
             .runtime
             .apply(
@@ -562,9 +563,18 @@ impl NightshadeRuntime {
                 RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                 RuntimeError::ValidatorError(e) => e.into(),
             })?;
+        let elapsed = instant.elapsed();
 
         let total_gas_burnt =
             apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
+        metrics::APPLY_CHUNK_DELAY
+            .with_label_values(&[&format_total_gas_burnt(total_gas_burnt)])
+            .observe(elapsed.as_secs_f64());
+        if total_gas_burnt > 0 {
+            metrics::SECONDS_PER_PETAGAS
+                .with_label_values(&[])
+                .observe(elapsed.as_secs_f64() * 1e15 / total_gas_burnt as f64);
+        }
         let total_balance_burnt = apply_result
             .stats
             .tx_burnt_amount
@@ -625,6 +635,12 @@ impl NightshadeRuntime {
             });
         Ok(())
     }
+}
+
+fn format_total_gas_burnt(gas: Gas) -> String {
+    // Rounds up the amount of teragas to hundreds of Tgas.
+    // For example 123 Tgas gets rounded up to "200".
+    format!("{:.0}", ((gas as f64) / 1e14).ceil() * 100.0)
 }
 
 fn apply_delayed_receipts<'a>(

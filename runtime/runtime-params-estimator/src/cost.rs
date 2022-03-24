@@ -158,21 +158,95 @@ pub enum Cost {
     /// writes 1 MiB to a register 10'000 times. Subtract the cost of an empty
     /// function call and divide the rest by 10'000 * 1Mi.
     WriteRegisterByte,
+
+    /// Estimates `utf8_decoding_base` which is charged once for each time
+    /// something is logged in UTF8 or when panicking.
+    ///
+    /// Estimation: Execute a transaction with a single function that logs
+    /// 10'000 times a small string. Divide the cost by 10'000.
     Utf8DecodingBase,
+    /// Estimates `utf8_decoding_byte` which is charged for each byte in the
+    /// output of logging in UTF8 or panicking.
+    ///
+    /// Estimation: Execute a transaction with a single function that logs
+    /// a 10kiB string many times. Divide the cost by total bytes
+    /// logged. One more details, to cover both null-terminated strings and
+    /// fixed-length strings, both versions are measured and the maximum is
+    /// taken.
     Utf8DecodingByte,
+    /// Estimates `utf16_decoding_base` which is charged once for each time
+    /// something is logged in UTF16.
+    ///
+    /// Estimation: Execute a transaction with a single function that logs
+    /// 10'000 times a small string. Divide the cost by 10'000.
     Utf16DecodingBase,
+    /// Estimates `utf16_decoding_byte` which is charged for each byte in the
+    /// output of logging in UTF16.
+    ///
+    /// Estimation: Execute a transaction with a single function that logs a
+    /// 10kiB string many times. Divide the cost by total bytes logged. One more
+    /// details, to cover both null-terminated strings and fixed-length strings,
+    /// both versions are measured and the maximum is taken.
     Utf16DecodingByte,
-    Sha256Base,
-    Sha256Byte,
-    Keccak256Base,
-    Keccak256Byte,
-    Keccak512Base,
-    Keccak512Byte,
-    Ripemd160Base,
-    Ripemd160Block,
-    EcrecoverBase,
+    /// Estimates `log_base` which is charged once every time log output is
+    /// produced, either through logging functions (UTF8 or UTF16) or when
+    /// panicking.
+    ///
+    /// Estimation: Execute a transaction with a single function that logs
+    /// 10'000 times a small string (using UTF16 to be pessimistic). Divide the
+    /// cost by 10'000.
+    ///
+    /// Note: This currently uses the identical estimation as
+    /// `Utf16DecodingBase`
     LogBase,
+    /// Estimates `log_byte` which is charged for every byte of log output
+    /// produced, either through logging functions (UTF8 or UTF16) or when
+    /// panicking.
+    ///
+    /// Estimation: Execute a transaction with a single function that logs a
+    /// 10kiB string N times (using UTF16 to be pessimistic). Divide the cost by
+    /// total bytes of output produced, which is 3/2 * N * 10 * 1024.
     LogByte,
+
+    // Cryptographic host functions:
+    // The runtime provides host functions for sha256, keccak256, keccak512,
+    // ripemd160 hashes. Plus, there is a ECDSA signature verification host
+    // function.
+    // All these host functions are estimated by executing a transaction with a
+    // single function call in them, that just invokes the given host function.
+    // To measure the cost of additional bytes or blocks, a function call with a
+    // large argument is measured and the total cost divided by total input
+    // bytes (or blocks in the case of the RIPEMD hash).
+    /// Estimates `sha256_base`, the cost charged once per call to the
+    /// sha256-hash host function.
+    Sha256Base,
+    /// Estimates `sha256_byte`, the cost charged per input byte in calls to the
+    /// sha256-hash host function.
+    Sha256Byte,
+    /// Estimates `keccak256_base`, the cost charged once per call to the
+    /// keccak256-hash host function.
+    Keccak256Base,
+    /// Estimates `keccak256_byte`, the cost charged per input byte in calls to the
+    /// keccak256-hash host function.
+    Keccak256Byte,
+    /// Estimates `keccak512_base`, the cost charged once per call to the
+    /// keccak512-hash host function.
+    Keccak512Base,
+    /// Estimates `keccak512_byte`, the cost charged per input byte in calls to the
+    /// keccak512-hash host function.
+    Keccak512Byte,
+    /// Estimates `ripemd160_base`, the cost charged once per call to the
+    /// ripemd160-hash host function.
+    Ripemd160Base,
+    /// Estimates `ripemd160_block`, the cost charged per input block in calls
+    /// to the ripemd160-hash host function. Blocks are 64 bytes, except for the
+    /// last which may be smaller. The exact number of blocks charged as a
+    /// function of input bytes `n` is `blocks(n) = (n + 9).div_ceil(64)`.
+    Ripemd160Block,
+    /// Estimates `ecrecover_base`, which covers the full cost of the host
+    /// function `ecrecover` to verify an ECDSA signature and extract the
+    /// signer.
+    EcrecoverBase,
 
     // `storage_write` records a single key-value pair, initially in the
     // prospective changes in-memory hash map, and then once a full block has
@@ -277,11 +351,60 @@ pub enum Cost {
     StorageIterNextKeyByte,
     /// DEPRECATED: Was charged in `storage_iter_next`
     StorageIterNextValueByte,
+
+    /// Estimates `touching_trie_node` which is charged when smart contracts
+    /// access storage either through `storage_has_key`, `storage_read`, or
+    /// `storage_write`. The fee is paid once for each unique trie node
+    /// accessed.
+    ///
+    /// Estimation: Take the maximum of estimations for `TouchingTrieNodeRead`
+    /// and `TouchingTrieNodeWrite`
     TouchingTrieNode,
+    /// Helper estimation for `TouchingTrieNode`
+    ///
+    /// Estimation: Prepare an account that has many keys stored that are
+    /// prefixes from each other. Then measure access cost for the shortest and
+    /// the longest key. The gas estimation difference is divided by the
+    /// difference of actually touched nodes.
+    TouchingTrieNodeRead,
+    /// Helper estimation for `TouchingTrieNode`
+    ///
+    /// Estimation: Prepare an account that has many keys stored that are
+    /// prefixes from each other. Then measure write cost for the shortest and
+    /// the longest key. The gas estimation difference is divided by the
+    /// difference of actually touched nodes.
+    TouchingTrieNodeWrite,
+    /// Estimates `promise_and_base` which is charged for every call to
+    /// `promise_and`. This should cover the base cost for creating receipt
+    /// dependencies.
+    ///
+    /// Estimation: Currently not estimated
     PromiseAndBase,
+    /// Estimates `promise_and_per_promise` which is charged for every promise in
+    /// calls to `promise_and`. This should cover the additional cost for each
+    /// extra receipt in the dependency.
+    ///
+    /// Estimation: Currently not estimated
     PromiseAndPerPromise,
+    /// Estimates `promise_return` which is charged when calling
+    /// `promise_return`. This should cover the cost of the dependency between a
+    /// promise and the current function call return value.
+    ///
+    /// Estimation: Currently not estimated
     PromiseReturn,
+    /// Estimates `validator_stake_base` which is charged for each call to
+    /// `validator_stake`, covering the cost for looking up if an account is a
+    /// validator and if so, how much it has staked. This information is
+    /// available from the local EpochManager.
+    ///
+    /// Estimation: Currently not estimated
     ValidatorStakeBase,
+    /// Estimates `validator_total_stake_base` which is charged for each call to
+    /// `validator_total_stake`, covering the cost for looking up the total
+    /// staked tokens for the current epoch. This information is
+    /// available from the local EpochManager.
+    ///
+    /// Estimation: Currently not estimated
     ValidatorTotalStakeBase,
 
     AltBn128G1MultiexpBase,

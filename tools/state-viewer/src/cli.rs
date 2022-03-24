@@ -1,7 +1,7 @@
 use crate::commands::*;
 use crate::epoch_info;
 use crate::rocksdb_stats::get_rocksdb_stats;
-use clap::{AppSettings, Clap};
+use clap::{Args, Parser, Subcommand};
 use near_chain_configs::GenesisValidationMode;
 use near_logger_utils::init_integration_logger;
 use near_primitives::account::id::AccountId;
@@ -9,7 +9,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{DB_VERSION, PROTOCOL_VERSION};
-use near_store::{create_store, Store};
+use near_store::{open_read_only_store, Store};
 use nearcore::{get_default_home, get_store_path, load_config, NearConfig};
 use once_cell::sync::Lazy;
 use std::path::{Path, PathBuf};
@@ -17,7 +17,7 @@ use std::str::FromStr;
 
 static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(|| get_default_home());
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct StateViewerCmd {
     #[clap(flatten)]
     opts: StateViewerOpts,
@@ -41,7 +41,7 @@ impl StateViewerCmd {
     }
 }
 
-#[derive(Clap, Debug)]
+#[derive(Parser, Debug)]
 struct StateViewerOpts {
     /// Directory for config and data.
     #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
@@ -58,8 +58,8 @@ impl StateViewerOpts {
     }
 }
 
-#[derive(Clap)]
-#[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
+#[derive(Subcommand)]
+#[clap(subcommand_required = true, arg_required_else_help = true)]
 pub enum StateViewerSubCommand {
     #[clap(name = "peers")]
     Peers,
@@ -68,6 +68,8 @@ pub enum StateViewerSubCommand {
     /// Generate a genesis file from the current state of the DB.
     #[clap(name = "dump_state")]
     DumpState(DumpStateCmd),
+    #[clap(name = "dump_state_redis")]
+    DumpStateRedis(DumpStateRedisCmd),
     /// Print chain from start_index to end_index.
     #[clap(name = "chain")]
     Chain(ChainCmd),
@@ -104,16 +106,20 @@ pub enum StateViewerSubCommand {
     Chunks(ChunksCmd),
     #[clap(name = "partial_chunks")]
     PartialChunks(PartialChunksCmd),
+    /// Apply a chunk, even if it's not included in any block on disk
+    #[clap(name = "apply_chunk")]
+    ApplyChunk(ApplyChunkCmd),
 }
 
 impl StateViewerSubCommand {
     pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
         let near_config = load_config(home_dir, genesis_validation);
-        let store = create_store(&get_store_path(home_dir));
+        let store = open_read_only_store(&get_store_path(home_dir));
         match self {
             StateViewerSubCommand::Peers => peers(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
             StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyRange(cmd) => cmd.run(home_dir, near_config, store),
@@ -127,11 +133,12 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, store),
         }
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct DumpStateCmd {
     /// Optionally, can specify at which height to dump state.
     #[clap(long)]
@@ -155,7 +162,20 @@ impl DumpStateCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
+pub struct DumpStateRedisCmd {
+    /// Optionally, can specify at which height to dump state.
+    #[clap(long)]
+    height: Option<BlockHeight>,
+}
+
+impl DumpStateRedisCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        dump_state_redis(self.height, home_dir, near_config, store);
+    }
+}
+
+#[derive(Parser)]
 pub struct ChainCmd {
     #[clap(long)]
     start_index: BlockHeight,
@@ -169,7 +189,7 @@ impl ChainCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct ReplayCmd {
     #[clap(long)]
     start_index: BlockHeight,
@@ -183,7 +203,7 @@ impl ReplayCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct ApplyRangeCmd {
     #[clap(long)]
     start_index: Option<BlockHeight>,
@@ -218,7 +238,7 @@ impl ApplyRangeCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct ApplyCmd {
     #[clap(long)]
     height: BlockHeight,
@@ -232,7 +252,7 @@ impl ApplyCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct ViewChainCmd {
     #[clap(long)]
     height: Option<BlockHeight>,
@@ -248,7 +268,7 @@ impl ViewChainCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct DumpCodeCmd {
     #[clap(long)]
     account_id: String,
@@ -262,7 +282,7 @@ impl DumpCodeCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct DumpAccountStorageCmd {
     #[clap(long)]
     account_id: String,
@@ -287,9 +307,9 @@ impl DumpAccountStorageCmd {
         );
     }
 }
-#[derive(Clap)]
+#[derive(Args)]
 pub struct EpochInfoCmd {
-    #[clap(flatten)]
+    #[clap(subcommand)]
     epoch_selection: epoch_info::EpochSelection,
     /// Displays kickouts of the given validator and expected and missed blocks and chunks produced.
     #[clap(long)]
@@ -308,7 +328,7 @@ impl EpochInfoCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct RocksDBStatsCmd {
     /// Location of the dumped Rocks DB stats.
     #[clap(long, parse(from_os_str))]
@@ -321,7 +341,7 @@ impl RocksDBStatsCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct ReceiptsCmd {
     #[clap(long)]
     receipt_id: String,
@@ -333,7 +353,7 @@ impl ReceiptsCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct ChunksCmd {
     #[clap(long)]
     chunk_hash: String,
@@ -345,7 +365,7 @@ impl ChunksCmd {
         get_chunk(chunk_hash, near_config, store)
     }
 }
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct PartialChunksCmd {
     #[clap(long)]
     partial_chunk_hash: String,
@@ -356,5 +376,30 @@ impl PartialChunksCmd {
         let partial_chunk_hash =
             ChunkHash::from(CryptoHash::from_str(&self.partial_chunk_hash).unwrap());
         get_partial_chunk(partial_chunk_hash, near_config, store)
+    }
+}
+
+#[derive(Parser)]
+pub struct ApplyChunkCmd {
+    #[clap(long)]
+    chunk_hash: String,
+    #[clap(long)]
+    target_height: Option<u64>,
+    #[clap(long)]
+    txs: Option<Vec<String>>,
+    #[clap(long)]
+    receipts: Option<Vec<String>>,
+}
+
+impl ApplyChunkCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        let hash = ChunkHash::from(CryptoHash::from_str(&self.chunk_hash).unwrap());
+        let receipts = self
+            .receipts
+            .map(|v| v.iter().map(|h| CryptoHash::from_str(h).unwrap()).collect::<Vec<_>>());
+        let txs = self
+            .txs
+            .map(|v| v.iter().map(|h| CryptoHash::from_str(h).unwrap()).collect::<Vec<_>>());
+        apply_chunk(home_dir, near_config, store, hash, self.target_height, txs, receipts).unwrap()
     }
 }

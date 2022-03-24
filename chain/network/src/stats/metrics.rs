@@ -89,6 +89,13 @@ pub static DROPPED_MESSAGES_COUNT: Lazy<IntCounter> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static PARTIAL_ENCODED_CHUNK_REQUEST_DELAY: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram(
+        "partial_encoded_chunk_request_delay",
+        "Delay between when a partial encoded chunk request is sent from ClientActor and when it is received by PeerManagerActor",
+    )
+        .unwrap()
+});
 
 #[derive(Clone)]
 pub struct NetworkMetrics {

@@ -99,7 +99,9 @@ pub(crate) fn execute_function_call(
         output_data_receivers,
     };
 
-    near_vm_runner::run(
+    // TODO (#5920): enable chunk caching in the protocol. Also consider using RAII for switching the state back
+    // runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
+    let result = near_vm_runner::run(
         &code,
         &function_call.method_name,
         runtime_ext,
@@ -109,7 +111,9 @@ pub(crate) fn execute_function_call(
         promise_results,
         apply_state.current_protocol_version,
         apply_state.cache.as_deref(),
-    )
+    );
+    // runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
+    result
 }
 
 pub(crate) fn action_function_call(

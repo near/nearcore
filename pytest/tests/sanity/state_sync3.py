@@ -45,7 +45,6 @@ logger.info("step 1")
 
 node0_height, _ = utils.wait_for_blocks(nodes[0],
                                         target=EPOCH_LENGTH * 2 + 1,
-                                        timeout=EPOCH_LENGTH * 10,
                                         poll_interval=5)
 
 nodes[1].start(boot_node=nodes[1])

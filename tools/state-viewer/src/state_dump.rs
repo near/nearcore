@@ -1,15 +1,19 @@
+use borsh::BorshSerialize;
 use near_chain::RuntimeAdapter;
 use near_chain_configs::Genesis;
 use near_crypto::PublicKey;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::BlockHeader;
 use near_primitives::state_record::StateRecord;
+use near_primitives::time::Utc;
 use near_primitives::types::{AccountInfo, Balance, StateRoot};
 use near_store::TrieIterator;
 use nearcore::config::NearConfig;
 use nearcore::NightshadeRuntime;
+use redis::Commands;
 use serde::ser::{SerializeSeq, Serializer};
 use std::collections::HashMap;
+use std::env;
 use std::fs;
 use std::fs::File;
 use std::path::Path;
@@ -49,6 +53,7 @@ pub fn state_dump(
 
     let mut genesis_config = near_config.genesis.config.clone();
     genesis_config.genesis_height = genesis_height;
+    genesis_config.genesis_time = Utc::now();
     genesis_config.validators = validators
         .iter()
         .map(|(account_id, (public_key, amount))| AccountInfo {
@@ -112,6 +117,76 @@ pub fn state_dump(
         }
     }
     near_config
+}
+
+pub fn state_dump_redis(
+    runtime: NightshadeRuntime,
+    state_roots: &[StateRoot],
+    last_block_header: BlockHeader,
+) -> redis::RedisResult<()> {
+    let redis_client =
+        redis::Client::open(env::var("REDIS_HOST").unwrap_or("redis://127.0.0.1/".to_string()))?;
+    let mut redis_connection = redis_client.get_connection()?;
+
+    let block_height = last_block_header.height();
+    let block_hash = last_block_header.hash();
+
+    for (shard_id, state_root) in state_roots.iter().enumerate() {
+        let trie =
+            runtime.get_trie_for_shard(shard_id as u64, last_block_header.prev_hash()).unwrap();
+        let trie = TrieIterator::new(&trie, &state_root).unwrap();
+        for item in trie {
+            let (key, value) = item.unwrap();
+            if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
+                if let StateRecord::Account { account_id, account } = &sr {
+                    println!("Account: {}", account_id);
+                    let redis_key = account_id.as_ref().as_bytes();
+                    redis_connection.zadd(
+                        [b"account:", redis_key].concat(),
+                        block_hash.as_ref(),
+                        block_height,
+                    )?;
+                    let value = account.try_to_vec().unwrap();
+                    redis_connection.set(
+                        [b"account-data:", redis_key, b":", block_hash.as_ref()].concat(),
+                        value,
+                    )?;
+                    println!("Account written: {}", account_id);
+                }
+
+                if let StateRecord::Data { account_id, data_key, value } = &sr {
+                    println!("Data: {}", account_id);
+                    let redis_key =
+                        [account_id.as_ref().as_bytes(), b":", data_key.as_ref()].concat();
+                    redis_connection.zadd(
+                        [b"data:", redis_key.as_slice()].concat(),
+                        block_hash.as_ref(),
+                        block_height,
+                    )?;
+                    let value_vec: &[u8] = value.as_ref();
+                    redis_connection.set(
+                        [b"data-value:", redis_key.as_slice(), b":", block_hash.as_ref()].concat(),
+                        value_vec,
+                    )?;
+                    println!("Data written: {}", account_id);
+                }
+
+                if let StateRecord::Contract { account_id, code } = &sr {
+                    println!("Contract: {}", account_id);
+                    let redis_key = [b"code:", account_id.as_ref().as_bytes()].concat();
+                    redis_connection.zadd(redis_key.clone(), block_hash.as_ref(), block_height)?;
+                    let value_vec: &[u8] = code.as_ref();
+                    redis_connection.set(
+                        [redis_key.clone(), b":".to_vec(), block_hash.0.to_vec()].concat(),
+                        value_vec,
+                    )?;
+                    println!("Contract written: {}", account_id);
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Iterates over the state, calling `callback` for every record that genesis needs to contain.
@@ -550,5 +625,43 @@ mod test {
 
         assert_eq!(new_genesis.config.validators.len(), 2);
         validate_genesis(&new_genesis);
+    }
+
+    #[test]
+    fn test_dump_state_redis() {
+        let epoch_length = 4;
+        let (store, genesis, mut env, _) = setup(epoch_length, PROTOCOL_VERSION, None);
+        let genesis_hash = *env.clients[0].chain.genesis().hash();
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let tx = SignedTransaction::stake(
+            1,
+            "test1".parse().unwrap(),
+            &signer,
+            TESTING_INIT_STAKE,
+            signer.public_key.clone(),
+            genesis_hash,
+        );
+        env.clients[0].process_tx(tx, false, false);
+
+        safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
+
+        let head = env.clients[0].chain.head().unwrap();
+        let last_block_hash = head.last_block_hash;
+        let cur_epoch_id = head.epoch_id;
+        let block_producers = env.clients[0]
+            .runtime_adapter
+            .get_epoch_block_producers_ordered(&cur_epoch_id, &last_block_hash)
+            .unwrap();
+        assert_eq!(
+            block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
+            HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
+        );
+        let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let state_roots: Vec<CryptoHash> =
+            last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
+        use crate::state_dump::state_dump_redis;
+        let res = state_dump_redis(runtime, &state_roots, last_block.header().clone());
+        assert_eq!(res, Ok(()));
     }
 }

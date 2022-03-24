@@ -1,7 +1,7 @@
 extern crate integration_tests;
 
 use actix::{Actor, System};
-use clap::Clap;
+use clap::Parser;
 use futures::{future, FutureExt};
 use std::path::Path;
 
@@ -43,7 +43,7 @@ use std::time::Duration;
 ///
 /// Client starts at genesis height and mock network starts at heigh 20,
 /// mock network will produce new blocks until height 100
-#[derive(Clap)]
+#[derive(Parser)]
 struct Cli {
     /// Existing home dir for the pre-generated chain history. For example, you can use
     /// the home dir of a near node.

@@ -1,6 +1,10 @@
 use actix_rt::signal;
 use futures::{future, select, task::Poll, FutureExt};
-use std::sync::atomic::{AtomicBool, Ordering};
+use once_cell::sync::Lazy;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
 
 pub struct ShutdownableThread {
     pub join: Option<std::thread::JoinHandle<()>>,
@@ -64,8 +68,15 @@ pub fn spawn_interruptible<F: std::future::Future + 'static>(
     actix_rt::spawn(handle_interrupt!(f))
 }
 
+// Number of actix instances that are currently running.
+pub(crate) static ACTIX_INSTANCES_COUNTER: Lazy<Mutex<usize>> = Lazy::new(|| (Mutex::new(0)));
+
 pub fn run_actix<F: std::future::Future>(f: F) {
     static SET_PANIC_HOOK: std::sync::Once = std::sync::Once::new();
+    {
+        let mut value = ACTIX_INSTANCES_COUNTER.lock().unwrap();
+        *value += 1;
+    }
 
     // This is a workaround to make actix/tokio runtime stop when a task panics.
     // See: https://github.com/actix/actix-net/issues/80
@@ -101,5 +112,13 @@ pub fn run_actix<F: std::future::Future>(f: F) {
     let sys = actix_rt::System::new();
     sys.block_on(handle_interrupt!(f));
     sys.run().unwrap();
-    near_store::db::RocksDB::block_until_all_instances_are_dropped();
+
+    {
+        let mut value = ACTIX_INSTANCES_COUNTER.lock().unwrap();
+        *value -= 1;
+        if *value == 0 {
+            // If we're the last instance - make sure to wait for all RocksDB handles to be dropped.
+            near_store::db::RocksDB::block_until_all_instances_are_dropped();
+        }
+    }
 }

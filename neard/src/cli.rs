@@ -1,4 +1,4 @@
-use clap::{AppSettings, Clap};
+use clap::{Args, Parser};
 use futures::future::FutureExt;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::types::{Gas, NumSeats, NumShards};
@@ -14,9 +14,9 @@ use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 /// NEAR Protocol Node
-#[derive(Clap)]
+#[derive(Parser)]
 #[clap(version = crate::NEARD_VERSION_STRING.as_str())]
-#[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
+#[clap(subcommand_required = true, arg_required_else_help = true)]
 pub(super) struct NeardCmd {
     #[clap(flatten)]
     opts: NeardOpts,
@@ -66,8 +66,13 @@ impl NeardCmd {
             NeardSubCommand::UnsafeResetAll => {
                 unsafe_reset("unsafe_reset_all", &home_dir, "data and config", "<near-home-dir>");
             }
+
             NeardSubCommand::StateViewer(cmd) => {
                 cmd.run(&home_dir, genesis_validation);
+            }
+
+            NeardSubCommand::RecompressStorage(cmd) => {
+                cmd.run(&home_dir);
             }
         }
     }
@@ -82,7 +87,7 @@ fn unsafe_reset(command: &str, path: &std::path::Path, what: &str, default: &str
     fs::remove_dir_all(path).expect("Removing data failed");
 }
 
-#[derive(Clap, Debug)]
+#[derive(Parser, Debug)]
 struct NeardOpts {
     /// Sets verbose logging for the given target, or for all targets
     /// if "debug" is given.
@@ -103,7 +108,7 @@ impl NeardOpts {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub(super) enum NeardSubCommand {
     /// Initializes NEAR configuration
     #[clap(name = "init")]
@@ -118,23 +123,51 @@ pub(super) enum NeardSubCommand {
     /// DEPRECATED: this command has been renamed to 'localnet' and will be removed in a future
     /// release.
     // TODO(#4372): Deprecated since 1.24.  Delete it in a couple of releases in 2022.
-    #[clap(name = "testnet")]
+    #[clap(name = "testnet", hide = true)]
     Testnet(LocalnetCmd),
     /// (unsafe) Remove the entire NEAR home directory (which includes the
     /// configuration, genesis files, private keys and data).  This effectively
     /// removes all information about the network.
-    #[clap(name = "unsafe_reset_all")]
+    #[clap(name = "unsafe_reset_all", hide = true)]
     UnsafeResetAll,
     /// (unsafe) Remove all the data, effectively resetting node to the genesis state (keeps genesis and
     /// config).
-    #[clap(name = "unsafe_reset_data")]
+    #[clap(name = "unsafe_reset_data", hide = true)]
     UnsafeResetData,
     /// View DB state.
-    #[clap(name = "view_state")]
+    #[clap(subcommand, name = "view_state")]
     StateViewer(StateViewerSubCommand),
+    /// Recompresses the entire storage.  This is a slow operation which reads
+    /// all the data from the database and writes them down to a new copy of the
+    /// database.
+    ///
+    /// In 1.26 release the compression algorithm for the database has changed
+    /// to reduce storage size.  Nodes don’t need to do anything for new data to
+    /// take advantage of better compression but existing data may take months
+    /// to be recompressed.  This may be an issue for archival nodes which keep
+    /// hold of all the old data.
+    ///
+    /// This command makes it possible to force the recompression as a one-time
+    /// operation.  Using it reduces the database even by up to 40% though that
+    /// is partially due to database ‘defragmentation’ (whose effects will wear
+    /// off in time).  Still, reduction by about 20% even if that’s taken into
+    /// account can be expected.
+    ///
+    /// It’s important to remember however, that this command may take up to
+    /// a day to finish in which time the database cannot be used by the node.
+    ///
+    /// Furthermore, file system where output directory is located needs enough
+    /// free space to store the new copy of the database.  It will be smaller
+    /// than the original but to be safe one should provision around the same
+    /// space as the size of the current `data` directory.
+    ///
+    /// Finally, because this command is meant only as a temporary migration
+    /// tool, it is planned to be removed by the end of 2022.
+    #[clap(name = "recompress_storage")]
+    RecompressStorage(RecompressStorageSubCommand),
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub(super) struct InitCmd {
     /// Download the verified NEAR genesis file automatically.
     #[clap(long)]
@@ -149,7 +182,7 @@ pub(super) struct InitCmd {
     #[clap(long)]
     account_id: Option<String>,
     /// Chain ID, by default creates new random.
-    #[clap(long)]
+    #[clap(long, forbid_empty_values = true)]
     chain_id: Option<String>,
     /// Specify a custom download URL for the genesis file.
     #[clap(long)]
@@ -242,7 +275,7 @@ impl InitCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub(super) struct RunCmd {
     /// Keep old blocks in the storage (default false).
     #[clap(long)]
@@ -384,7 +417,7 @@ impl RunCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub(super) struct LocalnetCmd {
     /// Number of non-validators to initialize the localnet with.
     #[clap(long = "n", default_value = "0")]
@@ -452,6 +485,22 @@ fn init_logging(verbose: Option<&str>) {
         .with_env_filter(env_filter)
         .with_writer(io::stderr)
         .init();
+}
+
+#[derive(Args)]
+#[clap(arg_required_else_help = true)]
+pub(super) struct RecompressStorageSubCommand {
+    /// Directory where to save new storage.
+    #[clap(long)]
+    output_dir: PathBuf,
+}
+
+impl RecompressStorageSubCommand {
+    pub(super) fn run(self, home_dir: &Path) {
+        if let Err(err) = nearcore::recompress_storage(&home_dir, &self.output_dir) {
+            error!("{}", err);
+        }
+    }
 }
 
 #[cfg(test)]

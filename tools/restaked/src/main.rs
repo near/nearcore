@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use clap::{App, Arg};
+use clap::{Arg, Command};
 use tracing::metadata::LevelFilter;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
@@ -30,33 +30,33 @@ fn main() {
         .init();
 
     let default_home = get_default_home();
-    let matches = App::new("Key-pairs generator")
+    let matches = Command::new("Key-pairs generator")
         .about(
             "Continuously checking the node and executes staking transaction if node is kicked out",
         )
         .arg(
-            Arg::with_name("home")
+            Arg::new("home")
                 .long("home")
                 .default_value_os(default_home.as_os_str())
                 .help("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("wait-period")
+            Arg::new("wait-period")
                 .long("wait-period")
                 .default_value(DEFAULT_WAIT_PERIOD_SEC)
                 .help("Waiting period between checking if node is kicked out (in seconds)")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("rpc-url")
+            Arg::new("rpc-url")
                 .long("rpc-url")
                 .default_value(DEFAULT_RPC_URL)
                 .help("Url of RPC for the node to monitor")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("stake-amount")
+            Arg::new("stake-amount")
                 .long("stake-amount")
                 .default_value("0")
                 .help("Stake amount in NEAR, if 0 is used it restakes last seen staked amount")

@@ -2,9 +2,10 @@ import os
 import pathlib
 import random
 import sys
+import textwrap
 import typing
 
-import nayduck
+import toml
 
 REPO_DIR = pathlib.Path(__file__).parent.parent
 
@@ -60,62 +61,55 @@ def find_fuzz_targets() -> typing.Iterable[typing.Tuple[str, str]]:
                     yield package, name[:-3]
 
 
-def find_nightly_fuzz_tests() -> typing.Iterable[typing.Tuple[str, str]]:
-    """Collects list of nightly fuzz tests which use ‘fuzz.py’ runner."""
-    for line in nayduck.read_tests_from_file(REPO_DIR /
-                                             nayduck.DEFAULT_TEST_FILE,
-                                             include_comments=True):
-        # Looking for lines like:
-        # pytest --skip-build --timeout=2h fuzz.py test-utils/runtime-tester/fuzz runtime-fuzzer
-        test = line.strip('#').split()
-        try:
-            if test[0] != 'pytest':
-                continue
-            idx = 1
-            while test[idx].startswith('--'):
-                idx += 1
-            if test[idx] == 'fuzz.py':
-                yield test[idx + 1], test[idx + 2]
-        except IndexError:
-            pass
+def find_fuzz_tests() -> typing.Iterable[typing.Tuple[str, str]]:
+    """Collects list of configured fuzz tests."""
+    with open(REPO_DIR / 'nightly/fuzz.toml') as rd:
+        data = toml.load(rd)
+    for target in data.get('target'):
+        yield target['crate'], target['runner']
 
 
 def main() -> typing.Optional[str]:
     targets = set(find_fuzz_targets())
-    missing = list(targets.difference(find_nightly_fuzz_tests()))
-    count = len(missing)
-    if not count:
+    missing = sorted(targets.difference(find_fuzz_tests()))
+    if not missing:
         print(f'All {len(targets)} fuzz targets included')
         return None
 
+    count = len(missing)
     pkg_len = max(len(package) for package, _ in missing)
-    missing.sort()
-    lines = tuple(f'    pytest --skip-build --timeout=2h fuzz.py {pkg} {target}'
-                  for pkg, target in missing)
-    return '''\
-Found {count} fuzz target{s} which aren’t included in any of the nightly/*.txt files:
 
-{missing}
+    def target_object(crate: str, runner: str, weight=10) -> dict:
+        return {'crate': crate, 'runner': runner, 'weight': weight, 'flags': []}
 
-Add the test{s} to the list in nightly/fuzzing.txt (or another appropriate
-nightly/*.txt) file.  For example as:
+    def format_targets(targets: dict) -> str:
+        formatted = toml.dumps({'target': list(targets)})
+        return textwrap.indent(formatted.rstrip(), '    ')
 
-{lines}
+    missing_list = '\n'.join(
+        f'  * {package.ljust(pkg_len)} {target}' for package, target in missing)
+    missing_formatted = format_targets(target_object(*item) for item in missing)
+    example_formatted = format_targets(
+        [target_object(*random.choice(missing), weight=0)])
 
-If a test is temporarily disabled, add it with an appropriate TODO comment.  For
-example:
+    s = 's' if count > 1 else ''
+    isnt = 'aren’t' if count > 1 else 'isn’t'
+
+    return f'''\
+Found {count} fuzz target{s} which {isnt} included in nightly/fuzz.toml.txt file:
+
+{missing_list}
+
+Add the test{s} to the file.  For example as:
+
+{missing_formatted}
+
+If a test is temporarily disabled, add it with zero weight and an appropriate
+TODO comment.  For example:
 
     # TODO(#1234): Enable the test again once <some condition>
-    # {example}
-
-Note that the TODO comment must reference a GitHub issue (i.e. must
-contain a #<number> string).'''.format(
-        count=count,
-        s='s' if count > 1 else '',
-        missing='\n'.join(f'  * {package.ljust(pkg_len)} {target}'
-                          for package, target in missing),
-        lines='\n'.join(lines),
-        example=random.choice(lines).lstrip())
+{example_formatted}
+    '''
 
 
 if __name__ == '__main__':
