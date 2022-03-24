@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
-use crate::block::{Block, BlockHeader};
+use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::{
     BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderInnerRestV3,
     BlockHeaderV1, BlockHeaderV2, BlockHeaderV3,
@@ -366,11 +366,29 @@ pub struct NetworkInfoView {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct BlockStatusView {
+    pub height: BlockHeight,
+    pub hash: CryptoHash,
+}
+
+impl From<Tip> for BlockStatusView {
+    fn from(tip: Tip) -> Self {
+        Self {
+            height: tip.height,
+            hash: tip.last_block_hash,
+        }
+    }
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DetailedDebugStatus {
     pub last_blocks: Vec<DebugBlockStatus>,
     pub network_info: NetworkInfoView,
     pub sync_status: String,
+    pub current_head_status: BlockStatusView,
+    pub current_header_head_status: BlockStatusView,
 }
 
 // TODO: add more information to status.
@@ -394,7 +412,7 @@ pub struct StatusResponse {
     pub sync_info: StatusSyncInfo,
     /// Validator id of the node
     pub validator_account_id: Option<AccountId>,
-    /// Information about last blocks and sync info.
+    /// Information about last blocks, sync info and chain info.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detailed_debug_status: Option<DetailedDebugStatus>,
 }

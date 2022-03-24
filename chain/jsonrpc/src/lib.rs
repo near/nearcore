@@ -1422,6 +1422,13 @@ async fn sync_info_handler(handler: web::Data<JsonRpcHandler>) -> Result<HttpRes
     }
 }
 
+async fn chain_info_handler(handler: web::Data<JsonRpcHandler>) -> Result<HttpResponse, HttpError> {
+    match handler.debug().await {
+        Ok(value) => Ok(HttpResponse::Ok().json(&value)),
+        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+    }
+}
+
 fn get_cors(cors_allowed_origins: &[String]) -> Cors {
     let mut cors = Cors::permissive();
     if cors_allowed_origins != ["*".to_string()] {
@@ -1439,6 +1446,7 @@ lazy_static_include::lazy_static_include_str! {
     LAST_BLOCKS_HTML => "res/last_blocks.html",
     DEBUG_HTML => "res/debug.html",
     SYNC_INFO_HTML => "res/sync_info.html",
+    CHAIN_INFO_HTML => "res/chain_info.html",
 }
 
 #[get("/debug")]
@@ -1454,6 +1462,11 @@ async fn last_blocks_html() -> actix_web::Result<impl actix_web::Responder> {
 #[get("/debug/sync_info")]
 async fn sync_info_html() -> actix_web::Result<impl actix_web::Responder> {
     Ok(HttpResponse::Ok().body(*SYNC_INFO_HTML))
+}
+
+#[get("/debug/chain_info")]
+async fn chain_info_html() -> actix_web::Result<impl actix_web::Responder> {
+    Ok(HttpResponse::Ok().body(*CHAIN_INFO_HTML))
 }
 
 /// Starts HTTP server(s) listening for RPC requests.
@@ -1521,6 +1534,8 @@ pub fn start_http(
             .service(last_blocks_html)
             .service(web::resource("/debug/api/sync_info").route(web::get().to(sync_info_handler)))
             .service(sync_info_html)
+            .service(web::resource("/debug/api/chain_info").route(web::get().to(chain_info_handler)))
+            .service(chain_info_html)
     })
     .bind(addr)
     .unwrap()
