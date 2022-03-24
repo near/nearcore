@@ -41,7 +41,8 @@ pub struct ChunkInProgress {
     /// Timestamp of receiving a chunk.
     /// If a chunk is received multiple times, only the earliest timestamp is recorded.
     pub chunk_received: Option<Instant>,
-    pub requestor_block_hash: CryptoHash,
+    /// Block hash this chunk belongs to.
+    pub block_hash: CryptoHash,
 }
 
 impl ChunksDelayTracker {
@@ -72,7 +73,7 @@ impl ChunksDelayTracker {
         self.chunks_in_progress.entry(chunk_hash.clone()).or_insert_with(|| ChunkInProgress {
             chunk_requested: timestamp,
             chunk_received: None,
-            requestor_block_hash: requestor_block_hash.clone(),
+            block_hash: requestor_block_hash.clone(),
         });
     }
 

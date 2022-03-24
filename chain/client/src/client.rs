@@ -129,8 +129,6 @@ pub struct UpcomingBlockDebugStatus {
     pub chunks_requested: HashSet<ChunkHash>,
     // Chunks for which we've received the response.
     pub chunks_received: HashSet<ChunkHash>,
-    // Chunks misssing from the database.
-    pub chunks_not_completed: HashSet<ChunkHash>,
     // Chunks completed - fully rebuild and present in database.
     pub chunks_completed: HashSet<ChunkHash>,
 }
@@ -1864,9 +1862,8 @@ impl Client {
         // Here we can see which ones we sent requests for and which responses already came back.
         for entry in self.chunks_delay_tracker.chunks_in_progress.iter() {
             for height_entry in height_status_map.iter_mut() {
-                if height_entry.1.contains_key(&entry.1.requestor_block_hash) {
-                    let block_status_entry =
-                        height_entry.1.get_mut(&entry.1.requestor_block_hash).unwrap();
+                if height_entry.1.contains_key(&entry.1.block_hash) {
+                    let block_status_entry = height_entry.1.get_mut(&entry.1.block_hash).unwrap();
                     block_status_entry.chunks_requested.insert(entry.0.clone());
                     if entry.1.chunk_received.is_some() {
                         block_status_entry.chunks_received.insert(entry.0.clone());
@@ -1890,9 +1887,8 @@ impl Client {
         for height_entry in height_status_map.iter_mut() {
             for block_entry in height_entry.1.iter_mut() {
                 for chunk_hash in block_entry.1.chunk_hashes.iter() {
-                    match self.chain.chain_store().chunk_exists(&chunk_hash) {
-                        Ok(true) => block_entry.1.chunks_completed.insert(chunk_hash.clone()),
-                        _ => block_entry.1.chunks_not_completed.insert(chunk_hash.clone()),
+                    if self.chain.chain_store().chunk_exists(&chunk_hash) == Ok(true) {
+                        block_entry.1.chunks_completed.insert(chunk_hash.clone())
                     };
                 }
             }
@@ -1938,12 +1934,18 @@ impl Client {
                                 paint(ansi_term::Colour::White, Some(chunk_status.join("")))
                             };
 
+                        let in_progress_str = match block_info.in_progress_for {
+                            Some(duration) => format!("in progress for: {:?}", duration),
+                            None => "",
+                        };
+                        let in_orphan_str = match block_info.in_orphan_for {
+                            Some(duration) => format!("orphan for {:?}", duration),
+                            None => "",
+                        };
+
                         format!(
-                            "{} {:?} {:?} Chunks:({}))",
-                            entry.0,
-                            block_info.in_progress_for,
-                            block_info.in_orphan_for,
-                            chunk_status_color,
+                            "{} {} {} Chunks:({}))",
+                            entry.0, in_progress_str, in_orphan_str, chunk_status_color,
                         )
                     })
                     .collect::<Vec<String>>();
