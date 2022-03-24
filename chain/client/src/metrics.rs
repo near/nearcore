@@ -161,7 +161,7 @@ pub static PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY: Lazy<Histogram> = Lazy::new(|| 
 });
 pub static CLIENT_MESSAGES_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
-        "nar_client_messages_count",
+        "near_client_messages_count",
         "Number of messages client actor received by message type",
         &["type"],
     )
