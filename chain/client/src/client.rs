@@ -747,18 +747,9 @@ impl Client {
             )
         };
 
-        // Record a timestamp of processing a block, but only do it if the block isn't known yet.
-        let block_known_error = if let Err(ref e) = result {
-            match e.kind() {
-                ErrorKind::BlockKnown(_) => true,
-                _ => false,
-            }
-        } else {
-            false
-        };
-        if !block_known_error {
-            self.chunks_delay_tracker.received_block(&block_hash, processing_started);
-        }
+        // Record a timestamp of processing a block, but only do it if the block is valid and isn't
+        // processed yet.
+        self.chunks_delay_tracker.received_block(&block_hash, processing_started, &result);
 
         // Send out challenges that accumulated via on_challenge.
         self.send_challenges(challenges);

@@ -1,3 +1,5 @@
+use near_chain::{Error, ErrorKind};
+use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use std::collections::HashMap;
@@ -31,8 +33,25 @@ struct ChunkInProgress {
 }
 
 impl ChunksDelayTracker {
-    pub fn received_block(&mut self, block_hash: &CryptoHash, timestamp: Instant) {
-        self.blocks_in_progress.entry(*block_hash).or_insert(timestamp);
+    pub fn received_block(
+        &mut self,
+        block_hash: &CryptoHash,
+        timestamp: Instant,
+        result: &Result<Option<Tip>, Error>,
+    ) {
+        let record = if let Err(ref e) = result {
+            match e.kind() {
+                ErrorKind::ChunkMissing(_) => true,
+                ErrorKind::ChunksMissing(_) => true,
+                ErrorKind::Orphan => true,
+                _ => false,
+            }
+        } else {
+            true
+        };
+        if record {
+            self.blocks_in_progress.entry(*block_hash).or_insert(timestamp);
+        }
     }
 
     pub fn received_chunk(&mut self, chunk_hash: &ChunkHash, timestamp: Instant) {
