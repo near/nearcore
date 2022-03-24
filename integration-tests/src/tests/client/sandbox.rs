@@ -1,19 +1,10 @@
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use actix::System;
-
-use near_actix_test_utils::run_actix;
 use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
 use near_chain_configs::Genesis;
-use near_client::test_utils::{setup_mock, TestEnv, MAX_BLOCK_PROD_TIME, MIN_BLOCK_PROD_TIME};
+use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
-use near_logger_utils::init_test_logger;
-use near_network::types::{
-    NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageResponse,
-};
-use near_network_primitives::types::NetworkSandboxMessage;
 use near_primitives::account::Account;
 use near_primitives::serialize::{from_base64, to_base64};
 use near_primitives::state_record::StateRecord;
@@ -115,72 +106,4 @@ fn test_patch_account() {
     do_blocks(&mut env, 9, 20);
     let test1_after = env.query_account("test1".parse().unwrap());
     assert_eq!(test1_after.amount, 10);
-}
-
-#[test]
-fn test_fast_forward() {
-    const BLOCKS_TO_FASTFORWARD: BlockHeight = 10_000;
-    const BLOCKS_TO_PRODUCE: u64 = 20;
-
-    // the 1_000_000 is to convert milliseconds to nanoseconds, where MIN/MAX_BLOCK_PROD_TIME are in milliseconds:
-    const FAST_FORWARD_DELTA: u64 = (BLOCKS_TO_FASTFORWARD + BLOCKS_TO_PRODUCE) * 1_000_000;
-
-    init_test_logger();
-    run_actix(async {
-        let count = Arc::new(AtomicUsize::new(0));
-        let first_block_timestamp = Arc::new(AtomicU64::new(0));
-
-        // Produce 20 blocks
-        let (_client, _view_client) = setup_mock(
-            vec!["test".parse().unwrap()],
-            "test".parse().unwrap(),
-            true,
-            false,
-            Box::new(move |msg, _ctx, client| {
-                if let NetworkRequests::Block { block } = msg.as_network_requests_ref() {
-                    let height = block.header().height();
-                    let timestamp = block.header().raw_timestamp();
-
-                    count.fetch_add(1, Ordering::Relaxed);
-                    let at = count.load(Ordering::Relaxed);
-
-                    // Fast forward by 10,000 blocks after the first block produced:
-                    if at == 1 {
-                        first_block_timestamp.store(timestamp, Ordering::Relaxed);
-                        client.do_send(NetworkClientMessages::Sandbox(
-                            NetworkSandboxMessage::SandboxFastForward(BLOCKS_TO_FASTFORWARD),
-                        ));
-                    }
-
-                    // Check at final block if timestamp and block height matches up:
-                    if at >= BLOCKS_TO_PRODUCE as usize {
-                        let before_forward = first_block_timestamp.load(Ordering::Relaxed);
-                        let min_forwarded_time =
-                            before_forward + FAST_FORWARD_DELTA * MIN_BLOCK_PROD_TIME;
-                        let max_forwarded_time =
-                            before_forward + FAST_FORWARD_DELTA * MAX_BLOCK_PROD_TIME;
-                        assert!(
-                            height >= BLOCKS_TO_FASTFORWARD,
-                            "Was not able to fast forward. Current height: {}",
-                            height
-                        );
-
-                        // Check if final block timestamp is within fast forwarded time min and max:
-                        assert!(
-                            (min_forwarded_time..max_forwarded_time).contains(&timestamp),
-                            "Forwarded timestamp {} is not within expected range ({},{})",
-                            timestamp,
-                            min_forwarded_time,
-                            max_forwarded_time
-                        );
-
-                        System::current().stop();
-                    }
-                }
-                PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
-            }),
-        );
-
-        near_network::test_utils::wait_or_panic(5000);
-    });
 }
