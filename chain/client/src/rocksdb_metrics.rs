@@ -93,6 +93,9 @@ impl RocksDBMetrics {
         Ok(())
     }
 
+    /// `stat_name` is the name of the statistics at the storage level.
+    /// `metric_fn` returns a name of the prometheus metric that re-exports that statistic.
+    /// `key_fn` returns a hashmap key for the hashmaps in the ROCKSDB_METRICS singleton.
     fn set_int_value(
         &mut self,
         key_fn: fn(&str) -> String,
@@ -100,8 +103,8 @@ impl RocksDBMetrics {
         stat_name: &str,
         value: i64,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let key: &str = &key_fn(stat_name);
-        let gauge = match self.int_gauges.entry(key.to_string()) {
+        let key = key_fn(stat_name);
+        let gauge = match self.int_gauges.entry(key) {
             Entry::Vacant(entry) => {
                 entry.insert(try_create_int_gauge(&metric_fn(stat_name), stat_name)?)
             }

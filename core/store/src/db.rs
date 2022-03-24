@@ -1032,11 +1032,54 @@ impl TestDB {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum StatsValue {
+    Count(i64),
+    Sum(i64),
+    Percentile(u32, f64),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct StoreStatistics {
+    pub data: Vec<(String, Vec<StatsValue>)>,
+}
+
+/// Parses a string containing RocksDB statistics.
+fn parse_statistics(statistics: &str) -> Result<StoreStatistics, Box<dyn std::error::Error>> {
+    let mut result = vec![];
+    // Statistics are given one per line.
+    for line in statistics.lines() {
+        // Each line follows one of two formats:
+        // 1) <stat_name> COUNT : <value>
+        // 2) <stat_name> P50 : <value> P90 : <value> COUNT : <value> SUM : <value>
+        // Each line gets split into words and we parse statistics according to this format.
+        if let Some((stat_name, words)) = line.split_once(' ') {
+            let mut values = vec![];
+            let mut words = words.split(" : ").flat_map(|v| v.split(" "));
+            while let (Some(key), Some(val)) = (words.next(), words.next()) {
+                match key {
+                    "COUNT" => values.push(StatsValue::Count(val.parse::<i64>()?)),
+                    "SUM" => values.push(StatsValue::Sum(val.parse::<i64>()?)),
+                    p if p.starts_with("P") => values.push(StatsValue::Percentile(
+                        key[1..].parse::<u32>()?,
+                        val.parse::<f64>()?,
+                    )),
+                    _ => {
+                        warn!(target: "stats", "Unsupported stats value: {key} in {line}");
+                    }
+                }
+            }
+            result.push((stat_name.to_string(), values));
+        }
+    }
+    Ok(StoreStatistics { data: result })
+}
 #[cfg(test)]
 mod tests {
     use crate::db::DBCol::ColState;
-    use crate::db::{rocksdb_read_options, DBError, Database, RocksDB};
-    use crate::{create_store, DBCol};
+    use crate::db::StatsValue::{Count, Percentile, Sum};
+    use crate::db::{parse_statistics, rocksdb_read_options, DBError, Database, RocksDB};
+    use crate::{create_store, DBCol, StoreStatistics};
 
     impl RocksDB {
         #[cfg(not(feature = "single_thread_rocksdb"))]
@@ -1141,46 +1184,30 @@ mod tests {
             assert_eq!(store.get(ColState, &[1]).unwrap(), None);
         }
     }
-}
 
-#[derive(Debug, Clone, Copy)]
-pub enum StatsValue {
-    Count(i64),
-    Sum(i64),
-    Percentile(u32, f64),
-}
-
-pub struct StoreStatistics {
-    pub data: Vec<(String, Vec<StatsValue>)>,
-}
-
-/// Parses a string containing RocksDB statistics.
-fn parse_statistics(statistics: &str) -> Result<StoreStatistics, Box<dyn std::error::Error>> {
-    let mut result = vec![];
-    // Statistics are given one per line.
-    for line in statistics.lines() {
-        // Each line follows one of two formats:
-        // 1) <stat_name> COUNT : <value>
-        // 2) <stat_name> P50 : <value> P90 : <value> COUNT : <value> SUM : <value>
-        // Each line gets split into words and we parse statistics according to this format.
-        if let Some((stat_name, words)) = line.split_once(' ') {
-            let mut values = vec![];
-            let mut words = words.split(" : ").flat_map(|v| v.split(" "));
-            while let (Some(key), Some(val)) = (words.next(), words.next()) {
-                match key {
-                    "COUNT" => values.push(StatsValue::Count(val.parse::<i64>()?)),
-                    "SUM" => values.push(StatsValue::Sum(val.parse::<i64>()?)),
-                    p if p.starts_with("P") => values.push(StatsValue::Percentile(
-                        key[1..].parse::<u32>()?,
-                        val.parse::<f64>()?,
-                    )),
-                    _ => {
-                        warn!(target: "stats", "Unsupported stats value: {key} in {line}");
-                    }
-                }
+    #[test]
+    fn test_parse_statistics() {
+        let statistics = "rocksdb.cold.file.read.count COUNT : 999\n\
+         rocksdb.db.get.micros P50 : 9.171086 P95 : 222.678751 P99 : 549.611652 P100 : 45816.000000 COUNT : 917578 SUM : 38313754";
+        let result = parse_statistics(statistics);
+        assert_eq!(
+            result.unwrap(),
+            StoreStatistics {
+                data: vec![
+                    ("rocksdb.cold.file.read.count".to_string(), vec![Count(999)]),
+                    (
+                        "rocksdb.db.get.micros".to_string(),
+                        vec![
+                            Percentile(50, 9.171086),
+                            Percentile(95, 222.678751),
+                            Percentile(99, 549.611652),
+                            Percentile(100, 45816.0),
+                            Count(917578),
+                            Sum(38313754)
+                        ]
+                    )
+                ]
             }
-            result.push((stat_name.to_string(), values));
-        }
+        );
     }
-    Ok(StoreStatistics { data: result })
 }

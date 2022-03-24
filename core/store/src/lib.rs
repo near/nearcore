@@ -307,7 +307,10 @@ pub fn create_store(path: &Path) -> Store {
 
 #[derive(Default, Debug)]
 pub struct StoreConfig {
+    /// Attempted writes to the DB will fail. Doesn't require a `LOCK` file.
     pub read_only: bool,
+    /// Re-export storage layer statistics as prometheus metrics.
+    /// Minor performance impact is expected.
     pub enable_statistics: bool,
 }
 
