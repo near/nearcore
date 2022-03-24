@@ -560,7 +560,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         opts.dest_dir.display()
     );
 
-    info!("Recompressing data from {} into {}", src_dir.display(), dst_dir.display());
+    info!("Recompressing data from {} into {}", src_dir.display(), opts.dest_dir.display());
     let src_store = create_store_with_config(
         &src_dir,
         StoreConfig { read_only: true, enable_statistics: false },
