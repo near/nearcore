@@ -50,6 +50,7 @@ use near_store::{
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeAdapter};
 use near_store::db::DBCol::ColStateChangesForSplitStates;
+use near_store::db::StoreStatistics;
 #[cfg(feature = "mock_network")]
 use std::sync::Arc;
 
@@ -762,6 +763,10 @@ impl ChainStore {
                 changes
             }
         })
+    }
+
+    pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
+        self.store.get_store_statistics()
     }
 }
 

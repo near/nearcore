@@ -1634,6 +1634,7 @@ impl ClientActor {
                 .get_protocol_upgrade_block_height(head.last_block_hash)
                 .unwrap_or(None)
                 .unwrap_or(0),
+            self.client.chain.store().get_store_statistics(),
         );
     }
 }
