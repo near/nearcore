@@ -1,7 +1,7 @@
 use crate::commands::*;
 use crate::epoch_info;
 use crate::rocksdb_stats::get_rocksdb_stats;
-use clap::{AppSettings, Clap};
+use clap::{Args, Parser, Subcommand};
 use near_chain_configs::GenesisValidationMode;
 use near_logger_utils::init_integration_logger;
 use near_primitives::account::id::AccountId;
@@ -17,7 +17,7 @@ use std::str::FromStr;
 
 static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(|| get_default_home());
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct StateViewerCmd {
     #[clap(flatten)]
     opts: StateViewerOpts,
@@ -41,7 +41,7 @@ impl StateViewerCmd {
     }
 }
 
-#[derive(Clap, Debug)]
+#[derive(Parser, Debug)]
 struct StateViewerOpts {
     /// Directory for config and data.
     #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
@@ -58,8 +58,8 @@ impl StateViewerOpts {
     }
 }
 
-#[derive(Clap)]
-#[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
+#[derive(Subcommand)]
+#[clap(subcommand_required = true, arg_required_else_help = true)]
 pub enum StateViewerSubCommand {
     #[clap(name = "peers")]
     Peers,
@@ -141,7 +141,7 @@ impl StateViewerSubCommand {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct DumpStateCmd {
     /// Optionally, can specify at which height to dump state.
     #[clap(long)]
@@ -165,7 +165,7 @@ impl DumpStateCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct DumpStateRedisCmd {
     /// Optionally, can specify at which height to dump state.
     #[clap(long)]
@@ -178,7 +178,7 @@ impl DumpStateRedisCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct ChainCmd {
     #[clap(long)]
     start_index: BlockHeight,
@@ -192,7 +192,7 @@ impl ChainCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct ReplayCmd {
     #[clap(long)]
     start_index: BlockHeight,
@@ -206,7 +206,7 @@ impl ReplayCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct ApplyRangeCmd {
     #[clap(long)]
     start_index: Option<BlockHeight>,
@@ -241,7 +241,7 @@ impl ApplyRangeCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct ApplyCmd {
     #[clap(long)]
     height: BlockHeight,
@@ -255,7 +255,7 @@ impl ApplyCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct ViewChainCmd {
     #[clap(long)]
     height: Option<BlockHeight>,
@@ -271,7 +271,7 @@ impl ViewChainCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct DumpCodeCmd {
     #[clap(long)]
     account_id: String,
@@ -285,7 +285,7 @@ impl DumpCodeCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct DumpAccountStorageCmd {
     #[clap(long)]
     account_id: String,
@@ -310,9 +310,9 @@ impl DumpAccountStorageCmd {
         );
     }
 }
-#[derive(Clap)]
+#[derive(Args)]
 pub struct EpochInfoCmd {
-    #[clap(flatten)]
+    #[clap(subcommand)]
     epoch_selection: epoch_info::EpochSelection,
     /// Displays kickouts of the given validator and expected and missed blocks and chunks produced.
     #[clap(long)]
@@ -331,7 +331,7 @@ impl EpochInfoCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct RocksDBStatsCmd {
     /// Location of the dumped Rocks DB stats.
     #[clap(long, parse(from_os_str))]
@@ -344,7 +344,7 @@ impl RocksDBStatsCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct ReceiptsCmd {
     #[clap(long)]
     receipt_id: String,
@@ -356,7 +356,7 @@ impl ReceiptsCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct ChunksCmd {
     #[clap(long)]
     chunk_hash: String,
@@ -368,7 +368,7 @@ impl ChunksCmd {
         get_chunk(chunk_hash, near_config, store)
     }
 }
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct PartialChunksCmd {
     #[clap(long)]
     partial_chunk_hash: String,
@@ -382,7 +382,7 @@ impl PartialChunksCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct ApplyChunkCmd {
     #[clap(long)]
     chunk_hash: String,

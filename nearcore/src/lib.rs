@@ -21,6 +21,7 @@ use near_primitives::network::PeerId;
 use near_rosetta_rpc::start_rosetta_rpc;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
+use near_store::db::DBCol;
 use near_store::db::RocksDB;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
@@ -498,4 +499,91 @@ pub fn start_with_config_and_synchronization(
         rpc_servers,
         arbiters: vec![client_arbiter_handle, arbiter.handle()],
     })
+}
+
+pub fn recompress_storage(home_dir: &Path, dst_dir: &Path) -> anyhow::Result<()> {
+    use strum::{EnumCount, IntoEnumIterator};
+
+    // We’re configuring each RocksDB to use 512 file descriptors.  Make sure we
+    // can open that many by ensuring nofile limit is large enough to give us
+    // some room to spare over 1024 file descriptors.
+    let (soft, hard) = rlimit::Resource::NOFILE
+        .get()
+        .map_err(|err| anyhow::anyhow!("getrlimit: NOFILE: {}", err))?;
+    if soft < 3 * 512 {
+        rlimit::Resource::NOFILE
+            .set(3 * 512, hard)
+            .map_err(|err| anyhow::anyhow!("setrlimit: NOFILE: {}", err))?;
+    }
+
+    let src_dir = home_dir.join(STORE_PATH);
+    anyhow::ensure!(
+        store_path_exists(&src_dir),
+        "{}: source storage doesn’t exist",
+        src_dir.display()
+    );
+    let db_version = get_store_version(&src_dir);
+    anyhow::ensure!(
+        db_version == near_primitives::version::DB_VERSION,
+        "{}: expected DB version {} but got {}",
+        src_dir.display(),
+        near_primitives::version::DB_VERSION,
+        db_version
+    );
+
+    anyhow::ensure!(
+        !store_path_exists(&dst_dir),
+        "{}: directory already exists",
+        dst_dir.display()
+    );
+
+    info!("Recompressing data from {} into {}", src_dir.display(), dst_dir.display());
+    let src_store = open_read_only_store(&src_dir);
+    let dst_store = create_store(&dst_dir);
+
+    const BATCH_SIZE_BYTES: u64 = 150_000_000;
+
+    for (n, column) in DBCol::iter().enumerate() {
+        info!(
+            "Recompressing col{} ‘{}’ ({:2} / {:2})",
+            column as usize,
+            column,
+            n + 1,
+            DBCol::COUNT
+        );
+        let mut store_update = dst_store.store_update();
+        let mut total_written: u64 = 0;
+        let mut batch_written: u64 = 0;
+        let mut count_keys: u64 = 0;
+        for (key, value) in src_store.iter(column) {
+            store_update.set(column, &key, &value);
+            total_written += value.len() as u64;
+            batch_written += value.len() as u64;
+            count_keys += 1;
+            if batch_written >= BATCH_SIZE_BYTES {
+                store_update.commit()?;
+                info!(
+                    "col{}: processed {} keys; {} GB ...",
+                    column as usize,
+                    count_keys,
+                    total_written as f64 / 1_000_000_000.0
+                );
+                batch_written = 0;
+                store_update = dst_store.store_update();
+            }
+        }
+        info!(
+            "col{}: processed {} keys; {} GB",
+            column as usize,
+            count_keys,
+            total_written as f64 / 1_000_000_000.0
+        );
+        store_update.commit()?;
+    }
+
+    core::mem::drop(dst_store);
+    core::mem::drop(src_store);
+
+    info!("Done; recompressed database at {}", dst_dir.display());
+    Ok(())
 }

@@ -13,7 +13,7 @@ use std::io;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::{Condvar, Mutex, RwLock};
-use strum::EnumIter;
+use strum::{EnumCount, EnumIter};
 use tracing::{debug, error, info, warn};
 
 pub(crate) mod refcount;
@@ -45,7 +45,9 @@ impl Into<io::Error> for DBError {
 /// This enum holds the information about the columns that we use within the RocksDB storage.
 /// You can think about our storage as 2-dimensional table (with key and column as indexes/coordinates).
 // TODO(mm-near): add info about the RC in the columns.
-#[derive(PartialEq, Debug, Copy, Clone, EnumIter, BorshDeserialize, BorshSerialize, Hash, Eq)]
+#[derive(
+    PartialEq, Debug, Copy, Clone, EnumCount, EnumIter, BorshDeserialize, BorshSerialize, Hash, Eq,
+)]
 pub enum DBCol {
     /// Column to indicate which version of database this is.
     /// - *Rows*: single row [VERSION_KEY]
@@ -265,9 +267,6 @@ pub enum DBCol {
     ColStateChangesForSplitStates = 49,
 }
 
-// Do not move this line from enum DBCol
-pub const NUM_COLS: usize = 50;
-
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         let desc = match self {
@@ -336,8 +335,8 @@ impl DBCol {
 
 // List of columns for which GC should be implemented
 
-pub static SHOULD_COL_GC: [bool; NUM_COLS] = {
-    let mut col_gc = [true; NUM_COLS];
+pub static SHOULD_COL_GC: [bool; DBCol::COUNT] = {
+    let mut col_gc = [true; DBCol::COUNT];
     col_gc[DBCol::ColDbVersion as usize] = false; // DB version is unrelated to GC
     col_gc[DBCol::ColBlockMisc as usize] = false;
     // TODO #3488 remove
@@ -361,8 +360,8 @@ pub static SHOULD_COL_GC: [bool; NUM_COLS] = {
 
 // List of columns for which GC may not be executed even in fully operational node
 
-pub static SKIP_COL_GC: [bool; NUM_COLS] = {
-    let mut col_gc = [false; NUM_COLS];
+pub static SKIP_COL_GC: [bool; DBCol::COUNT] = {
+    let mut col_gc = [false; DBCol::COUNT];
     // A node may never restarted
     col_gc[DBCol::ColStateHeaders as usize] = true;
     // True until #2515
@@ -372,8 +371,8 @@ pub static SKIP_COL_GC: [bool; NUM_COLS] = {
 
 // List of reference counted columns
 
-pub static IS_COL_RC: [bool; NUM_COLS] = {
-    let mut col_rc = [false; NUM_COLS];
+pub static IS_COL_RC: [bool; DBCol::COUNT] = {
+    let mut col_rc = [false; DBCol::COUNT];
     col_rc[DBCol::ColState as usize] = true;
     col_rc[DBCol::ColTransactions as usize] = true;
     col_rc[DBCol::ColReceipts as usize] = true;
@@ -1027,7 +1026,7 @@ impl Drop for InstanceCounter {
 
 impl TestDB {
     pub fn new() -> Self {
-        let db: Vec<_> = (0..NUM_COLS).map(|_| HashMap::new()).collect();
+        let db: Vec<_> = (0..DBCol::COUNT).map(|_| HashMap::new()).collect();
         Self { db: RwLock::new(db) }
     }
 }
