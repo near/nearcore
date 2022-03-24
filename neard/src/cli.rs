@@ -494,23 +494,24 @@ pub(super) struct RecompressStorageSubCommand {
     #[clap(long)]
     output_dir: PathBuf,
 
-    /// Delete data from ColPartialChunks column.  The option is ignored unless
-    /// running on archival node.
+    /// Keep data in ColPartialChunks column.  This is always true if node is
+    /// not an archival node.
     #[clap(long)]
-    clean_partial_chunks: bool,
+    keep_partial_chunks: bool,
 
-    /// Clean ColTrieChanges column.  The option is ignored unless running on
-    /// archival node.
+    /// Keep data in ColTrieChanges column.  This is always true if node is
+    /// not an archival node.
     #[clap(long)]
-    clean_trie_changes: bool,
+    keep_trie_changes: bool,
 }
 
 impl RecompressStorageSubCommand {
     pub(super) fn run(self, home_dir: &Path) {
+        warn!(target: "neard", "Recompressing storage; note that this operation may take up to a day to finish.");
         let opts = nearcore::RecompressOpts {
             dest_dir: self.output_dir,
-            clean_partial_chunks: self.clean_partial_chunks,
-            clean_trie_changes: self.clean_trie_changes,
+            keep_partial_chunks: self.keep_partial_chunks,
+            keep_trie_changes: self.keep_trie_changes,
         };
         if let Err(err) = nearcore::recompress_storage(&home_dir, opts) {
             error!("{}", err);

@@ -502,8 +502,8 @@ pub fn start_with_config_and_synchronization(
 
 pub struct RecompressOpts {
     pub dest_dir: PathBuf,
-    pub clean_partial_chunks: bool,
-    pub clean_trie_changes: bool,
+    pub keep_partial_chunks: bool,
+    pub keep_trie_changes: bool,
 }
 
 pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Result<()> {
@@ -514,10 +514,10 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         .map_err(|err| anyhow::anyhow!("{}: {}", config_path.display(), err))?
         .archive;
     let mut skip_columns = Vec::new();
-    if archive && opts.clean_partial_chunks {
+    if archive && !opts.keep_partial_chunks {
         skip_columns.push(near_store::db::DBCol::ColPartialChunks);
     }
-    if archive && opts.clean_trie_changes {
+    if archive && !opts.keep_trie_changes {
         skip_columns.push(near_store::db::DBCol::ColTrieChanges);
     }
 
