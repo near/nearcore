@@ -368,8 +368,13 @@ pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Stor
     if store_exists {
         apply_store_migrations(&path, near_config);
     }
-    let store =
-        create_store_with_config(&path, StoreConfig { read_only: false, enable_statistics: true });
+    let store = create_store_with_config(
+        &path,
+        StoreConfig {
+            read_only: false,
+            enable_statistics: near_config.config.enable_rocksdb_statistics,
+        },
+    );
     if !store_exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);
     }
@@ -538,7 +543,10 @@ pub fn recompress_storage(home_dir: &Path, dst_dir: &Path) -> anyhow::Result<()>
     );
 
     info!("Recompressing data from {} into {}", src_dir.display(), dst_dir.display());
-    let src_store = open_read_only_store(&src_dir);
+    let src_store = create_store_with_config(
+        &src_dir,
+        StoreConfig { read_only: true, enable_statistics: false },
+    );
     let dst_store = create_store(&dst_dir);
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;
