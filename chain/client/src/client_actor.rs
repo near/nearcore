@@ -1629,7 +1629,7 @@ impl ClientActor {
                 .unwrap_or(None)
                 .unwrap_or(0),
         );
-        info!(target: "stats", "{}", self.client.detailed_upcoming_blocks_info().unwrap_or(String::from("Upcoming block info failed.")));
+        debug!(target: "stats", "{}", self.client.detailed_upcoming_blocks_info().unwrap_or(String::from("Upcoming block info failed.")));
     }
 }
 

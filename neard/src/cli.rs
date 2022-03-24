@@ -415,7 +415,7 @@ impl LocalnetCmd {
 
 fn init_logging(verbose: Option<&str>) {
     const DEFAULT_RUST_LOG: &'static str =
-        "tokio_reactor=info,near=info,stats=info,telemetry=info,\
+        "tokio_reactor=info,near=info,stats=debug,telemetry=info,\
          delay_detector=info,near-performance-metrics=info,\
          near-rust-allocator-proxy=info,warn";
 
