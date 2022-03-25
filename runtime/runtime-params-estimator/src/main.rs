@@ -98,10 +98,17 @@ fn main() -> anyhow::Result<()> {
         let build_test_contract = "./build.sh";
         let project_root = project_root();
         let estimator_dir = project_root.join("runtime/runtime-params-estimator/test-contract");
-        std::process::Command::new(build_test_contract)
+        let result = std::process::Command::new(build_test_contract)
             .current_dir(estimator_dir)
             .output()
             .context("could not build test contract")?;
+        if !result.status.success() {
+            anyhow::bail!(
+                "Failed to build test contract, {}, stderr: {}",
+                result.status,
+                String::from_utf8_lossy(&result.stderr)
+            );
+        }
     }
 
     let temp_dir;
