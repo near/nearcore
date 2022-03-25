@@ -329,14 +329,17 @@ impl WrappedTrieChanges {
     pub fn wrapped_into(
         &mut self,
         store_update: &mut StoreUpdate,
+        archival: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.insertions_into(store_update)?;
         self.state_changes_into(store_update);
-        store_update.set_ser(
-            DBCol::ColTrieChanges,
-            &shard_layout::get_block_shard_uid(&self.block_hash, &self.shard_uid),
-            &self.trie_changes,
-        )?;
+        if !archival {
+            store_update.set_ser(
+                DBCol::ColTrieChanges,
+                &shard_layout::get_block_shard_uid(&self.block_hash, &self.shard_uid),
+                &self.trie_changes,
+            )?;
+        }
         Ok(())
     }
 }

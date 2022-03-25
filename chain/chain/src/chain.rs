@@ -585,6 +585,16 @@ impl Chain {
         })
     }
 
+    pub fn new_archival(
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        chain_genesis: &ChainGenesis,
+        doomslug_threshold_mode: DoomslugThresholdMode,
+    ) -> Result<Chain, Error> {
+        let mut chain = Self::new(runtime_adapter, chain_genesis, doomslug_threshold_mode)?;
+        chain.store.set_archival();
+        Ok(chain)
+    }
+
     #[cfg(feature = "test_features")]
     pub fn adv_disable_doomslug(&mut self) {
         self.doomslug_threshold_mode = DoomslugThresholdMode::NoApprovals
