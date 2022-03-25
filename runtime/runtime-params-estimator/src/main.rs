@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use anyhow::Context;
-use clap::Clap;
+use clap::Parser;
 use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -22,7 +22,7 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time;
 
-#[derive(Clap)]
+#[derive(Parser)]
 struct CliArgs {
     /// Directory for config and data. If not set, a temporary directory is used
     /// to generate appropriate data.
@@ -73,7 +73,7 @@ struct CliArgs {
     #[clap(long)]
     drop_os_cache: bool,
     /// Print extra debug information
-    #[clap(long, multiple(true), possible_values=&["io", "rocksdb", "least-squares"])]
+    #[clap(long, multiple_occurrences = true, possible_values=&["io", "rocksdb", "least-squares"])]
     debug: Vec<String>,
     /// Print detailed estimation results in JSON format. One line with one JSON
     /// object per estimation.
@@ -98,10 +98,17 @@ fn main() -> anyhow::Result<()> {
         let build_test_contract = "./build.sh";
         let project_root = project_root();
         let estimator_dir = project_root.join("runtime/runtime-params-estimator/test-contract");
-        std::process::Command::new(build_test_contract)
+        let result = std::process::Command::new(build_test_contract)
             .current_dir(estimator_dir)
             .output()
             .context("could not build test contract")?;
+        if !result.status.success() {
+            anyhow::bail!(
+                "Failed to build test contract, {}, stderr: {}",
+                result.status,
+                String::from_utf8_lossy(&result.stderr)
+            );
+        }
     }
 
     let temp_dir;

@@ -622,7 +622,7 @@ pub fn setup_mock_all_validators(
                                 .unwrap()
                                 .insert(*block.header().hash(), block.header().height());
                         }
-                        NetworkRequests::PartialEncodedChunkRequest { target, request } => {
+                        NetworkRequests::PartialEncodedChunkRequest { target, request , ..} => {
                             let create_msg = || {
                                 NetworkClientMessages::PartialEncodedChunkRequest(
                                     request.clone(),
@@ -639,7 +639,7 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
                             let create_msg = || {
-                                NetworkClientMessages::PartialEncodedChunkResponse(response.clone())
+                                NetworkClientMessages::PartialEncodedChunkResponse(response.clone(), Clock::instant())
                             };
                             send_chunks(
                                 Arc::clone(&connectors1),
@@ -1395,7 +1395,7 @@ impl TestEnv {
         request: PeerManagerMessageRequest,
     ) {
         if let PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::PartialEncodedChunkRequest { target, request },
+            NetworkRequests::PartialEncodedChunkRequest { target, request, .. },
         ) = request
         {
             let target_id = self.account_to_client_index[&target.account_id.unwrap()];

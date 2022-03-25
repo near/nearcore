@@ -12,6 +12,7 @@ use near_network_primitives::types::{
 use near_performance_metrics::actix::run_later;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
+use near_primitives::time::Clock;
 use near_primitives::types::{BlockHeight, ShardId};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -157,12 +158,22 @@ impl Handler<PeerManagerMessageRequest> for MockPeerManagerActor {
                             .chain_history_access
                             .retrieve_partial_encoded_chunk(&request)
                             .unwrap();
-                        let _response = act
-                            .client_addr
-                            .do_send(NetworkClientMessages::PartialEncodedChunkResponse(response));
+                        let _response = act.client_addr.do_send(
+                            NetworkClientMessages::PartialEncodedChunkResponse(
+                                response,
+                                Clock::instant(),
+                            ),
+                        );
                     });
                 }
                 NetworkRequests::Block { .. } => {}
+                NetworkRequests::StateRequestHeader { .. } => {
+                    panic!(
+                        "MockPeerManagerActor receives state sync request. \
+                            It doesn't support state sync now. Try setting start_height \
+                            and target_height to be at the same epoch to avoid state sync"
+                    );
+                }
                 _ => {
                     panic!("MockPeerManagerActor receives unexpected message {:?}", request);
                 }
