@@ -112,14 +112,14 @@ mod test {
         }
 
         assert_eq!("err", parse("foo"));
-        assert_eq!("err", parse("1.2.3.*"));
-        assert_eq!("err", parse("1.2.3.0/24"));
-        assert_eq!("err", parse("1.2.3.4.5"));
-        assert_eq!("err", parse("1.2.3.4:424242"));
+        assert_eq!("err", parse("192.0.2.*"));
+        assert_eq!("err", parse("192.0.2.0/24"));
+        assert_eq!("err", parse("192.0.2.4.5"));
+        assert_eq!("err", parse("192.0.2.4:424242"));
 
-        assert_eq!("1.2.3.4", parse("1.2.3.4"));
-        assert_eq!("1.2.3.4:0", parse("1.2.3.4:0"));
-        assert_eq!("1.2.3.4:42", parse("1.2.3.4:42"));
+        assert_eq!("192.0.2.4", parse("192.0.2.4"));
+        assert_eq!("192.0.2.4:0", parse("192.0.2.4:0"));
+        assert_eq!("192.0.2.4:42", parse("192.0.2.4:42"));
 
         assert_eq!("::1", parse("::1"));
         assert_eq!("[::1]:42", parse("[::1]:42"));
@@ -147,24 +147,24 @@ mod test {
     fn test_blacklist() {
         use std::net::*;
 
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 4));
         let lo4 = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-        let ip1234 = IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4));
         let lo6 = IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1));
-        let lo4mappend = IpAddr::V6("::ffff:127.0.0.1".parse().unwrap());
+        let mapped = IpAddr::V6("::ffff:127.0.0.1".parse().unwrap());
 
         let blacklist = super::Blacklist::from_iter(vec![
             "127.0.0.1".to_string(),
-            "1.2.3.4:42".to_string(),
+            "192.0.2.4:42".to_string(),
             "[::1]:42".to_string(),
         ]);
 
         assert!(blacklist.contains(&SocketAddr::new(lo4, 42)));
         assert!(blacklist.contains(&SocketAddr::new(lo4, 8080)));
-        assert!(blacklist.contains(&SocketAddr::new(ip1234, 42)));
-        assert!(!blacklist.contains(&SocketAddr::new(ip1234, 8080)));
+        assert!(blacklist.contains(&SocketAddr::new(ip, 42)));
+        assert!(!blacklist.contains(&SocketAddr::new(ip, 8080)));
         assert!(blacklist.contains(&SocketAddr::new(lo6, 42)));
         assert!(!blacklist.contains(&SocketAddr::new(lo6, 8080)));
-        assert!(!blacklist.contains(&SocketAddr::new(lo4mappend, 42)));
-        assert!(!blacklist.contains(&SocketAddr::new(lo4mappend, 8080)));
+        assert!(!blacklist.contains(&SocketAddr::new(mapped, 42)));
+        assert!(!blacklist.contains(&SocketAddr::new(mapped, 8080)));
     }
 }
