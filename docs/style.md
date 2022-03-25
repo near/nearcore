@@ -114,8 +114,9 @@ columns.
 ```markdown
 <!-- GOOD -->
 Manually reflowing paragraphs is tedious. Luckily, most editors have this
-functionality built in or available via extensions. For example, in Emacs you can
-use `fill-paragraph` (<kbd>M-q</kbd>), and VS Code has `stkb.rewrap` extension.
+functionality built in or available via extensions. For example, in Emacs you
+can use `fill-paragraph` (<kbd>M-q</kbd>), (neo)vim allows rewrapping with `gq`,
+and VS Code has `stkb.rewrap` extension.
 
 <!-- BAD -->
 One sentence per-line is also occasionally used for technical writing.
@@ -125,3 +126,52 @@ While convenient for editing, it may be poorly legible in unrendered form
 <!-- BAD -->
 Definitely don't use soft-wrapping. While markdown mostly ignores source level line breaks, relying on soft wrap makes the source completely unreadable, especially on modern wide displays.
 ```
+
+## Tracing
+
+When emitting events and spans with `tracing` prefer adding variable data via
+[`tracing`'s field mechanism][fields].
+
+[fields]: https://docs.rs/tracing/latest/tracing/#recording-fields
+
+Most apparent violation of this rule will be when the message utilizes any form
+of formatting, as seen in the following example:
+
+```rust
+debug!(
+    target: "client",
+    "{:?} Received block {} <- {} at {} from {}, requested: {}",
+    self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
+    hash,
+    block.header().prev_hash(),
+    block.header().height(),
+    peer_id,
+    was_requested
+);
+```
+
+Most of the time an event will not need to format anything into the message text
+in order to pass more information:
+
+```rust
+debug!(
+    target: "client",
+    message = "Received block",
+    validator_id = self.client.validator_signer.as_ref().map(|vs| {
+        tracing::field::display(vs.validator_id())
+    }),
+    %hash,
+    "block.previous_hash" = %block.header().prev_hash(),
+    "block.height" = block.header().height(),
+    %peer_id,
+    was_requested
+);
+```
+
+**Rationale:** This makes the events structured – one of the major value
+propositions of the tracing ecosystem. Structured events allow for immediately
+actionable data without additional post-processing, especially when using some
+of the more advanced tracing subscribers. Of particular interest would be those
+that output events as JSON, or those that publish data to distributed event
+collection systems such as opentelemetry. Maintaining this rule will also
+usually result in faster execution (when logs at the relevant level are enabled.)
