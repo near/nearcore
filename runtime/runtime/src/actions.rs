@@ -223,7 +223,7 @@ pub(crate) fn action_function_call(
     };
     if let Some(mut outcome) = outcome {
         let new_receipts = outcome.take_receipts(
-            &receipt.predecessor_id,
+            &account_id,
             &action_receipt.signer_id,
             &action_receipt.signer_public_key,
             action_receipt.gas_price,

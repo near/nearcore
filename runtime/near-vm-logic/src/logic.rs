@@ -62,15 +62,13 @@ pub struct VMLogic<'a> {
 
     /// The DAG of promises, indexed by promise id.
     promises: Vec<Promise>,
-    // /// Record the accounts towards which the receipts are directed.
-    // receipt_to_account: HashMap<ReceiptIndex, AccountId>,
     /// Tracks the total log length. The sum of length of all logs.
     total_log_length: u64,
 
     /// Current protocol version that is used for the function call.
     current_protocol_version: ProtocolVersion,
 
-    // TODO docs
+    /// Handles the receipts generated through execution.
     pub(crate) receipt_manager: ReceiptManager,
 }
 
@@ -1319,7 +1317,6 @@ impl<'a> VMLogic<'a> {
             vec![],
             account_id.clone(),
         )?;
-        // self.receipt_to_account.insert(new_receipt_idx, account_id);
 
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
     }
@@ -1381,7 +1378,6 @@ impl<'a> VMLogic<'a> {
             receipt_dependencies,
             account_id.clone(),
         )?;
-        // self.receipt_to_account.insert(new_receipt_idx, account_id);
 
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
     }
@@ -2728,7 +2724,8 @@ impl std::fmt::Debug for VMOutcome {
 }
 
 impl VMOutcome {
-    // TODO docs
+    /// Takes all action receipts generated from the VM execution and converts them into receipts
+    /// based on the context of the transaction.
     pub fn take_receipts(
         &mut self,
         predecessor_id: &AccountId,
