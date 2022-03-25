@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 /// Read `TrieItem`s - nodes containing values - using Trie iterator, stop when 10k items were read.
 /// Note that the first run populates OS caches, so all next runs will be faster. You may want to run
 /// `sudo sh -c "/usr/bin/echo 1 > /proc/sys/vm/drop_caches"` before running the benchmark.
-/// As of 25/03/2022, it shows the following results for the readonly mode:
+/// As of 25/03/2022, it shows the following results for both read-only and read-write modes:
 /// ```
 /// took on avg 6.169248ms op per sec 162 items read 10000
 /// took on avg 1.424615ms op per sec 701 items read 10000
@@ -73,11 +73,12 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, read_only: bool) {
     });
 }
 
+/// Read first 10k trie items from shard 0.
 fn read_trie_items_10k(bench: &mut Bencher) {
-    // Read trie items until 10k items found from shard 0.
     read_trie_items(bench, 0, false);
 }
 
+/// Read first 10k trie items from shard 0 in read-only mode.
 fn read_trie_items_10k_read_only(bench: &mut Bencher) {
     // Read trie items until 10k items found from shard 0.
     read_trie_items(bench, 0, true);
