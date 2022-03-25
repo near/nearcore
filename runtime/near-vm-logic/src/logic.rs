@@ -1312,11 +1312,8 @@ impl<'a> VMLogic<'a> {
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         let sir = account_id == self.context.current_account_id;
         self.pay_gas_for_new_receipt(sir, &[])?;
-        let new_receipt_idx = self.receipt_manager.create_receipt(
-            || self.ext.generate_data_id(),
-            vec![],
-            account_id.clone(),
-        )?;
+        let new_receipt_idx =
+            self.receipt_manager.create_receipt(self.ext, vec![], account_id.clone())?;
 
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
     }
@@ -1374,7 +1371,7 @@ impl<'a> VMLogic<'a> {
         self.pay_gas_for_new_receipt(sir, &deps)?;
 
         let new_receipt_idx = self.receipt_manager.create_receipt(
-            || self.ext.generate_data_id(),
+            self.ext,
             receipt_dependencies,
             account_id.clone(),
         )?;

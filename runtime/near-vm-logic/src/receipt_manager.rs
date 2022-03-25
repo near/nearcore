@@ -1,3 +1,4 @@
+use crate::External;
 use borsh::BorshDeserialize;
 use near_crypto::PublicKey;
 use near_primitives::receipt::{ActionReceipt, DataReceiver, Receipt, ReceiptEnum};
@@ -109,13 +110,13 @@ impl ReceiptManager {
     /// * `receiver_id` - account id of the receiver of the receipt created
     pub fn create_receipt(
         &mut self,
-        mut generate_data_id: impl FnMut() -> CryptoHash,
+        ext: &mut dyn External,
         receipt_indices: Vec<u64>,
         receiver_id: AccountId,
     ) -> ExtResult<u64> {
         let mut input_data_ids = vec![];
         for receipt_index in receipt_indices {
-            let data_id = generate_data_id();
+            let data_id = ext.generate_data_id();
             self.action_receipts
                 .0
                 .get_mut(receipt_index as usize)
