@@ -1,6 +1,7 @@
 use near_metrics::{
-    try_create_histogram, try_create_int_counter, try_create_int_gauge, Histogram, IntCounter,
-    IntGauge, IntGaugeVec,
+    try_create_histogram, try_create_histogram_vec, try_create_int_counter,
+    try_create_int_counter_vec, try_create_int_gauge, Histogram, HistogramVec, IntCounter,
+    IntCounterVec, IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
 
@@ -61,17 +62,33 @@ pub static AVG_TGAS_USAGE: Lazy<IntGauge> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static CHUNKS_RECEIVING_DELAY_US: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge(
-        "near_chunks_receiving_delay_us",
-        "Max delay between receiving a block and its chunks for several most recent blocks",
+pub static TGAS_USAGE_HIST: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_tgas_used_hist",
+        "Number of Tgas (10^12 of gas) used by processed chunks, as a histogram",
+        &["shard"],
+        Some(vec![
+            50., 100., 300., 500., 700., 800., 900., 950., 1000., 1050., 1100., 1150., 1200.,
+            1250., 1300.,
+        ]),
     )
     .unwrap()
 });
-pub static BLOCKS_AHEAD_OF_HEAD: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge(
-        "near_blocks_ahead_of_head",
-        "Height difference between the current head and the newest block or chunk received",
+pub static BLOCK_CHUNKS_REQUESTED_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_block_chunks_request_delay_seconds",
+        "Delay between receiving a block and requesting its chunks",
+        &["shard_id"],
+        Some(prometheus::exponential_buckets(0.001, 1.6, 20).unwrap()),
+    )
+    .unwrap()
+});
+pub static CHUNK_RECEIVED_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_receive_delay_seconds",
+        "Delay between requesting and receiving a chunk.",
+        &["shard_id"],
+        Some(prometheus::exponential_buckets(0.001, 1.6, 20).unwrap()),
     )
     .unwrap()
 });
@@ -126,4 +143,36 @@ pub static NODE_PROTOCOL_VERSION: Lazy<IntGauge> = Lazy::new(|| {
 });
 pub static NODE_DB_VERSION: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_node_db_version", "DB version used by the node").unwrap()
+});
+pub static CHUNK_SKIPPED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_chunk_skipped_total",
+        "Number of skipped chunks",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+pub static PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram(
+        "partial_encoded_chunk_response_delay",
+        "Delay between when a partial encoded chunk response is sent from PeerActor and when it is received by ClientActor",
+    )
+        .unwrap()
+});
+pub static CLIENT_MESSAGES_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_client_messages_count",
+        "Number of messages client actor received by message type",
+        &["type"],
+    )
+    .unwrap()
+});
+pub static CLIENT_MESSAGES_PROCESSING_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_client_messages_processing_time",
+        "Processing time of messages that client actor received, sorted by message type",
+        &["type"],
+        Some(prometheus::exponential_buckets(0.0001, 1.6, 20).unwrap()),
+    )
+    .unwrap()
 });

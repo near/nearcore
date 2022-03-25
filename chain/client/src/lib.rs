@@ -1,9 +1,10 @@
 pub use near_client_primitives::types::{
-    Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree, GetChunk,
-    GetExecutionOutcome, GetExecutionOutcomeResponse, GetExecutionOutcomesForBlock, GetGasPrice,
-    GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
-    GetStateChangesInBlock, GetStateChangesWithCauseInBlock, GetValidatorInfo, GetValidatorOrdered,
-    Query, QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
+    Error, GetBlock, GetBlockHash, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
+    GetChunk, GetExecutionOutcome, GetExecutionOutcomeResponse, GetExecutionOutcomesForBlock,
+    GetGasPrice, GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt,
+    GetStateChanges, GetStateChangesInBlock, GetStateChangesWithCauseInBlock,
+    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfo, GetValidatorOrdered, Query,
+    QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
 };
 
 pub use crate::client::Client;
@@ -17,6 +18,7 @@ mod client;
 mod client_actor;
 mod info;
 mod metrics;
+mod rocksdb_metrics;
 pub mod sync;
 pub mod test_utils;
 #[cfg(test)]

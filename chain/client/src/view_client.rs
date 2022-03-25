@@ -9,8 +9,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
-use cached::{Cached, SizedCache};
-use log::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use near_chain::types::ValidatorInfoIdentifier;
 use near_chain::{
@@ -19,12 +18,13 @@ use near_chain::{
 };
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_client_primitives::types::{
-    Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
-    GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
-    GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetNextLightClientBlockError,
-    GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError, GetStateChangesError,
-    GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, QueryError, TxStatus,
-    TxStatusError,
+    Error, GetBlock, GetBlockError, GetBlockHash, GetBlockProof, GetBlockProofError,
+    GetBlockProofResponse, GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome,
+    GetExecutionOutcomeError, GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError,
+    GetNextLightClientBlockError, GetProtocolConfig, GetProtocolConfigError, GetReceipt,
+    GetReceiptError, GetStateChangesError, GetStateChangesWithCauseInBlock,
+    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
+    TxStatus, TxStatusError,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 #[cfg(feature = "test_features")]
@@ -70,15 +70,15 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 /// Request and response manager across all instances of ViewClientActor.
 pub struct ViewClientRequestManager {
     /// Transaction query that needs to be forwarded to other shards
-    pub tx_status_requests: SizedCache<CryptoHash, Instant>,
+    pub tx_status_requests: lru::LruCache<CryptoHash, Instant>,
     /// Transaction status response
-    pub tx_status_response: SizedCache<CryptoHash, FinalExecutionOutcomeView>,
+    pub tx_status_response: lru::LruCache<CryptoHash, FinalExecutionOutcomeView>,
     /// Query requests that need to be forwarded to other shards
-    pub query_requests: SizedCache<String, Instant>,
+    pub query_requests: lru::LruCache<String, Instant>,
     /// Query responses from other nodes (can be errors)
-    pub query_responses: SizedCache<String, Result<QueryResponse, String>>,
+    pub query_responses: lru::LruCache<String, Result<QueryResponse, String>>,
     /// Receipt outcome requests
-    pub receipt_outcome_requests: SizedCache<CryptoHash, Instant>,
+    pub receipt_outcome_requests: lru::LruCache<CryptoHash, Instant>,
 }
 
 #[cfg(feature = "test_features")]
@@ -107,11 +107,11 @@ pub struct ViewClientActor {
 impl ViewClientRequestManager {
     pub fn new() -> Self {
         Self {
-            tx_status_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
-            tx_status_response: SizedCache::with_size(QUERY_REQUEST_LIMIT),
-            query_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
-            query_responses: SizedCache::with_size(QUERY_REQUEST_LIMIT),
-            receipt_outcome_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
+            tx_status_requests: lru::LruCache::new(QUERY_REQUEST_LIMIT),
+            tx_status_response: lru::LruCache::new(QUERY_REQUEST_LIMIT),
+            query_requests: lru::LruCache::new(QUERY_REQUEST_LIMIT),
+            query_responses: lru::LruCache::new(QUERY_REQUEST_LIMIT),
+            receipt_outcome_requests: lru::LruCache::new(QUERY_REQUEST_LIMIT),
         }
     }
 }
@@ -159,14 +159,14 @@ impl ViewClientActor {
         }
     }
 
-    fn need_request<K: Hash + Eq + Clone>(key: K, cache: &mut SizedCache<K, Instant>) -> bool {
+    fn need_request<K: Hash + Eq + Clone>(key: K, cache: &mut lru::LruCache<K, Instant>) -> bool {
         let now = Clock::instant();
-        let need_request = match cache.cache_get(&key) {
+        let need_request = match cache.get(&key) {
             Some(time) => now - *time > Duration::from_millis(REQUEST_WAIT_TIME),
             None => true,
         };
         if need_request {
-            cache.cache_set(key, now);
+            cache.put(key, now);
         }
         need_request
     }
@@ -256,11 +256,24 @@ impl ViewClientActor {
             .shard_id_to_uid(shard_id, header.epoch_id())
             .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
 
+        let tip = self.chain.head();
         let chunk_extra = self.chain.get_chunk_extra(header.hash(), &shard_uid).map_err(|err| {
             match err.kind() {
-                near_chain::near_chain_primitives::ErrorKind::DBNotFoundErr(_) => {
-                    QueryError::UnavailableShard { requested_shard_id: shard_id }
-                }
+                near_chain::near_chain_primitives::ErrorKind::DBNotFoundErr(_) => match tip {
+                    Ok(tip) => {
+                        let gc_stop_height =
+                            self.runtime_adapter.get_gc_stop_height(&tip.last_block_hash);
+                        if !self.config.archive && header.height() < gc_stop_height {
+                            QueryError::GarbageCollectedBlock {
+                                block_height: header.height(),
+                                block_hash: header.hash().clone(),
+                            }
+                        } else {
+                            QueryError::UnavailableShard { requested_shard_id: shard_id }
+                        }
+                    }
+                    Err(err) => QueryError::InternalError { error_message: err.to_string() },
+                },
                 near_chain::near_chain_primitives::ErrorKind::IOErr(error_message) => {
                     QueryError::InternalError { error_message }
                 }
@@ -363,8 +376,8 @@ impl ViewClientActor {
     ) -> Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError> {
         {
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
-            if let Some(res) = request_manager.tx_status_response.cache_remove(&tx_hash) {
-                request_manager.tx_status_requests.cache_remove(&tx_hash);
+            if let Some(res) = request_manager.tx_status_response.pop(&tx_hash) {
+                request_manager.tx_status_requests.pop(&tx_hash);
                 return Ok(Some(FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(res)));
             }
         }
@@ -459,23 +472,7 @@ impl ViewClientActor {
         &mut self,
         hashes: Vec<CryptoHash>,
     ) -> Result<Vec<BlockHeader>, near_chain::Error> {
-        let header = match self.chain.find_common_header(&hashes) {
-            Some(header) => header,
-            None => return Ok(vec![]),
-        };
-
-        let mut headers = vec![];
-        let max_height = self.chain.header_head()?.height;
-        // TODO: this may be inefficient if there are a lot of skipped blocks.
-        for h in header.height() + 1..=max_height {
-            if let Ok(header) = self.chain.get_header_by_height(h) {
-                headers.push(header.clone());
-                if headers.len() >= sync::MAX_BLOCK_HEADERS as usize {
-                    break;
-                }
-            }
-        }
-        Ok(headers)
+        self.chain.retrieve_headers(hashes, sync::MAX_BLOCK_HEADERS, None)
     }
 
     fn check_signature_account_announce(
@@ -570,6 +567,31 @@ impl Handler<GetBlock> for ViewClientActor {
             .get_block_producer(block.header().epoch_id(), block.header().height())?;
 
         Ok(BlockView::from_author_block(block_author, block))
+    }
+}
+
+/// Handles retrieving block header from the chain.
+impl Handler<GetBlockHash> for ViewClientActor {
+    type Result = Result<CryptoHash, GetBlockError>;
+
+    #[perf]
+    fn handle(&mut self, msg: GetBlockHash, _: &mut Self::Context) -> Self::Result {
+        match msg.0 {
+            BlockReference::Finality(finality) => self.get_block_hash_by_finality(&finality),
+            BlockReference::BlockId(BlockId::Height(height)) => {
+                self.chain.get_block_hash_by_height(height)
+            }
+            BlockReference::BlockId(BlockId::Hash(hash)) => {
+                // Fetch block header to confirm that the block exists.  This is
+                // only done so that we can get an error if the hash does not
+                // correspond to a known block.
+                self.chain.get_block_header(&hash).map(|_| hash)
+            }
+            BlockReference::SyncCheckpoint(sync_checkpoint) => Ok(self
+                .get_block_hash_by_sync_checkpoint(&sync_checkpoint)?
+                .ok_or(GetBlockError::NotSyncedYet)?),
+        }
+        .map_err(std::convert::Into::into)
     }
 }
 
@@ -756,6 +778,43 @@ impl Handler<GetStateChangesWithCauseInBlock> for ViewClientActor {
             .into_iter()
             .map(Into::into)
             .collect())
+    }
+}
+
+/// Returns a hashmap where the key represents the ShardID and the value
+/// is the list of changes in a store with causes for a given block.
+impl Handler<GetStateChangesWithCauseInBlockForTrackedShards> for ViewClientActor {
+    type Result = Result<HashMap<ShardId, StateChangesView>, GetStateChangesError>;
+
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: GetStateChangesWithCauseInBlockForTrackedShards,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let state_changes_with_cause_in_block =
+            self.chain.store().get_state_changes_with_cause_in_block(&msg.block_hash)?;
+
+        let mut state_changes_with_cause_split_by_shard_id: HashMap<ShardId, StateChangesView> =
+            HashMap::new();
+        for state_change_with_cause in state_changes_with_cause_in_block {
+            let account_id = state_change_with_cause.value.affected_account_id();
+            let shard_id = match self
+                .runtime_adapter
+                .account_id_to_shard_id(account_id, &msg.epoch_id)
+            {
+                Ok(shard_id) => shard_id,
+                Err(err) => {
+                    return Err(GetStateChangesError::IOError { error_message: format!("{}", err) })
+                }
+            };
+
+            let state_changes =
+                state_changes_with_cause_split_by_shard_id.entry(shard_id).or_default();
+            state_changes.push(state_change_with_cause.into());
+        }
+
+        Ok(state_changes_with_cause_split_by_shard_id)
     }
 }
 
@@ -1018,8 +1077,8 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             NetworkViewClientMessages::TxStatusResponse(tx_result) => {
                 let tx_hash = tx_result.transaction_outcome.id;
                 let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
-                if request_manager.tx_status_requests.cache_remove(&tx_hash).is_some() {
-                    request_manager.tx_status_response.cache_set(tx_hash, *tx_result);
+                if request_manager.tx_status_requests.pop(&tx_hash).is_some() {
+                    request_manager.tx_status_response.put(tx_hash, *tx_result);
                 }
                 NetworkViewClientResponses::NoResponse
             }

@@ -183,11 +183,6 @@ class RosettaRPC:
             raise RuntimeError(f'Got error from {path}:\n{json.dumps(data)}')
         return data
 
-    def _get_latest_block_height(self) -> int:
-        """Returns latest block’s height."""
-        block_hash = self.node.get_status()['sync_info']['latest_block_hash']
-        return self.node.get_block(block_hash)['result']['header']['height']
-
     def exec_operations(self, signer: key.Key,
                         *operations) -> RosettaExecResult:
         """Sends given operations to Construction API.
@@ -199,7 +194,7 @@ class RosettaRPC:
             A RosettaExecResult object which can be used to get hash of the
             submitted transaction or wait on the transaction completion.
         """
-        height = self._get_latest_block_height()
+        height = self.node.get_latest_block().height
 
         public_key = {
             'hex_bytes': signer.decoded_pk().hex(),
@@ -293,8 +288,31 @@ class RosettaRPC:
             }, **kw)
 
     def get_block(self, *, block_id: BlockIdentifier) -> JsonDict:
-        res = self.rpc('/block', block_identifier=block_identifier(block_id))
-        return res['block']
+
+        def fetch(block_id: BlockIdentifier) -> JsonDict:
+            block_id = block_identifier(block_id)
+            block = self.rpc('/block', block_identifier=block_id)['block']
+            # Order of transactions on the list is not guaranteed so normalise
+            # it by sorting by hash.
+            if block:
+                block.get('transactions', []).sort(
+                    key=lambda tx: tx['transaction_identifier']['hash'])
+            return block
+
+        block = fetch(block_id)
+        if not block:
+            return block
+
+        # Verify that fetching block by index and hash produce the same result
+        # as well as getting individual transactions produce the same object as
+        # the one returned when fetching transactions individually.
+        assert block == fetch(block['block_identifier']['index'])
+        assert block == fetch(block['block_identifier']['hash'])
+        for tx in block['transactions']:
+            assert tx == self.get_transaction(
+                block_id=block_id, tx_id=tx['transaction_identifier'])
+
+        return block
 
     def get_transaction(self, *, block_id: BlockIdentifier,
                         tx_id: TxIdentifier) -> JsonDict:
@@ -336,6 +354,7 @@ class RosettaTestCase(unittest.TestCase):
         see if the returned data looks as expected.  Since the exact hashes
         differ each time the test runs, those are assumed to be correct.
         """
+
         block_0 = self.rosetta.get_block(block_id=0)
         block_0_id = block_0['block_identifier']
         trans_0_id = 'block:' + block_0_id['hash']
@@ -343,7 +362,77 @@ class RosettaTestCase(unittest.TestCase):
             'metadata': {
                 'type': 'BLOCK'
             },
-            'operations': [],
+            'operations': [{
+                'account': {
+                    'address': 'near'
+                },
+                'amount': {
+                    'currency': {
+                        'decimals': 24,
+                        'symbol': 'NEAR'
+                    },
+                    'value': '999999999998180000000000000000000'
+                },
+                'operation_identifier': {
+                    'index': 0
+                },
+                'status': 'SUCCESS',
+                'type': 'TRANSFER'
+            }, {
+                'account': {
+                    'address': 'near',
+                    'sub_account': {
+                        'address': 'LIQUID_BALANCE_FOR_STORAGE'
+                    }
+                },
+                'amount': {
+                    'currency': {
+                        'decimals': 24,
+                        'symbol': 'NEAR'
+                    },
+                    'value': '1820000000000000000000'
+                },
+                'operation_identifier': {
+                    'index': 1
+                },
+                'status': 'SUCCESS',
+                'type': 'TRANSFER'
+            }, {
+                'account': {
+                    'address': 'test0'
+                },
+                'amount': {
+                    'currency': {
+                        'decimals': 24,
+                        'symbol': 'NEAR'
+                    },
+                    'value': '950000000000000000000000000000000'
+                },
+                'operation_identifier': {
+                    'index': 2
+                },
+                'status': 'SUCCESS',
+                'type': 'TRANSFER'
+            }, {
+                'account': {
+                    'address': 'test0',
+                    'sub_account': {
+                        'address': 'LOCKED'
+                    }
+                },
+                'amount': {
+                    'currency': {
+                        'decimals': 24,
+                        'symbol': 'NEAR'
+                    },
+                    'value': '50000000000000000000000000000000'
+                },
+                'operation_identifier': {
+                    'index': 3
+                },
+                'status': 'SUCCESS',
+                'type': 'TRANSFER'
+            }],
             'transaction_identifier': {
                 'hash': trans_0_id
             }
@@ -359,13 +448,12 @@ class RosettaTestCase(unittest.TestCase):
             block_0)
 
         # Getting by hash should work and should return the exact same thing
-        self.assertEqual(block_0,
-                         self.rosetta.get_block(block_id=block_0_id['hash']))
+        block = self.rosetta.get_block(block_id=block_0_id['hash'])
+        self.assertEqual(block_0, block)
 
         # Get transaction from genesis block.
-        self.assertEqual(
-            trans_0,
-            self.rosetta.get_transaction(block_id=block_0_id, tx_id=trans_0_id))
+        tr = self.rosetta.get_transaction(block_id=block_0_id, tx_id=trans_0_id)
+        self.assertEqual(trans_0, tr)
 
         # Block at height=1 should have genesis block as parent and only
         # validator update as a single operation.
@@ -490,11 +578,13 @@ class RosettaTestCase(unittest.TestCase):
         self.assertEqual(1, len(receipt_ids))
         receipt_id = {'hash': 'receipt:' + receipt_ids[0]}
 
-        # The actual amount subtracted is more than test_amount because of the
-        # gas payment.
+        # There are two operations. The first subtracts `test_amount` from the account and the second one subtracts
+        # gas fees
         value = -int(tx['operations'][0]['amount']['value'])
         logger.info(f'Took {value} from validator account')
-        self.assertLess(test_amount, value)
+        self.assertEqual(test_amount, value)
+        gas_payment = -int(tx['operations'][1]['amount']['value'])
+        self.assertGreater(gas_payment, 0)
 
         self.assertEqual([{
             'metadata': {
@@ -513,6 +603,22 @@ class RosettaTestCase(unittest.TestCase):
                 },
                 'operation_identifier': {
                     'index': 0
+                },
+                'status': 'SUCCESS',
+                'type': 'TRANSFER'
+            }, {
+                'account': {
+                    'address': 'test0'
+                },
+                'amount': {
+                    'currency': {
+                        'decimals': 24,
+                        'symbol': 'NEAR'
+                    },
+                    'value': str(-gas_payment)
+                },
+                'operation_identifier': {
+                    'index': 1
                 },
                 'status': 'SUCCESS',
                 'type': 'TRANSFER'

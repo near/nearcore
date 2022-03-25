@@ -1,10 +1,10 @@
 #![doc = include_str!("../README.md")]
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use actix::Addr;
 use actix_cors::Cors;
-use actix_web::{http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
+use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use futures::Future;
 use futures::FutureExt;
 use prometheus;
@@ -61,6 +61,10 @@ impl Default for RpcLimitsConfig {
     }
 }
 
+fn default_enable_debug_rpc() -> bool {
+    false
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RpcConfig {
     pub addr: String,
@@ -70,6 +74,10 @@ pub struct RpcConfig {
     pub polling_config: RpcPollingConfig,
     #[serde(default)]
     pub limits_config: RpcLimitsConfig,
+    // If true, enable some debug RPC endpoints (like one to get the latest block).
+    // We disable it by default, as some of those endpoints might be quite CPU heavy.
+    #[serde(default = "default_enable_debug_rpc")]
+    pub enable_debug_rpc: bool,
 }
 
 impl Default for RpcConfig {
@@ -80,6 +88,7 @@ impl Default for RpcConfig {
             cors_allowed_origins: vec!["*".to_owned()],
             polling_config: Default::default(),
             limits_config: Default::default(),
+            enable_debug_rpc: false,
         }
     }
 }
@@ -199,6 +208,7 @@ struct JsonRpcHandler {
     view_client_addr: Addr<ViewClientActor>,
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
+    enable_debug_rpc: bool,
     #[cfg(feature = "test_features")]
     peer_manager_addr: Addr<near_network::PeerManagerActor>,
     #[cfg(feature = "test_features")]
@@ -218,12 +228,40 @@ impl JsonRpcHandler {
         }
     }
 
+    // `process_request` increments affected metrics but the request processing is done by
+    // `process_request_internal`.
     async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
-        metrics::HTTP_RPC_REQUEST_COUNT.with_label_values(&[request.method.as_ref()]).inc();
-        let _rpc_processing_time = metrics::RPC_PROCESSING_TIME
-            .with_label_values(&[request.method.as_ref()])
-            .start_timer();
+        let timer = Instant::now();
 
+        let request_method = request.method.clone();
+        let response = self.process_request_internal(request).await;
+
+        let request_method = if let Err(err) = &response {
+            if err.code == -32_601 {
+                "UNSUPPORTED_METHOD"
+            } else {
+                &request_method
+            }
+        } else {
+            &request_method
+        };
+
+        metrics::HTTP_RPC_REQUEST_COUNT.with_label_values(&[request_method]).inc();
+        metrics::RPC_PROCESSING_TIME
+            .with_label_values(&[request_method])
+            .observe(timer.elapsed().as_secs_f64());
+
+        if let Err(err) = &response {
+            metrics::RPC_ERROR_COUNT
+                .with_label_values(&[request_method, &err.code.to_string()])
+                .inc();
+        }
+
+        response
+    }
+
+    // Processes the request but doesn't update any metrics.
+    async fn process_request_internal(&self, request: Request) -> Result<Value, RpcError> {
         #[cfg(feature = "test_features")]
         {
             let params = request.params.clone();
@@ -532,14 +570,19 @@ impl JsonRpcHandler {
                 serde_json::to_value(sandbox_patch_state_response)
                     .map_err(|err| RpcError::serialization_error(err.to_string()))
             }
+            #[cfg(feature = "sandbox")]
+            "sandbox_fast_forward" => {
+                let sandbox_fast_forward_request =
+                    near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardRequest::parse(
+                        request.params,
+                    )?;
+                let sandbox_fast_forward_response =
+                    self.sandbox_fast_forward(sandbox_fast_forward_request).await?;
+                serde_json::to_value(sandbox_fast_forward_response)
+                    .map_err(|err| RpcError::serialization_error(err.to_string()))
+            }
             _ => Err(RpcError::method_not_found(request.method.clone())),
         };
-
-        if let Err(err) = &response {
-            metrics::RPC_ERROR_COUNT
-                .with_label_values(&[request.method.as_ref(), &err.code.to_string()])
-                .inc();
-        }
 
         response
     }
@@ -831,7 +874,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::status::RpcHealthResponse,
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
-        Ok(self.client_addr.send(Status { is_health_check: true }).await??.into())
+        Ok(self.client_addr.send(Status { is_health_check: true, detailed: false }).await??.into())
     }
 
     pub async fn status(
@@ -840,7 +883,25 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::status::RpcStatusResponse,
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
-        Ok(self.client_addr.send(Status { is_health_check: false }).await??.into())
+        Ok(self.client_addr.send(Status { is_health_check: false, detailed: false }).await??.into())
+    }
+
+    pub async fn debug(
+        &self,
+    ) -> Result<
+        Option<near_jsonrpc_primitives::types::status::RpcStatusResponse>,
+        near_jsonrpc_primitives::types::status::RpcStatusError,
+    > {
+        if self.enable_debug_rpc {
+            Ok(Some(
+                self.client_addr
+                    .send(Status { is_health_check: false, detailed: true })
+                    .await??
+                    .into(),
+            ))
+        } else {
+            return Ok(None);
+        }
     }
 
     /// Expose Genesis Config (with internal Runtime Config) without state records to keep the
@@ -1111,6 +1172,23 @@ impl JsonRpcHandler {
 
         Ok(near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateResponse {})
     }
+
+    async fn sandbox_fast_forward(
+        &self,
+        fast_forward_request: near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardResponse,
+        near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError,
+    > {
+        self.client_addr
+            .send(NetworkClientMessages::Sandbox(
+                near_network_primitives::types::NetworkSandboxMessage::SandboxFastForward(
+                    fast_forward_request.delta_height,
+                ),
+            ))
+            .await?;
+        Ok(near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardResponse {})
+    }
 }
 
 #[cfg(feature = "test_features")]
@@ -1260,6 +1338,14 @@ fn status_handler(
     response.boxed()
 }
 
+async fn debug_handler(handler: web::Data<JsonRpcHandler>) -> Result<HttpResponse, HttpError> {
+    match handler.debug().await {
+        Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
+        Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
+        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+    }
+}
+
 fn health_handler(
     handler: web::Data<JsonRpcHandler>,
 ) -> impl Future<Output = Result<HttpResponse, HttpError>> {
@@ -1297,6 +1383,13 @@ pub async fn prometheus_handler() -> Result<HttpResponse, HttpError> {
     }
 }
 
+async fn sync_info_handler(handler: web::Data<JsonRpcHandler>) -> Result<HttpResponse, HttpError> {
+    match handler.debug().await {
+        Ok(value) => Ok(HttpResponse::Ok().json(&value)),
+        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+    }
+}
+
 fn get_cors(cors_allowed_origins: &[String]) -> Cors {
     let mut cors = Cors::permissive();
     if cors_allowed_origins != ["*".to_string()] {
@@ -1308,6 +1401,27 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
         .allowed_headers(vec![http::header::AUTHORIZATION, http::header::ACCEPT])
         .allowed_header(http::header::CONTENT_TYPE)
         .max_age(3600)
+}
+
+lazy_static_include::lazy_static_include_str! {
+    LAST_BLOCKS_HTML => "res/last_blocks.html",
+    DEBUG_HTML => "res/debug.html",
+    SYNC_INFO_HTML => "res/sync_info.html",
+}
+
+#[get("/debug")]
+async fn debug_html() -> actix_web::Result<impl actix_web::Responder> {
+    Ok(HttpResponse::Ok().body(*DEBUG_HTML))
+}
+
+#[get("/debug/last_blocks")]
+async fn last_blocks_html() -> actix_web::Result<impl actix_web::Responder> {
+    Ok(HttpResponse::Ok().body(*LAST_BLOCKS_HTML))
+}
+
+#[get("/debug/sync_info")]
+async fn sync_info_html() -> actix_web::Result<impl actix_web::Responder> {
+    Ok(HttpResponse::Ok().body(*SYNC_INFO_HTML))
 }
 
 /// Starts HTTP server(s) listening for RPC requests.
@@ -1329,8 +1443,14 @@ pub fn start_http(
     #[cfg(feature = "test_features")] peer_manager_addr: Addr<near_network::PeerManagerActor>,
     #[cfg(feature = "test_features")] routing_table_addr: Addr<near_network::RoutingTableActor>,
 ) -> Vec<(&'static str, actix_web::dev::Server)> {
-    let RpcConfig { addr, prometheus_addr, cors_allowed_origins, polling_config, limits_config } =
-        config;
+    let RpcConfig {
+        addr,
+        prometheus_addr,
+        cors_allowed_origins,
+        polling_config,
+        limits_config,
+        enable_debug_rpc,
+    } = config;
     let prometheus_addr = prometheus_addr.filter(|it| it != &addr);
     let cors_allowed_origins_clone = cors_allowed_origins.clone();
     info!(target:"network", "Starting http server at {}", addr);
@@ -1343,6 +1463,7 @@ pub fn start_http(
                 view_client_addr: view_client_addr.clone(),
                 polling_config,
                 genesis_config: genesis_config.clone(),
+                enable_debug_rpc,
                 #[cfg(feature = "test_features")]
                 peer_manager_addr: peer_manager_addr.clone(),
                 #[cfg(feature = "test_features")]
@@ -1363,6 +1484,11 @@ pub fn start_http(
             )
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
+            .service(web::resource("/debug/api/last_blocks").route(web::get().to(debug_handler)))
+            .service(debug_html)
+            .service(last_blocks_html)
+            .service(web::resource("/debug/api/sync_info").route(web::get().to(sync_info_handler)))
+            .service(sync_info_html)
     })
     .bind(addr)
     .unwrap()

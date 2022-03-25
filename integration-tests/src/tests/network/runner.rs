@@ -84,6 +84,7 @@ pub fn setup_network_node(
             network_adapter.clone(),
             Some(signer),
             telemetry_actor,
+            None,
             #[cfg(feature = "test_features")]
             adv.clone(),
         )

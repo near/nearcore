@@ -285,7 +285,7 @@ impl<'a> TrieIterator<'a> {
                 }
                 IterStep::Continue => {}
                 IterStep::Value(hash) => {
-                    self.trie.retrieve_raw_bytes(&hash)?;
+                    self.trie.storage.retrieve_raw_bytes(&hash)?;
                     nodes_list.push(TrieTraversalItem {
                         hash,
                         key: self.has_value().then(|| self.key()),
@@ -321,7 +321,10 @@ impl<'a> Iterator for TrieIterator<'a> {
                 IterStep::Continue => {}
                 IterStep::Value(hash) => {
                     return Some(
-                        self.trie.retrieve_raw_bytes(&hash).map(|value| (self.key(), value)),
+                        self.trie
+                            .storage
+                            .retrieve_raw_bytes(&hash)
+                            .map(|value| (self.key(), value.to_vec())),
                     )
                 }
             }

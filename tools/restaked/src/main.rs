@@ -2,8 +2,10 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use clap::{App, Arg};
-use log::{error, info, LevelFilter};
+use clap::{Arg, Command};
+use tracing::metadata::LevelFilter;
+use tracing::{error, info};
+use tracing_subscriber::EnvFilter;
 
 use near_crypto::{InMemorySigner, KeyFile};
 use near_primitives::views::CurrentEpochValidatorInfo;
@@ -22,35 +24,39 @@ fn maybe_kicked_out(validator_info: &CurrentEpochValidatorInfo) -> bool {
 }
 
 fn main() {
-    env_logger::Builder::new().filter(None, LevelFilter::Info).init();
+    tracing_subscriber::fmt::Subscriber::builder()
+        .with_env_filter(EnvFilter::default().add_directive(LevelFilter::DEBUG.into()))
+        .with_writer(std::io::stderr)
+        .init();
+
     let default_home = get_default_home();
-    let matches = App::new("Key-pairs generator")
+    let matches = Command::new("Key-pairs generator")
         .about(
             "Continuously checking the node and executes staking transaction if node is kicked out",
         )
         .arg(
-            Arg::with_name("home")
+            Arg::new("home")
                 .long("home")
                 .default_value_os(default_home.as_os_str())
                 .help("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("wait-period")
+            Arg::new("wait-period")
                 .long("wait-period")
                 .default_value(DEFAULT_WAIT_PERIOD_SEC)
                 .help("Waiting period between checking if node is kicked out (in seconds)")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("rpc-url")
+            Arg::new("rpc-url")
                 .long("rpc-url")
                 .default_value(DEFAULT_RPC_URL)
                 .help("Url of RPC for the node to monitor")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("stake-amount")
+            Arg::new("stake-amount")
                 .long("stake-amount")
                 .default_value("0")
                 .help("Stake amount in NEAR, if 0 is used it restakes last seen staked amount")
@@ -111,11 +117,11 @@ fn main() {
         if restake {
             // Already kicked out or getting kicked out.
             let amount = if stake_amount == 0 { last_stake_amount } else { stake_amount };
-            info!("Sending staking transaction {} -> {}", key_file.account_id, amount);
+            info!(target: "restaked", "Sending staking transaction {} -> {}", key_file.account_id, amount);
             if let Err(err) =
                 user.stake(key_file.account_id.clone(), key_file.public_key.clone(), amount)
             {
-                error!("Failed to send staking transaction: {}", err);
+                error!(target: "restaked", "Failed to send staking transaction: {}", err);
             }
         }
         std::thread::sleep(Duration::from_secs(wait_period));

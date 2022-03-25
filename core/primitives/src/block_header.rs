@@ -13,7 +13,7 @@ use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, Validato
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks};
 use crate::utils::{from_timestamp, to_timestamp};
 use crate::validator_signer::ValidatorSigner;
-use crate::version::{ProtocolVersion, PROTOCOL_VERSION};
+use crate::version::{get_protocol_version, ProtocolVersion, PROTOCOL_VERSION};
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
@@ -332,13 +332,13 @@ impl BlockHeader {
     pub fn compute_inner_hash(inner_lite: &[u8], inner_rest: &[u8]) -> CryptoHash {
         let hash_lite = hash(inner_lite);
         let hash_rest = hash(inner_rest);
-        combine_hash(hash_lite, hash_rest)
+        combine_hash(&hash_lite, &hash_rest)
     }
 
     pub fn compute_hash(prev_hash: CryptoHash, inner_lite: &[u8], inner_rest: &[u8]) -> CryptoHash {
         let hash_inner = BlockHeader::compute_inner_hash(inner_lite, inner_rest);
 
-        combine_hash(hash_inner, prev_hash)
+        combine_hash(&hash_inner, &prev_hash)
     }
 
     pub fn new(
@@ -463,7 +463,7 @@ impl BlockHeader {
                 prev_height,
                 epoch_sync_data_hash,
                 approvals,
-                latest_protocol_version: PROTOCOL_VERSION,
+                latest_protocol_version: get_protocol_version(next_epoch_protocol_version),
             };
             let (hash, signature) = signer.sign_block_header_parts(
                 prev_hash,

@@ -1,3 +1,6 @@
+// Currently only testing wasmer code, so disabled outside of x86_64
+#![cfg(target_arch = "x86_64")]
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;

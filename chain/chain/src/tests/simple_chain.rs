@@ -1,3 +1,4 @@
+use crate::near_chain_primitives::error::BlockKnownError;
 use crate::test_utils::setup;
 use crate::{Block, ChainStoreAccess, ErrorKind};
 use chrono;
@@ -8,6 +9,7 @@ use near_primitives::time::MockClockGuard;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Rational;
 use std::str::FromStr;
+use std::time::Instant;
 
 #[test]
 fn empty_chain() {
@@ -21,10 +23,11 @@ fn empty_chain() {
 
     assert_eq!(chain.head().unwrap().height, 0);
     let hash = chain.head().unwrap().last_block_hash;
+    // The hashes here will have to be modified after each change to genesis file.
     #[cfg(feature = "nightly_protocol")]
-    assert_eq!(hash, CryptoHash::from_str("3wFoFbJPPv7Jg1ZERuBWTCok4H9uRZ7Uagm1wiXdKpvV").unwrap());
+    assert_eq!(hash, CryptoHash::from_str("2VFkBfWwcTqyVJ83zy78n5WUNadwGuJbLc2KEp9SJ8dV").unwrap());
     #[cfg(not(feature = "nightly_protocol"))]
-    assert_eq!(hash, CryptoHash::from_str("9w8Z2UGnC6hxn5RR7B3akP7kBw7ohqyHAw1ssiK1NzTs").unwrap());
+    assert_eq!(hash, CryptoHash::from_str("8t6f63ezCoqS2nNxT7KivhvHH5tvNND4dj7RY3Hwhn64").unwrap());
     assert_eq!(count_utc, 1);
 }
 
@@ -40,6 +43,9 @@ fn build_chain() {
         // - one time for validating block header
         mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
         mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
+        // Instant calls for CryptoHashTimer.
+        mock_clock_guard.add_instant(Instant::now());
+        mock_clock_guard.add_instant(Instant::now());
     }
 
     let (mut chain, _, signer) = setup();
@@ -48,12 +54,12 @@ fn build_chain() {
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(
         prev_hash,
-        CryptoHash::from_str("5VroU43sRYCkttuJfpdP6iC57fsD4q2TCbWaronBWpz7").unwrap()
+        CryptoHash::from_str("299HrY4hpubeFXa3V9DNtR36dGEtiz4AVfMbfL6hT2sq").unwrap()
     );
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
         prev_hash,
-        CryptoHash::from_str("CUcHvQVmaNdWZtSd4z2Y4eWD75orjkhF2uLBZmTQrYF9").unwrap()
+        CryptoHash::from_str("DcfBcEHCh9Jd3gbgU8KNuP9kcN4WxyfonpMAq7jAmgaC").unwrap()
     );
 
     for i in 0..4 {
@@ -67,16 +73,16 @@ fn build_chain() {
     let count_instant = mock_clock_guard.instant_call_count();
     let count_utc = mock_clock_guard.utc_call_count();
     assert_eq!(count_utc, 9);
-    assert_eq!(count_instant, 0);
+    assert_eq!(count_instant, 8);
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(
         chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("BNap11nsM7PEqYQertYU487g7gkCteQ8Fmee6QfyRdVQ").unwrap()
+        CryptoHash::from_str("A1ZqLuyanSg6YeD3HxGco2tJYEAsmHvAva5n4dsPTgij").unwrap()
     );
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
         chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("FhnRwdDssC97PaAUZpkt71sL26oqBtdzPf1SW2P8twcM").unwrap()
+        CryptoHash::from_str("5DDPykKCvGKTpSi5YSgzw8UY5BB18JaxNs5218hWwfN7").unwrap()
     );
 }
 
@@ -124,7 +130,7 @@ fn build_chain_with_orhpans() {
     assert_eq!(res.unwrap().unwrap().height, 10);
     assert_eq!(
         chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err().kind(),
-        ErrorKind::Unfit("already known in store".to_string())
+        ErrorKind::BlockKnown(BlockKnownError::KnownInStore)
     );
 }
 

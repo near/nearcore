@@ -1,24 +1,20 @@
-#[cfg(not(feature = "single_thread_rocksdb"))]
-use std::cmp;
-use std::collections::HashMap;
-use std::io;
-use std::marker::PhantomPinned;
-use std::sync::RwLock;
-
+use crate::db::refcount::merge_refcounted_records;
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::version::DbVersion;
+use once_cell::sync::Lazy;
+use rocksdb::checkpoint::Checkpoint;
 use rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, Env, IteratorMode,
     Options, ReadOptions, WriteBatch, DB,
 };
-use strum::EnumIter;
-use tracing::warn;
-
-use near_primitives::version::DbVersion;
-
-use crate::db::refcount::merge_refcounted_records;
-
+use std::cmp;
+use std::collections::HashMap;
+use std::io;
 use std::path::Path;
 use std::sync::atomic::Ordering;
+use std::sync::{Condvar, Mutex, RwLock};
+use strum::{EnumCount, EnumIter};
+use tracing::{debug, error, info, warn};
 
 pub(crate) mod refcount;
 pub(crate) mod v6_to_v7;
@@ -49,7 +45,9 @@ impl Into<io::Error> for DBError {
 /// This enum holds the information about the columns that we use within the RocksDB storage.
 /// You can think about our storage as 2-dimensional table (with key and column as indexes/coordinates).
 // TODO(mm-near): add info about the RC in the columns.
-#[derive(PartialEq, Debug, Copy, Clone, EnumIter, BorshDeserialize, BorshSerialize, Hash, Eq)]
+#[derive(
+    PartialEq, Debug, Copy, Clone, EnumCount, EnumIter, BorshDeserialize, BorshSerialize, Hash, Eq,
+)]
 pub enum DBCol {
     /// Column to indicate which version of database this is.
     /// - *Rows*: single row [VERSION_KEY]
@@ -269,9 +267,6 @@ pub enum DBCol {
     ColStateChangesForSplitStates = 49,
 }
 
-// Do not move this line from enum DBCol
-pub const NUM_COLS: usize = 50;
-
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         let desc = match self {
@@ -340,8 +335,8 @@ impl DBCol {
 
 // List of columns for which GC should be implemented
 
-pub static SHOULD_COL_GC: [bool; NUM_COLS] = {
-    let mut col_gc = [true; NUM_COLS];
+pub static SHOULD_COL_GC: [bool; DBCol::COUNT] = {
+    let mut col_gc = [true; DBCol::COUNT];
     col_gc[DBCol::ColDbVersion as usize] = false; // DB version is unrelated to GC
     col_gc[DBCol::ColBlockMisc as usize] = false;
     // TODO #3488 remove
@@ -365,8 +360,8 @@ pub static SHOULD_COL_GC: [bool; NUM_COLS] = {
 
 // List of columns for which GC may not be executed even in fully operational node
 
-pub static SKIP_COL_GC: [bool; NUM_COLS] = {
-    let mut col_gc = [false; NUM_COLS];
+pub static SKIP_COL_GC: [bool; DBCol::COUNT] = {
+    let mut col_gc = [false; DBCol::COUNT];
     // A node may never restarted
     col_gc[DBCol::ColStateHeaders as usize] = true;
     // True until #2515
@@ -376,8 +371,8 @@ pub static SKIP_COL_GC: [bool; NUM_COLS] = {
 
 // List of reference counted columns
 
-pub static IS_COL_RC: [bool; NUM_COLS] = {
-    let mut col_rc = [false; NUM_COLS];
+pub static IS_COL_RC: [bool; DBCol::COUNT] = {
+    let mut col_rc = [false; DBCol::COUNT];
     col_rc[DBCol::ColState as usize] = true;
     col_rc[DBCol::ColTransactions as usize] = true;
     col_rc[DBCol::ColReceipts as usize] = true;
@@ -441,13 +436,15 @@ impl DBTransaction {
 
 pub struct RocksDB {
     db: DB,
+    db_opt: Options,
     cfs: Vec<*const ColumnFamily>,
 
     check_free_space_counter: std::sync::atomic::AtomicU16,
     check_free_space_interval: u16,
     free_space_threshold: bytesize::ByteSize,
 
-    _pin: PhantomPinned,
+    // RAII-style of keeping track of the number of instances of RocksDB in a global variable.
+    _instance_counter: InstanceCounter,
 }
 
 // DB was already Send+Sync. cf and read_options are const pointers using only functions in
@@ -473,6 +470,7 @@ pub struct RocksDBOptions {
     check_free_space_interval: u16,
     free_space_threshold: bytesize::ByteSize,
     warn_treshold: bytesize::ByteSize,
+    enable_statistics: bool,
 }
 
 /// Sets [`RocksDBOptions::check_free_space_interval`] to 256,
@@ -487,8 +485,13 @@ impl Default for RocksDBOptions {
             check_free_space_interval: 256,
             free_space_threshold: bytesize::ByteSize::mb(16),
             warn_treshold: bytesize::ByteSize::mb(256),
+            enable_statistics: false,
         }
     }
+}
+
+fn col_name(col: DBCol) -> String {
+    format!("col{}", col as usize)
 }
 
 impl RocksDBOptions {
@@ -527,41 +530,41 @@ impl RocksDBOptions {
 
     /// Opens a read only database.
     pub fn read_only<P: AsRef<std::path::Path>>(self, path: P) -> Result<RocksDB, DBError> {
-        let options = self.rocksdb_options.unwrap_or_default();
-        let cf_names: Vec<_> = self.cf_names.unwrap_or_else(|| vec!["col0".to_string()]);
-        let db = DB::open_cf_for_read_only(&options, path, cf_names.iter(), false)?;
-        let cfs =
-            cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
+        use strum::IntoEnumIterator;
+        let options = self.rocksdb_options.unwrap_or_else(rocksdb_options);
+        let cf_with_opts = DBCol::iter().map(|col| (col_name(col), rocksdb_column_options(col)));
+        let db = DB::open_cf_with_opts_for_read_only(&options, path, cf_with_opts, false)?;
+        let cfs = DBCol::iter()
+            .map(|col| db.cf_handle(&col_name(col)).unwrap() as *const ColumnFamily)
+            .collect();
+
         Ok(RocksDB {
             db,
+            db_opt: options,
             cfs,
-            _pin: PhantomPinned,
             check_free_space_interval: self.check_free_space_interval,
             check_free_space_counter: std::sync::atomic::AtomicU16::new(0),
             free_space_threshold: self.free_space_threshold,
+            _instance_counter: InstanceCounter::new(),
         })
     }
 
     /// Opens the database in read/write mode.
     pub fn read_write<P: AsRef<std::path::Path>>(self, path: P) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
-        let options = self.rocksdb_options.unwrap_or_else(rocksdb_options);
-        let cf_names = self
-            .cf_names
-            .unwrap_or_else(|| DBCol::iter().map(|col| format!("col{}", col as usize)).collect());
+        let mut options = self.rocksdb_options.unwrap_or_else(rocksdb_options);
+        if self.enable_statistics {
+            options = enable_statistics(options);
+        }
+        let cf_names =
+            self.cf_names.unwrap_or_else(|| DBCol::iter().map(|col| col_name(col)).collect());
         let cf_descriptors = self.cf_descriptors.unwrap_or_else(|| {
             DBCol::iter()
-                .map(|col| {
-                    ColumnFamilyDescriptor::new(
-                        format!("col{}", col as usize),
-                        rocksdb_column_options(col),
-                    )
-                })
+                .map(|col| ColumnFamilyDescriptor::new(col_name(col), rocksdb_column_options(col)))
                 .collect()
         });
         let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
-        #[cfg(feature = "single_thread_rocksdb")]
-        {
+        if cfg!(feature = "single_thread_rocksdb") {
             // These have to be set after open db
             let mut env = Env::default().unwrap();
             env.set_bottom_priority_background_threads(0);
@@ -574,12 +577,18 @@ impl RocksDBOptions {
             cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
         Ok(RocksDB {
             db,
+            db_opt: options,
             cfs,
-            _pin: PhantomPinned,
             check_free_space_interval: self.check_free_space_interval,
             check_free_space_counter: std::sync::atomic::AtomicU16::new(0),
             free_space_threshold: self.free_space_threshold,
+            _instance_counter: InstanceCounter::new(),
         })
+    }
+
+    pub fn enable_statistics(mut self) -> Self {
+        self.enable_statistics = true;
+        self
     }
 }
 
@@ -604,6 +613,9 @@ pub trait Database: Sync + Send {
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn write(&self, batch: DBTransaction) -> Result<(), DBError>;
     fn as_rocksdb(&self) -> Option<&RocksDB> {
+        None
+    }
+    fn get_store_statistics(&self) -> Option<StoreStatistics> {
         None
     }
 }
@@ -702,6 +714,20 @@ impl Database for RocksDB {
     fn as_rocksdb(&self) -> Option<&RocksDB> {
         Some(self)
     }
+
+    fn get_store_statistics(&self) -> Option<StoreStatistics> {
+        if let Some(stats_str) = self.db_opt.get_statistics() {
+            match parse_statistics(&stats_str) {
+                Ok(parsed_statistics) => {
+                    return Some(parsed_statistics);
+                }
+                Err(err) => {
+                    warn!(target: "store", "Failed to parse store statistics: {:?}", err);
+                }
+            }
+        }
+        None
+    }
 }
 
 impl Database for TestDB {
@@ -763,10 +789,32 @@ impl Database for TestDB {
     }
 }
 
+fn set_compression_options(opts: &mut Options) {
+    opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
+    opts.set_bottommost_compression_type(rocksdb::DBCompressionType::Zstd);
+    // RocksDB documenation says that 16KB is a typical dictionary size.
+    // We've empirically tuned the dicionary size to twice of that 'typical' size.
+    // Having train data size x100 from dictionary size is a recommendation from RocksDB.
+    // See: https://rocksdb.org/blog/2021/05/31/dictionary-compression.html?utm_source=dbplatz
+    let dict_size = 2 * 16384;
+    let max_train_bytes = dict_size * 100;
+    // We use default parameters of RocksDB here:
+    //      window_bits is -14 and is unused (Zlib-specific parameter),
+    //      compression_level is 32767 meaning the default compression level for ZSTD,
+    //      compression_strategy is 0 and is unused (Zlib-specific parameter).
+    // See: https://github.com/facebook/rocksdb/blob/main/include/rocksdb/advanced_options.h#L176:
+    opts.set_bottommost_compression_options(
+        /*window_bits */ -14, /*compression_level */ 32767,
+        /*compression_strategy */ 0, dict_size, /*enabled */ true,
+    );
+    opts.set_bottommost_zstd_max_train_bytes(max_train_bytes, true);
+}
+
 /// DB level options
 fn rocksdb_options() -> Options {
     let mut opts = Options::default();
 
+    set_compression_options(&mut opts);
     opts.create_missing_column_families(true);
     opts.create_if_missing(true);
     opts.set_use_fsync(false);
@@ -775,13 +823,7 @@ fn rocksdb_options() -> Options {
     opts.set_bytes_per_sync(bytesize::MIB);
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);
     opts.set_max_bytes_for_level_base(256 * bytesize::MIB);
-    #[cfg(not(feature = "single_thread_rocksdb"))]
-    {
-        opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
-        opts.set_max_total_wal_size(bytesize::GIB);
-    }
-    #[cfg(feature = "single_thread_rocksdb")]
-    {
+    if cfg!(feature = "single_thread_rocksdb") {
         opts.set_disable_auto_compactions(true);
         opts.set_max_background_jobs(0);
         opts.set_stats_dump_period_sec(0);
@@ -789,7 +831,22 @@ fn rocksdb_options() -> Options {
         opts.set_level_zero_slowdown_writes_trigger(-1);
         opts.set_level_zero_file_num_compaction_trigger(-1);
         opts.set_level_zero_stop_writes_trigger(100000000);
+    } else {
+        opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
+        opts.set_max_total_wal_size(bytesize::GIB);
     }
+
+    opts
+}
+
+pub fn enable_statistics(mut opts: Options) -> Options {
+    // Rust API doesn't permit choosing stats level. The default stats level is
+    // `kExceptDetailedTimers`, which is described as:
+    // "Collects all stats except time inside mutex lock AND time spent on compression."
+    opts.enable_statistics();
+    // Disabling dumping stats to files because the stats are exported to Prometheus.
+    opts.set_stats_persist_period_sec(0);
+    opts.set_stats_dump_period_sec(0);
 
     opts
 }
@@ -807,7 +864,7 @@ fn rocksdb_block_based_options(cache_size: usize) -> BlockBasedOptions {
     block_opts.set_block_cache(&Cache::new_lru_cache(cache_size).unwrap());
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
     block_opts.set_cache_index_and_filter_blocks(true);
-    block_opts.set_bloom_filter(10, true);
+    block_opts.set_bloom_filter(10.0, true);
     block_opts
 }
 
@@ -821,12 +878,27 @@ fn choose_cache_size(col: DBCol) -> usize {
 
 fn rocksdb_column_options(col: DBCol) -> Options {
     let mut opts = Options::default();
+    set_compression_options(&mut opts);
     opts.set_level_compaction_dynamic_level_bytes(true);
     let cache_size = choose_cache_size(col);
     opts.set_block_based_table_factory(&rocksdb_block_based_options(cache_size));
-    opts.optimize_level_style_compaction(128 * bytesize::MIB as usize);
+
+    // Note that this function changes a lot of rustdb parameters including:
+    //      write_buffer_size = memtable_memory_budget / 4
+    //      min_write_buffer_number_to_merge = 2
+    //      max_write_buffer_number = 6
+    //      level0_file_num_compaction_trigger = 2
+    //      target_file_size_base = memtable_memory_budget / 8
+    //      max_bytes_for_level_base = memtable_memory_budget
+    //      compaction_style = kCompactionStyleLevel
+    // Also it sets compression_per_level in a way that the first 2 levels have no compression and
+    // the rest use LZ4 compression.
+    // See the implementation here:
+    //      https://github.com/facebook/rocksdb/blob/c18c4a081c74251798ad2a1abf83bad417518481/options/options.cc#L588.
+    let memtable_memory_budget = 128 * bytesize::MIB as usize;
+    opts.optimize_level_style_compaction(memtable_memory_budget);
+
     opts.set_target_file_size_base(64 * bytesize::MIB);
-    opts.set_compression_per_level(&[]);
     if col.is_rc() {
         opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
@@ -834,7 +906,22 @@ fn rocksdb_column_options(col: DBCol) -> Options {
     opts
 }
 
+// Number of RocksDB instances in the process.
+pub(crate) static ROCKSDB_INSTANCES_COUNTER: Lazy<(Mutex<usize>, Condvar)> =
+    Lazy::new(|| (Mutex::new(0), Condvar::new()));
+
 impl RocksDB {
+    /// Blocks until all RocksDB instances (usually 0 or 1) gracefully shutdown.
+    pub fn block_until_all_instances_are_dropped() {
+        let (lock, cvar) = &*ROCKSDB_INSTANCES_COUNTER;
+        let mut num_instances = lock.lock().unwrap();
+        while *num_instances != 0 {
+            info!(target: "db", "Waiting for the {} remaining RocksDB instances to gracefully shutdown", *num_instances);
+            num_instances = cvar.wait(num_instances).unwrap();
+        }
+        info!(target: "db", "All RocksDB instances performed a graceful shutdown");
+    }
+
     /// Returns version of the database state on disk.
     pub fn get_version<P: AsRef<std::path::Path>>(path: P) -> Result<DbVersion, DBError> {
         let db = RocksDB::new_read_only(path)?;
@@ -847,7 +934,7 @@ impl RocksDB {
         })
     }
 
-    fn new_read_only<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
+    pub fn new_read_only<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
         RocksDBOptions::default().read_only(path)
     }
 
@@ -876,6 +963,16 @@ impl RocksDB {
         } else {
             Ok(())
         }
+    }
+
+    /// Creates a Checkpoint object that can be used to actually create a checkpoint on disk.
+    pub fn checkpoint(&self) -> Result<Checkpoint, DBError> {
+        Checkpoint::new(&self.db).map_err(|err| DBError(err))
+    }
+
+    /// Synchronously flush all Memtables to SST files on disk
+    pub fn flush(&self) -> Result<(), DBError> {
+        self.db.flush().map_err(DBError::from)
     }
 }
 
@@ -916,18 +1013,87 @@ impl Drop for RocksDB {
     }
 }
 
+// We've seen problems with RocksDB corruptions. InstanceCounter lets us gracefully shutdown the
+// process letting RocksDB to finish all operations and leaving the instances in a valid
+// non-corrupted state.
+struct InstanceCounter {}
+
+impl InstanceCounter {
+    fn new() -> Self {
+        let (lock, cvar) = &*ROCKSDB_INSTANCES_COUNTER;
+        let mut num_instances = lock.lock().unwrap();
+        *num_instances += 1;
+        debug!(target: "db", "Created a new RocksDB instance. Current #instances: {}", *num_instances);
+        cvar.notify_all();
+        Self {}
+    }
+}
+
+impl Drop for InstanceCounter {
+    fn drop(&mut self) {
+        let (lock, cvar) = &*ROCKSDB_INSTANCES_COUNTER;
+        let mut num_instances = lock.lock().unwrap();
+        *num_instances -= 1;
+        debug!(target: "db", "Dropped an instance of RocksDB. Remaining instances: {}", *num_instances);
+        cvar.notify_all();
+    }
+}
+
 impl TestDB {
     pub fn new() -> Self {
-        let db: Vec<_> = (0..NUM_COLS).map(|_| HashMap::new()).collect();
+        let db: Vec<_> = (0..DBCol::COUNT).map(|_| HashMap::new()).collect();
         Self { db: RwLock::new(db) }
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum StatsValue {
+    Count(i64),
+    Sum(i64),
+    Percentile(u32, f64),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct StoreStatistics {
+    pub data: Vec<(String, Vec<StatsValue>)>,
+}
+
+/// Parses a string containing RocksDB statistics.
+fn parse_statistics(statistics: &str) -> Result<StoreStatistics, Box<dyn std::error::Error>> {
+    let mut result = vec![];
+    // Statistics are given one per line.
+    for line in statistics.lines() {
+        // Each line follows one of two formats:
+        // 1) <stat_name> COUNT : <value>
+        // 2) <stat_name> P50 : <value> P90 : <value> COUNT : <value> SUM : <value>
+        // Each line gets split into words and we parse statistics according to this format.
+        if let Some((stat_name, words)) = line.split_once(' ') {
+            let mut values = vec![];
+            let mut words = words.split(" : ").flat_map(|v| v.split(" "));
+            while let (Some(key), Some(val)) = (words.next(), words.next()) {
+                match key {
+                    "COUNT" => values.push(StatsValue::Count(val.parse::<i64>()?)),
+                    "SUM" => values.push(StatsValue::Sum(val.parse::<i64>()?)),
+                    p if p.starts_with("P") => values.push(StatsValue::Percentile(
+                        key[1..].parse::<u32>()?,
+                        val.parse::<f64>()?,
+                    )),
+                    _ => {
+                        warn!(target: "stats", "Unsupported stats value: {key} in {line}");
+                    }
+                }
+            }
+            result.push((stat_name.to_string(), values));
+        }
+    }
+    Ok(StoreStatistics { data: result })
+}
 #[cfg(test)]
 mod tests {
     use crate::db::DBCol::ColState;
-    use crate::db::{rocksdb_read_options, DBError, Database, RocksDB};
-    use crate::{create_store, DBCol};
+    use crate::db::StatsValue::{Count, Percentile, Sum};
+    use crate::db::{parse_statistics, rocksdb_read_options, DBError, Database, RocksDB};
+    use crate::{create_store, DBCol, StoreStatistics};
 
     impl RocksDB {
         #[cfg(not(feature = "single_thread_rocksdb"))]
@@ -1031,5 +1197,31 @@ mod tests {
             assert_eq!(rocksdb.get_no_empty_filtering(ColState, &[1]).unwrap(), None);
             assert_eq!(store.get(ColState, &[1]).unwrap(), None);
         }
+    }
+
+    #[test]
+    fn test_parse_statistics() {
+        let statistics = "rocksdb.cold.file.read.count COUNT : 999\n\
+         rocksdb.db.get.micros P50 : 9.171086 P95 : 222.678751 P99 : 549.611652 P100 : 45816.000000 COUNT : 917578 SUM : 38313754";
+        let result = parse_statistics(statistics);
+        assert_eq!(
+            result.unwrap(),
+            StoreStatistics {
+                data: vec![
+                    ("rocksdb.cold.file.read.count".to_string(), vec![Count(999)]),
+                    (
+                        "rocksdb.db.get.micros".to_string(),
+                        vec![
+                            Percentile(50, 9.171086),
+                            Percentile(95, 222.678751),
+                            Percentile(99, 549.611652),
+                            Percentile(100, 45816.0),
+                            Count(917578),
+                            Sum(38313754)
+                        ]
+                    )
+                ]
+            }
+        );
     }
 }

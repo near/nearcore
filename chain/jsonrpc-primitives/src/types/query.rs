@@ -4,7 +4,7 @@ use serde_json::Value;
 /// Max size of the query path (soft-deprecated)
 const QUERY_DATA_MAX_SIZE: usize = 10 * 1024;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct RpcQueryRequest {
     #[serde(flatten)]
     pub block_reference: near_primitives::types::BlockReference,
@@ -19,6 +19,13 @@ pub enum RpcQueryError {
     NoSyncedBlocks,
     #[error("The node does not track the shard ID {requested_shard_id}")]
     UnavailableShard { requested_shard_id: near_primitives::types::ShardId },
+    #[error(
+        "The data for block #{block_height} is garbage collected on this node, use an archival node to fetch historical data"
+    )]
+    GarbageCollectedBlock {
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error("Block either has never been observed on the node or has been garbage collected: {block_reference:?}")]
     UnknownBlock { block_reference: near_primitives::types::BlockReference },
     #[error("Account ID {requested_account_id} is invalid")]
@@ -63,7 +70,7 @@ pub enum RpcQueryError {
     InternalError { error_message: String },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct RpcQueryResponse {
     #[serde(flatten)]
     pub kind: QueryResponseKind,
@@ -172,6 +179,10 @@ impl From<near_client_primitives::types::QueryError> for RpcQueryError {
             near_client_primitives::types::QueryError::UnknownBlock { block_reference } => {
                 Self::UnknownBlock { block_reference }
             }
+            near_client_primitives::types::QueryError::GarbageCollectedBlock {
+                block_height,
+                block_hash,
+            } => Self::GarbageCollectedBlock { block_height, block_hash },
             near_client_primitives::types::QueryError::InvalidAccount {
                 requested_account_id,
                 block_height,

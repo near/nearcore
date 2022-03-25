@@ -1,4 +1,4 @@
-use clap::{AppSettings, Clap};
+use clap::Parser;
 
 use near_indexer::near_primitives::types::Gas;
 
@@ -6,9 +6,9 @@ use tracing_subscriber::EnvFilter;
 
 /// NEAR Indexer Example
 /// Watches for stream of blocks from the chain
-#[derive(Clap, Debug)]
+#[derive(Parser, Debug)]
 #[clap(version = "0.1", author = "Near Inc. <hello@nearprotocol.com>")]
-#[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
+#[clap(subcommand_required = true, arg_required_else_help = true)]
 pub(crate) struct Opts {
     /// Sets a custom config dir. Defaults to ~/.near/
     #[clap(short, long)]
@@ -17,7 +17,7 @@ pub(crate) struct Opts {
     pub subcmd: SubCommand,
 }
 
-#[derive(Clap, Debug)]
+#[derive(Parser, Debug)]
 pub(crate) enum SubCommand {
     /// Run NEAR Indexer Example. Start observe the network
     Run,
@@ -25,7 +25,7 @@ pub(crate) enum SubCommand {
     Init(InitConfigArgs),
 }
 
-#[derive(Clap, Debug)]
+#[derive(Parser, Debug)]
 pub(crate) struct InitConfigArgs {
     /// chain/network id (localnet, testnet, devnet, betanet)
     #[clap(short, long)]
@@ -66,7 +66,7 @@ pub(crate) struct InitConfigArgs {
 
 pub(crate) fn init_logging() {
     let env_filter = EnvFilter::new(
-        "nearcore=info,indexer-example=info,tokio_reactor=info,near=info,stats=info,telemetry=info,indexer_example=info,indexer=info,near-performance-metrics=info",
+        "nearcore=info,indexer_example=info,tokio_reactor=info,near=info,stats=info,telemetry=info,indexer=info,near-performance-metrics=info",
     );
     tracing_subscriber::fmt::Subscriber::builder()
         .with_env_filter(env_filter)

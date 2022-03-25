@@ -8,8 +8,7 @@ use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, Unregister,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
-use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, MailboxError, Message};
+use actix::{MailboxError, Message};
 use futures::future::BoxFuture;
 use near_network_primitives::types::{
     AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, Edge, InboundTcpConnect,
@@ -27,13 +26,14 @@ use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse}
 use near_primitives::time::Instant;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference, EpochId, ShardId};
-use near_primitives::views::QueryRequest;
+use near_primitives::views::{NetworkInfoView, PeerInfoView, QueryRequest};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use strum::AsStaticStr;
 
 /// Message from peer to peer manager
-#[derive(strum::AsRefStr, Clone, Debug)]
+#[derive(actix::Message, strum::AsRefStr, Clone, Debug)]
+#[rtype(result = "PeerResponse")]
 pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
     RouteBack(Box<RoutedMessageBody>, CryptoHash),
@@ -55,11 +55,18 @@ impl deepsize::DeepSizeOf for PeerRequest {
     }
 }
 
-impl Message for PeerRequest {
-    type Result = PeerResponse;
+/// A struct wrapped std::Instant to support the deepsize feature
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WrappedInstant(pub Instant);
+
+#[cfg(feature = "deepsize_feature")]
+impl deepsize::DeepSizeOf for WrappedInstant {
+    fn deep_size_of_children(&self, _context: &mut deepsize::Context) -> usize {
+        0
+    }
 }
 
-#[derive(MessageResponse, Debug)]
+#[derive(actix::MessageResponse, Debug)]
 pub enum PeerResponse {
     NoResponse,
     UpdatedEdge(PartialEdgeInfo),
@@ -73,11 +80,12 @@ pub struct PeersResponse {
     pub(crate) peers: Vec<PeerInfo>,
 }
 
-/// List of all messages, which PeerManagerActor accepts through Actix. There is also another list
-/// which contains reply for each message to PeerManager.
+/// List of all messages, which `PeerManagerActor` accepts through `Actix`. There is also another list
+/// which contains reply for each message to `PeerManager`.
 /// There is 1 to 1 mapping between an entry in `PeerManagerMessageRequest` and `PeerManagerMessageResponse`.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Debug)]
+#[derive(actix::Message, Debug)]
+#[rtype(result = "PeerManagerMessageResponse")]
 pub enum PeerManagerMessageRequest {
     RoutedMessageFrom(RoutedMessageFrom),
     NetworkRequests(NetworkRequests),
@@ -119,12 +127,8 @@ impl PeerManagerMessageRequest {
     }
 }
 
-impl Message for PeerManagerMessageRequest {
-    type Result = PeerManagerMessageResponse;
-}
-
-/// List of all replies to messages to PeerManager. See `PeerManagerMessageRequest` for more details.
-#[derive(MessageResponse, Debug)]
+/// List of all replies to messages to `PeerManager`. See `PeerManagerMessageRequest` for more details.
+#[derive(actix::MessageResponse, Debug)]
 pub enum PeerManagerMessageResponse {
     RoutedMessageFrom(bool),
     NetworkResponses(NetworkResponses),
@@ -207,8 +211,9 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
 
 // TODO(#1313): Use Box
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
+#[derive(actix::Message, Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
+#[rtype(result = "NetworkResponses")]
 pub enum NetworkRequests {
     /// Sends block, either when block was just produced or when requested.
     Block {
@@ -266,6 +271,7 @@ pub enum NetworkRequests {
     PartialEncodedChunkRequest {
         target: AccountIdOrPeerTrackingShard,
         request: PartialEncodedChunkRequestMsg,
+        create_time: WrappedInstant,
     },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunkResponse {
@@ -333,7 +339,22 @@ pub struct FullPeerInfo {
     pub partial_edge_info: PartialEdgeInfo,
 }
 
-#[derive(Debug)]
+impl From<&FullPeerInfo> for PeerInfoView {
+    fn from(full_peer_info: &FullPeerInfo) -> Self {
+        PeerInfoView {
+            addr: match full_peer_info.peer_info.addr {
+                Some(socket_addr) => socket_addr.to_string(),
+                None => "N/A".to_string(),
+            },
+            account_id: full_peer_info.peer_info.account_id.clone(),
+            height: full_peer_info.chain_info.height,
+            tracked_shards: full_peer_info.chain_info.tracked_shards.clone(),
+            archival: full_peer_info.chain_info.archival,
+        }
+    }
+}
+
+#[derive(Debug, Clone, actix::MessageResponse)]
 pub struct NetworkInfo {
     pub connected_peers: Vec<FullPeerInfo>,
     pub num_connected_peers: usize,
@@ -346,19 +367,21 @@ pub struct NetworkInfo {
     pub peer_counter: usize,
 }
 
-impl<A, M> MessageResponse<A, M> for NetworkInfo
-where
-    A: Actor,
-    M: Message<Result = NetworkInfo>,
-{
-    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-        if let Some(tx) = tx {
-            tx.send(self)
+impl From<NetworkInfo> for NetworkInfoView {
+    fn from(network_info: NetworkInfo) -> Self {
+        NetworkInfoView {
+            peer_max_count: network_info.peer_max_count,
+            num_connected_peers: network_info.num_connected_peers,
+            connected_peers: network_info
+                .connected_peers
+                .iter()
+                .map(|full_peer_info| full_peer_info.into())
+                .collect::<Vec<_>>(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, actix::MessageResponse)]
 pub enum NetworkResponses {
     NoResponse,
     RoutingTableInfo(RoutingTableInfo),
@@ -368,25 +391,10 @@ pub enum NetworkResponses {
     RouteNotFound,
 }
 
-impl<A, M> MessageResponse<A, M> for NetworkResponses
-where
-    A: Actor,
-    M: Message<Result = NetworkResponses>,
-{
-    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-        if let Some(tx) = tx {
-            tx.send(self)
-        }
-    }
-}
-
-impl Message for NetworkRequests {
-    type Result = NetworkResponses;
-}
-
-#[derive(Debug, strum::AsRefStr, AsStaticStr)]
+#[derive(actix::Message, Debug, strum::AsRefStr, AsStaticStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
+#[rtype(result = "NetworkClientResponses")]
 pub enum NetworkClientMessages {
     #[cfg(feature = "test_features")]
     Adversarial(near_network_primitives::types::NetworkAdversarialMessage),
@@ -418,7 +426,7 @@ pub enum NetworkClientMessages {
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
     /// Response to a request for  chunk parts and/or receipts.
-    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg, Instant),
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunk(PartialEncodedChunk),
     /// Forwarding parts to those tracking the shard (so they don't need to send requests)
@@ -430,12 +438,8 @@ pub enum NetworkClientMessages {
     NetworkInfo(NetworkInfo),
 }
 
-impl Message for NetworkClientMessages {
-    type Result = NetworkClientResponses;
-}
-
 // TODO(#1313): Use Box
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, actix::MessageResponse)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientResponses {
     /// Adv controls.
@@ -461,20 +465,8 @@ pub enum NetworkClientResponses {
     Ban { ban_reason: ReasonForBan },
 }
 
-impl<A, M> MessageResponse<A, M> for NetworkClientResponses
-where
-    A: Actor,
-    M: Message<Result = NetworkClientResponses>,
-{
-    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-        if let Some(tx) = tx {
-            tx.send(self)
-        }
-    }
-}
-
 /// Adapter to break dependency of sub-components on the network requests.
-/// For tests use MockNetworkAdapter that accumulates the requests to network.
+/// For tests use `MockNetworkAdapter` that accumulates the requests to network.
 pub trait PeerManagerAdapter: Sync + Send {
     fn send(
         &self,

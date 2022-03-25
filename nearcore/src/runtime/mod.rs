@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
+use std::time::Instant;
 
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
@@ -41,13 +42,12 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
     QueryResponseKind, ViewApplyState, ViewStateResult,
 };
-use near_vm_runner::precompile_contract;
-
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
     ApplyStatePartResult, ColState, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
     StoreUpdate, Trie, WrappedTrieChanges,
 };
+use near_vm_runner::precompile_contract;
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
@@ -55,9 +55,9 @@ use node_runtime::{
     ValidatorAccountsUpdate,
 };
 
-use crate::shard_tracker::{ShardTracker, TrackedConfig};
-
+use crate::metrics;
 use crate::migrations::load_migration_data;
+use crate::shard_tracker::{ShardTracker, TrackedConfig};
 use crate::NearConfig;
 use errors::FromStateViewerErrors;
 use near_primitives::runtime::config_store::{RuntimeConfigStore, INITIAL_TESTNET_CONFIG};
@@ -133,7 +133,7 @@ pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
     runtime_config_store: RuntimeConfigStore,
 
-    store: Arc<Store>,
+    store: Store,
     tries: ShardTries,
     trie_viewer: TrieViewer,
     pub runtime: Runtime,
@@ -146,7 +146,7 @@ pub struct NightshadeRuntime {
 impl NightshadeRuntime {
     pub fn with_config(
         home_dir: &Path,
-        store: Arc<Store>,
+        store: Store,
         config: &NearConfig,
         trie_viewer_state_size_limit: Option<u64>,
         max_gas_burnt_view: Option<Gas>,
@@ -164,7 +164,7 @@ impl NightshadeRuntime {
 
     pub fn new(
         home_dir: &Path,
-        store: Arc<Store>,
+        store: Store,
         genesis: &Genesis,
         tracked_config: TrackedConfig,
         trie_viewer_state_size_limit: Option<u64>,
@@ -214,7 +214,7 @@ impl NightshadeRuntime {
 
     pub fn test_with_runtime_config_store(
         home_dir: &Path,
-        store: Arc<Store>,
+        store: Store,
         genesis: &Genesis,
         tracked_config: TrackedConfig,
         runtime_config_store: RuntimeConfigStore,
@@ -222,7 +222,7 @@ impl NightshadeRuntime {
         Self::new(home_dir, store, genesis, tracked_config, None, None, Some(runtime_config_store))
     }
 
-    pub fn test(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
+    pub fn test(home_dir: &Path, store: Store, genesis: &Genesis) -> Self {
         Self::test_with_runtime_config_store(
             home_dir,
             store,
@@ -254,7 +254,7 @@ impl NightshadeRuntime {
         }
     }
 
-    fn genesis_state_from_dump(store: Arc<Store>, home_dir: &Path) -> Vec<StateRoot> {
+    fn genesis_state_from_dump(store: Store, home_dir: &Path) -> Vec<StateRoot> {
         error!(target: "near", "Loading genesis from a state dump file. Do not use this outside of genesis-tools");
         let mut state_file = home_dir.to_path_buf();
         state_file.push(STATE_DUMP_FILE);
@@ -267,7 +267,7 @@ impl NightshadeRuntime {
         state_roots
     }
 
-    fn genesis_state_from_records(store: Arc<Store>, genesis: &Genesis) -> Vec<StateRoot> {
+    fn genesis_state_from_records(store: Store, genesis: &Genesis) -> Vec<StateRoot> {
         if !genesis.records.as_ref().is_empty() {
             info!(target: "runtime", "Genesis state has {} records, computing state roots", genesis.records.0.len());
         } else {
@@ -330,7 +330,7 @@ impl NightshadeRuntime {
     /// After that: return genesis state roots. The state is not guaranteed to be in storage, as
     /// GC and state sync are allowed to delete it.
     pub fn initialize_genesis_state_if_needed(
-        store: Arc<Store>,
+        store: Store,
         home_dir: &Path,
         genesis: &Genesis,
     ) -> Vec<StateRoot> {
@@ -353,7 +353,7 @@ impl NightshadeRuntime {
     }
 
     pub fn initialize_genesis_state(
-        store: Arc<Store>,
+        store: Store,
         home_dir: &Path,
         genesis: &Genesis,
     ) -> Vec<StateRoot> {
@@ -537,6 +537,7 @@ impl NightshadeRuntime {
             },
         };
 
+        let instant = Instant::now();
         let apply_result = self
             .runtime
             .apply(
@@ -562,9 +563,18 @@ impl NightshadeRuntime {
                 RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                 RuntimeError::ValidatorError(e) => e.into(),
             })?;
+        let elapsed = instant.elapsed();
 
         let total_gas_burnt =
             apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
+        metrics::APPLY_CHUNK_DELAY
+            .with_label_values(&[&format_total_gas_burnt(total_gas_burnt)])
+            .observe(elapsed.as_secs_f64());
+        if total_gas_burnt > 0 {
+            metrics::SECONDS_PER_PETAGAS
+                .with_label_values(&[])
+                .observe(elapsed.as_secs_f64() * 1e15 / total_gas_burnt as f64);
+        }
         let total_balance_burnt = apply_result
             .stats
             .tx_burnt_amount
@@ -627,6 +637,12 @@ impl NightshadeRuntime {
     }
 }
 
+fn format_total_gas_burnt(gas: Gas) -> String {
+    // Rounds up the amount of teragas to hundreds of Tgas.
+    // For example 123 Tgas gets rounded up to "200".
+    format!("{:.0}", ((gas as f64) / 1e14).ceil() * 100.0)
+}
+
 fn apply_delayed_receipts<'a>(
     tries: &ShardTries,
     orig_shard_uid: ShardUId,
@@ -659,11 +675,11 @@ pub fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &Shard
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
-    fn genesis_state(&self) -> (Arc<Store>, Vec<StateRoot>) {
+    fn genesis_state(&self) -> (Store, Vec<StateRoot>) {
         (self.store.clone(), self.genesis_state_roots.clone())
     }
 
-    fn get_store(&self) -> Arc<Store> {
+    fn get_store(&self) -> Store {
         self.store.clone()
     }
 
@@ -1586,8 +1602,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(partial_state) => partial_state,
             Err(e) => {
                 error!(target: "runtime",
-                       "Can't get_trie_nodes_for_part for {:?}, part_id {:?}, num_parts {:?}, {:?}",
-                       state_root, part_id, num_parts, e
+                       "Can't get_trie_nodes_for_part for block {:?} state root {:?}, part_id {:?}, num_parts {:?}, {:?}",
+                       block_hash, state_root, part_id, num_parts, e
                 );
                 return Err(e.to_string().into());
             }
@@ -3193,7 +3209,7 @@ mod test {
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
             .collect();
-        let fishermen_stake = 3200 * crate::NEAR_BASE + 1;
+        let fishermen_stake = 3300 * crate::NEAR_BASE + 1;
 
         let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
         let staking_transaction1 = stake(1, &signers[1], &block_producers[1], fishermen_stake);
@@ -3270,7 +3286,7 @@ mod test {
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
             .collect();
-        let fishermen_stake = 3200 * crate::NEAR_BASE + 1;
+        let fishermen_stake = 3300 * crate::NEAR_BASE + 1;
 
         let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
         env.step_default(vec![staking_transaction]);

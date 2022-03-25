@@ -1,34 +1,3 @@
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
-use actix::{Actor, Addr, Arbiter};
-use actix_rt::ArbiterHandle;
-use actix_web;
-#[cfg(feature = "performance_stats")]
-use near_rust_allocator_proxy::allocator::reset_memory_usage_max;
-use tracing::{error, info, trace};
-
-use near_chain::ChainGenesis;
-#[cfg(feature = "test_features")]
-use near_client::AdversarialControls;
-use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
-
-use near_network::routing::start_routing_table_actor;
-use near_network::test_utils::NetworkRecipient;
-use near_network::PeerManagerActor;
-use near_primitives::network::PeerId;
-#[cfg(feature = "rosetta_rpc")]
-use near_rosetta_rpc::start_rosetta_rpc;
-use near_store::migrations::{
-    fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
-    migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_20_to_21,
-    migrate_21_to_22, migrate_25_to_26, migrate_26_to_27, migrate_28_to_29, migrate_29_to_30,
-    migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
-};
-use near_store::{create_store, Store};
-use near_telemetry::TelemetryActor;
-
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
 use crate::migrations::{
     migrate_12_to_13, migrate_18_to_19, migrate_19_to_20, migrate_22_to_23, migrate_23_to_24,
@@ -36,9 +5,41 @@ use crate::migrations::{
 };
 pub use crate::runtime::NightshadeRuntime;
 pub use crate::shard_tracker::TrackedConfig;
+use actix::{Actor, Addr, Arbiter};
+use actix_rt::ArbiterHandle;
+use actix_web;
+use anyhow::Context;
+use near_chain::ChainGenesis;
+#[cfg(feature = "test_features")]
+use near_client::AdversarialControls;
+use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
+use near_network::routing::start_routing_table_actor;
+use near_network::test_utils::NetworkRecipient;
+use near_network::PeerManagerActor;
+use near_primitives::network::PeerId;
+#[cfg(feature = "rosetta_rpc")]
+use near_rosetta_rpc::start_rosetta_rpc;
+#[cfg(feature = "performance_stats")]
+use near_rust_allocator_proxy::reset_memory_usage_max;
+use near_store::db::DBCol;
+use near_store::db::RocksDB;
+use near_store::migrations::{
+    fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
+    migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_20_to_21,
+    migrate_21_to_22, migrate_25_to_26, migrate_26_to_27, migrate_28_to_29, migrate_29_to_30,
+    migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
+};
+use near_store::{create_store, create_store_with_config, Store, StoreConfig};
+use near_telemetry::TelemetryActor;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tokio::sync::oneshot;
+use tracing::{error, info, trace};
 
 pub mod append_only_map;
 pub mod config;
+mod metrics;
 pub mod migrations;
 mod runtime;
 mod shard_tracker;
@@ -73,6 +74,46 @@ pub fn get_default_home() -> PathBuf {
     PathBuf::default()
 }
 
+/// Returns the path of the DB checkpoint.
+/// Default location is the same as the database location: `path`.
+fn db_checkpoint_path(path: &Path, near_config: &NearConfig) -> PathBuf {
+    let root_path =
+        if let Some(db_migration_snapshot_path) = &near_config.config.db_migration_snapshot_path {
+            assert!(
+                db_migration_snapshot_path.is_absolute(),
+                "'db_migration_snapshot_path' must be an absolute path to an existing directory."
+            );
+            db_migration_snapshot_path.clone()
+        } else {
+            path.to_path_buf()
+        };
+    root_path.join(DB_CHECKPOINT_NAME)
+}
+
+const DB_CHECKPOINT_NAME: &str = "db_migration_snapshot";
+
+/// Creates a consistent DB checkpoint and returns its path.
+/// By default it creates checkpoints in the DB directory, but can be overridden by the config.
+fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf, anyhow::Error> {
+    let checkpoint_path = db_checkpoint_path(path, near_config);
+    if checkpoint_path.exists() {
+        return Err(anyhow::anyhow!(
+            "Detected an existing database migration snapshot: '{}'.\n\
+             Probably a database migration got interrupted and your database is corrupted.\n\
+             Please replace the contents of '{}' with data from that checkpoint, delete the checkpoint and try again.",
+            checkpoint_path.display(),
+            path.display()));
+    }
+
+    let db = RocksDB::new(path)?;
+    let checkpoint = db.checkpoint()?;
+    info!(target: "near", "Creating a database migration snapshot in '{}'", checkpoint_path.display());
+    checkpoint.create_checkpoint(&checkpoint_path)?;
+    info!(target: "near", "Created a database migration snapshot in '{}'", checkpoint_path.display());
+
+    Ok(checkpoint_path)
+}
+
 /// Function checks current version of the database and applies migrations to the database.
 pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
     let db_version = get_store_version(path);
@@ -80,9 +121,36 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         error!(target: "near", "DB version {} is created by a newer version of neard, please update neard or delete data", db_version);
         std::process::exit(1);
     }
+
     if db_version == near_primitives::version::DB_VERSION {
         return;
     }
+
+    // Before starting a DB migration, create a consistent snapshot of the database. If a migration
+    // fails, it can be used to quickly restore the database to its original state.
+    let checkpoint_path = if near_config.config.use_db_migration_snapshot {
+        match create_db_checkpoint(path, near_config) {
+            Ok(checkpoint_path) => {
+                info!(target: "near", "Created a DB checkpoint before a DB migration: '{}'. Please recover from this checkpoint if the migration gets interrupted.", checkpoint_path.display());
+                Some(checkpoint_path)
+            }
+            Err(err) => {
+                panic!(
+                    "Failed to create a database migration snapshot:\n\
+                     {}\n\
+                     Please consider fixing this issue and retrying.\n\
+                     You can change the location of database migration snapshots by adjusting `config.json`:\n\
+                     \t\"db_migration_snapshot_path\": \"/absolute/path/to/existing/dir\",\n\
+                     Alternatively, you can disable database migration snapshots in `config.json`:\n\
+                     \t\"use_db_migration_snapshot\": false,\n\
+                     ",
+                    err
+                );
+            }
+        }
+    } else {
+        None
+    };
 
     // Add migrations here based on `db_version`.
     if db_version <= 1 {
@@ -273,15 +341,40 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         let db_version = get_store_version(path);
         debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
     }
+
+    // DB migration was successful, remove the checkpoint to avoid it taking up precious disk space.
+    if let Some(checkpoint_path) = checkpoint_path {
+        info!(target: "near", "Deleting the database migration snapshot at '{}'", checkpoint_path.display());
+        match std::fs::remove_dir_all(&checkpoint_path) {
+            Ok(_) => {
+                info!(target: "near", "Deleted the database migration snapshot at '{}'", checkpoint_path.display());
+            }
+            Err(err) => {
+                error!(
+                    "Failed to delete the database migration snapshot at '{}'.\n\
+                    \tError: {:#?}.\n\
+                    \n\
+                    Please delete the database migration snapshot manually before the next start of the node.",
+                    checkpoint_path.display(),
+                    err);
+            }
+        }
+    }
 }
 
-pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Arc<Store> {
+pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Store {
     let path = get_store_path(home_dir);
     let store_exists = store_path_exists(&path);
     if store_exists {
         apply_store_migrations(&path, near_config);
     }
-    let store = create_store(&path);
+    let store = create_store_with_config(
+        &path,
+        StoreConfig {
+            read_only: false,
+            enable_statistics: near_config.config.enable_rocksdb_statistics,
+        },
+    );
     if !store_exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);
     }
@@ -295,12 +388,22 @@ pub struct NearNode {
     pub rpc_servers: Vec<(&'static str, actix_web::dev::Server)>,
 }
 
-pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
+pub fn start_with_config(home_dir: &Path, config: NearConfig) -> Result<NearNode, anyhow::Error> {
+    start_with_config_and_synchronization(home_dir, config, None)
+}
+
+pub fn start_with_config_and_synchronization(
+    home_dir: &Path,
+    config: NearConfig,
+    // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
+    // `ClientActor` gets dropped.
+    shutdown_signal: Option<oneshot::Sender<()>>,
+) -> Result<NearNode, anyhow::Error> {
     let store = init_and_migrate_store(home_dir, &config);
 
     let runtime = Arc::new(NightshadeRuntime::with_config(
         home_dir,
-        Arc::clone(&store),
+        store.clone(),
         &config,
         config.client_config.trie_viewer_state_size_limit,
         config.client_config.max_gas_burnt_view,
@@ -331,6 +434,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
         network_adapter.clone(),
         config.validator_signer,
         telemetry,
+        shutdown_signal,
         #[cfg(feature = "test_features")]
         adv.clone(),
     );
@@ -340,7 +444,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     let arbiter = Arbiter::new();
     let client_actor1 = client_actor.clone().recipient();
     let view_client1 = view_client.clone().recipient();
-    config.network_config.verify();
+    config.network_config.verify().with_context(|| "start_with_config")?;
     let network_config = config.network_config;
     let routing_table_addr =
         start_routing_table_actor(PeerId::new(network_config.public_key.clone()), store.clone());
@@ -394,10 +498,100 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     #[cfg(feature = "performance_stats")]
     reset_memory_usage_max();
 
-    NearNode {
+    Ok(NearNode {
         client: client_actor,
         view_client,
         rpc_servers,
         arbiters: vec![client_arbiter_handle, arbiter.handle()],
+    })
+}
+
+pub fn recompress_storage(home_dir: &Path, dst_dir: &Path) -> anyhow::Result<()> {
+    use strum::{EnumCount, IntoEnumIterator};
+
+    // We’re configuring each RocksDB to use 512 file descriptors.  Make sure we
+    // can open that many by ensuring nofile limit is large enough to give us
+    // some room to spare over 1024 file descriptors.
+    let (soft, hard) = rlimit::Resource::NOFILE
+        .get()
+        .map_err(|err| anyhow::anyhow!("getrlimit: NOFILE: {}", err))?;
+    if soft < 3 * 512 {
+        rlimit::Resource::NOFILE
+            .set(3 * 512, hard)
+            .map_err(|err| anyhow::anyhow!("setrlimit: NOFILE: {}", err))?;
     }
+
+    let src_dir = home_dir.join(STORE_PATH);
+    anyhow::ensure!(
+        store_path_exists(&src_dir),
+        "{}: source storage doesn’t exist",
+        src_dir.display()
+    );
+    let db_version = get_store_version(&src_dir);
+    anyhow::ensure!(
+        db_version == near_primitives::version::DB_VERSION,
+        "{}: expected DB version {} but got {}",
+        src_dir.display(),
+        near_primitives::version::DB_VERSION,
+        db_version
+    );
+
+    anyhow::ensure!(
+        !store_path_exists(&dst_dir),
+        "{}: directory already exists",
+        dst_dir.display()
+    );
+
+    info!("Recompressing data from {} into {}", src_dir.display(), dst_dir.display());
+    let src_store = create_store_with_config(
+        &src_dir,
+        StoreConfig { read_only: true, enable_statistics: false },
+    );
+    let dst_store = create_store(&dst_dir);
+
+    const BATCH_SIZE_BYTES: u64 = 150_000_000;
+
+    for (n, column) in DBCol::iter().enumerate() {
+        info!(
+            "Recompressing col{} ‘{}’ ({:2} / {:2})",
+            column as usize,
+            column,
+            n + 1,
+            DBCol::COUNT
+        );
+        let mut store_update = dst_store.store_update();
+        let mut total_written: u64 = 0;
+        let mut batch_written: u64 = 0;
+        let mut count_keys: u64 = 0;
+        for (key, value) in src_store.iter(column) {
+            store_update.set(column, &key, &value);
+            total_written += value.len() as u64;
+            batch_written += value.len() as u64;
+            count_keys += 1;
+            if batch_written >= BATCH_SIZE_BYTES {
+                store_update.commit()?;
+                info!(
+                    "col{}: processed {} keys; {} GB ...",
+                    column as usize,
+                    count_keys,
+                    total_written as f64 / 1_000_000_000.0
+                );
+                batch_written = 0;
+                store_update = dst_store.store_update();
+            }
+        }
+        info!(
+            "col{}: processed {} keys; {} GB",
+            column as usize,
+            count_keys,
+            total_written as f64 / 1_000_000_000.0
+        );
+        store_update.commit()?;
+    }
+
+    core::mem::drop(dst_store);
+    core::mem::drop(src_store);
+
+    info!("Done; recompressed database at {}", dst_dir.display());
+    Ok(())
 }

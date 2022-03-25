@@ -12,3 +12,4 @@ description = "This crate hosts NEAR chunks-related error types"
 
 [dependencies]
 near-chain-primitives = { path = "../chain-primitives" }
+near-primitives = { path = "../../core/primitives" }
