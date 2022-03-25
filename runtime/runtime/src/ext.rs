@@ -74,8 +74,6 @@ impl<'a> RuntimeExt<'a> {
             last_block_hash,
             epoch_info_provider,
             current_protocol_version,
-            // #[cfg(feature = "protocol_feature_function_call_weight")]
-            // gas_weights: vec![],
         }
     }
 
