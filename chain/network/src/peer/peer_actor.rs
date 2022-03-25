@@ -391,14 +391,18 @@ impl PeerActor {
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
-                metrics::PEER_BLOCK_RECEIVED_TOTAL.inc();
+                metrics::PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL
+                    .with_label_values(&["block"])
+                    .inc();
                 let block_hash = *block.hash();
                 self.tracker.push_received(block_hash);
                 self.chain_info.height = max(self.chain_info.height, block.header().height());
                 NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(&block_hash))
             }
             PeerMessage::Transaction(transaction) => {
-                metrics::PEER_TRANSACTION_RECEIVED_TOTAL.inc();
+                metrics::PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL
+                    .with_label_values(&["transaction"])
+                    .inc();
                 NetworkClientMessages::Transaction {
                     transaction,
                     is_forwarded: false,
@@ -406,12 +410,18 @@ impl PeerActor {
                 }
             }
             PeerMessage::BlockHeaders(headers) => {
+                metrics::PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL
+                    .with_label_values(&["blockheaders"])
+                    .inc();
                 NetworkClientMessages::BlockHeaders(headers, peer_id)
             }
             // All Routed messages received at this point are for us.
             PeerMessage::Routed(routed_message) => {
                 let msg_hash = routed_message.hash();
 
+                metrics::PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL
+                    .with_label_values(&[routed_message.body.as_ref()])
+                    .inc();
                 match routed_message.body {
                     RoutedMessageBody::BlockApproval(approval) => {
                         NetworkClientMessages::BlockApproval(approval, peer_id)

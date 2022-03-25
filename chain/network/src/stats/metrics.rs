@@ -1,7 +1,8 @@
 use crate::types::PeerMessage;
 use near_metrics::{
     inc_counter_by_opt, inc_counter_opt, try_create_histogram, try_create_int_counter,
-    try_create_int_gauge, Histogram, IntCounter, IntGauge,
+    try_create_int_counter_vec, try_create_int_gauge, Histogram, IntCounter, IntCounterVec,
+    IntGauge,
 };
 use near_network_primitives::types::RoutedMessageBody;
 use once_cell::sync::Lazy;
@@ -29,14 +30,11 @@ pub static PEER_CLIENT_MESSAGE_RECEIVED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static PEER_BLOCK_RECEIVED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
-    try_create_int_counter("near_peer_block_received_total", "Number of blocks received by peers")
-        .unwrap()
-});
-pub static PEER_TRANSACTION_RECEIVED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
-    try_create_int_counter(
-        "near_peer_transaction_received_total",
-        "Number of transactions received by peers",
+pub static PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_peer_client_message_received_by_type_total",
+        "Number of messages for client received from peers, by message types",
+        &["type"],
     )
     .unwrap()
 });
