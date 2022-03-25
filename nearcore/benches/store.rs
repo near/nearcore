@@ -10,19 +10,26 @@ use near_store::{create_store_with_config, StoreConfig, TrieIterator};
 use nearcore::{get_default_home, get_store_path, load_config, NightshadeRuntime};
 use std::time::{Duration, Instant};
 
-/// Read `TrieItem`s - nodes containing values - using Trie iterator, stop when `num_trie_items` items were read.
-/// TODO: make separate bench runs independent. As of 18/01/2022, first run gives speed of 50 items per second, and all
-/// next runs give ~ 30k items per second.
-fn read_trie_items(bench: &mut Bencher, num_trie_items: usize, shard_id: usize) {
+/// Read `TrieItem`s - nodes containing values - using Trie iterator, stop when 10k items were read.
+/// Note that the first run populates OS caches, so all next runs will be faster. You may want to run
+/// `sudo sh -c "/usr/bin/echo 1 > /proc/sys/vm/drop_caches"` before running the benchmark.
+/// As of 25/03/2022, it shows the following results for the readonly mode:
+/// ```
+/// took on avg 6.169248ms op per sec 162 items read 10000
+/// took on avg 1.424615ms op per sec 701 items read 10000
+/// took on avg 1.416562ms op per sec 705 items read 10000
+/// ```  
+fn read_trie_items(bench: &mut Bencher, shard_id: usize, read_only: bool) {
     init_integration_logger();
     let home_dir = get_default_home();
     let near_config = load_config(&home_dir, GenesisValidationMode::UnsafeFast);
+    let num_trie_items = 10_000;
 
     bench.iter(move || {
         tracing::info!(target: "neard", "{:?}", home_dir);
         let store = create_store_with_config(
             &get_store_path(&home_dir),
-            StoreConfig { read_only: true, enable_statistics: false },
+            StoreConfig { read_only, enable_statistics: false },
         );
 
         let mut chain_store =
@@ -66,16 +73,16 @@ fn read_trie_items(bench: &mut Bencher, num_trie_items: usize, shard_id: usize) 
     });
 }
 
-fn read_trie_items_1k(bench: &mut Bencher) {
-    // Read trie items until 1k items found from shard 0.
-    read_trie_items(bench, 1_000, 0);
-}
-
 fn read_trie_items_10k(bench: &mut Bencher) {
     // Read trie items until 10k items found from shard 0.
-    read_trie_items(bench, 10_000, 0);
+    read_trie_items(bench, 0, false);
 }
 
-benchmark_group!(benches, read_trie_items_1k, read_trie_items_10k);
+fn read_trie_items_10k_read_only(bench: &mut Bencher) {
+    // Read trie items until 10k items found from shard 0.
+    read_trie_items(bench, 0, true);
+}
+
+benchmark_group!(benches, read_trie_items_10k, read_trie_items_10k_read_only);
 
 benchmark_main!(benches);
