@@ -374,10 +374,7 @@ pub struct BlockStatusView {
 
 impl From<Tip> for BlockStatusView {
     fn from(tip: Tip) -> Self {
-        Self {
-            height: tip.height,
-            hash: tip.last_block_hash,
-        }
+        Self { height: tip.height, hash: tip.last_block_hash }
     }
 }
 

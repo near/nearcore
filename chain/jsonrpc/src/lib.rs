@@ -1534,7 +1534,9 @@ pub fn start_http(
             .service(last_blocks_html)
             .service(web::resource("/debug/api/sync_info").route(web::get().to(sync_info_handler)))
             .service(sync_info_html)
-            .service(web::resource("/debug/api/chain_info").route(web::get().to(chain_info_handler)))
+            .service(
+                web::resource("/debug/api/chain_info").route(web::get().to(chain_info_handler)),
+            )
             .service(chain_info_html)
     })
     .bind(addr)
