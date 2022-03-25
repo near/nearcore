@@ -65,9 +65,18 @@ impl<'c> Testbed<'c> {
         &mut self.transaction_builder
     }
 
+    /// Apply and measure provided blocks one-by-one.
+    /// Because some transactions can span multiple blocks, each input block
+    /// might trigger multiple blocks in execution. The returned results are
+    /// exactly one per input block, regardless of how many blocks needed to be
+    /// executed. To avoid surprises in how many blocks are actually executed,
+    /// `blocks_per_block` must be specified and the function will panic if it
+    /// is wrong.
+    #[track_caller]
     pub(crate) fn measure_blocks<'a>(
         &'a mut self,
         blocks: Vec<Vec<SignedTransaction>>,
+        blocks_per_block: usize,
     ) -> Vec<(GasCost, HashMap<ExtCosts, u64>)> {
         let allow_failures = false;
 
@@ -75,13 +84,15 @@ impl<'c> Testbed<'c> {
 
         for block in blocks {
             node_runtime::with_ext_cost_counter(|cc| cc.clear());
+            let extra_blocks;
             let gas_cost = {
                 self.clear_caches();
                 let start = GasCost::measure(self.config.metric);
                 self.inner.process_block(&block, allow_failures);
-                self.inner.process_blocks_until_no_receipts(allow_failures);
+                extra_blocks = self.inner.process_blocks_until_no_receipts(allow_failures);
                 start.elapsed()
             };
+            assert_eq!(blocks_per_block, 1 + extra_blocks);
 
             let mut ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
             node_runtime::with_ext_cost_counter(|cc| {
