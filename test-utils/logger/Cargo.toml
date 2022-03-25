@@ -9,4 +9,4 @@ edition = "2021"
 
 [dependencies]
 tracing = "0.1.13"
-tracing-subscriber = "0.2.4"
+near-o11y = { path = "../../core/o11y" }
