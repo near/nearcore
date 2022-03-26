@@ -54,6 +54,14 @@ pub static PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Laz
     )
     .unwrap()
 });
+pub static REQUEST_COUNT_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_requests_count_by_type_total",
+        "Number of network requests we send out, by message types",
+        &["type"],
+    )
+    .unwrap()
+});
 
 // Routing table metrics
 pub static ROUTING_TABLE_RECALCULATIONS: Lazy<IntCounter> = Lazy::new(|| {

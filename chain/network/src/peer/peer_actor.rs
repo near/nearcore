@@ -711,6 +711,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             NetworkMetrics::peer_message_bytes_rx(peer_msg.msg_variant()).as_ref(),
             msg.len() as u64,
         );
+
         metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL
             .with_label_values(&[peer_msg.msg_variant()])
             .inc();
