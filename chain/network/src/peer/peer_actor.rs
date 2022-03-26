@@ -711,6 +711,9 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             NetworkMetrics::peer_message_bytes_rx(peer_msg.msg_variant()).as_ref(),
             msg.len() as u64,
         );
+        metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL
+            .with_label_values(&[peer_msg.msg_variant()])
+            .inc();
 
         match (self.peer_status, peer_msg) {
             (_, PeerMessage::HandshakeFailure(peer_info, reason)) => {
@@ -1001,7 +1004,12 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         .then(move |res, act, ctx| {
                             if res.map(|f| f.into_inner().as_routed_message_from()).unwrap_or(false)
                             {
+                                metrics::PEER_ROUTED_MESSAGE_RECEIVED_BY_TYPE_TOTAL
+                                    .with_label_values(&[routed_message.body.as_ref(), "true"]);
                                 act.receive_message(ctx, PeerMessage::Routed(routed_message));
+                            } else {
+                                metrics::PEER_ROUTED_MESSAGE_RECEIVED_BY_TYPE_TOTAL
+                                    .with_label_values(&[routed_message.body.as_ref(), "false"]);
                             }
                             actix::fut::ready(())
                         })
