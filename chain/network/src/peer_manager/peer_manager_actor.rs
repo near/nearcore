@@ -2095,7 +2095,7 @@ impl PeerManagerActor {
     fn handle_msg_peers_response(&mut self, msg: PeersResponse) {
         let _d = delay_detector::DelayDetector::new(|| "peers response".into());
         if let Err(err) = self.peer_store.add_indirect_peers(
-            msg.peers.into_iter().filter(|peer_info| peer_info.id != self.my_peer_id).collect(),
+            msg.peers.into_iter().filter(|peer_info| peer_info.id != self.my_peer_id),
         ) {
             error!(target: "network", ?err, "Fail to update peer store");
         };

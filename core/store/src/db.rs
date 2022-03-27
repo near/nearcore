@@ -882,7 +882,22 @@ fn rocksdb_column_options(col: DBCol) -> Options {
     opts.set_level_compaction_dynamic_level_bytes(true);
     let cache_size = choose_cache_size(col);
     opts.set_block_based_table_factory(&rocksdb_block_based_options(cache_size));
-    opts.optimize_level_style_compaction(128 * bytesize::MIB as usize);
+
+    // Note that this function changes a lot of rustdb parameters including:
+    //      write_buffer_size = memtable_memory_budget / 4
+    //      min_write_buffer_number_to_merge = 2
+    //      max_write_buffer_number = 6
+    //      level0_file_num_compaction_trigger = 2
+    //      target_file_size_base = memtable_memory_budget / 8
+    //      max_bytes_for_level_base = memtable_memory_budget
+    //      compaction_style = kCompactionStyleLevel
+    // Also it sets compression_per_level in a way that the first 2 levels have no compression and
+    // the rest use LZ4 compression.
+    // See the implementation here:
+    //      https://github.com/facebook/rocksdb/blob/c18c4a081c74251798ad2a1abf83bad417518481/options/options.cc#L588.
+    let memtable_memory_budget = 128 * bytesize::MIB as usize;
+    opts.optimize_level_style_compaction(memtable_memory_budget);
+
     opts.set_target_file_size_base(64 * bytesize::MIB);
     if col.is_rc() {
         opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);

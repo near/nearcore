@@ -4,7 +4,7 @@ use crate::client::Client;
 use crate::info::{get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper};
 use crate::metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY;
 use crate::sync::{StateSync, StateSyncResult};
-use crate::StatusResponse;
+use crate::{metrics, StatusResponse};
 use actix::dev::SendError;
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
@@ -252,11 +252,23 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
     #[perf_with_debug]
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
+        self.check_triggers(ctx);
+
         let _d = delay_detector::DelayDetector::new(|| {
             format!("NetworkClientMessage {}", msg.as_ref()).into()
         });
-        self.check_triggers(ctx);
+        metrics::CLIENT_MESSAGES_COUNT.with_label_values(&[msg.as_ref()]).inc();
+        let timer = metrics::CLIENT_MESSAGES_PROCESSING_TIME
+            .with_label_values(&[msg.as_ref()])
+            .start_timer();
+        let res = self.handle_client_messages(msg);
+        timer.observe_duration();
+        res
+    }
+}
 
+impl ClientActor {
+    fn handle_client_messages(&mut self, msg: NetworkClientMessages) -> NetworkClientResponses {
         match msg {
             #[cfg(feature = "test_features")]
             NetworkClientMessages::Adversarial(adversarial_msg) => {
@@ -439,9 +451,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 let state_response = state_response_info.take_state_response();
 
                 trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
-                    shard_id,
-                    hash,
-                    state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
+                       shard_id,
+                       hash,
+                       state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
                 );
                 // Get the download that matches the shard_id and hash
                 let download = {
@@ -613,7 +625,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
         }
     }
 }
-
 impl Handler<Status> for ClientActor {
     type Result = Result<StatusResponse, StatusError>;
 
