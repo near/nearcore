@@ -490,6 +490,7 @@ impl RecompressStorageSubCommand {
         let opts = nearcore::RecompressOpts {
             dest_dir: self.output_dir,
             keep_partial_chunks: self.keep_partial_chunks,
+            keep_invalid_chunks: self.keep_invalid_chunks,
             keep_trie_changes: self.keep_trie_changes,
         };
         if let Err(err) = nearcore::recompress_storage(&home_dir, opts) {
