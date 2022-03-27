@@ -624,6 +624,24 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         store_update.commit()?;
     }
 
+    // If we’re not keeping ColPartialChunks, update chunk tail to point to
+    // current final block.  If we don’t do that, the gc will try to work its
+    // way from the genesis even though chunks at those heights have been
+    // deleted.
+    if skip_columns.contains(&DBCol::ColPartialChunks) {
+        let tip: Option<near_primitives::block::Tip> =
+            src_store.get_ser(DBCol::ColBlockMisc, near_store::FINAL_HEAD_KEY)?;
+        if let Some(tip) = tip {
+            let chunk_tail: near_primitives::types::BlockHeight = tip.height;
+            info!("Setting chunk tail to {}", chunk_tail);
+            let mut store_update = dst_store.store_update();
+            store_update.set_ser(DBCol::ColBlockMisc, near_store::CHUNK_TAIL_KEY, &chunk_tail)?;
+            store_update.commit()?;
+        } else {
+            info!("Final head not set; leaving chunk tail be");
+        }
+    }
+
     core::mem::drop(dst_store);
     core::mem::drop(src_store);
 
