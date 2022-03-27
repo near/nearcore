@@ -5,19 +5,14 @@ use near_primitives::version::PROTOCOL_VERSION;
 use node_runtime::Runtime;
 use std::fs::File;
 use tracing::debug;
-use tracing::metadata::LevelFilter;
-use tracing_subscriber::EnvFilter;
 
 /// Calculates delta between actual storage usage and one saved in state
 /// output.json should contain dump of current state,
 /// run 'neard --home ~/.near/mainnet/ view_state dump_state'
 /// to get it
 fn main() -> std::io::Result<()> {
-    tracing_subscriber::fmt::Subscriber::builder()
-        .with_env_filter(EnvFilter::default().add_directive(LevelFilter::DEBUG.into()))
-        .with_writer(std::io::stderr)
-        .init();
-
+    let env_filter = near_o11y::EnvFilterBuilder::from_env().verbose(Some("")).finish();
+    let _subscriber = near_o11y::default_subscriber(env_filter);
     debug!(target: "storage-calculator", "Start");
 
     let genesis = Genesis::from_file("output.json", GenesisValidationMode::Full);

@@ -1254,54 +1254,6 @@ impl Chain {
         Ok(())
     }
 
-    fn start_downloading_state(
-        &mut self,
-        me: &Option<AccountId>,
-        block: &Block,
-    ) -> Result<(), Error> {
-        let prev_hash = *block.header().prev_hash();
-        let shards_to_dl = self.get_shards_to_dl_state(me, &prev_hash)?;
-        let prev_block = self.get_block(&prev_hash)?;
-
-        if prev_block.chunks().len() != block.chunks().len() && !shards_to_dl.is_empty() {
-            // Currently, the state sync algorithm assumes that the number of chunks do not change
-            // between the epoch being synced to and the last epoch.
-            // For example, if shard layout changes at the beginning of epoch T, validators
-            // will not be able to sync states at epoch T for epoch T+1
-            // Fortunately, since all validators track all shards for now, this error will not be
-            // triggered in live yet
-            // Instead of propagating the error, we simply log the error here because the error
-            // do not affect processing blocks for this epoch. However, when the next epoch comes,
-            // the validator will not have the states ready so it will halt.
-            error!(
-                "Cannot download states for epoch {:?} because sharding just changed. I'm {:?}",
-                block.header().epoch_id(),
-                me
-            );
-            debug_assert!(false);
-        }
-        debug!(target: "chain", "Downloading state for {:?}, I'm {:?}", shards_to_dl, me);
-
-        let state_dl_info = StateSyncInfo {
-            epoch_tail_hash: *block.header().hash(),
-            shards: shards_to_dl
-                .iter()
-                .map(|shard_id| {
-                    let chunk = &prev_block.chunks()[*shard_id as usize];
-                    ShardInfo(*shard_id, chunk.chunk_hash())
-                })
-                .collect(),
-        };
-
-        let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
-
-        chain_store_update.add_state_dl_info(state_dl_info);
-
-        chain_store_update.commit()?;
-
-        Ok(())
-    }
-
     // Processes a single block, increments the metric for the number of blocks processing and also
     // for the number of blocks processed successfully (returns OK).
     fn process_block_single(
@@ -1357,16 +1309,11 @@ impl Chain {
         let block_height = block.header().height();
 
         match maybe_new_head {
-            Ok((head, needs_to_start_fetching_state)) => {
+            Ok(head) => {
                 chain_update.chain_store_update.save_block_height_processed(block_height);
                 chain_update.commit()?;
 
                 self.pending_states_to_patch = None;
-
-                if needs_to_start_fetching_state {
-                    debug!(target: "chain", "Downloading state for block {}", block.hash());
-                    self.start_downloading_state(me, &block)?;
-                }
 
                 match &head {
                     Some(tip) => {
@@ -1559,14 +1506,14 @@ impl Chain {
     /// 2) Shard layout will be the same. In this case, the method returns all shards that `me` will
     ///    track in the next epoch but not this epoch
     fn get_shards_to_dl_state(
-        &self,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
         me: &Option<AccountId>,
         parent_hash: &CryptoHash,
     ) -> Result<Vec<ShardId>, Error> {
-        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash)?;
-        Ok((0..self.runtime_adapter.num_shards(&epoch_id)?)
+        let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(parent_hash)?;
+        Ok((0..runtime_adapter.num_shards(&epoch_id)?)
             .filter(|shard_id| {
-                Self::should_catch_up_shard(self.runtime_adapter(), me, parent_hash, *shard_id)
+                Self::should_catch_up_shard(runtime_adapter.clone(), me, parent_hash, *shard_id)
             })
             .collect())
     }
@@ -3599,6 +3546,7 @@ impl<'a> ChainUpdate<'a> {
             Some(block.hash()),
         )?;
         self.chain_store_update.save_block_extra(block.hash(), BlockExtra { challenges_result });
+        #[cfg(not(feature = "mock_network"))]
         let protocol_version =
             self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
 
@@ -3728,6 +3676,10 @@ impl<'a> ChainUpdate<'a> {
                         ))));
                     }
 
+                    // if we are running mock_network, ignore this check because
+                    // this check may require old block headers, which may not exist in storage
+                    // of the client in the mock network
+                    #[cfg(not(feature = "mock_network"))]
                     if checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
                         let transaction_validity_period = self.transaction_validity_period;
                         for transaction in transactions {
@@ -4122,6 +4074,54 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
+    fn start_downloading_state(
+        &mut self,
+        me: &Option<AccountId>,
+        block: &Block,
+    ) -> Result<bool, Error> {
+        let prev_hash = *block.header().prev_hash();
+        let shards_to_dl =
+            Chain::get_shards_to_dl_state(self.runtime_adapter.clone(), me, &prev_hash)?;
+        let prev_block = self.chain_store_update.get_block(&prev_hash)?;
+
+        if prev_block.chunks().len() != block.chunks().len() && !shards_to_dl.is_empty() {
+            // Currently, the state sync algorithm assumes that the number of chunks do not change
+            // between the epoch being synced to and the last epoch.
+            // For example, if shard layout changes at the beginning of epoch T, validators
+            // will not be able to sync states at epoch T for epoch T+1
+            // Fortunately, since all validators track all shards for now, this error will not be
+            // triggered in live yet
+            // Instead of propagating the error, we simply log the error here because the error
+            // do not affect processing blocks for this epoch. However, when the next epoch comes,
+            // the validator will not have the states ready so it will halt.
+            error!(
+                "Cannot download states for epoch {:?} because sharding just changed. I'm {:?}",
+                block.header().epoch_id(),
+                me
+            );
+            debug_assert!(false);
+        }
+        if shards_to_dl.is_empty() {
+            Ok(false)
+        } else {
+            debug!(target: "chain", "Downloading state for {:?}, I'm {:?}", shards_to_dl, me);
+
+            let state_dl_info = StateSyncInfo {
+                epoch_tail_hash: *block.header().hash(),
+                shards: shards_to_dl
+                    .iter()
+                    .map(|shard_id| {
+                        let chunk = &prev_block.chunks()[*shard_id as usize];
+                        ShardInfo(*shard_id, chunk.chunk_hash())
+                    })
+                    .collect(),
+            };
+
+            self.chain_store_update.add_state_dl_info(state_dl_info);
+            Ok(true)
+        }
+    }
+
     /// Runs the block processing, including validation and finding a place for the new block in the chain.
     /// Returns new head if chain head updated, as well as a boolean indicating if we need to start
     ///    fetching state for the next epoch.
@@ -4131,7 +4131,7 @@ impl<'a> ChainUpdate<'a> {
         block: &MaybeValidated<Block>,
         provenance: &Provenance,
         on_challenge: &mut dyn FnMut(ChallengeBody),
-    ) -> Result<(Option<Tip>, bool), Error> {
+    ) -> Result<Option<Tip>, Error> {
         let _span =
             tracing::debug_span!(target: "chain", "Process block", "#{}", block.header().height())
                 .entered();
@@ -4199,23 +4199,24 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidBlockHeight(prev_height).into());
         }
 
-        let (is_caught_up, needs_to_start_fetching_state) =
-            if self.runtime_adapter.is_next_block_epoch_start(&prev_hash)? {
-                if !self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
-                    // The previous block is not caught up for the next epoch relative to the previous
-                    // block, which is the current epoch for this block, so this block cannot be applied
-                    // at all yet, needs to be orphaned
-                    return Err(ErrorKind::Orphan.into());
-                }
+        let is_caught_up = if self.runtime_adapter.is_next_block_epoch_start(&prev_hash)? {
+            if !self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
+                // The previous block is not caught up for the next epoch relative to the previous
+                // block, which is the current epoch for this block, so this block cannot be applied
+                // at all yet, needs to be orphaned
+                return Err(ErrorKind::Orphan.into());
+            }
 
-                // For the first block of the epoch we never apply state for the next epoch, so it's
-                // always caught up.
-                (false, true)
-            } else {
-                (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, false)
-            };
+            // For the first block of the epoch we check if we need to start download states for
+            // shards that we will care about in the next epoch. If there is no state to be downloaded,
+            // we consider that we are caught up, otherwise not
+            let has_state_to_download = self.start_downloading_state(me, block)?;
+            !has_state_to_download
+        } else {
+            self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?
+        };
 
-        debug!(target: "chain", "{:?} Process block {}, is_caught_up: {}, need_to_start_fetching_state: {}", me, block.hash(), is_caught_up, needs_to_start_fetching_state);
+        debug!(target: "chain", "{:?} Process block {}, is_caught_up: {}", me, block.hash(), is_caught_up);
 
         // Check the header is valid before we proceed with the full block.
         self.process_header_for_block(block.header(), provenance, on_challenge)?;
@@ -4352,7 +4353,7 @@ impl<'a> ChainUpdate<'a> {
             }
         }
 
-        Ok((res, needs_to_start_fetching_state))
+        Ok(res)
     }
 
     pub fn create_light_client_block(

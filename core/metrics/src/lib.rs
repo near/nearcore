@@ -62,7 +62,7 @@ pub use prometheus::{
     Encoder, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Result,
     TextEncoder,
 };
-use prometheus::{HistogramOpts, HistogramTimer, Opts};
+use prometheus::{GaugeVec, HistogramOpts, HistogramTimer, Opts};
 
 use tracing::error;
 
@@ -135,6 +135,15 @@ pub fn try_create_histogram_vec(
     let histogram = HistogramVec::new(opts, labels)?;
     prometheus::register(Box::new(histogram.clone()))?;
     Ok(histogram)
+}
+
+/// Attempts to crate an `GaugeVec`, returning `Err` if the registry does not accept the gauge
+/// (potentially due to naming conflict).
+pub fn try_create_gauge_vec(name: &str, help: &str, labels: &[&str]) -> Result<GaugeVec> {
+    let opts = Opts::new(name, help);
+    let gauge = GaugeVec::new(opts, labels)?;
+    prometheus::register(Box::new(gauge.clone()))?;
+    Ok(gauge)
 }
 
 /// Starts a timer for the given `Histogram`, stopping when it gets dropped or given to `stop_timer(..)`.

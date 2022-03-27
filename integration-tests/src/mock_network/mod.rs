@@ -167,6 +167,13 @@ impl Handler<PeerManagerMessageRequest> for MockPeerManagerActor {
                     });
                 }
                 NetworkRequests::Block { .. } => {}
+                NetworkRequests::StateRequestHeader { .. } => {
+                    panic!(
+                        "MockPeerManagerActor receives state sync request. \
+                            It doesn't support state sync now. Try setting start_height \
+                            and target_height to be at the same epoch to avoid state sync"
+                    );
+                }
                 _ => {
                     panic!("MockPeerManagerActor receives unexpected message {:?}", request);
                 }

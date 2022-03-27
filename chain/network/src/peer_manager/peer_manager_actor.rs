@@ -397,7 +397,7 @@ impl PeerManagerActor {
             if bandwidth_used > REPORT_BANDWIDTH_THRESHOLD_BYTES
                 || total_msg_received_count > REPORT_BANDWIDTH_THRESHOLD_COUNT
             {
-                warn!(
+                debug!(target: "bandwidth",
                     ?peer_id,
                     bandwidth_used, msg_received_count, "Peer bandwidth exceeded threshold",
                 );
@@ -2095,7 +2095,7 @@ impl PeerManagerActor {
     fn handle_msg_peers_response(&mut self, msg: PeersResponse) {
         let _d = delay_detector::DelayDetector::new(|| "peers response".into());
         if let Err(err) = self.peer_store.add_indirect_peers(
-            msg.peers.into_iter().filter(|peer_info| peer_info.id != self.my_peer_id).collect(),
+            msg.peers.into_iter().filter(|peer_info| peer_info.id != self.my_peer_id),
         ) {
             error!(target: "network", ?err, "Fail to update peer store");
         };
