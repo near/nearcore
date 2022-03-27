@@ -494,13 +494,20 @@ pub(super) struct RecompressStorageSubCommand {
     #[clap(long)]
     output_dir: PathBuf,
 
-    /// Keep data in ColPartialChunks column.  This is always true if node is
-    /// not an archival node.
+    /// Keep data in ColPartialChunks column.  Data in that column can be
+    /// reconstructed from ColChunks is not needed by archival nodes.  This is
+    /// always true if node is not an archival node.
     #[clap(long)]
     keep_partial_chunks: bool,
 
-    /// Keep data in ColTrieChanges column.  This is always true if node is
-    /// not an archival node.
+    /// Keep data in ColInvalidChunks column.  Data in that column is only used
+    /// when receiving chunks and is not needed to serve archival requests.
+    /// This is always true if node is not an archival node.
+    #[clap(long)]
+    keep_invalid_chunks: bool,
+
+    /// Keep data in ColTrieChanges column.  Data in that column is never used
+    /// by archival nodes.  This is always true if node is not an archival node.
     #[clap(long)]
     keep_trie_changes: bool,
 }

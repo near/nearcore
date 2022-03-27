@@ -509,6 +509,7 @@ pub fn start_with_config_and_synchronization(
 pub struct RecompressOpts {
     pub dest_dir: PathBuf,
     pub keep_partial_chunks: bool,
+    pub keep_invalid_chunks: bool,
     pub keep_trie_changes: bool,
 }
 
@@ -523,6 +524,9 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     if archive && !opts.keep_partial_chunks {
         skip_columns.push(near_store::db::DBCol::ColPartialChunks);
     }
+    if archive && !opts.keep_invalid_chunks {
+        skip_columns.push(near_store::db::DBCol::ColInvalidChunks);
+    }
     if archive && !opts.keep_trie_changes {
         skip_columns.push(near_store::db::DBCol::ColTrieChanges);
     }
@@ -533,6 +537,8 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     let (soft, hard) = rlimit::Resource::NOFILE
         .get()
         .map_err(|err| anyhow::anyhow!("getrlimit: NOFILE: {}", err))?;
+    // We’re configuring RocksDB to use max file descriptor limit of 512.  We’re
+    // opening two databases and need some descriptors to spare thus 3*512.
     if soft < 3 * 512 {
         rlimit::Resource::NOFILE
             .set(3 * 512, hard)
