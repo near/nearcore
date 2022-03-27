@@ -98,7 +98,6 @@ impl PortsSet {
     }
 }
 
-
 #[cfg(test)]
 mod test {
     #[test]
