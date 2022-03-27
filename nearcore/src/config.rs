@@ -431,11 +431,6 @@ pub struct Config {
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
     pub archive: bool,
-    /// Whether archive nodes should garbage collect partial chunks from the
-    /// storage.  TODO(#6242): Eventually remove this field and make it always
-    /// true.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub archive_gc_partial_chunks: bool,
     pub log_summary_style: LogSummaryStyle,
     #[serde(default = "default_gc_blocks_limit")]
     pub gc_blocks_limit: NumBlocks,
@@ -460,10 +455,6 @@ pub struct Config {
     pub db_migration_snapshot_path: Option<PathBuf>,
 }
 
-fn is_false(value: &bool) -> bool {
-    !*value
-}
-
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -481,7 +472,6 @@ impl Default for Config {
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive: false,
-            archive_gc_partial_chunks: false,
             log_summary_style: LogSummaryStyle::Colored,
             gc_blocks_limit: default_gc_blocks_limit(),
             epoch_sync_enabled: true,
@@ -686,7 +676,6 @@ impl NearConfig {
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
-                archive_gc_partial_chunks: config.archive_gc_partial_chunks,
                 log_summary_style: config.log_summary_style,
                 gc_blocks_limit: config.gc_blocks_limit,
                 view_client_threads: config.view_client_threads,

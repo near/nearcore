@@ -3,26 +3,27 @@
 
 The overview of this test is that it starts archival nodes which need to sync
 their state from already running archival nodes.  The test can be divided into
-three stages:
+two stages:
 
 1. The test first starts a validator and an observer node (let’s call it Fred).
    Both configured as archival nodes.  It then waits for several epochs worth of
    blocks to be generated and received by the observer node.  Once that happens,
    the test kills the validator node so that no new blocks are generated.
 
-2. The test then starts another observer node (let’s call it Barney) and points
-   it at Fred as a boot node.  The test waits for Barney to synchronise with
-   Fred and then verifies that all the blocks have been correctly fetched.
+   At this stage, the test verifies that Frad can sync correctly and that the
+   boot node serves all partial chunks requests from its in-memory cache (which
+   is determined by looking at Prometheus metrics).
 
-3. Finally, the test kills Fred and restarts Barney.  The restart happens so
-   that Barney’s in-memory cache is cleared.  It then starts yet another node
-   (let’s call it Wilma) with Barney as it’s boot node.  The test then verifies
-   that Wilma correctly synchronises all the blocks.
+2. The test then restarts Fred so that its in-memory cache is cleared.  It
+   finally starts a new observer (let’s call it Barney) and points it at Fred as
+   a boot node.  The test waits for Barney to synchronise with Fred and then
+   verifies that all the blocks have been correctly fetched.
 
-The difference between 2 and 3 is that Barney is configured with
-archive_gc_partial_chunks option set which means that when Wilma requests chunks
-from it, Barney will have to respond to some of the requests from ColChunks as
-opposed to ColPartialChunks.
+   At this stage, the test verifies that Barney synchronises correctly and that
+   Fred serves all requests from storage (since it's in-memory cache).  This is
+   again done through Prometheus metrics and in addition the test verifies that
+   data from ColChunks and ColPartialChunks was used.  This also implies that
+   Fred correctly performed ColPartialChunks garbage collection.
 """
 
 import argparse
@@ -57,7 +58,7 @@ class Cluster:
         self._config = cluster.load_config()
         self._near_root, self._node_dirs = cluster.init_cluster(
             num_nodes=1,
-            num_observers=3,
+            num_observers=2,
             num_shards=1,
             config=self._config,
             genesis_config_changes=[['epoch_length', EPOCH_LENGTH],
@@ -65,7 +66,7 @@ class Cluster:
             client_config_changes={
                 0: node_config,
                 1: node_config,
-                2: dict(node_config, archive_gc_partial_chunks=True),
+                2: node_config,
                 3: node_config
             })
         self._nodes = [None] * len(self._node_dirs)
@@ -161,13 +162,6 @@ def get_all_blocks(node: cluster.BaseNode) -> typing.Sequence[cluster.BlockId]:
 def wait_for_node_to_sync(node: cluster.BaseNode,
                           blocks: typing.Sequence[cluster.BlockId]) -> None:
     """Waits for block to sync and asserts it sees the same blocks."""
-    utils.wait_for_blocks(node, target=blocks[-1].height, poll_interval=1)
-    got_blocks = get_all_blocks(node)
-    if blocks != got_blocks:
-        for a, b in zip(blocks, got_blocks):
-            if a != b:
-                logger.error(f'{a} != {b}')
-        assert False
 
 
 def run_test(cluster: Cluster) -> None:
@@ -186,28 +180,28 @@ def run_test(cluster: Cluster) -> None:
 
     # Restart Fred so that its cache is cleared.  Then start the second
     # observer, Barney, and wait for it to sync up.
-    blocks = get_all_blocks(fred)
+    fred_blocks = get_all_blocks(fred)
     fred.kill(gentle=True)
     fred.start()
 
     barney = cluster.start_node(2, boot_node=fred)
-    wait_for_node_to_sync(barney, blocks)
+    utils.wait_for_blocks(barney,
+                          target=fred_blocks[-1].height,
+                          poll_interval=1)
+    barney_blocks = get_all_blocks(barney)
+    if fred_blocks != barney_blocks:
+        for f, b in zip(fred_blocks, barney_blocks):
+            if f != b:
+                logger.error(f'{f} != {b}')
+        assert False
 
     # Since Fred’s in-memory cache is clear, all Barney’s requests are served
-    # from storage.
-    assert_metrics(get_metrics('fred', fred), ('partial/ok',))
-
-    # Lastly, kill Fred and restart Barney to clear its cache.  Then start Wilma
-    # and wait for it to sync up.
-    fred.kill()
-    barney.kill(gentle=True)
-    barney.start()
-    wilma = cluster.start_node(3, boot_node=barney)
-    wait_for_node_to_sync(wilma, blocks)
-
-    # Since Barney has partial chunks garbage collection enabled, when it’ll
-    # serve Wilma’s request, from ColPartialChunks as well as ColChunks.
-    assert_metrics(get_metrics('barney', barney), ('partial/ok', 'chunk/ok'))
+    # from storage.  Since ColPartialChunks is garbage collected, some of the
+    # requests are served from ColChunks.
+    assert_metrics(get_metrics('fred', fred), (
+        'chunk/ok',
+        'partial/ok',
+    ))
 
 
 if __name__ == '__main__':
