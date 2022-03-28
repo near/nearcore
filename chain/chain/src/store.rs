@@ -2783,8 +2783,15 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         for mut wrapped_trie_changes in self.trie_changes.drain(..) {
             wrapped_trie_changes
-                .wrapped_into(&mut store_update, self.chain_store.save_trie_changes)
+                .insertions_into(&mut store_update)
                 .map_err(|err| ErrorKind::Other(err.to_string()))?;
+            wrapped_trie_changes.state_changes_into(&mut store_update);
+
+            if self.chain_store.save_trie_changes {
+                wrapped_trie_changes
+                    .trie_changes_into(&mut store_update)
+                    .map_err(|err| ErrorKind::Other(err.to_string()))?;
+            }
         }
         for ((block_hash, shard_id), state_changes) in
             self.add_state_changes_for_split_states.drain()
