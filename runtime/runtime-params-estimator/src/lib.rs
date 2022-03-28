@@ -265,9 +265,8 @@ fn action_receipt_creation(ctx: &mut EstimatorContext) -> GasCost {
     };
     let block_size = 100;
     // Sender != Receiver means this will be executed over two blocks.
-    let blocks_per_measurement = 2;
-    let cost =
-        transaction_cost_ext(ctx, block_size, &mut make_transaction, blocks_per_measurement).0;
+    let block_latency = 1;
+    let cost = transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0;
 
     ctx.cached.action_receipt_creation = Some(cost.clone());
     cost
@@ -303,8 +302,8 @@ fn action_transfer(ctx: &mut EstimatorContext) -> GasCost {
         };
         let block_size = 100;
         // Transferring from one account to another may touch two shards, thus executes over two blocks.
-        let blocks_per_measurement = 2;
-        transaction_cost_ext(ctx, block_size, &mut make_transaction, blocks_per_measurement).0
+        let block_latency = 1;
+        transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0
     };
 
     let base_cost = action_receipt_creation(ctx);
@@ -327,8 +326,8 @@ fn action_create_account(ctx: &mut EstimatorContext) -> GasCost {
         };
         let block_size = 100;
         // Creating a new account is initiated by an account that potentially is on a different shard. Thus, it executes over two blocks.
-        let blocks_per_measurement = 2;
-        transaction_cost_ext(ctx, block_size, &mut make_transaction, blocks_per_measurement).0
+        let block_latency = 1;
+        transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0
     };
 
     let base_cost = action_receipt_creation(ctx);
@@ -348,8 +347,8 @@ fn action_delete_account(ctx: &mut EstimatorContext) -> GasCost {
         };
         let block_size = 100;
         // Deleting an account is initiated by an account that potentially is on a different shard. Thus, it executes over two blocks.
-        let blocks_per_measurement = 2;
-        transaction_cost_ext(ctx, block_size, &mut make_transaction, blocks_per_measurement).0
+        let block_latency = 1;
+        transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0
     };
 
     let base_cost = action_sir_receipt_creation(ctx);
@@ -568,7 +567,7 @@ fn deploy_contract_cost(
     };
     // Use a small block size since deployments are gas heavy.
     let block_size = 5;
-    let (total_cost, _ext) = transaction_cost_ext(ctx, block_size, &mut make_transaction, 1);
+    let (total_cost, _ext) = transaction_cost_ext(ctx, block_size, &mut make_transaction, 0);
     let base_cost = action_sir_receipt_creation(ctx);
 
     total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
@@ -688,13 +687,13 @@ fn action_function_call_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost
 fn data_receipt_creation_base(ctx: &mut EstimatorContext) -> GasCost {
     // NB: there isn't `ExtCosts` for data receipt creation, so we ignore (`_`) the counts.
     // The function returns a chain of two promises.
-    let blocks_to_execute = 3;
+    let block_latency = 2;
     let (total_cost, _) =
-        fn_cost_count(ctx, "data_receipt_10b_1000", ExtCosts::base, blocks_to_execute);
+        fn_cost_count(ctx, "data_receipt_10b_1000", ExtCosts::base, block_latency);
     // The function returns a promise.
-    let blocks_to_execute = 2;
+    let block_latency = 1;
     let (base_cost, _) =
-        fn_cost_count(ctx, "data_receipt_base_10b_1000", ExtCosts::base, blocks_to_execute);
+        fn_cost_count(ctx, "data_receipt_base_10b_1000", ExtCosts::base, block_latency);
 
     total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE) / 1000
 }
@@ -702,13 +701,12 @@ fn data_receipt_creation_base(ctx: &mut EstimatorContext) -> GasCost {
 fn data_receipt_creation_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     // NB: there isn't `ExtCosts` for data receipt creation, so we ignore (`_`) the counts.
     // The function returns a chain of two promises.
-    let blocks_to_execute = 3;
+    let block_latency = 2;
     let (total_cost, _) =
-        fn_cost_count(ctx, "data_receipt_100kib_1000", ExtCosts::base, blocks_to_execute);
+        fn_cost_count(ctx, "data_receipt_100kib_1000", ExtCosts::base, block_latency);
     // The function returns a chain of two promises.
-    let blocks_to_execute = 3;
-    let (base_cost, _) =
-        fn_cost_count(ctx, "data_receipt_10b_1000", ExtCosts::base, blocks_to_execute);
+    let block_latency = 2;
+    let (base_cost, _) = fn_cost_count(ctx, "data_receipt_10b_1000", ExtCosts::base, block_latency);
 
     let bytes_per_transaction = 1000 * 100 * 1024;
 
@@ -716,8 +714,8 @@ fn data_receipt_creation_per_byte(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn host_function_call(ctx: &mut EstimatorContext) -> GasCost {
-    let blocks_to_execute = 1;
-    let (total_cost, count) = fn_cost_count(ctx, "base_1M", ExtCosts::base, blocks_to_execute);
+    let block_latency = 0;
+    let (total_cost, count) = fn_cost_count(ctx, "base_1M", ExtCosts::base, block_latency);
     assert_eq!(count, 1_000_000);
 
     let base_cost = noop_function_call_cost(ctx);
@@ -1094,7 +1092,7 @@ fn touching_trie_node_read(ctx: &mut EstimatorContext) -> GasCost {
             .take(measured_iters + warmup_iters),
     );
 
-    let results = &testbed.measure_blocks(blocks, 1)[1..];
+    let results = &testbed.measure_blocks(blocks, 0)[1..];
     let (short_key_results, long_key_results) = results.split_at(measured_iters + warmup_iters);
 
     let (cost_short_key, ext_cost_short_key) = aggregate_per_block_measurements(
@@ -1160,7 +1158,7 @@ fn touching_trie_node_write(ctx: &mut EstimatorContext) -> GasCost {
             .take(measured_iters + warmup_iters),
     );
 
-    let results = &testbed.measure_blocks(blocks, 1)[1..];
+    let results = &testbed.measure_blocks(blocks, 0)[1..];
     let (short_key_results, long_key_results) = results.split_at(measured_iters + warmup_iters);
 
     let (cost_short_key, ext_cost_short_key) = aggregate_per_block_measurements(
@@ -1195,7 +1193,7 @@ fn apply_block_cost(ctx: &mut EstimatorContext) -> GasCost {
     let n_blocks = testbed.config.warmup_iters_per_block + testbed.config.iter_per_block;
     let blocks = vec![vec![]; n_blocks];
 
-    let measurements = testbed.measure_blocks(blocks, 1);
+    let measurements = testbed.measure_blocks(blocks, 0);
     let measurements =
         measurements.into_iter().skip(testbed.config.warmup_iters_per_block).collect::<Vec<_>>();
     let (gas_cost, _ext_costs) = aggregate_per_block_measurements(testbed.config, 1, measurements);

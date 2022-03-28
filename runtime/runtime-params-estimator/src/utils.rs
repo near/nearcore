@@ -36,7 +36,7 @@ pub(crate) fn transaction_cost(
     make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
 ) -> GasCost {
     let block_size = 100;
-    let (gas_cost, _ext_costs) = transaction_cost_ext(ctx, block_size, make_transaction, 1);
+    let (gas_cost, _ext_costs) = transaction_cost_ext(ctx, block_size, make_transaction, 0);
     gas_cost
 }
 
@@ -45,11 +45,10 @@ pub(crate) fn transaction_cost_ext(
     ctx: &mut EstimatorContext,
     block_size: usize,
     make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
-    blocks_to_complete_tx: usize,
+    block_latency: usize,
 ) -> (GasCost, HashMap<ExtCosts, u64>) {
     let per_block_overhead = apply_block_cost(ctx);
-    let measurement_overhead =
-        per_block_overhead * blocks_to_complete_tx as u64 / block_size as u64;
+    let measurement_overhead = per_block_overhead * (1 + block_latency) as u64 / block_size as u64;
 
     let mut testbed = ctx.testbed();
     let blocks = {
@@ -66,7 +65,7 @@ pub(crate) fn transaction_cost_ext(
         blocks
     };
 
-    let measurements = testbed.measure_blocks(blocks, blocks_to_complete_tx);
+    let measurements = testbed.measure_blocks(blocks, block_latency);
     let mut measurements =
         measurements.into_iter().skip(testbed.config.warmup_iters_per_block).collect::<Vec<_>>();
 
@@ -90,8 +89,8 @@ pub(crate) fn fn_cost(
 ) -> GasCost {
     // Most functions finish execution in a single block. Other measurements
     // should use `fn_cost_count`.
-    let blocks_to_execute = 1;
-    let (total_cost, measured_count) = fn_cost_count(ctx, method, ext_cost, blocks_to_execute);
+    let block_latency = 0;
+    let (total_cost, measured_count) = fn_cost_count(ctx, method, ext_cost, block_latency);
     assert_eq!(measured_count, count);
 
     let base_cost = noop_function_call_cost(ctx);
@@ -104,7 +103,7 @@ pub(crate) fn fn_cost_count(
     ctx: &mut EstimatorContext,
     method: &str,
     ext_cost: ExtCosts,
-    blocks_to_execute: usize,
+    block_latency: usize,
 ) -> (GasCost, u64) {
     let block_size = 2;
     let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
@@ -112,7 +111,7 @@ pub(crate) fn fn_cost_count(
         tb.transaction_from_function_call(sender, method, Vec::new())
     };
     let (gas_cost, ext_costs) =
-        transaction_cost_ext(ctx, block_size, &mut make_transaction, blocks_to_execute);
+        transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency);
     let ext_cost = ext_costs[&ext_cost];
     (gas_cost, ext_cost)
 }
@@ -175,7 +174,7 @@ pub(crate) fn fn_cost_with_setup(
             blocks
         };
 
-        let measurements = testbed.measure_blocks(blocks, 1);
+        let measurements = testbed.measure_blocks(blocks, 0);
         // Filter out setup blocks.
         let measurements: Vec<_> = measurements
             .into_iter()

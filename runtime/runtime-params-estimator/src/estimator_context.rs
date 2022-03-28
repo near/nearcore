@@ -70,13 +70,13 @@ impl<'c> Testbed<'c> {
     /// might trigger multiple blocks in execution. The returned results are
     /// exactly one per input block, regardless of how many blocks needed to be
     /// executed. To avoid surprises in how many blocks are actually executed,
-    /// `blocks_per_block` must be specified and the function will panic if it
-    /// is wrong.
+    /// `block_latency` must be specified and the function will panic if it is
+    /// wrong. A latency of 0 means everything is done within a single block.
     #[track_caller]
     pub(crate) fn measure_blocks<'a>(
         &'a mut self,
         blocks: Vec<Vec<SignedTransaction>>,
-        blocks_per_block: usize,
+        block_latency: usize,
     ) -> Vec<(GasCost, HashMap<ExtCosts, u64>)> {
         let allow_failures = false;
 
@@ -92,7 +92,7 @@ impl<'c> Testbed<'c> {
                 extra_blocks = self.inner.process_blocks_until_no_receipts(allow_failures);
                 start.elapsed()
             };
-            assert_eq!(blocks_per_block, 1 + extra_blocks);
+            assert_eq!(block_latency, extra_blocks);
 
             let mut ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
             node_runtime::with_ext_cost_counter(|cc| {
