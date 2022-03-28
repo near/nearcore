@@ -1415,20 +1415,6 @@ pub async fn prometheus_handler() -> Result<HttpResponse, HttpError> {
     }
 }
 
-async fn sync_info_handler(handler: web::Data<JsonRpcHandler>) -> Result<HttpResponse, HttpError> {
-    match handler.debug().await {
-        Ok(value) => Ok(HttpResponse::Ok().json(&value)),
-        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
-    }
-}
-
-async fn chain_info_handler(handler: web::Data<JsonRpcHandler>) -> Result<HttpResponse, HttpError> {
-    match handler.debug().await {
-        Ok(value) => Ok(HttpResponse::Ok().json(&value)),
-        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
-    }
-}
-
 fn get_cors(cors_allowed_origins: &[String]) -> Cors {
     let mut cors = Cors::permissive();
     if cors_allowed_origins != ["*".to_string()] {
@@ -1529,14 +1515,10 @@ pub fn start_http(
             )
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
-            .service(web::resource("/debug/api/last_blocks").route(web::get().to(debug_handler)))
+            .service(web::resource("/debug/api/status").route(web::get().to(debug_handler)))
             .service(debug_html)
             .service(last_blocks_html)
-            .service(web::resource("/debug/api/sync_info").route(web::get().to(sync_info_handler)))
             .service(sync_info_html)
-            .service(
-                web::resource("/debug/api/chain_info").route(web::get().to(chain_info_handler)),
-            )
             .service(chain_info_html)
     })
     .bind(addr)

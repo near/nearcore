@@ -35,7 +35,7 @@
             $('span').text("Loading...");
             $.ajax({
                 type: "GET",
-                url: "/debug/api/chain_info",
+                url: "/debug/api/status",
                 success: data => {
                     let head = data.detailed_debug_status.current_head_status;
                     let header_head = data.detailed_debug_status.current_header_head_status;

@@ -35,7 +35,7 @@
             $('span').text("Loading...");
             $.ajax({
                 type: "GET",
-                url: "/debug/api/sync_info",
+                url: "/debug/api/status",
                 success: data => {
                     let sync_status = data.detailed_debug_status.sync_status;
                     let network_info = data.detailed_debug_status.network_info;
