@@ -250,17 +250,15 @@ impl Cost {
         #[cfg(feature = "protocol_feature_alt_bn128")]
         Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_base },
         #[cfg(feature = "protocol_feature_alt_bn128")]
-        Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_byte },
-        #[cfg(feature = "protocol_feature_alt_bn128")]
-        Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_sublinear },
+        Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_element },
         #[cfg(feature = "protocol_feature_alt_bn128")]
         Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_base },
         #[cfg(feature = "protocol_feature_alt_bn128")]
-        Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_byte },
+        Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_element },
         #[cfg(feature = "protocol_feature_alt_bn128")]
         Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_base },
         #[cfg(feature = "protocol_feature_alt_bn128")]
-        Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_byte },
+        Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_element },
     ];
 
     pub fn index(self) -> usize {
@@ -333,17 +331,15 @@ impl Cost {
             #[cfg(feature = "protocol_feature_alt_bn128")]
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_base } => 64,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_byte } => 65,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_element } => 65,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_sublinear } => 66,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_base } => 66,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_base } => 67,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_element } => 67,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_byte } => 68,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_base } => 68,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_base } => 69,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_byte } => 70,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_element } => 69,
         }
     }
 }

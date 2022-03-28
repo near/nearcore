@@ -239,31 +239,6 @@ pub unsafe fn ext_used_gas() {
     value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
 }
 
-#[cfg(feature = "protocol_feature_alt_bn128")]
-#[no_mangle]
-pub unsafe fn ext_alt_bn128_g1_multiexp() {
-    input(0);
-    alt_bn128_g1_multiexp(u64::MAX, 0, 1);
-    value_return(u64::MAX, 1);
-}
-
-#[cfg(feature = "protocol_feature_alt_bn128")]
-#[no_mangle]
-pub unsafe fn ext_alt_bn128_g1_sum() {
-    input(0);
-    alt_bn128_g1_sum(u64::MAX, 0, 1);
-    value_return(u64::MAX, 1);
-}
-
-#[cfg(feature = "protocol_feature_alt_bn128")]
-#[no_mangle]
-pub unsafe fn ext_alt_bn128_pairing_check() {
-    input(0);
-    let res = alt_bn128_pairing_check(u64::MAX, 0);
-    let byte = [res as u8; 1];
-    value_return(1, byte.as_ptr() as _);
-}
-
 #[no_mangle]
 pub unsafe fn ext_validator_stake() {
     input(0);
