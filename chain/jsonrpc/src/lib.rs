@@ -1180,6 +1180,8 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardResponse,
         near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError,
     > {
+        use near_network_primitives::types::SandboxResponse;
+
         self.client_addr
             .send(NetworkClientMessages::Sandbox(
                 near_network_primitives::types::NetworkSandboxMessage::SandboxFastForward(
@@ -1199,18 +1201,22 @@ impl JsonRpcHandler {
                     ))
                     .await;
 
-                if let Ok(NetworkClientResponses::SandboxResult(
-                    near_network_primitives::types::SandboxResponse::SandboxFastForwardFinished(true),
-                )) = fast_forward_finished
-                {
-                    break;
+                match fast_forward_finished {
+                    Ok(NetworkClientResponses::SandboxResult(SandboxResponse::SandboxFastForwardFinished(true))) => break,
+                    Ok(NetworkClientResponses::SandboxResult(SandboxResponse::SandboxFastForwardFailed(err))) => return Err(err),
+                    _ => (),
                 }
+
                 let _ = sleep(self.polling_config.polling_interval).await;
             }
+            Ok(())
         })
         .await
         .map_err(|_| near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
             error_message: "sandbox failed to fast forward within reasonable time of an hour".to_string()
+        })?
+        .map_err(|err| near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
+            error_message: format!("sandbox failed to fast forward due to: {:?}", err),
         })?;
 
         Ok(near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardResponse {})

@@ -284,6 +284,7 @@ pub enum NetworkSandboxMessage {
 pub enum SandboxResponse {
     SandboxPatchStateFinished(bool),
     SandboxFastForwardFinished(bool),
+    SandboxFastForwardFailed(String),
 }
 
 #[derive(actix::Message, AsStaticStr)]

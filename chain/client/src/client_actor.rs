@@ -381,6 +381,12 @@ impl ClientActor {
                         )
                     }
                     near_network_primitives::types::NetworkSandboxMessage::SandboxFastForward(delta_height) => {
+                        if self.fastforward_delta.is_some() {
+                            return NetworkClientResponses::SandboxResult(
+                                near_network_primitives::types::SandboxResponse::SandboxFastForwardFailed(
+                                    "Consecutive fast_forward requests cannot be made while a current one is going on.".to_string()));
+                        }
+
                         self.fastforward_delta = Some(delta_height);
                         NetworkClientResponses::NoResponse
                     }
@@ -890,17 +896,17 @@ impl ClientActor {
         &mut self,
         block_height: BlockHeight,
     ) -> Result<Option<near_chain::types::LatestKnown>, Error> {
+        let mut delta_height = match self.fastforward_delta.take() {
+            Some(delta_height) if delta_height > 0 => delta_height,
+            _ => return Ok(None),
+        };
+
         let epoch_length = self.client.config.epoch_length;
         if epoch_length <= 3 {
             return Err(Error::Other(
                 "Unsupported: fast_forward with an epoch length of 3 or less".to_string(),
             ));
         }
-
-        let mut delta_height = match self.fastforward_delta.take() {
-            Some(delta_height) if delta_height > 0 => delta_height,
-            _ => return Ok(None),
-        };
 
         // Check if we are at epoch boundary. If we are, do not fast forward until new
         // epoch is here. Decrement the fast_forward count by 1 when a block is produced
@@ -935,6 +941,29 @@ impl ClientActor {
         Ok(Some(new_latest_known))
     }
 
+    fn pre_block_production(&mut self) -> Result<(), Error> {
+        #[cfg(feature = "sandbox")]
+        {
+            let latest_known = self.client.chain.mut_store().get_latest_known()?;
+            if let Some(new_latest_known) =
+                self.sandbox_process_fast_forward(latest_known.height)?
+            {
+                self.client.chain.mut_store().save_latest_known(new_latest_known.clone())?;
+                self.client.sandbox_update_tip(new_latest_known.height)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn post_block_production(&mut self) {
+        #[cfg(feature = "sandbox")]
+        if let Some(delta_height) = self.fastforward_delta.take() {
+            if delta_height > 0 {
+                self.fastforward_delta = Some(delta_height - 1);
+            }
+        }
+    }
+
     /// Retrieves latest height, and checks if must produce next block.
     /// Otherwise wait for block arrival or suggest to skip after timeout.
     fn handle_block_production(&mut self) -> Result<(), Error> {
@@ -945,18 +974,9 @@ impl ClientActor {
 
         let _ = self.client.check_and_update_doomslug_tip();
 
+        self.pre_block_production()?;
         let head = self.client.chain.head()?;
         let latest_known = self.client.chain.mut_store().get_latest_known()?;
-
-        #[cfg(feature = "sandbox")]
-        let latest_known = match self.sandbox_process_fast_forward(latest_known.height)? {
-            Some(new_latest_known) => {
-                self.client.chain.mut_store().save_latest_known(new_latest_known.clone())?;
-                self.client.sandbox_update_tip(new_latest_known.height)?;
-                new_latest_known
-            }
-            None => latest_known,
-        };
 
         assert!(
             head.height <= latest_known.height,
@@ -990,10 +1010,7 @@ impl ClientActor {
                         // If there is an error, report it and let it retry on the next loop step.
                         error!(target: "client", "Block production failed: {}", err);
                     } else {
-                        #[cfg(feature = "sandbox")]
-                        if let Some(delta_height) = self.fastforward_delta.take() {
-                            self.fastforward_delta = Some(delta_height - 1);
-                        }
+                        self.post_block_production();
                     }
                 }
             }
