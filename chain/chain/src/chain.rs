@@ -105,6 +105,16 @@ pub const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
 /// Maximum number of height to go through at each step when cleaning forks during garbage collection.
 const GC_FORK_CLEAN_STEP: u64 = 1000;
 
+/// Grab the acceptable time difference. This may differ between sandbox and regular networks
+const fn acceptable_time_difference() -> i64 {
+    if cfg!(feature = "sandbox") {
+        // 10000 years in seconds
+        60 * 60 * 24 * 365 * 10000
+    } else {
+        ACCEPTABLE_TIME_DIFFERENCE
+    }
+}
+
 /// apply_chunks may be called in two code paths, through process_block or through catchup_blocks
 /// When it is called through process_block, it is possible that the shard state for the next epoch
 /// has not been caught up yet, thus the two modes IsCaughtUp and NotCaughtUp.
@@ -4378,11 +4388,8 @@ impl<'a> ChainUpdate<'a> {
         provenance: &Provenance,
         on_challenge: &mut dyn FnMut(ChallengeBody),
     ) -> Result<(), Error> {
-        // Refuse blocks from the too distant future. Only exception to this is while we're within
-        // sandbox, we're allowed to jump to the future via fast forwarding.
-        if !cfg!(feature = "sandbox")
-            && header.timestamp() > Clock::utc() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE)
-        {
+        // Refuse blocks from the too distant future
+        if header.timestamp() > Clock::utc() + Duration::seconds(acceptable_time_difference()) {
             return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp()).into());
         }
 
