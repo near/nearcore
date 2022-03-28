@@ -591,7 +591,7 @@ impl Chain {
         doomslug_threshold_mode: DoomslugThresholdMode,
     ) -> Result<Chain, Error> {
         let mut chain = Self::new(runtime_adapter, chain_genesis, doomslug_threshold_mode)?;
-        chain.store.set_archival();
+        chain.store.ignore_trie_changes();
         Ok(chain)
     }
 

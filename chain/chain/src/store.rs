@@ -348,10 +348,10 @@ pub struct ChainStore {
     block_ordinal_to_hash: LruCache<Vec<u8>, CryptoHash>,
     /// Processed block heights.
     processed_block_heights: LruCache<Vec<u8>, ()>,
-    /// Is this an archival node?
+    /// Is this a non-archival node that needs to store to ColTrieChanges?
     /// TODO: this only exists because archival nodes don't need ColTrieChanges.
     /// Should remove this field if and when that whole column is deleted.
-    archival: bool,
+    save_trie_changes: bool,
 }
 
 pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> Result<T, Error> {
@@ -393,12 +393,12 @@ impl ChainStore {
             block_merkle_tree: LruCache::new(CACHE_SIZE),
             block_ordinal_to_hash: LruCache::new(CACHE_SIZE),
             processed_block_heights: LruCache::new(CACHE_SIZE),
-            archival: false,
+            save_trie_changes: true,
         }
     }
 
-    pub(crate) fn set_archival(&mut self) {
-        self.archival = true;
+    pub(crate) fn ignore_trie_changes(&mut self) {
+        self.save_trie_changes = false;
     }
 
     pub fn owned_store(&self) -> &Store {
@@ -2783,7 +2783,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         for mut wrapped_trie_changes in self.trie_changes.drain(..) {
             wrapped_trie_changes
-                .wrapped_into(&mut store_update, self.chain_store.archival)
+                .wrapped_into(&mut store_update, self.chain_store.save_trie_changes)
                 .map_err(|err| ErrorKind::Other(err.to_string()))?;
         }
         for ((block_hash, shard_id), state_changes) in
