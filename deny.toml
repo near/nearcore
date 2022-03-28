@@ -96,5 +96,10 @@ skip = [
     { name = "rustc_version", version = "=0.2.3" },
 
     # paperclip-macros, strum_macros, walrus-macro depend on this while clap3.1.6 uses heck=0.4.0
-    { name = "heck", version = "=0.3.3" }
+    { name = "heck", version = "=0.3.3" },
+
+    # actix-http depends on an old version
+    { name = "itoa", version = "=0.4.8" },
+    { name = "time", version = "=0.2.27" },
+
 ]
