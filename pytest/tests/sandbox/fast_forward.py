@@ -42,7 +42,8 @@ nodes[0].json_rpc('sandbox_fast_forward',
                   timeout=60)
 
 # wait a little for it to fast forward
-utils.wait_for_blocks(nodes[0], target=BLOCKS_TO_FASTFORWARD + 10)
+# if this call times out, then the fast_forward failed somewhere
+utils.wait_for_blocks(nodes[0], target=BLOCKS_TO_FASTFORWARD + 10, timeout=10)
 
 # Assert that we're within the bounds of fast forward timestamp between range of min and max:
 sync_info = nodes[0].get_status()['sync_info']

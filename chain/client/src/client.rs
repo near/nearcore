@@ -451,6 +451,9 @@ impl Client {
             prev_next_bp_hash
         };
 
+        #[cfg(feature = "sandbox")]
+        let delta_time = self.sandbox_delta_time();
+
         // Get block extra from previous block.
         let mut block_merkle_tree =
             self.chain.mut_store().get_block_merkle_tree(&prev_hash)?.clone();
@@ -500,6 +503,19 @@ impl Client {
         let next_epoch_protocol_version =
             self.runtime_adapter.get_epoch_protocol_version(&next_epoch_id)?;
 
+        let at = to_timestamp(Clock::utc());
+        let timestamp_override = Option::<u64>::None;
+
+        // Sandbox can override the timestamp normally produced from a Block. This new timestamp
+        // is from when a fast_forward request has been processed.
+        #[cfg(feature = "sandbox")]
+        let (at, timestamp_override) = if delta_time > 0 {
+            let at = at + delta_time;
+            (at, Some(at))
+        } else {
+            (at, timestamp_override)
+        };
+
         let block = Block::produce(
             this_epoch_protocol_version,
             next_epoch_protocol_version,
@@ -520,14 +536,8 @@ impl Client {
             &*validator_signer,
             next_bp_hash,
             block_merkle_root,
+            timestamp_override,
         );
-
-        let at = to_timestamp(Clock::utc());
-
-        // If sandbox is enabled, alter the block produced if someone has requested a fast_forward
-        #[cfg(feature = "sandbox")]
-        let (block, at) =
-            self.sandbox_alter_block_for_fast_forwarded(block, at, &*validator_signer, prev_hash);
 
         // Update latest known even before returning block out, to prevent race conditions.
         self.chain.mut_store().save_latest_known(LatestKnown { height: next_height, seen: at })?;
@@ -535,72 +545,6 @@ impl Client {
         metrics::BLOCK_PRODUCED_TOTAL.inc();
 
         Ok(Some(block))
-    }
-
-    /// Set the fast-forwarded block timestamp to the supplied `block`. This is
-    /// current time + total amount of time forwarded from fast-forwarding. This function will
-    /// update the block hash since the timestamp was originally used to compute it.
-    #[cfg(feature = "sandbox")]
-    fn sandbox_alter_block_for_fast_forwarded(
-        &self,
-        mut block: Block,
-        mut timestamp: u64,
-        signer: &dyn ValidatorSigner,
-        prev_hash: CryptoHash,
-    ) -> (Block, u64) {
-        use borsh::BorshSerialize;
-        let delta_time = self.sandbox_delta_time();
-        if delta_time == 0 {
-            return (block, timestamp);
-        }
-
-        timestamp += delta_time;
-
-        let header = match block {
-            Block::BlockV1(ref mut block) => &mut block.header,
-            Block::BlockV2(ref mut block) => &mut block.header,
-        };
-        let (mut inner_lite, inner_rest_vec) = match header {
-            BlockHeader::BlockHeaderV1(ref mut header) => (
-                &mut header.inner_lite,
-                header.inner_rest.try_to_vec().expect("Failed to serialize"),
-            ),
-            BlockHeader::BlockHeaderV2(ref mut header) => (
-                &mut header.inner_lite,
-                header.inner_rest.try_to_vec().expect("Failed to serialize"),
-            ),
-            BlockHeader::BlockHeaderV3(ref mut header) => (
-                &mut header.inner_lite,
-                header.inner_rest.try_to_vec().expect("Failed to serialize"),
-            ),
-        };
-
-        // Set block timestamp to the actual fast forwarded timestamp:
-        inner_lite.timestamp = timestamp;
-
-        // Need to update hash after updating the timestamp.
-        let (hash, signature) = signer.sign_block_header_parts(
-            prev_hash,
-            &inner_lite.try_to_vec().expect("Failed to serialize"),
-            &inner_rest_vec,
-        );
-
-        match header {
-            BlockHeader::BlockHeaderV1(ref mut header) => {
-                header.hash = hash;
-                header.signature = signature;
-            }
-            BlockHeader::BlockHeaderV2(ref mut header) => {
-                header.hash = hash;
-                header.signature = signature;
-            }
-            BlockHeader::BlockHeaderV3(ref mut header) => {
-                header.hash = hash;
-                header.signature = signature;
-            }
-        };
-
-        (block, timestamp)
     }
 
     pub fn produce_chunk(
