@@ -2,8 +2,6 @@ use clap::Parser;
 
 use near_indexer::near_primitives::types::Gas;
 
-use tracing_subscriber::EnvFilter;
-
 /// NEAR Indexer Example
 /// Watches for stream of blocks from the chain
 #[derive(Parser, Debug)]
@@ -62,16 +60,6 @@ pub(crate) struct InitConfigArgs {
     /// Specify a custom max_gas_burnt_view limit.
     #[clap(long)]
     pub max_gas_burnt_view: Option<Gas>,
-}
-
-pub(crate) fn init_logging() {
-    let env_filter = EnvFilter::new(
-        "nearcore=info,indexer_example=info,tokio_reactor=info,near=info,stats=info,telemetry=info,indexer=info,near-performance-metrics=info",
-    );
-    tracing_subscriber::fmt::Subscriber::builder()
-        .with_env_filter(env_filter)
-        .with_writer(std::io::stderr)
-        .init();
 }
 
 impl From<InitConfigArgs> for near_indexer::InitConfigArgs {

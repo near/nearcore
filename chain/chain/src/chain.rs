@@ -28,6 +28,7 @@ use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunk, ShardChunkHeader, ShardInfo,
     ShardProof, StateSyncInfo,
 };
+use near_primitives::state_part::PartId;
 use near_primitives::syncing::{
     get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
     ShardStateSyncResponseHeaderV1, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
@@ -1885,7 +1886,12 @@ impl Chain {
         }
         let state_part = self
             .runtime_adapter
-            .obtain_state_part(shard_id, &sync_prev_hash, &state_root, part_id, num_parts)
+            .obtain_state_part(
+                shard_id,
+                &sync_prev_hash,
+                &state_root,
+                PartId::new(part_id, num_parts),
+            )
             .log_storage_error("obtain_state_part fail")?;
 
         // Before saving State Part data, we need to make sure we can calculate and save State Header
@@ -2085,14 +2091,13 @@ impl Chain {
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        part_id: u64,
-        num_parts: u64,
+        part_id: PartId,
         data: &Vec<u8>,
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let chunk = shard_state_header.take_chunk();
         let state_root = *chunk.take_header().take_inner().prev_state_root();
-        if !self.runtime_adapter.validate_state_part(&state_root, part_id, num_parts, data) {
+        if !self.runtime_adapter.validate_state_part(&state_root, part_id, data) {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
                 "set_state_part failed: validate_state_part failed".into(),
@@ -2102,7 +2107,7 @@ impl Chain {
 
         // Saving the part data.
         let mut store_update = self.store.store().store_update();
-        let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+        let key = StatePartKey(sync_hash, shard_id, part_id.idx).try_to_vec()?;
         store_update.set(ColStateParts, &key, data);
         store_update.commit()?;
         Ok(())

@@ -35,7 +35,8 @@ pub use crate::network_protocol::{
     RoutedMessageBody, StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
 };
 
-pub use crate::config::{blacklist_from_iter, BlockedPorts, NetworkConfig};
+pub use crate::blacklist::Blacklist;
+pub use crate::config::NetworkConfig;
 
 pub use crate::network_protocol::edge::{Edge, EdgeState, PartialEdgeInfo, SimpleEdge};
 

@@ -63,11 +63,16 @@ near-network-primitives = { path = "../chain/network-primitives" }
 delay-detector = { path = "../tools/delay_detector" }
 
 [dev-dependencies]
+bencher = "0.1.5"
 near-logger-utils = { path = "../test-utils/logger" }
 near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
 testlib = { path = "../test-utils/testlib" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
 primitive-types = "0.10"
+
+[[bench]]
+name = "store"
+harness = false
 
 [features]
 default = ["json_rpc", "rosetta_rpc"]
