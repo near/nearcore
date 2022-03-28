@@ -263,14 +263,18 @@ impl Actor for PeerManagerActor {
 impl PeerManagerActor {
     pub fn new(
         store: Store,
-        config: NetworkConfig,
+        mut config: NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         routing_table_addr: Addr<RoutingTableActor>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let peer_store = PeerStore::new(store.clone(), &config.boot_nodes)?;
-        debug!(target: "network", len = peer_store.len(), boot_nodes = config.boot_nodes.len(), "Found known peers");
         debug!(target: "network", blacklist = ?config.blacklist, "Blacklist");
+        let peer_store = PeerStore::new(
+            store.clone(),
+            &config.boot_nodes,
+            std::mem::take(&mut config.blacklist),
+        )?;
+        debug!(target: "network", len = peer_store.len(), boot_nodes = config.boot_nodes.len(), "Found known peers");
 
         let my_peer_id: PeerId = PeerId::new(config.public_key.clone());
         let routing_table = RoutingTableView::new(store);
@@ -1977,7 +1981,7 @@ impl PeerManagerActor {
         let _d = delay_detector::DelayDetector::new(|| "consolidate".into());
 
         // Check if this is a blacklisted peer.
-        if (msg.peer_info.addr.as_ref()).map_or(true, |addr| self.config.blacklist.contains(addr)) {
+        if (msg.peer_info.addr.as_ref()).map_or(true, |addr| self.peer_store.is_blacklisted(addr)) {
             debug!(target: "network", peer_info = ?msg.peer_info, "Dropping connection from blacklisted peer or unknown address");
             return RegisterPeerResponse::Reject;
         }

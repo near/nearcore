@@ -42,10 +42,13 @@ impl Blacklist {
     }
 
     /// Returns whether given address is on the blacklist.
-    pub fn contains(&self, addr: &std::net::SocketAddr) -> bool {
-        match self.0.get(&addr.ip()) {
+    pub fn contains(&self, addr: impl PeerWithAddress) -> bool {
+        match addr.get_address() {
             None => false,
-            Some(ports) => ports.contains(addr.port()),
+            Some(addr) => match self.0.get(&addr.ip()) {
+                None => false,
+                Some(ports) => ports.contains(addr.port()),
+            },
         }
     }
 }
@@ -95,6 +98,23 @@ impl PortsSet {
             Self::All => true,
             Self::Some(ports) => ports.contains(&port),
         }
+    }
+}
+
+/// An entity with a socket address.
+pub trait PeerWithAddress {
+    fn get_address(&self) -> Option<&std::net::SocketAddr>;
+}
+
+impl PeerWithAddress for &std::net::SocketAddr {
+    fn get_address(&self) -> Option<&std::net::SocketAddr> {
+        Some(self)
+    }
+}
+
+impl PeerWithAddress for &crate::network_protocol::PeerInfo {
+    fn get_address(&self) -> Option<&std::net::SocketAddr> {
+        self.addr.as_ref()
     }
 }
 
