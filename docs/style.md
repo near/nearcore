@@ -127,7 +127,7 @@ While convenient for editing, it may be poorly legible in unrendered form
 Definitely don't use soft-wrapping. While markdown mostly ignores source level line breaks, relying on soft wrap makes the source completely unreadable, especially on modern wide displays.
 ```
 
-## Tracing
+## [Tracing](https://tracing.rs)
 
 When emitting events and spans with `tracing` prefer adding variable data via
 [`tracing`'s field mechanism][fields].
@@ -168,6 +168,8 @@ debug!(
 );
 ```
 
+Always specify the `target` explicitly.
+
 **Rationale:** This makes the events structured – one of the major value
 propositions of the tracing ecosystem. Structured events allow for immediately
 actionable data without additional post-processing, especially when using some
@@ -175,3 +177,38 @@ of the more advanced tracing subscribers. Of particular interest would be those
 that output events as JSON, or those that publish data to distributed event
 collection systems such as opentelemetry. Maintaining this rule will also
 usually result in faster execution (when logs at the relevant level are enabled.)
+
+### Spans
+
+Use the [spans][spans] to introduce context and grouping to and between events
+instead of manually adding such information as part of the events themselves.
+Most of the subscribers ingesting spans also provide a built-in timing facility,
+so prefer using spans for measuring the amount of time a section of code needs
+to execute.
+
+Use the regular span API over convenience macros such as `#[instrument]`, as
+this allows instrumenting portions of a function without affecting the code
+structure:
+
+```rust
+fn compile_and_serialize_wasmer(code: &[u8]) -> Result<wasmer::Module> {
+    let _span = tracing::debug_span!(target: "vm", "compile_and_serialize_wasmer").entered();
+    // ...
+    // _span will be dropped when this scope ends, terminating the span created above.
+    // You can also `drop` it manually, to end the span early with `drop(_span)`.
+}
+```
+
+[spans]: https://docs.rs/tracing/latest/tracing/#spans
+
+**Rationale:** Much as with events, this makes the information provided by spans
+structured and contextual. This information can then be output to tooling in an
+industry standard format, and can be interpreted by an extensive ecosystem of
+`tracing` subscribers.
+
+### Event and span levels
+
+The `INFO` level is enabled by default, use it for information useful for node
+operators. The `DEBUG` level is enabled on the canary nodes, use it for
+information useful in debugging testnet failures. The `TRACE` level is not
+generally enabled, use it for arbitrary debug output.
