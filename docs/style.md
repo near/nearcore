@@ -134,10 +134,27 @@ When emitting events and spans with `tracing` prefer adding variable data via
 
 [fields]: https://docs.rs/tracing/latest/tracing/#recording-fields
 
-Most apparent violation of this rule will be when the message utilizes any form
-of formatting, as seen in the following example:
+```rust
+// GOOD
+debug!(
+    target: "client",
+    validator_id = self.client.validator_signer.as_ref().map(|vs| {
+        tracing::field::display(vs.validator_id())
+    }),
+    %hash,
+    "block.previous_hash" = %block.header().prev_hash(),
+    "block.height" = block.header().height(),
+    %peer_id,
+    was_requested
+    "Received block",
+);
+```
+
+Most apparent violation of this rule will be when the event message utilizes any
+form of formatting, as seen in the following example:
 
 ```rust
+// BAD
 debug!(
     target: "client",
     "{:?} Received block {} <- {} at {} from {}, requested: {}",
@@ -150,25 +167,10 @@ debug!(
 );
 ```
 
-Most of the time an event will not need to format anything into the message text
-in order to pass more information:
-
-```rust
-debug!(
-    target: "client",
-    message = "Received block",
-    validator_id = self.client.validator_signer.as_ref().map(|vs| {
-        tracing::field::display(vs.validator_id())
-    }),
-    %hash,
-    "block.previous_hash" = %block.header().prev_hash(),
-    "block.height" = block.header().height(),
-    %peer_id,
-    was_requested
-);
-```
-
-Always specify the `target` explicitly.
+Always specify the `target` explicitly. A good default value to use is the crate
+name, or the module path (e.g. `chain::client`) so that events and spans common
+to a topic can be grouped together. This grouping can later be used for
+customizing of which events to output.
 
 **Rationale:** This makes the events structured – one of the major value
 propositions of the tracing ecosystem. Structured events allow for immediately
