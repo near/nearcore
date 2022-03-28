@@ -15,13 +15,11 @@ use near_primitives_core::hash::hash;
 use near_primitives_core::types::Gas;
 use near_store::db::DBCol;
 use near_store::Store;
-use nearcore::NearConfig;
 use nearcore::NightshadeRuntime;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use std::cmp::Ord;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use tracing::warn;
 
 // like ChainStoreUpdate::get_incoming_receipts_for_shard(), but for the case when we don't
@@ -74,7 +72,7 @@ fn get_incoming_receipts(
 
 // returns (apply_result, gas limit)
 pub(crate) fn apply_chunk(
-    runtime: Arc<NightshadeRuntime>,
+    runtime: &NightshadeRuntime,
     chain_store: &mut ChainStore,
     chunk_hash: ChunkHash,
     target_height: Option<u64>,
@@ -111,7 +109,7 @@ pub(crate) fn apply_chunk(
 
     let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
         chain_store,
-        runtime.as_ref(),
+        runtime,
         &prev_block_hash,
         shard_id,
     )?;
@@ -150,7 +148,7 @@ enum HashType {
 fn find_tx_or_receipt(
     hash: &CryptoHash,
     block_hash: &CryptoHash,
-    runtime: &Arc<NightshadeRuntime>,
+    runtime: &NightshadeRuntime,
     chain_store: &mut ChainStore,
 ) -> anyhow::Result<Option<(HashType, ShardId)>> {
     let block = chain_store.get_block(&block_hash)?;
@@ -177,20 +175,20 @@ fn find_tx_or_receipt(
 }
 
 fn apply_tx_in_block(
-    near_config: NearConfig,
-    runtime: Arc<NightshadeRuntime>,
+    runtime: &NightshadeRuntime,
     chain_store: &mut ChainStore,
     tx_hash: &CryptoHash,
     block_hash: CryptoHash,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<ApplyTransactionResult> {
     match find_tx_or_receipt(tx_hash, &block_hash, &runtime, chain_store)? {
         Some((hash_type, shard_id)) => {
             match hash_type {
                 HashType::Tx => {
                     println!("Found tx in block {} shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
                              &block_hash, shard_id, chain_store.get_block_header(&block_hash)?.height(), shard_id);
-                    crate::commands::apply_block(block_hash, shard_id, near_config, runtime, chain_store);
-                    Ok(())
+                    let (block, apply_result) = crate::commands::apply_block(block_hash, shard_id, runtime, chain_store);
+                    crate::commands::print_apply_block_result(&block, &apply_result, runtime, chain_store, shard_id);
+                    Ok(apply_result)
                 },
                 HashType::Receipt => {
                     Err(anyhow!("{} appears to be a Receipt ID, not a tx hash. Try running:\nview_state apply_receipt --hash {}", tx_hash, tx_hash))
@@ -204,11 +202,11 @@ fn apply_tx_in_block(
 }
 
 fn apply_tx_in_chunk(
-    runtime: Arc<NightshadeRuntime>,
+    runtime: &NightshadeRuntime,
     store: Store,
     chain_store: &mut ChainStore,
     tx_hash: &CryptoHash,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<ApplyTransactionResult>> {
     if chain_store.get_transaction(tx_hash)?.is_none() {
         return Err(anyhow!("tx with hash {} not known", tx_hash));
     }
@@ -247,41 +245,42 @@ fn apply_tx_in_chunk(
         ));
     }
 
+    let mut results = Vec::new();
     for chunk_hash in chunk_hashes {
         println!("found tx in chunk {}. Equivalent command (which will run faster than apply_tx):\nview_state apply_chunk --chunk_hash {}\n", &chunk_hash.0, &chunk_hash.0);
         let (apply_result, gas_limit) =
             apply_chunk(runtime.clone(), chain_store, chunk_hash, None, None)?;
         println!(
             "resulting chunk extra:\n{:?}",
-            crate::commands::resulting_chunk_extra(apply_result, gas_limit)
+            crate::commands::resulting_chunk_extra(&apply_result, gas_limit)
         );
+        results.push(apply_result);
     }
-    Ok(())
+    Ok(results)
 }
 
 pub(crate) fn apply_tx(
-    near_config: NearConfig,
-    runtime: Arc<NightshadeRuntime>,
+    genesis_height: BlockHeight,
+    runtime: &NightshadeRuntime,
     store: Store,
     tx_hash: CryptoHash,
-) -> anyhow::Result<()> {
-    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+) -> anyhow::Result<Vec<ApplyTransactionResult>> {
+    let mut chain_store = ChainStore::new(store.clone(), genesis_height);
     let outcomes = chain_store.get_outcomes_by_id(&tx_hash)?;
 
     if let Some(outcome) = outcomes.first() {
-        apply_tx_in_block(near_config, runtime, &mut chain_store, &tx_hash, outcome.block_hash)
+        Ok(vec![apply_tx_in_block(runtime, &mut chain_store, &tx_hash, outcome.block_hash)?])
     } else {
         apply_tx_in_chunk(runtime, store, &mut chain_store, &tx_hash)
     }
 }
 
 fn apply_receipt_in_block(
-    near_config: NearConfig,
-    runtime: Arc<NightshadeRuntime>,
+    runtime: &NightshadeRuntime,
     chain_store: &mut ChainStore,
     id: &CryptoHash,
     block_hash: CryptoHash,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<ApplyTransactionResult> {
     match find_tx_or_receipt(id, &block_hash, &runtime, chain_store)? {
         Some((hash_type, shard_id)) => {
             match hash_type {
@@ -291,8 +290,9 @@ fn apply_receipt_in_block(
                 HashType::Receipt => {
                     println!("Found receipt in block {}. Receiver is in shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
                              &block_hash, shard_id, chain_store.get_block_header(&block_hash)?.height(), shard_id);
-                    crate::commands::apply_block(block_hash, shard_id, near_config, runtime, chain_store);
-                    Ok(())
+                    let (block, apply_result) = crate::commands::apply_block(block_hash, shard_id, runtime, chain_store);
+                    crate::commands::print_apply_block_result(&block, &apply_result, runtime, chain_store, shard_id);
+                    Ok(apply_result)
                 },
             }
         },
@@ -304,11 +304,11 @@ fn apply_receipt_in_block(
 }
 
 fn apply_receipt_in_chunk(
-    runtime: Arc<NightshadeRuntime>,
+    runtime: &NightshadeRuntime,
     store: Store,
     chain_store: &mut ChainStore,
     id: &CryptoHash,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<ApplyTransactionResult>> {
     if chain_store.get_receipt(id)?.is_none() {
         // TODO: handle local/delayed receipts
         return Err(anyhow!("receipt with ID {} not known. Is it a local or delayed receipt?", id));
@@ -363,6 +363,7 @@ fn apply_receipt_in_chunk(
         ));
     }
 
+    let mut results = Vec::new();
     for (height, shard_id) in to_apply {
         let chunk_hash = match non_applied_chunks.get(&(height, shard_id)) {
             Some(h) => h,
@@ -378,24 +379,23 @@ fn apply_receipt_in_chunk(
                  height, shard_id, chunk_hash.0);
         let (apply_result, gas_limit) =
             apply_chunk(runtime.clone(), chain_store, chunk_hash.clone(), None, None)?;
-        println!(
-            "resulting chunk extra:\n{:?}",
-            crate::commands::resulting_chunk_extra(apply_result, gas_limit)
-        );
+        let chunk_extra = crate::commands::resulting_chunk_extra(&apply_result, gas_limit);
+        println!("resulting chunk extra:\n{:?}", chunk_extra);
+        results.push(apply_result);
     }
-    Ok(())
+    Ok(results)
 }
 
 pub(crate) fn apply_receipt(
-    near_config: NearConfig,
-    runtime: Arc<NightshadeRuntime>,
+    genesis_height: BlockHeight,
+    runtime: &NightshadeRuntime,
     store: Store,
     id: CryptoHash,
-) -> anyhow::Result<()> {
-    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+) -> anyhow::Result<Vec<ApplyTransactionResult>> {
+    let mut chain_store = ChainStore::new(store.clone(), genesis_height);
     let outcomes = chain_store.get_outcomes_by_id(&id)?;
     if let Some(outcome) = outcomes.first() {
-        apply_receipt_in_block(near_config, runtime, &mut chain_store, &id, outcome.block_hash)
+        Ok(vec![apply_receipt_in_block(runtime, &mut chain_store, &id, outcome.block_hash)?])
     } else {
         apply_receipt_in_chunk(runtime, store, &mut chain_store, &id)
     }
@@ -410,6 +410,7 @@ mod test {
     use near_network::types::NetworkClientResponses;
     use near_primitives::hash::CryptoHash;
     use near_primitives::runtime::config_store::RuntimeConfigStore;
+    use near_primitives::shard_layout;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::utils::get_num_seats_per_shard;
     use near_store::test_utils::create_test_store;
@@ -502,7 +503,7 @@ mod test {
                     let new_root = new_roots[shard];
 
                     let (apply_result, _) = crate::apply_chunk::apply_chunk(
-                        runtime.clone(),
+                        runtime.as_ref(),
                         &mut chain_store,
                         chunk_hash.clone(),
                         None,
@@ -510,6 +511,155 @@ mod test {
                     )
                     .unwrap();
                     assert_eq!(apply_result.new_root, new_root);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_apply_tx_apply_receipt() {
+        let genesis = Genesis::test_sharded(
+            vec![
+                "test0".parse().unwrap(),
+                "test1".parse().unwrap(),
+                "test2".parse().unwrap(),
+                "test3".parse().unwrap(),
+            ],
+            1,
+            get_num_seats_per_shard(4, 1),
+        );
+
+        let store = create_test_store();
+        let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height);
+        let runtime = Arc::new(NightshadeRuntime::test_with_runtime_config_store(
+            Path::new("."),
+            store.clone(),
+            &genesis,
+            TrackedConfig::AllShards,
+            RuntimeConfigStore::test(),
+        ));
+        let mut chain_genesis = ChainGenesis::test();
+        // receipts get delayed with the small ChainGenesis::test() limit
+        chain_genesis.gas_limit = genesis.config.gas_limit;
+
+        let signers = (0..4)
+            .map(|i| {
+                let acc = format!("test{}", i);
+                InMemorySigner::from_seed(acc.parse().unwrap(), KeyType::ED25519, &acc)
+            })
+            .collect::<Vec<_>>();
+
+        let mut env =
+            TestEnv::builder(chain_genesis).runtime_adapters(vec![runtime.clone()]).build();
+        let genesis_hash = *env.clients[0].chain.genesis().hash();
+
+        // first check that applying txs and receipts works when the block exists
+
+        for height in 1..5 {
+            send_txs(&mut env, &signers, height, genesis_hash);
+
+            let block = env.clients[0].produce_block(height).unwrap().unwrap();
+
+            let hash = *block.hash();
+            let prev_hash = *block.header().prev_hash();
+            let chunk_hashes = block.chunks().iter().map(|c| c.chunk_hash()).collect::<Vec<_>>();
+            let epoch_id = block.header().epoch_id().clone();
+
+            env.process_block(0, block, Provenance::PRODUCED);
+
+            let new_roots = (0..4)
+                .map(|i| {
+                    let shard_uid = runtime.shard_id_to_uid(i, &epoch_id).unwrap();
+                    chain_store.get_chunk_extra(&hash, &shard_uid).unwrap().state_root().clone()
+                })
+                .collect::<Vec<_>>();
+            let shard_layout = runtime.get_shard_layout_from_prev_block(&prev_hash).unwrap();
+
+            if height >= 2 {
+                for shard_id in 0..4 {
+                    let chunk = chain_store.get_chunk(&chunk_hashes[shard_id]).unwrap();
+
+                    for tx in chunk.transactions() {
+                        let results = crate::apply_chunk::apply_tx(
+                            genesis.config.genesis_height,
+                            runtime.as_ref(),
+                            store.clone(),
+                            tx.get_hash(),
+                        )
+                        .unwrap();
+                        assert_eq!(results.len(), 1);
+                        assert_eq!(results[0].new_root, new_roots[shard_id as usize]);
+                    }
+
+                    for receipt in chunk.receipts() {
+                        let to_shard = shard_layout::account_id_to_shard_id(
+                            &receipt.receiver_id,
+                            &shard_layout,
+                        );
+
+                        let results = crate::apply_chunk::apply_receipt(
+                            genesis.config.genesis_height,
+                            runtime.as_ref(),
+                            store.clone(),
+                            receipt.get_hash(),
+                        )
+                        .unwrap();
+                        assert_eq!(results.len(), 1);
+                        assert_eq!(results[0].new_root, new_roots[to_shard as usize]);
+                    }
+                }
+            }
+        }
+
+        // then check what happens when the block doesn't exist
+        // it won't exist because the chunks for the last height
+        // in the loop above are produced by env.process_block() but
+        // there was no corresponding env.clients[0].produce_block() after
+
+        let chunks = chain_store.get_all_chunk_hashes_by_height(5).unwrap();
+        let blocks = chain_store.get_all_header_hashes_by_height(5).unwrap();
+        assert_ne!(chunks.len(), 0);
+        assert_eq!(blocks.len(), 0);
+
+        for chunk_hash in chunks {
+            let chunk = chain_store.get_chunk(&chunk_hash).unwrap();
+
+            for tx in chunk.transactions() {
+                let results = crate::apply_chunk::apply_tx(
+                    genesis.config.genesis_height,
+                    runtime.as_ref(),
+                    store.clone(),
+                    tx.get_hash(),
+                )
+                .unwrap();
+                for result in results {
+                    let mut applied = false;
+                    for outcome in result.outcomes {
+                        if outcome.id == tx.get_hash() {
+                            applied = true;
+                            break;
+                        }
+                    }
+                    assert!(applied);
+                }
+            }
+            for receipt in chunk.receipts() {
+                let results = crate::apply_chunk::apply_receipt(
+                    genesis.config.genesis_height,
+                    runtime.as_ref(),
+                    store.clone(),
+                    receipt.get_hash(),
+                )
+                .unwrap();
+                for result in results {
+                    let mut applied = false;
+                    for outcome in result.outcomes {
+                        if outcome.id == receipt.get_hash() {
+                            applied = true;
+                            break;
+                        }
+                    }
+                    assert!(applied);
                 }
             }
         }
