@@ -3,10 +3,12 @@ use std::{io, path::PathBuf};
 use check::{check, CheckConfig};
 use clap::{Parser, Subcommand};
 use db::{Db, EstimationRow, ParameterRow};
+use estimate::{run_estimation, EstimateConfig};
 use import::ImportConfig;
 
 mod check;
 mod db;
+mod estimate;
 mod import;
 mod zulip;
 
@@ -22,6 +24,8 @@ struct CliArgs {
 
 #[derive(Subcommand, Debug)]
 enum SubCommand {
+    /// Call runtime-params-estimator for all metrics and import the results.
+    Estimate(EstimateConfig),
     /// Read estimations in JSON format from STDIN and store it in the warehouse.
     Import(ImportConfig),
     /// Compares parameters, estimations, and how estimations changed over time.
@@ -37,6 +41,9 @@ fn main() -> anyhow::Result<()> {
     let db = Db::open(&cli_args.db)?;
 
     match cli_args.cmd {
+        SubCommand::Estimate(config) => {
+            run_estimation(&db, &config)?;
+        }
         SubCommand::Import(config) => {
             db.import_json_lines(&config, io::stdin().lock())?;
         }
