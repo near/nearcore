@@ -409,18 +409,20 @@ impl PeerStore {
             }
         }
         if blacklisted != 0 {
-            info!(target: "network", "Ignored {} out of {} indirect peer(s)",
+            info!(target: "network", "Ignored {} blacklisted peers out of {} indirect peer(s)",
                   blacklisted, total);
         }
         Ok(())
     }
 
-    /// Adds a peer into the store.
+    /// Adds a peer into the store with given trust level.  To add indirect
+    /// peers, use [`add_indirect_peers`] instead.
     pub(crate) fn add_trusted_peer(
         &mut self,
         peer_info: PeerInfo,
         trust_level: TrustLevel,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        debug_assert_ne!(TrustLevel::Indirect, trust_level);
         self.add_peer(peer_info, trust_level)?;
         Ok(())
     }

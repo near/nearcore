@@ -100,23 +100,6 @@ impl PortsSet {
     }
 }
 
-/// An entity with a socket address.
-pub trait PeerWithAddress {
-    fn get_address(&self) -> Option<&std::net::SocketAddr>;
-}
-
-impl PeerWithAddress for &std::net::SocketAddr {
-    fn get_address(&self) -> Option<&std::net::SocketAddr> {
-        Some(self)
-    }
-}
-
-impl PeerWithAddress for &crate::network_protocol::PeerInfo {
-    fn get_address(&self) -> Option<&std::net::SocketAddr> {
-        self.addr.as_ref()
-    }
-}
-
 #[cfg(test)]
 mod test {
     #[test]
