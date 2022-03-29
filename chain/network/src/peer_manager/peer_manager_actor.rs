@@ -30,7 +30,7 @@ use near_network_primitives::types::{
     RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom,
     StateResponseInfo,
 };
-use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
+use near_network_primitives::types::{Blacklist, EdgeState, PartialEdgeInfo};
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::checked_feature;
@@ -263,7 +263,7 @@ impl Actor for PeerManagerActor {
 impl PeerManagerActor {
     pub fn new(
         store: Store,
-        mut config: NetworkConfig,
+        config: NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         routing_table_addr: Addr<RoutingTableActor>,
@@ -272,7 +272,7 @@ impl PeerManagerActor {
         let peer_store = PeerStore::new(
             store.clone(),
             &config.boot_nodes,
-            std::mem::take(&mut config.blacklist),
+            Blacklist::from_iter(config.blacklist.iter()),
         )?;
         debug!(target: "network", len = peer_store.len(), boot_nodes = config.boot_nodes.len(), "Found known peers");
 
