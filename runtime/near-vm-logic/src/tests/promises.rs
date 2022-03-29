@@ -18,7 +18,7 @@ struct ReceiptView<'a> {
 
 fn vm_receipts<'a>(logic: &'a VMLogic) -> Vec<ReceiptView<'a>> {
     logic
-        .receipt_manager
+        .receipt_manager()
         .action_receipts
         .0
         .iter()

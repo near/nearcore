@@ -69,7 +69,7 @@ pub struct VMLogic<'a> {
     current_protocol_version: ProtocolVersion,
 
     /// Handles the receipts generated through execution.
-    pub(crate) receipt_manager: ReceiptManager,
+    receipt_manager: ReceiptManager,
 }
 
 /// Promises API allows to create a DAG-structure that defines dependencies between smart contract
@@ -147,6 +147,11 @@ impl<'a> VMLogic<'a> {
             current_protocol_version,
             receipt_manager: ReceiptManager::default(),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn receipt_manager(&self) -> &ReceiptManager {
+        &self.receipt_manager
     }
 
     // ###########################
