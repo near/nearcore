@@ -10,7 +10,7 @@ two stages:
    blocks to be generated and received by the observer node.  Once that happens,
    the test kills the validator node so that no new blocks are generated.
 
-   At this stage, the test verifies that Frad can sync correctly and that the
+   At this stage, the test verifies that Fred can sync correctly and that the
    boot node serves all partial chunks requests from its in-memory cache (which
    is determined by looking at Prometheus metrics).
 
@@ -20,10 +20,11 @@ two stages:
    verifies that all the blocks have been correctly fetched.
 
    At this stage, the test verifies that Barney synchronises correctly and that
-   Fred serves all requests from storage (since it's in-memory cache).  This is
-   again done through Prometheus metrics and in addition the test verifies that
-   data from ColChunks and ColPartialChunks was used.  This also implies that
-   Fred correctly performed ColPartialChunks garbage collection.
+   Fred serves all requests from storage (since it's in-memory cache has been
+   cleared).  This is again done through Prometheus metrics and in addition the
+   test verifies that data from ColChunks and ColPartialChunks was used.  This
+   also implies that Fred correctly performed ColPartialChunks garbage
+   collection.
 """
 
 import argparse
