@@ -21,7 +21,7 @@ pub const DEFAULT_RUST_LOG: &'static str = "tokio_reactor=info,\
 /// Once dropped, the subscriber is unregistered, and the output is flushed. Any messages output
 /// after this value is dropped will be delivered to a previously active subscriber, if any.
 #[allow(dead_code)] // Fields are never read
-pub struct DefaultSubcriberGuard {
+pub struct DefaultSubcriberGuard<S> {
     // NB: the field order matters here. I would've used `ManuallyDrop` to indicate this
     // particularity, but somebody decided at some point that doing so is unconventional Rust and
     // that implicit is better than explicit.
@@ -30,8 +30,36 @@ pub struct DefaultSubcriberGuard {
     // subscriber while we take care of flushing the messages already in queue. If dropped the
     // other way around, the events/spans generated while the subscriber drop guard runs would be
     // lost.
-    subscriber_guard: tracing::subscriber::DefaultGuard,
+    subscriber: Option<S>,
+    local_subscriber_guard: Option<tracing::subscriber::DefaultGuard>,
     writer_guard: tracing_appender::non_blocking::WorkerGuard,
+}
+
+impl<S: tracing::Subscriber + Send + Sync> DefaultSubcriberGuard<S> {
+    /// Register this default subscriber globally , for all threads.
+    ///
+    /// Must not be called more than once. Mutually exclusive with `Self::local`.
+    pub fn global(mut self) -> Self {
+        if let Some(subscriber) = self.subscriber.take() {
+            tracing::subscriber::set_global_default(subscriber)
+                .expect("could not set a global subscriber");
+        } else {
+            panic!("trying to set a default subscriber that has been already taken")
+        }
+        self
+    }
+
+    /// Register this default subscriber for the current thread.
+    ///
+    /// Must not be called more than once. Mutually exclusive with `Self::global`.
+    pub fn local(mut self) -> Self {
+        if let Some(subscriber) = self.subscriber.take() {
+            self.local_subscriber_guard = Some(tracing::subscriber::set_default(subscriber));
+        } else {
+            panic!("trying to set a default subscriber that has been already taken")
+        }
+        self
+    }
 }
 
 /// Run the code with a default subscriber set to the option appropriate for the NEAR code.
@@ -46,7 +74,9 @@ pub struct DefaultSubcriberGuard {
 /// let _subscriber = near_o11y::default_subscriber(filter);
 /// near_o11y::tracing::info!(message = "Still a lot of work remains to make it proper o11y");
 /// ```
-pub fn default_subscriber(log_filter: EnvFilter) -> DefaultSubcriberGuard {
+pub fn default_subscriber(
+    log_filter: EnvFilter,
+) -> DefaultSubcriberGuard<impl tracing::Subscriber + Send + Sync> {
     // Do not lock the `stderr` here to allow for things like `dbg!()` work during development.
     let stderr = std::io::stderr();
     let lined_stderr = std::io::LineWriter::new(stderr);
@@ -60,7 +90,8 @@ pub fn default_subscriber(log_filter: EnvFilter) -> DefaultSubcriberGuard {
         .with_writer(writer)
         .finish();
     DefaultSubcriberGuard {
-        subscriber_guard: tracing::subscriber::set_default(subscriber),
+        subscriber: Some(subscriber),
+        local_subscriber_guard: None,
         writer_guard,
     }
 }

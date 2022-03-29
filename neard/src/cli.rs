@@ -35,7 +35,7 @@ impl NeardCmd {
         } else {
             env_filter
         };
-        let _subscriber = default_subscriber(env_filter);
+        let _subscriber = default_subscriber(env_filter).global();
 
         info!(
             target: "neard",
