@@ -1005,12 +1005,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         .then(move |res, act, ctx| {
                             if res.map(|f| f.into_inner().as_routed_message_from()).unwrap_or(false)
                             {
-                                metrics::PEER_ROUTED_MESSAGE_RECEIVED_BY_TYPE_TOTAL
-                                    .with_label_values(&[routed_message.body.as_ref(), "true"]);
                                 act.receive_message(ctx, PeerMessage::Routed(routed_message));
-                            } else {
-                                metrics::PEER_ROUTED_MESSAGE_RECEIVED_BY_TYPE_TOTAL
-                                    .with_label_values(&[routed_message.body.as_ref(), "false"]);
                             }
                             actix::fut::ready(())
                         })
