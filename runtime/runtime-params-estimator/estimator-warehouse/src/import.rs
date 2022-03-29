@@ -6,7 +6,7 @@ use clap::Parser;
 use serde::Deserialize;
 use std::time::Duration;
 
-use crate::db::{EstimationRow, DB};
+use crate::db::{Db, EstimationRow};
 
 /// Additional information required for import
 #[derive(Debug, Parser)]
@@ -38,7 +38,7 @@ struct EstimationResult {
     uncertain_reason: Option<String>,
 }
 
-impl DB {
+impl Db {
     pub(crate) fn import_json_lines(
         &self,
         info: &ImportConfig,
@@ -66,7 +66,7 @@ impl DB {
                 uncertain_reason: estimator_output.result.uncertain_reason,
                 commit_hash: commit_hash.clone(),
             };
-            self.insert_estimation(&row)?;
+            row.insert(self)?;
         }
         Ok(())
     }
@@ -74,8 +74,10 @@ impl DB {
 
 #[cfg(test)]
 mod test {
+    use rusqlite::Connection;
+
     use crate::{
-        db::{EstimationRow, DB},
+        db::{Db, EstimationRow},
         import::ImportConfig,
         Metric,
     };
@@ -159,7 +161,7 @@ mod test {
         expected_output: &[EstimationRow],
         metric: Metric,
     ) {
-        let db = DB::test();
+        let db = Db::test();
         db.import_json_lines(info, input.as_bytes()).unwrap();
         let output = EstimationRow::select_by_commit_and_metric(
             &db,
@@ -168,5 +170,14 @@ mod test {
         )
         .unwrap();
         assert_eq!(expected_output, output);
+    }
+
+    impl Db {
+        pub(crate) fn test() -> Self {
+            let conn = Connection::open_in_memory().unwrap();
+            let init_sql = include_str!("init.sql");
+            conn.execute(init_sql, []).unwrap();
+            Self::new(conn)
+        }
     }
 }

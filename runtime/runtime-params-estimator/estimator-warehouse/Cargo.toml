@@ -1,17 +1,17 @@
 [package]
+authors = ["Near Inc <hello@nearprotocol.com>"]
 name = "estimator-warehouse"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
 # Please update rust-toolchain.toml as well when changing version here:
 edition = "2021"
 publish = false
 rust-version = "1.56.0"
 
 [dependencies]
-anyhow = "1"
-chrono = "0.4"
-clap = {version = "3.1", features = ["derive"]}
-reqwest = {version = "0.11", features = ["blocking", "json"]}
-rusqlite = {version = "0.27", features = ["bundled", "chrono"]}
-serde = {version = "1", features = ["derive"]}
-serde_json = "1"
+anyhow = "1.0.56"
+chrono = "0.4.19"
+clap = {version = "3.1.6", features = ["derive"]}
+reqwest = {version = "0.11.10", features = ["blocking", "json"]}
+rusqlite = {version = "0.27.0", features = ["bundled", "chrono"]}
+serde = {version = "1.0.136", features = ["derive"]}
+serde_json = "1.0.79"

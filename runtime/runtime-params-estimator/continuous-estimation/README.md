@@ -8,7 +8,7 @@ This folder contains some scripts for automated parameter estimation and trackin
 
 ## Understanding the Data flow
 1. The estimator produces JSON output with gas costs and extra details.
-1. JSON output is fed to the [estimator-warehouse](../estimator-warehouse), which is a wrapper around an SQLite database file.
+1. JSON output is fed to the [estimator-warehouse](../estimator-warehouse), which is a wrapper around an SQLite database file. This file is stored as a buildkite artifact.
 1. The estimator-warehouse pushes notifications to Zulip.
 1. (TODO[jakmeier]) The estimator-warehouse pushes JSON reports to near/parameter-estimator-reports.
 1. (TODO[jakmeier]) A vanilla JavaScript frontend at reads the JSON files hosted by GitHub pages and displays them at [near.github.io/parameter-estimator-reports](https://near.github.io/parameter-estimator-reports).

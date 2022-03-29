@@ -2,7 +2,7 @@ use std::{io, path::PathBuf};
 
 use check::{check, CheckConfig};
 use clap::{Parser, Subcommand};
-use db::{EstimationRow, ParameterRow, DB};
+use db::{Db, EstimationRow, ParameterRow};
 use import::ImportConfig;
 
 mod check;
@@ -34,7 +34,7 @@ enum SubCommand {
 
 fn main() -> anyhow::Result<()> {
     let cli_args = CliArgs::parse();
-    let db = DB::open(&cli_args.db)?;
+    let db = Db::open(&cli_args.db)?;
 
     match cli_args.cmd {
         SubCommand::Import(config) => {
@@ -58,7 +58,7 @@ enum Metric {
     Time,
 }
 
-fn print_stats(db: &DB) -> anyhow::Result<()> {
+fn print_stats(db: &Db) -> anyhow::Result<()> {
     eprintln!("");
     eprintln!("{:=^72}", " Warehouse statistics ");
     eprintln!("");

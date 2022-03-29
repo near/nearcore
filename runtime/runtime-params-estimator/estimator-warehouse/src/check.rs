@@ -3,16 +3,13 @@ use std::collections::BTreeSet;
 use clap::Parser;
 
 use crate::{
-    db::{EstimationRow, DB},
+    db::{Db, EstimationRow},
     zulip::{ZulipEndpoint, ZulipReport},
     Metric,
 };
 
 #[derive(Parser, Debug)]
 pub(crate) struct CheckConfig {
-    /// Send notifications from checks to specified server.
-    #[clap(long, default_value = "near.zulipchat.com")]
-    zulip_server: String,
     /// Send notifications from checks to specified stream.
     /// Notifications are sent iff stream or user is set.
     #[clap(long)]
@@ -57,7 +54,7 @@ pub(crate) struct RelativeChange {
     pub after: f64,
 }
 
-pub(crate) fn check(db: &DB, config: &CheckConfig) -> anyhow::Result<()> {
+pub(crate) fn check(db: &Db, config: &CheckConfig) -> anyhow::Result<()> {
     let (commit_a, commit_b) = match (&config.commit_a, &config.commit_b) {
         (Some(a), Some(b)) => (a.clone(), b.clone()),
         (None, None) => {
@@ -93,9 +90,9 @@ pub(crate) fn check(db: &DB, config: &CheckConfig) -> anyhow::Result<()> {
 
     let zulip_receiver = {
         if let Some(user) = config.zulip_user {
-            Some(ZulipEndpoint::to_user(&config.zulip_server, user)?)
+            Some(ZulipEndpoint::to_user(user)?)
         } else if let Some(stream) = &config.zulip_stream {
-            Some(ZulipEndpoint::to_stream(&config.zulip_server, stream.clone())?)
+            Some(ZulipEndpoint::to_stream(stream.clone())?)
         } else {
             None
         }
@@ -110,7 +107,7 @@ pub(crate) fn check(db: &DB, config: &CheckConfig) -> anyhow::Result<()> {
 }
 
 fn estimation_changes(
-    db: &DB,
+    db: &Db,
     estimation_names: &[String],
     commit_a: &str,
     commit_b: &str,
@@ -121,7 +118,7 @@ fn estimation_changes(
     for name in estimation_names {
         let a = &EstimationRow::get(db, name, commit_a, metric)?[0];
         let b = &EstimationRow::get(db, name, commit_b, metric)?[0];
-        let rel_change = (a.gas - b.gas).abs() / a.gas;
+        let rel_change = if a.gas == 0.0 { 100.0 } else { (a.gas - b.gas).abs() / a.gas };
         if rel_change > tolerance {
             warnings.push(Notice::RelativeChange(RelativeChange {
                 estimation: name.clone(),

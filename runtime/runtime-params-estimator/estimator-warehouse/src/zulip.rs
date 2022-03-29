@@ -5,6 +5,8 @@ use reqwest::blocking::Client;
 
 use crate::check::{Notice, RelativeChange, Status};
 
+const ZULIP_SERVER: &str = "near.zulipchat.com";
+
 pub(crate) struct ZulipEndpoint {
     client: Client,
     full_endpoint_url: String,
@@ -20,18 +22,18 @@ pub(crate) struct ZulipReport {
 }
 
 impl ZulipEndpoint {
-    pub(crate) fn to_user(domain: &str, user: u64) -> anyhow::Result<Self> {
+    pub(crate) fn to_user(user: u64) -> anyhow::Result<Self> {
         Ok(Self {
             client: Client::new(),
-            full_endpoint_url: Self::form_url(domain)?,
+            full_endpoint_url: Self::form_url()?,
             stream: None,
             user_list: Some(format!("[{user}]")),
         })
     }
-    pub(crate) fn to_stream(domain: &str, stream: String) -> anyhow::Result<Self> {
+    pub(crate) fn to_stream(stream: String) -> anyhow::Result<Self> {
         Ok(Self {
             client: Client::new(),
-            full_endpoint_url: Self::form_url(domain)?,
+            full_endpoint_url: Self::form_url()?,
             stream: Some(stream),
             user_list: None,
         })
@@ -39,12 +41,12 @@ impl ZulipEndpoint {
     pub(crate) fn post(&self, report: &ZulipReport) -> anyhow::Result<()> {
         self.send_raw_message(&report.to_string(), "Bot reports")
     }
-    fn form_url(domain: &str) -> anyhow::Result<String> {
+    fn form_url() -> anyhow::Result<String> {
         let bot_email =
             env::var("ZULIP_BOT_EMAIL").context("ZULIP_BOT_EMAIL environment variable not set")?;
         let api_key = env::var("ZULIP_BOT_API_KEY")
             .context("ZULIP_BOT_API_KEY environment variable not set")?;
-        Ok(format!("https://{bot_email}:{api_key}@{domain}/api/v1/messages"))
+        Ok(format!("https://{bot_email}:{api_key}@{ZULIP_SERVER}/api/v1/messages"))
     }
     fn send_raw_message(&self, msg: &str, topic: &str) -> anyhow::Result<()> {
         let params = if let Some(user_list) = &self.user_list {
