@@ -1,7 +1,9 @@
 //! Client actor orchestrates Client and facilitates network connection.
 
 use crate::client::Client;
-use crate::info::{get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper};
+use crate::info::{
+    display_sync_status, get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper,
+};
 use crate::metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY;
 use crate::sync::{StateSync, StateSyncResult};
 use crate::{metrics, StatusResponse};
@@ -774,7 +776,15 @@ impl Handler<Status> for ClientActor {
             Some(DetailedDebugStatus {
                 last_blocks: blocks_debug,
                 network_info: self.network_info.clone().into(),
-                sync_status: self.client.sync_status.as_variant_name().to_string(),
+                sync_status: format!(
+                    "{} ({})",
+                    self.client.sync_status.as_variant_name().to_string(),
+                    display_sync_status(
+                        &self.client.sync_status,
+                        &self.client.chain.head()?,
+                        self.client.chain.genesis_block().header().height(),
+                    ),
+                ),
             })
         } else {
             None
