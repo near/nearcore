@@ -125,7 +125,7 @@ impl FromStr for MockNetworkMode {
 pub fn setup_mock_network(
     client_home_dir: &Path,
     network_home_dir: &Path,
-    config: &NearConfig,
+    config: NearConfig,
     mode: MockNetworkMode,
     network_delay: Duration,
     client_start_height: Option<BlockHeight>,
@@ -313,6 +313,14 @@ pub fn setup_mock_network(
                 target_height,
             )
         });
+    if let Some(rpc_config) = config.rpc_config {
+        near_jsonrpc::start_http(
+            rpc_config,
+            config.genesis.config,
+            client_actor.clone(),
+            view_client.clone(),
+        );
+    }
     network_adapter.set_recipient(mock_network_actor.clone().recipient());
     (mock_network_actor, client_actor, view_client)
 }
