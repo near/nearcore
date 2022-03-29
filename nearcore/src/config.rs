@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use tempfile::tempdir;
 use tokio::io::AsyncWriteExt;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use near_chain_configs::{
     get_initial_supply, ClientConfig, Genesis, GenesisConfig, GenesisValidationMode,
@@ -493,10 +493,19 @@ impl Default for Config {
 
 impl Config {
     pub fn from_file(path: &Path) -> anyhow::Result<Self> {
+        let mut unrecognised_fields = Vec::new();
         let s = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
-        let config = serde_json::from_str(&s)
+        let config =
+            serde_ignored::deserialize(&mut serde_json::Deserializer::from_str(&s), |path| {
+                unrecognised_fields.push(path.to_string());
+            })
             .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
+
+        if !unrecognised_fields.is_empty() {
+            warn!("{}: encountered unrecognised fields: {:?}", path.display(), unrecognised_fields);
+        }
+
         Ok(config)
     }
 
