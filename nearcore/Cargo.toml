@@ -26,6 +26,7 @@ rand = "0.7"
 rayon = "1.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_ignored = "0.1"
 dirs = "3"
 borsh = "0.9"
 thiserror = "1.0"
@@ -63,11 +64,16 @@ near-network-primitives = { path = "../chain/network-primitives" }
 delay-detector = { path = "../tools/delay_detector" }
 
 [dev-dependencies]
+bencher = "0.1.5"
 near-logger-utils = { path = "../test-utils/logger" }
 near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
 testlib = { path = "../test-utils/testlib" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
 primitive-types = "0.10"
+
+[[bench]]
+name = "store"
+harness = false
 
 [features]
 default = ["json_rpc", "rosetta_rpc"]
