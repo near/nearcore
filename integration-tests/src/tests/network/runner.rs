@@ -28,9 +28,8 @@ use near_network::test_utils::SetAdvOptions;
 use near_network::types::{NetworkRequests, NetworkResponses};
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network::PeerManagerActor;
-use near_network_primitives::types::blacklist_from_iter;
 use near_network_primitives::types::{
-    NetworkConfig, OutboundTcpConnect, PeerInfo, ROUTED_MESSAGE_TTL,
+    Blacklist, NetworkConfig, OutboundTcpConnect, PeerInfo, ROUTED_MESSAGE_TTL,
 };
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, ValidatorId};
@@ -628,7 +627,7 @@ impl Runner {
                 .collect(),
         );
 
-        let blacklist = blacklist_from_iter(test_config.blacklist.iter().map(|x| {
+        let blacklist = Blacklist::from_iter(test_config.blacklist.iter().map(|x| {
             if let Some(x) = x {
                 format!("127.0.0.1:{}", ports[*x])
             } else {
