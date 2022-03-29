@@ -42,13 +42,10 @@ impl Blacklist {
     }
 
     /// Returns whether given address is on the blacklist.
-    pub fn contains(&self, addr: impl PeerWithAddress) -> bool {
-        match addr.get_address() {
+    pub fn contains(&self, addr: &std::net::SocketAddr) -> bool {
+        match self.0.get(&addr.ip()) {
             None => false,
-            Some(addr) => match self.0.get(&addr.ip()) {
-                None => false,
-                Some(ports) => ports.contains(addr.port()),
-            },
+            Some(ports) => ports.contains(addr.port()),
         }
     }
 }

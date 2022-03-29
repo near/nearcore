@@ -102,12 +102,19 @@ impl PeerStore {
             // it.  Otherwise, it’s not connected.
             let status = if peer_state.status.is_banned() {
                 peer_state.status
-            } else if blacklist.contains(&peer_state.peer_info) {
-                info!(target: "network", "Banning {:?} because address is blacklisted",
-                      peer_state.peer_info);
-                KnownPeerStatus::Banned(ReasonForBan::Blacklisted, now)
             } else {
-                KnownPeerStatus::NotConnected
+                let is_blacklisted = peer_state
+                    .peer_info
+                    .addr
+                    .as_ref()
+                    .map_or(false, |addr| blacklist.contains(addr));
+                if is_blacklisted {
+                    info!(target: "network", "Banning {:?} because address is blacklisted",
+                          peer_state.peer_info);
+                    KnownPeerStatus::Banned(ReasonForBan::Blacklisted, now)
+                } else {
+                    KnownPeerStatus::NotConnected
+                }
             };
 
             let peer_state = KnownPeerState {
@@ -393,7 +400,9 @@ impl PeerStore {
         let mut blacklisted: usize = 0;
         for peer_info in peers {
             total += 1;
-            if self.blacklist.contains(&peer_info) {
+            let is_blacklisted =
+                peer_info.addr.as_ref().map_or(false, |addr| self.blacklist.contains(addr));
+            if is_blacklisted {
                 blacklisted += 1;
             } else {
                 self.add_peer(peer_info, TrustLevel::Indirect)?;
@@ -656,12 +665,12 @@ mod test {
 
     #[test]
     fn check_ignore_blacklisted_peers() {
-        fn assert_peers(peer_store: &PeerStore, expected: &[&PeerId], blacklisted: &[&PeerId]) {
+        fn assert_peers(peer_store: &PeerStore, expected: &[&PeerId], banned: &[&PeerId]) {
             let expected: HashSet<&PeerId> = HashSet::from_iter(expected.iter().cloned());
             let got = HashSet::from_iter(peer_store.peer_states.keys());
             assert_eq!(expected, got);
 
-            let expected: HashSet<&PeerId> = HashSet::from_iter(blacklisted.iter().cloned());
+            let expected: HashSet<&PeerId> = HashSet::from_iter(banned.iter().cloned());
             let got =
                 HashSet::from_iter(peer_store.peer_states.iter().filter_map(|(key, value)| {
                     if value.status.is_banned() {
