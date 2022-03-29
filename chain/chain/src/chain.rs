@@ -91,7 +91,12 @@ pub const NUM_ORPHAN_ANCESTORS_CHECK: u64 = 3;
 // It should almost never be hit
 const MAX_ORPHAN_MISSING_CHUNKS: usize = 5;
 
+/// 10000 years in seconds. Big constant for sandbox to allow time traveling.
+#[cfg(feature = "sandbox")]
+const ACCEPTABLE_TIME_DIFFERENCE: i64 = 60 * 60 * 24 * 365 * 10000;
+
 /// Refuse blocks more than this many block intervals in the future (as in bitcoin).
+#[cfg(not(feature = "sandbox"))]
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 
 /// Over this block height delta in advance if we are not chunk producer - route tx to upcoming validators.
@@ -105,16 +110,6 @@ pub const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
 
 /// Maximum number of height to go through at each step when cleaning forks during garbage collection.
 const GC_FORK_CLEAN_STEP: u64 = 1000;
-
-/// Grab the acceptable time difference. This may differ between sandbox and regular networks
-const fn acceptable_time_difference() -> i64 {
-    if cfg!(feature = "sandbox") {
-        // 10000 years in seconds
-        60 * 60 * 24 * 365 * 10000
-    } else {
-        ACCEPTABLE_TIME_DIFFERENCE
-    }
-}
 
 /// apply_chunks may be called in two code paths, through process_block or through catchup_blocks
 /// When it is called through process_block, it is possible that the shard state for the next epoch
@@ -2230,7 +2225,7 @@ impl Chain {
         blocks_catch_up_state: &mut BlocksCatchUpState,
         block_catch_up_scheduler: &dyn Fn(BlockCatchUpRequest),
     ) -> Result<(), Error> {
-        debug!(target:"catchup", "catch up blocks: pending blocks: {:?}, processed {:?}, scheduled: {:?}, done: {:?}", 
+        debug!(target:"catchup", "catch up blocks: pending blocks: {:?}, processed {:?}, scheduled: {:?}, done: {:?}",
                blocks_catch_up_state.pending_blocks, blocks_catch_up_state.processed_blocks.keys().collect::<Vec<_>>(),
                blocks_catch_up_state.scheduled_blocks.keys().collect::<Vec<_>>(), blocks_catch_up_state.done_blocks.len());
         for (queued_block, (saved_store_update, results)) in
@@ -4394,7 +4389,7 @@ impl<'a> ChainUpdate<'a> {
         on_challenge: &mut dyn FnMut(ChallengeBody),
     ) -> Result<(), Error> {
         // Refuse blocks from the too distant future
-        if header.timestamp() > Clock::utc() + Duration::seconds(acceptable_time_difference()) {
+        if header.timestamp() > Clock::utc() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
             return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp()).into());
         }
 

@@ -454,6 +454,19 @@ impl Client {
         #[cfg(feature = "sandbox")]
         let delta_time = self.sandbox_delta_time();
 
+        let at = to_timestamp(Clock::utc());
+        let timestamp_override = Option::<u64>::None;
+
+        // Sandbox can override the timestamp normally produced from a Block. This new timestamp
+        // is from when a fast_forward request that has been processed.
+        #[cfg(feature = "sandbox")]
+        let (at, timestamp_override) = if delta_time > 0 {
+            let at = at + delta_time;
+            (at, Some(at))
+        } else {
+            (at, timestamp_override)
+        };
+
         // Get block extra from previous block.
         let mut block_merkle_tree =
             self.chain.mut_store().get_block_merkle_tree(&prev_hash)?.clone();
@@ -502,19 +515,6 @@ impl Client {
             self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
         let next_epoch_protocol_version =
             self.runtime_adapter.get_epoch_protocol_version(&next_epoch_id)?;
-
-        let at = to_timestamp(Clock::utc());
-        let timestamp_override = Option::<u64>::None;
-
-        // Sandbox can override the timestamp normally produced from a Block. This new timestamp
-        // is from when a fast_forward request has been processed.
-        #[cfg(feature = "sandbox")]
-        let (at, timestamp_override) = if delta_time > 0 {
-            let at = at + delta_time;
-            (at, Some(at))
-        } else {
-            (at, timestamp_override)
-        };
 
         let block = Block::produce(
             this_epoch_protocol_version,

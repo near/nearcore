@@ -893,6 +893,9 @@ impl ClientActor {
         }
     }
 
+    /// Process the sandbox fast forward request. If the change in block height is past an epoch,
+    /// we fast forward to just right before the epoch, produce some blocks to get past and into
+    /// a new epoch, then we continue on with the residual amount to fast forward.
     #[cfg(feature = "sandbox")]
     fn sandbox_process_fast_forward(
         &mut self,
@@ -960,6 +963,10 @@ impl ClientActor {
     fn post_block_production(&mut self) {
         #[cfg(feature = "sandbox")]
         if let Some(delta_height) = self.fastforward_delta.take() {
+            // Decrease the delta_height by 1 since we've produced a single block. This
+            // ensures that we advanced the right amount of blocks when fast forwarding
+            // and fast forwarding triggers regular block production in the case of
+            // stepping between epoch boundaries.
             if delta_height > 0 {
                 self.fastforward_delta = Some(delta_height - 1);
             }
