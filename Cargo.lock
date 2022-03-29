@@ -1487,7 +1487,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap 3.1.6",
- "nix 0.23.1",
+ "nix",
  "reqwest",
  "rusqlite",
  "serde",
@@ -3147,7 +3147,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be44da452581a4f2e7870d86886f50605853943ded9b6a7975495914645cdca4"
 dependencies = [
  "backtrace",
- "nix 0.15.0",
+ "nix",
  "tracing",
 ]
 
@@ -3406,19 +3406,6 @@ dependencies = [
  "cfg-if 0.1.10",
  "libc",
  "void",
-]
-
-[[package]]
-name = "nix"
-version = "0.23.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f866317acbd3a240710c63f065ffb1e4fd466259045ccb504130b7f668f35c6"
-dependencies = [
- "bitflags",
- "cc",
- "cfg-if 1.0.0",
- "libc",
- "memoffset",
 ]
 
 [[package]]
@@ -5944,7 +5931,7 @@ dependencies = [
  "indexmap",
  "lazy_static",
  "libc",
- "nix 0.15.0",
+ "nix",
  "page_size",
  "parking_lot 0.10.2",
  "rustc_version 0.2.3",
@@ -5985,7 +5972,7 @@ dependencies = [
  "dynasmrt",
  "lazy_static",
  "libc",
- "nix 0.15.0",
+ "nix",
  "serde",
  "serde_derive",
  "smallvec",
