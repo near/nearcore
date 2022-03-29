@@ -4,7 +4,7 @@ use xshell::{cmd, Shell};
 
 use crate::{db::Db, import::ImportConfig};
 
-/// Additional information required for import
+/// Additional information required for estimation.
 #[derive(Debug, Parser)]
 pub(crate) struct EstimateConfig {
     /// Specify the directory of a different repository, if not estimating the current one.
