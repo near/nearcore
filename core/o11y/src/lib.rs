@@ -20,18 +20,18 @@ pub const DEFAULT_RUST_LOG: &'static str = "tokio_reactor=info,\
 ///
 /// Once dropped, the subscriber is unregistered, and the output is flushed. Any messages output
 /// after this value is dropped will be delivered to a previously active subscriber, if any.
-#[allow(dead_code)] // Fields are never read
 pub struct DefaultSubcriberGuard<S> {
     // NB: the field order matters here. I would've used `ManuallyDrop` to indicate this
     // particularity, but somebody decided at some point that doing so is unconventional Rust and
     // that implicit is better than explicit.
     //
-    // We must first drop the `subscriber_guard` so that no new messages are delivered to this
-    // subscriber while we take care of flushing the messages already in queue. If dropped the
+    // We must first drop the `local_subscriber_guard` so that no new messages are delivered to
+    // this subscriber while we take care of flushing the messages already in queue. If dropped the
     // other way around, the events/spans generated while the subscriber drop guard runs would be
     // lost.
     subscriber: Option<S>,
     local_subscriber_guard: Option<tracing::subscriber::DefaultGuard>,
+    #[allow(dead_code)] // This field is never read, but has semantic purpose as a drop guard.
     writer_guard: tracing_appender::non_blocking::WorkerGuard,
 }
 
