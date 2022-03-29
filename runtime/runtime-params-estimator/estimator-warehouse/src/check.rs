@@ -72,16 +72,9 @@ pub(crate) fn check(db: &Db, config: &CheckConfig) -> anyhow::Result<()> {
     } else {
         let rows_a = EstimationRow::select_by_commit_and_metric(db, &commit_a, config.metric)?;
         let rows_b = EstimationRow::select_by_commit_and_metric(db, &commit_b, config.metric)?;
-        let estimations_a = rows_a.into_iter().map(|row| row.name);
-        let estimations_b = rows_b.into_iter().map(|row| row.name);
-        let mut intersection = vec![];
-        let lut = estimations_a.collect::<BTreeSet<_>>();
-        for b in estimations_b {
-            if lut.contains(&b) {
-                intersection.push(b);
-            }
-        }
-        intersection
+        let estimations_a = rows_a.into_iter().map(|row| row.name).collect::<BTreeSet<_>>();
+        let estimations_b = rows_b.into_iter().map(|row| row.name).collect::<BTreeSet<_>>();
+        estimations_a.intersection(&estimations_b).cloned().collect()
     };
     let warnings = estimation_changes(db, &estimations, &commit_a, &commit_b, 0.1, Metric::Time)?;
     for warning in &warnings {
