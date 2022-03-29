@@ -131,10 +131,14 @@ impl RuntimeTestbed {
         total_burnt_gas
     }
 
-    pub fn process_blocks_until_no_receipts(&mut self, allow_failures: bool) {
+    /// Returns the number of blocks required to reach quiescence
+    pub fn process_blocks_until_no_receipts(&mut self, allow_failures: bool) -> usize {
+        let mut n = 0;
         while !self.prev_receipts.is_empty() {
             self.process_block(&[], allow_failures);
+            n += 1;
         }
+        n
     }
 
     /// Flushes RocksDB memtable

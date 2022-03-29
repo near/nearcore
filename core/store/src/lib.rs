@@ -28,7 +28,8 @@ use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 pub use crate::db::refcount::decode_value_with_rc;
 use crate::db::refcount::encode_value_with_rc;
 use crate::db::{
-    DBOp, DBTransaction, Database, RocksDB, GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
+    DBOp, DBTransaction, Database, RocksDB, RocksDBOptions, StoreStatistics, GENESIS_JSON_HASH_KEY,
+    GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::iterator::TrieIterator;
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
@@ -150,6 +151,10 @@ impl Store {
 
     pub fn get_rocksdb(&self) -> Option<&RocksDB> {
         self.storage.as_rocksdb()
+    }
+
+    pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
+        self.storage.get_store_statistics()
     }
 }
 
@@ -300,10 +305,25 @@ pub fn create_store(path: &Path) -> Store {
     Store::new(db)
 }
 
-/// Creates a store which is unable to modify an existing RocksDB instance.
-/// Panics if a write operation is attempted.
-pub fn open_read_only_store(path: &Path) -> Store {
-    let db = Arc::new(RocksDB::new_read_only(path).expect("Failed to open the database"));
+#[derive(Default, Debug)]
+pub struct StoreConfig {
+    /// Attempted writes to the DB will fail. Doesn't require a `LOCK` file.
+    pub read_only: bool,
+    /// Re-export storage layer statistics as prometheus metrics.
+    /// Minor performance impact is expected.
+    pub enable_statistics: bool,
+}
+
+pub fn create_store_with_config(path: &Path, store_config: StoreConfig) -> Store {
+    let mut opts = RocksDBOptions::default();
+    if store_config.enable_statistics {
+        opts = opts.enable_statistics();
+    }
+
+    let db = Arc::new(
+        (if store_config.read_only { opts.read_only(path) } else { opts.read_write(path) })
+            .expect("Failed to open the database"),
+    );
     Store::new(db)
 }
 

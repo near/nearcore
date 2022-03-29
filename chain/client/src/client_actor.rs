@@ -2,8 +2,9 @@
 
 use crate::client::Client;
 use crate::info::{get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper};
+use crate::metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY;
 use crate::sync::{StateSync, StateSyncResult};
-use crate::StatusResponse;
+use crate::{metrics, StatusResponse};
 use actix::dev::SendError;
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
@@ -36,6 +37,7 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::state_part::PartId;
 use near_primitives::syncing::StatePartKey;
 use near_primitives::time::{Clock, Utc};
 use near_primitives::types::BlockHeight;
@@ -251,11 +253,23 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
     #[perf_with_debug]
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
+        self.check_triggers(ctx);
+
         let _d = delay_detector::DelayDetector::new(|| {
             format!("NetworkClientMessage {}", msg.as_ref()).into()
         });
-        self.check_triggers(ctx);
+        metrics::CLIENT_MESSAGES_COUNT.with_label_values(&[msg.as_ref()]).inc();
+        let timer = metrics::CLIENT_MESSAGES_PROCESSING_TIME
+            .with_label_values(&[msg.as_ref()])
+            .start_timer();
+        let res = self.handle_client_messages(msg);
+        timer.observe_duration();
+        res
+    }
+}
 
+impl ClientActor {
+    fn handle_client_messages(&mut self, msg: NetworkClientMessages) -> NetworkClientResponses {
         match msg {
             #[cfg(feature = "test_features")]
             NetworkClientMessages::Adversarial(adversarial_msg) => {
@@ -438,9 +452,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 let state_response = state_response_info.take_state_response();
 
                 trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
-                    shard_id,
-                    hash,
-                    state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
+                       shard_id,
+                       hash,
+                       state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
                 );
                 // Get the download that matches the shard_id and hash
                 let download = {
@@ -524,11 +538,12 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                     return NetworkClientResponses::NoResponse;
                                 }
                                 if !shard_sync_download.downloads[part_id as usize].done {
-                                    match self
-                                        .client
-                                        .chain
-                                        .set_state_part(shard_id, hash, part_id, num_parts, &data)
-                                    {
+                                    match self.client.chain.set_state_part(
+                                        shard_id,
+                                        hash,
+                                        PartId::new(part_id, num_parts),
+                                        &data,
+                                    ) {
                                         Ok(()) => {
                                             shard_sync_download.downloads[part_id as usize].done =
                                                 true;
@@ -567,7 +582,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 );
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::PartialEncodedChunkResponse(response) => {
+            NetworkClientMessages::PartialEncodedChunkResponse(response, time) => {
+                PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(time.elapsed().as_secs_f64());
                 if let Ok(accepted_blocks) =
                     self.client.process_partial_encoded_chunk_response(response)
                 {
@@ -611,7 +627,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
         }
     }
 }
-
 impl Handler<Status> for ClientActor {
     type Result = Result<StatusResponse, StatusError>;
 
@@ -756,7 +771,11 @@ impl Handler<Status> for ClientActor {
                 last_block_height = block.header().height();
             }
 
-            Some(DetailedDebugStatus { last_blocks: blocks_debug })
+            Some(DetailedDebugStatus {
+                last_blocks: blocks_debug,
+                network_info: self.network_info.clone().into(),
+                sync_status: self.client.sync_status.as_variant_name().to_string(),
+            })
         } else {
             None
         };
@@ -1628,6 +1647,7 @@ impl ClientActor {
                 .get_protocol_upgrade_block_height(head.last_block_hash)
                 .unwrap_or(None)
                 .unwrap_or(0),
+            self.client.chain.store().get_store_statistics(),
         );
     }
 }
@@ -1658,8 +1678,7 @@ impl SyncJobsActor {
             msg.runtime.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
-                part_id,
-                msg.num_parts,
+                PartId::new(part_id, msg.num_parts),
                 &part,
                 &msg.epoch_id,
             )?;

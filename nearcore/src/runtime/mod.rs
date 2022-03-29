@@ -29,6 +29,7 @@ use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ChunkHash;
+use near_primitives::state_part::PartId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -1591,19 +1592,17 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         block_hash: &CryptoHash,
         state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
+        part_id: PartId,
     ) -> Result<Vec<u8>, Error> {
-        assert!(part_id < num_parts);
         let epoch_id = self.get_epoch_id(block_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
         let trie = self.tries.get_view_trie_for_shard(shard_uid);
-        let result = match trie.get_trie_nodes_for_part(part_id, num_parts, state_root) {
+        let result = match trie.get_trie_nodes_for_part(part_id, state_root) {
             Ok(partial_state) => partial_state,
             Err(e) => {
                 error!(target: "runtime",
-                       "Can't get_trie_nodes_for_part for {:?}, part_id {:?}, num_parts {:?}, {:?}",
-                       state_root, part_id, num_parts, e
+                       "Can't get_trie_nodes_for_part for block {:?} state root {:?}, part_id {:?}, num_parts {:?}, {:?}",
+                       block_hash, state_root, part_id.idx, part_id.total, e
                 );
                 return Err(e.to_string().into());
             }
@@ -1613,18 +1612,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(result)
     }
 
-    fn validate_state_part(
-        &self,
-        state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
-        data: &Vec<u8>,
-    ) -> bool {
-        assert!(part_id < num_parts);
+    fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &Vec<u8>) -> bool {
         match BorshDeserialize::try_from_slice(data) {
             Ok(trie_nodes) => {
-                match Trie::validate_trie_nodes_for_part(state_root, part_id, num_parts, trie_nodes)
-                {
+                match Trie::validate_trie_nodes_for_part(state_root, part_id, trie_nodes) {
                     Ok(_) => true,
                     // Storage error should not happen
                     Err(_) => false,
@@ -1696,7 +1687,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
         debug!(target: "runtime", "splitting state for shard {} to {} parts to build new states", shard_id, num_parts);
         for part_id in 0..num_parts {
-            let trie_items = trie.get_trie_items_for_part(part_id, num_parts, state_root)?;
+            let trie_items =
+                trie.get_trie_items_for_part(PartId::new(part_id, num_parts), state_root)?;
             let (store_update, new_state_roots) = self.tries.add_values_to_split_states(
                 &state_roots,
                 trie_items.into_iter().map(|(key, value)| (key, Some(value))).collect(),
@@ -1719,15 +1711,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
+        part_id: PartId,
         data: &[u8],
         epoch_id: &EpochId,
     ) -> Result<(), Error> {
         let part = BorshDeserialize::try_from_slice(data)
             .expect("Part was already validated earlier, so could never fail here");
         let ApplyStatePartResult { trie_changes, contract_codes } =
-            Trie::apply_state_part(state_root, part_id, num_parts, part);
+            Trie::apply_state_part(state_root, part_id, part);
         let tries = self.get_tries();
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
         let (store_update, _) =
@@ -2656,8 +2647,10 @@ mod test {
         env.step_default(vec![staking_transaction]);
         env.step_default(vec![]);
         let block_hash = hash(&vec![env.head.height as u8]);
-        let state_part =
-            env.runtime.obtain_state_part(0, &block_hash, &env.state_roots[0], 0, 1).unwrap();
+        let state_part = env
+            .runtime
+            .obtain_state_part(0, &block_hash, &env.state_roots[0], PartId::new(0, 1))
+            .unwrap();
         let root_node =
             env.runtime.get_state_root_node(0, &block_hash, &env.state_roots[0]).unwrap();
         let mut new_env = TestEnv::new("test_state_sync", vec![validators], 2, false);
@@ -2706,12 +2699,16 @@ mod test {
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
         root_node_wrong.data = vec![123];
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
-        assert!(!new_env.runtime.validate_state_part(&StateRoot::default(), 0, 1, &state_part));
-        new_env.runtime.validate_state_part(&env.state_roots[0], 0, 1, &state_part);
+        assert!(!new_env.runtime.validate_state_part(
+            &StateRoot::default(),
+            PartId::new(0, 1),
+            &state_part
+        ));
+        new_env.runtime.validate_state_part(&env.state_roots[0], PartId::new(0, 1), &state_part);
         let epoch_id = &new_env.head.epoch_id;
         new_env
             .runtime
-            .apply_state_part(0, &env.state_roots[0], 0, 1, &state_part, epoch_id)
+            .apply_state_part(0, &env.state_roots[0], PartId::new(0, 1), &state_part, epoch_id)
             .unwrap();
         new_env.state_roots[0] = env.state_roots[0];
         for _ in 3..=5 {

@@ -8,6 +8,7 @@ members = [
     "core/primitives-core",
     "core/store",
     "core/metrics",
+    "core/o11y",
     "runtime/near-vm-logic",
     "runtime/near-vm-runner",
     "runtime/near-vm-runner/fuzz",

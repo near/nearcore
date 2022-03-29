@@ -50,6 +50,9 @@ use near_store::{
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeAdapter};
 use near_store::db::DBCol::ColStateChangesForSplitStates;
+use near_store::db::StoreStatistics;
+#[cfg(feature = "mock_network")]
+use std::sync::Arc;
 
 /// lru cache size
 #[cfg(not(feature = "no_cache"))]
@@ -760,6 +763,10 @@ impl ChainStore {
                 changes
             }
         })
+    }
+
+    pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
+        self.store.get_store_statistics()
     }
 }
 
@@ -2465,6 +2472,120 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
+    /// Only used in mock network
+    /// Create a new ChainStoreUpdate that copies the necessary chain state related to `block_hash`
+    /// from `source_store` to the current store.
+    #[cfg(feature = "mock_network")]
+    pub fn copy_chain_state_as_of_block(
+        chain_store: &'a mut ChainStore,
+        block_hash: &CryptoHash,
+        source_runtime: Arc<dyn RuntimeAdapter>,
+        source_store: &mut ChainStore,
+    ) -> Result<ChainStoreUpdate<'a>, Error> {
+        let mut chain_store_update = ChainStoreUpdate::new(chain_store);
+        let block = source_store.get_block(block_hash)?.clone();
+        let header = block.header();
+        let height = header.height();
+        let tip = Tip {
+            height,
+            last_block_hash: *block_hash,
+            prev_block_hash: *header.prev_hash(),
+            epoch_id: header.epoch_id().clone(),
+            next_epoch_id: header.next_epoch_id().clone(),
+        };
+        chain_store_update.head = Some(tip.clone());
+        chain_store_update.tail = Some(height);
+        chain_store_update.chunk_tail = Some(height);
+        chain_store_update.fork_tail = Some(height);
+        chain_store_update.header_head = Some(tip.clone());
+        chain_store_update.final_head = Some(tip);
+        chain_store_update.chain_store_cache_update.blocks.insert(*block_hash, block.clone());
+        chain_store_update.chain_store_cache_update.headers.insert(*block_hash, header.clone());
+        // store all headers until header.last_final_block
+        // needed to light client
+        let mut prev_hash = *header.prev_hash();
+        let last_final_hash = header.last_final_block();
+        loop {
+            let header = source_store.get_block_header(&prev_hash)?;
+            chain_store_update.chain_store_cache_update.headers.insert(prev_hash, header.clone());
+            if &prev_hash == last_final_hash {
+                break;
+            } else {
+                chain_store_update
+                    .chain_store_cache_update
+                    .next_block_hashes
+                    .insert(*header.prev_hash(), prev_hash);
+                prev_hash = *header.prev_hash();
+            }
+        }
+        chain_store_update
+            .chain_store_cache_update
+            .block_extras
+            .insert(*block_hash, source_store.get_block_extra(block_hash)?.clone());
+        let shard_layout = source_runtime.get_shard_layout(&header.epoch_id())?;
+        for shard_uid in shard_layout.get_shard_uids() {
+            chain_store_update.chain_store_cache_update.chunk_extras.insert(
+                (*block_hash, shard_uid),
+                source_store.get_chunk_extra(block_hash, &shard_uid)?.clone(),
+            );
+        }
+        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
+            let chunk_hash = chunk_header.chunk_hash();
+            let shard_id = shard_id as u64;
+            chain_store_update
+                .chain_store_cache_update
+                .chunks
+                .insert(chunk_hash.clone(), source_store.get_chunk(&chunk_hash)?.clone());
+            chain_store_update
+                .chain_store_cache_update
+                .chunk_hash_per_height_shard
+                .insert((height, shard_id), chunk_hash);
+            chain_store_update.chain_store_cache_update.outgoing_receipts.insert(
+                (*block_hash, shard_id),
+                source_store.get_outgoing_receipts(block_hash, shard_id)?.clone(),
+            );
+            chain_store_update.chain_store_cache_update.incoming_receipts.insert(
+                (*block_hash, shard_id),
+                source_store.get_incoming_receipts(block_hash, shard_id)?.clone(),
+            );
+            let outcome_ids =
+                source_store.get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?;
+            for id in outcome_ids.iter() {
+                let existing_outcomes = source_store.get_outcomes_by_id(id)?;
+                chain_store_update.chain_store_cache_update.outcomes.insert(*id, existing_outcomes);
+            }
+            chain_store_update
+                .chain_store_cache_update
+                .outcome_ids
+                .insert((*block_hash, shard_id), outcome_ids);
+        }
+        chain_store_update
+            .chain_store_cache_update
+            .height_to_hashes
+            .insert(height, Some(*block_hash));
+        chain_store_update
+            .chain_store_cache_update
+            .next_block_hashes
+            .insert(*header.prev_hash(), *block_hash);
+        let block_merkle_tree = source_store.get_block_merkle_tree(block_hash)?;
+        chain_store_update
+            .chain_store_cache_update
+            .block_merkle_tree
+            .insert(*block_hash, block_merkle_tree.clone());
+        chain_store_update
+            .chain_store_cache_update
+            .block_ordinal_to_hash
+            .insert(block_merkle_tree.size(), *block_hash);
+        chain_store_update.chain_store_cache_update.processed_block_heights.insert(height);
+
+        // other information not directly related to this block
+        chain_store_update.chain_store_cache_update.height_to_hashes.insert(
+            source_store.genesis_height,
+            Some(source_store.get_block_hash_by_height(source_store.genesis_height)?.clone()),
+        );
+        Ok(chain_store_update)
+    }
+
     fn finalize(&mut self) -> Result<StoreUpdate, Error> {
         let mut store_update = self.store().store_update();
         Self::write_col_misc(&mut store_update, HEAD_KEY, &mut self.head)?;
@@ -2499,7 +2620,6 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.set_ser(ColBlock, hash.as_ref(), block)?;
         }
         let mut header_hashes_by_height: HashMap<BlockHeight, HashSet<CryptoHash>> = HashMap::new();
-        debug_assert!(self.chain_store_cache_update.headers.len() <= 1);
         for (hash, header) in self.chain_store_cache_update.headers.iter() {
             if self.chain_store.get_block_header(hash).is_ok() {
                 // No need to add same Header once again

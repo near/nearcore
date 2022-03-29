@@ -29,7 +29,7 @@ use near_store::migrations::{
     migrate_21_to_22, migrate_25_to_26, migrate_26_to_27, migrate_28_to_29, migrate_29_to_30,
     migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
 };
-use near_store::{create_store, open_read_only_store, Store};
+use near_store::{create_store, create_store_with_config, Store, StoreConfig};
 use near_telemetry::TelemetryActor;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -368,7 +368,13 @@ pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Stor
     if store_exists {
         apply_store_migrations(&path, near_config);
     }
-    let store = create_store(&path);
+    let store = create_store_with_config(
+        &path,
+        StoreConfig {
+            read_only: false,
+            enable_statistics: near_config.config.enable_rocksdb_statistics,
+        },
+    );
     if !store_exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);
     }
@@ -537,10 +543,13 @@ pub fn recompress_storage(home_dir: &Path, dst_dir: &Path) -> anyhow::Result<()>
     );
 
     info!("Recompressing data from {} into {}", src_dir.display(), dst_dir.display());
-    let src_store = open_read_only_store(&src_dir);
+    let src_store = create_store_with_config(
+        &src_dir,
+        StoreConfig { read_only: true, enable_statistics: false },
+    );
     let dst_store = create_store(&dst_dir);
 
-    const BATCH_SIZE_BYTES: usize = 150_000_000;
+    const BATCH_SIZE_BYTES: u64 = 150_000_000;
 
     for (n, column) in DBCol::iter().enumerate() {
         info!(
@@ -551,13 +560,13 @@ pub fn recompress_storage(home_dir: &Path, dst_dir: &Path) -> anyhow::Result<()>
             DBCol::COUNT
         );
         let mut store_update = dst_store.store_update();
-        let mut total_written = 0;
-        let mut batch_written = 0;
-        let mut count_keys = 0;
+        let mut total_written: u64 = 0;
+        let mut batch_written: u64 = 0;
+        let mut count_keys: u64 = 0;
         for (key, value) in src_store.iter(column) {
             store_update.set(column, &key, &value);
-            total_written += value.len();
-            batch_written += value.len();
+            total_written += value.len() as u64;
+            batch_written += value.len() as u64;
             count_keys += 1;
             if batch_written >= BATCH_SIZE_BYTES {
                 store_update.commit()?;
