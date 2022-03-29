@@ -69,8 +69,12 @@ use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_store::split_state::get_delayed_receipts;
 use node_runtime::near_primitives::shard_layout::ShardLayoutError;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+#[cfg(feature = "snapshot_grabber")]
+use snapshot_grabber::SnapshotGrabber;
 
 pub mod errors;
+#[cfg(feature = "snapshot_grabber")]
+mod snapshot_grabber;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -141,6 +145,8 @@ pub struct NightshadeRuntime {
     shard_tracker: ShardTracker,
     genesis_state_roots: Vec<StateRoot>,
     migration_data: Arc<MigrationData>,
+    #[cfg(feature = "snapshot_grabber")]
+    snapshot_grabber: SnapshotGrabber,
 }
 
 impl NightshadeRuntime {
@@ -209,6 +215,8 @@ impl NightshadeRuntime {
             shard_tracker,
             genesis_state_roots: state_roots,
             migration_data: Arc::new(load_migration_data(&genesis.config.chain_id)),
+            #[cfg(feature = "snapshot_grabber")]
+            snapshot_grabber: SnapshotGrabber::new(&[]),
         }
     }
 
@@ -515,6 +523,21 @@ impl NightshadeRuntime {
                "epoch height: {:?}, epoch id: {:?}, current_protocol_version: {:?}, is_first_block_of_version: {}",
                epoch_height, &epoch_id, current_protocol_version, is_first_block_of_version,
         );
+
+        #[cfg(feature = "snapshot_grabber")]
+        {
+            if epoch_id != prev_block_epoch_id {
+                self.snapshot_grabber.on_epoch_start(
+                    &epoch_id,
+                    self,
+                    &state_root,
+                    prev_block_hash,
+                    shard_id,
+                );
+            }
+
+            self.snapshot_grabber.grab_transactions(&epoch_id, transactions);
+        }
 
         let apply_state = ApplyState {
             block_index: block_height,

@@ -70,5 +70,7 @@ force_wasmer2 = ["nearcore/force_wasmer2"]
 force_wasmer0 = ["nearcore/force_wasmer0"]
 force_wasmtime = ["nearcore/force_wasmtime"]
 
+snapshot_grabber = ["nearcore/snapshot_grabber"]
+
 [package.metadata.workspaces]
 independent = true

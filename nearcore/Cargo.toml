@@ -158,3 +158,5 @@ sandbox = [
   "node-runtime/sandbox",
   "near-jsonrpc/sandbox",
 ]
+
+snapshot_grabber = []
