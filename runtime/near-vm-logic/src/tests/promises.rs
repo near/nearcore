@@ -22,10 +22,7 @@ fn vm_receipts<'a>(logic: &'a VMLogic) -> Vec<ReceiptView<'a>> {
         .action_receipts
         .0
         .iter()
-        .map(|(receiver_id, metadata)| ReceiptView {
-            receiver_id,
-            actions: metadata.actions.as_slice(),
-        })
+        .map(|(receiver_id, metadata)| ReceiptView { receiver_id, actions: metadata.actions() })
         .collect()
 }
 

@@ -26,7 +26,14 @@ pub(crate) struct ReceiptMetadata {
     /// depending on `ReceivedData` is `Some(_)` or `None`
     input_data_ids: Vec<CryptoHash>,
     /// A list of actions to process when all input_data_ids are filled
-    pub(crate) actions: Vec<Action>,
+    actions: Vec<Action>,
+}
+
+impl ReceiptMetadata {
+    #[cfg(test)]
+    pub(crate) fn actions(&self) -> &[Action] {
+        &self.actions
+    }
 }
 
 #[derive(Default, Clone, PartialEq)]
