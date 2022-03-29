@@ -1,7 +1,9 @@
 //! Client actor orchestrates Client and facilitates network connection.
 
 use crate::client::Client;
-use crate::info::{display_sync_status, get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper};
+use crate::info::{
+    display_sync_status, get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper,
+};
 use crate::metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY;
 use crate::sync::{StateSync, StateSyncResult};
 use crate::{metrics, StatusResponse};
