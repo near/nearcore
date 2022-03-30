@@ -537,7 +537,7 @@ impl NightshadeRuntime {
                 );
             }
 
-            self.snapshot_grabber.grab_transactions(&epoch_id, transactions);
+            self.snapshot_grabber.grab_transactions(&epoch_id, shard_id, transactions);
         }
 
         let apply_state = ApplyState {

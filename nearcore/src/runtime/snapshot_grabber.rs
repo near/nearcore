@@ -70,7 +70,12 @@ impl SnapshotGrabber {
         debug!("State grabbed for shard {}", shard_id);
     }
 
-    pub fn grab_transactions(&self, epoch_id: &EpochId, transactions: &[SignedTransaction]) {
+    pub fn grab_transactions(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+        transactions: &[SignedTransaction],
+    ) {
         if self.epoch_id.lock().unwrap().get() == Some(epoch_id.0) {
             let mut file = fs::OpenOptions::new()
                 .write(true)
