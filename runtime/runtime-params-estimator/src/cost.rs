@@ -139,18 +139,22 @@ pub enum Cost {
     /// (TODO[jakmeier] Consider different account states.
     ActionDeleteAccount,
 
-    /// Estimates `wasm_config.ext_costs.base` which is charged once on every
-    /// host function call.
-    /// 
-    /// Estimation: Measure a function call that calls the host function
-    /// `block_index()` many times. Subtract the cost of executing a function
-    /// that does nothing. Divide the difference by the number of host function
-    /// calls.
+    /// Estimates `wasm_config.ext_costs.base` which is intended to be charged
+    /// once on every host function call. However, this is currently
+    /// inconsistent. First, we do not charge on calls to `sha256`. Furthermore,
+    /// `promise_then` and `promise_create` are convenience wrapper around two
+    /// other host functions, which means they end up charing this fee twice.
+    ///
+    /// Estimation: Measure a transaction with a smart contract function call
+    /// that, from within the WASM runtime, invokes the host function
+    /// `block_index()` many times. Subtract the cost of executing a smart
+    /// contract function that does nothing. Divide the difference by the number
+    /// of host function calls.
     HostFunctionCall,
     /// Estimates `wasm_config.regular_op_cost` which is charged for every
     /// executed WASM operation in function calls, as counted dynamically during
     /// execution.
-    /// 
+    ///
     /// Estimation: Run a contract that reads and writes lots of memory in an
     /// attempt to cause slow loads and stores. The total time spent in the
     /// runtime is divided by the number of executed instructions.
