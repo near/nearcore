@@ -3,11 +3,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::{Arg, Command};
-use tracing::metadata::LevelFilter;
-use tracing::{error, info};
-use tracing_subscriber::EnvFilter;
 
 use near_crypto::{InMemorySigner, KeyFile};
+use near_o11y::tracing::{error, info};
 use near_primitives::views::CurrentEpochValidatorInfo;
 use nearcore::config::{Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME};
 use nearcore::get_default_home;
@@ -24,11 +22,8 @@ fn maybe_kicked_out(validator_info: &CurrentEpochValidatorInfo) -> bool {
 }
 
 fn main() {
-    tracing_subscriber::fmt::Subscriber::builder()
-        .with_env_filter(EnvFilter::default().add_directive(LevelFilter::DEBUG.into()))
-        .with_writer(std::io::stderr)
-        .init();
-
+    let filter = near_o11y::EnvFilterBuilder::from_env().verbose(Some("")).finish();
+    let _subscriber = near_o11y::default_subscriber(filter).global();
     let default_home = get_default_home();
     let matches = Command::new("Key-pairs generator")
         .about(
@@ -117,7 +112,10 @@ fn main() {
         if restake {
             // Already kicked out or getting kicked out.
             let amount = if stake_amount == 0 { last_stake_amount } else { stake_amount };
-            info!(target: "restaked", "Sending staking transaction {} -> {}", key_file.account_id, amount);
+            info!(
+                target: "restaked",
+                "Sending staking transaction {} -> {}", key_file.account_id, amount
+            );
             if let Err(err) =
                 user.stake(key_file.account_id.clone(), key_file.public_key.clone(), amount)
             {

@@ -1,7 +1,9 @@
 //! Client actor orchestrates Client and facilitates network connection.
 
 use crate::client::Client;
-use crate::info::{get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper};
+use crate::info::{
+    display_sync_status, get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper,
+};
 use crate::metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY;
 use crate::sync::{StateSync, StateSyncResult};
 use crate::{metrics, StatusResponse};
@@ -37,6 +39,7 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::state_part::PartId;
 use near_primitives::syncing::StatePartKey;
 use near_primitives::time::{Clock, Utc};
 use near_primitives::types::BlockHeight;
@@ -537,11 +540,12 @@ impl ClientActor {
                                     return NetworkClientResponses::NoResponse;
                                 }
                                 if !shard_sync_download.downloads[part_id as usize].done {
-                                    match self
-                                        .client
-                                        .chain
-                                        .set_state_part(shard_id, hash, part_id, num_parts, &data)
-                                    {
+                                    match self.client.chain.set_state_part(
+                                        shard_id,
+                                        hash,
+                                        PartId::new(part_id, num_parts),
+                                        &data,
+                                    ) {
                                         Ok(()) => {
                                             shard_sync_download.downloads[part_id as usize].done =
                                                 true;
@@ -772,7 +776,15 @@ impl Handler<Status> for ClientActor {
             Some(DetailedDebugStatus {
                 last_blocks: blocks_debug,
                 network_info: self.network_info.clone().into(),
-                sync_status: self.client.sync_status.as_variant_name().to_string(),
+                sync_status: format!(
+                    "{} ({})",
+                    self.client.sync_status.as_variant_name().to_string(),
+                    display_sync_status(
+                        &self.client.sync_status,
+                        &self.client.chain.head()?,
+                        self.client.chain.genesis_block().header().height(),
+                    ),
+                ),
             })
         } else {
             None
@@ -1686,8 +1698,7 @@ impl SyncJobsActor {
             msg.runtime.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
-                part_id,
-                msg.num_parts,
+                PartId::new(part_id, msg.num_parts),
                 &part,
                 &msg.epoch_id,
             )?;
