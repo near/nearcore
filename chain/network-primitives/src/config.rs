@@ -1,4 +1,3 @@
-use crate::blacklist::Blacklist;
 use crate::network_protocol::PeerInfo;
 use crate::types::ROUTED_MESSAGE_TTL;
 use near_crypto::{KeyType, PublicKey, SecretKey};
@@ -57,7 +56,7 @@ pub struct NetworkConfig {
     pub push_info_period: Duration,
     /// Peers on blacklist by IP:Port.
     /// Nodes will not accept or try to establish connection to such peers.
-    pub blacklist: Blacklist,
+    pub blacklist: Vec<String>,
     /// Flag to disable outbound connections. When this flag is active, nodes will not try to
     /// establish connection with other nodes, but will accept incoming connection if other requirements
     /// are satisfied.
@@ -97,7 +96,7 @@ impl NetworkConfig {
             max_routes_to_store: 1,
             highest_peer_horizon: 5,
             push_info_period: Duration::from_millis(100),
-            blacklist: Blacklist::default(),
+            blacklist: vec![],
             outbound_disabled: false,
             archive: false,
         }
