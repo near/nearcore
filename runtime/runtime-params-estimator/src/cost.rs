@@ -141,7 +141,9 @@ pub enum Cost {
 
     /// Estimates `wasm_config.ext_costs.base` which is intended to be charged
     /// once on every host function call. However, this is currently
-    /// inconsistent. First, we do not charge on calls to `sha256`. Furthermore,
+    /// inconsistent. First, we do not charge on Math API methods (`sha256`,
+    /// `keccak256`, `keccak512`, `ripemd160`, `alt_bn128_g1_multiexp`,
+    /// `alt_bn128_g1_sum`, `alt_bn128_pairing_check`). Furthermore,
     /// `promise_then` and `promise_create` are convenience wrapper around two
     /// other host functions, which means they end up charing this fee twice.
     ///
