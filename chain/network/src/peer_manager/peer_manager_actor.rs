@@ -30,7 +30,7 @@ use near_network_primitives::types::{
     RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom,
     StateResponseInfo,
 };
-use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
+use near_network_primitives::types::{Blacklist, EdgeState, PartialEdgeInfo};
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::checked_feature;
@@ -268,7 +268,11 @@ impl PeerManagerActor {
         view_client_addr: Recipient<NetworkViewClientMessages>,
         routing_table_addr: Addr<RoutingTableActor>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let peer_store = PeerStore::new(store.clone(), &config.boot_nodes)?;
+        let peer_store = PeerStore::new(
+            store.clone(),
+            &config.boot_nodes,
+            Blacklist::from_iter(config.blacklist.iter()),
+        )?;
         debug!(target: "network", len = peer_store.len(), boot_nodes = config.boot_nodes.len(), "Found known peers");
         debug!(target: "network", blacklist = ?config.blacklist, "Blacklist");
 
@@ -1977,7 +1981,7 @@ impl PeerManagerActor {
         let _d = delay_detector::DelayDetector::new(|| "consolidate".into());
 
         // Check if this is a blacklisted peer.
-        if (msg.peer_info.addr.as_ref()).map_or(true, |addr| self.config.blacklist.contains(addr)) {
+        if (msg.peer_info.addr.as_ref()).map_or(true, |addr| self.peer_store.is_blacklisted(addr)) {
             debug!(target: "network", peer_info = ?msg.peer_info, "Dropping connection from blacklisted peer or unknown address");
             return RegisterPeerResponse::Reject;
         }
