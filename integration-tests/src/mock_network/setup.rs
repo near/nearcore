@@ -313,6 +313,7 @@ pub fn setup_mock_network(
                 target_height,
             )
         });
+    #[cfg(not(feature = "test_features"))]
     if let Some(rpc_config) = config.rpc_config {
         near_jsonrpc::start_http(
             rpc_config,
