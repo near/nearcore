@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use tempfile::tempdir;
 use tokio::io::AsyncWriteExt;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use near_chain_configs::{
     get_initial_supply, ClientConfig, Genesis, GenesisConfig, GenesisValidationMode,
@@ -25,8 +25,7 @@ use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
-use near_network_primitives::types::blacklist_from_iter;
-use near_network_primitives::types::{NetworkConfig, ROUTED_MESSAGE_TTL};
+use near_network_primitives::types::{Blacklist, NetworkConfig, ROUTED_MESSAGE_TTL};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 #[cfg(test)]
@@ -494,10 +493,19 @@ impl Default for Config {
 
 impl Config {
     pub fn from_file(path: &Path) -> anyhow::Result<Self> {
+        let mut unrecognised_fields = Vec::new();
         let s = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
-        let config = serde_json::from_str(&s)
+        let config =
+            serde_ignored::deserialize(&mut serde_json::Deserializer::from_str(&s), |path| {
+                unrecognised_fields.push(path.to_string());
+            })
             .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
+
+        if !unrecognised_fields.is_empty() {
+            warn!("{}: encountered unrecognised fields: {:?}", path.display(), unrecognised_fields);
+        }
+
         Ok(config)
     }
 
@@ -731,7 +739,7 @@ impl NearConfig {
                 max_routes_to_store: MAX_ROUTES_TO_STORE,
                 highest_peer_horizon: HIGHEST_PEER_HORIZON,
                 push_info_period: Duration::from_millis(100),
-                blacklist: blacklist_from_iter(config.network.blacklist),
+                blacklist: Blacklist::from_iter(config.network.blacklist),
                 outbound_disabled: false,
                 archive: config.archive,
             },
