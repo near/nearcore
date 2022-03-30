@@ -37,10 +37,10 @@ impl SnapshotGrabber {
         let lock = self.epoch_id.lock().unwrap();
         if lock.get().is_none() {
             debug!("Snapshot grabbing started");
-            File::create("transactions").unwrap();
             lock.set(Some(epoch_id.0));
         }
         if lock.get().unwrap() == epoch_id.0 {
+            File::create(format!("transactions{}", shard_id)).unwrap();
             self.grab_state(runtime, state_root, prev_block_hash, shard_id);
         } else {
             debug!("Snapshot grabbing completed for shard {}", shard_id);
@@ -72,8 +72,11 @@ impl SnapshotGrabber {
 
     pub fn grab_transactions(&self, epoch_id: &EpochId, transactions: &[SignedTransaction]) {
         if self.epoch_id.lock().unwrap().get() == Some(epoch_id.0) {
-            let mut file =
-                fs::OpenOptions::new().write(true).append(true).open("transactions").unwrap();
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .append(true)
+                .open(format!("transactions{}", shard_id))
+                .unwrap();
             for transaction in transactions {
                 if self.accounts_to_grab.contains(&transaction.transaction.signer_id) {
                     transaction.serialize(&mut file).unwrap();
