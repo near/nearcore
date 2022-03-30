@@ -149,9 +149,16 @@ impl<'a> VMLogic<'a> {
         }
     }
 
+    #[allow(dead_code)]
     #[cfg(test)]
     pub(crate) fn receipt_manager(&self) -> &ReceiptManager {
         &self.receipt_manager
+    }
+
+    #[allow(dead_code)]
+    #[cfg(test)]
+    pub(crate) fn gas_counter(&self) -> &GasCounter {
+        &self.gas_counter
     }
 
     // ###########################
@@ -2736,5 +2743,11 @@ impl VMOutcome {
         gas_price: Balance,
     ) -> Vec<Receipt> {
         self.action_receipts.take_receipts(predecessor_id, signer_id, signer_public_key, gas_price)
+    }
+
+    #[allow(dead_code)]
+    #[cfg(test)]
+    pub(crate) fn action_receipts(&self) -> &ActionReceipts {
+        &self.action_receipts
     }
 }
