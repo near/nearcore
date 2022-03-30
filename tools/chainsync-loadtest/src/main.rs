@@ -133,7 +133,7 @@ fn main() {
     let env_filter = near_o11y::EnvFilterBuilder::from_env()
         .finish()
         .add_directive(near_o11y::tracing::Level::INFO.into());
-    let _subscriber = near_o11y::default_subscriber(env_filter);
+    let _subscriber = near_o11y::default_subscriber(env_filter).global();
     let orig_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         orig_hook(panic_info);
