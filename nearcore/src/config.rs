@@ -25,7 +25,7 @@ use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
-use near_network_primitives::types::{Blacklist, NetworkConfig, ROUTED_MESSAGE_TTL};
+use near_network_primitives::types::{NetworkConfig, ROUTED_MESSAGE_TTL};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 #[cfg(test)]
@@ -739,7 +739,7 @@ impl NearConfig {
                 max_routes_to_store: MAX_ROUTES_TO_STORE,
                 highest_peer_horizon: HIGHEST_PEER_HORIZON,
                 push_info_period: Duration::from_millis(100),
-                blacklist: Blacklist::from_iter(config.network.blacklist),
+                blacklist: config.network.blacklist,
                 outbound_disabled: false,
                 archive: config.archive,
             },

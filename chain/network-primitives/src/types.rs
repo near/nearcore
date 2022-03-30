@@ -225,6 +225,7 @@ pub enum ReasonForBan {
     EpochSyncNoResponse = 11,
     EpochSyncInvalidResponse = 12,
     EpochSyncInvalidFinalizationResponse = 13,
+    Blacklisted = 14,
 }
 
 /// Banning signal sent from Peer instance to PeerManager
