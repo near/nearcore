@@ -34,8 +34,31 @@ pub enum Cost {
     /// Estimation: Measure the creation and execution of an empty action
     /// receipt, where sender and receiver are the same account.
     ActionSirReceiptCreation,
+    /// Estimates `data_receipt_creation_config.base_cost`, which is charged for
+    /// every data dependency of created receipts. This occurs either through
+    /// calls to `promise_batch_then` or `value_return`. Dispatch and execution
+    /// costs are both burnt upfront.
+    ///
+    /// Estimation: Measure two functions that each create 1000 promises but
+    /// only one of them also creates a callback that depends on the promise
+    /// results. The difference in execution cost is divided by 1000.
     DataReceiptCreationBase,
+    /// Estimates `data_receipt_creation_config.cost_per_byte`, which is charged
+    /// for every byte in data dependency of created receipts. This occurs
+    /// either through calls to `promise_batch_then` or `value_return`. Dispatch
+    /// and execution costs are both burnt upfront.
+    ///
+    /// Estimation: Measure two functions that each create 1000 promises with a
+    /// callback that depends on the promise results. One of the functions
+    /// creates small data receipts, the other large ones. The difference in
+    /// execution cost is divided by the total byte difference.
     DataReceiptCreationPerByte,
+    /// Estimates `action_creation_config.create_account_cost` which is charged
+    /// for `CreateAccount` actions, the same value on sending and executing.
+    ///
+    /// Estimation: Measure a transaction that creates an account and transfers
+    /// an initial balance to it. Subtract the base cost of creating a receipt.
+    /// (TODO[jakmeier] consider also subtracting transfer fee)
     ActionCreateAccount,
     // Deploying a new contract for an account on the blockchain stores the WASM
     // code in the trie. Additionally, it also triggers a compilation of the
@@ -60,15 +83,77 @@ pub enum Cost {
     ActionFunctionCallPerByte,
     ActionFunctionCallBaseV2,
     ActionFunctionCallPerByteV2,
+    /// Estimates `action_creation_config.transfer_cost` which is charged for
+    /// every `Action::Transfer`, the same value for sending and executing.
+    ///
+    /// Estimation: Measure a transaction with only a transfer and subtract the
+    /// base cost of creating a receipt.
     ActionTransfer,
+    /// Estimates `action_creation_config.stake_cost` which is charged for every
+    /// `Action::Stake`, a slightly higher value for sending than executing.
+    ///
+    /// Estimation: Measure a transaction with only a staking action and
+    /// subtract the base cost of creating a sir-receipt.
+    /// (TODO[jakmeier] find out and document the reasoning behind send vs exec
+    /// values in this specific case)
     ActionStake,
+    /// Estimates `action_creation_config.add_key_cost.full_access_cost` which
+    /// is charged for every `Action::AddKey` where the key is a full access
+    /// key. The same value is charged for sending and executing.
+    ///
+    /// Estimation: Measure a transaction that adds a full access key and
+    /// subtract the base cost of creating a sir-receipt.
     ActionAddFullAccessKey,
+    /// Estimates `action_creation_config.add_key_cost.function_call_cost` which
+    /// is charged once for every `Action::AddKey` where the key is a function
+    /// call key. The same value is charged for sending and executing.
+    ///
+    /// Estimation: Measure a transaction that adds a function call key and
+    /// subtract the base cost of creating a sir-receipt.
     ActionAddFunctionAccessKeyBase,
+    /// Estimates
+    /// `action_creation_config.add_key_cost.function_call_cost_per_byte` which
+    /// is charged once for every byte in null-terminated method names listed in
+    /// an `Action::AddKey` where the key is a function call key. The same value
+    /// is charged for sending and executing.
+    ///
+    /// Estimation: Measure a transaction that adds a function call key with
+    /// many methods. Subtract the cost of adding a function call key with a
+    /// single method and of creating a sir-receipt. The result is divided by
+    /// total bytes in the method names.
     ActionAddFunctionAccessKeyPerByte,
+    /// Estimates `action_creation_config.delete_key_cost` which is charged for
+    /// `DeleteKey` actions, the same value on sending and executing. It does
+    /// not matter whether it is a function call or full access key.
+    ///
+    /// Estimation: Measure a transaction that deletes a full access key and
+    /// transfers an initial balance to it. Subtract the base cost of creating a
+    /// receipt.
+    /// (TODO[jakmeier] check cost for function call keys with many methods)
     ActionDeleteKey,
+    /// Estimates `action_creation_config.delete_account_cost` which is charged
+    /// for `DeleteAccount` actions, the same value on sending and executing.
+    ///
+    /// Estimation: Measure a transaction that deletes an existing account.
+    /// Subtract the base cost of creating a sir-receipt.
+    /// (TODO[jakmeier] Consider different account states.
     ActionDeleteAccount,
 
+    /// Estimates `wasm_config.ext_costs.base` which is charged once on every
+    /// host function call.
+    /// 
+    /// Estimation: Measure a function call that calls the host function
+    /// `block_index()` many times. Subtract the cost of executing a function
+    /// that does nothing. Divide the difference by the number of host function
+    /// calls.
     HostFunctionCall,
+    /// Estimates `wasm_config.regular_op_cost` which is charged for every
+    /// executed WASM operation in function calls, as counted dynamically during
+    /// execution.
+    /// 
+    /// Estimation: Run a contract that reads and writes lots of memory in an
+    /// attempt to cause slow loads and stores. The total time spent in the
+    /// runtime is divided by the number of executed instructions.
     WasmInstruction,
 
     // # Reading and writing memory
