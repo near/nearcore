@@ -15,6 +15,7 @@ steps:
 
   - label: "cargo test not integration-tests*"
     command: |
+      docker rm -f $(docker ps --filter "publish=6379" -q) | true
       docker run -d -p 6379:6379 -d redis
       source ~/.cargo/env && set -eux
       cargo test --locked --workspace -p '*' --exclude 'integration-tests*'
@@ -36,6 +37,7 @@ steps:
 
   - label: "cargo test nightly not integration-tests*"
     command: |
+      docker rm -f $(docker ps --filter "publish=6379" -q) | true
       docker run -d -p 6379:6379 -d redis
       source ~/.cargo/env && set -eux
       cargo test --workspace --features nightly_protocol,nightly_protocol_features,test_features -p '*' --exclude 'integration-tests*'
