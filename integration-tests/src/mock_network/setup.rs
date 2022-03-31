@@ -313,6 +313,8 @@ pub fn setup_mock_network(
                 target_height,
             )
         });
+    // for some reason, with "test_features", start_http requires PeerManagerActor,
+    // we are not going to run start_mock_network with test_features, so let's disable that for now
     #[cfg(not(feature = "test_features"))]
     if let Some(rpc_config) = config.rpc_config {
         near_jsonrpc::start_http(
@@ -444,7 +446,7 @@ mod test {
             let (_mock_network, _client, view_client) = setup_mock_network(
                 dir1.path().clone(),
                 dir.path().clone(),
-                &near_config1,
+                near_config1,
                 MockNetworkMode::NoNewBlocks,
                 Duration::from_millis(10),
                 Some(10),
