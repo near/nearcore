@@ -48,7 +48,7 @@ use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
-    DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, ValidatorInfo,
+    DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, EpochInfoView, ValidatorInfo,
 };
 use near_store::db::DBCol::ColStateParts;
 use near_telemetry::TelemetryActor;
@@ -673,7 +673,7 @@ impl Handler<Status> for ClientActor {
                 return Err(StatusError::NodeIsSyncing);
             }
         }
-        let validators = self
+        let validators: Vec<ValidatorInfo> = self
             .client
             .runtime_adapter
             .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)?
@@ -801,6 +801,7 @@ impl Handler<Status> for ClientActor {
                 current_head_status: self.client.chain.head()?.clone().into(),
                 current_header_head_status: self.client.chain.header_head()?.clone().into(),
                 orphans: self.client.chain.orphans().list_orphans_by_height(),
+                epoch_info: EpochInfoView { validators: validators.to_vec() },
             })
         } else {
             None
