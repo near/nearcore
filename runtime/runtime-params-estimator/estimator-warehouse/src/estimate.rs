@@ -72,8 +72,8 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
             eprintln!("Running as non-root, storage related costs might be inaccurate because OS caches cannot be dropped");
         };
 
-        let estimation_output = 
-            cmd!(sh, 
+        let estimation_output =
+            cmd!(sh,
                 "{estimator_binary} --iters {iters} --warmup-iters {warmup_iters} --json-output --home {estimator_home} {maybe_drop_cache...} --metric time"
             ).read()?;
         db.import_json_lines(
@@ -85,7 +85,7 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
     // icount metric
     {
         let estimation_output =
-            cmd!(sh, 
+            cmd!(sh,
                 "{estimator_binary} --iters {iters} --warmup-iters {warmup_iters} --json-output --home {estimator_home} --metric icount --docker --full"
             ).read()?;
         db.import_json_lines(
