@@ -369,7 +369,7 @@ impl PeerStore {
 
     pub(crate) fn add_indirect_peers(
         &mut self,
-        peers: Vec<PeerInfo>,
+        peers: impl Iterator<Item = PeerInfo>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         for peer_info in peers {
             self.add_peer(peer_info, TrustLevel::Indirect)?;

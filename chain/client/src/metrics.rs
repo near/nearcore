@@ -152,3 +152,27 @@ pub static CHUNK_SKIPPED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram(
+        "partial_encoded_chunk_response_delay",
+        "Delay between when a partial encoded chunk response is sent from PeerActor and when it is received by ClientActor",
+    )
+        .unwrap()
+});
+pub static CLIENT_MESSAGES_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_client_messages_count",
+        "Number of messages client actor received by message type",
+        &["type"],
+    )
+    .unwrap()
+});
+pub static CLIENT_MESSAGES_PROCESSING_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_client_messages_processing_time",
+        "Processing time of messages that client actor received, sorted by message type",
+        &["type"],
+        Some(prometheus::exponential_buckets(0.0001, 1.6, 20).unwrap()),
+    )
+    .unwrap()
+});
