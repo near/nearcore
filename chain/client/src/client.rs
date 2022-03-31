@@ -36,7 +36,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
 use near_primitives::unwrap_or_return;
-use near_primitives::utils::{to_timestamp, MaybeValidated};
+use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 
 use crate::chunks_delay_tracker::ChunksDelayTracker;
@@ -452,20 +452,9 @@ impl Client {
         };
 
         #[cfg(feature = "sandbox")]
-        let delta_time = self.sandbox_delta_time();
-
-        let at = to_timestamp(Clock::utc());
-        let timestamp_override = Option::<u64>::None;
-
-        // Sandbox can override the timestamp normally produced from a Block. This new timestamp
-        // is from when a fast_forward request that has been processed.
-        #[cfg(feature = "sandbox")]
-        let (at, timestamp_override) = if delta_time > 0 {
-            let at = at + delta_time;
-            (at, Some(at))
-        } else {
-            (at, timestamp_override)
-        };
+        let timestamp_override = Some(Clock::utc() + self.sandbox_delta_time());
+        #[cfg(not(feature = "sandbox"))]
+        let timestamp_override = None;
 
         // Get block extra from previous block.
         let mut block_merkle_tree =
@@ -540,7 +529,10 @@ impl Client {
         );
 
         // Update latest known even before returning block out, to prevent race conditions.
-        self.chain.mut_store().save_latest_known(LatestKnown { height: next_height, seen: at })?;
+        self.chain.mut_store().save_latest_known(LatestKnown {
+            height: next_height,
+            seen: block.header().raw_timestamp(),
+        })?;
 
         metrics::BLOCK_PRODUCED_TOTAL.inc();
 
@@ -982,14 +974,18 @@ impl Client {
 
     /// Gets the advanced timestamp delta in nanoseconds for sandbox once it has been fast-forwarded
     #[cfg(feature = "sandbox")]
-    pub fn sandbox_delta_time(&self) -> u64 {
+    pub fn sandbox_delta_time(&self) -> chrono::Duration {
         let avg_block_prod_time = (self.config.min_block_production_delay.as_nanos()
             + self.config.max_block_production_delay.as_nanos())
             / 2;
-        (self.accrued_fastforward_delta as u128 * avg_block_prod_time).try_into().expect(&format!(
-            "Too high of a delta_height {} to convert into u64",
-            self.accrued_fastforward_delta
-        ))
+        let ns = (self.accrued_fastforward_delta as u128 * avg_block_prod_time).try_into().expect(
+            &format!(
+                "Too high of a delta_height {} to convert into u64",
+                self.accrued_fastforward_delta
+            ),
+        );
+
+        chrono::Duration::nanoseconds(ns)
     }
 
     pub fn send_approval(

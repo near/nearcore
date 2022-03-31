@@ -947,10 +947,10 @@ impl ClientActor {
         };
 
         self.client.accrued_fastforward_delta += delta_height;
-        let timestamp_delta_ns = self.client.sandbox_delta_time();
+        let delta_time = self.client.sandbox_delta_time();
         let new_latest_known = near_chain::types::LatestKnown {
             height: block_height + delta_height,
-            seen: near_primitives::utils::to_timestamp(Clock::utc()) + timestamp_delta_ns,
+            seen: near_primitives::utils::to_timestamp(Clock::utc() + delta_time),
         };
 
         Ok(Some(new_latest_known))
