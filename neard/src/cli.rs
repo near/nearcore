@@ -1,17 +1,16 @@
 use clap::{Args, Parser};
 use futures::future::FutureExt;
 use near_chain_configs::GenesisValidationMode;
+use near_o11y::{default_subscriber, EnvFilterBuilder};
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use nearcore::get_store_path;
+use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::{env, fs, io};
 use tokio::sync::oneshot;
-use tracing::metadata::LevelFilter;
 use tracing::{debug, error, info, warn};
-use tracing_subscriber::EnvFilter;
 
 /// NEAR Protocol Node
 #[derive(Parser)]
@@ -27,15 +26,32 @@ pub(super) struct NeardCmd {
 impl NeardCmd {
     pub(super) fn parse_and_run() {
         let neard_cmd = Self::parse();
-        neard_cmd.opts.init();
-        info!(target: "neard", "Version: {}, Build: {}, Latest Protocol: {}", crate::NEARD_VERSION, crate::NEARD_BUILD, near_primitives::version::PROTOCOL_VERSION);
+        let verbose = neard_cmd.opts.verbose.as_deref();
+        let env_filter = EnvFilterBuilder::from_env().verbose(verbose).finish();
+        // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
+        // This is hidden by default so we enable it for sandbox node.
+        let env_filter = if cfg!(feature = "sandbox") {
+            env_filter.add_directive("sandbox=debug".parse().unwrap())
+        } else {
+            env_filter
+        };
+        let _subscriber = default_subscriber(env_filter).global();
+
+        info!(
+            target: "neard",
+            version = crate::NEARD_VERSION,
+            build = crate::NEARD_BUILD,
+            latest_protocol = near_primitives::version::PROTOCOL_VERSION
+        );
 
         #[cfg(feature = "test_features")]
         {
             error!("THIS IS A NODE COMPILED WITH ADVERSARIAL BEHAVIORS. DO NOT USE IN PRODUCTION.");
-
-            if env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
-                error!("To run a node with adversarial behavior enabled give your consent by setting variable:");
+            if std::env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
+                error!(
+                    "To run a node with adversarial behavior enabled give your consent \
+                            by setting an environment variable:"
+                );
                 error!("ADVERSARY_CONSENT=1");
                 std::process::exit(1);
             }
@@ -52,7 +68,10 @@ impl NeardCmd {
             NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
             NeardSubCommand::Localnet(cmd) => cmd.run(&home_dir),
             NeardSubCommand::Testnet(cmd) => {
-                warn!("The 'testnet' command has been renamed to 'localnet' and will be removed in the future");
+                warn!(
+                    "The 'testnet' command has been renamed to 'localnet' \
+                           and will be removed in the future"
+                );
                 cmd.run(&home_dir);
             }
             NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation),
@@ -100,12 +119,6 @@ struct NeardOpts {
     /// Let's you start `neard` slightly faster.
     #[clap(long)]
     pub unsafe_fast_startup: bool,
-}
-
-impl NeardOpts {
-    fn init(&self) {
-        init_logging(self.verbose.as_deref());
-    }
 }
 
 #[derive(Parser)]
@@ -444,47 +457,6 @@ impl LocalnetCmd {
             false,
         );
     }
-}
-
-fn init_logging(verbose: Option<&str>) {
-    const DEFAULT_RUST_LOG: &'static str =
-        "tokio_reactor=info,near=info,stats=info,telemetry=info,\
-         delay_detector=info,near-performance-metrics=info,\
-         near-rust-allocator-proxy=info,warn";
-
-    let rust_log = env::var("RUST_LOG");
-    let rust_log = rust_log.as_ref().map(String::as_str).unwrap_or(DEFAULT_RUST_LOG);
-    let mut env_filter = EnvFilter::new(rust_log);
-
-    if let Some(module) = verbose {
-        env_filter = env_filter
-            .add_directive("cranelift_codegen=warn".parse().unwrap())
-            .add_directive("cranelift_codegen=warn".parse().unwrap())
-            .add_directive("h2=warn".parse().unwrap())
-            .add_directive("trust_dns_resolver=warn".parse().unwrap())
-            .add_directive("trust_dns_proto=warn".parse().unwrap());
-
-        if module.is_empty() {
-            env_filter = env_filter.add_directive(LevelFilter::DEBUG.into());
-        } else {
-            env_filter = env_filter.add_directive(format!("{}=debug", module).parse().unwrap());
-        }
-    }
-
-    if cfg!(feature = "sandbox") {
-        // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
-        // This is hidden by default so we enable it for sandbox node.
-        env_filter = env_filter.add_directive("sandbox=debug".parse().unwrap());
-    }
-
-    tracing_subscriber::fmt::Subscriber::builder()
-        .with_span_events(
-            tracing_subscriber::fmt::format::FmtSpan::ENTER
-                | tracing_subscriber::fmt::format::FmtSpan::CLOSE,
-        )
-        .with_env_filter(env_filter)
-        .with_writer(io::stderr)
-        .init();
 }
 
 #[derive(Args)]
