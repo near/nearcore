@@ -4388,7 +4388,7 @@ impl<'a> ChainUpdate<'a> {
         provenance: &Provenance,
         on_challenge: &mut dyn FnMut(ChallengeBody),
     ) -> Result<(), Error> {
-        // Refuse blocks from the too distant future
+        // Refuse blocks from the too distant future.
         if header.timestamp() > Clock::utc() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
             return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp()).into());
         }
