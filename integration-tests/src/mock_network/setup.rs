@@ -14,6 +14,7 @@ use near_epoch_manager::EpochManager;
 use near_network::test_utils::NetworkRecipient;
 use near_network::types::NetworkClientMessages;
 use near_primitives::network::PeerId;
+use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::BlockHeight;
 use near_store::db::TestDB;
@@ -176,7 +177,11 @@ pub fn setup_mock_network(
         );
         let hash = network_chain_store.get_block_hash_by_height(start_height).unwrap();
         if !mock_network_runtime.is_next_block_epoch_start(&hash).unwrap() {
-            panic!("start height must be the last block of an epoch");
+            let epoch_start_height = mock_network_runtime.get_epoch_start_height(&hash).unwrap();
+            panic!(
+                "start height must be the last block of an epoch, try using {} instead",
+                epoch_start_height - 1
+            );
         }
 
         // copy chain info
@@ -237,16 +242,14 @@ pub fn setup_mock_network(
                                 shard_id,
                                 &next_hash1,
                                 &state_root1,
-                                part_id,
-                                num_parts,
+                                PartId::new(part_id, num_parts),
                             )
                             .unwrap();
                         client_runtime1
                             .apply_state_part(
                                 shard_id,
                                 &state_root1,
-                                part_id,
-                                num_parts,
+                                PartId::new(part_id, num_parts),
                                 &state_part,
                                 &mock_network_runtime1
                                     .get_epoch_id_from_prev_block(&hash1)
