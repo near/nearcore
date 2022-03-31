@@ -4,6 +4,7 @@ use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use near_primitives::state_part::PartId;
 use num_rational::Rational;
 use tracing::debug;
 
@@ -929,11 +930,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         _shard_id: ShardId,
         _block_hash: &CryptoHash,
         state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
+        part_id: PartId,
     ) -> Result<Vec<u8>, Error> {
-        assert!(part_id < num_parts);
-        if part_id != 0 {
+        if part_id.idx != 0 {
             return Ok(vec![]);
         }
         let state = self.state.read().unwrap().get(state_root).unwrap().clone();
@@ -944,11 +943,9 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn validate_state_part(
         &self,
         _state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
+        _part_id: PartId,
         _data: &Vec<u8>,
     ) -> bool {
-        assert!(part_id < num_parts);
         // We do not care about deeper validation in test_utils
         true
     }
@@ -957,12 +954,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _shard_id: ShardId,
         state_root: &StateRoot,
-        part_id: u64,
-        _num_parts: u64,
+        part_id: PartId,
         data: &[u8],
         _epoch_id: &EpochId,
     ) -> Result<(), Error> {
-        if part_id != 0 {
+        if part_id.idx != 0 {
             return Ok(());
         }
         let state = KVState::try_from_slice(data).unwrap();
