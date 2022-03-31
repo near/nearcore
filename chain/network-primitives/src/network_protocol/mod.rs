@@ -171,6 +171,7 @@ pub struct Pong {
     PartialEq,
     Eq,
     Clone,
+    strum::AsRefStr,
     strum::AsStaticStr,
     strum::EnumVariantNames,
 )]
