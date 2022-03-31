@@ -101,7 +101,7 @@ pub struct ClientActor {
     state_parts_client_arbiter: Arbiter,
 
     #[cfg(feature = "sandbox")]
-    fastforward_delta: Option<near_primitives::types::BlockHeightDelta>,
+    fastforward_delta: near_primitives::types::BlockHeightDelta,
 
     /// Synchronization measure to allow graceful shutdown.
     /// Informs the system when a ClientActor gets dropped.
@@ -204,7 +204,7 @@ impl ClientActor {
             state_parts_client_arbiter: state_parts_arbiter,
 
             #[cfg(feature = "sandbox")]
-            fastforward_delta: None,
+            fastforward_delta: 0,
             _shutdown_signal: shutdown_signal,
         })
     }
@@ -384,19 +384,19 @@ impl ClientActor {
                         )
                     }
                     near_network_primitives::types::NetworkSandboxMessage::SandboxFastForward(delta_height) => {
-                        if self.fastforward_delta.is_some() {
+                        if self.fastforward_delta > 0 {
                             return NetworkClientResponses::SandboxResult(
                                 near_network_primitives::types::SandboxResponse::SandboxFastForwardFailed(
                                     "Consecutive fast_forward requests cannot be made while a current one is going on.".to_string()));
                         }
 
-                        self.fastforward_delta = Some(delta_height);
+                        self.fastforward_delta = delta_height;
                         NetworkClientResponses::NoResponse
                     }
                     near_network_primitives::types::NetworkSandboxMessage::SandboxFastForwardStatus => {
                         NetworkClientResponses::SandboxResult(
                             near_network_primitives::types::SandboxResponse::SandboxFastForwardFinished(
-                                self.fastforward_delta.is_none(),
+                                self.fastforward_delta == 0,
                             ),
                         )
                     }
@@ -911,10 +911,10 @@ impl ClientActor {
         &mut self,
         block_height: BlockHeight,
     ) -> Result<Option<near_chain::types::LatestKnown>, Error> {
-        let mut delta_height = match self.fastforward_delta.take() {
-            Some(delta_height) if delta_height > 0 => delta_height,
-            _ => return Ok(None),
-        };
+        let mut delta_height = std::mem::replace(&mut self.fastforward_delta, 0);
+        if delta_height == 0 {
+            return Ok(None);
+        }
 
         let epoch_length = self.client.config.epoch_length;
         if epoch_length <= 3 {
@@ -929,7 +929,7 @@ impl ClientActor {
         let block_height_wrt_epoch = block_height % epoch_length;
         if epoch_length - block_height_wrt_epoch <= 3 || block_height_wrt_epoch == 0 {
             // wait for doomslug to call into produce block
-            self.fastforward_delta = Some(delta_height);
+            self.fastforward_delta = delta_height;
             return Ok(None);
         }
 
@@ -940,7 +940,7 @@ impl ClientActor {
             let right_before_epoch_update = epoch_length - block_height_wrt_epoch - 3;
 
             delta_height -= right_before_epoch_update;
-            self.fastforward_delta = Some(delta_height);
+            self.fastforward_delta = delta_height;
             right_before_epoch_update
         } else {
             delta_height
@@ -972,14 +972,12 @@ impl ClientActor {
 
     fn post_block_production(&mut self) {
         #[cfg(feature = "sandbox")]
-        if let Some(delta_height) = self.fastforward_delta.take() {
+        if self.fastforward_delta > 0 {
             // Decrease the delta_height by 1 since we've produced a single block. This
             // ensures that we advanced the right amount of blocks when fast forwarding
             // and fast forwarding triggers regular block production in the case of
             // stepping between epoch boundaries.
-            if delta_height > 0 {
-                self.fastforward_delta = Some(delta_height - 1);
-            }
+            self.fastforward_delta -= 1;
         }
     }
 
