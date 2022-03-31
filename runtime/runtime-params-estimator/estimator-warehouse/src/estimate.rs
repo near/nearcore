@@ -19,26 +19,24 @@ pub(crate) struct EstimateConfig {
 pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result<()> {
     let sh = Shell::new()?;
 
-    let mut maybe_tmp = None;
+    let mut _maybe_tmp = None;
 
     let estimator_home = match &config.home {
         Some(home) => &home,
         None => {
-            maybe_tmp = Some(tempfile::tempdir()?);
-            maybe_tmp.as_ref().unwrap().path().to_str().unwrap()
+            _maybe_tmp = Some(tempfile::tempdir()?);
+            _maybe_tmp.as_ref().unwrap().path().to_str().unwrap()
         }
     };
 
     if let Some(external_repo) = &config.external_repo {
         sh.change_dir(external_repo);
     }
-    let output = cmd!(sh, "git rev-parse --show-toplevel").output()?;
-    let mut git_root = String::from_utf8_lossy(&output.stdout).to_string();
-    git_root.pop(); // \n
+    let git_root = cmd!(sh, "git rev-parse --show-toplevel").read()?;
 
     // Ensure full optimization
-    let env_guard_one = sh.push_env("CARGO_PROFILE_RELEASE_LTO", "fat");
-    let env_guard_two = sh.push_env("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "1");
+    let _env_guard_one = sh.push_env("CARGO_PROFILE_RELEASE_LTO", "fat");
+    let _env_guard_two = sh.push_env("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "1");
 
     // Rebuild test contract
     cmd!(sh, "{git_root}/runtime/runtime-params-estimator/test-contract/build.sh").run()?;
@@ -94,8 +92,5 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
         )?;
     }
 
-    std::mem::drop(env_guard_two);
-    std::mem::drop(env_guard_one);
-    std::mem::drop(maybe_tmp);
     Ok(())
 }
