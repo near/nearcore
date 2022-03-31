@@ -93,7 +93,7 @@ fn main() {
         let (mock_network, _client, view_client) = setup_mock_network(
             Path::new(&client_home_dir),
             home_dir,
-            &near_config,
+            near_config,
             args.mode,
             network_delay,
             args.client_start_height,

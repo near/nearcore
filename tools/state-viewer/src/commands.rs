@@ -434,7 +434,7 @@ pub(crate) fn apply_block_at_height(
         "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
         shard_id,
         height,
-        resulting_chunk_extra(apply_result, near_config.genesis.config.gas_limit)
+        resulting_chunk_extra(apply_result, block.chunks()[shard_id as usize].gas_limit())
     );
     if block.chunks()[shard_id as usize].height_included() == height {
         if let Ok(chunk_extra) = chain_store.get_chunk_extra(&block_hash, &shard_uid) {

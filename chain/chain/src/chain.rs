@@ -185,7 +185,7 @@ impl OrphanBlockPool {
         }
     }
 
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.orphans.len()
     }
 
@@ -246,6 +246,14 @@ impl OrphanBlockPool {
 
     pub fn get(&self, hash: &CryptoHash) -> Option<&Orphan> {
         self.orphans.get(hash)
+    }
+
+    // Iterates over existing orphans.
+    pub fn map(&self, orphan_fn: &mut dyn FnMut(&CryptoHash, &Block, &Instant)) {
+        self.orphans
+            .iter()
+            .map(|it| orphan_fn(it.0, it.1.block.get_inner(), &it.1.added))
+            .collect_vec();
     }
 
     /// Remove all orphans in the pool that can be "adopted" by block `prev_hash`, i.e., children
@@ -320,6 +328,7 @@ pub struct BlockMissingChunks {
     /// previous block hash
     pub prev_hash: CryptoHash,
     pub missing_chunks: Vec<ShardChunkHeader>,
+    pub block_hash: CryptoHash,
 }
 
 /// Contains information needed to request chunks for orphans
@@ -332,6 +341,8 @@ pub struct OrphanMissingChunks {
     /// this is used as an argument for `request_chunks_for_orphan`
     /// see comments in `request_chunks_for_orphan` for what `ancestor_hash` is used for
     pub ancestor_hash: CryptoHash,
+    // Block hash that was requesting this chunk.
+    pub requestor_block_hash: CryptoHash,
 }
 
 /// Provides view on the current chain state
@@ -1368,6 +1379,7 @@ impl Chain {
                         block_misses_chunks(BlockMissingChunks {
                             prev_hash: *block.header().prev_hash(),
                             missing_chunks,
+                            block_hash,
                         });
                         let orphan = Orphan { block, provenance, added: Clock::instant() };
                         self.blocks_with_missing_chunks
@@ -1450,6 +1462,7 @@ impl Chain {
                                         missing_chunks,
                                         epoch_id,
                                         ancestor_hash: block_hash,
+                                        requestor_block_hash: *orphan.header().hash(),
                                     })
                                 }
                                 _ => None,
