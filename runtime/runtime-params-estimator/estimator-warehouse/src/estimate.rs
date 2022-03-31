@@ -63,12 +63,11 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
     {
         let mut maybe_drop_cache = vec![];
 
-
-        #[cfg(target_family="unix")]
+        #[cfg(target_family = "unix")]
         if Uid::effective().is_root() {
             maybe_drop_cache.push("--drop-os-cache");
         }
-        
+
         if maybe_drop_cache.len() == 0 {
             eprintln!("Running as non-root, storage related costs might be inaccurate because OS caches cannot be dropped");
         };
