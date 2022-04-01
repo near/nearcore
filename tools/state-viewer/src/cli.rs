@@ -109,6 +109,14 @@ pub enum StateViewerSubCommand {
     /// Apply a chunk, even if it's not included in any block on disk
     #[clap(name = "apply_chunk")]
     ApplyChunk(ApplyChunkCmd),
+    /// Apply a transaction if it occurs in some chunk we know about,
+    /// even if it's not included in any block on disk
+    #[clap(name = "apply_tx")]
+    ApplyTx(ApplyTxCmd),
+    /// Apply a receipt if it occurs in some chunk we know about,
+    /// even if it's not included in any block on disk
+    #[clap(name = "apply_receipt")]
+    ApplyReceipt(ApplyReceiptCmd),
 }
 
 impl StateViewerSubCommand {
@@ -137,6 +145,8 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::ApplyTx(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, store),
         }
     }
 }
@@ -388,21 +398,37 @@ pub struct ApplyChunkCmd {
     chunk_hash: String,
     #[clap(long)]
     target_height: Option<u64>,
-    #[clap(long)]
-    txs: Option<Vec<String>>,
-    #[clap(long)]
-    receipts: Option<Vec<String>>,
 }
 
 impl ApplyChunkCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = ChunkHash::from(CryptoHash::from_str(&self.chunk_hash).unwrap());
-        let receipts = self
-            .receipts
-            .map(|v| v.iter().map(|h| CryptoHash::from_str(h).unwrap()).collect::<Vec<_>>());
-        let txs = self
-            .txs
-            .map(|v| v.iter().map(|h| CryptoHash::from_str(h).unwrap()).collect::<Vec<_>>());
-        apply_chunk(home_dir, near_config, store, hash, self.target_height, txs, receipts).unwrap()
+        apply_chunk(home_dir, near_config, store, hash, self.target_height).unwrap()
+    }
+}
+
+#[derive(Parser)]
+pub struct ApplyTxCmd {
+    #[clap(long)]
+    hash: String,
+}
+
+impl ApplyTxCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        let hash = CryptoHash::from_str(&self.hash).unwrap();
+        apply_tx(home_dir, near_config, store, hash).unwrap();
+    }
+}
+
+#[derive(Parser)]
+pub struct ApplyReceiptCmd {
+    #[clap(long)]
+    hash: String,
+}
+
+impl ApplyReceiptCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        let hash = CryptoHash::from_str(&self.hash).unwrap();
+        apply_receipt(home_dir, near_config, store, hash).unwrap();
     }
 }
